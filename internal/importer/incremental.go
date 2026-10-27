@@ -96,7 +96,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if err != nil {
 		return added, nil, nil, err
 	}
-	result, err := engine.Add(ctx, tf, rootTF, staging, dir, added, opts, existing)
+	result, err := r.options.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
 	if err != nil {
 		return added, nil, nil, err
 	}
@@ -152,16 +152,6 @@ func stagingDir(out, dir string) string {
 	}
 	sum := sha256.Sum256([]byte(filepath.ToSlash(filepath.Clean(dir))))
 	return filepath.Join(base, hex.EncodeToString(sum[:])[:16])
-}
-
-// checkpointResult returns the result the checkpoint of dir records, from
-// whichever run; nil if there is none.
-func checkpointResult(out, dir string) (*engine.Result, error) {
-	c, err := readCheckpoint(out, dir)
-	if err != nil || c == nil {
-		return nil, err
-	}
-	return c.Result, nil
 }
 
 // InOtherRootReason is why an incremental import leaves out a resource

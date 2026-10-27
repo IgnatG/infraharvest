@@ -56,8 +56,9 @@ func TestImportAWSAccountsGoesOn(t *testing.T) {
 		return nil
 	}
 
-	err := importer.NewRun().Do(func() error {
-		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, importAccount)
+	run := importer.NewRun()
+	err := run.Do(func() error {
+		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, importAccount)
 	})
 
 	want := []string{"arn:aws:iam::111122223333:role/infraharvest-readonly", "arn:aws:iam::444455556666:role/infraharvest-readonly"}
@@ -72,8 +73,9 @@ func TestImportAWSAccountsGoesOn(t *testing.T) {
 	}
 
 	roles = nil
-	err = importer.NewRun().Do(func() error {
-		return importAWSAccounts(ctx, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
+	run = importer.NewRun()
+	err = run.Do(func() error {
+		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
 	})
 	if !errors.Is(err, context.Canceled) || len(roles) != 0 {
 		t.Errorf("interrupted: %v", err)
@@ -109,13 +111,13 @@ func TestGroupAWSResources(t *testing.T) {
 // importAWSAccounts imports accounts as the aws command plans them, with
 // importAccount in place of each Import call, in order, stopping at the
 // first that fails.
-func importAWSAccounts(ctx context.Context, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
+func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
 	options.Accounts = accounts
 	p, err := planAWS(ctx, options)
 	if err != nil {
 		return err
 	}
-	return p.run(ctx, options, newAWSProvider, func(ctx context.Context, calls []importer.Call) error {
+	return p.run(ctx, run, options, newAWSProvider, func(ctx context.Context, _ *importer.Run, calls []importer.Call) error {
 		for _, c := range calls {
 			if c.Provider == nil {
 				return errors.New("a call without a provider")
@@ -255,7 +257,7 @@ func TestCloudFormationFlagsFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := Command("aws", importer.Options{})
+	cmd, _ := Command("aws", importer.Options{})
 	if err := f.Apply(cmd.PersistentFlags(), "aws"); err != nil {
 		t.Fatal(err)
 	}

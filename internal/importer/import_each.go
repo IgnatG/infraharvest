@@ -14,7 +14,7 @@ import (
 )
 
 // ImportEach imports each of scopes, the accounts or projects (kind) a
-// command covers, with importOne, options.Parallel at a time, into the
+// command covers, with importOne, options.Parallel at a time, into r, the
 // command's run. A scope that can't be imported, such as an account whose
 // role can't be assumed, is recorded as a failure of the run and the others
 // go on; an interrupt stops the run.
@@ -27,29 +27,26 @@ import (
 // throttles each account on its own, and each gets a rate limit of its
 // own; Google charges most quotas to the credentials' quota project, which
 // every project of a run shares, so Google's rate limit is shared too.
-func ImportEach(options Options, kind string, scopes []string, importOne func(Options, string) error) error {
-	run := activeRun
-	if run != nil {
-		run.shared.scopes = scopes
-	}
-	if run == nil || options.Parallel <= 1 || len(scopes) < 2 {
+func (r *Run) ImportEach(options Options, kind string, scopes []string, importOne func(Options, string) error) error {
+	r.shared.scopes = scopes
+	if options.Parallel <= 1 || len(scopes) < 2 {
 		for _, scope := range scopes {
 			err := importSafely(importOne, options, scope)
 			if err == nil {
 				continue
 			}
-			if run == nil || errors.Is(err, context.Canceled) {
+			if errors.Is(err, context.Canceled) {
 				return err
 			}
 			log.Printf("%s %s: %v", kind, scope, err)
-			run.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
+			r.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
 		}
 		return nil
 	}
 
 	if !options.Discover {
 		// Loaded before the scopes share it.
-		if _, err := run.selectionFile(options); err != nil {
+		if _, err := r.selectionFile(options); err != nil {
 			return err
 		}
 	}
@@ -57,7 +54,7 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 	errs := make([]error, len(scopes))
 	var interrupted atomic.Bool
 	importAt := func(i int) {
-		runs[i] = run.child()
+		runs[i] = r.child()
 		scopeOptions := options
 		scopeOptions.run = runs[i]
 		errs[i] = importSafely(importOne, scopeOptions, scopes[i])
@@ -67,8 +64,8 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 	}
 
 	importAt(0)
-	if run.lock == nil {
-		run.lock = runs[0].lock
+	if r.lock == nil {
+		r.lock = runs[0].lock
 	}
 	slots := make(chan struct{}, options.Parallel)
 	var wg sync.WaitGroup
@@ -92,14 +89,14 @@ func ImportEach(options Options, kind string, scopes []string, importOne func(Op
 		if runs[i] == nil {
 			continue // not started: interrupted
 		}
-		run.merge(runs[i])
+		r.merge(runs[i])
 		switch err := errs[i]; {
 		case err == nil:
 		case errors.Is(err, context.Canceled):
 			canceled = err
 		default:
 			log.Printf("%s %s: %v", kind, scope, err)
-			run.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
+			r.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
 		}
 	}
 	return canceled

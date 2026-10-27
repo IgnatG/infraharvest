@@ -18,7 +18,7 @@ import (
 func fakeProviderCommand(run func(importer.Options) error) *cobra.Command {
 	options := importer.Options{}
 	cmd := &cobra.Command{Use: "fake", SilenceUsage: true, SilenceErrors: true}
-	cmd.RunE = withEngineRun(func(*cobra.Command, []string) error { return run(options) })
+	cmd.RunE = withEngineRun(func(*cobra.Command, []string, *importer.Run) error { return run(options) })
 	cmd.Flags().String("config", "", "")
 	providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
 	return cmd

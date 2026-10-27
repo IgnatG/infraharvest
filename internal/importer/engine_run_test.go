@@ -19,26 +19,24 @@ import (
 func TestEngineRunCombinesImports(t *testing.T) {
 	out := t.TempDir()
 	options := Options{Out: out, AllowPartial: true}
-	err := NewRun().Do(func() error {
+	run := NewRun()
+	err := run.Do(func() error {
 		for _, dir := range []string{"global", "us-east-1"} {
-			activeRun.used = true
-			activeRun.options = options
-			activeRun.discovered["aws_vpc"]++
+			run.used = true
+			run.options = options
+			run.discovered["aws_vpc"]++
 			result := &engine.Result{Imported: []engine.Import{{Type: "aws_vpc", Name: dir, ID: dir}}}
 			if dir == "us-east-1" {
 				result.Rejected = []engine.Rejection{{Address: "aws_vpc.extra", ID: "vpc-2", Errors: []string{"invalid"}}}
-				activeRun.discovered["aws_vpc"]++
+				run.discovered["aws_vpc"]++
 			}
-			activeRun.addDirectory(filepath.Join(out, dir), nil, result, nil)
+			run.addDirectory(filepath.Join(out, dir), nil, result, nil)
 		}
 		return nil
 	})
 
 	if code := ExitCode(err); code != report.ExitPartial {
 		t.Errorf("exit code %d, want %d (%v)", code, report.ExitPartial, err)
-	}
-	if activeRun != nil {
-		t.Error("run still active after the command")
 	}
 	var coverage report.Report
 	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
@@ -95,8 +93,9 @@ func TestEngineRunUnused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := NewRun().Do(func() error {
-		activeRun.options = Options{Out: out}
+	run := NewRun()
+	err := run.Do(func() error {
+		run.options = Options{Out: out}
 		return want
 	})
 
@@ -116,8 +115,9 @@ func TestEngineRunUnused(t *testing.T) {
 	}
 
 	ok := filepath.Join(out, "ok")
-	if err := NewRun().Do(func() error {
-		activeRun.options = Options{Out: ok}
+	run = NewRun()
+	if err := run.Do(func() error {
+		run.options = Options{Out: ok}
 		return nil
 	}); err != nil {
 		t.Fatal(err)

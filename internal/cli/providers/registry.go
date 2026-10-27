@@ -22,7 +22,7 @@ import (
 
 // entry ties a provider's command to its constructor.
 type entry struct {
-	newCmd      func(options importer.Options) *cobra.Command
+	newCmd      func(options importer.Options) (*cobra.Command, RunFunc)
 	newProvider func() harvest.Provider
 }
 
@@ -30,7 +30,7 @@ type entry struct {
 // their command.
 var registry = map[string]entry{}
 
-func register(name string, newCmd func(importer.Options) *cobra.Command, newProvider func() harvest.Provider) {
+func register(name string, newCmd func(importer.Options) (*cobra.Command, RunFunc), newProvider func() harvest.Provider) {
 	if _, dup := registry[name]; dup {
 		panic("provider registered twice: " + name)
 	}
@@ -58,8 +58,9 @@ func Check(name string) error {
 }
 
 // Command returns the named provider's command, which import and discover
-// add as a subcommand, with the options its flags fill in.
-func Command(name string, options importer.Options) *cobra.Command {
+// add as a subcommand, with the options its flags fill in, and what runs
+// it.
+func Command(name string, options importer.Options) (*cobra.Command, RunFunc) {
 	return registry[name].newCmd(options)
 }
 

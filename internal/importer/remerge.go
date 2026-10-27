@@ -21,27 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
-// premerged reports whether the root in dir, under out, is one its
-// stack's merge set aside (see premergeDir): its files are there, and dir
-// has no configuration of its own.
-func premerged(out, dir string) (bool, error) {
-	set, err := fileExists(filepath.Join(premergeDir(out, dir), engine.VersionsFileName))
-	if err != nil || !set {
-		return false, err
-	}
-	names, err := tfFiles(dir)
-	return len(names) == 0, err
-}
-
-// rootSource returns where the files of the root in dir, under out, are:
-// in dir, or where its stack's merge set them aside.
-func rootSource(out, dir string) string {
-	if set, err := premerged(out, dir); err == nil && set {
-		return premergeDir(out, dir)
-	}
-	return dir
-}
-
 // setAside moves the root in dir, under out, to where its stack's merge
 // sets it aside (see premergeDir), as it is now.
 func setAside(out, dir string) error {
@@ -252,7 +231,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	// A restored member has no engine options of its own.
 	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
 	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
-	result, err := engine.MergeRoots(ctx, stack, roots, mergeOptions)
+	result, err := r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	// Nothing says which of the resources of a stack merged before an
 	// earlier merge kept apart, as what an incremental import added (see
 	// mergeMember.isolated), nor the labels it gave them, which came from
@@ -293,7 +272,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		if err := clearMerged(stack, result.Files); err != nil {
 			return errors.Join(err, backup.restore())
 		}
-		result, err = engine.MergeRoots(ctx, stack, roots, mergeOptions)
+		result, err = r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())

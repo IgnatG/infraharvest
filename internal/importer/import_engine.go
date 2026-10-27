@@ -103,9 +103,9 @@ func engineBinary(name string) engine.Binary {
 }
 
 // importWithEngine lists resources with the provider's listers, then lets
-// Terraform or OpenTofu generate their configuration from import blocks.
-// No state is written.
-func importWithEngine(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
+// Terraform or OpenTofu generate their configuration from import blocks,
+// into run; nil makes and finishes a run of its own. No state is written.
+func importWithEngine(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
 	if err := checkImportOptions(options); err != nil {
 		return err
 	}
@@ -114,10 +114,9 @@ func importWithEngine(ctx context.Context, provider harvest.Provider, options Op
 	}
 	// Commands share one run across their Import calls (see Run.Do),
 	// and an account imported alongside others has its own (see
-	// ImportEach); a call on its own finishes its own.
-	run := options.run
-	if run == nil {
-		run = activeRun
+	// Run.ImportEach); a call on its own finishes its own.
+	if options.run != nil {
+		run = options.run
 	}
 	if run == nil {
 		run = NewRun()
@@ -482,28 +481,23 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 
 // generate generates the call's roots into its run, each referring to the
 // others of roots, the roots of every call of the scope by directory (see
-// otherRoots). It returns an error only if the import couldn't run;
-// what couldn't be imported goes into the run.
+// otherRoots): it decides what to do with each root (see decideRoot),
+// then does it (see applyRoot). It returns an error only if the import
+// couldn't run; what couldn't be imported goes into the run.
 func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Import) error {
-	run, provider, options, byDir, opts, root, binary := c.run, c.provider, c.options, c.byDir, c.opts, c.root, c.binary
-	execPath, cacheDir := c.execPath, c.cacheDir
+	run := c.run
 	// What the call records is counted in its own scope, and what its
 	// roots have is looked for in what it listed.
-	run.scope, run.options, run.here = c.scope, options, c.here
-	dirs := make([]string, 0, len(byDir))
-	for dir := range byDir {
+	run.scope, run.options, run.here = c.scope, c.options, c.here
+	dirs := make([]string, 0, len(c.byDir))
+	for dir := range c.byDir {
 		dirs = append(dirs, dir)
 	}
 	sort.Strings(dirs)
 	dirs = c.handovers.order(dirs)
-	others := newOtherRoots(opts, roots, options.Out)
+	others := newOtherRoots(c.opts, roots, c.options.Out)
 	refine, refineKey := c.stackIntent()
 	for _, dir := range dirs {
-		if err := c.handovers.refusal(dir); err != nil {
-			c.handovers.record(dir, nil, err)
-			run.addDirectory(dir, byDir[dir], nil, err)
-			continue
-		}
 		dirOpts := others.of(dir)
 		// A root its stack's merge is to take, with its other
 		// environments', takes no stack template: each environment's stack
@@ -514,168 +508,179 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 		if !merged {
 			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
 		}
-		fp, err := fingerprint(root.engineVersion, byDir[dir], dirOpts)
+		fp, err := fingerprint(c.root.engineVersion, c.byDir[dir], dirOpts)
 		if err != nil {
 			return err
 		}
-		var result *engine.Result
-		if options.Resume {
-			if result, err = resumed(options.Out, dir, fp); err != nil {
-				return err
-			}
-		}
-		tr := terraformRun{execPath: execPath, pluginCacheDir: filepath.Join(cacheDir, "plugins")}
-		if result == nil {
-			if tr.env, err = terraformEnv(ctx, provider); err != nil {
-				return err
-			}
-			tr.freshEnv = freshTerraformEnv(provider)
-		}
-		// A root its stack's merge set aside (see premergeDir).
-		isPremerged, err := premerged(options.Out, dir)
+		d, err := c.decideRoot(dir, fp)
 		if err != nil {
 			return err
 		}
-		incremental := false
-		if result == nil && options.Incremental {
-			if isPremerged {
-				// Added to as it was, then set aside again, for the merge
-				// phase to merge its stack again (see MergeEnvironments).
-				if err := copyRoot(premergeDir(options.Out, dir), dir); err != nil {
-					return err
-				}
-			}
-			if incremental, err = engine.HasConfiguration(dir); err != nil {
-				return err
-			}
-			if incremental && options.Resume {
-				// With --resume, a root whose import didn't finish is
-				// generated again rather than added to (see addToRoot).
-				unfinished, err := unfinishedRoot(options.Out, dir)
-				if err != nil {
-					return err
-				}
-				incremental = !unfinished
-			}
-		}
-		switch {
-		case result != nil:
-			log.Printf("%s: %s is unchanged since it was generated (--resume)", provider.Name(), dir)
-			if run.lock == nil {
-				run.lock, _ = os.ReadFile(filepath.Join(rootSource(options.Out, dir), engine.LockFileName))
-			}
-		case incremental:
-			added, addedResult, holds, err := run.addToRoot(ctx, dir, byDir[dir], dirOpts, tr)
-			if err != nil && ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if err == nil && holds != nil {
-				if err := saveCheckpoint(options.Out, dir, fp, holds); err != nil {
-					return err
-				}
-			}
-			if isPremerged {
-				if setErr := setAside(options.Out, dir); setErr != nil {
-					return setErr
-				}
-				if err == nil {
-					c.recordAdded(dir, fp, holds, dirOpts, addedResult)
-				}
-			}
-			if err == nil && addedResult == nil {
-				continue // nothing new
-			}
-			run.addDirectory(dir, added, addedResult, err)
-			continue
-		default:
-			// A root an earlier import generated is generated again, from
-			// scratch, with --regenerate, or with --resume if that import
-			// didn't finish; a directory no import wrote is left alone. With
-			// --incremental, a root gets here only if it has no resources or,
-			// with --resume, its import didn't finish.
-			// A root that would hand over what a root generated before it
-			// didn't import is left as it was, still holding it.
-			if err = c.handovers.refuseUnreceived(dir); err != nil {
-				c.handovers.record(dir, nil, err)
-				run.addDirectory(dir, byDir[dir], nil, err)
-				continue
-			}
-			if isPremerged && !options.Regenerate && !options.Resume {
-				err = fmt.Errorf("%s was merged into the root its stack's environments share, which may be in use: pass --regenerate to generate both again, or --incremental to add what is new", dir)
-				c.handovers.record(dir, nil, err)
-				run.addDirectory(dir, byDir[dir], nil, err)
-				continue
-			}
-			var claimed *claim
-			if claimed, err = claimRoot(options.Out, dir, fp, options.Resume, options.Regenerate || options.Incremental, run.shared); err != nil {
-				c.handovers.record(dir, nil, err)
-				run.addDirectory(dir, byDir[dir], nil, err)
-				continue
-			}
-			claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
-			if len(byDir[dir]) == 0 {
-				log.Printf("%s: %s hands every resource it had over to other roots", provider.Name(), dir)
-			} else {
-				log.Printf("%s: generating configuration for %d resources in %s", provider.Name(), len(byDir[dir]), dir)
-			}
-			// A root of another call may pin another provider release line
-			// (see rootConfig): its lock file seeds this root only if it
-			// meets this root's constraint.
-			lock := &run.lock
-			var own []byte
-			if !lockMeets(run.lock, qualifiedSource(binary.Registry, root.provider.Source), root.provider.Version) {
-				lock = &own
-			}
-			// What the root had keeps its addresses, or moves (see
-			// engine.Options.Previous); the fingerprint doesn't count it.
-			dirOpts.Previous = claimed.previousRoot()
-			if isPremerged {
-				// Its environment applies the merged root, not this one: no
-				// moved block follows what it had.
-				dirOpts.Previous = nil
-			}
-			dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
-			if len(byDir[dir]) == 0 {
-				result, err = engine.Vacate(dir, dirOpts)
-			} else {
-				result, err = options.tools.generateDir(ctx, dir, tr, byDir[dir], dirOpts, lock)
-				if err == nil && merged && refine != nil {
-					result.Warnings = append(result.Warnings, mergedRootNoTemplate)
-				}
-			}
-			if err != nil && ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if err != nil {
-				// A root an earlier import generated, which may be in use,
-				// keeps the files it had, and its checkpoint, rather than
-				// none: a later run generates it again.
-				err = errors.Join(err, claimed.putBack(dir))
-			}
-			if err == nil && dirOpts.Previous != nil {
-				err = claimed.refuseReaddressed(dir, result, byDir[dir], inOtherRoots(options.Out, roots, dir))
-			}
-			if err == nil {
-				if err := saveCheckpoint(options.Out, dir, fp, result); err != nil {
-					return err
-				}
-			}
-		}
-		c.handovers.record(dir, result, err)
-		run.addDirectory(dir, byDir[dir], result, err)
-		if err == nil {
-			c.recordMember(dir, fp, result, dirOpts)
-		}
-		if err == nil && run.backend != nil {
-			// After the checks, which run on a local working directory: the
-			// import never needs access to the state backend.
-			if err := os.WriteFile(filepath.Join(rootSource(options.Out, dir), BackendFileName), run.backend.File(relativePath(options.Out, dir)), 0o644); err != nil {
-				return err
-			}
+		if err := c.applyRoot(ctx, dir, fp, d, dirOpts, roots, merged && refine != nil); err != nil {
+			return err
 		}
 	}
 	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
 	return nil
+}
+
+// applyRoot does what d decided for the root in dir (see decideRoot),
+// from fingerprint fp, with dirOpts, and records it into the call's run;
+// untemplated says the root's stack template is left out as its stack's
+// merge is to take it. It returns an error only if the import can't go
+// on.
+func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]engine.Import, untemplated bool) error {
+	run, out := c.run, c.options.Out
+	if d.restore {
+		if err := copyRoot(premergeDir(out, dir), dir); err != nil {
+			return err
+		}
+	}
+	var result *engine.Result
+	var err error
+	switch d.mode {
+	case rootRefused:
+		err = d.reason
+	case rootResumed:
+		log.Printf("%s: %s is unchanged since it was generated (--resume)", c.provider.Name(), dir)
+		if run.lock == nil {
+			run.lock, _ = os.ReadFile(filepath.Join(rootSource(out, dir), engine.LockFileName))
+		}
+		result = d.result
+	case rootIncremental:
+		return c.addTo(ctx, dir, fp, d, dirOpts)
+	default:
+		var fatal error
+		if result, err, fatal = c.generateRoot(ctx, dir, fp, d, dirOpts, roots, untemplated); fatal != nil {
+			return fatal
+		}
+	}
+	c.handovers.record(dir, result, err)
+	run.addDirectory(dir, c.byDir[dir], result, err)
+	if err == nil {
+		c.recordMember(dir, fp, result, dirOpts)
+	}
+	if err == nil && run.backend != nil {
+		// After the checks, which run on a local working directory: the
+		// import never needs access to the state backend.
+		if err := os.WriteFile(filepath.Join(rootSource(out, dir), BackendFileName), run.backend.File(relativePath(out, dir)), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// terraformRun returns how the call runs the engine binary, with the
+// provider's credentials.
+func (c *listedCall) terraformRun(ctx context.Context) (terraformRun, error) {
+	tr := terraformRun{execPath: c.execPath, pluginCacheDir: filepath.Join(c.cacheDir, "plugins")}
+	var err error
+	if tr.env, err = terraformEnv(ctx, c.provider); err != nil {
+		return tr, err
+	}
+	tr.freshEnv = freshTerraformEnv(c.provider)
+	return tr, nil
+}
+
+// addTo adds what is new to the root in dir, from fingerprint fp (see
+// addToRoot), recording it into the call's run, and, for a root its stack
+// merged before, sets it aside again (see setAside) and records it for
+// the merge phase (see recordAdded). It returns an error only if the
+// import can't go on.
+func (c *listedCall) addTo(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options) error {
+	run, out := c.run, c.options.Out
+	tr, err := c.terraformRun(ctx)
+	if err != nil {
+		return err
+	}
+	added, addedResult, holds, err := run.addToRoot(ctx, dir, c.byDir[dir], dirOpts, tr)
+	if err != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err == nil && holds != nil {
+		if err := saveCheckpoint(out, dir, fp, holds); err != nil {
+			return err
+		}
+	}
+	if d.premerged {
+		if setErr := setAside(out, dir); setErr != nil {
+			return setErr
+		}
+		if err == nil {
+			c.recordAdded(dir, fp, holds, dirOpts, addedResult)
+		}
+	}
+	if err == nil && addedResult == nil {
+		return nil // nothing new
+	}
+	run.addDirectory(dir, added, addedResult, err)
+	return nil
+}
+
+// generateRoot generates the root in dir from scratch, from fingerprint
+// fp, afresh or again (see claimRoot), with dirOpts, and returns the
+// result, or why the root failed; fatal is set only if the import can't
+// go on. A root that hands every resource it had over to other roots
+// keeps only the removed blocks that do (see engine.Vacate).
+func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]engine.Import, untemplated bool) (result *engine.Result, err, fatal error) {
+	run, options, imports := c.run, c.options, c.byDir[dir]
+	tr, err := c.terraformRun(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	claimed, err := claimRoot(options.Out, dir, fp, d.onDisk, run.shared)
+	if err != nil {
+		return nil, err, nil
+	}
+	claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
+	if len(imports) == 0 {
+		log.Printf("%s: %s hands every resource it had over to other roots", c.provider.Name(), dir)
+	} else {
+		log.Printf("%s: generating configuration for %d resources in %s", c.provider.Name(), len(imports), dir)
+	}
+	// A root of another call may pin another provider release line
+	// (see rootConfig): its lock file seeds this root only if it
+	// meets this root's constraint.
+	lock := &run.lock
+	var own []byte
+	if !lockMeets(run.lock, qualifiedSource(c.binary.Registry, c.root.provider.Source), c.root.provider.Version) {
+		lock = &own
+	}
+	// What the root had keeps its addresses, or moves (see
+	// engine.Options.Previous); the fingerprint doesn't count it.
+	dirOpts.Previous = claimed.previousRoot()
+	if d.premerged {
+		// Its environment applies the merged root, not this one: no
+		// moved block follows what it had.
+		dirOpts.Previous = nil
+	}
+	dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
+	if len(imports) == 0 {
+		result, err = options.tools.vacate(dir, dirOpts)
+	} else {
+		result, err = options.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
+		if err == nil && untemplated {
+			result.Warnings = append(result.Warnings, mergedRootNoTemplate)
+		}
+	}
+	if err != nil && ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+	if err != nil {
+		// A root an earlier import generated, which may be in use,
+		// keeps the files it had, and its checkpoint, rather than
+		// none: a later run generates it again.
+		err = errors.Join(err, claimed.putBack(dir))
+	}
+	if err == nil && dirOpts.Previous != nil {
+		err = claimed.refuseReaddressed(dir, result, imports, inOtherRoots(options.Out, roots, dir))
+	}
+	if err == nil {
+		if err := saveCheckpoint(options.Out, dir, fp, result); err != nil {
+			return nil, nil, err
+		}
+	}
+	return result, err, nil
 }
 
 // inOtherRoots returns, by type and import ID, the root of roots other
