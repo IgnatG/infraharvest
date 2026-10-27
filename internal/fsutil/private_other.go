@@ -3,16 +3,16 @@
 
 //go:build !windows
 
-package engine
+package fsutil
 
 import (
 	"io/fs"
 	"os"
 )
 
-// makePrivate makes dir private to the user running infraharvest, mode
+// MakePrivate makes dir private to the user running infraharvest, mode
 // 0700, and returns the function that gives it its mode back.
-func makePrivate(dir string) (restore func() error, err error) {
+func MakePrivate(dir string) (restore func() error, err error) {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, err

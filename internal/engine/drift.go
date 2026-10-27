@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // DriftTerraform is a Terraform that can also read a root's state and
@@ -391,7 +392,7 @@ func stageDrift(dir, staging string, state []byte) error {
 		return err
 	}
 	// The copy is removed once planned: its access needn't be restored.
-	if _, err := makePrivate(staging); err != nil {
+	if _, err := fsutil.MakePrivate(staging); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(dir)

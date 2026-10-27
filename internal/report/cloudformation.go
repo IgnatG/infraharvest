@@ -6,7 +6,6 @@ package report
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -424,7 +423,9 @@ func (r *Report) writeTemplates(outputDir string) error {
 				continue
 			}
 			file := filepath.Join(outputDir, filepath.FromSlash(f.path))
-			if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+			// Private as it is created: on Windows, where a mode restricts
+			// nothing, its access list does it.
+			if err := fsutil.MkdirPrivate(filepath.Dir(file)); err != nil {
 				return err
 			}
 			if err := fsutil.WriteFile(file, []byte(f.body), 0o600); err != nil {

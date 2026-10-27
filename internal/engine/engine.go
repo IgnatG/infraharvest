@@ -524,7 +524,7 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	// stays so, and the file stays for the caller to remove, as the
 	// importer does with what it wrote of a root that fails. On Windows,
 	// where a mode restricts nothing, its access list does it.
-	if restoreAccess, err = makePrivate(dir); err != nil {
+	if restoreAccess, err = fsutil.MakePrivate(dir); err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
