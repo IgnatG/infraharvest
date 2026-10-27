@@ -44,14 +44,8 @@ type Run struct {
 	lock []byte
 	// selection is the selection file the import follows, if any.
 	selection *selection.File
-	// listed are the resources discover lists into a selection file.
-	listed []selection.Resource
-	// covered are the services discover listed, by scope and service (see
-	// coverKey), and filtered is whether it listed with --id, --tag or
-	// --where: the selection file drops only the entries of what discover
-	// listed in full (see covers).
-	covered  map[string]bool
-	filtered bool
+	// discoverState is what discover lists into the selection file.
+	discoverState
 	// backend is the state backend of the generated roots, if configured.
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
@@ -59,22 +53,13 @@ type Run struct {
 	// environments are the estate's environments, if configured (see
 	// config.Environments).
 	environments config.Environments
-	// members are the roots the run generated of the configuration file's
-	// environments, which the merge phase merges (see Run.MergeEnvironments).
-	members []mergeMember
-	// vacating are the handovers of the run's scopes that plan to vacate
-	// merged roots, all of whose resources go to other roots now (see
-	// handovers.vacating), which the merge phase vacates (see
-	// vacateMergedRoots).
-	vacating []*handovers
+	// mergeState is what the run hands its merge phase.
+	mergeState
 	// shared is what the run and its children work out once.
 	shared *shared
 	// tools are what the run's Import calls, and its merge phase, reach
 	// outside the process through; nil uses the real ones (see callTools).
 	tools *callTools
-	// toPick is the selection file discover wrote for the command to open
-	// in the picker, if it wants to (see SelectionToPick).
-	toPick string
 	// scope is where the provider call being imported lists (see
 	// discoveryScope); the report counts by it.
 	scope string
@@ -83,6 +68,49 @@ type Run struct {
 	// listedHere); nil when it can't tell.
 	here *listedHere
 	used bool
+}
+
+// discoverState is what discover lists into the selection file it writes
+// (see Run.writeSelection), apart from what the run counts for its
+// report.
+type discoverState struct {
+	// listed are the resources discover lists into a selection file.
+	listed []selection.Resource
+	// covered are the services discover listed, by scope and service (see
+	// coverKey), and filtered is whether it listed with --id, --tag or
+	// --where: the selection file drops only the entries of what discover
+	// listed in full (see covers).
+	covered  map[string]bool
+	filtered bool
+	// toPick is the selection file discover wrote for the command to open
+	// in the picker, if it wants to (see SelectionToPick).
+	toPick string
+}
+
+// add adds what a child run listed (see Run.merge) to d.
+func (d *discoverState) add(child *discoverState) {
+	d.listed = append(d.listed, child.listed...)
+	maps.Copy(d.covered, child.covered)
+	d.filtered = d.filtered || child.filtered
+}
+
+// mergeState is what the run hands its merge phase (see
+// Run.MergeEnvironments), apart from what it counts for its report.
+type mergeState struct {
+	// members are the roots the run generated of the configuration file's
+	// environments, which the merge phase merges (see Run.MergeEnvironments).
+	members []mergeMember
+	// vacating are the handovers of the run's scopes that plan to vacate
+	// merged roots, all of whose resources go to other roots now (see
+	// handovers.vacating), which the merge phase vacates (see
+	// vacateMergedRoots).
+	vacating []*handovers
+}
+
+// add adds what a child run hands the merge phase (see Run.merge) to m.
+func (m *mergeState) add(child *mergeState) {
+	m.members = append(m.members, child.members...)
+	m.vacating = append(m.vacating, child.vacating...)
 }
 
 // shared is what a run and its children (see Run.child) work out once for
@@ -191,7 +219,7 @@ func (s *shared) managedState(ctx context.Context, sources []string, stores mana
 }
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}, shared: &shared{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, discoverState: discoverState{covered: map[string]bool{}}, shared: &shared{}}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -315,11 +343,8 @@ func (r *Run) merge(child *Run) {
 		r.skipped[typ] += n
 	}
 	r.failures = append(r.failures, child.failures...)
-	r.members = append(r.members, child.members...)
-	r.vacating = append(r.vacating, child.vacating...)
-	r.listed = append(r.listed, child.listed...)
-	maps.Copy(r.covered, child.covered)
-	r.filtered = r.filtered || child.filtered
+	r.mergeState.add(&child.mergeState)
+	r.discoverState.add(&child.discoverState)
 	if r.lock == nil {
 		r.lock = child.lock
 	}
