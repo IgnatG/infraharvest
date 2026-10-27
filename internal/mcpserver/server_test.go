@@ -696,8 +696,9 @@ func TestFilesStayUnderRoot(t *testing.T) {
 }
 
 // Clients auto-approve read-only tools and retry idempotent ones: discover
-// writes the selection file, the same import again isn't the same, and
-// drift_accept writes into the code what drift only reports.
+// writes the selection file, the same import again isn't the same, drift
+// runs the roots' providers, and drift_accept writes into the code what
+// drift only reports.
 func TestToolAnnotations(t *testing.T) {
 	session := connect(t, &fakeRunner{}, t.TempDir(), nil)
 	res, err := session.ListTools(t.Context(), nil)
@@ -714,7 +715,7 @@ func TestToolAnnotations(t *testing.T) {
 			continue
 		}
 		switch tool.Name {
-		case "report", "drift":
+		case "report":
 			if !a.ReadOnlyHint {
 				t.Errorf("%s isn't read-only", tool.Name)
 			}

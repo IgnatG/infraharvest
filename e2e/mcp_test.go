@@ -42,9 +42,9 @@ const mcpProfile = "infraharvest-e2e-mcp"
 // with a configuration file naming them as the environments dev and
 // prod, share one root, which each environment applies into its
 // workspace. With a tag of dev's queue changed out of band, drift with
-// environments dev, run with dev's credentials, checks the root as dev
-// alone and reports the change, kept; as prod, with prod's, it finds
-// none. report with kind drift returns drift.md.
+// environments dev, run with dev's credentials once the user confirms,
+// checks the root as dev alone and reports the change, kept; as prod,
+// with prod's, it finds none. report with kind drift returns drift.md.
 func TestAWSMCP(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
 	if endpoint == "" {
@@ -203,8 +203,8 @@ environments:
 	if text := callTool(ctx, t, session, "report", map[string]any{"out": "environments", "kind": "drift"}, nil); text != readFile(t, r.Report) {
 		t.Errorf("report with kind drift returned:\n%s\nwant %s:\n%s", text, r.Report, readFile(t, r.Report))
 	}
-	// Only the import asked: drift changes no code.
-	if len(asked) != 1 {
-		t.Errorf("the tools asked the user %q, want the import's confirmation alone", asked)
+	// The import asked, and each drift, which runs Terraform on the roots.
+	if len(asked) != 3 || !strings.Contains(asked[1], `as the environments "dev"`) || !strings.Contains(asked[2], `as the environments "prod"`) {
+		t.Errorf("the tools asked the user %q, want the import's confirmation and each drift's", asked)
 	}
 }

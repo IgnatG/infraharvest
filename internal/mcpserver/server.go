@@ -7,8 +7,11 @@
 // file, import generates Terraform configuration from one once a person
 // confirms it, report reads an import's report or the drift report, drift
 // reports what changed in the cloud since the roots were applied, and
-// drift_accept takes the cloud's values into the code once a person
-// confirms it. Each provider's parameters are declared on the tools'
+// drift_accept takes the cloud's values into the code. The drift tools
+// run Terraform on the roots, which runs their providers with the
+// server's credentials: they refuse roots that use other providers than
+// infraharvest generates roots with, and run once a person confirms it.
+// Each provider's parameters are declared on the tools'
 // inputs, with the flag each sets, and a parameter for another provider
 // is rejected. An import is checked as the command line's --check checks
 // it before the person is asked, so a run the command would refuse is
@@ -63,7 +66,7 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 2. Edit the selection file if the user wants a different selection, and show it to them.
 3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them. To generate those roots again from scratch, set regenerate instead.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.
-5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. Call report with kind drift to read the drift report it wrote. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
+5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. It runs Terraform on the roots, which runs their providers with the server's credentials, so the user is asked to confirm first, and roots that use providers infraharvest doesn't generate roots with, or modules from elsewhere than the output directory and its curated modules, are refused: the user can run infraharvest drift on them from a terminal if they trust them. Call report with kind drift to read the drift report it wrote, and show the user the changes. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with rules or a decisions file; the user is asked to confirm first, seeing the rules or the decisions file. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
 // New returns the server, which runs infraharvest with run, and checks an
 // import with check before the user is asked to confirm it. The tools read
@@ -100,15 +103,16 @@ func New(version, root string, run Runner, check Checker) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "drift",
 		Title:       "Find what changed in the cloud since the roots were applied",
-		Description: "Checks the roots an import generated in the output directory for what changed in the cloud since they were applied, and what the next apply of their code would do about each change: revert it, or keep it as the code doesn't set it. Reads the cloud and the roots' state with the environment's credentials; changes neither the code nor the state, and writes only the drift report and Terraform's working files. " + driftExitHelp,
-		// It writes the drift report, and the roots' .terraform directories
-		// as an init does, but changes nothing a person keeps.
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(true)},
+		Description: "Checks the roots an import generated in the output directory for what changed in the cloud since they were applied, and what the next apply of their code would do about each change: revert it, or keep it as the code doesn't set it, after the user confirms. Runs Terraform's init and plan on the roots, which run their providers with the environment's credentials: roots that use providers infraharvest doesn't generate roots with, such as the external data source's, or modules from elsewhere than the output directory and infraharvest's curated modules, are refused. Reads the cloud and the roots' state; changes neither the code nor the state, and writes only the drift report and Terraform's working files. " + driftExitHelp,
+		// It runs the roots' providers, which reach the cloud: not
+		// read-only, so that no client runs it unasked, though it changes
+		// nothing a person keeps.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.drift)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "drift_accept",
 		Title:       "Take changes in the cloud into the code",
-		Description: "Checks the roots as drift does, and writes the cloud's values of the changes that its rules or a decisions file accept into the roots' code, after the user confirms; each edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing. Secrets are never written. With write_decisions, writes the run's changes into a decisions file, which needs no confirmation on its own as it changes no code. Never applies, and never changes the state. " + driftExitHelp,
+		Description: "Checks the roots as drift does, refusing the same roots, and writes the cloud's values of the changes that its rules or a decisions file accept into the roots' code, after the user confirms; each edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing. Secrets are never written. With write_decisions, writes the run's changes into a decisions file. Never applies, and never changes the state. " + driftExitHelp,
 		// Not idempotent: an accepted change is no longer drift.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.driftAccept)
@@ -126,7 +130,7 @@ type tools struct {
 	root string
 
 	mu sync.Mutex
-	// issued are the states of the imports the server asked the user to
+	// issued are the states of the runs the server asked the user to
 	// confirm, and hasn't run yet (see confirmationState).
 	issued map[string]bool
 }
@@ -540,24 +544,15 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
 	}
 	message += config.message()
-	state := confirmationState(args, content, config.sum())
-	if len(req.Params.InputResponses) == 0 {
-		if !canAsk(req.Session) {
-			return errorResult(fmt.Sprintf("The user has to confirm an import, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", shellJoin(args))), nil, nil
-		}
-		t.issue(state)
-		return &mcp.CallToolResult{
-			InputRequests: mcp.InputRequestMap{confirmation: &mcp.ElicitParams{
-				Message:         message,
-				RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-			}},
-			RequestState: state,
-		}, nil, nil
-	}
-	answer, ok := req.Params.InputResponses[confirmation].(*mcp.ElicitResult)
-	// Only an answer to a request this server made counts, and only once.
-	if !ok || answer.Action != "accept" || req.Params.RequestState != state || !t.redeem(state) {
-		return errorResult("The user didn't confirm the import, so nothing was imported."), nil, nil
+	if asked := t.confirm(req, userConfirmation{
+		name:      confirmation,
+		state:     confirmationState(args, content, config.sum()),
+		message:   message,
+		command:   args,
+		cannotAsk: "The user has to confirm an import",
+		declined:  "The user didn't confirm the import, so nothing was imported.",
+	}); asked != nil {
+		return asked, nil, nil
 	}
 
 	childArgs := config.run(args)
@@ -664,8 +659,52 @@ func confirmationState(args []string, contents ...[]byte) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// issue records that the server asked the user to confirm the import
-// state identifies.
+// userConfirmation is a run the user is asked to confirm: an agent may
+// not run it on its own.
+type userConfirmation struct {
+	// name names the request, and state identifies the run (see
+	// confirmationState); message asks the user.
+	name, state, message string
+	// command is the run's arguments, which a client that can't ask is
+	// given for the user to run themselves, after cannotAsk, which says
+	// what the user has to confirm.
+	command   []string
+	cannotAsk string
+	// declined is what the tool returns when the user didn't confirm.
+	declined string
+}
+
+// confirm returns nil once the user has confirmed c: the client called
+// the tool again with their answer to the request the server made for
+// it (multi round-trip requests). Otherwise it returns what the tool
+// returns: the request for the client to ask the user, which ties the
+// answer to this exact run; the command to run, for a client that can't
+// ask; or, for any answer but the user's acceptance of this request,
+// that they didn't confirm.
+func (t *tools) confirm(req *mcp.CallToolRequest, c userConfirmation) *mcp.CallToolResult {
+	if len(req.Params.InputResponses) == 0 {
+		if !canAsk(req.Session) {
+			return errorResult(fmt.Sprintf("%s, and this client can't ask them. Ask the user to run it themselves:\n\ninfraharvest %s", c.cannotAsk, shellJoin(c.command)))
+		}
+		t.issue(c.state)
+		return &mcp.CallToolResult{
+			InputRequests: mcp.InputRequestMap{c.name: &mcp.ElicitParams{
+				Message:         c.message,
+				RequestedSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			}},
+			RequestState: c.state,
+		}
+	}
+	answer, ok := req.Params.InputResponses[c.name].(*mcp.ElicitResult)
+	// Only an answer to a request this server made counts, and only once.
+	if !ok || answer.Action != "accept" || req.Params.RequestState != c.state || !t.redeem(c.state) {
+		return errorResult(c.declined)
+	}
+	return nil
+}
+
+// issue records that the server asked the user to confirm the run state
+// identifies.
 func (t *tools) issue(state string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -675,8 +714,8 @@ func (t *tools) issue(state string) {
 	t.issued[state] = true
 }
 
-// redeem reports whether the server asked the user to confirm the import
-// state identifies, and forgets it: one confirmation runs one import.
+// redeem reports whether the server asked the user to confirm the run
+// state identifies, and forgets it: one confirmation runs one run.
 func (t *tools) redeem(state string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
