@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/config"
 )
 
@@ -39,18 +40,20 @@ func catalogueAdapters(own []adapters.Adapter, provider string) []adapters.Adapt
 // fetchModulesParallel is how many modules fetchAdapters fetches at once.
 const fetchModulesParallel = 4
 
-// importedProviders are the providers infraharvest imports. A registry
-// module whose source ends with one of them is for that provider's
-// resources only.
-var importedProviders = []string{"aws", "azurerm", "google"}
-
 // forOtherProvider reports whether m is a registry module for a provider
 // other than provider, such as google, or google-beta's google: one an
-// import of provider has no use for, which it needn't fetch.
+// import of provider has no use for, which it needn't fetch. A registry
+// module whose source ends with a provider infraharvest imports, one with
+// a built-in catalogue, is for that provider's resources only; one for
+// any other provider may have provider's too.
 func forOtherProvider(m config.Module, provider string) bool {
 	base, _, _ := strings.Cut(provider, "-")
 	p := m.RegistryProvider()
-	return p != base && slices.Contains(importedProviders, p)
+	if p == "" || p == base {
+		return false
+	}
+	imported, err := catalogue.Providers()
+	return err == nil && slices.Contains(imported, p)
 }
 
 // fetchAdapters returns an adapter for each of the organisation's own
