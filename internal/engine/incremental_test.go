@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -422,7 +423,8 @@ func TestAddGatesTheRootWithItsOwnModules(t *testing.T) {
 }
 
 // The root's scanners don't run where staging's plan marked a value of
-// the added configuration sensitive, which only staging's plan knew.
+// the added configuration sensitive, which only staging's plan knew; its
+// secrets check fails then, and the root is left as it was.
 func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
 	t.Parallel()
 	root := existingRoot(t)
@@ -445,17 +447,25 @@ func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
 	}}
 	opts := addOptions
 	opts.Scanners = []Scanner{spy}
-
-	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	before, err := rootFileContents(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	_, err = Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	if err == nil || !strings.Contains(err.Error(), CheckSecrets+" failed") {
+		t.Errorf("err = %v, want the secrets check failed", err)
 	}
 
 	if len(ran) > 0 {
 		t.Errorf("a scanner ran on %v, holding staging's secret", ran)
 	}
-	if c := result.Gate.check(CheckSecrets); c.Passed {
-		t.Errorf("the secrets check passed: %+v", c)
+	after, err := rootFileContents(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Errorf("the root isn't left as it was: %v", slices.Sorted(maps.Keys(after)))
 	}
 }
 

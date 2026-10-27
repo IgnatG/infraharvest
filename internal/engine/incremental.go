@@ -201,7 +201,8 @@ func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
 // in root then refer to them, and references to the others read them.
 // Then it adds the result to root (see merge), where it runs the
 // verification gate with rootTF: the plan check is staging's, as root's
-// plan needs its state.
+// plan needs its state. Should running it fail, or its secrets check, root
+// is left as it was.
 //
 // Staging may hold the lock file to generate with, such as root's: Add
 // empties staging but for it, and pins the providers opts.Config requires
@@ -293,6 +294,13 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	gate, _, err := policy.run(ctx, rootTF, root)
 	if err != nil {
 		return nil, errors.Join(err, undo())
+	}
+	// A secret value in root, which the output must never keep, undoes
+	// the addition.
+	for _, c := range gate {
+		if c.Name == CheckSecrets && !c.Passed {
+			return nil, errors.Join(fmt.Errorf("%s failed, so nothing is added: %s", c.Name, strings.Join(c.Details, "; ")), undo())
+		}
 	}
 	result.Gate = gate
 	if err := os.RemoveAll(staging); err != nil {

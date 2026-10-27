@@ -363,6 +363,51 @@ func (c *claim) putBack(dir string) error {
 	return err
 }
 
+// discard undoes generating the claimed root in dir, which failed: a root
+// with a backup is put back as it was (see putBack); from any other, what
+// the import wrote is removed (see clearGenerated), with the root files
+// config wrote and the lock file, as Terraform writes into generated.tf,
+// in the clear, the secrets Generate moves out of it only later. Its
+// checkpoint stays, recording that its generation didn't finish (see
+// unfinishedRoot), and so do the files no import wrote.
+func (c *claim) discard(out, dir string, config map[string][]byte) error {
+	err := c.putBack(dir)
+	if c.backup != nil {
+		return err
+	}
+	if clearErr := clearGenerated(out, dir); clearErr != nil {
+		return errors.Join(err, clearErr)
+	}
+	names := []string{engine.LockFileName}
+	for name := range config {
+		names = append(names, name)
+	}
+	for _, name := range names {
+		if filepath.Base(name) != name {
+			continue
+		}
+		if rmErr := os.Remove(filepath.Join(dir, name)); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
+	}
+	return err
+}
+
+// leakedSecrets returns why the root result is of fails, if its secrets
+// check failed: a file of it holds a secret value, which the output must
+// never keep, so the root is discarded as one that failed.
+func leakedSecrets(result *engine.Result) error {
+	if result == nil {
+		return nil
+	}
+	for _, c := range result.Gate {
+		if c.Name == engine.CheckSecrets && !c.Passed {
+			return fmt.Errorf("%s failed, so the root isn't kept: %s", c.Name, strings.Join(c.Details, "; "))
+		}
+	}
+	return nil
+}
+
 // rootBackup is what a root had before it was generated again: the files
 // directly in its directory, but its local state (see
 // engine.LocalStateFile), and its checkpoint. The state is Terraform's,

@@ -242,11 +242,17 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	if err != nil && ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}
+	if err == nil {
+		err = leakedSecrets(result)
+	}
 	if err != nil {
 		// A root an earlier import generated, which may be in use,
 		// keeps the files it had, and its checkpoint, rather than
-		// none: a later run generates it again.
-		err = errors.Join(err, claimed.putBack(dir))
+		// none: a later run generates it again. Any other keeps none
+		// of what the import wrote, which may hold secrets in the
+		// clear, but its checkpoint.
+		result = nil
+		err = errors.Join(err, claimed.discard(options.Out, dir, dirOpts.Config))
 	}
 	if err == nil && dirOpts.Previous != nil {
 		err = claimed.refuseReaddressed(dir, result, imports, inOtherRoots(options.Out, roots, dir))
