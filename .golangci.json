@@ -177,11 +177,23 @@
             "deny": [
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/providers/",
-                "desc": "the MCP server reads the providers compiled in through internal/cli/providers, never a lister directly"
+                "desc": "the MCP server is passed what it knows of the providers compiled in (see mcpserver.Providers), never a lister"
               },
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/importer",
                 "desc": "the MCP server runs the infraharvest binary for imports and drift; it reads drift's rules and decisions through internal/driftpolicy"
+              }
+            ]
+          },
+          "mcpserver-code": {
+            "files": [
+              "**/internal/mcpserver/*.go",
+              "!$test"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands start the MCP server and pass it the providers compiled in (see cli.MCPProviders); the server knows nothing of commands, and internal/cli/providers would bring every lister and cloud SDK in"
               }
             ]
           },

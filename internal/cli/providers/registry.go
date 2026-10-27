@@ -13,6 +13,7 @@ package providers
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -59,6 +60,32 @@ func Profiles() []harvest.Profile {
 		profiles = append(profiles, registry[name].newProvider().Profile())
 	}
 	return profiles
+}
+
+// Sources returns, by the names of their commands, the source addresses
+// of the Terraform providers the roots of each provider compiled in use:
+// its own, such as hashicorp/azurerm, then those its curated modules use,
+// such as Azure/azapi (see harvest.ProviderWithModuleProviders), sorted.
+// The MCP server's drift tools run Terraform on roots that use these
+// alone (see mcpserver.Providers).
+func Sources() map[string][]string {
+	sources := make(map[string][]string, len(registry))
+	for name, e := range registry {
+		p := e.newProvider()
+		own := p.Profile().Source
+		if own == "" {
+			own = "hashicorp/" + p.Name()
+		}
+		var modules []string
+		if m, ok := p.(harvest.ProviderWithModuleProviders); ok {
+			for _, mp := range m.ModuleProviders() {
+				modules = append(modules, mp.Source)
+			}
+		}
+		slices.Sort(modules)
+		sources[name] = append([]string{own}, slices.Compact(modules)...)
+	}
+	return sources
 }
 
 // Check rejects name unless it names a provider compiled in. The services

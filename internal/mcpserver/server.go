@@ -66,6 +66,13 @@ type Providers struct {
 	// Profiles are their profiles, sorted by the names of their commands
 	// (see harvest.Profile.Command).
 	Profiles []harvest.Profile
+	// Sources are, by the names of their commands, the source addresses
+	// of the Terraform providers each one's roots use: its own, such as
+	// hashicorp/azurerm, and those its curated modules use, such as
+	// Azure/azapi (see harvest.ProviderWithModuleProviders). The drift
+	// tools run Terraform on roots that use these alone (see
+	// driftAllowed).
+	Sources map[string][]string
 	// Check rejects a name unless it names one of them, as the commands
 	// that take a provider's name do.
 	Check func(name string) error

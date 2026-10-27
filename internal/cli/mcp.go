@@ -69,7 +69,7 @@ func newMCPCmd() *cobra.Command {
 // which knows them only through what it is passed (see
 // mcpserver.Providers).
 func MCPProviders() mcpserver.Providers {
-	return mcpserver.Providers{Profiles: providers.Profiles(), Check: providers.Check}
+	return mcpserver.Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
 }
 
 // childEnv returns env, the server's environment, without the variables

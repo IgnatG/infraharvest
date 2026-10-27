@@ -63,7 +63,7 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 
 // compiled are the providers compiled into the tests, as internal/cli passes
 // them to the server.
-var compiled = Providers{Profiles: providers.Profiles(), Check: providers.Check}
+var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
 
 // newTools returns the tools, whose files stay under root, running and
 // checking with runner.
