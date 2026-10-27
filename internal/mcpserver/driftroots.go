@@ -100,9 +100,20 @@ func checkDriftRoots(out string) (string, error) {
 	parser := hclparse.NewParser()
 	// The configuration files of each directory, in the order found.
 	files := map[string][]*hcl.File{}
+	// The backend settings of the environments of each root they share,
+	// by the root's directory (see rootOfBackendConfig).
+	backendConfigs := map[string][]*hcl.File{}
 	var dirs []string
 	digest, err := driftpolicy.ReadRoots(out, func(path string, content []byte) error {
 		name := filepath.Base(path)
+		if root := rootOfBackendConfig(path); root != "" {
+			f, diags := parser.ParseHCL(content, relativeTo(out, path))
+			if diags.HasErrors() {
+				return diags
+			}
+			backendConfigs[root] = append(backendConfigs[root], f)
+			return nil
+		}
 		if !configFile(name) {
 			return nil
 		}
@@ -137,7 +148,7 @@ func checkDriftRoots(out string) (string, error) {
 			continue
 		}
 		checked[dir] = true
-		modules, err := checkModuleDir(out, dir, files[dir])
+		modules, err := checkModuleDir(out, dir, files[dir], backendConfigs[dir])
 		if err != nil {
 			return "", err
 		}
@@ -194,12 +205,16 @@ func configFile(name string) bool {
 // moduleUses is what the configuration files of one module directory,
 // a root or a module it calls, use: the providers their
 // required_providers declare, each with where, the local names their
-// blocks name, each with where, and the local modules they call.
+// blocks name, each with where, the local modules they call, and the
+// blocks that configure providers and the backend.
 type moduleUses struct {
 	declared []declaredProvider
 	named    map[string]hcl.Range
 	// modules are the directories of the local modules it calls.
 	modules []string
+	// providers are its provider blocks, and backends the backend blocks
+	// of its terraform blocks.
+	providers, backends []*hcl.Block
 }
 
 // declaredProvider is a provider required_providers declares: its local
@@ -222,13 +237,16 @@ var driftModuleSchema = &hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
 	{Type: "import"},
 }}
 
-// checkModuleDir checks files, the configuration files of the module in dir,
-// under out (see checkDriftRoots), and returns the directories of the
-// local modules it calls. A provider a block names without
-// required_providers declaring it is hashicorp/<name>, as Terraform takes
-// it. A provider-defined function's provider has to be declared, so it is
-// checked there.
-func checkModuleDir(out, dir string, files []*hcl.File) ([]string, error) {
+// checkModuleDir checks files, the configuration files of the module in
+// dir, under out (see checkDriftRoots), with backendConfigs, the backend
+// settings of its environments where it is a root they share, and
+// returns the directories of the local modules it calls. A provider a
+// block names without required_providers declaring it is
+// hashicorp/<name>, as Terraform takes it. A provider-defined function's
+// provider has to be declared, so it is checked there. Its provider and
+// backend blocks, and the backend settings, may set only what
+// infraharvest generates them with (see checkSettings).
+func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File) ([]string, error) {
 	uses := &moduleUses{named: map[string]hcl.Range{}}
 	for _, f := range files {
 		if err := uses.read(out, dir, f.Body); err != nil {
@@ -237,19 +255,44 @@ func checkModuleDir(out, dir string, files []*hcl.File) ([]string, error) {
 	}
 	// Another file, such as an override file, may declare a provider
 	// again: each declaration is checked.
-	declared := map[string]bool{}
+	declared := map[string][]string{}
 	for _, d := range uses.declared {
 		if err := allowedProvider(d.source, d.at, "declares the provider "+d.name+" as"); err != nil {
 			return nil, err
 		}
-		declared[d.name] = true
+		declared[d.name] = append(declared[d.name], d.source)
 	}
 	for _, name := range slices.Sorted(maps.Keys(uses.named)) {
-		if declared[name] {
+		if declared[name] != nil {
 			continue
 		}
 		if err := allowedProvider("hashicorp/"+name, uses.named[name], "uses the provider"); err != nil {
 			return nil, err
+		}
+	}
+	for _, b := range uses.providers {
+		sources := declared[b.Labels[0]]
+		if sources == nil {
+			sources = []string{"hashicorp/" + b.Labels[0]}
+		}
+		for _, source := range sources {
+			if err := checkSettings(b.Body, providerSettings[providerAddress(source)], "the provider "+b.Labels[0]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for _, b := range uses.backends {
+		what := "the " + b.Labels[0] + " backend"
+		s, ok := backendSettings[b.Labels[0]]
+		if !ok {
+			return nil, fmt.Errorf("%s: %s, which infraharvest doesn't generate roots with (%s)", where(b.DefRange), what, strings.Join(slices.Sorted(maps.Keys(backendSettings)), ", "))
+		}
+		// drift initialises the backend with the settings of the
+		// environment it checks, as -backend-config.
+		for _, body := range append([]hcl.Body{b.Body}, bodies(backendConfigs)...) {
+			if err := checkSettings(body, s, what); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return uses.modules, nil
@@ -267,6 +310,121 @@ func allowedProvider(source string, at hcl.Range, what string) error {
 	return fmt.Errorf("%s: %s %s, which isn't a provider infraharvest generates roots with (%s)", where(at), what, source, strings.Join(slices.Sorted(maps.Keys(sources)), ", "))
 }
 
+// settings are the arguments, and the nested blocks with theirs, that
+// infraharvest generates a provider or backend block with (see
+// checkSettings).
+type settings struct {
+	arguments []string
+	blocks    map[string]*settings
+}
+
+// providerSettings are what infraharvest configures each provider of
+// driftAllowed with, by source address as driftAllowed has it: the
+// providers' own blocks (each provider's ProviderBlock, written without
+// credentials by the engine's ProvidersFile, and in a root environments
+// share with the region and what differs as variables), those of the
+// providers curated modules use (ModuleProviders), and the second
+// configuration of a provider, with an alias, for the resources without
+// its default tags. A custom Azure cloud's endpoints for azapi aren't
+// among them: they would send the requests elsewhere.
+var providerSettings = map[string]*settings{
+	"hashicorp/aws": {
+		arguments: []string{"alias", "allowed_account_ids", "region"},
+		blocks: map[string]*settings{
+			"assume_role":  {arguments: []string{"role_arn"}},
+			"default_tags": {arguments: []string{"tags"}},
+		},
+	},
+	"hashicorp/azurerm":     {arguments: []string{"alias", "subscription_id"}, blocks: map[string]*settings{"features": {}}},
+	"azure/azapi":           {arguments: []string{"alias", "subscription_id"}},
+	"hashicorp/google":      {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
+	"hashicorp/google-beta": {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
+}
+
+// backendSettings are what infraharvest configures each backend it
+// generates roots with with (see config.Backend.File), in its block and
+// in an environment's backend settings, by type.
+var backendSettings = map[string]*settings{
+	"s3":      {arguments: []string{"bucket", "encrypt", "key", "kms_key_id", "region", "use_lockfile"}},
+	"azurerm": {arguments: []string{"container_name", "key", "resource_group_name", "storage_account_name"}},
+	"gcs":     {arguments: []string{"bucket", "prefix"}},
+}
+
+// checkSettings refuses body, the body of what, a provider or backend
+// block or a nested block of one, or backend settings, unless it sets
+// only what s has, at any depth. Anything else could have a provider or
+// backend run a program, such as the AWS shared configuration's
+// credential_process, or send its requests, with the credentials, to
+// another host, such as through endpoints or a CA bundle; which settings
+// are safe isn't for the check to judge, so it allows only those
+// infraharvest generates.
+func checkSettings(body hcl.Body, s *settings, what string) error {
+	if s == nil {
+		s = &settings{}
+	}
+	schema := &hcl.BodySchema{}
+	for _, name := range s.arguments {
+		schema.Attributes = append(schema.Attributes, hcl.AttributeSchema{Name: name})
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.blocks)) {
+		schema.Blocks = append(schema.Blocks, hcl.BlockHeaderSchema{Type: name})
+	}
+	content, diags := body.Content(schema)
+	for _, d := range diags {
+		if d.Severity == hcl.DiagError && d.Subject != nil {
+			return fmt.Errorf("%s: %s sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: %s It takes only %s", where(*d.Subject), what, d.Detail, s)
+		}
+	}
+	if diags.HasErrors() {
+		return diags
+	}
+	for _, b := range content.Blocks {
+		if err := checkSettings(b.Body, s.blocks[b.Type], what+"'s "+b.Type); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// String lists what s takes, for a message: its arguments, and each
+// nested block with what it takes in braces.
+func (s *settings) String() string {
+	items := slices.Clone(s.arguments)
+	for name, nested := range s.blocks {
+		if len(nested.arguments) == 0 && len(nested.blocks) == 0 {
+			items = append(items, name+" {}")
+		} else {
+			items = append(items, name+" { "+nested.String()+" }")
+		}
+	}
+	slices.Sort(items)
+	if len(items) == 0 {
+		return "nothing"
+	}
+	return strings.Join(items, ", ")
+}
+
+// rootOfBackendConfig returns the directory of the root path is the
+// backend settings of an environment of, vars/<env>/backend.hcl in a root
+// environments share, which drift initialises the backend with; "" for
+// any other path.
+func rootOfBackendConfig(path string) string {
+	vars := filepath.Dir(filepath.Dir(path))
+	if filepath.Base(path) != "backend.hcl" || filepath.Base(vars) != "vars" {
+		return ""
+	}
+	return filepath.Dir(vars)
+}
+
+// bodies returns the bodies of files.
+func bodies(files []*hcl.File) []hcl.Body {
+	b := make([]hcl.Body, len(files))
+	for i, f := range files {
+		b[i] = f.Body
+	}
+	return b
+}
+
 // read adds what body, of a configuration file of the module in dir,
 // declares and names to u, and checks the sources of the modules it
 // calls.
@@ -282,6 +440,7 @@ func (u *moduleUses) read(out, dir string, body hcl.Body) error {
 			err = u.readTerraform(b.Body)
 		case "provider":
 			u.name(b.Labels[0], b.LabelRanges[0])
+			u.providers = append(u.providers, b)
 		case "resource", "data", "ephemeral", "action":
 			err = u.readResource(b)
 		case "module":
@@ -316,13 +475,26 @@ func (u *moduleUses) name(local string, where hcl.Range) {
 
 // readTerraform reads the required_providers of a terraform block: each
 // provider's source, or hashicorp/<name> without one, as for a version
-// constraint alone.
+// constraint alone; and its backend, which checkModuleDir checks. A
+// cloud block, which sends a token to the host it names, is refused:
+// infraharvest doesn't generate one, and drift doesn't plan with it.
 func (u *moduleUses) readTerraform(body hcl.Body) error {
-	content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "required_providers"}}})
+	content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{
+		{Type: "required_providers"},
+		{Type: "backend", LabelNames: []string{"type"}},
+		{Type: "cloud"},
+	}})
 	if diags.HasErrors() {
 		return diags
 	}
 	for _, b := range content.Blocks {
+		switch b.Type {
+		case "cloud":
+			return fmt.Errorf("%s: a cloud block, which infraharvest doesn't generate roots with", where(b.DefRange))
+		case "backend":
+			u.backends = append(u.backends, b)
+			continue
+		}
 		attrs, diags := b.Body.JustAttributes()
 		if diags.HasErrors() {
 			return diags
