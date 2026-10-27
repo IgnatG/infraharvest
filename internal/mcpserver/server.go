@@ -34,6 +34,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
@@ -71,6 +72,7 @@ func New(version, root string, run Runner, check Checker) *mcp.Server {
 		Name:        "discover",
 		Title:       "List resources into a selection file",
 		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + scopeHelp,
+		InputSchema: scopeSchema[DiscoverInput](),
 		// It writes the selection file, merging into one that is there, so
 		// it isn't read-only, though it destroys nothing.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
@@ -79,6 +81,7 @@ func New(version, root string, run Runner, check Checker) *mcp.Server {
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
 		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
+		InputSchema: scopeSchema[ImportInput](),
 		// Not idempotent: the same import again is refused, with
 		// incremental adds what is new since, or with regenerate writes
 		// the roots again.
@@ -223,9 +226,11 @@ func resolve(path string) (string, error) {
 // flag its flag tag names (see flagArgs). A field with a providers tag is
 // for the providers it names alone, whose command has that flag: the
 // tools reject it for the others (see checkScopeProviders), and the tools'
-// descriptions say which provider takes which (see scopeHelp).
+// descriptions say which provider takes which (see scopeHelp). The
+// provider's description names the provider commands compiled in (see
+// scopeSchema).
 type Scope struct {
-	Provider string   `json:"provider" jsonschema:"the provider command: aws, azure or google"`
+	Provider string   `json:"provider" jsonschema:"the provider command"`
 	Services []string `json:"services,omitempty" flag:"services" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
 	// Regions is for aws and google.
 	Regions []string `json:"regions,omitempty" flag:"regions" providers:"aws,google" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
@@ -761,7 +766,7 @@ var scopeHelp = func() string {
 				fields = append(fields, jsonName(scope.Field(i)))
 			}
 		}
-		takes = append(takes, provider+" takes "+andJoin(fields))
+		takes = append(takes, provider+" takes "+sentenceJoin(fields, "and"))
 	}
 	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + ". The google command needs projects, organization or folders."
 }()
@@ -783,12 +788,28 @@ func jsonName(field reflect.StructField) string {
 	return name
 }
 
-// andJoin joins words as a sentence lists them: a, b and c.
-func andJoin(words []string) string {
+// sentenceJoin joins words as a sentence lists them, with conjunction
+// before the last: a, b and c.
+func sentenceJoin(words []string, conjunction string) string {
 	if len(words) < 2 {
 		return strings.Join(words, "")
 	}
-	return strings.Join(words[:len(words)-1], ", ") + " and " + words[len(words)-1]
+	return strings.Join(words[:len(words)-1], ", ") + " " + conjunction + " " + words[len(words)-1]
+}
+
+// scopeSchema returns the input schema of a tool whose input In embeds
+// Scope, as the SDK would infer it, with the provider commands compiled
+// in after the provider's description: the provider command: aws, azure
+// or google. It panics where the schema can't be inferred, as the SDK
+// does.
+func scopeSchema[In any]() *jsonschema.Schema {
+	schema, err := jsonschema.For[In](&jsonschema.ForOptions{})
+	if err != nil {
+		panic(fmt.Sprintf("mcpserver: the input schema of %T: %v", *new(In), err))
+	}
+	provider := schema.Properties["provider"]
+	provider.Description += ": " + sentenceJoin(providers.Names(), "or")
+	return schema
 }
 
 // checkScopeProviders rejects each field of s that is set and is for
