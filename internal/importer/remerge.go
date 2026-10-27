@@ -228,9 +228,10 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Arrivals:  m.result.Arrived,
 		}
 	}
-	// A restored member has no engine options of its own.
-	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
-	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
+	// A restored member has no engine options or profile of its own.
+	imported := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })]
+	opts := imported.opts
+	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
 	result, err := r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	// Nothing says which of the resources of a stack merged before an
 	// earlier merge kept apart, as what an incremental import added (see

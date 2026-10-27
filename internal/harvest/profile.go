@@ -121,7 +121,7 @@ type Merge struct {
 	// as AWS region.
 	RegionTitle string
 	// RegionData is the data source that reads the region, RegionLocal
-	// the local that holds it, and RegionExpr the expression that reads
-	// it.
+	// the local that holds it, which also names the variable that sets
+	// the provider's, and RegionExpr the expression that reads it.
 	RegionData, RegionLocal, RegionExpr string
 }

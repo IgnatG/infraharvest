@@ -15,6 +15,34 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// mergeProfiles are the merge profiles of the providers whose roots the
+// tests merge, as the importer fills them from the providers' profiles.
+var mergeProfiles = map[string]MergeProfile{
+	"aws": {
+		ScopeTitle:     "Account",
+		ScopeData:      "aws_caller_identity.current",
+		ScopeLocal:     "aws_account_id",
+		ScopeExpr:      "data.aws_caller_identity.current.account_id",
+		RegionArgument: "region",
+		RegionTitle:    "AWS region",
+		RegionData:     "aws_region.current",
+		RegionLocal:    "aws_region",
+		RegionExpr:     "data.aws_region.current.region",
+	},
+	"azurerm": {
+		ScopeTitle: "Subscription",
+		ScopeData:  "azurerm_client_config.current",
+		ScopeLocal: "subscription_id",
+		ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
+	},
+	"google": {
+		ScopeTitle: "Project",
+		ScopeData:  "google_client_config.current",
+		ScopeLocal: "project_id",
+		ScopeExpr:  "data.google_client_config.current.project",
+	},
+}
+
 func stringAttributes(names ...string) map[string]*tfjson.SchemaAttribute {
 	attrs := map[string]*tfjson.SchemaAttribute{}
 	for _, name := range names {
@@ -122,7 +150,7 @@ func mergeDevProd(t *testing.T, dev, prod string, devIDs, prodIDs map[string]str
 	for i := range roots {
 		roots[i].region = "eu-west-2"
 	}
-	return mergeStack("aws", roots, envSchemas)
+	return mergeStack("aws", mergeProfiles["aws"], roots, envSchemas)
 }
 
 // localsOf is m's locals, formatted, by name, and their names in order.
@@ -261,7 +289,7 @@ resource "aws_dynamodb_table" "orders" {
 		}
 		roots = append(roots, testEnvRoot(t, env, nil, "", bucket(env, destroy, "PAY_PER_REQUEST"), ids(env)))
 	}
-	m = mergeStack("google", roots, nil)
+	m = mergeStack("google", mergeProfiles["google"], roots, nil)
 	if a := attributeOf(t, resourceAt(t, m, "aws_s3_bucket.logs"), "force_destroy"); flatExpr(a.value) != `var.env != "prod"` {
 		t.Errorf("force_destroy = %s", flatExpr(a.value))
 	}
@@ -567,7 +595,7 @@ resource "aws_sqs_queue" "returns" {
 `, map[string]string{"aws_sqs_queue.orders": "legacy-orders", "aws_sqs_queue.refunds": "shop-prd-refunds", "aws_sqs_queue.returns": "shop-prod-returns"}),
 	}
 	isolated := map[string]bool{mergeKey(1, "aws_sqs_queue.refunds"): true, mergeKey(1, "aws_sqs_queue.returns"): true}
-	m := mergeStackWith("aws", roots, envSchemas, &mergeControls{isolated: isolated})
+	m := mergeStackWith("aws", mergeProfiles["aws"], roots, envSchemas, &mergeControls{isolated: isolated})
 	locals, _ := localsOf(m)
 	for address, want := range map[string]string{
 		"aws_sqs_queue.orders_dev":  `"${local.naming_prefix}-orders"`,
@@ -704,7 +732,7 @@ func TestMergeStackFeatureData(t *testing.T) {
 			t.Fatal(err)
 		}
 		roots[1].data = f
-		return mergeStack("aws", roots, envSchemas)
+		return mergeStack("aws", mergeProfiles["aws"], roots, envSchemas)
 	}
 	const policy = `data "aws_vpc" "vpn" {
   id = "vpc-0abc1234"
@@ -916,7 +944,7 @@ func TestMergeStackAzure(t *testing.T) {
 	dev.group = "rg-blue"
 	prod := testEnvRoot(t, "prod", []string{"prd"}, "00000000-0000-0000-0000-000000000002", account("rg-green", "shopprdlogs"), map[string]string{"azurerm_storage_account.logs": fmt.Sprintf(subscription, 2, "rg-green", "shopprdlogs")})
 	prod.group = "rg-green"
-	m := mergeStack("azurerm", []envRoot{dev, prod}, nil)
+	m := mergeStack("azurerm", mergeProfiles["azurerm"], []envRoot{dev, prod}, nil)
 	logs := resourceAt(t, m, "azurerm_storage_account.logs")
 	if logs.rule != byLabel {
 		t.Errorf("matched by %d, want by label", logs.rule)

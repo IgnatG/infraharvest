@@ -150,10 +150,13 @@ type mergeMember struct {
 	// and group its Azure resource group, if any.
 	scope, account, region, group string
 	// provider plans the merged root as the environment, with its
-	// credentials (see terraformEnv), and engineProvider is the root's
-	// provider configuration and version constraint.
+	// credentials (see terraformEnv), engineProvider is the root's
+	// provider configuration and version constraint, and profile what the
+	// merged root reads of the environment's account and region (see
+	// harvest.Merge).
 	provider       harvest.Provider
 	engineProvider engine.Provider
+	profile        engine.MergeProfile
 	fingerprint    string
 	result         *engine.Result
 	// opts are the root's engine options, of which the merged root's gate
@@ -204,7 +207,8 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	region := c.region
 	// The region the provider block sets, where the provider has one (see
 	// harvest.Merge.RegionArgument).
-	if r, ok := c.root.provider.Config[c.provider.Profile().Merge.RegionArgument].(string); ok && r != "" {
+	profile := c.provider.Profile().Merge
+	if r, ok := c.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
 	c.run.members = append(c.run.members, mergeMember{
@@ -218,6 +222,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		group:          c.options.ResourceGroup,
 		provider:       c.provider,
 		engineProvider: c.root.provider,
+		profile:        engine.MergeProfile(profile),
 		fingerprint:    fp,
 		result:         result,
 		opts:           opts,

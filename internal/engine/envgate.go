@@ -42,6 +42,9 @@ const credentialsOverrideFileName = "infraharvest_credentials_override.tf"
 // MergeOptions configure MergeRoots: what the merged root's gate checks,
 // as Generate's does (see Options).
 type MergeOptions struct {
+	// Profile is what the merged root reads of each environment's account
+	// and region.
+	Profile         MergeProfile
 	Omit, StateOnly map[string][]string
 	Scanners        []Scanner
 	Adapters        []adapters.Adapter
@@ -176,7 +179,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 	controls := &mergeControls{split: map[string]string{}, isolated: isolatedKeys(g.roots), labels: isolatedLabels(g.roots)}
 	var failures []string
 	for round := 0; round < maxMergeRounds; round++ {
-		m := mergeStackWith(g.roots[0].Provider.Name, envRoots, schemas, controls)
+		m := mergeStackWith(g.roots[0].Provider.Name, g.opts.Profile, envRoots, schemas, controls)
 		files, w, err := buildMergedRoot(m)
 		if err != nil {
 			return &MergeResult{Reason: err.Error()}, nil

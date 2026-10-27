@@ -58,7 +58,7 @@ module "alerts" {
 
 func TestMergeStackModules(t *testing.T) {
 	t.Parallel()
-	m := mergeStack("aws", moduleRoots(t), rootSchemas)
+	m := mergeStack("aws", mergeProfiles["aws"], moduleRoots(t), rootSchemas)
 	files, err := mergedRootFiles(m)
 	if err != nil {
 		t.Fatal(err)
