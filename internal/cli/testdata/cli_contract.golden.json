@@ -159,6 +159,13 @@
         "persistent": true
       },
       {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "default-env",
         "type": "string",
         "default": "",
@@ -408,6 +415,13 @@
         "persistent": true
       },
       {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "default-env",
         "type": "string",
         "default": "",
@@ -647,6 +661,13 @@
         "name": "catalogue",
         "type": "string",
         "default": "",
+        "persistent": true
+      },
+      {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {
@@ -1029,6 +1050,13 @@
         "persistent": true
       },
       {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "default-env",
         "type": "string",
         "default": "",
@@ -1278,6 +1306,13 @@
         "persistent": true
       },
       {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      },
+      {
         "name": "default-env",
         "type": "string",
         "default": "",
@@ -1517,6 +1552,13 @@
         "name": "catalogue",
         "type": "string",
         "default": "",
+        "persistent": true
+      },
+      {
+        "name": "check",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": true
       },
       {

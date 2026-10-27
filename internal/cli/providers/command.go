@@ -26,7 +26,9 @@ const DocsURL = "https://ignatg.github.io/infraharvest/"
 // into the cobra command import and discover add. When the command runs,
 // the definition's planner reads the flags into a plan: the scopes to
 // import (accounts, subscriptions or projects) and, for each, the Import
-// calls that cover it. run then makes those calls.
+// calls that cover it. run then makes those calls. Before the planner,
+// the definition's checker checks the provider's own flags without
+// reaching the cloud, which is all --check runs.
 
 // definition describes one provider's command.
 type definition struct {
@@ -45,13 +47,18 @@ type definition struct {
 	parallelScopes string
 	// flags adds the provider's own flags to the command's persistent
 	// flags, each bound to a field of options or to a value of the
-	// provider's own, and returns the planner that reads them.
-	flags func(flags *pflag.FlagSet, options *importer.Options) planner
+	// provider's own, and returns the checker and the planner that read
+	// them.
+	flags func(flags *pflag.FlagSet, options *importer.Options) (checker, planner)
 }
 
-// planner checks the options and the provider's own flags, expands them
-// into the scopes to import, and returns the plan, before anything is
-// imported.
+// checker rejects what the options and the provider's own flags say that
+// no plan could do, without reaching the cloud.
+type checker func(options importer.Options) error
+
+// planner expands the options and the provider's own flags, which the
+// checker has checked, into the scopes to import, and returns the plan,
+// before anything is imported.
 type planner func(ctx context.Context, options importer.Options) (plan, error)
 
 // plan is what one run of a provider command imports.
@@ -138,7 +145,9 @@ func (d definition) command(options importer.Options) *cobra.Command {
 	}
 	BaseFlags(cmd.PersistentFlags(), &options, d.sampleServices, d.sampleIDs)
 	ParallelFlag(cmd, &options, d.parallelScopes)
-	planScopes := d.flags(cmd.PersistentFlags(), &options)
+	checkScopes, planScopes := d.flags(cmd.PersistentFlags(), &options)
+	var check bool
+	cmd.PersistentFlags().BoolVar(&check, CheckFlag, false, "check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name")
 	cmd.RunE = func(c *cobra.Command, _ []string) error {
 		// The command's context reaches every Import call, so that an
 		// interrupt stops the import.
@@ -153,6 +162,12 @@ func (d definition) command(options importer.Options) *cobra.Command {
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}
+		if err := checkScopes(options); err != nil {
+			return err
+		}
+		if check {
+			return nil
+		}
 		p, err := planScopes(ctx, options)
 		if err != nil {
 			return err
@@ -161,6 +176,10 @@ func (d definition) command(options importer.Options) *cobra.Command {
 	}
 	return cmd
 }
+
+// CheckFlag is the flag of a provider command that checks its flags and
+// exits without listing anything.
+const CheckFlag = "check"
 
 // BaseFlags adds the flags every provider command has to flags, bound to
 // options. Their names are also the keys of a configuration file's
