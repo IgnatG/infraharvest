@@ -12,7 +12,7 @@ import (
 
 // GeneratedFiles returns the names of the files Generate may write
 // directly into a root, besides those its configuration is split into
-// (see ConfigurationFiles) and versions.tf: what generating the root again
+// (see Result.Files) and versions.tf: what generating the root again
 // replaces.
 func GeneratedFiles() []string {
 	return []string{GeneratedFileName, ImportsFileName, RejectedFileName, LocalsFileName, VariablesFileName, DataFileName, ReadmeFileName, MovesFileName}
@@ -24,9 +24,9 @@ func AddedFiles(dir string) ([]string, error) {
 	return filepath.Glob(filepath.Join(dir, "generated_*.tf"))
 }
 
-// ConfigurationFiles returns the files result's configuration is in: the
+// configurationFiles returns the files result's configuration is in: the
 // files it was split into, or generated.tf.
-func ConfigurationFiles(result *Result) []string {
+func configurationFiles(result *Result) []string {
 	if result != nil && len(result.Files) > 0 {
 		return result.Files
 	}
@@ -39,7 +39,7 @@ func ConfigurationFiles(result *Result) []string {
 // root has imports.tf. Once the root is applied, its README says to
 // delete both.
 func ResultFiles(dir string, result *Result) ([]string, error) {
-	names := append([]string{VersionsFileName}, ConfigurationFiles(result)...)
+	names := append([]string{VersionsFileName}, configurationFiles(result)...)
 	imports, err := pathExists(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
