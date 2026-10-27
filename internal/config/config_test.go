@@ -47,7 +47,7 @@ func flags() (*pflag.FlagSet, *string, *bool, *string, *[]string) {
 
 func TestApply(t *testing.T) {
 	t.Parallel()
-	f, err := Load(write(t, sample))
+	f, err := Load(write(t, sample), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestApply(t *testing.T) {
 
 func TestApplyRejectsUnknownSettings(t *testing.T) {
 	t.Parallel()
-	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    region: eu-west-2\n"))
+	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    region: eu-west-2\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestApplyRejectsCommandLineFlags(t *testing.T) {
 		"version: 1\nproviders:\n  aws:\n    check: true\n",
 		"version: 1\nsettings:\n  config: other.yaml\n",
 	} {
-		f, err := Load(write(t, content))
+		f, err := Load(write(t, content), testProfiles)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func TestApplyRejectsCommandLineFlags(t *testing.T) {
 // A flag given once per value, such as --id, takes each item of a list as
 // one value, commas and all.
 func TestApplyRepeatedFlags(t *testing.T) {
-	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    id: [\"vpc=vpc-1,vpc-2\", subnet=subnet-1]\n    tag: env=prod\n"))
+	f, err := Load(write(t, "version: 1\nproviders:\n  aws:\n    id: [\"vpc=vpc-1,vpc-2\", subnet=subnet-1]\n    tag: env=prod\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestLoadRejectsMistakes(t *testing.T) {
 		"no backend kind":  "version: 1\nbackend: {}\n",
 		"missing settings": "version: 1\nbackend:\n  s3: { bucket: a }\n",
 	} {
-		if _, err := Load(write(t, content)); err == nil {
+		if _, err := Load(write(t, content), testProfiles); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
 	}
@@ -144,7 +144,7 @@ func TestLoadRejectsMistakes(t *testing.T) {
 // commands.
 func TestApplyRejectsUnknownProviders(t *testing.T) {
 	t.Parallel()
-	f, err := Load(write(t, "version: 1\nproviders:\n  google:\n    projects: [p]\n  azurerm:\n    subscription: x\n"))
+	f, err := Load(write(t, "version: 1\nproviders:\n  google:\n    projects: [p]\n  azurerm:\n    subscription: x\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestApplyRejectsUnknownProviders(t *testing.T) {
 		t.Errorf("want an error listing the valid ones, got %v", err)
 	}
 	// The command being run is always one.
-	f, err = Load(write(t, "version: 1\nproviders:\n  fake:\n    profile: x\n"))
+	f, err = Load(write(t, "version: 1\nproviders:\n  fake:\n    profile: x\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +228,7 @@ modules:
     version: 2.1.0
   - source: ./modules/role
 `)
-	f, err := Load(path)
+	f, err := Load(path, testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestLoadRejectsUnpinnedModules(t *testing.T) {
 		"a versioned directory":        {"source: ./modules/role\n    version: 1.0.0", "a directory has no version"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := Load(write(t, "version: 1\nmodules:\n  - "+tc.module+"\n"))
+			_, err := Load(write(t, "version: 1\nmodules:\n  - "+tc.module+"\n"), testProfiles)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("got %v, want %q", err, tc.want)
 			}
@@ -313,7 +313,7 @@ func TestModuleProviderAndImmutable(t *testing.T) {
 // them is an error, as a command such as drift runs for no one provider.
 func TestApplyShared(t *testing.T) {
 	t.Parallel()
-	f, err := Load(write(t, "version: 1\nsettings:\n  engine: tofu\n  catalogue: overlay\n  selection: selection.yaml\nproviders:\n  aws:\n    profile: prod\n"))
+	f, err := Load(write(t, "version: 1\nsettings:\n  engine: tofu\n  catalogue: overlay\n  selection: selection.yaml\nproviders:\n  aws:\n    profile: prod\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func TestApplyShared(t *testing.T) {
 		t.Errorf("got engine=%s catalogue=%s, want tofu and the command line's", *engine, *catalogue)
 	}
 
-	f, err = Load(write(t, "version: 1\nproviders:\n  aws:\n    engine: tofu\n"))
+	f, err = Load(write(t, "version: 1\nproviders:\n  aws:\n    engine: tofu\n"), testProfiles)
 	if err != nil {
 		t.Fatal(err)
 	}

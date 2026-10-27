@@ -65,8 +65,8 @@ func run(write bool, notesFile string) error {
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
 	var failed []string
-	for _, command := range adapters.Providers() {
-		for _, a := range adapters.For(command) {
+	for _, family := range adapters.Providers() {
+		for _, a := range adapters.For(family) {
 			var err error
 			if write {
 				err = writeSnapshot(ctx, client, a)

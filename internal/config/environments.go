@@ -4,12 +4,16 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // SharedEnvironment is the environment of what no environment's tags
@@ -30,7 +34,10 @@ type Environments map[string]Environment
 // Environment is where one environment is: the AWS accounts, Azure
 // subscriptions and Google Cloud projects that hold it and, where one of
 // them holds several environments, or for an environment that names
-// none, the tags that tell its resources apart.
+// none, the tags that tell its resources apart. Each provider command has
+// a section, a pointer to a struct with one field, the IDs, which is all
+// it takes for the file to name its scopes (see providerCommands and
+// Scopes); what the IDs are like is the provider's (see harvest.Scope).
 type Environment struct {
 	AWS    *AWSScopes    `yaml:"aws,omitempty"`
 	Azure  *AzureScopes  `yaml:"azure,omitempty"`
@@ -63,26 +70,38 @@ type GoogleScopes struct {
 // environmentName matches an environment's name, which names a directory.
 var environmentName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
-// awsAccount matches an AWS account ID.
-var awsAccount = regexp.MustCompile(`^[0-9]{12}$`)
+// providerCommands returns the provider commands the file has sections
+// for, aws, azure and google, in the order Environment declares them:
+// whichever of them the binary is built with, providers: holds settings
+// for them too.
+func providerCommands() []string {
+	var commands []string
+	for _, field := range reflect.VisibleFields(reflect.TypeFor[Environment]()) {
+		if field.Type.Kind() == reflect.Pointer {
+			name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+			commands = append(commands, name)
+		}
+	}
+	return commands
+}
 
 // Scopes returns the accounts, subscriptions or projects of e for the
-// provider command provider: aws, azure or google.
+// provider command provider, such as aws: the IDs of its section.
 func (e Environment) Scopes(provider string) []string {
-	switch {
-	case provider == "aws" && e.AWS != nil:
-		return e.AWS.Accounts
-	case provider == "azure" && e.Azure != nil:
-		return e.Azure.Subscriptions
-	case provider == "google" && e.Google != nil:
-		return e.Google.Projects
+	v := reflect.ValueOf(e)
+	for _, field := range reflect.VisibleFields(v.Type()) {
+		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		section := v.FieldByIndex(field.Index)
+		if name == provider && field.Type.Kind() == reflect.Pointer && !section.IsNil() {
+			return section.Elem().Field(0).Interface().([]string)
+		}
 	}
 	return nil
 }
 
 // hasScopes reports whether e names any account, subscription or project.
 func (e Environment) hasScopes() bool {
-	return slices.ContainsFunc(ProviderCommands, func(p string) bool { return len(e.Scopes(p)) > 0 })
+	return slices.ContainsFunc(providerCommands(), func(p string) bool { return len(e.Scopes(p)) > 0 })
 }
 
 // EnvironmentTokens returns the words that stand for the environment name
@@ -122,16 +141,16 @@ func TagValue(value string) string {
 }
 
 // For returns, sorted, the environments of the account, subscription or
-// project scope of the provider command provider: those that name it;
-// if none does, those that name no account, subscription or project and
-// tell their resources by tags only. None means the scope's roots are
-// laid out as without environments.
-func (envs Environments) For(provider, scope string) []string {
+// project scope of the provider command whose profile is provider: those
+// that name it; if none does, those that name no account, subscription
+// or project and tell their resources by tags only. None means the
+// scope's roots are laid out as without environments.
+func (envs Environments) For(provider harvest.Profile, scope string) []string {
 	var named, tagged []string
 	for _, name := range slices.Sorted(maps.Keys(envs)) {
 		e := envs[name]
 		switch {
-		case slices.ContainsFunc(e.Scopes(provider), func(s string) bool { return sameScope(provider, s, scope) }):
+		case slices.ContainsFunc(e.Scopes(provider.Command), func(s string) bool { return scopeKey(provider.Scope, s) == scopeKey(provider.Scope, scope) }):
 			named = append(named, name)
 		case !e.hasScopes():
 			tagged = append(tagged, name)
@@ -143,24 +162,34 @@ func (envs Environments) For(provider, scope string) []string {
 	return tagged
 }
 
-// sameScope reports whether a and b name the same scope of provider:
-// Azure's subscription IDs are GUIDs, in either case.
-func sameScope(provider, a, b string) bool {
-	if provider == "azure" {
-		return strings.EqualFold(a, b)
+// scopeKey is the ID of a scope of a provider whose scopes are s that
+// is the same for every ID of that scope: in lower case where IDs are in
+// either case, such as Azure's subscription GUIDs.
+func scopeKey(s harvest.Scope, id string) string {
+	if s.FoldCase {
+		return strings.ToLower(id)
 	}
-	return a == b
+	return id
 }
 
 // check returns why envs can't place every resource in one environment,
 // if they can't: a name that isn't a directory name or is
 // SharedEnvironment or AllEnvironments, an environment that names nothing
 // to find it by, an empty account, subscription, project, tag or token,
-// an AWS account that isn't one, a token two environments use, or an
-// account, subscription or project several environments name, or several
+// an ID that isn't one by its provider's profile, such as an AWS account
+// that isn't 12 digits, a token two environments use, or an account,
+// subscription or project several environments name, or several
 // environments that name none, whose tags don't tell them apart (see
-// apart).
-func (envs Environments) check() error {
+// apart). profiles say what the IDs of the provider commands the binary
+// is built with are like; those of the others go unchecked, as the
+// binary never reads them.
+func (envs Environments) check(profiles []harvest.Profile) error {
+	profiles = slices.SortedFunc(slices.Values(profiles), func(a, b harvest.Profile) int { return cmp.Compare(a.Command, b.Command) })
+	var fields, nouns []string
+	for _, p := range profiles {
+		fields = append(fields, p.Command+" "+p.Scope.Field)
+		nouns = append(nouns, p.Scope.Noun)
+	}
 	tokens := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(envs)) {
 		e := envs[name]
@@ -172,15 +201,15 @@ func (envs Environments) check() error {
 		case name == AllEnvironments:
 			return fmt.Errorf("%q: the name stands for every environment, as in drift --environment %s", name, AllEnvironments)
 		case !e.hasScopes() && len(e.Tags) == 0:
-			return fmt.Errorf("%s: name its aws accounts, azure subscriptions or google projects, or its tags", name)
+			return fmt.Errorf("%s: name its %s, or its tags", name, sentenceJoin(fields))
 		}
-		for _, provider := range ProviderCommands {
-			for _, scope := range e.Scopes(provider) {
+		for _, p := range profiles {
+			for _, scope := range e.Scopes(p.Command) {
 				switch {
 				case strings.TrimSpace(scope) == "":
-					return fmt.Errorf("%s: %s: an empty ID", name, provider)
-				case provider == "aws" && !awsAccount.MatchString(scope):
-					return fmt.Errorf("%s: aws: %q isn't an account ID, 12 digits", name, scope)
+					return fmt.Errorf("%s: %s: an empty ID", name, p.Command)
+				case p.Scope.ID != nil && !p.Scope.ID.MatchString(scope):
+					return fmt.Errorf("%s: %s: %q isn't %s", name, p.Command, scope, p.Scope.IDFormat)
 				}
 			}
 		}
@@ -201,15 +230,12 @@ func (envs Environments) check() error {
 		}
 	}
 	// What several environments share must be told apart by tags.
-	for _, provider := range ProviderCommands {
+	for _, p := range profiles {
 		sharing := map[string][]string{}
 		var scopes []string
 		for _, name := range slices.Sorted(maps.Keys(envs)) {
-			for _, scope := range envs[name].Scopes(provider) {
-				key := scope
-				if provider == "azure" {
-					key = strings.ToLower(scope)
-				}
+			for _, scope := range envs[name].Scopes(p.Command) {
+				key := scopeKey(p.Scope, scope)
 				if !slices.Contains(sharing[key], name) {
 					if len(sharing[key]) == 0 {
 						scopes = append(scopes, key)
@@ -220,7 +246,7 @@ func (envs Environments) check() error {
 		}
 		for _, scope := range scopes {
 			if err := envs.apart(sharing[scope]); err != nil {
-				return fmt.Errorf("%s %s: %w", provider, scope, err)
+				return fmt.Errorf("%s %s: %w", p.Command, scope, err)
 			}
 		}
 	}
@@ -231,9 +257,18 @@ func (envs Environments) check() error {
 		}
 	}
 	if err := envs.apart(tagsOnly); err != nil {
-		return fmt.Errorf("the environments that name no account, subscription or project: %w", err)
+		return fmt.Errorf("the environments that name no %s: %w", sentenceJoin(nouns), err)
 	}
 	return nil
+}
+
+// sentenceJoin joins words as a sentence lists them, with or before the
+// last: a, b or c.
+func sentenceJoin(words []string) string {
+	if len(words) < 2 {
+		return strings.Join(words, "")
+	}
+	return strings.Join(words[:len(words)-1], ", ") + " or " + words[len(words)-1]
 }
 
 // apart returns why the environments names, found in the same place,

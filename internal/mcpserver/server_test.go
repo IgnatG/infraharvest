@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -488,12 +489,25 @@ func TestScopeText(t *testing.T) {
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
 	} {
-		if got, err := scopeText(tc.scope); err != nil || got != tc.want {
+		if got, err := scopeText(tc.scope, providers.New(tc.scope.Provider).Profile()); err != nil || got != tc.want {
 			t.Errorf("scopeText(%+v): got %q, %v, want %q", tc.scope, got, err, tc.want)
 		}
 	}
-	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}); err == nil {
-		t.Error("a provider scopeText has no case for: want an error, not an aws account")
+	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}, harvest.Profile{Command: "oracle"}); err == nil {
+		t.Error("a provider whose profile can't describe its scope: want an error, not an aws account")
+	}
+}
+
+// What the user confirms of a provider's scope is its profile's, so a
+// fourth provider's takes no change here; the fields of Scope it takes
+// are the tools' schema, which names each provider's.
+func TestScopeTextOfAnotherProvider(t *testing.T) {
+	oracle := harvest.Profile{Command: "oracle", Scope: harvest.Scope{Describe: func(flags map[string][]string) string {
+		return "the oracle tenancy in " + strings.Join(flags["regions"], ", ")
+	}}}
+	got, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}, Regions: []string{"uk-london-1"}}, oracle)
+	if want := "the oracle tenancy in uk-london-1 (vcn)"; err != nil || got != want {
+		t.Errorf("got %q, %v, want %q", got, err, want)
 	}
 }
 
@@ -513,7 +527,8 @@ func TestScopeTextSaysEveryField(t *testing.T) {
 				// It is taken with stacks alone.
 				s.CloudFormationStacks = []string{"app"}
 			}
-			without, err := scopeText(s)
+			profile := providers.New(provider).Profile()
+			without, err := scopeText(s, profile)
 			if err != nil {
 				t.Fatalf("%s: %v", provider, err)
 			}
@@ -526,7 +541,7 @@ func TestScopeTextSaysEveryField(t *testing.T) {
 			case reflect.Slice:
 				value.Set(reflect.ValueOf([]string{"x"}))
 			}
-			if with, err := scopeText(s); err != nil || with == without {
+			if with, err := scopeText(s, profile); err != nil || with == without {
 				t.Errorf("%s with %s: got %q, %v, the same as without it", provider, jsonName(field), with, err)
 			}
 		}

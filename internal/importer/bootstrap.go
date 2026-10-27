@@ -12,10 +12,11 @@ import (
 	"sort"
 
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-func WriteBootstrap(configFile, out string, w io.Writer) error {
-	f, err := config.Load(configFile)
+func WriteBootstrap(configFile, out string, w io.Writer, profiles []harvest.Profile) error {
+	f, err := config.Load(configFile, profiles)
 	if err != nil {
 		return err
 	}

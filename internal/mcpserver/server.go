@@ -42,6 +42,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -450,7 +451,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	reads, err := scopeText(in.Scope)
+	reads, err := scopeText(in.Scope, providers.New(in.Provider).Profile())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -973,75 +974,46 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
-// scopeText says what an import reads, for the user to confirm: the
-// provider's accounts, subscriptions or projects, where in them, and the
-// services. scope has passed commandArgs, so that each field set is one
-// its provider takes, and the provider's case says what it is.
-func scopeText(s Scope) (string, error) {
-	var text string
-	switch s.Provider {
-	case "azure":
-		var parts []string
-		if len(s.Subscriptions) > 0 {
-			parts = append(parts, "subscriptions "+strings.Join(s.Subscriptions, ", "))
-		}
-		if s.ManagementGroup != "" {
-			parts = append(parts, "every enabled subscription under management group "+s.ManagementGroup)
-		}
-		if len(parts) == 0 {
-			parts = append(parts, "subscription of ARM_SUBSCRIPTION_ID")
-		}
-		text = "the azure " + strings.Join(parts, " and ")
-		if s.ResourceGroup != "" {
-			text = "resource group " + s.ResourceGroup + " of " + text
-		}
-		if s.Azapi {
-			text += ", what azurerm has no type for through azapi"
-		}
-	case "google":
-		var parts, owners []string
-		if len(s.Projects) > 0 {
-			parts = append(parts, "the google projects "+strings.Join(s.Projects, ", "))
-		}
-		if s.Organization != "" {
-			owners = append(owners, "organization "+s.Organization)
-		}
-		if len(s.Folders) > 0 {
-			owners = append(owners, "folders "+strings.Join(s.Folders, ", "))
-		}
-		if len(owners) > 0 {
-			parts = append(parts, "every active google project of "+strings.Join(owners, " and of "))
-		}
-		regions := s.Regions
-		if len(regions) == 0 {
-			// The google command's default.
-			regions = []string{"global"}
-		}
-		text = strings.Join(parts, " and ") + " in " + strings.Join(regions, ", ")
-	case "aws":
-		text = "the aws account"
-		if len(s.Accounts) > 0 {
-			text = "the aws accounts " + strings.Join(s.Accounts, ", ")
-		}
-		if s.Profile != "" {
-			text += " with profile " + s.Profile
-		}
-		if len(s.Regions) > 0 {
-			text += " in " + strings.Join(s.Regions, ", ")
-		}
-	default:
+// scopeText says what an import reads, for the user to confirm: what
+// profile, the profile of scope's provider, describes of the flags scope
+// sets (see harvest.Scope.Describe), the provider's accounts,
+// subscriptions or projects and where in them, in the provider's own
+// terms; and the services. scope has passed commandArgs, so that each
+// field set is one its provider takes.
+func scopeText(s Scope, profile harvest.Profile) (string, error) {
+	if profile.Scope.Describe == nil {
 		return "", fmt.Errorf("can't say what provider %q reads", s.Provider)
 	}
-	if len(s.CloudFormationStacks) > 0 {
-		text += ", only the resources of CloudFormation stacks " + strings.Join(s.CloudFormationStacks, ", ")
-		if len(s.CloudFormationIgnore) > 0 {
-			text += ", acknowledging " + strings.Join(s.CloudFormationIgnore, ", ")
-		}
-	}
+	text := profile.Scope.Describe(scopeFlags(s))
 	if len(s.Services) == 0 {
 		return text + " (the services of the stacks' resources)", nil
 	}
 	return text + " (" + strings.Join(s.Services, ", ") + ")", nil
+}
+
+// scopeFlags returns the flags of s that are set, by the names their flag
+// tags give them, with their values, as a provider's profile describes
+// them (see harvest.Scope.Describe): a flag that takes no value has true.
+func scopeFlags(s Scope) map[string][]string {
+	flags := map[string][]string{}
+	v := reflect.ValueOf(s)
+	for i := range v.NumField() {
+		field, value := v.Type().Field(i), v.Field(i)
+		tag, ok := field.Tag.Lookup("flag")
+		if !ok || !isSet(value) {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		switch value.Kind() {
+		case reflect.Bool:
+			flags[name] = []string{"true"}
+		case reflect.String:
+			flags[name] = []string{value.String()}
+		case reflect.Slice:
+			flags[name] = value.Interface().([]string)
+		}
+	}
+	return flags
 }
 
 func textResult(text string) *mcp.CallToolResult {
