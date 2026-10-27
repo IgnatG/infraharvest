@@ -268,7 +268,7 @@ func TestSchemaProblems(t *testing.T) {
 		for typ := range entries {
 			sources[typ] = "data/aws/test.yaml"
 		}
-		return &Catalogue{Provider: "aws", entries: entries, sources: sources}
+		return &Catalogue{provider: "aws", entries: entries, sources: sources}
 	}
 
 	good := catalogue(map[string]*Entry{

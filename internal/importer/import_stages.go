@@ -329,13 +329,13 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 
 // engineOptions configures engine.Generate for the roots of the call c, in
 // one place: what the catalogue knows about their types, for the provider
-// release the toolchain t pins (see catalogue.Catalogue.EngineOptions);
+// release the toolchain t pins (see catalogueEngineOptions);
 // t's root files and modules; what the provider's profile says of tags
 // and of the arguments resources inherit, and the other providers the
 // roots may configure; the flags the engine takes; and what the selection
 // of l leaves out, or keeps although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
-	opts := c.cat.EngineOptions(t.root.version)
+	opts := catalogueEngineOptions(c.cat, t.root.version)
 	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout

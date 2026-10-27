@@ -196,8 +196,8 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 // state_only), by type and under catalogue.AllTypes for every type: the
 // Google provider's labels and terraform_labels, for example.
 var stateOnlyArguments = map[string]map[string][]string{
-	"aws":    catalogue.MustBuiltin("aws").StateOnly(),
-	"google": catalogue.MustBuiltin("google").StateOnly(),
+	"aws":    catalogue.MustBuiltin("aws").StateOnly(nil),
+	"google": catalogue.MustBuiltin("google").StateOnly(nil),
 }
 
 // emulatorGaps are attributes Floci leaves out of its API responses where
