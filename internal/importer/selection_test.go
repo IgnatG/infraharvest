@@ -490,17 +490,21 @@ func TestWithStated(t *testing.T) {
 	}
 }
 
-func TestWithProfile(t *testing.T) {
-	for _, tc := range []struct{ source, profile, want string }{
-		{"s3://state/roots/?region=eu-west-2", "prod", "s3://state/roots/?profile=prod&region=eu-west-2"},
-		{"s3://state/roots/?profile=state", "prod", "s3://state/roots/?profile=state"},
-		{"s3://state/roots/", "default", "s3://state/roots/"},
-		{"s3://state/roots/", "", "s3://state/roots/"},
-		{"gs://state/roots/", "prod", "gs://state/roots/"},
-		{"terraform.tfstate", "prod", "terraform.tfstate"},
+// A --managed-state source is read with the settings of the provider's
+// scope, where it has some, and as it is otherwise.
+func TestManagedStateSource(t *testing.T) {
+	const source = "s3://state/roots/"
+	for _, tc := range []struct {
+		name  string
+		scope any
+		want  string
+	}{
+		{"no scope", nil, source},
+		{"a scope without settings", struct{}{}, source},
+		{"a scope with settings", fakeScope{profile: "prod"}, source + "?profile=prod"},
 	} {
-		if got := withProfile(tc.source, tc.profile); got != tc.want {
-			t.Errorf("withProfile(%q, %q) = %q, want %q", tc.source, tc.profile, got, tc.want)
+		if got := (Options{ProviderScope: tc.scope}).managedStateSource(source); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

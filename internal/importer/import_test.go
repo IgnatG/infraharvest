@@ -146,6 +146,24 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 // fakeProvider lists one resource per service, fails for service "bad",
 // lists one and fails in part for service "partial", and lists service
 // "slow" until its context is done.
+// fakeScope is a provider command's scope (see Options.ProviderScope)
+// with each capability harvest declares for one.
+type fakeScope struct {
+	stacks         bool
+	profile        string
+	partial, group string
+}
+
+func (s fakeScope) StackScoped() bool   { return s.stacks }
+func (s fakeScope) ListsInPart() string { return s.partial }
+func (s fakeScope) ScopeGroup() string  { return s.group }
+func (s fakeScope) ManagedStateSource(source string) string {
+	if s.profile == "" {
+		return source
+	}
+	return source + "?profile=" + s.profile
+}
+
 type fakeProvider struct {
 	harvest.Provider
 	service *fakeService
@@ -255,7 +273,7 @@ func TestCheckOptions(t *testing.T) {
 		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
 		{Options{Services: []string{"vpc"}, All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
 		{Options{All: true}, "--services is required"},
-		{Options{CloudFormationStacks: []string{"app"}}, ""},
+		{Options{ProviderScope: fakeScope{stacks: true}}, ""},
 		{Options{Services: []string{"vpc"}}, "selection"},
 		{Options{Services: []string{"vpc"}, Selection: goodSelection}, ""},
 		{Options{Services: []string{"vpc"}, Selection: badSelection}, "--selection: " + badSelection + ": version 99"},

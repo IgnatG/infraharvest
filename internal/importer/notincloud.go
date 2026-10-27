@@ -56,8 +56,8 @@ func listedInScope(provider harvest.Provider, c *callContext, pattern string, li
 		return nil, "the resources come from what discover saved (--reuse-inventory), which may be older than the roots"
 	case len(options.filterArgs()) > 0:
 		return nil, "the listing was filtered with --id, --tag or --where"
-	case options.ResourceExplorer:
-		return nil, "--resource-explorer leaves out the services its index shows nothing of"
+	case options.listsInPart() != "":
+		return nil, options.listsInPart()
 	}
 	for _, f := range failures {
 		if !strings.HasPrefix(f.Error(), tagsFailure) {
