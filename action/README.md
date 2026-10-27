@@ -301,7 +301,7 @@ gcloud storage buckets add-iam-policy-binding gs://acme-terraform-state \
   --role=roles/storage.objectViewer
 ```
 
-It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. The backend's lock, a `default.tflock` object, needs `storage.objects.create`, which drift doesn't take.
+It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. The backend's lock, a `default.tflock` object, needs `storage.objects.create`, which drift doesn't take. `permissions/google-drift` with `state_prefix` limits the reads to the objects under the prefix, through an IAM condition (see [Permissions](../docs/permissions.md#google-cloud-permissionsgoogle-drift)).
 
 ## Inputs
 

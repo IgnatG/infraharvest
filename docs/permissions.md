@@ -138,14 +138,14 @@ terraform apply -var subscription_id=<subscription-guid> -var principal_id=<obje
 
 ### Google Cloud: `permissions/google-drift`
 
-Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces.
+Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces. With `state_prefix` (the backend's `prefix`, see [Configuration](configuration.md)), an IAM condition limits the reads to the objects under it, `<prefix>/`, as `permissions/aws-drift` limits `s3:GetObject` to `<key_prefix>/`. Listing is checked on the bucket, which no condition on object names can narrow, so the condition allows the bucket's checks too: the member still lists every object's name in the bucket, as `s3:ListBucket` does on AWS, but reads only the state. Conditions take [uniform bucket-level access](https://cloud.google.com/storage/docs/uniform-bucket-level-access) on the bucket.
 
 It attaches a deny policy of its own, `infraharvest-drift-deny-data-reads`, which denies the member the data reads `permissions/google` denies, all but the Cloud Storage objects. A deny policy can't spare one bucket, as its conditions match resource tags alone, so denying objects would deny the state too. Leave it out with `-var deny_data_reads=false`, as for `permissions/google`. If the member also has the read-only roles from `permissions/google`, that template's deny policy denies it the state: give drift a member of its own, or apply `permissions/google` with `-var deny_data_reads=false` and let this deny policy cover the member.
 
 ```sh
 cd permissions/google-drift
 terraform init
-terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state
+terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state -var state_prefix=imported
 # when permissions/google grants the member the read-only roles already,
 # applied with -var deny_data_reads=false:
 #   -var grant_read_only=false
