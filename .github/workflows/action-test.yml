@@ -349,7 +349,7 @@ jobs:
           test "$EXIT_CODE" = 0
           args=()
           while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-import-args"
-          want=(import aws --engine=terraform "--out=$RUNNER_TEMP/out" --format=json --services=sqs --regions=us-east-1 --incremental "--selection=$RUNNER_TEMP/my selection.yaml" --list-parallel=2 --report-tags=team)
+          want=(import aws "--out=$RUNNER_TEMP/out" --format=json --services=sqs --regions=us-east-1 --incremental "--selection=$RUNNER_TEMP/my selection.yaml" --list-parallel=2 --report-tags=team)
           if [[ "${args[*]@Q}" != "${want[*]@Q}" ]]; then
             echo "::error::import arguments: got ${args[*]@Q}, want ${want[*]@Q}"
             exit 1
