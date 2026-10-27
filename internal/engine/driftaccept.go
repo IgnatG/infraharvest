@@ -92,7 +92,7 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 // it covers instead (see unshare). Only then are the edits made in the
 // root's own files, which are restored if writing one fails. For a root
 // environments share, root and the copy's files hold the environment's
-// var file too, the only file edited (see envVariable), and a change
+// var file too, the only file edited (see variableResolver.env), and a change
 // written gets its source there. Each accepted change ends written,
 // rejected by the plan or a check, a hand edit or a secret.
 func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
