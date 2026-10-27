@@ -76,6 +76,15 @@ func isBackendConfig(name string) bool {
 	return ok && env != "" && !strings.Contains(env, "/")
 }
 
+// isMergedVarFile reports whether rel, a file of a root by its path in it
+// with forward slashes, is one of the var files a merged root keeps under
+// vars, such as vars/prod/terraform.tfvars or vars/prod/backend.hcl,
+// whose arguments set variables or backend settings: a .tfvars or .hcl
+// file, the only kinds that belong there (see checkVarFiles).
+func isMergedVarFile(rel string) bool {
+	return strings.HasPrefix(rel, varsDirName+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
+}
+
 // workspaceStateFile returns where the merged root in dir, without a
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.

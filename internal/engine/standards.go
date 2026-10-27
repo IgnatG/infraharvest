@@ -243,7 +243,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 			return err
 		}
 		name := rel(dir, path)
-		if !strings.HasSuffix(name, ".tfvars") && !strings.HasSuffix(name, ".hcl") {
+		if !isMergedVarFile(name) {
 			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
 			return nil
 		}

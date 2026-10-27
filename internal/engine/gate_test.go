@@ -540,7 +540,7 @@ variable "api_token" {
 		t.Errorf("G6 doesn't find the token the var file sets: %+v", secrets)
 	}
 	for _, rel := range []string{"terraform.tfvars", "vars.tfvars", "vars/prod/main.tf"} {
-		if isVarFile(rel) {
+		if isMergedVarFile(rel) {
 			t.Errorf("%s is taken for a merged root's var file", rel)
 		}
 	}
