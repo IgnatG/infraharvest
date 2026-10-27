@@ -238,7 +238,7 @@ func TestAWSDriftMCPRules(t *testing.T) {
 	decisionEntry(t, decisions, "tags.team", driftpolicy.Undecided)
 
 	// The user accepts the team's change, and the owner changes again.
-	setDecision(t, decisions, "tags.team", report.DriftAccept)
+	acceptDrift(t, decisions, "tags.team")
 	fixture.apply(ctx, t, account, tfexec.Var("team=ops"), tfexec.Var("owner=ml"))
 	r = callDriftTool(ctx, t, session, "drift_accept", accept(map[string]any{"decisions": decisions, "write_decisions": true}))
 	if len(asked) != 3 || !strings.Contains(asked[2], `the decisions file "`+decisions+`"`) || !strings.Contains(asked[2], "accept 1 of them") ||

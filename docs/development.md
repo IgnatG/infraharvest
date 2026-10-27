@@ -62,7 +62,7 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
 | `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
 
-Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files the default build compiles, test files included; a tagged file outside it isn't checked. To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
+Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files golangci-lint compiles: the default build's, test files included, and the `integration`, `e2e` and `sandbox` ones (see [Build tags](#build-tags)). To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
 
 ## Licence headers
 
@@ -164,7 +164,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 
 - Provider code that the command tree compiles in carries `//go:build !minimal || <provider>`, and registers itself from `init()` (`internal/cli/providers/provider_cmd_aws.go`). Its tests carry the same constraint (`aws_accounts_test.go`).
 - `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
-- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand).
+- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand). golangci-lint compiles all three with every provider (`run.build-tags` in `.golangci.json`), the one build that holds every file: under `minimal,<provider>`, the e2e helpers only the other providers' tests call read as unused. `make lint TAGS=...` replaces those tags with yours.
 
 ## Tests
 
