@@ -649,6 +649,16 @@ jobs:
           terraform -chdir="$dir" init -backend=false -input=false
           terraform -chdir="$dir" validate
         done
+    # The templates' own tests, against a mock provider: what the role
+    # trusts, and the inputs refused.
+    - name: Test
+      run: |
+        export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/plugins"
+        for dir in permissions/*/; do
+          if [ -d "${dir}tests" ]; then
+            terraform -chdir="$dir" test
+          fi
+        done
     - name: Policy JSON
       run: jq empty permissions/aws/deny-data-reads.json
 
