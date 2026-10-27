@@ -20,10 +20,10 @@ Everything but `main.go` and `pkg/cfn` is under `internal/`: infraharvest has no
 | `internal/adapters` | Curated module adapters (module, exact version, mapping), the snapshots of module interfaces they are checked against, and `cmd/adaptercheck`, which the nightly `adapters` workflow runs. |
 | `internal/discovery` | Runs the listing: one discoverer per service and scope (account and region, subscription, project), each with its deadline, a bounded number at a time. |
 | `internal/driftpolicy` | What `infraharvest drift` does with each change it finds: the rules of `--accept`, `--keep` and `--rules`, the decisions file, the order they decide in (`Decider`), and the digest of the roots (`RootsDigest`) that the MCP server confirms a run with and drift checks again. The importer applies what it decides. |
-| `internal/selection`, `report`, `managed`, `config` | The selection file and the default selection (`Sources`, which decides each listed resource and why), the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
+| `internal/selection`, `report`, `managed`, `config` | The selection file and the default selection (`Sources`, which decides each listed resource and why), the report, the resources state already manages, and the configuration file. `managed` links no cloud SDK: the stores it reads state from are packages of their own under `managed/stores/` (`s3`, `gcs`, `azblob`, `hcp`), each set by its provider's definition in `internal/cli/providers`, so a single-cloud build links that cloud's store only. |
 | `pkg/cfn`, `pkg/cfn/hclname`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), the names and numbers it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
-| `internal/ratelimit`, `fsutil`, `filelock`, `logging`, `version` | Small shared helpers: request rates per cloud API, atomic file writes, locks on the output directory and the provider cache, the filter that drops client libraries' debug lines, and the version a build reports (set at link time by release builds). |
+| `internal/ratelimit`, `fsutil`, `filelock`, `logging`, `version`, `tftypes` | Small shared helpers: request rates per cloud API, atomic file writes, locks on the output directory and the provider cache, the filter that drops client libraries' debug lines, the version a build reports (set at link time by release builds), and the resource types that are other names of each other, such as `aws_alb` and `aws_lb`, which the engine and `managed` match alike. |
 | `internal/repocheck` | Tests of the repository's scripts and `.gitignore`, run against real Git repositories. |
 | `e2e/` | Round trips against cloud emulators, behind the `e2e` build tag ([e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md)). |
 | `permissions/`, `action/`, `docs/` | Read-only IAM templates, the GitHub Action, and this site. |
@@ -61,7 +61,7 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
 | `internal/discovery` | anything of infraharvest's but `harvest` | It reads listed resources through `harvest`; the importer drives it. |
-| `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
+| `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta`, `tftypes` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
 | `internal/filelock` | anything of infraharvest's but `fsutil` | The lock checks its file with the leaf `fsutil`, as the output's other files are checked. |
 | `pkg/cfn`, `pkg/cfn/hclname` | anything of infraharvest's but `pkg/cfn/hclname`, which imports nothing of infraharvest's | The two can move to a module of their own: the `depguard` rule keeps `internal/` out, and `TestNoInternalImports` the rest. |
 
@@ -166,7 +166,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 ## Build tags
 
 - Provider code that the command tree compiles in carries `//go:build !minimal || <provider>`, and registers itself from `init()` (`internal/cli/providers/provider_cmd_aws.go`). Its tests carry the same constraint (`aws_accounts_test.go`).
-- `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
+- `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both, and that a build links no SDK of a cloud it leaves out (`go list -deps -tags minimal,aws .`): what links a cloud's SDK, such as the store `--managed-state` reads that cloud's state with (`internal/managed/stores/*`), is set by the provider's own file. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
 - Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand). golangci-lint compiles all three with every provider (`run.build-tags` in `.golangci.json`), the one build that holds every file: under `minimal,<provider>`, the e2e helpers only the other providers' tests call read as unused. `make lint TAGS=...` replaces those tags with yours.
 
 ## Tests

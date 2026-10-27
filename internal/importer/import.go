@@ -113,6 +113,10 @@ type Options struct {
 	// ManagedState is state whose resources are left out, as already
 	// managed by Terraform.
 	ManagedState []string
+	// ManagedStores open the object stores ManagedState is read from: the
+	// provider commands set those of the clouds compiled in. A store left
+	// nil reads no state of its kind, and says so.
+	ManagedStores managed.Stores
 	// IncludeOwned imports the resources whose tags or labels say another
 	// Terraform state or tool manages them, which are left out otherwise
 	// (see engine.OwnedBy).

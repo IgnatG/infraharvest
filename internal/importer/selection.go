@@ -338,7 +338,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 		resolved = append(resolved, withProfile(source, options.Profile))
 	}
 	// Every account and region of the command reads the same state.
-	state, err := run.shared.managedState(ctx, resolved, managed.DefaultStores)
+	state, err := run.shared.managedState(ctx, resolved, options.ManagedStores)
 	if err != nil {
 		return err
 	}

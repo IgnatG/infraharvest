@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // Managed is a resource a root imports: its type and import ID, and its
@@ -120,7 +122,7 @@ func Readdressed(previous, now []Managed, moved []Move) []string {
 
 // Retyped returns the resources of previous that now, the resources a
 // root imports once generated again, has as another type with the same
-// import ID that isn't another name of theirs (see AliasTypes), as
+// import ID that isn't another name of theirs (see tftypes.Aliases), as
 // "<from> is now <to>, of another type", sorted. No moved block can
 // follow that, and nothing says the two are one resource: a plan would
 // replace it. One of another name of its type, such as an aws_alb that is
@@ -146,7 +148,7 @@ func Retyped(previous, now []Managed) []string {
 		if stays[ResourceKey(p.Type, p.ID)] {
 			continue
 		}
-		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return sameType(m.Type, p.Type) }) {
+		if slices.ContainsFunc(byID[p.ID], func(m Managed) bool { return tftypes.Same(m.Type, p.Type) }) {
 			continue
 		}
 		for _, m := range byID[p.ID] {

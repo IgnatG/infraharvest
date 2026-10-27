@@ -1,7 +1,11 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package tftypes holds what infraharvest knows of Terraform resource types
+// that more than one package needs, such as the engine and the reading of
+// managed state: which types are other names of each other. It is a leaf:
+// it imports none of infraharvest's packages, so that any can import it.
+package tftypes
 
 import (
 	"slices"
@@ -29,19 +33,19 @@ var typeAliases = map[string]string{
 	"google_compute_instance_from_template":          "google_compute_instance",
 }
 
-// CanonicalType returns the type the types of typ's group are matched as
+// Canonical returns the type the types of typ's group are matched as
 // (see typeAliases): typ itself if it has no other names.
-func CanonicalType(typ string) string {
+func Canonical(typ string) string {
 	if alias, ok := typeAliases[typ]; ok {
 		return alias
 	}
 	return typ
 }
 
-// AliasTypes returns the other types of typ's group (see typeAliases),
+// Aliases returns the other types of typ's group (see typeAliases),
 // sorted; none if typ has no other names.
-func AliasTypes(typ string) []string {
-	canonical := CanonicalType(typ)
+func Aliases(typ string) []string {
+	canonical := Canonical(typ)
 	var others []string
 	if canonical != typ {
 		others = append(others, canonical)
@@ -55,8 +59,8 @@ func AliasTypes(typ string) []string {
 	return slices.Compact(others)
 }
 
-// sameType reports whether a and b are one type or of one group (see
+// Same reports whether a and b are one type or of one group (see
 // typeAliases).
-func sameType(a, b string) bool {
-	return CanonicalType(a) == CanonicalType(b)
+func Same(a, b string) bool {
+	return Canonical(a) == Canonical(b)
 }

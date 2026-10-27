@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // handovers are what a run with --regenerate hands over between the roots
@@ -252,7 +253,7 @@ func (h *handovers) refusal(dir string) error {
 
 // departing is a resource of an earlier import's root that the run puts
 // in another root, at to, as now: its type and import ID, or another name
-// of its type (see engine.AliasTypes).
+// of its type (see tftypes.Aliases).
 type departing struct {
 	had engine.Managed
 	to  string
@@ -427,7 +428,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 // them, or where its own state has them (see shared.previousAddressesOf,
 // with s), that assigned, the root of the run each resource goes to by
 // type and import ID, puts in another root now, as their type or, if
-// assigned has none of that, another name of it (see engine.AliasTypes),
+// assigned has none of that, another name of it (see tftypes.Aliases),
 // such as an aws_alb that is an aws_lb now. Only
 // roots that still have configuration count, applied ones too, with
 // their import blocks deleted; a root whose import didn't finish counts
@@ -472,10 +473,10 @@ func departures(out string, assigned map[engine.External]string, s *shared) (map
 
 // assignedAs returns the type and import ID assigned, the root of the
 // run each resource goes to, has p, a resource of an earlier import, as:
-// its own, or another name of its type (see engine.AliasTypes); and the
+// its own, or another name of its type (see tftypes.Aliases); and the
 // root.
 func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.External, string, bool) {
-	for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+	for _, typ := range append([]string{p.Type}, tftypes.Aliases(p.Type)...) {
 		key := engine.External{Type: typ, ID: p.ID}
 		if to, ok := assigned[key]; ok {
 			return key, to, true

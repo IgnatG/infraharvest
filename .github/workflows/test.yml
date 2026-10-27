@@ -714,7 +714,8 @@ jobs:
       run: go test -run '^TestCatalogueMatchesProviderSchemas$' -v ./internal/catalogue/
 
   # `-tags minimal,<provider>` builds only the named providers; check the
-  # registry works with none and with one.
+  # registry works with none and with one, and that a build links no SDK
+  # of a cloud it leaves out.
   build-tags:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -746,6 +747,25 @@ jobs:
         if ./infraharvest-aws import --help | grep -Eq '^ +google +'; then
           echo "::error::google should not be compiled into a minimal,aws build"; exit 1
         fi
+    - name: No other cloud's SDK
+      run: |
+        # The listers and the stores --managed-state reads with come with
+        # their provider, so a build links only its own clouds' SDKs.
+        aws='github.com/aws/aws-sdk-go-v2|github.com/aws/smithy-go'
+        azure='github.com/Azure/azure-sdk-for-go'
+        google='google.golang.org/api|cloud.google.com/go'
+        check() {
+          deps=$(go list -deps -tags "$1" .)
+          linked=$(echo "$deps" | grep -E "$2" || true)
+          if [ -n "$linked" ]; then
+            echo "::error::-tags $1 links $(echo "$linked" | wc -l) packages of an SDK it should not, such as $(echo "$linked" | head -1)"; exit 1
+          fi
+          echo "-tags $1: $(echo "$deps" | wc -l) packages, none of another cloud's SDK"
+        }
+        check minimal "$aws|$azure|$google"
+        check minimal,aws "$azure|$google"
+        check minimal,azure "$aws|$google"
+        check minimal,google "$aws|$azure"
 
   # The release's other targets, which no job above compiles: the full
   # module for linux/arm64 and windows/arm64 (test-windows builds only some

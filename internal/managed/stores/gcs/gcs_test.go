@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+package gcs
 
 import (
 	"context"
@@ -14,6 +14,9 @@ import (
 	"strings"
 	"testing"
 )
+
+// state is the content of the state object the store serves.
+const state = `{"version": 4, "resources": [{"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{"attributes": {"id": "vpc-0abc1234"}}]}]}`
 
 // fakeGCS serves one bucket's objects as Cloud Storage's JSON API does to a
 // client pointed at an emulator: objects.list, an object a page, and
@@ -63,7 +66,7 @@ func fakeGCS(t *testing.T, bucket string, objects map[string]string) *httptest.S
 	return server
 }
 
-func TestGCSListAndGet(t *testing.T) {
+func TestListAndGet(t *testing.T) {
 	objects := map[string]string{
 		"roots/aws/global/default.tfstate":    state,
 		"roots/aws/eu-west-2/default.tfstate": `{"version": 4}`,
@@ -71,11 +74,11 @@ func TestGCSListAndGet(t *testing.T) {
 		"other/default.tfstate":               `{"version": 4}`,
 	}
 	server := fakeGCS(t, "acme-state", objects)
-	// newGCS reads from an emulator, without credentials, as Terraform's
+	// New reads from an emulator, without credentials, as Terraform's
 	// gcs backend does.
 	t.Setenv("STORAGE_EMULATOR_HOST", server.URL)
 	ctx := context.Background()
-	store, err := newGCS(ctx)
+	store, err := New(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +109,7 @@ func TestGCSListAndGet(t *testing.T) {
 
 // STORAGE_EMULATOR_HOST is a URL or a host[:port], taken as http, as Cloud
 // Storage's client libraries take it.
-func TestGCSEmulatorEndpoint(t *testing.T) {
+func TestEmulatorEndpoint(t *testing.T) {
 	for host, want := range map[string]string{
 		"localhost:4443":        "http://localhost:4443/storage/v1/",
 		"http://127.0.0.1:9023": "http://127.0.0.1:9023/storage/v1/",

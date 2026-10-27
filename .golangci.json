@@ -253,7 +253,8 @@
               "**/internal/ratelimit/*.go",
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
-              "**/internal/catalogue/schemameta/*.go"
+              "**/internal/catalogue/schemameta/*.go",
+              "**/internal/tftypes/*.go"
             ],
             "deny": [
               {

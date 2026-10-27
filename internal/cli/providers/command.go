@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/sentence"
@@ -52,6 +53,11 @@ type definition struct {
 	// provider's own, and returns the checker and the planner that read
 	// them.
 	flags func(flags *pflag.FlagSet, options *importer.Options) (checker, planner)
+	// stores sets the store of the backend the provider's cloud keeps
+	// state in, such as S3 for AWS, in the stores --managed-state reads
+	// with (see managedStores). The store links the cloud's SDK, as the
+	// provider does, so only a build with the provider has it.
+	stores func(stores *managed.Stores)
 }
 
 // checker rejects what the options and the provider's own flags say that
@@ -136,6 +142,9 @@ func (p plan) run(ctx context.Context, run *importer.Run, options importer.Optio
 // define registers the provider d describes.
 func define(d definition) {
 	register(d.name, d.command, d.newProvider)
+	if d.stores != nil {
+		d.stores(&compiledStores)
+	}
 }
 
 // RunFunc runs a provider command, called with c and args, into run, which
@@ -170,6 +179,7 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		// an MCP server or a test running it in process captures it.
 		options.Stdout = c.OutOrStdout()
 		options.ModulesChosen = c.Flags().Changed("modules")
+		options.ManagedStores = managedStores()
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}

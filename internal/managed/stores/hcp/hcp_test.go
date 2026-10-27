@@ -1,12 +1,10 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+package hcp
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,65 +16,7 @@ import (
 	"testing"
 )
 
-// fakeWorkspaces are an organization's workspaces and their state, nil
-// for none.
-type fakeWorkspaces map[string][]byte
-
-func (f fakeWorkspaces) List(_ context.Context, _, prefix string) ([]string, error) {
-	var names []string
-	for name := range f {
-		if strings.HasPrefix(name, prefix) {
-			names = append(names, name)
-		}
-	}
-	return names, nil
-}
-
-func (f fakeWorkspaces) Get(_ context.Context, _, name string) ([]byte, error) {
-	state, ok := f[name]
-	if !ok {
-		return nil, fmt.Errorf("no workspace %s", name)
-	}
-	return state, nil
-}
-
-func TestLoadWorkspaces(t *testing.T) {
-	stateOf := func(id string) []byte {
-		return []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`)
-	}
-	workspaces := fakeWorkspaces{
-		"network-prod":  stateOf("network"),
-		"network-stage": nil, // no state yet
-		"app-prod":      stateOf("app"),
-	}
-	var hosts []string
-	stores := Stores{HCPTerraform: func(_ context.Context, host string) (ObjectStore, error) {
-		hosts = append(hosts, host)
-		return workspaces, nil
-	}}
-
-	r, err := Load(t.Context(), []string{"tfc://acme/network-*", "tfc://acme/app-prod?host=tfe.example.com"}, stores)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if where, _ := r.Lookup("aws_s3_bucket", "network"); where != "tfc://acme/network-prod" {
-		t.Errorf("network: %q", where)
-	}
-	if where, _ := r.Lookup("aws_s3_bucket", "app"); where != "tfc://tfe.example.com/acme/app-prod" {
-		t.Errorf("app: %q", where)
-	}
-	if strings.Join(hosts, ",") != DefaultHCPTerraformHost+",tfe.example.com" {
-		t.Errorf("hosts: %v", hosts)
-	}
-
-	for _, source := range []string{"tfc://acme/missing", "tfc://acme", "tfc:///network-prod"} {
-		if _, err := Load(t.Context(), []string{source}, stores); err == nil {
-			t.Errorf("%s: want an error", source)
-		}
-	}
-}
-
-func TestHCPTerraform(t *testing.T) {
+func TestStore(t *testing.T) {
 	const token = "api-token"
 	state := `{"version": 4, "resources": []}`
 	// State downloads are signed URLs on another host, which must not get
@@ -123,7 +63,7 @@ func TestHCPTerraform(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(body)
 	}))
 	defer api.Close()
-	h := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: token}
+	h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: token}
 
 	got, err := h.List(t.Context(), "acme", "network-")
 	if err != nil {
@@ -147,7 +87,7 @@ func TestHCPTerraform(t *testing.T) {
 	if lookups.Load() != 0 {
 		t.Errorf("Get looked up %d workspaces List found", lookups.Load())
 	}
-	fresh := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: token}
+	fresh := &Store{client: api.Client(), base: api.URL + "/api/v2", token: token}
 	if content, err := fresh.Get(t.Context(), "acme", "network-prod"); err != nil || string(content) != state || lookups.Load() != 1 {
 		t.Errorf("Get of a workspace not listed: %q, %v, %d lookups", content, err, lookups.Load())
 	}
@@ -157,7 +97,7 @@ func TestHCPTerraform(t *testing.T) {
 	}
 }
 
-func TestHCPTerraformToken(t *testing.T) {
+func TestAPIToken(t *testing.T) {
 	dir := t.TempDir()
 	// terraform login's file: under %APPDATA% on Windows, the home
 	// directory elsewhere.
@@ -179,7 +119,7 @@ func TestHCPTerraformToken(t *testing.T) {
 		"app.terraform.io":    "from-login",
 		"tfe.my-corp.example": "from-env",
 	} {
-		got, err := hcpTerraformToken(host, getenv)
+		got, err := apiToken(host, getenv)
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
@@ -187,7 +127,7 @@ func TestHCPTerraformToken(t *testing.T) {
 			t.Errorf("%s: token %q, want %q", host, got, want)
 		}
 	}
-	if _, err := hcpTerraformToken("tfe.other.example", getenv); err == nil || !strings.Contains(err.Error(), "TF_TOKEN_tfe_other_example") {
+	if _, err := apiToken("tfe.other.example", getenv); err == nil || !strings.Contains(err.Error(), "TF_TOKEN_tfe_other_example") {
 		t.Errorf("want an error naming TF_TOKEN_tfe_other_example, got %v", err)
 	}
 }
@@ -195,7 +135,7 @@ func TestHCPTerraformToken(t *testing.T) {
 // A state download URL is signed: it grants access to the state, secrets
 // included, so no error may quote it, whether the download fails with a
 // status or before any.
-func TestHCPTerraformDownloadErrorsHideTheURL(t *testing.T) {
+func TestDownloadErrorsHideTheURL(t *testing.T) {
 	const signed = "/v1/object/signed-dG9rZW4"
 	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
@@ -218,7 +158,7 @@ func TestHCPTerraformDownloadErrorsHideTheURL(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(body)
 		}))
-		h := &HCPTerraform{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
+		h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
 		_, err := h.Get(t.Context(), "acme", "prod")
 		api.Close()
 		if err == nil {
