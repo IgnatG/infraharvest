@@ -13,6 +13,23 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
+// The capabilities Provider has, checked when it builds: one whose method
+// no longer matches its interface would otherwise be dropped in silence,
+// as the importer asserts them at run time.
+var (
+	_ harvest.ProviderWithChildImports      = (*Provider)(nil)
+	_ harvest.ProviderWithSelectionDefaults = (*Provider)(nil)
+	_ harvest.ProviderWithImportScope       = (*Provider)(nil)
+	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
+	_ harvest.ProviderWithScope             = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
+	_ harvest.ProviderWithUnwantedTypes     = (*Provider)(nil)
+	_ harvest.ProviderWithStackMapper       = (*Provider)(nil)
+	_ harvest.ProviderWithTags              = (*Provider)(nil)
+	_ harvest.ProviderWithTerraformEnv      = (*Provider)(nil)
+)
+
 // providerName is the provider's name, in the generated configuration and
 // in each listed resource.
 const providerName = "aws"
