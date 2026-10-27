@@ -321,7 +321,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, provider.Profile().NameTag, importID)
 	// The configuration file's environments of the scope, if any; none
 	// keeps the layout as without them.
-	envNames := run.environments.For(providerDir(provider), scopeAccount(scope))
+	envNames := run.environments.For(provider.Profile(), scopeAccount(scope))
 	run.warnUnscoped(provider, scope)
 	pattern := withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(envNames) > 0)
 	// Where the roots would be without the file's environments, for those
