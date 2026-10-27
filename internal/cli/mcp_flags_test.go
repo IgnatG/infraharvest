@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -62,7 +63,8 @@ func (p *parsingRunner) take() []error {
 // Every flag an MCP tool can pass is one the command it runs has: each
 // parameter of each tool, set on its own, gives arguments that the real
 // command tree parses, for at least one provider where the tool takes
-// one. The tools build their arguments from their inputs' flag tags, so a
+// one, and for every provider its providers tag names, while the tool
+// refuses it for the others without running anything. The tools build their arguments from their inputs' flag tags, so a
 // flag renamed on the command line, or a tag that names none, fails here
 // rather than in an agent's run.
 func TestMCPToolFlagsExist(t *testing.T) {
@@ -132,6 +134,7 @@ func TestMCPToolFlagsExist(t *testing.T) {
 			if !ok {
 				value = sampleValue(kind)
 			}
+			takers := scopeProviders(property)
 			var parsed []string
 			var failures []error
 			for _, name := range names {
@@ -149,6 +152,12 @@ func TestMCPToolFlagsExist(t *testing.T) {
 					t.Fatal(err)
 				}
 				errs := runner.take()
+				if takers != nil && !slices.Contains(takers, name) {
+					if len(errs) != 0 || !res.IsError {
+						t.Errorf("%s with %s on %q: ran %v, want it refused", tool.Name, property, name, errs)
+					}
+					continue
+				}
 				if len(errs) == 0 {
 					t.Errorf("%s with %s on %q ran nothing: %+v", tool.Name, property, name, res.Content)
 					continue
@@ -162,8 +171,28 @@ func TestMCPToolFlagsExist(t *testing.T) {
 			if len(parsed) == 0 {
 				t.Errorf("%s: the command rejects the flag of %s for every provider: %v", tool.Name, property, failures)
 			}
+			if takers != nil && !slices.Equal(parsed, takers) {
+				t.Errorf("%s: the command takes the flag of %s for %v, not every provider its tag names, %v: %v", tool.Name, property, parsed, takers, failures)
+			}
 		}
 	}
+}
+
+// scopeProviders returns the providers that the field of mcpserver.Scope
+// an agent sends as name is for, as its providers tag names them, or none
+// for a field every provider takes.
+func scopeProviders(name string) []string {
+	scope := reflect.TypeFor[mcpserver.Scope]()
+	for i := range scope.NumField() {
+		field := scope.Field(i)
+		if json, _, _ := strings.Cut(field.Tag.Get("json"), ","); json != name {
+			continue
+		}
+		if tag, ok := field.Tag.Lookup("providers"); ok {
+			return strings.Split(tag, ",")
+		}
+	}
+	return nil
 }
 
 // connectMCP returns a client session with an MCP server whose tools run
@@ -306,7 +335,7 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		args map[string]any
 		want string
 	}{
-		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "unknown flag: --regions"},
+		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions"},
 		{map[string]any{"provider": "google", "services": []string{"iam"}}, "say which projects"},
 		{map[string]any{"provider": "aws"}, "--services is required"},
 		{map[string]any{"provider": "aws", "services": []string{"vpc"}, "incremental": true, "regenerate": true}, "either --regenerate or --incremental"},
