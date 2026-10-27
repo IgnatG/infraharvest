@@ -206,7 +206,7 @@ func scopeProviders(name string) []string {
 func connectMCP(t *testing.T, root string, run mcpserver.Runner, check mcpserver.Checker, asked func()) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("test", root, run, check).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("test", root, run, check, MCPProviders()).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	confirm := func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
