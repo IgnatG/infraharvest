@@ -61,6 +61,16 @@ func (s *googleScopes) check(options importer.Options) error {
 	if len(options.Projects) == 0 && s.organization == "" && len(s.folders) == 0 {
 		return errors.New("say which projects to import: --projects, --organization or --folders")
 	}
+	return checkProjectsApart(options.Layout, options.Projects)
+}
+
+// checkProjectsApart fails when several projects would share roots. A
+// pattern with {provider}/{service} gets the project put in (see plan),
+// which keeps projects apart as {account} does.
+func checkProjectsApart(pattern string, projects []string) error {
+	if len(projects) > 1 && !strings.Contains(pattern, "{provider}/{service}") {
+		return checkScopesApart(pattern, "project")
+	}
 	return nil
 }
 
@@ -80,12 +90,9 @@ func (s *googleScopes) plan(ctx context.Context, options importer.Options) (plan
 		projects = appendMissing(projects, found)
 	}
 
-	// A pattern with {provider}/{service} gets the project put in (see
-	// below), which keeps projects apart as {account} does.
-	if len(projects) > 1 && !strings.Contains(options.Layout, "{provider}/{service}") {
-		if err := checkScopesApart(options.Layout, "project"); err != nil {
-			return plan{}, err
-		}
+	// The projects of --organization and --folders too.
+	if err := checkProjectsApart(options.Layout, projects); err != nil {
+		return plan{}, err
 	}
 	return plan{kind: "project", scopes: projects, calls: func(scopeOptions importer.Options, project string) []call {
 		calls := make([]call, 0, len(scopeOptions.Regions))

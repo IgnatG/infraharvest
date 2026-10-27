@@ -243,10 +243,15 @@ func required(values map[string]string) []string {
 	return missing
 }
 
+// commandLineOnly are the flags that aren't settings: config names the
+// file itself, and check, set in it, would make every run that reads it
+// check its flags and import nothing.
+var commandLineOnly = []string{"check", "config"}
+
 // Apply sets the flags the command line didn't, from the file's settings
-// and the provider's. It fails on a setting that isn't a flag, and on
-// settings for a provider that is neither one of ProviderCommands nor
-// provider, which would otherwise never apply.
+// and the provider's. It fails on a setting that isn't a flag, or is one
+// of commandLineOnly, and on settings for a provider that is neither one
+// of ProviderCommands nor provider, which would otherwise never apply.
 func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
 	for _, name := range slices.Sorted(maps.Keys(f.Providers)) {
 		if name != provider && !slices.Contains(ProviderCommands, name) {
@@ -260,6 +265,9 @@ func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			if slices.Contains(commandLineOnly, name) {
+				return fmt.Errorf("%q is for the command line, not a setting of the configuration file", name)
+			}
 			flag := flags.Lookup(name)
 			if flag == nil {
 				return fmt.Errorf("%q isn't a setting of infraharvest %s", name, provider)

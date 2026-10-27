@@ -310,13 +310,16 @@ jobs:
         uses: ./.github/actions/setup-engines
         with:
           engine: terraform
+      # The selection file's path has a space, and args has blank and
+      # indented lines: the arguments the check step writes, NUL-separated,
+      # reach the import step whole.
       - name: Start Floci, create queues and write the selection file
         run: |
           docker compose -f e2e/compose.yaml up -d --wait
           for name in shop-orders shop-orders-dlq audit; do
             aws sqs create-queue --queue-name "$name"
           done
-          cat > "$RUNNER_TEMP/selection.yaml" << 'EOF'
+          cat > "$RUNNER_TEMP/my selection.yaml" << 'EOF'
           version: 1
           defaults:
             include: false
@@ -333,19 +336,53 @@ jobs:
           provider: aws
           services: sqs
           regions: us-east-1
-          selection: ${{ runner.temp }}/selection.yaml
+          selection: ${{ runner.temp }}/my selection.yaml
           out: ${{ runner.temp }}/out
+          args: |
+            --list-parallel=2
+
+              --report-tags=team
       - name: Check what the rules chose
         env:
           EXIT_CODE: ${{ steps.infraharvest.outputs.exit-code }}
         run: |
           test "$EXIT_CODE" = 0
+          args=()
+          while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-import-args"
+          want=(import aws --engine=terraform "--out=$RUNNER_TEMP/out" --format=json --services=sqs --regions=us-east-1 --incremental "--selection=$RUNNER_TEMP/my selection.yaml" --list-parallel=2 --report-tags=team)
+          if [[ "${args[*]@Q}" != "${want[*]@Q}" ]]; then
+            echo "::error::import arguments: got ${args[*]@Q}, want ${want[*]@Q}"
+            exit 1
+          fi
           imports=$(find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
           test "$(grep -c '^import {' <<< "$imports")" = 1
           grep -q '/shop-orders"' <<< "$imports"
           coverage="$RUNNER_TEMP/out/report/coverage.json"
           jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/shop-orders-dlq")) and .reason == "excluded by a rule in the selection file")] | length == 1' "$coverage"
           jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/audit")) and .reason == "excluded by the selection file'"'"'s defaults")] | length == 1' "$coverage"
+      # After a bare --, the flags would be arguments: the action refuses
+      # it before anything runs.
+      - name: Run the action with a bare --
+        id: bare
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: ${{ runner.temp }}/bare
+          args: |
+            --
+            --all
+      - name: Check the action refused the bare --
+        env:
+          OUTCOME: ${{ steps.bare.outcome }}
+          EXIT_CODE: ${{ steps.bare.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/bare"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs

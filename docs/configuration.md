@@ -1,6 +1,6 @@
 # Configuration
 
-`--config infraharvest.yaml` sets any flag the command line doesn't, and the state backend of the generated roots:
+`--config infraharvest.yaml` sets any flag the command line doesn't, but `--check` and `--config` itself, and the state backend of the generated roots:
 
 ```yaml
 version: 1

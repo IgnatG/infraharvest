@@ -197,11 +197,11 @@ func checkEngine(name string) error {
 }
 
 // CheckOptions rejects what a provider command was told that no Import
-// call could do, before any account, region or project is planned: an
-// unknown --engine, --format or --modules, a filter that doesn't parse,
-// an import that says neither --selection nor --all, no --services where
-// no --cfn-stack says which to list, --services or --skip naming services
-// provider has no service of, a --layout checkLayout rejects,
+// call could do, before any account, region or project is planned: no
+// --services where no --cfn-stack says which to list, an unknown
+// --engine, --format or --modules, a filter that doesn't parse, an import
+// that says neither --selection nor --all, --services or --skip naming
+// services provider has no service of, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -211,6 +211,12 @@ func checkEngine(name string) error {
 // it covers, instead of failing each scope and reading as a partial
 // import.
 func CheckOptions(provider harvest.Provider, options Options) error {
+	// Checked first, once the configuration file has had its chance to set
+	// --services. A command scoped to CloudFormation stacks needs none: the
+	// types of the stacks' resources say which services to list.
+	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
+		return errNoServices
+	}
 	if err := checkEngine(options.Engine); err != nil {
 		return err
 	}
@@ -219,12 +225,6 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	if err := checkSelectionOptions(options); err != nil {
 		return err
-	}
-	// Checked once the configuration file has had its chance to set
-	// --services. A command scoped to CloudFormation stacks needs none: the
-	// types of the stacks' resources say which services to list.
-	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
-		return errNoServices
 	}
 	// An overlay can add services, such as an AWS cloud_control entry of
 	// a new service, so the provider knows of them before the names are

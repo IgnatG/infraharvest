@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
+	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -62,7 +64,8 @@ func (p *parsingRunner) take() []error {
 // Every flag an MCP tool can pass is one the command it runs has: each
 // parameter of each tool, set on its own, gives arguments that the real
 // command tree parses, for at least one provider where the tool takes
-// one. The tools build their arguments from their inputs' flag tags, so a
+// one, and for every provider its providers tag names, while the tool
+// refuses it for the others without running anything. The tools build their arguments from their inputs' flag tags, so a
 // flag renamed on the command line, or a tag that names none, fails here
 // rather than in an agent's run.
 func TestMCPToolFlagsExist(t *testing.T) {
@@ -132,6 +135,7 @@ func TestMCPToolFlagsExist(t *testing.T) {
 			if !ok {
 				value = sampleValue(kind)
 			}
+			takers := scopeProviders(property)
 			var parsed []string
 			var failures []error
 			for _, name := range names {
@@ -149,6 +153,12 @@ func TestMCPToolFlagsExist(t *testing.T) {
 					t.Fatal(err)
 				}
 				errs := runner.take()
+				if takers != nil && !slices.Contains(takers, name) {
+					if len(errs) != 0 || !res.IsError {
+						t.Errorf("%s with %s on %q: ran %v, want it refused", tool.Name, property, name, errs)
+					}
+					continue
+				}
 				if len(errs) == 0 {
 					t.Errorf("%s with %s on %q ran nothing: %+v", tool.Name, property, name, res.Content)
 					continue
@@ -162,8 +172,28 @@ func TestMCPToolFlagsExist(t *testing.T) {
 			if len(parsed) == 0 {
 				t.Errorf("%s: the command rejects the flag of %s for every provider: %v", tool.Name, property, failures)
 			}
+			if takers != nil && !slices.Equal(parsed, takers) {
+				t.Errorf("%s: the command takes the flag of %s for %v, not every provider its tag names, %v: %v", tool.Name, property, parsed, takers, failures)
+			}
 		}
 	}
+}
+
+// scopeProviders returns the providers that the field of mcpserver.Scope
+// an agent sends as name is for, as its providers tag names them, or none
+// for a field every provider takes.
+func scopeProviders(name string) []string {
+	scope := reflect.TypeFor[mcpserver.Scope]()
+	for i := range scope.NumField() {
+		field := scope.Field(i)
+		if json, _, _ := strings.Cut(field.Tag.Get("json"), ","); json != name {
+			continue
+		}
+		if tag, ok := field.Tag.Lookup("providers"); ok {
+			return strings.Split(tag, ",")
+		}
+	}
+	return nil
 }
 
 // connectMCP returns a client session with an MCP server whose tools run
@@ -247,35 +277,65 @@ func firstError(errs []error) error {
 	return nil
 }
 
-// --check checks a provider command's flags as the run would, and exits
-// without listing anything: a run that would list exits 0 with nothing
-// written, and one the run would refuse fails with the run's error.
+// --check checks a provider command's flags, and the settings of the
+// configuration file, as the run would, and exits without listing
+// anything: a run that would list exits 0 with nothing written, and one
+// the run would refuse exits 2 with the run's error.
 func TestCheckFlag(t *testing.T) {
 	for _, p := range referenceProviders {
 		if providers.New(p) == nil {
 			t.Skipf("built without %s", p)
 		}
 	}
-	out := filepath.Join(t.TempDir(), "out")
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out")
+	// What a configuration file sets is checked as the flags are.
+	config := func(name, content string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("version: 1\n"+content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return "--config=" + path
+	}
+	services := config("services.yaml", "providers:\n  aws:\n    services: [vpc]\n")
+	unknownService := config("unknown-service.yaml", "providers:\n  aws:\n    services: [nothing]\n")
+	check := config("check.yaml", "settings:\n  check: true\n")
+	projects := config("projects.yaml", "settings:\n  layout: \"{out}/{region}\"\nproviders:\n  google:\n    projects: [one, two]\n")
 	for _, tc := range []struct {
 		args []string
 		want string
 	}{
 		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out}, ""},
+		{[]string{"import", "aws", "--all", services, "--out=" + out}, ""},
+		{[]string{"import", "aws", "--all", unknownService, "--out=" + out}, "aws has no service nothing"},
+		{[]string{"import", "aws", "--services=vpc", "--all", check, "--out=" + out}, `"check" is for the command line`},
+		{[]string{"import", "google", "--services=iam", "--all", projects, "--out=" + out}, "needs {account} to keep several projects apart"},
 		{[]string{"discover", "google", "--services=iam", "--projects=p", "--out=" + out}, ""},
 		{[]string{"import", "aws", "--all", "--out=" + out}, "--services is required"},
+		// Before the other checks, as the command line always said it.
+		{[]string{"import", "aws", "--engine=pulumi", "--out=" + out}, "--services is required"},
 		{[]string{"import", "aws", "--services=vpc", "--out=" + out}, "selection"},
 		{[]string{"import", "google", "--services=iam", "--all", "--out=" + out}, "say which projects"},
+		{[]string{"import", "google", "--services=iam", "--all", "--projects=one,two", "--layout={out}/{region}", "--out=" + out}, "needs {account} to keep several projects apart"},
+		{[]string{"import", "google", "--services=iam", "--all", "--projects=one", "--layout={out}/{region}", "--out=" + out}, ""},
+		{[]string{"import", "azure", "--services=resource_graph", "--all", "--subscriptions=one,two", "--layout={out}/{region}", "--out=" + out}, "needs {account} to keep several subscriptions apart"},
 		{[]string{"import", "azure", "--services=resource_graph", "--all", "--regions=westeurope", "--out=" + out}, "unknown flag: --regions"},
 		{[]string{"discover", "aws", "--services=vpc", "--accounts=111122223333", "--organization", "--out=" + out}, "either --accounts or --organization"},
 		{[]string{"import", "aws", "--services=vpc", "--all", "--engine=pulumi", "--out=" + out}, `unknown --engine "pulumi"`},
+		// After a --, every flag is an argument, --check too were it
+		// last: the command takes none, so nothing is imported.
+		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out, "--"}, ""},
+		{[]string{"import", "aws", "--services=vpc", "--all", "--", "--out=" + out}, "unknown command"},
 	} {
-		err := CheckRun(t.Context(), tc.args)
+		err := checkRun(t.Context(), tc.args)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%v: %v", tc.args, err)
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%v: got %v, want %q", tc.args, err, tc.want)
+		case tc.want != "" && importer.ExitCode(err) != report.ExitCouldNotRun:
+			// As the usage guide says, for a pipeline to tell.
+			t.Errorf("%v: exit code %d, want %d", tc.args, importer.ExitCode(err), report.ExitCouldNotRun)
 		}
 	}
 	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
@@ -301,12 +361,12 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		return nil, nil, 2, nil
 	}
 	asked := false
-	session := connectMCP(t, dir, run, CheckRun, func() { asked = true })
+	session := connectMCP(t, dir, run, checkRun, func() { asked = true })
 	for _, tc := range []struct {
 		args map[string]any
 		want string
 	}{
-		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "unknown flag: --regions"},
+		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions"},
 		{map[string]any{"provider": "google", "services": []string{"iam"}}, "say which projects"},
 		{map[string]any{"provider": "aws"}, "--services is required"},
 		{map[string]any{"provider": "aws", "services": []string{"vpc"}, "incremental": true, "regenerate": true}, "either --regenerate or --incremental"},

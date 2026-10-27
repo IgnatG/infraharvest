@@ -28,7 +28,7 @@ inputs:
     description: The provider command, such as aws. Required when importing.
     required: false
   services:
-    description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing.
+    description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing, unless the config file sets them or --cfn-stack in args leaves them to the stacks.
     required: false
   regions:
     description: Regions to import, comma-separated.
@@ -257,7 +257,9 @@ runs:
           echo "::error::provider: $err (set import to false to only check drift)"
           exit 1
         fi
-        args=(import "$PROVIDER" "--engine=$ENGINE" "--services=$SERVICES" "--out=$OUT" --format=json)
+        args=(import "$PROVIDER" "--engine=$ENGINE" "--out=$OUT" --format=json)
+        # Empty, --services would still be set, over the config file's.
+        [[ -n "$SERVICES" ]] && args+=("--services=$SERVICES")
         [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
         [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
         [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
@@ -268,13 +270,19 @@ runs:
           line="${line#"${line%%[![:space:]]*}"}"
           line="${line%"${line##*[![:space:]]}"}"
           [[ -z "$line" ]] && continue
+          if [[ "$line" == -- ]]; then
+            echo "::error::args: a bare -- would make the flags after it arguments; give one --flag a line"
+            exit 1
+          fi
           if [[ "$line" != --* ]]; then
             echo "::error::args: '$line' isn't a flag; give one --flag a line"
             exit 1
           fi
           args+=("$line")
         done <<< "$ARGS"
-        if ! err=$("$bin" "${args[@]}" --check 2>&1 > /dev/null); then
+        # --check right after the provider, where no flag after it can
+        # make it an argument.
+        if ! err=$("$bin" "${args[@]:0:2}" --check "${args[@]:2}" 2>&1 > /dev/null); then
           echo "::error::import: $err"
           exit 1
         fi

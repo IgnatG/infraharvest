@@ -8,14 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -412,16 +415,59 @@ func TestCommandArgsByProvider(t *testing.T) {
 	}
 }
 
-// A run the command rejects, such as one with a field the provider's
-// command has no flag for, returns the command's error.
+// A field for other providers is rejected before anything runs, by
+// import and discover alike: aws has an --organization flag too, which
+// would list the whole organisation that the user isn't shown.
+func TestFieldsForOtherProvidersAreRejected(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args map[string]any
+		want string
+	}{
+		"aws with an organization": {map[string]any{"provider": "aws", "services": []string{"vpc"}, "organization": "true"}, "aws doesn't take organization, which is for google only"},
+		"azure with regions":       {map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions, which is for aws and google only"},
+		"google with accounts":     {map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"one"}, "accounts": []string{"111"}}, "google doesn't take accounts, which is for aws only"},
+		"aws with azapi":           {map[string]any{"provider": "aws", "services": []string{"vpc"}, "azapi": true}, "aws doesn't take azapi, which is for azure only"},
+	} {
+		for _, tool := range []string{"discover", "import"} {
+			t.Run(name+" "+tool, func(t *testing.T) {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "selection.yaml")
+				if err := writeSelection(path); err != nil {
+					t.Fatal(err)
+				}
+				runner := &fakeRunner{}
+				session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					return &mcp.ElicitResult{Action: "accept"}, nil
+				})
+				args := maps.Clone(tc.args)
+				args["selection"] = path
+				if tool == "import" {
+					args["out"] = filepath.Join(dir, "generated")
+				}
+
+				res, text := call(t, session, tool, args)
+
+				if !res.IsError || !strings.Contains(text, tc.want) {
+					t.Errorf("want an error result with %q, got %s", tc.want, text)
+				}
+				if len(runner.runs) != 0 {
+					t.Errorf("ran: %v", runner.runs)
+				}
+			})
+		}
+	}
+}
+
+// A run the command rejects, such as a Google scope without a project,
+// returns the command's error.
 func TestDiscoverReturnsTheCommandsError(t *testing.T) {
-	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "unknown flag: --regions\n"}
+	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "google needs --projects, --organization or --folders\n"}
 	dir := t.TempDir()
 	session := connect(t, runner, dir, nil)
 
-	res, text := call(t, session, "discover", map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}, "selection": filepath.Join(dir, "selection.yaml")})
+	res, text := call(t, session, "discover", map[string]any{"provider": "google", "services": []string{"iam"}, "selection": filepath.Join(dir, "selection.yaml")})
 
-	if !res.IsError || !strings.Contains(text, "unknown flag: --regions") {
+	if !res.IsError || !strings.Contains(text, "google needs --projects") {
 		t.Errorf("want an error result with the command's error, got %s", text)
 	}
 }
@@ -442,8 +488,47 @@ func TestScopeText(t *testing.T) {
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
 	} {
-		if got := scopeText(tc.scope); got != tc.want {
-			t.Errorf("scopeText(%+v): got %q, want %q", tc.scope, got, tc.want)
+		if got, err := scopeText(tc.scope); err != nil || got != tc.want {
+			t.Errorf("scopeText(%+v): got %q, %v, want %q", tc.scope, got, err, tc.want)
+		}
+	}
+	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}); err == nil {
+		t.Error("a provider scopeText has no case for: want an error, not an aws account")
+	}
+}
+
+// What the user confirms names every field the provider takes, as Scope's
+// providers tags declare them: a field a provider takes that its case
+// didn't say would import more than the user was shown.
+func TestScopeTextSaysEveryField(t *testing.T) {
+	scope := reflect.TypeFor[Scope]()
+	for _, provider := range providers.Names() {
+		for i := range scope.NumField() {
+			field := scope.Field(i)
+			if !slices.Contains(scopeProviders(field), provider) {
+				continue
+			}
+			s := Scope{Provider: provider, Services: []string{"vpc"}}
+			if field.Name == "CloudFormationIgnore" {
+				// It is taken with stacks alone.
+				s.CloudFormationStacks = []string{"app"}
+			}
+			without, err := scopeText(s)
+			if err != nil {
+				t.Fatalf("%s: %v", provider, err)
+			}
+			value := reflect.ValueOf(&s).Elem().Field(i)
+			switch value.Kind() {
+			case reflect.Bool:
+				value.SetBool(true)
+			case reflect.String:
+				value.SetString("x")
+			case reflect.Slice:
+				value.Set(reflect.ValueOf([]string{"x"}))
+			}
+			if with, err := scopeText(s); err != nil || with == without {
+				t.Errorf("%s with %s: got %q, %v, the same as without it", provider, jsonName(field), with, err)
+			}
 		}
 	}
 }

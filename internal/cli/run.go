@@ -18,7 +18,7 @@ import (
 // importer it is passed: the configuration file applies to the command's
 // flags first, the run collects what every import the command makes did,
 // and finishes with the report, the selection file and the exit code.
-// With --check, the command only checks its flags (see CheckRun), and the
+// With --check, the command only checks its flags (see checkRun), and the
 // run is never done: it lists nothing, writes nothing, and catches no
 // signals.
 func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error {
@@ -56,14 +56,16 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 	}
 }
 
-// CheckRun checks the run of the provider command args name, such as
+// checkRun checks the run of the provider command args name, such as
 // import aws --services=vpc --all, as that command's --check does: its
 // options are built from args and the configuration file as for the run,
 // and checked as the run checks them, without listing anything. The MCP
 // server checks an import here before the user is asked to confirm it.
-func CheckRun(ctx context.Context, args []string) error {
+// args start with the command and the provider; --check goes right after
+// them, where a -- among the flags can't make it an argument.
+func checkRun(ctx context.Context, args []string) error {
 	cmd := NewCmdRoot()
-	cmd.SetArgs(append(slices.Clone(args), "--"+providers.CheckFlag))
+	cmd.SetArgs(slices.Insert(slices.Clone(args), 2, "--"+providers.CheckFlag))
 	// Nothing to print: the MCP server's standard output is the protocol's.
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
