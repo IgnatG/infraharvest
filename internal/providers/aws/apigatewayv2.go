@@ -43,15 +43,25 @@ func (g *APIGatewayV2Lister) List() error {
 		return err
 	}
 	for _, api := range apis {
-		lists := []func(*apigatewayv2.Client, string) error{g.listStages}
-		if !api.http {
-			lists = append(lists, g.listModels)
-		}
-		lists = append(lists, g.listIntegrations, func(svc *apigatewayv2.Client, apiID string) error {
-			return g.listRoutes(svc, apiID, !api.http)
-		}, g.listAuthorizers)
-		for _, list := range lists {
-			if err := list(svc, api.id); err != nil {
+		// Each part takes a call or more per API, so those of types the
+		// import doesn't keep are skipped.
+		responses := !api.http && g.wants("aws_apigatewayv2_route_response")
+		for _, part := range []struct {
+			list   func(*apigatewayv2.Client, string) error
+			wanted bool
+		}{
+			{g.listStages, g.wants("aws_apigatewayv2_stage")},
+			{g.listModels, !api.http && g.wants("aws_apigatewayv2_model")},
+			{g.listIntegrations, g.wants("aws_apigatewayv2_integration")},
+			{func(svc *apigatewayv2.Client, apiID string) error {
+				return g.listRoutes(svc, apiID, responses)
+			}, responses || g.wants("aws_apigatewayv2_route")},
+			{g.listAuthorizers, g.wants("aws_apigatewayv2_authorizer")},
+		} {
+			if !part.wanted {
+				continue
+			}
+			if err := part.list(svc, api.id); err != nil {
 				return err
 			}
 		}

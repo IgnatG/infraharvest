@@ -9,8 +9,6 @@ import (
 	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // Scope names the account and region this import covers, for the output
@@ -18,9 +16,7 @@ import (
 // account, and the region the SDK resolved for ProfileRegion, for the
 // provider block (see ProviderBlock).
 func (p *Provider) Scope(ctx context.Context) (account, region string, err error) {
-	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
-	service.SetContext(ctx)
+	service := p.service(ctx)
 	config, err := service.sdkConfig()
 	if err != nil {
 		return "", "", err
@@ -65,9 +61,7 @@ func (Provider) PartialTypes() []string {
 // Without --regions, it also gives the region the profile or environment
 // resolves to, which the provider block names too once Scope has run.
 func (p *Provider) TerraformEnv(ctx context.Context) (map[string]string, error) {
-	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
-	service.SetContext(ctx)
+	service := p.service(ctx)
 	creds, err := service.baseCredentials()
 	if err != nil {
 		return nil, err

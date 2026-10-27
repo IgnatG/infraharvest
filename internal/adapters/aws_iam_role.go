@@ -14,13 +14,13 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// IAMRole maps a role, its inline policy, its policy attachments and its
+// awsIAMRole maps a role, its inline policy, its policy attachments and its
 // instance profile onto the iam-role module of
 // terraform-aws-modules/iam/aws. The module names the inline policy and
 // the instance profile after the role, and gives the profile the role's
 // path and tags: it declines roles whose resources differ. The module
 // sets force_detach_policies, which the provider keeps only in state.
-var IAMRole = Adapter{
+var awsIAMRole = Adapter{
 	Source:   "terraform-aws-modules/iam/aws//modules/iam-role",
 	Version:  "6.8.2",
 	Anchor:   "aws_iam_role",

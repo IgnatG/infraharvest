@@ -11,12 +11,12 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// GoogleServiceAccount maps a service account and the roles it has in its
+// googleServiceAccount maps a service account and the roles it has in its
 // project onto the simple-sa module of
 // terraform-google-modules/service-accounts/google: one account per call,
 // so each keeps its own display name and description. It declines
 // conditional grants, which the module can't make.
-var GoogleServiceAccount = Adapter{
+var googleServiceAccount = Adapter{
 	Source:    "terraform-google-modules/service-accounts/google//modules/simple-sa",
 	Version:   "5.1.0",
 	Anchor:    "google_service_account",

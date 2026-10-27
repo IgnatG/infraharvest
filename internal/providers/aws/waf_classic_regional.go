@@ -40,7 +40,9 @@ func (g *WafRegionalLister) List() error {
 	}
 	var associations []harvest.Resource
 	for _, acl := range resources {
-		if acl.Address.Type != "aws_wafregional_web_acl" {
+		// A call per web ACL and resource type, for associations the
+		// import may not keep.
+		if acl.Address.Type != "aws_wafregional_web_acl" || !g.wants("aws_wafregional_web_acl_association") {
 			continue
 		}
 		protected, err := g.webACLAssociations(svc, acl.Observed.ID, acl.RawName)

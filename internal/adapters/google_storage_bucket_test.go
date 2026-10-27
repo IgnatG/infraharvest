@@ -39,11 +39,11 @@ const googleBucketCluster = `resource "google_storage_bucket" "assets" {
 func TestGoogleStorageBucketMaps(t *testing.T) {
 	t.Parallel()
 	c := cluster(t, googleBucketCluster)
-	call, err := GoogleStorageBucket.Map(c)
+	call, err := googleStorageBucket.Map(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleStorageBucket, call)
+	got := render(t, googleStorageBucket, call)
 	for _, want := range []string{
 		`name = "acme-assets"`,
 		`project_id = "acme"`,
@@ -79,7 +79,7 @@ func TestGoogleStorageBucketDeclines(t *testing.T) {
 		if src == googleBucketCluster {
 			t.Fatalf("%s: the replacement doesn't apply", name)
 		}
-		if _, err := GoogleStorageBucket.Map(cluster(t, src)); !IsDecline(err) {
+		if _, err := googleStorageBucket.Map(cluster(t, src)); !IsDecline(err) {
 			t.Errorf("%s: got %v, want a decline", name, err)
 		}
 	}

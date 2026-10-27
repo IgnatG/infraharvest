@@ -58,6 +58,10 @@ func (az *ManagedIdentityLister) List() error {
 			continue
 		}
 		az.recordTagged(*identity.ID, *identity.Name, "azurerm_user_assigned_identity", identity.Tags)
+		// A call per identity, for credentials the import may not keep.
+		if !az.wants("azurerm_federated_identity_credential") {
+			continue
+		}
 		// Federated credentials are listed under the identity's own resource
 		// group, which is not --resource-group when the whole subscription is
 		// listed.

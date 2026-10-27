@@ -154,3 +154,17 @@ func TestEveryProfileDescribesItsScope(t *testing.T) {
 		}
 	}
 }
+
+// Check accepts each provider compiled in, and refuses another, naming
+// those there are.
+func TestCheck(t *testing.T) {
+	for _, name := range Names() {
+		if err := Check(name); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	err := Check("no-such-provider")
+	if err == nil || !strings.Contains(err.Error(), `unknown provider "no-such-provider"`) || !strings.Contains(err.Error(), strings.Join(Names(), ", ")) {
+		t.Errorf("got %v, want the provider refused, naming %v", err, Names())
+	}
+}

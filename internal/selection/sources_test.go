@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -228,26 +227,57 @@ func TestOwnedReason(t *testing.T) {
 
 // With --all, the types the default selection leaves out whole are
 // unwanted; a selection file wants one again if an entry or a rule may
-// include it, by its type or for every type.
+// include it, by its type or for every type. A selection file also leaves
+// out whole the types its defaults exclude, or a rule excludes by type
+// alone, but not those it excludes only some resources of.
 func TestUnwanted(t *testing.T) {
 	t.Parallel()
 	cat := catalogue.MustBuiltin("aws")
-	if got := Unwanted(cat, nil); !reflect.DeepEqual(got, cat.SkippedWhole()) || !slices.Contains(got, "aws_iam_access_key") {
-		t.Fatalf("--all: got %v, want %v", got, cat.SkippedWhole())
+	all := Unwanted(cat, nil)
+	for _, typ := range cat.SkippedWhole() {
+		if !all(typ) {
+			t.Errorf("--all: %s is wanted", typ)
+		}
 	}
+	if !all("aws_iam_access_key") || all("aws_sqs_queue") {
+		t.Fatalf("--all: access keys unwanted %v, queues %v; want true, false", all("aws_iam_access_key"), all("aws_sqs_queue"))
+	}
+	excludeAll := Defaults{}
+	includeAll := Defaults{Include: true}
 	for name, tc := range map[string]struct {
 		file     *File
+		typ      string
 		unwanted bool
 	}{
-		"an entry that includes one": {&File{Resources: []Resource{{Type: "aws_iam_access_key", ID: "AKIA1", Include: true}}}, false},
-		"an entry that excludes one": {&File{Resources: []Resource{{Type: "aws_iam_access_key", ID: "AKIA1"}}}, true},
-		"a rule that includes them":  {&File{Rules: []Rule{{Include: &Match{Type: Patterns{"aws_iam_*"}}}}}, false},
-		"a rule that excludes them":  {&File{Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_iam_*"}}}}}, true},
-		"a rule for every type":      {&File{Rules: []Rule{{Include: &Match{Tags: map[string]Patterns{"team": {"data"}}}}}}, false},
-		"a rule for another type":    {&File{Rules: []Rule{{Include: &Match{Type: Patterns{"aws_sqs_*"}}}}}, true},
+		"an entry that includes one":   {&File{Resources: []Resource{{Type: "aws_iam_access_key", ID: "AKIA1", Include: true}}}, "aws_iam_access_key", false},
+		"an entry that excludes one":   {&File{Resources: []Resource{{Type: "aws_iam_access_key", ID: "AKIA1"}}}, "aws_iam_access_key", true},
+		"a rule that includes them":    {&File{Rules: []Rule{{Include: &Match{Type: Patterns{"aws_iam_*"}}}}}, "aws_iam_access_key", false},
+		"a rule that excludes them":    {&File{Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_iam_*"}}}}}, "aws_iam_access_key", true},
+		"a rule for every type":        {&File{Rules: []Rule{{Include: &Match{Tags: map[string]Patterns{"team": {"data"}}}}}}, "aws_iam_access_key", false},
+		"a rule for another type":      {&File{Rules: []Rule{{Include: &Match{Type: Patterns{"aws_sqs_*"}}}}}, "aws_iam_access_key", true},
+		"defaults that include":        {&File{Defaults: includeAll}, "aws_sqs_queue", false},
+		"defaults that exclude":        {&File{Defaults: excludeAll}, "aws_sqs_queue", true},
+		"defaults that exclude, entry": {&File{Defaults: excludeAll, Resources: []Resource{{Type: "aws_sqs_queue", ID: "q", Include: true}}}, "aws_sqs_queue", false},
+		"defaults that exclude, rule":  {&File{Defaults: excludeAll, Rules: []Rule{{Include: &Match{Tags: map[string]Patterns{"team": {"data"}}}}}}, "aws_sqs_queue", false},
+		"an excluding entry":           {&File{Defaults: includeAll, Resources: []Resource{{Type: "aws_sqs_queue", ID: "q"}}}, "aws_sqs_queue", false},
+		"a rule excluding the type":    {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_*"}}}}}, "aws_sqs_queue", true},
+		"a rule excluding any ID":      {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_queue"}, ID: Patterns{"*"}}}}}, "aws_sqs_queue", true},
+		"a rule excluding some IDs":    {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_queue"}, ID: Patterns{"dev-*"}}}}}, "aws_sqs_queue", false},
+		"a rule excluding some names":  {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_queue"}, Name: Patterns{"dev"}}}}}, "aws_sqs_queue", false},
+		"a rule excluding some tags":   {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_queue"}, Tags: map[string]Patterns{"env": {"dev"}}}}}}, "aws_sqs_queue", false},
+		"a rule including some again":  {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_sqs_*"}}}, {Include: &Match{Type: Patterns{"aws_sqs_queue"}, ID: Patterns{"prod-*"}}}}}, "aws_sqs_queue", false},
+		"a type outside the catalogue": {&File{Defaults: includeAll, Rules: []Rule{{Exclude: &Match{Type: Patterns{"aws_wafv2_web_acl_association"}}}}}, "aws_wafv2_web_acl_association", true},
 	} {
-		if got := slices.Contains(Unwanted(cat, tc.file), "aws_iam_access_key"); got != tc.unwanted {
-			t.Errorf("%s: access keys unwanted %v, want %v", name, got, tc.unwanted)
+		unwanted := Unwanted(cat, tc.file)
+		// Asked twice: the second answer is the one worked out first.
+		for range 2 {
+			if got := unwanted(tc.typ); got != tc.unwanted {
+				t.Errorf("%s: %s unwanted %v, want %v", name, tc.typ, got, tc.unwanted)
+			}
+		}
+		// What is unwanted, a file decides out for a resource it doesn't list.
+		if tc.unwanted && tc.file.Decide(tc.typ, "other", "other").Include {
+			t.Errorf("%s: %s is unwanted, but the file includes a resource of it", name, tc.typ)
 		}
 	}
 }

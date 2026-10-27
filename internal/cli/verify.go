@@ -35,12 +35,12 @@ func newVerifyCmd() *cobra.Command {
 			return importer.Interrupted(ctx, importer.Verify(ctx, options, cmd.OutOrStdout()))
 		},
 	}
-	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
-	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
-	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit)")
-	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a summary; json prints each root's checks as JSON")
-	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue (see "+providers.DocsURL+"catalogue/)")
-	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/)")
-	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
+	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
+		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
+		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments,
+		FormatHelp:      "text prints a summary; json prints each root's checks as JSON",
+		CatalogueHelp:   ": those the import used",
+		EnvironmentHelp: "for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/)",
+	})
 	return cmd
 }

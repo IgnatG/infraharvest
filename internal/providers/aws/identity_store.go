@@ -83,6 +83,10 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 					"identity_store_id": store,
 					"description":       aws.ToString(group.Description),
 				}))
+			// A call per group, for memberships the import may not keep.
+			if !g.wants("aws_identitystore_group_membership") {
+				continue
+			}
 			if err := g.listMemberships(client, store, groupID); err != nil {
 				return err
 			}

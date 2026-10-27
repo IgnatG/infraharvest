@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/config"
 )
 
@@ -31,6 +30,9 @@ type configUse struct {
 	// with the backend and the environments; "" for drift, which applies
 	// only driftConfigSettings of the file's settings.
 	provider string
+	// providers are the providers compiled, whose profiles say which of
+	// the tools' parameters provider takes (see scopeTakers).
+	providers Providers
 }
 
 // driftConfigSettings are the settings drift's --config applies, engine,
@@ -56,7 +58,7 @@ func (u configUse) settings(section string) []string {
 	if section == "" {
 		section = u.provider
 	}
-	names := slices.DeleteFunc(flagNames(reflect.TypeFor[ImportInput](), section), func(name string) bool { return slices.Contains(modeSettings, name) })
+	names := slices.DeleteFunc(u.providers.flagNames(reflect.TypeFor[ImportInput](), section), func(name string) bool { return slices.Contains(modeSettings, name) })
 	slices.Sort(names)
 	return names
 }
@@ -68,18 +70,18 @@ func (u configUse) settings(section string) []string {
 var modeSettings = []string{"incremental", "regenerate", "force-unlock"}
 
 // flagNames returns the flags the flag tags of in, a tool's input, name,
-// with those of the structs it embeds, for provider: a field whose
-// providers tag names others is left out, as provider's command has no
+// with those of the structs it embeds, for provider: a field for others
+// alone (see scopeTakers) is left out, as provider's command has no
 // such flag, or one with another meaning.
-func flagNames(in reflect.Type, provider string) []string {
+func (p Providers) flagNames(in reflect.Type, provider string) []string {
 	var names []string
 	for i := range in.NumField() {
 		field := in.Field(i)
 		if field.Anonymous {
-			names = append(names, flagNames(field.Type, provider)...)
+			names = append(names, p.flagNames(field.Type, provider)...)
 			continue
 		}
-		if takers := scopeProviders(field); len(takers) > 0 && !slices.Contains(takers, provider) {
+		if takers := p.scopeTakers(field); takers != nil && !slices.Contains(takers, provider) {
 			continue
 		}
 		if tag, ok := field.Tag.Lookup("flag"); ok {
@@ -122,7 +124,7 @@ func (t *tools) loadConfig(path *string, use configUse) (*toolConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := config.Load(copied.path, providers.Profiles())
+	f, err := config.Load(copied.path, t.providers.Profiles)
 	if err == nil {
 		err = checkConfig(f, use)
 	}

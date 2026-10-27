@@ -194,7 +194,7 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 			fmt.Fprintf(&out, "#   %s\n", child)
 		}
 	}
-	omit := append(append([]string(nil), c.Omit()[AllTypes]...), e.Omit...)
+	omit := append(append([]string(nil), c.Omit(nil)[AllTypes]...), e.Omit...)
 	if len(e.Omit) > 0 {
 		fmt.Fprintf(&out, "\n# Left out of generated configuration: %s\n", strings.Join(omit, ", "))
 	}
@@ -209,7 +209,7 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 		sort.Strings(sorted)
 		fmt.Fprintf(&out, "\n# Left out where the plan stays the same, as the default: %s\n", strings.Join(sorted, ", "))
 	}
-	if stateOnly := c.StateOnly()[typ]; len(stateOnly) > 0 {
+	if stateOnly := c.StateOnly(nil)[typ]; len(stateOnly) > 0 {
 		sorted := append([]string(nil), stateOnly...)
 		sort.Strings(sorted)
 		fmt.Fprintf(&out, "\n# Kept in state only, so a plan may set: %s\n", strings.Join(sorted, ", "))
@@ -243,7 +243,7 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 	generated := strings.TrimSuffix(input, ".json") + ".generated.tf"
 	if _, err := os.Stat(generated); err == nil {
 		out.WriteString("\n# Generated configuration, without the arguments the catalogue omits:\n")
-		omit := c.Omit()
+		omit := c.Omit(nil)
 		for address, extra := range resourceOmit {
 			omit[address] = extra
 		}

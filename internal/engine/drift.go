@@ -14,7 +14,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -116,10 +115,12 @@ type DriftOptions struct {
 	// (see Options.Omit), which the standards check of the edited code
 	// looks for.
 	Omit map[string][]string
-	// Adapters are the adapters of the organisation's own modules (see
-	// Options.Adapters): the standards check of the edited code leaves
-	// the modules in their directories to their owners, as the
-	// verification gate does.
+	// Adapters are the adapters of the modules the root may call, as
+	// generation had them (see Options.Adapters): a change of a resource
+	// in a call of a curated module is traced to the call through its
+	// adapter (see curatedAdapter), and the standards check of the edited
+	// code leaves the organisation's modules in their directories to
+	// their owners, as the verification gate does.
 	Adapters []adapters.Adapter
 	// Environment is, for a root environments share (see
 	// MergedEnvironments), the environment to check it as: with its
@@ -133,13 +134,14 @@ type DriftOptions struct {
 	// instead; in a block only the environment has, counted by a variable
 	// only it sets true, the block is edited; else it needs a hand edit.
 	Environment string
-	// RootLock, for a root environments share, is held while the root's
-	// own directory is initialised with Environment's backend settings,
-	// its state pulled and its files staged: checks of its other
-	// environments, run at once, reconfigure the backend of the same
-	// directory, and a pull between another's init and its own would read
-	// that environment's state. nil locks nothing.
-	RootLock *sync.Mutex
+	// WithRootLock, for a root environments share, runs what Drift does
+	// in the root's own directory, initialise it with Environment's
+	// backend settings, pull its state and stage its files, holding a lock
+	// the checks of the root's other environments share: run at once,
+	// they reconfigure the backend of the same directory, and a pull
+	// between another's init and its own would read that environment's
+	// state. nil runs it as it is.
+	WithRootLock func(func() error) error
 	// DataDir is where the Terraform Drift is given for the root keeps its
 	// working files, the TF_DATA_DIR it runs with, which Drift reads the
 	// modules its init installed from; "" for .terraform in the root.

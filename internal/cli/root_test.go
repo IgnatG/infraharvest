@@ -87,3 +87,33 @@ func TestAWSCommandsHaveBuildConstraint(t *testing.T) {
 		t.Error("no file adds an AWS command, but cfn is one")
 	}
 }
+
+// The flags of the commands that run Terraform or OpenTofu on the roots
+// mean the same in each, so they have the same help and default, but
+// --format, --catalogue and --environment, which say what the command does
+// with them.
+func TestEngineFlagsAlike(t *testing.T) {
+	commands := [][]string{{"verify"}, {"drift"}}
+	for _, name := range providers.Names() {
+		commands = append(commands, []string{"import", name}, []string{"discover", name})
+	}
+	first := map[string]string{}
+	for _, args := range commands {
+		cmd, _, err := NewCmdRoot().Find(args)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		for _, name := range []string{"engine", "terraform-path", "engine-timeout", "force-unlock"} {
+			f := cmd.Flag(name)
+			if f == nil {
+				t.Errorf("%v has no --%s", args, name)
+				continue
+			}
+			got := f.DefValue + " " + f.Usage
+			if want, ok := first[name]; ok && got != want {
+				t.Errorf("%v --%s: got %q, want %q as the other commands have it", args, name, got, want)
+			}
+			first[name] = got
+		}
+	}
+}

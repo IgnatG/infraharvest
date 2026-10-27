@@ -42,6 +42,10 @@ func (g *GlueLister) List() error {
 	if err != nil {
 		return err
 	}
+	// A call per database, for tables the import may not keep.
+	if !g.wants("aws_glue_catalog_table") {
+		databases = nil
+	}
 	for _, database := range databases {
 		if err := g.listTables(ctx, client, account, database); err != nil {
 			return err

@@ -93,6 +93,13 @@ type Scope struct {
 	// for a command that has a default, such as the account of aws's
 	// credentials.
 	Needs []string
+	// Flags are the command's flags, besides --services, that say where
+	// to import, such as aws's regions and accounts, which the MCP
+	// server's tools take as parameters of the providers that declare
+	// them. A parameter has one meaning: a provider whose command has a
+	// flag of the name with another, such as aws's --organization, a
+	// switch where google's takes an ID, leaves it out.
+	Flags []string
 	// Describe says what the provider's command reads, in the provider's
 	// own terms, for the user to confirm an import before it runs, such
 	// as "the aws accounts 111111111111, 222222222222 in eu-west-2". flags

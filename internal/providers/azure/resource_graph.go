@@ -147,7 +147,7 @@ func (g *ResourceGraphLister) List() error {
 	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
 	// A partial failure keeps the data sources that were listed, and the
 	// service fails in part (see childListFailures).
-	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources)
+	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources, g.wants)
 	if sourceErr != nil && !harvest.IsPartial(sourceErr) {
 		return sourceErr
 	}

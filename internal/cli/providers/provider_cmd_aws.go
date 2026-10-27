@@ -18,6 +18,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/managed"
+	s3store "github.com/IgnatG/infraharvest/internal/managed/stores/s3"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 )
 
@@ -29,6 +31,7 @@ func init() {
 	define(definition{
 		name:        "aws",
 		newProvider: newAWSProvider,
+		stores:      func(s *managed.Stores) { s.S3 = s3store.New },
 		short:       "Generate Terraform configuration for the resources of AWS accounts",
 		long: "List the resources of the services --services names in an AWS account, and\n" +
 			"generate their Terraform configuration with import blocks. The credentials come\n" +

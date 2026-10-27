@@ -19,6 +19,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // How a root's code sets an attribute that changed in the cloud
@@ -149,6 +151,10 @@ type driftEditor struct {
 	// modules.json (see loadDriftModules), to trace changes of their
 	// resources to the calls.
 	modules map[string]*driftModule
+	// adapters are the run's (see DriftOptions.Adapters), whose Inverse
+	// traces a change of a curated module's resource to its call (see
+	// curatedAdapter).
+	adapters []adapters.Adapter
 	// env is, for a root environments share, the environment checked:
 	// its code is every environment's, so only env's var file, envVars
 	// (see envVarsPath), is edited, for a value a variable sets, or a

@@ -34,7 +34,7 @@ func TestBuiltinLoads(t *testing.T) {
 	if e, ok := aws.Entry("aws_vpc"); !ok || e.Service != "vpc" || e.DataSource == nil {
 		t.Errorf("aws_vpc: got %+v, want the vpc service's entry with a data source", e)
 	}
-	if got := aws.Omit()[AllTypes]; !reflect.DeepEqual(got, []string{"region", "tags_all", "*.tags_all"}) {
+	if got := aws.Omit(nil)[AllTypes]; !reflect.DeepEqual(got, []string{"region", "tags_all", "*.tags_all"}) {
 		t.Errorf("omit for every type: got %v", got)
 	}
 	if source := aws.Source("aws_vpc"); source != "data/aws/vpc.yaml" {
@@ -283,7 +283,7 @@ func TestCheckRejects(t *testing.T) {
 	// Defaults name nested arguments by their path.
 	if c, err := load(t, map[string]string{"x.yaml": "provider: google\ntypes:\n  google_x:\n    defaults: [\"storage_class=STANDARD\", \"soft_delete_policy.retention_duration_seconds=604800\"]\n"}); err != nil {
 		t.Errorf("defaults: %v", err)
-	} else if got := c["google"].Defaults()["google_x"]; len(got) != 2 {
+	} else if got := c["google"].Defaults(nil)["google_x"]; len(got) != 2 {
 		t.Errorf("defaults: got %v", got)
 	}
 	// name=value omits an argument only when it is set to value.
@@ -626,26 +626,22 @@ types:
 		name      string
 		got, want []string
 	}{
-		{"omit without a version", c.Omit()["azurerm_storage_account"], []string{"a"}},
-		{"omit for 4.81.0", c.omitFor(v4)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=true"}},
-		{"omit for 5.10.0", c.omitFor(v5)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=false"}},
-		{"defaults without a version", c.Defaults()["azurerm_storage_account"], nil},
-		{"defaults for 4.81.0", c.defaultsFor(v4)["azurerm_storage_account"], []string{"min_tls_version=TLS1_0"}},
-		{"defaults for 5.10.0", c.defaultsFor(v5)["azurerm_storage_account"], []string{"min_tls_version=TLS1_2"}},
-		{"state_only without a version", c.StateOnly()["azurerm_storage_account"], []string{"s"}},
-		{"state_only for 4.81.0", c.stateOnlyFor(v4)["azurerm_storage_account"], []string{"s"}},
-		{"state_only for 5.10.0", c.stateOnlyFor(v5)["azurerm_storage_account"], []string{"s", "t"}},
-		{"only versioned, without a version", c.Omit()["azurerm_log_analytics_workspace"], nil},
-		{"only versioned, for 4.81.0", c.omitFor(v4)["azurerm_log_analytics_workspace"], nil},
-		{"only versioned, for 5.10.0", c.omitFor(v5)["azurerm_log_analytics_workspace"], []string{"internet_ingestion_enabled"}},
+		{"omit without a version", c.Omit(nil)["azurerm_storage_account"], []string{"a"}},
+		{"omit for 4.81.0", c.Omit(v4)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=true"}},
+		{"omit for 5.10.0", c.Omit(v5)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=false"}},
+		{"defaults without a version", c.Defaults(nil)["azurerm_storage_account"], nil},
+		{"defaults for 4.81.0", c.Defaults(v4)["azurerm_storage_account"], []string{"min_tls_version=TLS1_0"}},
+		{"defaults for 5.10.0", c.Defaults(v5)["azurerm_storage_account"], []string{"min_tls_version=TLS1_2"}},
+		{"state_only without a version", c.StateOnly(nil)["azurerm_storage_account"], []string{"s"}},
+		{"state_only for 4.81.0", c.StateOnly(v4)["azurerm_storage_account"], []string{"s"}},
+		{"state_only for 5.10.0", c.StateOnly(v5)["azurerm_storage_account"], []string{"s", "t"}},
+		{"only versioned, without a version", c.Omit(nil)["azurerm_log_analytics_workspace"], nil},
+		{"only versioned, for 4.81.0", c.Omit(v4)["azurerm_log_analytics_workspace"], nil},
+		{"only versioned, for 5.10.0", c.Omit(v5)["azurerm_log_analytics_workspace"], []string{"internet_ingestion_enabled"}},
 	} {
 		if !reflect.DeepEqual(tt.got, tt.want) {
 			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
 		}
-	}
-	// Drift judges a root by the same release's.
-	if d := c.DriftOptions(v5); !reflect.DeepEqual(d.Omit, c.omitFor(v5)) || !reflect.DeepEqual(d.Defaults, c.defaultsFor(v5)) || !reflect.DeepEqual(d.StateOnly, c.stateOnlyFor(v5)) {
-		t.Errorf("drift options for 5.10.0: omit %v, defaults %v, state_only %v", d.Omit, d.Defaults, d.StateOnly)
 	}
 
 	dir := t.TempDir()
@@ -654,7 +650,7 @@ types:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := overlaid.omitFor(v5)["azurerm_storage_account"]; slices.Contains(got, "allow_nested_items_to_be_public=false") {
+	if got := overlaid.Omit(v5)["azurerm_storage_account"]; slices.Contains(got, "allow_nested_items_to_be_public=false") {
 		t.Errorf("an overlay's provider_versions replace the built-in ones; got %v", got)
 	}
 }
@@ -750,14 +746,14 @@ func TestWithAddsTheTypesOfAnotherProvider(t *testing.T) {
 	t.Parallel()
 	azurerm, azapi := MustBuiltin("azurerm"), MustBuiltin("azapi")
 	merged := azurerm.With(azapi)
-	if got := merged.Defaults()["azapi_resource"]; !slices.Contains(got, "schema_validation_enabled=true") {
+	if got := merged.Defaults(nil)["azapi_resource"]; !slices.Contains(got, "schema_validation_enabled=true") {
 		t.Errorf("azapi_resource defaults: got %v", got)
 	}
 	if merged.Source("azapi_resource") != "data/azapi/azapi.yaml" {
 		t.Errorf("source: got %q", merged.Source("azapi_resource"))
 	}
-	if !reflect.DeepEqual(merged.Omit()[AllTypes], azurerm.Omit()[AllTypes]) || len(merged.Types()) != len(azurerm.Types())+len(azapi.Types()) {
-		t.Errorf("merged: %d types, every type's omit %v", len(merged.Types()), merged.Omit()[AllTypes])
+	if !reflect.DeepEqual(merged.Omit(nil)[AllTypes], azurerm.Omit(nil)[AllTypes]) || len(merged.Types()) != len(azurerm.Types())+len(azapi.Types()) {
+		t.Errorf("merged: %d types, every type's omit %v", len(merged.Types()), merged.Omit(nil)[AllTypes])
 	}
 	attributes := map[string]string{"resource_group_name": "DefaultResourceGroup-EUS"}
 	if merged.Skipped("azapi_resource", "/subscriptions/s/resourceGroups/DefaultResourceGroup-EUS/providers/Microsoft.AzureFleet/fleets/f", attributes) == "" {
@@ -785,5 +781,86 @@ func TestFallbackImportID(t *testing.T) {
 	}
 	if got, ok := MustBuiltin("azurerm").FallbackImportID("azurerm_resource_group", "/subscriptions/s/resourceGroups/rg", nil); ok {
 		t.Errorf("a type without templates: got %q", got)
+	}
+}
+
+// Every caller shares the built-in catalogues, so what their methods
+// return is the caller's own: changing it, down to the strings in an
+// entry's skip rules, changes nothing the next caller gets.
+func TestBuiltinHandsOutCopies(t *testing.T) {
+	providers, err := Providers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		get  func(*Catalogue) any
+	}{
+		{"entries", func(c *Catalogue) any {
+			entries := map[string]*Entry{}
+			for _, typ := range append(c.Types(), AllTypes) {
+				if e, ok := c.Entry(typ); ok {
+					entries[typ] = e
+				}
+			}
+			return entries
+		}},
+		{"types", func(c *Catalogue) any { return c.Types() }},
+		{"omit", func(c *Catalogue) any { return c.Omit(nil) }},
+		{"defaults", func(c *Catalogue) any { return c.Defaults(nil) }},
+		{"state_only", func(c *Catalogue) any { return c.StateOnly(nil) }},
+		{"keep_empty", func(c *Catalogue) any { return c.KeepEmpty() }},
+		{"data sources", func(c *Catalogue) any { return c.DataSources() }},
+		{"ARNs", func(c *Catalogue) any { return c.ARNs() }},
+		{"placeholders", func(c *Catalogue) any { return c.Placeholders() }},
+		{"lifecycles", func(c *Catalogue) any { return c.Lifecycles() }},
+	} {
+		for _, provider := range providers {
+			// As YAML, a snapshot that shares nothing with the catalogue.
+			snapshot := func() string {
+				out, err := yaml.Marshal(tt.get(MustBuiltin(provider)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(out)
+			}
+			want := snapshot()
+			scribble(reflect.ValueOf(tt.get(MustBuiltin(provider))))
+			if snapshot() != want {
+				t.Errorf("%s of %s: changing what one caller got changed the built-in catalogue", tt.name, provider)
+			}
+		}
+	}
+}
+
+// scribble changes every string and bool that v reaches through
+// pointers, slices, maps and exported struct fields.
+func scribble(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Pointer:
+		if !v.IsNil() {
+			scribble(v.Elem())
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Field(i).CanSet() {
+				scribble(v.Field(i))
+			}
+		}
+	case reflect.Slice:
+		for i := range v.Len() {
+			scribble(v.Index(i))
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			value := reflect.New(v.Type().Elem()).Elem()
+			value.Set(v.MapIndex(k))
+			scribble(value)
+			v.SetMapIndex(k, value)
+		}
+	case reflect.String:
+		v.SetString(v.String() + "!")
+	case reflect.Bool:
+		v.SetBool(!v.Bool())
 	}
 }

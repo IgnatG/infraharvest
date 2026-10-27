@@ -113,6 +113,10 @@ type Options struct {
 	// ManagedState is state whose resources are left out, as already
 	// managed by Terraform.
 	ManagedState []string
+	// ManagedStores open the object stores ManagedState is read from: the
+	// provider commands set those of the clouds compiled in. A store left
+	// nil reads no state of its kind, and says so.
+	ManagedStores managed.Stores
 	// IncludeOwned imports the resources whose tags or labels say another
 	// Terraform state or tool manages them, which are left out otherwise
 	// (see engine.OwnedBy).
@@ -432,7 +436,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && c.cat != nil {
 			p.SetCatalogue(c.cat)
 		}
-		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(c.unwanted) > 0 {
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && c.unwanted != nil {
 			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)

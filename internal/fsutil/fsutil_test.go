@@ -4,10 +4,14 @@
 package fsutil
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -167,5 +171,121 @@ func TestCheckFile(t *testing.T) {
 	}
 	if err := CheckFile(link); err == nil || !strings.Contains(err.Error(), "is a symbolic link") {
 		t.Errorf("a link: got %v, want it refused", err)
+	}
+}
+
+// WriteFile gives the file the mode asked for, a private one included,
+// and fails, leaving nothing behind, where it can't make its temporary
+// file: in a directory that isn't there, or that it can't write to.
+func TestWriteFileModeAndPlace(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if runtime.GOOS != "windows" {
+		private := filepath.Join(dir, "token")
+		if err := WriteFile(private, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if info, err := os.Stat(private); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("mode %v (%v), want 0600", info.Mode().Perm(), err)
+		}
+	}
+	if err := WriteFile(filepath.Join(dir, "missing", "file"), []byte("x"), 0o644); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("in a missing directory: got %v, want it not to exist", err)
+	}
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		return
+	}
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if err := WriteFile(filepath.Join(locked, "file"), []byte("x"), 0o644); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("in a read-only directory: got %v, want a permission error", err)
+	}
+	if entries, err := os.ReadDir(locked); err != nil || len(entries) != 0 {
+		t.Errorf("left in the read-only directory: %v, %v", entries, err)
+	}
+}
+
+// Writers of one file at the same time, as accounts imported in parallel
+// write the output's .gitignore, leave it whole, as one of them wrote it,
+// and no temporary file behind: run with -race.
+func TestWriteFileConcurrently(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		// MoveFileEx can refuse to replace a file another rename is
+		// replacing at that moment, with access denied.
+		t.Skip("renames over one file at once can fail on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	contents := make([]string, 16)
+	for i := range contents {
+		contents[i] = strings.Repeat(string(rune('a'+i)), 4096+i)
+	}
+	var wg sync.WaitGroup
+	for _, content := range contents {
+		wg.Go(func() {
+			if err := WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(contents, string(got)) {
+		t.Errorf("the file is no writer's whole content: %d bytes", len(got))
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("files left in %s: %v", dir, entries)
+	}
+}
+
+// A path CheckTree or CheckFile can't look at fails, rather than passing
+// as one that isn't there: one under a file, and, for CheckTree, a
+// directory under the root it can't read.
+func TestCheckUnreadable(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	under := filepath.Join(file, "sub")
+	// Windows answers a path under a file as one that isn't there.
+	if runtime.GOOS != "windows" {
+		if err := CheckTree(under); err == nil {
+			t.Error("CheckTree under a file: want an error")
+		}
+		if err := CheckFile(under); err == nil {
+			t.Error("CheckFile under a file: want an error")
+		}
+	}
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		return
+	}
+	root := filepath.Join(dir, "root")
+	sealed := filepath.Join(root, "sealed")
+	if err := os.MkdirAll(sealed, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o755) })
+	if err := CheckTree(root); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("CheckTree with an unreadable directory: got %v, want a permission error", err)
+	}
+	// Unless it is one CheckTree skips.
+	if err := CheckTree(root, "sealed"); err != nil {
+		t.Errorf("CheckTree skipping it: %v", err)
 	}
 }

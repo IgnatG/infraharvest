@@ -55,35 +55,40 @@ func (g *EcrLister) List() error {
 // repository returns repository, by name, then its repository policy and
 // its lifecycle policy, each by the repository's name, which is how
 // Terraform imports them. The policies are read from the repository's own
-// registry. Only ECR's answer that there is no such policy, or no longer
-// such a repository, means there is none; any other error is returned,
-// with what was read.
+// registry, a call each, unless the import doesn't keep their type. Only
+// ECR's answer that there is no such policy, or no longer such a
+// repository, means there is none; any other error is returned, with what
+// was read.
 func (g *EcrLister) repository(client *ecr.Client, repository types.Repository) ([]harvest.Resource, error) {
 	name := aws.ToString(repository.RepositoryName)
 	resources := []harvest.Resource{harvest.RecordBare(name, name, "aws_ecr_repository", "aws")}
 
 	var errs []error
-	_, err := client.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
-		RegistryId:     repository.RegistryId,
-		RepositoryName: repository.RepositoryName,
-	})
-	var noPolicy *types.RepositoryPolicyNotFoundException
-	switch {
-	case err == nil:
-		resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_repository_policy", "aws"))
-	case !errors.As(err, &noPolicy) && !ecrRepositoryGone(err):
-		errs = append(errs, fmt.Errorf("the repository policy of %s: %w", name, err))
+	if g.wants("aws_ecr_repository_policy") {
+		_, err := client.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
+			RegistryId:     repository.RegistryId,
+			RepositoryName: repository.RepositoryName,
+		})
+		var noPolicy *types.RepositoryPolicyNotFoundException
+		switch {
+		case err == nil:
+			resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_repository_policy", "aws"))
+		case !errors.As(err, &noPolicy) && !ecrRepositoryGone(err):
+			errs = append(errs, fmt.Errorf("the repository policy of %s: %w", name, err))
+		}
 	}
-	_, err = client.GetLifecyclePolicy(g.Context(), &ecr.GetLifecyclePolicyInput{
-		RegistryId:     repository.RegistryId,
-		RepositoryName: repository.RepositoryName,
-	})
-	var noLifecycle *types.LifecyclePolicyNotFoundException
-	switch {
-	case err == nil:
-		resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_lifecycle_policy", "aws"))
-	case !errors.As(err, &noLifecycle) && !ecrRepositoryGone(err):
-		errs = append(errs, fmt.Errorf("the lifecycle policy of %s: %w", name, err))
+	if g.wants("aws_ecr_lifecycle_policy") {
+		_, err := client.GetLifecyclePolicy(g.Context(), &ecr.GetLifecyclePolicyInput{
+			RegistryId:     repository.RegistryId,
+			RepositoryName: repository.RepositoryName,
+		})
+		var noLifecycle *types.LifecyclePolicyNotFoundException
+		switch {
+		case err == nil:
+			resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_lifecycle_policy", "aws"))
+		case !errors.As(err, &noLifecycle) && !ecrRepositoryGone(err):
+			errs = append(errs, fmt.Errorf("the lifecycle policy of %s: %w", name, err))
+		}
 	}
 	return resources, errors.Join(errs...)
 }

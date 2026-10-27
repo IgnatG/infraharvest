@@ -68,6 +68,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		// run still writes one there, with the failure (see Run.finish).
 		run.options = options
 	}
+	// The provider signs in and lists with the run's limiter, not another
+	// run's (see ratelimit.FromContext).
+	ctx = ratelimit.NewContext(ctx, run.shared.rateLimiter(options.RateLimit))
 	c, err := run.prepareCall(ctx, provider, options, args)
 	if err != nil {
 		return nil, err
@@ -103,6 +106,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 	}
 	opts := engineOptions(provider, c, listed, tools)
+	opts.Modules = &run.shared.modules
 	placed, err := run.place(ctx, provider, c, layout, listed.listed, resources, opts.ModuleProviders)
 	if err != nil {
 		return nil, err
@@ -130,11 +134,12 @@ type callContext struct {
 	// --catalogue overlay merged in; the provider of each service listed
 	// is given it (see listServices).
 	cat *catalogue.Catalogue
-	// unwanted are the types the import leaves out whatever is listed (see
-	// selection.Unwanted), whose listing the provider of each service
-	// listed may skip (see listServices); none for discover, which lists
-	// every type, so that the selection file can include any.
-	unwanted []string
+	// unwanted reports whether the import leaves out every resource of a
+	// type whatever is listed (see selection.Unwanted), whose listing the
+	// provider of each service listed may skip (see listServices); nil for
+	// discover, which lists every type, so that the selection file can
+	// include any.
+	unwanted func(typ string) bool
 	// services are the services the call lists: options.Services resolved
 	// (see ResolveServices).
 	services []string
@@ -150,8 +155,6 @@ type callContext struct {
 // types the selection file leaves out, the services, and the scope, which
 // r counts what it records by from now on.
 func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, args []string) (*callContext, error) {
-	// Before the provider signs in: its clients take the rate.
-	ratelimit.SetDefault(options.RateLimit)
 	if err := provider.Init(ctx, args); err != nil {
 		return nil, err
 	}
@@ -329,13 +332,13 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 
 // engineOptions configures engine.Generate for the roots of the call c, in
 // one place: what the catalogue knows about their types, for the provider
-// release the toolchain t pins (see catalogue.Catalogue.EngineOptions);
+// release the toolchain t pins (see catalogueEngineOptions);
 // t's root files and modules; what the provider's profile says of tags
 // and of the arguments resources inherit, and the other providers the
 // roots may configure; the flags the engine takes; and what the selection
 // of l leaves out, or keeps although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
-	opts := c.cat.EngineOptions(t.root.version)
+	opts := catalogueEngineOptions(c.cat, t.root.version)
 	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout

@@ -84,6 +84,10 @@ type diagnosticTarget struct {
 
 func (az *DiagnosticSettingLister) List() error {
 	s := settingsOf(az.Settings())
+	// Every target takes a call, for settings the import may not keep.
+	if !s.wants(diagnosticSettingType) {
+		return nil
+	}
 	client, err := armmonitor.NewDiagnosticSettingsClient(s.credential, s.clientOptions)
 	if err != nil {
 		return err

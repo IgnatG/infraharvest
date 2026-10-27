@@ -17,9 +17,11 @@ import (
 const (
 	headersScript = "scripts/check-headers.sh"
 	namesScript   = "scripts/check-names.sh"
-	licensedFile  = "// Copyright 2026 Example\n// SPDX-License-Identifier: AGPL-3.0-only\n\npackage fixture\n"
-	headersPass   = "every Go file, shell script and workflow carries"
-	namesPass     = "no tracked file uses"
+	// fastChecksScript is what the pre-commit hook runs.
+	fastChecksScript = "scripts/fast-checks.sh"
+	licensedFile     = "// Copyright 2026 Example\n// SPDX-License-Identifier: AGPL-3.0-only\n\npackage fixture\n"
+	headersPass      = "every Go file, shell script and workflow carries"
+	namesPass        = "no tracked file uses"
 )
 
 func TestCheckHeadersClassification(t *testing.T) {
@@ -116,6 +118,49 @@ func TestCheckHeadersCachedAndFiles(t *testing.T) {
 	repo.runScript(headersScript, 0, headersPass, "--cached", "--", "example.go")
 	repo.runScript(headersScript, 1, "::error file=other.go::", "--cached")
 	repo.runScript(headersScript, 0, "no Go files, shell scripts or workflows to check", "--cached", "notes.md")
+}
+
+// REUSE-IgnoreStart
+
+// The pre-commit hook checks the headers of the shell scripts and workflows
+// a commit stages, not only of its Go files, as they are staged.
+func TestFastChecksStagedHeaders(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		path    string
+		content string
+		ok      bool
+	}{
+		{"script", "scripts/example.sh", "#!/usr/bin/env bash\n# Copyright 2026 Example\n# SPDX-License-Identifier: AGPL-3.0-only\n", true},
+		{"script with no header", "scripts/example.sh", "#!/usr/bin/env bash\necho hi\n", false},
+		{"workflow", ".github/workflows/example.yml", "# Copyright 2026 Example\n# SPDX-License-Identifier: AGPL-3.0-only\n\nname: Example\n", true},
+		{"workflow with no header", ".github/workflows/example.yml", "name: Example\n", false},
+	} {
+		// REUSE-IgnoreEnd
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newRepositoryFixture(t)
+			repo.install(fastChecksScript)
+			repo.install(headersScript)
+			repo.track(tt.path, tt.content)
+			// The hook runs in the repository, which the script finds
+			// from where it runs.
+			staged := func(wantStatus int, wantOutput string) {
+				t.Helper()
+				output := repo.commandAt(repo.dir, wantStatus, "bash", fastChecksScript, "--staged", "--only", "headers")
+				if !strings.Contains(output, wantOutput) {
+					t.Fatalf("output must contain %q:\n%s", wantOutput, output)
+				}
+			}
+			if !tt.ok {
+				staged(1, "::error file="+tt.path+"::")
+				return
+			}
+			staged(0, "ok    headers (3 files)")
+			// The index's header counts, not the working tree's.
+			repo.write(tt.path, "echo hi\n")
+			staged(0, "ok    headers (3 files)")
+		})
+	}
 }
 
 // The names are built from pieces, as the script builds them, so that this

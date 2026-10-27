@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -206,22 +207,39 @@ func unkeyedAddress(address string) string {
 	return b.String() + resource
 }
 
-// curatedAdapter returns the adapter whose module and exact version a
-// module call calls, or nil.
-func curatedAdapter(b *hclsyntax.Block) *adapters.Adapter {
-	source, version := stringAttribute(b.Body, "source"), stringAttribute(b.Body, "version")
+// curatedAdapter returns a copy of the adapter of list, the run's (see
+// DriftOptions.Adapters), whose module a module call calls, or nil. It
+// matches a call as generation writes it: the adapter's source, at the
+// adapter's version, or a newer one, which --modules latest-untested
+// calls with the same adapter. Only an adapter with an Inverse traces a
+// change into its call: the others, such as those of the organisation's
+// own modules, leave the call to the module's code (see moduleTracer).
+func curatedAdapter(b *hclsyntax.Block, list []adapters.Adapter) *adapters.Adapter {
+	source, called := stringAttribute(b.Body, "source"), stringAttribute(b.Body, "version")
 	if source == "" {
 		return nil
 	}
-	for _, provider := range adapters.Providers() {
-		list := adapters.For(provider)
-		for i := range list {
-			if list[i].Source == source && list[i].Version == version {
-				return &list[i]
-			}
+	for _, a := range list {
+		if len(a.Inverse) > 0 && a.Source == source && callsAtLeast(called, a.Version) {
+			return &a
 		}
 	}
 	return nil
+}
+
+// callsAtLeast reports whether a call of a module at version called calls
+// the release tested, or a newer one; any, for an adapter that names no
+// release.
+func callsAtLeast(called, tested string) bool {
+	if tested == "" || called == tested {
+		return true
+	}
+	c, err := version.NewVersion(called)
+	if err != nil {
+		return false
+	}
+	t, err := version.NewVersion(tested)
+	return err == nil && !c.LessThan(t)
 }
 
 // hasInstances reports whether a block makes several instances, with
@@ -579,7 +597,7 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) codeSourc
 	var t traced
 	var via []string
 	for i := range calls {
-		if adapter = curatedAdapter(blocks[i].b); adapter != nil {
+		if adapter = curatedAdapter(blocks[i].b, e.adapters); adapter != nil {
 			var inner strings.Builder
 			for j := i + 1; j < len(calls); j++ {
 				if hasInstances(blocks[j].b) {

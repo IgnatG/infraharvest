@@ -37,6 +37,10 @@ func (g *CognitoLister) List() error {
 	if err != nil {
 		return err
 	}
+	// A call per pool, for clients the import may not keep.
+	if !g.wants("aws_cognito_user_pool_client") {
+		return nil
+	}
 	for _, poolID := range poolIDs {
 		if err := g.listCognitoUserPoolClients(idp, poolID); err != nil {
 			return err

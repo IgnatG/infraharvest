@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // The converter writes HCL as text, a piece at a time, and hands each file
@@ -37,7 +37,7 @@ var keywords = map[string]bool{"true": true, "false": true, "null": true, "for":
 
 // number returns s as an HCL number when it is one, and quoted otherwise.
 func number(s string) string {
-	if lit, ok := cfnhcl.NumberLiteral(s); ok {
+	if lit, ok := hclname.NumberLiteral(s); ok {
 		return lit
 	}
 	return quote(s)
@@ -238,16 +238,16 @@ func (w *hclWriter) String() string {
 	return w.b.String()
 }
 
-// snake returns a CloudFormation name in snake_case (see cfnhcl.Snake):
+// snake returns a CloudFormation name in snake_case (see hclname.Snake):
 // VPCGatewayAttachment becomes vpc_gateway_attachment.
 func snake(s string) string {
-	return cfnhcl.Snake(s)
+	return hclname.Snake(s)
 }
 
-// ident returns s as a Terraform name (see cfnhcl.Name): snake_case, and
+// ident returns s as a Terraform name (see hclname.Name): snake_case, and
 // never empty or starting with a digit.
 func ident(s string) string {
-	return cfnhcl.Name(s)
+	return hclname.Name(s)
 }
 
 // nameSet hands out distinct names in one namespace. A name already given

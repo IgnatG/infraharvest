@@ -479,14 +479,14 @@ func TestGolden(t *testing.T) {
 	}
 }
 
-// The package imports nothing else of infraharvest's but internal/cfnhcl,
-// which imports nothing of infraharvest's itself, so that the two can move
-// to a module of their own.
+// The package imports nothing else of infraharvest's but its subpackage
+// hclname, which imports nothing of infraharvest's itself, so that the two
+// can move to a module of their own.
 func TestNoInternalImports(t *testing.T) {
-	const shared = "github.com/IgnatG/infraharvest/internal/cfnhcl"
+	const shared = "github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 	for dir, allowed := range map[string][]string{
-		".":                     {"github.com/IgnatG/infraharvest/pkg/cfn", shared},
-		"../../internal/cfnhcl": {shared},
+		".":       {"github.com/IgnatG/infraharvest/pkg/cfn", shared},
+		"hclname": {shared},
 	} {
 		files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 		if err != nil {

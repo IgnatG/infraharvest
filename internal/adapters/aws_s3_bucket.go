@@ -11,12 +11,12 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// S3Bucket maps a bucket and its configuration resources onto
+// awsS3Bucket maps a bucket and its configuration resources onto
 // terraform-aws-modules/s3-bucket/aws. Its other configuration resources,
 // such as logging, CORS, website or replication configuration, aren't
 // members: they stay in the root as resources, referring to the call's
 // s3_bucket_id output.
-var S3Bucket = Adapter{
+var awsS3Bucket = Adapter{
 	Source:  "terraform-aws-modules/s3-bucket/aws",
 	Version: "5.17.0",
 	Anchor:  "aws_s3_bucket",

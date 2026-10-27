@@ -26,7 +26,7 @@ types:
 		t.Fatal(err)
 	}
 	c := catalogues["aws"]
-	if got := c.Omit()["aws_x"]; !slices.Equal(got, []string{"a"}) {
+	if got := c.Omit(nil)["aws_x"]; !slices.Equal(got, []string{"a"}) {
 		t.Errorf("Omit: got %v, want [a]", got)
 	}
 	for _, tc := range []struct {

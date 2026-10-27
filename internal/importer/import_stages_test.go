@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"context"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -16,9 +17,54 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
-// Preparing a call gives the provider the catalogue, and resolves the
+// limiterProvider records the limiter it signs in with.
+type limiterProvider struct {
+	rootsProvider
+	limiter *ratelimit.Limiter
+}
+
+func (p *limiterProvider) Init(ctx context.Context, _ []string) error {
+	p.limiter = ratelimit.FromContext(ctx)
+	return nil
+}
+
+// Each run lists with a limiter of its own, of its --rate-limit, which its
+// children share: another run in the process, at once or after it, never
+// changes its rate, and none changes the fallback's (see
+// ratelimit.Default).
+func TestListCallLimitsWithTheRunsLimiter(t *testing.T) {
+	call := func(run *Run, rate float64) *ratelimit.Limiter {
+		t.Helper()
+		options := pathOptions(filepath.Join(t.TempDir(), "out"), &fakeEngine{}, "alpha")
+		options.RateLimit = rate
+		run.tools = options.engine.tools()
+		provider := &limiterProvider{}
+		if _, err := listCall(t.Context(), run, provider, options.Options, nil); err != nil {
+			t.Fatal(err)
+		}
+		return provider.limiter
+	}
+	first := NewRun()
+	slow := call(first, 5)
+	fast := call(NewRun(), 50)
+	if slow == fast || slow == ratelimit.Default() || fast == ratelimit.Default() {
+		t.Fatalf("the runs share a limiter: %p, %p (Default %p)", slow, fast, ratelimit.Default())
+	}
+	if slow.Rate() != 5 || fast.Rate() != 50 {
+		t.Errorf("rates %v and %v, want 5 and 50", slow.Rate(), fast.Rate())
+	}
+	if got := ratelimit.Default().Rate(); got != ratelimit.DefaultRate {
+		t.Errorf("the runs set the fallback's rate to %v, want %v", got, ratelimit.DefaultRate)
+	}
+	if child := call(first.child(), 5); child != slow {
+		t.Errorf("a child lists with %p, its run with %p", child, slow)
+	}
+}
+
+// Preparing a call) gives the provider the catalogue, and resolves the
 // services "*" stands for, without --skip's, into the call: its options
 // stay as the command gave them.
 func TestPrepareCallResolvesBesideTheOptions(t *testing.T) {
@@ -116,7 +162,7 @@ func TestEngineOptionsOfTheStages(t *testing.T) {
 
 	opts := engineOptions(&rootsProvider{}, c, &callListing{leftOut: external}, tools)
 
-	if catOpts := cat.EngineOptions(v); !reflect.DeepEqual(opts.Omit, catOpts.Omit) || !reflect.DeepEqual(opts.StateOnly, catOpts.StateOnly) || opts.ARNs == nil {
+	if catOpts := catalogueEngineOptions(cat, v); !reflect.DeepEqual(opts.Omit, catOpts.Omit) || !reflect.DeepEqual(opts.StateOnly, catOpts.StateOnly) || opts.ARNs == nil {
 		t.Error("the catalogue's options are missing")
 	}
 	if !reflect.DeepEqual(opts.Config, files) || !reflect.DeepEqual(opts.Adapters, own) || opts.ModulesDir != "modules" {

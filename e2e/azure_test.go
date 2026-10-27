@@ -80,19 +80,19 @@ func TestAzureRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	unused := slices.ContainsFunc(manifest.Unused, func(m report.UnusedModule) bool {
-		return m.Source == adapters.AzureUserAssignedIdentity.Source
+		return m.Source == adapters.AzureUserAssignedIdentity().Source
 	})
 	var members []string
 	for _, d := range coverage.Directories {
 		for _, m := range d.Modules {
-			if m.Source == adapters.AzureUserAssignedIdentity.Source && m.Declined == "" {
+			if m.Source == adapters.AzureUserAssignedIdentity().Source && m.Declined == "" {
 				members = append(members, m.Resources...)
 			}
 		}
 	}
 	if unused {
 		if len(members) > 0 {
-			t.Errorf("%s isn't called, yet has %v", adapters.AzureUserAssignedIdentity.Source, members)
+			t.Errorf("%s isn't called, yet has %v", adapters.AzureUserAssignedIdentity().Source, members)
 		}
 		if versions := readFile(t, filepath.Join(wantDir, engine.VersionsFileName)); strings.Contains(versions, "azapi") {
 			t.Errorf("no module needs azapi, yet %s requires it:\n%s", engine.VersionsFileName, versions)
@@ -101,7 +101,7 @@ func TestAzureRoundTrip(t *testing.T) {
 	}
 	for _, typ := range []string{"azurerm_user_assigned_identity", "azurerm_federated_identity_credential"} {
 		if !slices.ContainsFunc(members, func(address string) bool { return strings.HasPrefix(address, typ+".") }) {
-			t.Errorf("no %s in a call of %s; modules:", typ, adapters.AzureUserAssignedIdentity.Source)
+			t.Errorf("no %s in a call of %s; modules:", typ, adapters.AzureUserAssignedIdentity().Source)
 			for _, d := range coverage.Directories {
 				for _, m := range d.Modules {
 					t.Logf("%s: %+v", d.Path, m)

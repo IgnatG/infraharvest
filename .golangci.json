@@ -177,11 +177,23 @@
             "deny": [
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/providers/",
-                "desc": "the MCP server reads the providers compiled in through internal/cli/providers, never a lister directly"
+                "desc": "the MCP server is passed what it knows of the providers compiled in (see mcpserver.Providers), never a lister"
               },
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/importer",
                 "desc": "the MCP server runs the infraharvest binary for imports and drift; it reads drift's rules and decisions through internal/driftpolicy"
+              }
+            ]
+          },
+          "mcpserver-code": {
+            "files": [
+              "**/internal/mcpserver/*.go",
+              "!$test"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands start the MCP server and pass it the providers compiled in (see cli.MCPProviders); the server knows nothing of commands, and internal/cli/providers would bring every lister and cloud SDK in"
               }
             ]
           },
@@ -247,6 +259,19 @@
               }
             ]
           },
+          "catalogue": {
+            "files": [
+              "**/internal/catalogue/*.go",
+              "**/internal/catalogue/**/*.go",
+              "!$test"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/engine",
+                "desc": "the engine reads the catalogue's schema metadata; the importer maps the catalogue into engine options"
+              }
+            ]
+          },
           "leaf": {
             "files": [
               "**/internal/fsutil/*.go",
@@ -254,7 +279,7 @@
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
               "**/internal/catalogue/schemameta/*.go",
-              "**/internal/cfnhcl/*.go"
+              "**/internal/tftypes/*.go"
             ],
             "deny": [
               {
@@ -275,6 +300,36 @@
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal",
                 "desc": "the lock imports only the leaf fsutil of infraharvest's, to check its file the way the output's other files are"
+              }
+            ]
+          },
+          "cfn": {
+            "files": [
+              "**/pkg/cfn/**"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "pkg/cfn will be a module of its own, which can't import infraharvest's internal packages"
+              }
+            ]
+          },
+          "importer": {
+            "files": [
+              "**/internal/importer/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/picker",
+                "desc": "the importer leaves the selection file it wrote to the command, which decides whether to open the picker on it"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands drive the importer, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "the importer knows nothing of the MCP server, which runs the binary"
               }
             ]
           },

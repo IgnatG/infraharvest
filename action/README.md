@@ -293,7 +293,7 @@ or in Terraform, an `azurerm_role_assignment` with `role_definition_name = "Stor
 
 ### Google Cloud: GCS backend
 
-`roles/viewer` from [permissions/google](../permissions/google) can list a bucket's objects but not read them (`storage.objects.get`). Grant **Storage Object Viewer** on the state bucket only:
+The role from [permissions/google](../permissions/google) can neither read nor list a bucket's objects: its IAM deny policy (`deny_data_reads`) denies `storage.objects.get` and `storage.objects.list`, which `roles/viewer` would otherwise allow through the bucket's convenience ACLs. A deny policy outranks any grant, so apply that template with `deny_data_reads = false` for a member that reads state, or use a separate member, as [permissions/google-drift](../permissions/google-drift) does. Grant **Storage Object Viewer** on the state bucket only:
 
 ```sh
 gcloud storage buckets add-iam-policy-binding gs://acme-terraform-state \

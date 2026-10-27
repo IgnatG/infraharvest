@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -56,9 +55,9 @@ func NewCmdRoot() *cobra.Command {
 }
 
 // Execute runs the command the process's arguments name, profiled as the
-// environment asks (see importer.StartProfiles).
+// environment asks (see startProfiles).
 func Execute() error {
-	stop, err := importer.StartProfiles(os.Getenv)
+	stop, err := startProfiles(os.Getenv)
 	if err != nil {
 		return err
 	}

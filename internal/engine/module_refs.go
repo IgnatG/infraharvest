@@ -11,75 +11,144 @@ import (
 	"sync"
 )
 
-// moduleRefs counts, across the roots one process generates, the roots
+// ModuleRefs counts, across the roots one import generates, the roots
 // that call each generated module directory: with --parallel, roots of
 // different accounts share the modules directory, and two clusters of one
 // shape share a module. A root's undo then removes a module only once no
-// other root calls it, and only one this process wrote.
-var moduleRefs = struct {
-	sync.Mutex
+// other root calls it, and only one the import wrote (see Release). Roots
+// that share a modules directory share one ModuleRefs (see
+// Options.Modules); it belongs to the import, so what it counts goes with
+// it. The zero value counts nothing yet, and is ready to use.
+type ModuleRefs struct {
+	mu      sync.Mutex
 	users   map[string]int      // module directory -> roots that call it
-	written map[string]bool     // module directories this process wrote
+	written map[string]bool     // module directories the import wrote
 	byRoot  map[string][]string // root directory -> the modules it holds
-}{users: map[string]int{}, written: map[string]bool{}, byRoot: map[string][]string{}}
+	// busy are the module directories being written or removed, each
+	// with a channel closed once that is done. The disk work happens
+	// without mu, so that roots whose modules differ don't wait on it,
+	// and a root that wants a busy module waits for it alone.
+	busy map[string]chan struct{}
+}
 
-// holdModule makes root a user of the module at path, writing it with
-// write first if nobody has: to a directory beside it, renamed into place,
-// so no root sees it half written. It reports whether it wrote it.
-func holdModule(root, path string, write func(string) error) (bool, error) {
-	moduleRefs.Lock()
-	defer moduleRefs.Unlock()
-	wrote := false
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return false, err
+// hold makes root a user of the module at path, writing it with write
+// first if nobody has: to a directory beside it, renamed into place, so
+// no root sees it half written. It reports whether it wrote it.
+func (m *ModuleRefs) hold(root, path string, write func(string) error) (bool, error) {
+	m.mu.Lock()
+	for {
+		done, ok := m.busy[path]
+		if !ok {
+			break
 		}
-		tmp, err := os.MkdirTemp(filepath.Dir(path), "."+filepath.Base(path)+"-")
-		if err != nil {
-			return false, err
-		}
-		if err := write(tmp); err != nil {
-			return false, errors.Join(err, os.RemoveAll(tmp))
-		}
-		if err := os.Chmod(tmp, 0o755); err != nil {
-			return false, errors.Join(err, os.RemoveAll(tmp))
-		}
-		if err := os.Rename(tmp, path); err != nil {
-			return false, errors.Join(err, os.RemoveAll(tmp))
-		}
-		moduleRefs.written[path] = true
-		wrote = true
-	} else if err != nil {
+		m.mu.Unlock()
+		<-done
+		m.mu.Lock()
+	}
+	if _, err := os.Stat(path); err == nil {
+		m.add(root, path)
+		m.mu.Unlock()
+		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		m.mu.Unlock()
 		return false, err
 	}
-	moduleRefs.users[path]++
-	moduleRefs.byRoot[root] = append(moduleRefs.byRoot[root], path)
-	return wrote, nil
+	done := m.claim(path)
+	m.mu.Unlock()
+
+	err := writeModuleDir(path, write)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.busy, path)
+	close(done)
+	if err != nil {
+		return false, err
+	}
+	if m.written == nil {
+		m.written = map[string]bool{}
+	}
+	m.written[path] = true
+	m.add(root, path)
+	return true, nil
 }
 
-// releaseModules ends root's use of the modules it holds, and removes each
-// one this process wrote that no other root calls now.
-func releaseModules(root string) error {
-	moduleRefs.Lock()
-	defer moduleRefs.Unlock()
-	var errs []error
-	for _, path := range moduleRefs.byRoot[root] {
-		moduleRefs.users[path]--
-		if moduleRefs.users[path] > 0 || !moduleRefs.written[path] {
+// add counts root as a user of the module at path. m.mu is held.
+func (m *ModuleRefs) add(root, path string) {
+	if m.users == nil {
+		m.users, m.byRoot = map[string]int{}, map[string][]string{}
+	}
+	m.users[path]++
+	m.byRoot[root] = append(m.byRoot[root], path)
+}
+
+// claim marks the module at path busy, and returns the channel to close
+// once it isn't. m.mu is held.
+func (m *ModuleRefs) claim(path string) chan struct{} {
+	if m.busy == nil {
+		m.busy = map[string]chan struct{}{}
+	}
+	done := make(chan struct{})
+	m.busy[path] = done
+	return done
+}
+
+// writeModuleDir writes the module at path with write, into a directory
+// beside it that it then renames into place.
+func writeModuleDir(path string, write func(string) error) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(filepath.Dir(path), "."+filepath.Base(path)+"-")
+	if err != nil {
+		return err
+	}
+	if err := write(tmp); err != nil {
+		return errors.Join(err, os.RemoveAll(tmp))
+	}
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		return errors.Join(err, os.RemoveAll(tmp))
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return errors.Join(err, os.RemoveAll(tmp))
+	}
+	return nil
+}
+
+// Release ends the use the root in dir makes of the generated modules it
+// holds, such as when what Generate wrote there is put back as it was,
+// and removes each one the import wrote that no other root calls now.
+func (m *ModuleRefs) Release(dir string) error {
+	m.mu.Lock()
+	var gone []string
+	for _, path := range m.byRoot[dir] {
+		m.users[path]--
+		if m.users[path] > 0 {
 			continue
 		}
-		delete(moduleRefs.users, path)
-		delete(moduleRefs.written, path)
+		delete(m.users, path)
+		if m.written[path] {
+			delete(m.written, path)
+			gone = append(gone, path)
+		}
+	}
+	delete(m.byRoot, dir)
+	done := make([]chan struct{}, len(gone))
+	for i, path := range gone {
+		done[i] = m.claim(path)
+	}
+	m.mu.Unlock()
+
+	var errs []error
+	for _, path := range gone {
 		errs = append(errs, os.RemoveAll(path))
 	}
-	delete(moduleRefs.byRoot, root)
-	return errors.Join(errs...)
-}
 
-// ReleaseModules ends the use the root in dir makes of the generated
-// modules it holds, such as when what Generate wrote there is put back as
-// it was, and removes each this process wrote that no other root calls
-// now (see releaseModules).
-func ReleaseModules(dir string) error {
-	return releaseModules(dir)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, path := range gone {
+		delete(m.busy, path)
+		close(done[i])
+	}
+	return errors.Join(errs...)
 }

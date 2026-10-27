@@ -100,11 +100,11 @@ resource "aws_subnet" "public_b" {
 `
 
 func TestVPCMapsEveryMember(t *testing.T) {
-	call, err := VPC.Map(cluster(t, vpcSource))
+	call, err := awsVPC.Map(cluster(t, vpcSource))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, VPC, call)
+	got := called(t, awsVPC, call)
 	for _, want := range []string{
 		`name = "shop"`,
 		`cidr = "10.0.0.0/16"`,
@@ -174,7 +174,7 @@ func TestVPCMapsEveryMember(t *testing.T) {
 
 // A VPC on its own is the module with no subnets.
 func TestVPCAlone(t *testing.T) {
-	call, err := VPC.Map(cluster(t, `resource "aws_vpc" "main" {
+	call, err := awsVPC.Map(cluster(t, `resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
   tags                 = { Name = "shop" }
@@ -183,7 +183,7 @@ func TestVPCAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, VPC, call)
+	got := called(t, awsVPC, call)
 	for _, want := range []string{`name = "shop"`, "azs = []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -212,11 +212,11 @@ func localTagged(t *testing.T) string {
 // Tags merged over local.tags map onto a call that passes local.tags, with
 // the literal tags merged over it as the module's inputs.
 func TestVPCMapsTagsMergedOverALocal(t *testing.T) {
-	call, err := VPC.Map(cluster(t, localTagged(t)))
+	call, err := awsVPC.Map(cluster(t, localTagged(t)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, VPC, call)
+	got := called(t, awsVPC, call)
 	for _, want := range []string{`name = "shop"`, "tags = local.tags", `private_subnet_tags = { Tier = "app" }`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -227,11 +227,11 @@ func TestVPCMapsTagsMergedOverALocal(t *testing.T) {
 	}
 
 	// A tag every resource sets over the local is merged over it once.
-	call, err = VPC.Map(cluster(t, strings.ReplaceAll(localTagged(t), `{ Name = "`, `{ Owner = "ops", Name = "`)))
+	call, err = awsVPC.Map(cluster(t, strings.ReplaceAll(localTagged(t), `{ Name = "`, `{ Owner = "ops", Name = "`)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := called(t, VPC, call); !strings.Contains(got, `tags = merge(local.tags, { Owner = "ops" })`) {
+	if got := called(t, awsVPC, call); !strings.Contains(got, `tags = merge(local.tags, { Owner = "ops" })`) {
 		t.Errorf("call misses the tag merged over the local:\n%s", got)
 	}
 }
@@ -257,7 +257,7 @@ func TestVPCDeclinesTagsOverOtherLocals(t *testing.T) {
 			if changed == src {
 				t.Fatal("the test doesn't change the source")
 			}
-			_, err := VPC.Map(cluster(t, changed))
+			_, err := awsVPC.Map(cluster(t, changed))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("got %v, want a decline with %q", err, tc.reason)
 			}
@@ -280,11 +280,11 @@ func TestVPCLeavesModuleDefaults(t *testing.T) {
 		"map_public_ip_on_launch             = true", "map_public_ip_on_launch             = false",
 		`domain               = "vpc"`, "",
 	).Replace(vpcSource)
-	call, err := VPC.Map(cluster(t, source))
+	call, err := awsVPC.Map(cluster(t, source))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, VPC, call)
+	got := called(t, awsVPC, call)
 	for _, unwanted := range []string{"_subnet_names", "_subnet_suffix", "instance_tenancy", "enable_network_address_usage_metrics", "map_public_ip_on_launch", "enable_dns_support"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
@@ -335,7 +335,7 @@ func TestVPCDeclines(t *testing.T) {
 			if src == vpcSource {
 				t.Fatal("the test doesn't change the source")
 			}
-			_, err := VPC.Map(cluster(t, src))
+			_, err := awsVPC.Map(cluster(t, src))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("got %v, want a decline with %q", err, tc.reason)
 			}
@@ -346,7 +346,7 @@ func TestVPCDeclines(t *testing.T) {
 // The VPC's main route table, which no subnet of the module's is
 // associated with, stays in the root.
 func TestVPCLeavesTheMainRouteTable(t *testing.T) {
-	call, err := VPC.Map(cluster(t, vpcSource+`resource "aws_route_table" "main" {
+	call, err := awsVPC.Map(cluster(t, vpcSource+`resource "aws_route_table" "main" {
   vpc_id = aws_vpc.main.id
 }
 `))
@@ -364,7 +364,7 @@ func TestVPCLeavesTheMainRouteTable(t *testing.T) {
 // A regional NAT gateway is in the VPC, not a subnet.
 func TestVPCDeclinesRegionalNATGateways(t *testing.T) {
 	src := strings.Replace(vpcSource, "  subnet_id         = aws_subnet.public_b.id\n", "", 1)
-	_, err := VPC.Map(cluster(t, src))
+	_, err := awsVPC.Map(cluster(t, src))
 	if !IsDecline(err) || !strings.Contains(err.Error(), "is a regional NAT gateway") {
 		t.Errorf("got %v", err)
 	}
@@ -457,11 +457,11 @@ resource "aws_subnet" "public_b" {
 `
 
 func TestVPCMapsANATGatewayPerZone(t *testing.T) {
-	call, err := VPC.Map(cluster(t, vpcPerZoneSource))
+	call, err := awsVPC.Map(cluster(t, vpcPerZoneSource))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, VPC, call)
+	got := called(t, awsVPC, call)
 	for _, want := range []string{
 		`azs = ["us-east-1a", "us-east-1b"]`,
 		`public_subnets = ["10.0.1.0/24", "10.0.2.0/24"]`,
@@ -548,7 +548,7 @@ func TestVPCDeclinesNATGatewaysPerZone(t *testing.T) {
 			if src == vpcPerZoneSource {
 				t.Fatal("the test doesn't change the source")
 			}
-			_, err := VPC.Map(cluster(t, src))
+			_, err := awsVPC.Map(cluster(t, src))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("got %v, want a decline with %q", err, tc.reason)
 			}
@@ -559,7 +559,7 @@ func TestVPCDeclinesNATGatewaysPerZone(t *testing.T) {
 // With a NAT gateway in each zone, the module makes a public subnet, with
 // its NAT gateway, in each zone a private subnet is in.
 func TestVPCDeclinesAPublicSubnetWithoutANATGateway(t *testing.T) {
-	_, err := VPC.Map(cluster(t, vpcPerZoneSource+`resource "aws_route_table_association" "public_c" {
+	_, err := awsVPC.Map(cluster(t, vpcPerZoneSource+`resource "aws_route_table_association" "public_c" {
   route_table_id = aws_route_table.public.id
   subnet_id      = aws_subnet.public_c.id
 }

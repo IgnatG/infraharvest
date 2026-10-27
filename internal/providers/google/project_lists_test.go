@@ -31,3 +31,10 @@ func TestProjectListsKeepFailures(t *testing.T) {
 		t.Errorf("a cancelled list: listed %d times, want twice", calls-1)
 	}
 }
+
+// testCaches are the caches of the tests' listings, whose contexts carry
+// no run's limiter: those of the calls outside any run (see
+// ratelimit.Default).
+func testCaches() *runCaches {
+	return cachesOf(context.Background())
+}

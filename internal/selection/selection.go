@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -197,6 +198,43 @@ func (f *File) mayInclude(resourceType string) bool {
 		}
 	}
 	return false
+}
+
+// excludesWhole reports whether f, which may include no resource of
+// resourceType (see mayInclude), leaves out every one it doesn't list
+// too: a rule excludes them all, by their type alone, or else the
+// defaults do. A rule that excludes only some, by ID, name or tags,
+// leaves the others to the defaults.
+func (f *File) excludesWhole(resourceType string) bool {
+	if !f.Defaults.Include {
+		return true
+	}
+	for _, rule := range f.Rules {
+		if m := rule.Exclude; m != nil && m.Type.match(resourceType) && m.matchesEvery() {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesEvery reports whether m matches every resource of a type it
+// matches: its ID, name and tag patterns match any value.
+func (m *Match) matchesEvery() bool {
+	if !m.ID.matchesAny() || !m.Name.matchesAny() {
+		return false
+	}
+	for _, patterns := range m.Tags {
+		if !patterns.matchesAny() {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesAny reports whether p matches any value: there are no patterns,
+// or one is *.
+func (p Patterns) matchesAny() bool {
+	return len(p) == 0 || slices.Contains(p, "*")
 }
 
 // byRule returns the decision of the last rule that matches the resource

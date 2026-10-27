@@ -380,10 +380,17 @@ func untrustedTerraform(private string) (map[string]string, error) {
 
 // driftTarget is a root drift checks, and, for a root environments
 // share, the environment it checks it as, and the lock the checks of its
-// environments share (see engine.DriftOptions.RootLock).
+// environments share (see engine.DriftOptions.WithRootLock).
 type driftTarget struct {
 	dir, env string
 	lock     *sync.Mutex
+}
+
+// withRootLock runs f holding the lock of t's root.
+func (t driftTarget) withRootLock(f func() error) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return f()
 }
 
 // driftTargets returns what drift checks of roots: each root, but a root
@@ -452,8 +459,9 @@ func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adap
 
 // checkDriftRoot checks the root of target, staged under the output
 // directory's checkpoints, which .gitignore excludes, with own, the
-// adapters of the organisation's modules, and returns it and its changes
-// as the report has them.
+// adapters of the organisation's modules, and those of the curated
+// modules of the root's provider, and returns it and its changes as the
+// report has them.
 func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, target driftTarget) (report.DriftRoot, []report.DriftChange) {
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
@@ -465,12 +473,16 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 			root.Error = err.Error()
 			return root, nil
 		}
-		opts = cat.DriftOptions(lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
-		// As the import passes its provider's modules alone (see
-		// Run.toolchain).
-		own = catalogueAdapters(own, provider.Name())
+		opts = catalogueDriftOptions(cat, lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		// As the import passes its provider's modules alone, its own
+		// first, then the curated ones of its family (see Run.toolchain),
+		// whose adapters trace changes into their calls.
+		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
-	opts.CommandTimeout, opts.Environment, opts.RootLock, opts.Adapters = options.EngineTimeout, env, target.lock, own
+	opts.CommandTimeout, opts.Environment, opts.Adapters = options.EngineTimeout, env, own
+	if target.lock != nil {
+		opts.WithRootLock = target.withRootLock
+	}
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()

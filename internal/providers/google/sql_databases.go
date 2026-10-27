@@ -9,9 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
-	"sync"
 
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sqladmin/v1"
@@ -64,9 +62,14 @@ func (g *CloudSQLLister) List() error {
 	if err != nil {
 		return err
 	}
-	// What an earlier listing of the import left out isn't this one's.
-	setSQLDatabasesUnlisted(project, region.Name, false)
 	ctx := g.Context()
+	caches := cachesOf(ctx)
+	// What an earlier listing of the import left out isn't this one's.
+	caches.setSQLDatabasesUnlisted(project, region.Name, false)
+	// The databases take a call per instance, and the instances one more.
+	if !wants(g.Settings(), sqlDatabaseType) {
+		return nil
+	}
 	svc, err := sqladmin.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {
 		return err
@@ -94,7 +97,7 @@ func (g *CloudSQLLister) List() error {
 			}
 			if sqlInstanceNotServing(err) {
 				log.Printf("%s: cloudsql: the databases of instance %s in project %s can't be listed, so they are left out, and not taken for deleted: %v", g.Provider(), instance.Name, project, err)
-				setSQLDatabasesUnlisted(project, region.Name, true)
+				caches.setSQLDatabasesUnlisted(project, region.Name, true)
 				continue
 			}
 			unlisted = append(unlisted, fmt.Errorf("listing the databases of Cloud SQL instance %s in project %s: %w", instance.Name, project, err))
@@ -138,41 +141,31 @@ func sqlInstanceGone(err error) bool {
 	return errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
 }
 
-// unlistedSQLDatabases are the imports, by where they went (an emulator,
-// or Google), project and region, whose last listing of the databases
-// left out those of an instance that couldn't serve the list (see
-// sqlInstanceNotServing). The process keeps them, as rejectedTypes, since
-// the lister and the provider asked for its partial types are not the
-// same: every service of an import has a provider of its own. Services
-// list at once, so a lock guards them.
-var unlistedSQLDatabases = struct {
-	sync.Mutex
-	byKey map[string]bool
-}{byKey: map[string]bool{}}
-
-// sqlDatabasesKey names the import of project's region, where it went.
+// sqlDatabasesKey names the import of project's region.
 func sqlDatabasesKey(project, region string) string {
-	return os.Getenv(EndpointEnv) + "\x00" + project + "\x00" + region
+	return project + "\x00" + region
 }
 
-// setSQLDatabasesUnlisted records whether the listing of the databases in
-// project's region left out some (see unlistedSQLDatabases).
-func setSQLDatabasesUnlisted(project, region string, unlisted bool) {
-	unlistedSQLDatabases.Lock()
-	defer unlistedSQLDatabases.Unlock()
+// setSQLDatabasesUnlisted records whether the run's listing of the
+// databases in project's region left out some (see
+// runCaches.unlistedSQLDatabases).
+func (c *runCaches) setSQLDatabasesUnlisted(project, region string, unlisted bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if unlisted {
-		unlistedSQLDatabases.byKey[sqlDatabasesKey(project, region)] = true
+		c.unlistedSQLDatabases[sqlDatabasesKey(project, region)] = true
 	} else {
-		delete(unlistedSQLDatabases.byKey, sqlDatabasesKey(project, region))
+		delete(c.unlistedSQLDatabases, sqlDatabasesKey(project, region))
 	}
 }
 
-// sqlDatabasesUnlisted reports whether the last listing of the databases
-// in project's region left out some (see unlistedSQLDatabases).
-func sqlDatabasesUnlisted(project, region string) bool {
-	unlistedSQLDatabases.Lock()
-	defer unlistedSQLDatabases.Unlock()
-	return unlistedSQLDatabases.byKey[sqlDatabasesKey(project, region)]
+// sqlDatabasesUnlisted reports whether the run's last listing of the
+// databases in project's region left out some (see
+// runCaches.unlistedSQLDatabases).
+func (c *runCaches) sqlDatabasesUnlisted(project, region string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.unlistedSQLDatabases[sqlDatabasesKey(project, region)]
 }
 
 // sqlPrimaries returns the project's Cloud SQL instances in region whose
@@ -192,19 +185,16 @@ func sqlPrimaries(ctx context.Context, svc *sqladmin.Service, project, region st
 	return instances, nil
 }
 
-// sqlInstanceLists are the instance lists the process has made, by
-// sqlInstancesKey: the list has every region's instances, and one command
-// imports a project region by region, so it is listed once for all of
-// them rather than once for each, as searchOnce searches.
-var sqlInstanceLists projectLists[[]*sqladmin.DatabaseInstance]
-
 // sqlInstancesOnce returns the project's Cloud SQL instances, from every
-// page of the instance list, listing them only the first time the process
-// asks (see projectLists): the imports of a project's regions share the
-// list, which they only read. A list that fails isn't kept, so the next
-// import lists again.
+// page of the instance list, listing them only the first time ctx's run
+// asks (see runCaches.sqlInstances): the list has every region's
+// instances, and one command imports a project region by region, so it is
+// listed once for all of them rather than once for each, as searchOnce
+// searches, and they only read it. A list that fails is kept too, so that
+// the other imports don't make it again; only one whose context ended
+// isn't, so the next import lists again.
 func sqlInstancesOnce(ctx context.Context, svc *sqladmin.Service, project string) ([]*sqladmin.DatabaseInstance, error) {
-	return sqlInstanceLists.once(project, func() ([]*sqladmin.DatabaseInstance, error) {
+	return cachesOf(ctx).sqlInstances.once(project, func() ([]*sqladmin.DatabaseInstance, error) {
 		var instances []*sqladmin.DatabaseInstance
 		err := svc.Instances.List(project).Pages(ctx, func(page *sqladmin.InstancesListResponse) error {
 			instances = append(instances, page.Items...)

@@ -36,10 +36,12 @@ type ProviderWithSelectionDefaults interface {
 
 // ProviderWithUnwantedTypes is a provider whose listers can skip the calls
 // that list only resources of types the import leaves out whatever is
-// listed (see selection.Unwanted), such as an AWS IAM user's access keys.
+// listed (see selection.Unwanted), such as an AWS IAM user's access keys
+// or the types a selection file excludes whole. unwanted reports whether
+// the import leaves out a type, and is safe for concurrent use.
 // SetUnwantedTypes is called before the provider makes its listers.
 type ProviderWithUnwantedTypes interface {
-	SetUnwantedTypes(types []string)
+	SetUnwantedTypes(unwanted func(typ string) bool)
 }
 
 // ProviderWithCatalogue is a provider that is given the catalogue in effect

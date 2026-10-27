@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -51,21 +52,27 @@ type Provider struct {
 	account, resolvedRegion string
 	// cat is the catalogue of the import, nil until SetCatalogue sets it.
 	cat *catalogue.Catalogue
-	// unwanted are the types the import leaves out whatever is listed (see
-	// SetUnwantedTypes).
-	unwanted map[string]bool
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 	// stackScope, when set, scopes the import to the resources of
 	// CloudFormation stacks (see SetStackScope).
 	stackScope *StackScope
 	// scopedStacks are the stacks of stackScope as ImportScope last
 	// matched them with what is listed (see CloudFormationStacks).
 	scopedStacks []report.CloudFormationStack
+	// limiter is the limiter of the run Init was given (see
+	// ratelimit.FromContext), whose configurations the provider's own
+	// calls use, whatever context they are given (see service).
+	limiter *ratelimit.Limiter
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]). It contacts nothing, so it never fails: the
-// credentials are resolved when the first service lists.
-func (p *Provider) Init(_ context.Context, args []string) error {
+// a role to assume (args[2]), and the run's limiter from ctx. It contacts
+// nothing, so it never fails: the credentials are resolved when the first
+// service lists.
+func (p *Provider) Init(ctx context.Context, args []string) error {
+	p.limiter = ratelimit.FromContext(ctx)
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -103,6 +110,7 @@ func (*Provider) Profile() harvest.Profile {
 			Field:    "accounts",
 			ID:       accountID,
 			IDFormat: "an account ID, 12 digits",
+			Flags:    []string{"regions", "profile", "accounts", "cfn-stack", "cfn-ignore"},
 			Describe: describeScope,
 		},
 		Modules:           providerName,
@@ -248,21 +256,32 @@ func (p *Provider) serviceArgs() map[string]interface{} {
 	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}.args()
 }
 
-// SetUnwantedTypes takes the types the import leaves out whatever is
-// listed, such as aws_iam_access_key unless the selection file includes
-// some: the listers it makes after that skip the calls that list only
-// those (see Service.wants).
-func (p *Provider) SetUnwantedTypes(types []string) {
-	p.unwanted = map[string]bool{}
-	for _, typ := range types {
-		p.unwanted[typ] = true
+// service returns a Service of the provider's settings, for the provider's
+// own calls with ctx, in the run Init was given: Terraform's credentials
+// are asked for with the context of the generation, which carries no
+// limiter, and they must come from the run's configuration all the same.
+func (p *Provider) service(ctx context.Context) *Service {
+	if p.limiter != nil {
+		ctx = ratelimit.NewContext(ctx, p.limiter)
 	}
+	service := &Service{}
+	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	service.SetContext(ctx)
+	return service
+}
+
+// SetUnwantedTypes takes what reports the types the import leaves out
+// whatever is listed, such as aws_iam_access_key unless the selection
+// file includes some: the listers it makes after that skip the calls that
+// list only those (see Service.wants).
+func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
+	p.unwanted = unwanted
 }
 
 // withUnwanted gives lister the types the import leaves out, if it takes
 // them, and returns it.
 func (p *Provider) withUnwanted(lister harvest.Lister) harvest.Lister {
-	if l, ok := lister.(interface{ setUnwanted(map[string]bool) }); ok {
+	if l, ok := lister.(interface{ setUnwanted(func(typ string) bool) }); ok {
 		l.setUnwanted(p.unwanted)
 	}
 	return lister

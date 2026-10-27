@@ -4,6 +4,7 @@
 package driftpolicy_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -58,6 +59,34 @@ func TestParseRuleLine(t *testing.T) {
 	for _, s := range []string{"", "keep", "maybe all", "keep name=x"} {
 		if _, err := driftpolicy.ParseRuleLine(s); err == nil || !strings.Contains(err.Error(), "want accept or keep") {
 			t.Errorf("%q: got %v, want the line refused", s, err)
+		}
+	}
+}
+
+// Blank lines and comments are skipped, the rules kept in order, and a
+// line that isn't a rule is refused by its number.
+func TestParseRuleLines(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		lines   []string
+		want    []driftpolicy.Rule
+		wantErr string
+	}{
+		"in order": {
+			lines: []string{"# tags are ours", "", "accept attribute=tags.*", "  ", "keep attribute=tags.Owner", "  # indented"},
+			want:  []driftpolicy.Rule{{Accept: true, Field: "attribute", Pattern: "tags.*"}, {Field: "attribute", Pattern: "tags.Owner"}},
+		},
+		"none":     {lines: []string{"", "# nothing"}},
+		"not rule": {lines: []string{"# first", "keep all", "maybe all"}, wantErr: "line 3: rule \"maybe all\""},
+	} {
+		got, err := driftpolicy.ParseRuleLines(tc.lines)
+		switch {
+		case tc.wantErr != "":
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("%s: got %v, want an error with %q", name, err, tc.wantErr)
+			}
+		case err != nil || !slices.Equal(got, tc.want):
+			t.Errorf("%s: got %+v (%v), want %+v", name, got, err, tc.want)
 		}
 	}
 }

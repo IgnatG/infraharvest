@@ -19,7 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -57,15 +57,22 @@ func newMCPCmd() *cobra.Command {
 			fmt.Fprintf(cmd.ErrOrStderr(), "infraharvest mcp: the tools read and write files under %s\n", root)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return mcpserver.New(version.Version, root, execRunner(self), CheckRun).Run(ctx, &mcp.StdioTransport{})
+			return mcpserver.New(version.Version, root, execRunner(self), CheckRun, MCPProviders()).Run(ctx, &mcp.StdioTransport{})
 		},
 	}
 	cmd.Flags().StringVar(&root, "root", "", "directory the tools may read and write files in: selection files, output directories, reports and drift decisions files (default: the current directory, unless that is the root of a filesystem or the home directory)")
 	return cmd
 }
 
+// MCPProviders returns the providers compiled in, for the MCP server,
+// which knows them only through what it is passed (see
+// mcpserver.Providers).
+func MCPProviders() mcpserver.Providers {
+	return mcpserver.Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
+}
+
 // childEnv returns env, the server's environment, without the variables
-// that profile a run (see importer.StartProfiles): a tool's child would
+// that profile a run (see startProfiles): a tool's child would
 // write its profiles over the server's, at the same paths, and over those
 // of the other children running at the same time.
 func childEnv(env []string) []string {
@@ -73,7 +80,7 @@ func childEnv(env []string) []string {
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		switch strings.ToUpper(name) {
-		case importer.CPUProfileEnv, importer.MemProfileEnv, importer.GoroutineLeakProfileEnv:
+		case cpuProfileEnv, memProfileEnv, goroutineLeakProfileEnv:
 			continue
 		}
 		kept = append(kept, kv)

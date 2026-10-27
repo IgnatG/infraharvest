@@ -28,6 +28,7 @@ var (
 	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
+	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider's name, google, which a provider
@@ -60,6 +61,21 @@ type Provider struct {
 	// catalogue is the catalogue of the import (see SetCatalogue), nil
 	// until it is set.
 	catalogue *catalogue.Catalogue
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
+	// caches are those of the run Init was given (see cachesOf), which
+	// PartialTypes, given no context, reads.
+	caches *runCaches
+}
+
+// runCaches returns the caches of the run Init was given, or those of the
+// calls outside any run (see ratelimit.Default) before Init.
+func (p *Provider) runCaches() *runCaches {
+	if p.caches == nil {
+		return cachesOf(context.Background())
+	}
+	return p.caches
 }
 
 // Init takes the region (args[0]: global, the default, or a region's
@@ -69,7 +85,9 @@ type Provider struct {
 // than finding nothing. A project that hasn't enabled the Compute Engine
 // API, such as one with only serverless services, can't have it looked
 // up: a name shaped like a region's is then taken as given, and logged.
+// The provider keeps ctx's run's caches (see cachesOf).
 func (p *Provider) Init(ctx context.Context, args []string) error {
+	p.caches = cachesOf(ctx)
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -181,9 +199,16 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: p.Name(),
 		Verbose:  verbose,
-		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue}.args(),
+		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted}.args(),
 	})
 	return nil
+}
+
+// SetUnwantedTypes takes what reports the types the import leaves out
+// whatever is listed, which the listers get: they skip the calls that
+// list only those (see wants).
+func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
+	p.unwanted = unwanted
 }
 
 // ProviderBlock returns the provider block, for the project and, but
@@ -241,6 +266,7 @@ func (*Provider) Profile() harvest.Profile {
 			Noun:     "project",
 			Field:    "projects",
 			Needs:    []string{"projects", "organization", "folders"},
+			Flags:    []string{"regions", "projects", "organization", "folders"},
 			Describe: describeScope,
 		},
 		Modules:            providerName,

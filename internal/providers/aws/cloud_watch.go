@@ -84,6 +84,10 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client) error {
 			}
 			name := aws.ToString(rule.Name)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudwatch_event_rule", "aws"))
+			// A call per rule, for targets the import may not keep.
+			if !g.wants("aws_cloudwatch_event_target") {
+				continue
+			}
 			if err := g.createTargets(client, name); err != nil {
 				return nil, err
 			}

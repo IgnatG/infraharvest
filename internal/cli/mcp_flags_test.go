@@ -184,8 +184,8 @@ func TestMCPToolFlagsExist(t *testing.T) {
 }
 
 // scopeProviders returns the providers that the field of mcpserver.Scope
-// an agent sends as name is for, as its providers tag names them, or none
-// for a field every provider takes.
+// an agent sends as name is for, those whose profiles declare its flag
+// (see harvest.Scope.Flags), or nil for a field every provider takes.
 func scopeProviders(name string) []string {
 	scope := reflect.TypeFor[mcpserver.Scope]()
 	for i := range scope.NumField() {
@@ -193,9 +193,17 @@ func scopeProviders(name string) []string {
 		if json, _, _ := strings.Cut(field.Tag.Get("json"), ","); json != name {
 			continue
 		}
-		if tag, ok := field.Tag.Lookup("providers"); ok {
-			return strings.Split(tag, ",")
+		if _, ok := field.Tag.Lookup("scope"); !ok {
+			return nil
 		}
+		flag, _, _ := strings.Cut(field.Tag.Get("flag"), ",")
+		takers := []string{}
+		for _, profile := range providers.Profiles() {
+			if slices.Contains(profile.Scope.Flags, flag) {
+				takers = append(takers, profile.Command)
+			}
+		}
+		return takers
 	}
 	return nil
 }
@@ -206,7 +214,7 @@ func scopeProviders(name string) []string {
 func connectMCP(t *testing.T, root string, run mcpserver.Runner, check mcpserver.Checker, asked func()) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("test", root, run, check).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("test", root, run, check, MCPProviders()).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	confirm := func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {

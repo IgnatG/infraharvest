@@ -14,12 +14,12 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// GoogleKMS maps a key ring and its crypto keys onto
+// googleKMS maps a key ring and its crypto keys onto
 // terraform-google-modules/kms/google. The module gives every key of the
 // ring the same settings (purpose, rotation, algorithm, protection level,
 // labels), so it declines rings whose keys differ, and it keeps the keys
 // from being destroyed (prevent_destroy).
-var GoogleKMS = Adapter{
+var googleKMS = Adapter{
 	Source:   "terraform-google-modules/kms/google",
 	Version:  "4.2.1",
 	Anchor:   "google_kms_key_ring",

@@ -87,11 +87,13 @@ func newDriftCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners")
-	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
-	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
-	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit)")
-	cmd.Flags().StringVar(&options.Format, "format", importer.FormatText, "text prints a line per root; json prints drift.json")
-	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue, whose arguments kept only in state aren't drift (see "+providers.DocsURL+"catalogue/)")
+	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
+		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
+		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments,
+		FormatHelp:      "text prints a line per root; json prints drift.json",
+		CatalogueHelp:   ": those the import used, whose arguments kept only in state aren't drift",
+		EnvironmentHelp: "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it",
+	})
 	cmd.Flags().IntVar(&options.Parallel, "parallel", 1, "how many roots to check at once; each runs its own Terraform, so memory use grows with it")
 	cmd.Flags().StringArrayVar(&options.Roots, "root", nil, "check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable)")
 	cmd.Flags().Var(&driftRules{rules: &options.Rules, accept: true}, "accept", "write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep and --rules, the last rule that matches a change decides)")
@@ -101,11 +103,9 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+driftpolicy.DefaultDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().Lookup("write-decisions").NoOptDefVal = "true"
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
-	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it")
 	cmd.Flags().BoolVar(&options.UntrustedRoots, "untrusted-roots", false, "Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first")
 	cmd.Flags().StringVar(&options.RootsDigest, "roots-digest", "", "run only if the files Terraform reads under the output directory still have this digest, as the MCP server checked them")
 	_ = cmd.Flags().MarkHidden("roots-digest")
-	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }
 
@@ -153,7 +153,7 @@ func (r *driftRuleFiles) Set(file string) error {
 	if err != nil {
 		return err
 	}
-	rules, err := parseDriftRuleLines(string(content))
+	rules, err := driftpolicy.ParseRuleLines(strings.Split(string(content), "\n"))
 	if err != nil {
 		return fmt.Errorf("%s: %w", file, err)
 	}
@@ -165,24 +165,6 @@ func (r *driftRuleFiles) Set(file string) error {
 func (r *driftRuleFiles) String() string { return strings.Join(r.files, ",") }
 
 func (r *driftRuleFiles) Type() string { return "file" }
-
-// parseDriftRuleLines parses rules, one a line, in order: blank lines and
-// lines starting with # are skipped.
-func parseDriftRuleLines(content string) ([]driftpolicy.Rule, error) {
-	var rules []driftpolicy.Rule
-	for i, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		rule, err := driftpolicy.ParseRuleLine(line)
-		if err != nil {
-			return nil, fmt.Errorf("line %d: %w", i+1, err)
-		}
-		rules = append(rules, rule)
-	}
-	return rules, nil
-}
 
 // writeDecisions is the value of --write-decisions: true or false, as a
 // boolean flag takes them, or the decisions file to write, which sets it

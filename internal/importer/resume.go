@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -85,6 +86,9 @@ type claim struct {
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
 	backup *rootBackup
+	// modules counts the users of the generated modules the root takes
+	// up, which putting it back releases; nil counts none.
+	modules *engine.ModuleRefs
 }
 
 // previousRoot returns what the earlier import generated in the root, for
@@ -108,13 +112,16 @@ func (c *claim) previousRoot() *engine.Previous {
 // infraharvest's even if this one fails, and that the root isn't
 // complete (see unfinishedRoot).
 func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
+	claimed := &claim{}
+	if s != nil {
+		claimed.modules = &s.modules
+	}
 	if d.mode == rootFresh {
-		return &claim{}, saveCheckpoint(out, dir, fp, nil)
+		return claimed, saveCheckpoint(out, dir, fp, nil)
 	}
 	onDisk := d.onDisk
 	c := onDisk.c
 	var err error
-	claimed := &claim{}
 	if onDisk.readable {
 		if claimed.previous, err = s.previousAddressesOf(out, dir); err != nil {
 			return nil, err
@@ -290,11 +297,11 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 // its path, unless a removed block of result hands them over (see
 // planHandovers), and resources of imports it leaves out, such as those
 // its plan rejected; each by its type or another name of it (see
-// engine.AliasTypes), which result forgets and imports again (see
+// tftypes.Aliases), which result forgets and imports again (see
 // engine.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
-// engine.ReleaseModules). A resource the run no longer imports at all,
+// engine.ModuleRefs.Release). A resource the run no longer imports at all,
 // such as one deleted in the cloud since, isn't counted.
 func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []engine.Import, elsewhere map[engine.External]string) error {
 	changed := engine.Readdressed(c.previous, result.Addresses, result.Moves)
@@ -319,7 +326,7 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 		}
 		var kept, left bool
 		root := ""
-		for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+		for _, typ := range append([]string{p.Type}, tftypes.Aliases(p.Type)...) {
 			key := engine.External{Type: typ, ID: p.ID}
 			kept = kept || now[key]
 			left = left || asked[key]
@@ -346,7 +353,10 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 // putBack puts the claimed root in dir back as it was before it was
 // generated again, without the generated modules it took up since.
 func (c *claim) putBack(dir string) error {
-	err := engine.ReleaseModules(dir)
+	var err error
+	if c.modules != nil {
+		err = c.modules.Release(dir)
+	}
 	if c.backup != nil {
 		err = errors.Join(err, c.backup.restore())
 	}
