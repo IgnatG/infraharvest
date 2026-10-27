@@ -227,6 +227,22 @@ func TestLoadRejectsSourcesWithoutState(t *testing.T) {
 	}
 }
 
+// A source whose kind of store the Stores given leave out fails, naming
+// that store, instead of panicking on the nil function.
+func TestLoadWithoutStore(t *testing.T) {
+	for source, want := range map[string]string{
+		"s3://acme-state/roots/":                                 "no S3 store",
+		"gs://acme-gcs/roots/":                                   "no Cloud Storage store",
+		"https://acmestate.blob.core.windows.net/tfstate/roots/": "no Blob Storage store",
+		"tfc://acme/network-*":                                   "no HCP Terraform store",
+	} {
+		_, err := Load(context.Background(), []string{source}, Stores{})
+		if err == nil || !strings.Contains(err.Error(), "state "+source+": "+want) {
+			t.Errorf("%s: want an error saying %q, got %v", source, want, err)
+		}
+	}
+}
+
 // Azure IDs match whatever their case, the types another name of a type
 // manages match it, and ARNs keep their case.
 func TestLookupMatchesCaseAndAliases(t *testing.T) {

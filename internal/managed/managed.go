@@ -101,6 +101,13 @@ type Stores struct {
 	HCPTerraform func(ctx context.Context, host string) (ObjectStore, error)
 }
 
+// errNoStore is the error of a source whose kind of store, such as S3, the
+// Stores given have no way to open: a caller that leaves one out reads
+// no state of that kind, and says so rather than panicking.
+func errNoStore(kind string) error {
+	return fmt.Errorf("no %s store to read the state with", kind)
+}
+
 // DefaultStores read with each cloud's default credentials.
 var DefaultStores = Stores{S3: newS3, GCS: newGCS, AzureBlob: newAzureBlob, HCPTerraform: newHCPTerraform}
 
@@ -245,10 +252,19 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	var store ObjectStore
 	switch o.url.Scheme {
 	case "gs":
+		if stores.GCS == nil {
+			return errNoStore("Cloud Storage")
+		}
 		store, err = stores.GCS(ctx)
 	case "s3":
+		if stores.S3 == nil {
+			return errNoStore("S3")
+		}
 		store, err = stores.S3(ctx, o.url.Query().Get("region"), o.url.Query().Get("profile"))
 	default:
+		if stores.AzureBlob == nil {
+			return errNoStore("Blob Storage")
+		}
 		store, err = stores.AzureBlob(ctx, o.url.Scheme+"://"+o.url.Host+"/")
 	}
 	if err != nil {
@@ -330,6 +346,9 @@ func (r Resources) loadWorkspaces(ctx context.Context, source string, stores Sto
 	organization, pattern, host, err := parseWorkspaces(source)
 	if err != nil {
 		return err
+	}
+	if stores.HCPTerraform == nil {
+		return errNoStore("HCP Terraform")
 	}
 	store, err := stores.HCPTerraform(ctx, host)
 	if err != nil {
