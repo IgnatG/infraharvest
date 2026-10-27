@@ -197,11 +197,15 @@ if enabled goimports && [ ${#go_files[@]} -gt 0 ]; then
   fi
 fi
 
-if enabled headers && [ ${#go_files[@]} -gt 0 ]; then
-  # Every Go file carries the licence line (scripts/check-headers.sh, which
-  # the tests workflow runs too); staged files are checked in the index.
+# The files scripts/check-headers.sh checks: Go files, shell scripts and
+# workflows. It ignores the ones among them it doesn't, such as hooks.
+header_files=(${go_files[@]+"${go_files[@]}"} ${sh_files[@]+"${sh_files[@]}"} ${workflow_files[@]+"${workflow_files[@]}"})
+if enabled headers && [ ${#header_files[@]} -gt 0 ]; then
+  # Every Go file, shell script and workflow carries the licence line
+  # (scripts/check-headers.sh, which the tests workflow runs too); staged
+  # files are checked in the index.
   if [ "$mode" = staged ]; then
-    out=$(run_on bash "$root/scripts/check-headers.sh" --cached -- "${go_files[@]}") && status_headers=0 || status_headers=$?
+    out=$(run_on bash "$root/scripts/check-headers.sh" --cached -- "${header_files[@]}") && status_headers=0 || status_headers=$?
   else
     out=$(bash "$root/scripts/check-headers.sh" 2>&1) && status_headers=0 || status_headers=$?
   fi
@@ -217,9 +221,9 @@ if enabled headers && [ ${#go_files[@]} -gt 0 ]; then
     fi
   done
   if [ "$status_headers" -eq 0 ] && [ ${#bad[@]} -eq 0 ]; then
-    pass "headers (${#go_files[@]} files)"
+    pass "headers (${#header_files[@]} files)"
   else
-    fail "headers: a Go file starts with these two lines (see docs/development.md#licence-headers):"
+    fail "headers: a Go file starts with these two lines, and a shell script or workflow with them as # comments (see docs/development.md#licence-headers):"
     printf '%s\n' "// Copyright $(date +%Y) <your name>" "// SPDX-License-Identifier: AGPL-3.0-only" | indent
     # REUSE-IgnoreEnd
     if [ "$status_headers" -ne 0 ]; then
