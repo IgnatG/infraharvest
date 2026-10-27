@@ -1093,7 +1093,7 @@ func requireProviders(dir string, names []string, configured map[string]Provider
 		if providers.file.Body().FirstMatchingBlock("provider", []string{name}) != nil {
 			continue
 		}
-		config, _ := WithoutCredentials(p.Config)
+		config, _ := withoutCredentials(p.Config)
 		providers.file.Body().AppendNewline()
 		if err := writeBody(providers.file.Body().AppendNewBlock("provider", []string{name}).Body(), config); err != nil {
 			return fmt.Errorf("provider %s: %w", name, err)

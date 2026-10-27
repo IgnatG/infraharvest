@@ -660,7 +660,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 	configs := make([]map[string]interface{}, len(w.m.roots))
 	keys := map[string]bool{}
 	for e, root := range w.m.roots {
-		configs[e], _ = WithoutCredentials(root.provider.Config)
+		configs[e], _ = withoutCredentials(root.provider.Config)
 		for k := range configs[e] {
 			keys[k] = true
 		}

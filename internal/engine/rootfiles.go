@@ -112,10 +112,10 @@ func isCredential(name string) bool {
 	return credentialArgument.MatchString(name)
 }
 
-// WithoutCredentials returns args without the arguments that hold
+// withoutCredentials returns args without the arguments that hold
 // credentials (see isCredential), at any depth, and the names it
 // left out, sorted.
-func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
+func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
 	if args == nil {
 		return nil, nil
 	}
@@ -128,7 +128,7 @@ func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 		}
 		if nested, ok := v.(map[string]interface{}); ok {
 			var nestedDropped []string
-			v, nestedDropped = WithoutCredentials(nested)
+			v, nestedDropped = withoutCredentials(nested)
 			for _, name := range nestedDropped {
 				dropped = append(dropped, k+"."+name)
 			}
@@ -140,10 +140,10 @@ func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 }
 
 // ProvidersFile renders the provider block, without the arguments that
-// hold credentials (see WithoutCredentials).
+// hold credentials (see withoutCredentials).
 func ProvidersFile(p Provider) ([]byte, error) {
 	f := hclwrite.NewEmptyFile()
-	config, _ := WithoutCredentials(p.Config)
+	config, _ := withoutCredentials(p.Config)
 	if err := writeBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), config); err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.Name, err)
 	}

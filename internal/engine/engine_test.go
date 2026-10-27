@@ -152,7 +152,7 @@ func TestProvidersFileLeavesOutCredentials(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 
-	_, dropped := WithoutCredentials(map[string]interface{}{
+	_, dropped := withoutCredentials(map[string]interface{}{
 		"token": "t", "access_token": "a", "api_key": "k", "apikey": "k", "password": "p", "client_secret": "s",
 		"secret_key": "s", "private_key": "pk", "credentials": "c", "nested": map[string]interface{}{"token": "t"},
 		"region": "eu", "token_url": "u", "skip_credentials_validation": true, "api_url": "u",
