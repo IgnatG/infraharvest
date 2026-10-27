@@ -226,11 +226,22 @@ runs:
         dir="$RUNNER_TEMP/infraharvest"
         mkdir -p "$dir"
         gh release download "$VERSION" -R IgnatG/infraharvest -D "$dir" -p "$archive" -p "$sums" -p "$sums.sigstore.json"
+        # The commit the release's tag names. The release workflow runs from
+        # main, so its certificate names main, not the tag; it names the
+        # commit too, which must be the tag's, so that a checksum file
+        # another run of the workflow signed doesn't verify for this tag.
+        sha=$(gh api -H "Accept: application/vnd.github.sha" "repos/IgnatG/infraharvest/commits/$VERSION")
+        if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::couldn't find the commit of $VERSION's tag"
+          exit 1
+        fi
         cd "$dir"
-        # The checksum file must be signed by this repository's release workflow.
+        # The checksum file must be signed by this repository's release
+        # workflow, run on the tag's commit.
         cosign verify-blob \
           --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          --certificate-github-workflow-sha "$sha" \
           --bundle "$sums.sigstore.json" "$sums"
         if command -v sha256sum > /dev/null; then sha256sum --check --ignore-missing "$sums"; else shasum -a 256 --check --ignore-missing "$sums"; fi
         if [[ "$ext" == zip ]]; then unzip -q -o "$archive"; else tar -xzf "$archive"; fi
