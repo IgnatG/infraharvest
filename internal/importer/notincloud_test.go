@@ -180,7 +180,7 @@ func TestListedInScopeCountsWhatTheSelectionLeavesOut(t *testing.T) {
 		harvest.RecordBare("https://sqs.eu-west-2.amazonaws.com/123/jobs", "jobs", "aws_sqs_queue", "aws"),
 	}}}
 	r := &Run{discovered: map[string]int{}, options: Options{Selection: "selection.yaml"}}
-	selected, _ := r.selectResources(listed, map[string]string{"aws_sqs_queue https://sqs.eu-west-2.amazonaws.com/123/jobs": "excluded by default"}, nil, "aws/123/eu-west-2", importIDFunc(cat))
+	selected, _ := r.selectResources(listed, sourcesOf(t, listed, map[string]string{"aws_sqs_queue https://sqs.eu-west-2.amazonaws.com/123/jobs": "excluded by default"}), nil, "aws/123/eu-west-2", "", importIDFunc(cat))
 
 	here, why := listedInScope(&fakeProvider{}, cat, Options{Services: []string{"sqs"}}, "", "aws/123/eu-west-2", listed, nil, selected, importIDFunc(cat))
 	if here == nil {

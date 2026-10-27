@@ -126,19 +126,24 @@ func TestAWSDriftMCP(t *testing.T) {
 }
 
 // mcpSession returns a client session with the MCP server, whose files
-// stay under root, and which runs infraharvest in this process, with the
-// engine at execPath; elicit answers its requests for the user's
+// stay under root, and which runs and checks infraharvest in this process,
+// with the engine at execPath; elicit answers its requests for the user's
 // confirmation.
 func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ClientSession {
 	t.Helper()
-	run := func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
-		// The engine the test found: for drift, before the arguments after
-		// "--"; for import, at the end.
+	// withEngine returns a copy of args with the engine the test found: for
+	// drift, before the arguments after "--"; for import, at the end.
+	withEngine := func(args []string) []string {
 		if i := slices.Index(args, "--"); i >= 0 {
-			args = slices.Insert(slices.Clone(args), i, "--terraform-path="+execPath)
-		} else if len(args) > 0 && args[0] == "import" {
-			args = append(slices.Clone(args), "--terraform-path="+execPath)
+			return slices.Insert(slices.Clone(args), i, "--terraform-path="+execPath)
 		}
+		if len(args) > 0 && args[0] == "import" {
+			return append(slices.Clone(args), "--terraform-path="+execPath)
+		}
+		return slices.Clone(args)
+	}
+	run := func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
+		args = withEngine(args)
 		var stdout, stderr bytes.Buffer
 		cmd := cli.NewCmdRoot()
 		cmd.SetArgs(args)
@@ -149,7 +154,7 @@ func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit
 		return stdout.Bytes(), stderr.Bytes(), importer.ExitCode(err), nil
 	}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("e2e", root, run).Connect(ctx, serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("e2e", root, run, cli.CheckRun).Connect(ctx, serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e"}, &mcp.ClientOptions{ElicitationHandler: elicit})

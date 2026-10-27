@@ -257,7 +257,7 @@ func TestMergeRoots(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestMergeRootsPlansWithoutLocalState(t *testing.T) {
 		}
 	}
 
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +370,7 @@ func TestMergeRootsResidue(t *testing.T) {
 	var overrides []string
 	// prod's first plan of the shared queue would update it.
 	changed := map[string]map[string]int{"prod": {"aws_sqs_queue.orders": 1}}
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +497,7 @@ func TestMergeRootsGoneShared(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	roots := goneRoots(t, dir, "aws_sqs_queue.orders")
 	roots[0].Gone = []string{"aws_sqs_queue.orders"}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -513,7 +513,7 @@ func TestMergeRootsGoneShared(t *testing.T) {
 
 	// Planned with its import, as before, the gate fails.
 	dir = filepath.Join(t.TempDir(), "aws", "eu-west-2")
-	if _, err := MergeRoots(context.Background(), dir, goneRoots(t, dir, "aws_sqs_queue.orders"), MergeOptions{}); err == nil || !strings.Contains(err.Error(), "non-existent") {
+	if _, err := MergeRoots(context.Background(), dir, goneRoots(t, dir, "aws_sqs_queue.orders"), MergeOptions{Profile: mergeProfiles["aws"]}); err == nil || !strings.Contains(err.Error(), "non-existent") {
 		t.Errorf("merged with the import of what is gone: %v", err)
 	}
 }
@@ -527,7 +527,7 @@ func TestMergeRootsGoneResidue(t *testing.T) {
 	roots := goneRoots(t, dir, "aws_sqs_queue.audit")
 	addQueue(t, roots[0], "audit")
 	roots[0].Gone = []string{"aws_sqs_queue.audit"}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,7 +540,7 @@ func TestMergeRootsFallBack(t *testing.T) {
 	var overrides []string
 	// prod's plans of the queue always update it.
 	changed := map[string]map[string]int{"prod": {"aws_sqs_queue.orders": 9, "aws_sqs_queue.orders_prod[0]": 9}}
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestMergeRootsRefusesDataOfOneEnvironment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(roots[1].Dir, DataFileName), []byte("data \"aws_vpc\" \"shared\" {\n  id = \"vpc-0123456789abcdef0\"\n}\n\ndata \"aws_vpc\" \"prod\" {\n  id = \"vpc-0fedcba9876543210\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +670,7 @@ import {
 		}
 		roots = append(roots, root)
 	}
-	m := mergeStackWith("google", roots, nil, &mergeControls{isolated: map[string]bool{mergeKey(0, "google_pubsub_topic.main"): true}})
+	m := mergeStackWith("google", mergeProfiles["google"], roots, nil, &mergeControls{isolated: map[string]bool{mergeKey(0, "google_pubsub_topic.main"): true}})
 	b := resourceAt(t, m, "google_storage_bucket.main")
 	if b.residue != "" || b.members[0] == nil || b.members[1] == nil || b.deploy != nil {
 		t.Errorf("the buckets aren't merged at google_storage_bucket.main: %q", b.residue)
@@ -706,10 +706,10 @@ func TestMergeStackIsolated(t *testing.T) {
 	dev := testEnvRoot(t, "dev", nil, "111111111111", queue("dev", "orders")+queue("dev", "audit"), ids("dev", "orders", "audit"))
 	prod := testEnvRoot(t, "prod", []string{"prd"}, "222222222222", queue("prd", "orders")+queue("prd", "audit"), ids("prd", "orders", "audit"))
 	// Without isolation, the audit queues match.
-	if m := mergeStack("aws", []envRoot{dev, prod}, envSchemas); len(m.resources) != 2 {
+	if m := mergeStack("aws", mergeProfiles["aws"], []envRoot{dev, prod}, envSchemas); len(m.resources) != 2 {
 		t.Fatalf("resources: %d", len(m.resources))
 	}
-	m := mergeStackWith("aws", []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}})
+	m := mergeStackWith("aws", mergeProfiles["aws"], []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}})
 	addresses := map[string]string{}
 	for _, r := range m.resources {
 		for e, member := range r.members {
@@ -728,7 +728,7 @@ func TestMergeStackIsolated(t *testing.T) {
 		t.Errorf("the shared queue: %q", got)
 	}
 	// Kept apart with the label an earlier merge gave it, it keeps it.
-	m = mergeStackWith("aws", []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}, labels: map[string]string{mergeKey(1, "aws_sqs_queue.audit"): "shop_audit"}})
+	m = mergeStackWith("aws", mergeProfiles["aws"], []envRoot{dev, prod}, envSchemas, &mergeControls{isolated: map[string]bool{mergeKey(1, "aws_sqs_queue.audit"): true}, labels: map[string]string{mergeKey(1, "aws_sqs_queue.audit"): "shop_audit"}})
 	for _, r := range m.resources {
 		if r.members[1] != nil && r.members[1].block.address == "aws_sqs_queue.audit" && r.label != "shop_audit" {
 			t.Errorf("prod's new queue, labelled: %s", r.address())
@@ -744,7 +744,7 @@ func TestVerifyMerged(t *testing.T) {
 	var overrides []string
 	// Each runs in a copy of the root, beside it.
 	prodFake := func(d string) (Terraform, error) { return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil }
-	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{}); err != nil || result.Reason != "" {
+	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
 	gate, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
@@ -782,7 +782,7 @@ func TestMergeRootsUnplanned(t *testing.T) {
 		t.Fatal(err)
 	}
 	roots[1].Provider = provider
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,7 +803,7 @@ func TestMergeRootsUnplanned(t *testing.T) {
 	}
 
 	roots[1].Terraform = nil
-	if _, err := MergeRoots(context.Background(), filepath.Join(t.TempDir(), "aws", "eu-west-2"), roots, MergeOptions{}); err == nil {
+	if _, err := MergeRoots(context.Background(), filepath.Join(t.TempDir(), "aws", "eu-west-2"), roots, MergeOptions{Profile: mergeProfiles["aws"]}); err == nil {
 		t.Error("merged with no environment to plan as")
 	}
 }
@@ -975,7 +975,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 			return &backendWatcher{Terraform: tf, dir: dir, planned: &planned}, err
 		}
 	}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil {
 		t.Fatal(err)
 	}

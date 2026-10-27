@@ -29,9 +29,9 @@ import (
 // and the provider of every listed resource.
 const providerName = "azurerm"
 
-// directoryName is the name of the provider's command, azure, which the
-// roots go under (see Directory), as AWS's and Google's go under theirs.
-const directoryName = "azure"
+// commandName is the name of the provider's command, azure, which the
+// roots go under (see Profile), as AWS's and Google's go under theirs.
+const commandName = "azure"
 
 // telemetryApplicationID is how infraharvest's requests introduce
 // themselves to Azure, in their User-Agent.
@@ -234,11 +234,6 @@ func (*Provider) Name() string {
 	return providerName
 }
 
-// Directory returns "azure": roots go under <out>/azure/, not azurerm.
-func (*Provider) Directory() string {
-	return directoryName
-}
-
 // ProviderBlock returns the provider "azurerm" block: the subscription and
 // the features block azurerm requires, empty. The roots pin azurerm's
 // newest major release, 5 or later (a module that holds it to an older
@@ -310,17 +305,41 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.subscriptionID, region, nil
 }
 
-// ConcurrentListing says the services of a subscription may list at once:
-// each has its own lister, and what they share, the credential and the
-// subscription's limiter, is safe to share.
-func (*Provider) ConcurrentListing() bool {
-	return true
-}
-
-// DefaultTags says azurerm resources take their tags in the tags
-// attribute, and that Azure reserves the hidden- prefix for its own.
-func (*Provider) DefaultTags() (attribute, block, reservedPrefix string) {
-	return "tags", "", "hidden-"
+// Profile describes Azure: roots go under <out>/azure/, not azurerm; the
+// services of a subscription may list at once, as each has its own
+// lister and what they share, the credential and the subscription's
+// limiter, is safe to share; azurerm resources take their tags in the
+// tags attribute, with no provider block to apply them to all, and Azure
+// reserves the hidden- prefix for its own; Resource Graph's types go in
+// files by their family; and a root that environments share reads the
+// subscription from the provider.
+func (*Provider) Profile() harvest.Profile {
+	return harvest.Profile{
+		Command:           commandName,
+		ConcurrentListing: true,
+		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},
+		Layout: harvest.Layout{
+			NetworkServices: []string{
+				"network_interface", "network_security_group", "public_ip", "subnet", "virtual_network",
+			},
+			NetworkTypes: []string{
+				"application_security_group", "nat_gateway", "network", "private_dns", "private_endpoint",
+				"public_ip", "route", "subnet", "virtual_network",
+			},
+			TypeFamilies: map[string]string{
+				"cosmosdb": "cosmosdb", "dns": "dns", "key_vault": "key_vault", "kubernetes_cluster": "kubernetes_cluster",
+				"lb": "lb", "linux_virtual_machine": "virtual_machine", "log_analytics": "log_analytics", "monitor": "monitor",
+				"mssql": "mssql", "mysql": "mysql", "postgresql": "postgresql", "storage": "storage",
+				"virtual_machine": "virtual_machine", "windows_virtual_machine": "virtual_machine",
+			},
+		},
+		Merge: harvest.Merge{
+			ScopeTitle: "Subscription",
+			ScopeData:  "azurerm_client_config.current",
+			ScopeLocal: "subscription_id",
+			ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
+		},
+	}
 }
 
 // SetCatalogue sets the import's catalogue, which the services get.

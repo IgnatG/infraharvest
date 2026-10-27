@@ -465,8 +465,8 @@ type stackMatch struct {
 // ImportScope returns, for an import scoped to stacks (see SetStackScope),
 // the resources the stacks hold, which the import takes whatever the
 // default selection says, and the others, which it leaves out whatever a
-// selection file says, by "<type> <id>"; and the stacks, each resource
-// with what it is among resources. Only the stacks of the provider's
+// selection file says, by "<type> <id>"; and it keeps the stacks, each
+// resource with what it is among resources, for CloudFormationStacks. Only the stacks of the provider's
 // region count, but for the global services, which every region's stacks
 // can create resources of. It makes no call: it matches the physical IDs
 // of the stacks' resources with what is listed, by their types (see
@@ -538,12 +538,20 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 	for _, stack := range p.stackScope.stacks {
 		stack.holdIn(byResource)
 	}
+	p.scopedStacks = nil
 	for _, stack := range p.stackScope.stacks {
 		reported := stack.report(byResource)
 		reported.Root, reported.NestedAs, reported.TemplateURL = p.stackScope.nesting(stack)
-		scope.Stacks = append(scope.Stacks, reported)
+		p.scopedStacks = append(p.scopedStacks, reported)
 	}
 	return scope, nil
+}
+
+// CloudFormationStacks returns the stacks the import is scoped to, for
+// the report, each resource with the listed resources it is, as
+// ImportScope matched them; nil before ImportScope.
+func (p *Provider) CloudFormationStacks() []report.CloudFormationStack {
+	return p.scopedStacks
 }
 
 // reassignShared gives each match that is only of a type sharing its

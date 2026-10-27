@@ -279,7 +279,7 @@ func TestImportScope(t *testing.T) {
 		t.Errorf("outside %v", got.Outside)
 	}
 	matches := map[string][]report.CloudFormationMatch{}
-	for _, s := range got.Stacks {
+	for _, s := range p.CloudFormationStacks() {
 		for _, r := range s.Resources {
 			if len(r.Matches) > 0 {
 				matches[s.Name+"/"+r.LogicalID] = r.Matches

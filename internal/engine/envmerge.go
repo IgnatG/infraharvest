@@ -30,6 +30,7 @@ const (
 // variables each environment sets.
 type stackMerge struct {
 	provider string
+	profile  MergeProfile
 	roots    []envRoot
 	envs     []string      // the environments, as the roots are
 	norms    []*normaliser // by environment
@@ -238,14 +239,14 @@ func (v *envVariable) tfvars(env int) (hclwrite.Tokens, bool) {
 
 // mergeStack models how roots, the roots of one stack (see stackKey), one
 // per environment, of provider (aws, azurerm, google or google-beta),
-// merge into one root: it matches their resources (see matchResources),
+// which profile describes, merge into one root: it matches their resources (see matchResources),
 // leaves as residue each environment's part of those that can't merge
 // (see mergeBody), puts resources of some environments only as keys of a
 // compatible resource's for_each (see groupForEach) or in features counted
 // by a deploy_ variable (see features), and names the variables, with their defaults (see
 // envVariable.setDefault).
-func mergeStack(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
-	return mergeStackWith(provider, roots, schemas, nil)
+func mergeStack(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
+	return mergeStackWith(provider, profile, roots, schemas, nil)
 }
 
 // mergeKey is the key of an environment's resource in mergeControls: the
@@ -271,20 +272,21 @@ type mergeControls struct {
 
 // mergeStackWith is mergeStack, with the resources controls name split
 // or kept apart.
-func mergeStackWith(provider string, roots []envRoot, schemas *tfjson.ProviderSchemas, controls *mergeControls) *stackMerge {
+func mergeStackWith(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas, controls *mergeControls) *stackMerge {
 	if controls == nil {
 		controls = &mergeControls{}
 	}
-	m := &stackMerge{provider: provider, roots: roots, schemas: schemas, controls: controls}
-	dataSource, _, _ := scopeData(provider)
+	m := &stackMerge{provider: provider, profile: profile, roots: roots, schemas: schemas, controls: controls}
 	for _, root := range roots {
 		m.envs = append(m.envs, root.env)
 		n := newNormaliser(root)
-		if dataSource == "" {
+		if profile.ScopeData == "" {
 			// No data source gives the scope's ID.
 			n.scope = ""
 		}
-		if provider != "aws" {
+		if profile.RegionArgument == "" {
+			// The region isn't the provider's, which plans each
+			// environment in its own.
 			n.region = ""
 		}
 		m.norms = append(m.norms, n)
@@ -345,26 +347,33 @@ func (m *stackMerge) splitForced() {
 	}
 }
 
-// scopeData returns the data source that reads the ID of provider's
-// account, subscription or project, the local that holds the ID, and the
-// expression that reads it; "" for a provider with none.
-func scopeData(provider string) (dataSource, local, expr string) {
-	switch provider {
-	case "aws":
-		return "aws_caller_identity.current", "aws_account_id", "data.aws_caller_identity.current.account_id"
-	case "azurerm":
-		return "azurerm_client_config.current", "subscription_id", "data.azurerm_client_config.current.subscription_id"
-	case "google", "google-beta":
-		return "google_client_config.current", "project_id", "data.google_client_config.current.project"
-	}
-	return "", "", ""
+// MergeProfile is what the root the environments of a stack share reads
+// of each environment's account (or subscription, or project) and
+// region, where the environments' roots differ by them. The importer
+// fills it from the provider's profile (see harvest.Merge, which has the
+// same fields), so that the engine needn't tell providers apart.
+type MergeProfile struct {
+	// ScopeTitle is what the roots are scoped by, for the README, such as
+	// Account.
+	ScopeTitle string
+	// ScopeData is the data source that reads the ID of the account,
+	// ScopeLocal the local that holds the ID, and ScopeExpr the
+	// expression that reads it; all empty for a provider with none.
+	ScopeData, ScopeLocal, ScopeExpr string
+	// RegionArgument is the argument of the provider block that sets the
+	// region of the provider's resources, which differs between the
+	// environments, such as AWS's region; empty for a provider whose
+	// roots don't read their region from the provider, in which case the
+	// other Region fields are empty too.
+	RegionArgument string
+	// RegionTitle names the region, for the variable that holds it, such
+	// as AWS region.
+	RegionTitle string
+	// RegionData is the data source that reads the region, RegionLocal
+	// the local that holds it, which also names the variable that sets
+	// the provider's, and RegionExpr the expression that reads it.
+	RegionData, RegionLocal, RegionExpr string
 }
-
-// The data source and local of an AWS root's region.
-const (
-	regionData  = "aws_region.current"
-	regionLocal = "aws_region"
-)
 
 // splitResidue splits each resource matched across environments whose
 // bodies don't merge (see mergeBody) into one resource per environment,
@@ -732,13 +741,12 @@ func (m *stackMerge) render() {
 		m.locals = append(m.locals, namedLocal{"naming_prefix", exprTokens(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
 	}
 	if holds(templates, accountPlaceholder) {
-		dataSource, local, expr := scopeData(m.provider)
-		m.data = append(m.data, dataSource)
-		m.locals = append(m.locals, namedLocal{local, exprTokens(expr)})
+		m.data = append(m.data, m.profile.ScopeData)
+		m.locals = append(m.locals, namedLocal{m.profile.ScopeLocal, exprTokens(m.profile.ScopeExpr)})
 	}
 	if holds(templates, regionPlaceholder) {
-		m.data = append(m.data, regionData)
-		m.locals = append(m.locals, namedLocal{regionLocal, exprTokens("data." + regionData + ".region")})
+		m.data = append(m.data, m.profile.RegionData)
+		m.locals = append(m.locals, namedLocal{m.profile.RegionLocal, exprTokens(m.profile.RegionExpr)})
 	}
 	for _, b := range bodies {
 		b.visit(func(a *mergedAttribute) {
@@ -879,11 +887,10 @@ func (m *stackMerge) presence(r *stackResource) hclwrite.Tokens {
 // var.env, the scope and region from their locals, and the resource
 // group from its variable.
 func (m *stackMerge) renderTemplate(normal hclwrite.Tokens) hclwrite.Tokens {
-	_, scope, _ := scopeData(m.provider)
 	placeholders := strings.NewReplacer(
 		envPlaceholder, "${var."+envVariableName+"}",
-		accountPlaceholder, "${local."+scope+"}",
-		regionPlaceholder, "${local."+regionLocal+"}",
+		accountPlaceholder, "${local."+m.profile.ScopeLocal+"}",
+		regionPlaceholder, "${local."+m.profile.RegionLocal+"}",
 		resourceGroupPlaceholder, "${var."+resourceGroupVariableName+"}",
 	)
 	return mapLiterals(normal, func(s string) string {

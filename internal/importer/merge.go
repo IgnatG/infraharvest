@@ -138,7 +138,7 @@ func markMerging(options Options, calls []*listedCall) error {
 
 // mergeMember is a root an import generated, or kept from an earlier one
 // with --resume, of one environment of a stack, which the merge phase
-// merges with the other environments' (see MergeEnvironments).
+// merges with the other environments' (see Run.MergeEnvironments).
 type mergeMember struct {
 	dir   string // the root's directory
 	stack string // the merged root's
@@ -150,10 +150,13 @@ type mergeMember struct {
 	// and group its Azure resource group, if any.
 	scope, account, region, group string
 	// provider plans the merged root as the environment, with its
-	// credentials (see terraformEnv), and engineProvider is the root's
-	// provider configuration and version constraint.
+	// credentials (see terraformEnv), engineProvider is the root's
+	// provider configuration and version constraint, and profile what the
+	// merged root reads of the environment's account and region (see
+	// harvest.Merge).
 	provider       harvest.Provider
 	engineProvider engine.Provider
+	profile        engine.MergeProfile
 	fingerprint    string
 	result         *engine.Result
 	// opts are the root's engine options, of which the merged root's gate
@@ -202,7 +205,10 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		return
 	}
 	region := c.region
-	if r, ok := c.root.provider.Config["region"].(string); ok && r != "" && c.provider.Name() == "aws" {
+	// The region the provider block sets, where the provider has one (see
+	// harvest.Merge.RegionArgument).
+	profile := c.provider.Profile().Merge
+	if r, ok := c.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
 	c.run.members = append(c.run.members, mergeMember{
@@ -216,6 +222,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		group:          c.options.ResourceGroup,
 		provider:       c.provider,
 		engineProvider: c.root.provider,
+		profile:        engine.MergeProfile(profile),
 		fingerprint:    fp,
 		result:         result,
 		opts:           opts,
@@ -228,8 +235,8 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	})
 }
 
-// MergeEnvironments merges the roots of each stack of the run's
-// environments that every scope of the command generated (see
+// MergeEnvironments merges the roots of each stack of r's environments
+// that every scope of the command generated (see
 // mergeMember): the stack's roots of two environments or more become one
 // root they share, in the directory stackLayout names, checked by its gate
 // once per environment with that environment's credentials (see
@@ -241,14 +248,10 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 // put in other roots, keeps only the removed blocks that hand them over
 // (see vacateMergedRoots). It returns an error only where the run can't
 // go on, such as when it is interrupted.
-func MergeEnvironments(ctx context.Context) error {
-	run := activeRun
-	if run == nil {
-		return nil
-	}
+func (r *Run) MergeEnvironments(ctx context.Context) error {
 	byStack := map[string][]mergeMember{}
-	if run.options.MergeEnvironments {
-		for _, m := range run.members {
+	if r.options.MergeEnvironments {
+		for _, m := range r.members {
 			byStack[m.stack] = append(byStack[m.stack], m)
 		}
 	}
@@ -260,21 +263,21 @@ func MergeEnvironments(ctx context.Context) error {
 			}
 			return members[i].dir < members[j].dir
 		})
-		if err := run.mergeStack(ctx, stack, members); err != nil {
+		if err := r.mergeStack(ctx, stack, members); err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			log.Printf("%s: %v", stack, err)
-			run.recordFailure(run.options, fmt.Errorf("merging %s: %w", relativePath(run.options.Out, stack), err))
+			r.recordFailure(r.options, fmt.Errorf("merging %s: %w", relativePath(r.options.Out, stack), err))
 		}
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	// The merged roots all of whose resources go to other roots now.
-	if err := run.vacateMergedRoots(byStack); err != nil {
+	if err := r.vacateMergedRoots(byStack); err != nil {
 		log.Print(err)
-		run.recordFailure(run.options, fmt.Errorf("handing over what merged roots have: %w", err))
+		r.recordFailure(r.options, fmt.Errorf("handing over what merged roots have: %w", err))
 	}
 	return nil
 }

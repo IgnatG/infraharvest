@@ -361,7 +361,7 @@ func TestGoldenMergedRoots(t *testing.T) {
 		{"azurerm-two-environments", "azurerm", azureRoots},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := mergeStack(tc.provider, tc.roots(t), rootSchemas)
+			m := mergeStack(tc.provider, mergeProfiles[tc.provider], tc.roots(t), rootSchemas)
 			files, err := mergedRootFiles(m)
 			if err != nil {
 				t.Fatal(err)
@@ -456,7 +456,7 @@ func goldenFiles(t *testing.T, path string, files map[string][]byte) {
 // environments, and secrets in no var file.
 func TestMergedRootFiles(t *testing.T) {
 	t.Run("two environments", func(t *testing.T) {
-		files, err := mergedRootFiles(mergeStack("aws", devProdRoots(t), rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], devProdRoots(t), rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -497,7 +497,7 @@ func TestMergedRootFiles(t *testing.T) {
 	})
 
 	t.Run("three environments", func(t *testing.T) {
-		files, err := mergedRootFiles(mergeStack("aws", threeEnvRoots(t), rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], threeEnvRoots(t), rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -543,7 +543,7 @@ func TestMergedRootFiles(t *testing.T) {
 		// The newest release line any root pins.
 		roots := devProdRoots(t)
 		roots[1].provider.Version = "~> 6.20"
-		files, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -551,11 +551,11 @@ func TestMergedRootFiles(t *testing.T) {
 			t.Errorf("want the newest release line pinned:\n%s", got)
 		}
 		roots[0].provider.Version = "~> 7.0"
-		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different major releases") {
+		if _, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different major releases") {
 			t.Errorf("want an error naming the major releases, got %v", err)
 		}
 		roots[0].provider.Source = "example.com/acme/aws"
-		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different providers") {
+		if _, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "different providers") {
 			t.Errorf("want an error naming the providers, got %v", err)
 		}
 	})
@@ -565,7 +565,7 @@ func TestMergedRootFiles(t *testing.T) {
 		// in the merged root, with the root it comes from.
 		roots := devProdRoots(t)
 		roots[1].arrivals = []Arrival{{Type: "aws_sqs_queue", ID: "https://sqs.eu-west-2.amazonaws.com/222222222222/shop-prd-orders", Root: "aws/222222222222/eu-west-2", From: "aws_sqs_queue.shop_prd_orders", To: "aws_sqs_queue.orders_prd"}}
-		files, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -573,7 +573,7 @@ func TestMergedRootFiles(t *testing.T) {
 		if want := "| prod | `aws_sqs_queue.orders` | `aws/222222222222/eu-west-2` | `aws_sqs_queue.shop_prd_orders` |"; !strings.Contains(readme, "## Moves") || !strings.Contains(readme, want) {
 			t.Errorf("the README doesn't name %s:\n%s", want, readme)
 		}
-		files, err = mergedRootFiles(mergeStack("aws", devProdRoots(t), rootSchemas))
+		files, err = mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], devProdRoots(t), rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -592,7 +592,7 @@ func TestMergedRootFiles(t *testing.T) {
 			awsEnvRoot(t, "dev", nil, "111111111111", fmt.Sprintf(generated, "dev"), nil, nil, nil, ""),
 			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", fmt.Sprintf(generated, "prd"), nil, nil, nil, ""),
 		}
-		if _, err := mergedRootFiles(mergeStack("aws", roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "local.tags") {
+		if _, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas)); err == nil || !strings.Contains(err.Error(), "local.tags") {
 			t.Errorf("want an error naming local.tags, got %v", err)
 		}
 	})
@@ -632,7 +632,7 @@ func TestMergedRepeatedShapes(t *testing.T) {
 	three := []string{"audit", "events", "orders"}
 
 	t.Run("the same in every environment", func(t *testing.T) {
-		files, err := mergedRootFiles(mergeStack("aws", roots(three, "30"), rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots(three, "30"), rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -661,7 +661,7 @@ func TestMergedRepeatedShapes(t *testing.T) {
 	})
 
 	t.Run("different in an environment", func(t *testing.T) {
-		files, err := mergedRootFiles(mergeStack("aws", roots(three, "60"), rootSchemas))
+		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots(three, "60"), rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -674,7 +674,7 @@ func TestMergedRepeatedShapes(t *testing.T) {
 	})
 
 	t.Run("too few", func(t *testing.T) {
-		m := mergeStack("aws", roots(three[:2], "30"), rootSchemas)
+		m := mergeStack("aws", mergeProfiles["aws"], roots(three[:2], "30"), rootSchemas)
 		if len(m.forEach) != 0 {
 			t.Errorf("two queues are one resource: %s", m.forEach[0].address())
 		}

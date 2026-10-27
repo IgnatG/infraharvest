@@ -192,8 +192,10 @@ func TestProviderCatalogueWithModuleProviders(t *testing.T) {
 // named after its Terraform provider, as Azure's do.
 type directoryProvider struct{ scopedProvider }
 
-func (directoryProvider) Name() string      { return "azurerm" }
-func (directoryProvider) Directory() string { return "azure" }
+func (directoryProvider) Name() string { return "azurerm" }
+func (directoryProvider) Profile() harvest.Profile {
+	return harvest.Profile{Command: "azure"}
+}
 
 // The directory, not the Terraform provider, names the roots and the
 // selection file's scope; a provider without one uses its name.
@@ -258,8 +260,10 @@ type sourcedProvider struct {
 	data map[string]interface{}
 }
 
-func (p sourcedProvider) Name() string           { return "datadog" }
-func (p sourcedProvider) RegistrySource() string { return "DataDog/datadog" }
+func (p sourcedProvider) Name() string { return "datadog" }
+func (p sourcedProvider) Profile() harvest.Profile {
+	return harvest.Profile{Source: "DataDog/datadog"}
+}
 func (p sourcedProvider) ProviderBlock() map[string]interface{} {
 	return p.data
 }
@@ -301,7 +305,7 @@ func TestCheckImportOptions(t *testing.T) {
 }
 
 func TestImportRejectsUnknownEngine(t *testing.T) {
-	err := Import(context.Background(), &fakeProvider{}, Options{Engine: "tofu-ish"}, nil)
+	err := ImportCalls(context.Background(), nil, []Call{{Provider: &fakeProvider{}, Options: Options{Engine: "tofu-ish"}}})
 	if err == nil || !strings.Contains(err.Error(), `unknown --engine "tofu-ish"`) {
 		t.Errorf("want an unknown engine error, got %v", err)
 	}
@@ -404,22 +408,23 @@ func TestRootPathPattern(t *testing.T) {
 	}
 }
 
-// An AWS resource is named after its Name tag; one without, and resources
-// of other providers, keep the lister's name.
+// A resource is named after the provider's name tag, AWS's Name; one
+// without, and resources of a provider without a name tag, keep the
+// lister's name.
 func TestResourceName(t *testing.T) {
 	subnet := harvest.Resource{RawName: "subnet-0a1b2c3d"}
 	for _, tc := range []struct {
-		provider string
-		tags     map[string]string
-		want     string
+		nameTag string
+		tags    map[string]string
+		want    string
 	}{
-		{"aws", map[string]string{"Name": "shop-private-eu-west-2a"}, "shop-private-eu-west-2a"},
-		{"aws", map[string]string{"Name": " "}, "subnet-0a1b2c3d"},
-		{"aws", nil, "subnet-0a1b2c3d"},
-		{"azurerm", map[string]string{"Name": "shop"}, "subnet-0a1b2c3d"},
+		{"Name", map[string]string{"Name": "shop-private-eu-west-2a"}, "shop-private-eu-west-2a"},
+		{"Name", map[string]string{"Name": " "}, "subnet-0a1b2c3d"},
+		{"Name", nil, "subnet-0a1b2c3d"},
+		{"", map[string]string{"Name": "shop"}, "subnet-0a1b2c3d"},
 	} {
-		if got := resourceName(tc.provider, subnet, tc.tags); got != tc.want {
-			t.Errorf("resourceName(%s, %v) = %q, want %q", tc.provider, tc.tags, got, tc.want)
+		if got := resourceName(tc.nameTag, subnet, tc.tags); got != tc.want {
+			t.Errorf("resourceName(%q, %v) = %q, want %q", tc.nameTag, tc.tags, got, tc.want)
 		}
 	}
 }
@@ -443,7 +448,7 @@ func TestResourceNamesResolvesIDs(t *testing.T) {
 		},
 	}
 	// The NAT gateway is a child, listed only in resourcesByService.
-	nameOf := resourceNames("aws", listed, map[string][]harvest.Resource{"nat": {nat}})
+	nameOf := resourceNames("Name", listed, map[string][]harvest.Resource{"nat": {nat}})
 	for _, tc := range []struct {
 		r    harvest.Resource
 		want string

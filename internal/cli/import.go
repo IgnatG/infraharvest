@@ -39,9 +39,9 @@ func providerCommands(options importer.Options) []*cobra.Command {
 	names := providers.Names()
 	commands := make([]*cobra.Command, 0, len(names))
 	for _, name := range names {
-		c := providers.Command(name, options)
-		if c.RunE != nil {
-			c.RunE = withEngineRun(c.RunE)
+		c, runE := providers.Command(name, options)
+		if runE != nil {
+			c.RunE = withEngineRun(runE)
 		}
 		commands = append(commands, c)
 	}

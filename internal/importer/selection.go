@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -52,75 +51,19 @@ func checkSelectionOptions(options Options) error {
 	return nil
 }
 
-// excludedByDefault returns the listed resources the default selection
-// leaves out, by "type lister-ID", with the reason: those the catalogue's
-// skip rules match, then those the provider finds, such as the parts of a
-// default network. The provider sees each resource's tags, as listed
-// already, among its attributes as tags.<key>, the way listers record the
-// tags they read themselves, so that a tag can tell what owns a resource
-// without another call.
-func excludedByDefault(ctx context.Context, provider harvest.Provider, cat *catalogue.Catalogue, listed listing) (map[string]string, error) {
-	excluded := map[string]string{}
-	var all []harvest.Resource
+// defaultSelection returns the default selection of what the call listed
+// (see selection.NewSources), with what provider finds, if it has
+// defaults of its own (see harvest.ProviderWithSelectionDefaults). With
+// includeOwned, what the tags say another tool manages isn't left out.
+func defaultSelection(ctx context.Context, provider harvest.Provider, cat *catalogue.Catalogue, listed listing, includeOwned bool) (*selection.Sources, error) {
+	withDefaults, _ := provider.(harvest.ProviderWithSelectionDefaults)
+	var all []selection.Listed
 	for _, resources := range listed.resources {
 		for _, r := range resources {
-			if reason := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); reason != "" {
-				excluded[r.Address.Type+" "+r.Observed.ID] = reason
-			}
-			all = append(all, withTagAttributes(r, listed.tagsOf(r)))
+			all = append(all, selection.Listed{Resource: r, Tags: listed.tagsOf(r)})
 		}
 	}
-	withDefaults, ok := provider.(harvest.ProviderWithSelectionDefaults)
-	if !ok {
-		return excluded, nil
-	}
-	found, err := withDefaults.ExcludedByDefault(ctx, all)
-	for key, reason := range found {
-		if _, ok := excluded[key]; !ok {
-			excluded[key] = reason
-		}
-	}
-	return excluded, err
-}
-
-// unwantedTypes returns the types an import with the selection file f, nil
-// for --all, leaves out whatever is listed: those the catalogue's default
-// selection leaves out whole (see catalogue.Catalogue.SkippedWhole), unless
-// f may include them (see selection.File.MayInclude).
-func unwantedTypes(cat *catalogue.Catalogue, f *selection.File) []string {
-	var types []string
-	for _, typ := range cat.SkippedWhole() {
-		if f == nil || !f.MayInclude(typ) {
-			types = append(types, typ)
-		}
-	}
-	return types
-}
-
-// unwantedTypesSetter is a provider whose listers can skip the calls that
-// list only resources of types the import leaves out (see unwantedTypes),
-// such as an AWS IAM user's access keys.
-type unwantedTypesSetter interface {
-	SetUnwantedTypes(types []string)
-}
-
-// withTagAttributes returns r with tags among its attributes, as
-// tags.<key>, in a copy: what the lister recorded stays as it is, and a
-// tag the lister recorded itself wins over the listed one. Without tags,
-// r is returned as it is.
-func withTagAttributes(r harvest.Resource, tags map[string]string) harvest.Resource {
-	if len(tags) == 0 {
-		return r
-	}
-	attributes := make(map[string]string, len(r.Observed.Attributes)+len(tags))
-	for key, value := range tags {
-		attributes["tags."+key] = value
-	}
-	maps.Copy(attributes, r.Observed.Attributes)
-	observed := *r.Observed
-	observed.Attributes = attributes
-	r.Observed = &observed
-	return r
+	return selection.NewSources(ctx, cat, withDefaults, all, includeOwned)
 }
 
 // selectionFile loads the selection file options.Selection once per run;
@@ -142,14 +85,11 @@ func (r *Run) selectionFile(options Options) (*selection.File, error) {
 }
 
 // selectResources keeps the listed resources to import and records the
-// others as excluded. A resource the selection file lists in scope (see
-// discoveryScope) follows it; one it doesn't list follows the file's
-// rules, then the provider's defaults, then the file's defaults, except
-// that a rule doesn't include what the defaults leave out because another
-// Terraform state or tool manages it (see selection.File.ByRuleFor). With no
-// file (--all), the provider's defaults decide. It also returns the
-// resources it leaves out.
-func (r *Run) selectResources(listed listing, defaults map[string]string, f *selection.File, scope string, importID func(harvest.Resource) (string, bool)) (map[string][]harvest.Resource, []engine.External) {
+// others as excluded, as defaults decide them with the selection file f,
+// nil for --all, in scope (see discoveryScope and selection.Sources.Decide).
+// It also returns the resources it leaves out, named by the provider's
+// nameTag (see resourceName).
+func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *selection.File, scope, nameTag string, importID func(harvest.Resource) (string, bool)) (map[string][]harvest.Resource, []engine.External) {
 	selected := make(map[string][]harvest.Resource, len(listed.resources))
 	var leftOut []engine.External
 	for service, resources := range listed.resources {
@@ -163,35 +103,14 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 			typ := res.Address.Type
 			tags := listed.tagsOf(res)
 			r.report.AddListed(report.Listed{Scope: scope, Type: typ, ID: id, Tags: tags})
-			reason, excluded := defaults[typ+" "+res.Observed.ID]
-			var d selection.Decision
-			switch {
-			case listed.outside[typ+" "+res.Observed.ID] != "":
-				d = selection.Decision{Reason: listed.outside[typ+" "+res.Observed.ID]}
-			case f != nil && f.HasIn(scope, typ, id):
-				d = f.DecideIn(scope, typ, id, res.RawName, tags)
-			case f != nil:
-				ruled, ok := f.ByRuleFor(typ, id, res.RawName, tags, reason)
-				switch {
-				case ok:
-					d = ruled
-				case excluded:
-					d = selection.Decision{Reason: reason}
-				default:
-					d = f.DecideIn(scope, typ, id, res.RawName, tags)
-				}
-			case excluded:
-				d = selection.Decision{Reason: reason}
-			default:
-				d = selection.Decision{Include: true}
-			}
+			d := defaults.Decide(f, scope, id, selection.Listed{Resource: res, Tags: tags})
 			if d.Include {
 				selected[service] = append(selected[service], res)
 				continue
 			}
 			r.discovered[typ]++
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope})
-			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(res.Provider, res, tags)})
+			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(nameTag, res, tags)})
 		}
 	}
 	// In a stable order: listed is a map, and the order names data sources.
@@ -206,15 +125,15 @@ func (r *Run) selectResources(listed listing, defaults map[string]string, f *sel
 
 // addDiscovered adds the listed resources Terraform can import to the
 // selection file discover writes, in scope (see discoveryScope), included
-// unless the provider's defaults exclude them.
-func (r *Run) addDiscovered(listed listing, defaults map[string]string, scope string, importID func(harvest.Resource) (string, bool)) {
+// unless the defaults exclude them.
+func (r *Run) addDiscovered(listed listing, defaults *selection.Sources, scope string, importID func(harvest.Resource) (string, bool)) {
 	for service, resources := range listed.resources {
 		for _, res := range resources {
 			id, importable := importID(res)
 			if !importable {
 				continue
 			}
-			reason := defaults[res.Address.Type+" "+res.Observed.ID]
+			reason := defaults.Reason(res)
 			r.listed = append(r.listed, selection.Resource{
 				Type:    res.Address.Type,
 				ID:      id,
@@ -284,12 +203,7 @@ func (r *Run) writeSelection(partial bool) error {
 	}
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		// Merge lists each resource once; nothing is new in a first file.
-		f = &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
-		f.Merge(r.listed, nil)
-		for i := range f.Resources {
-			f.Resources[i].New = false
-		}
+		f = selection.NewFile(r.listed)
 	case err != nil:
 		return err
 	default:
@@ -375,14 +289,14 @@ func tagLines(d *report.Discovery) []string {
 // the configured backend.
 const backendState = "backend"
 
-// excludeManaged adds to defaults the listed resources Terraform already
-// manages, according to the state in --managed-state (see managed.Load),
-// so that an import leaves them out unless a selection file says
-// otherwise. S3 state is read with --profile unless its source names a
+// excludeManaged records in defaults the listed resources Terraform
+// already manages, according to the state in --managed-state (see
+// managed.Load), so that an import leaves them out unless a selection file
+// says otherwise. S3 state is read with --profile unless its source names a
 // profile.
-func excludeManaged(ctx context.Context, run *Run, options Options, listed map[string][]harvest.Resource, defaults map[string]string, importID func(harvest.Resource) (string, bool)) (map[string]string, error) {
+func excludeManaged(ctx context.Context, run *Run, options Options, listed map[string][]harvest.Resource, defaults *selection.Sources, importID func(harvest.Resource) (string, bool)) error {
 	if len(options.ManagedState) == 0 {
-		return defaults, nil
+		return nil
 	}
 	resolved := make([]string, 0, len(options.ManagedState))
 	for _, s := range options.ManagedState {
@@ -400,13 +314,13 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 			az := run.backend.AzureRM
 			resolved = append(resolved, fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", az.StorageAccountName, az.ContainerName, az.KeyPrefix))
 		default:
-			return nil, errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
+			return errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
 		}
 	}
 	// Every account and region of the command reads the same state.
 	state, err := run.shared.managedState(ctx, resolved, managed.DefaultStores)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// A root generated again keeps what it has: left out of it, its
 	// resource blocks would go, and a plan on its state would destroy
@@ -417,7 +331,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	if (options.Regenerate || options.Resume) && options.Out != "" {
 		var dirs []string
 		if held, dirs, err = generatedResources(options.Out); err != nil {
-			return nil, err
+			return err
 		}
 		own = ownStates(options.Out, dirs, run.backend)
 	}
@@ -429,11 +343,8 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	var mergedOwn map[string]mergedState
 	if (options.Regenerate || options.Resume || options.Incremental) && options.Out != "" {
 		if mergedOwn, err = mergedOwnStates(options.Out, !options.Regenerate && !options.Resume); err != nil {
-			return nil, err
+			return err
 		}
-	}
-	if defaults == nil {
-		defaults = map[string]string{}
 	}
 	for _, resources := range listed {
 		for _, res := range resources {
@@ -457,10 +368,10 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 				log.Printf("%s %s is in the state %s, and in %s, which an earlier import generated: it stays in that root, which would destroy it if generated again without it", res.Address.Type, id, found.Where, relativePath(options.Out, dir))
 				continue
 			}
-			defaults[res.Address.Type+" "+res.Observed.ID] = managed.Reason + " (" + found.Where + ")"
+			defaults.Managed(res, found.Where)
 		}
 	}
-	return defaults, nil
+	return nil
 }
 
 // generatedResources returns the roots earlier imports generated in out

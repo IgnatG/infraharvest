@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // The interfaces in this file are capabilities a Provider may have
@@ -16,13 +15,6 @@ import (
 //
 // Several of them key their results by "<type> <id>": the Terraform resource
 // type, one space, and the ID the lister recorded (Observation.ID).
-
-// ProviderWithRegistrySource is a provider that knows its Terraform
-// registry source address, such as hashicorp/aws, for the
-// required_providers block.
-type ProviderWithRegistrySource interface {
-	RegistrySource() string
-}
 
 // ProviderWithChildImports is a provider that, for a listed resource r,
 // finds the separately managed Terraform resources that hold parts of r's
@@ -40,6 +32,14 @@ type ProviderWithChildImports interface {
 // an ID or the attributes alone decide belong in the catalogue instead.
 type ProviderWithSelectionDefaults interface {
 	ExcludedByDefault(ctx context.Context, resources []Resource) (map[string]string, error)
+}
+
+// ProviderWithUnwantedTypes is a provider whose listers can skip the calls
+// that list only resources of types the import leaves out whatever is
+// listed (see selection.Unwanted), such as an AWS IAM user's access keys.
+// SetUnwantedTypes is called before the provider makes its listers.
+type ProviderWithUnwantedTypes interface {
+	SetUnwantedTypes(types []string)
 }
 
 // ProviderWithCatalogue is a provider that is given the catalogue in effect
@@ -95,64 +95,11 @@ type ProviderWithTags interface {
 	Tags(ctx context.Context, resources []Resource) (map[string]map[string]string, error)
 }
 
-// ProviderWithDirectory is a provider whose roots go into a directory not
-// named after its Terraform provider (Name): Directory is the {provider}
-// of --layout and the first part of the selection file's scope. It is the
-// name of the provider's command, such as azure for azurerm and google for
-// google-beta, so that the output is laid out by what the user typed.
-// Without it, the directory is Name.
-type ProviderWithDirectory interface {
-	Directory() string
-}
-
 // ProviderWithScope is a provider that knows the account (or subscription,
 // or project) and the region an import covers. Output is laid out as
 // {out}/{provider}/{account}/{region}/, one root per state boundary.
 type ProviderWithScope interface {
 	Scope(ctx context.Context) (account, region string, err error)
-}
-
-// ProviderWithDefaultTags is a provider that can apply tags to every
-// resource, so the engine can move the tags all resources share into the
-// provider configuration. It returns the resources' tag attribute, the
-// provider-level block that applies tags (default_tags on AWS; empty when
-// the provider has none, as with azurerm, in which case the shared tags go
-// to a local instead), and the key prefix of tags the cloud reserves, which
-// cannot be applied that way.
-type ProviderWithDefaultTags interface {
-	DefaultTags() (attribute, block, reservedPrefix string)
-}
-
-// ProviderWithDefaultTagsArgument is a provider whose default-tags "block"
-// from DefaultTags is in fact a map argument of the provider block, like
-// Google's default_labels, when DefaultTagsArgument returns true.
-type ProviderWithDefaultTagsArgument interface {
-	DefaultTagsArgument() bool
-}
-
-// ProviderWithEffectiveTags is a provider whose resources' tag attribute
-// holds only the tags their configuration sets, such as Google's labels:
-// an import leaves it empty, and the effective attribute (effective_labels)
-// has every tag. It returns the two attributes and the key prefix of tags
-// the cloud or the provider sets itself, which the configuration leaves
-// to it (goog-).
-type ProviderWithEffectiveTags interface {
-	EffectiveTags() (attribute, effective, reservedPrefix string)
-}
-
-// ProviderWithInheritedArguments is a provider whose resources take some
-// arguments of its provider block as theirs when they don't set them, such
-// as Google's project and region, so the engine leaves them out of the
-// resources that repeat the provider's value.
-type ProviderWithInheritedArguments interface {
-	InheritedArguments() []string
-}
-
-// ProviderWithConcurrentListing is a provider whose services may list at the
-// same time, because their listers share only state that is safe for
-// concurrent use, when ConcurrentListing returns true.
-type ProviderWithConcurrentListing interface {
-	ConcurrentListing() bool
 }
 
 // ProviderWithTerraformEnv is a provider that gives the Terraform CLI
@@ -187,11 +134,8 @@ type ProviderWithImportScope interface {
 // keyed "<type> <id>": Inside are those the scope names, which the import
 // takes whatever the default selection says of another tool managing them,
 // as the scope is that tool's; Outside are the others, with the reason,
-// which the import leaves out whatever a selection file says. Stacks are
-// the CloudFormation stacks of the scope, for the report, each resource
-// with the listed resources it is.
+// which the import leaves out whatever a selection file says.
 type ImportScope struct {
 	Inside  map[string]bool
 	Outside map[string]string
-	Stacks  []report.CloudFormationStack
 }

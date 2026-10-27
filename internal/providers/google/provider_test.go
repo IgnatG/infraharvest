@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -79,8 +80,8 @@ func TestInit(t *testing.T) {
 	if err := p.Init(t.Context(), []string{"global", "", ""}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
 		t.Errorf("global: %v, %+v, calls %v", err, p, paths)
 	}
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Directory() != "google" {
-		t.Errorf("europe-west1: %v, %+v, directory %q", err, p, p.Directory())
+	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Profile().Command != "google" {
+		t.Errorf("europe-west1: %v, %+v, directory %q", err, p, p.Profile().Command)
 	}
 	// Another service of the same call asks again: the region is known.
 	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err != nil || p.region.Name != "europe-west1" {
@@ -157,15 +158,14 @@ func TestModuleProviders(t *testing.T) {
 	if !ok || beta.Source != "hashicorp/google-beta" || beta.Config["project"] != "acme-prod" || beta.Config["region"] != "europe-west1" {
 		t.Errorf("module providers: %+v", p.ModuleProviders())
 	}
-	if attribute, block, prefix := p.DefaultTags(); attribute != "labels" || block != "default_labels" || prefix != "goog-" || !p.DefaultTagsArgument() {
-		t.Errorf("default tags: %s %s %s", attribute, block, prefix)
+	profile := p.Profile()
+	if got, want := profile.DefaultTags, (&harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("default tags: %+v", got)
 	}
-	var _ harvest.ProviderWithEffectiveTags = p
-	if attribute, effective, prefix := p.EffectiveTags(); attribute != "labels" || effective != "effective_labels" || prefix != "goog-" {
-		t.Errorf("effective tags: %s %s %s", attribute, effective, prefix)
+	if got, want := profile.EffectiveTags, (&harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("effective tags: %+v", got)
 	}
-	var _ harvest.ProviderWithInheritedArguments = p
-	if got := strings.Join(p.InheritedArguments(), ","); got != "project,region,zone" {
+	if got := strings.Join(profile.InheritedArguments, ","); got != "project,region,zone" {
 		t.Errorf("inherited arguments: %s", got)
 	}
 }

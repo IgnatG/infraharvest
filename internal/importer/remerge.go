@@ -21,27 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
-// premerged reports whether the root in dir, under out, is one its
-// stack's merge set aside (see premergeDir): its files are there, and dir
-// has no configuration of its own.
-func premerged(out, dir string) (bool, error) {
-	set, err := fileExists(filepath.Join(premergeDir(out, dir), engine.VersionsFileName))
-	if err != nil || !set {
-		return false, err
-	}
-	names, err := tfFiles(dir)
-	return len(names) == 0, err
-}
-
-// rootSource returns where the files of the root in dir, under out, are:
-// in dir, or where its stack's merge set them aside.
-func rootSource(out, dir string) string {
-	if set, err := premerged(out, dir); err == nil && set {
-		return premergeDir(out, dir)
-	}
-	return dir
-}
-
 // setAside moves the root in dir, under out, to where its stack's merge
 // sets it aside (see premergeDir), as it is now.
 func setAside(out, dir string) error {
@@ -249,10 +228,11 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			Arrivals:  m.result.Arrived,
 		}
 	}
-	// A restored member has no engine options of its own.
-	opts := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })].opts
-	mergeOptions := engine.MergeOptions{Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
-	result, err := engine.MergeRoots(ctx, stack, roots, mergeOptions)
+	// A restored member has no engine options or profile of its own.
+	imported := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })]
+	opts := imported.opts
+	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
+	result, err := r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	// Nothing says which of the resources of a stack merged before an
 	// earlier merge kept apart, as what an incremental import added (see
 	// mergeMember.isolated), nor the labels it gave them, which came from
@@ -293,7 +273,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		if err := clearMerged(stack, result.Files); err != nil {
 			return errors.Join(err, backup.restore())
 		}
-		result, err = engine.MergeRoots(ctx, stack, roots, mergeOptions)
+		result, err = r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())
@@ -368,7 +348,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	r.recordMerge(merge, members)
 	if merge.Merged {
 		if gone := r.readdressNotInCloud(merge.Path, members, imports); len(gone) > 0 {
-			if err := engine.WriteMergedNotInCloud(stack, gone); err != nil {
+			if err := r.options.tools.writeMergedNotInCloud(stack, gone); err != nil {
 				return err
 			}
 		}
@@ -684,7 +664,7 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 	}
 	result.Files = append(result.Files, engine.MovesFileName)
 	sort.Strings(result.Files)
-	check, err := engine.WriteMergedMoves(stack, moves, removed)
+	check, err := r.options.tools.writeMergedMoves(stack, moves, removed)
 	if err != nil {
 		return "", err
 	}

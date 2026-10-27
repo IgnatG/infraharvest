@@ -81,7 +81,7 @@ type Options struct {
 	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
-	// (see MergeEnvironments).
+	// (see Run.MergeEnvironments).
 	MergeEnvironments bool
 	// ReportTags are the tag keys the report counts resources by.
 	ReportTags []string
@@ -167,45 +167,41 @@ type Options struct {
 	// custom resources, which the stacks may be deleted without.
 	CloudFormationIgnore []string
 	// Parallel is how many accounts, subscriptions or projects import at
-	// once (see ImportEach), and how many Import calls of the command, in
+	// once (see Run.ImportEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see
 	// ImportCalls).
 	Parallel int
 
-	// run is the run this call records into, when it isn't the command's
-	// own: one of several scopes imported at once has a run of its own
-	// (see ImportEach).
-	run *Run
 	// cat is the catalogue of the import, the built-in one with the
 	// --catalogue overlay merged in, once importInto has loaded it; the
 	// provider of each service listed is given it (see listServices).
 	cat *catalogue.Catalogue
 	// unwanted are the types the import leaves out whatever is listed (see
-	// unwantedTypes), whose listing the provider of each service listed may
-	// skip (see listServices).
+	// selection.Unwanted), whose listing the provider of each service
+	// listed may skip (see listServices).
 	unwanted []string
 	// tools are what the call reaches outside the process through; nil
 	// uses the real ones (see callTools).
 	tools *callTools
 }
 
-// Import lists the resources of provider's services in options.Services,
-// for the scope args name (provider.Init reads them), and generates their
-// Terraform configuration with the engine options.Engine names.
-func Import(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
-	switch options.Engine {
+// checkEngine rejects an --engine other than EngineTerraform or
+// EngineTofu; "" stands for EngineTerraform. import, drift and verify all
+// check it here, so that each says the same.
+func checkEngine(name string) error {
+	switch name {
 	case "", EngineTerraform, EngineTofu:
-		return importWithEngine(ctx, provider, options, args)
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+		return nil
 	}
+	return fmt.Errorf("unknown --engine %q: use %s or %s", name, EngineTerraform, EngineTofu)
 }
 
 // CheckOptions rejects what a provider command was told that no Import
-// call could do, before any account, region or project is planned: an
-// unknown --engine, --format or --modules, a filter that doesn't parse,
-// an import that says neither --selection nor --all, --services or --skip
-// names provider has no service of, a --layout checkLayout rejects,
+// call could do, before any account, region or project is planned: no
+// --services where no --cfn-stack says which to list, an unknown
+// --engine, --format or --modules, a filter that doesn't parse, an import
+// that says neither --selection nor --all, --services or --skip naming
+// services provider has no service of, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -215,10 +211,14 @@ func Import(ctx context.Context, provider harvest.Provider, options Options, arg
 // it covers, instead of failing each scope and reading as a partial
 // import.
 func CheckOptions(provider harvest.Provider, options Options) error {
-	switch options.Engine {
-	case "", EngineTerraform, EngineTofu:
-	default:
-		return fmt.Errorf("unknown --engine %q: use %s or %s", options.Engine, EngineTerraform, EngineTofu)
+	// Checked first, once the configuration file has had its chance to set
+	// --services. A command scoped to CloudFormation stacks needs none: the
+	// types of the stacks' resources say which services to list.
+	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
+		return errNoServices
+	}
+	if err := checkEngine(options.Engine); err != nil {
+		return err
 	}
 	if err := checkImportOptions(options); err != nil {
 		return err
@@ -276,6 +276,10 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	}
 	return checkSources(options)
 }
+
+// errNoServices is the error for a provider command that says no
+// services to list.
+var errNoServices = errors.New("--services is required (flag or config file)")
 
 // errDefaultEnvWithoutSplit is the error for --default-env where no
 // environment tag splits the roots.
@@ -442,7 +446,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
 			p.SetCatalogue(options.cat)
 		}
-		if p, ok := serviceProvider.(unwantedTypesSetter); ok && len(options.unwanted) > 0 {
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(options.unwanted) > 0 {
 			p.SetUnwantedTypes(options.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)

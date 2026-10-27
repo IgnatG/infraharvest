@@ -5,6 +5,7 @@ package importer
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -58,6 +59,54 @@ var listedForSelection = map[string][]harvest.Resource{
 
 var defaultsForSelection = map[string]string{"aws_vpc vpc-default": "default VPC"}
 
+// defaultsProvider is a provider whose own defaults leave out what
+// excluded names, by "<type> <id>".
+type defaultsProvider struct {
+	fakeProvider
+	excluded map[string]string
+}
+
+func (p *defaultsProvider) ExcludedByDefault(context.Context, []harvest.Resource) (map[string]string, error) {
+	return p.excluded, nil
+}
+
+// sourcesOf returns the sources of the default selection of listed, with
+// excluded as the provider's own defaults and a catalogue without skip
+// rules.
+func sourcesOf(t *testing.T, listed listing, excluded map[string]string) *selection.Sources {
+	t.Helper()
+	sources, err := defaultSelection(t.Context(), &defaultsProvider{excluded: excluded}, &catalogue.Catalogue{}, listed, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sources
+}
+
+// excludedManaged runs excludeManaged on listedForSelection, with excluded
+// as the provider's own defaults, and returns why the default selection
+// then leaves out each resource it leaves out, by "<type> <lister ID>".
+func excludedManaged(t *testing.T, run *Run, options Options, excluded map[string]string) (map[string]string, error) {
+	t.Helper()
+	listed := listing{resources: listedForSelection}
+	sources := sourcesOf(t, listed, excluded)
+	err := excludeManaged(t.Context(), run, options, listed.resources, sources, importIDForSelection)
+	return reasonsOf(listed, sources), err
+}
+
+// reasonsOf returns why sources leave out each resource of listed they
+// leave out, by "<type> <lister ID>".
+func reasonsOf(listed listing, sources *selection.Sources) map[string]string {
+	reasons := map[string]string{}
+	for _, resources := range listed.resources {
+		for _, r := range resources {
+			if reason := sources.Reason(r); reason != "" {
+				reasons[tagKey(r)] = reason
+			}
+		}
+	}
+	return reasons
+}
+
 func importIDForSelection(r harvest.Resource) (string, bool) {
 	return r.Observed.ID, r.Address.Type != "aws_main_route_table_association"
 }
@@ -76,7 +125,7 @@ func selectedIDs(selected map[string][]harvest.Resource) []string {
 func TestSelectResourcesWithAll(t *testing.T) {
 	run := NewRun()
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, nil, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), nil, "", "", importIDForSelection)
 
 	// Unimportable resources go on, for importsByDir to count.
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -98,7 +147,7 @@ func TestSelectResourcesWithFile(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "old-archive", Include: false, Note: "to be deleted"},
 	}}
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", "", importIDForSelection)
 
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
@@ -121,13 +170,13 @@ func TestSelectResourcesByScope(t *testing.T) {
 	}}
 
 	run := NewRun()
-	selected, _ := run.selectResources(listing{resources: listed}, nil, f, a, importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, a, "", importIDForSelection)
 	if !reflect.DeepEqual(selectedIDs(selected), []string{"admin"}) {
 		t.Errorf("account %s: selected %v, want the role", a, selectedIDs(selected))
 	}
 
 	run = NewRun()
-	selected, leftOut := run.selectResources(listing{resources: listed}, nil, f, b, importIDForSelection)
+	selected, leftOut := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, b, "", importIDForSelection)
 	if len(selectedIDs(selected)) != 0 || len(leftOut) != 1 {
 		t.Errorf("account %s: selected %v, left out %v; want the role excluded", b, selectedIDs(selected), leftOut)
 	}
@@ -146,7 +195,7 @@ func TestSelectResourcesRulesBeforeDefaults(t *testing.T) {
 		},
 	}
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, defaultsForSelection, f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", "", importIDForSelection)
 
 	// The default VPC is included by the rule; the bucket excluded by one.
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -180,7 +229,7 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	exclude := selection.Rule{Exclude: &selection.Match{Type: selection.Patterns{"aws_s3_bucket"}}}
 
 	run := NewRun()
-	selected, _ := run.selectResources(listing{resources: listed}, defaults, file(include, false), "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, false), "", "", importIDForSelection)
 	if want := []string{"app-bucket", "kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
@@ -189,13 +238,13 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	}
 
 	run = NewRun()
-	selected, _ = run.selectResources(listing{resources: listed}, defaults, file(include, true), "", importIDForSelection)
+	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, true), "", "", importIDForSelection)
 	if want := []string{"app-bucket", "kept-bucket", "stack-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("with --include-owned: selected %v, want %v", selectedIDs(selected), want)
 	}
 
 	run = NewRun()
-	selected, _ = run.selectResources(listing{resources: listed}, defaults, file(exclude, false), "", importIDForSelection)
+	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(exclude, false), "", "", importIDForSelection)
 	if want := []string{"kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("with an exclude rule: selected %v, want %v", selectedIDs(selected), want)
 	}
@@ -223,8 +272,8 @@ func TestDiscoverWritesEachResourceOnce(t *testing.T) {
 	run := NewRun()
 	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
-	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
-	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +299,7 @@ func TestDiscoverWritesSelection(t *testing.T) {
 	run := NewRun()
 	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
-	run.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "aws/123456789012/eu-west-2", importIDForSelection)
+	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +332,7 @@ func TestExcludeManaged(t *testing.T) {
 	}
 	run := NewRun()
 
-	defaults, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{path}}, listedForSelection, map[string]string{"aws_vpc vpc-default": "default VPC"}, importIDForSelection)
+	defaults, err := excludedManaged(t, run, Options{ManagedState: []string{path}}, map[string]string{"aws_vpc vpc-default": "default VPC"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +342,7 @@ func TestExcludeManaged(t *testing.T) {
 	if len(defaults) != 2 {
 		t.Errorf("defaults: %v", defaults)
 	}
-	if _, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{"backend"}}, listedForSelection, nil, importIDForSelection); err == nil {
+	if _, err := excludedManaged(t, run, Options{ManagedState: []string{"backend"}}, nil); err == nil {
 		t.Error("want an error for backend without a configured backend")
 	}
 }
@@ -325,7 +374,7 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 		"incremental": {Options{ManagedState: []string{path}, Out: out, Incremental: true}, true},
 		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Regenerate: true}, true},
 	} {
-		defaults, err := excludeManaged(t.Context(), NewRun(), tc.options, listedForSelection, nil, importIDForSelection)
+		defaults, err := excludedManaged(t, NewRun(), tc.options, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -337,7 +386,7 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 	if err := os.WriteFile(checkpointPath(out, dir), []byte("{"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := excludeManaged(t.Context(), NewRun(), Options{ManagedState: []string{path}, Out: out, Regenerate: true}, listedForSelection, nil, importIDForSelection); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
+	if _, err := excludedManaged(t, NewRun(), Options{ManagedState: []string{path}, Out: out, Regenerate: true}, nil); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
 		t.Errorf("an unreadable checkpoint: %v", err)
 	}
 }
@@ -372,7 +421,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	}
 	run := NewRun()
 
-	defaults, err := excludeManaged(t.Context(), run, Options{ManagedState: []string{out, other}, Out: out, Regenerate: true}, listedForSelection, nil, importIDForSelection)
+	defaults, err := excludedManaged(t, run, Options{ManagedState: []string{out, other}, Out: out, Regenerate: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +510,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	first := NewRun()
 	first.options = Options{Discover: true, Selection: path}
-	first.addDiscovered(listing{resources: listedForSelection}, defaultsForSelection, "", importIDForSelection)
+	first.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "", importIDForSelection)
 	if err := first.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +536,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 			harvest.RecordBare("new-logs", "new-logs", "aws_s3_bucket", "aws"),
 		},
 	}
-	again.addDiscovered(listing{resources: listed}, defaultsForSelection, "", importIDForSelection)
+	again.addDiscovered(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaultsForSelection), "", importIDForSelection)
 	if err := again.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +576,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 			"vpc": {harvest.RecordBare("vpc-"+scope[len(scope)-1:], "vpc", "aws_vpc", "aws")},
 			"s3":  {harvest.RecordBare("bucket-"+scope[len(scope)-1:], "bucket", "aws_s3_bucket", "aws")},
 		}
-		first.addDiscovered(listing{resources: listed}, nil, scope, importID)
+		first.addDiscovered(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), scope, importID)
 		first.cover(scope, services)
 	}
 	if err := first.writeSelection(false); err != nil {
@@ -549,7 +598,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	again := NewRun()
 	vpcOnly := Options{Discover: true, Selection: path, Services: []string{"vpc"}}
 	again.options = vpcOnly
-	again.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil}}, nil, b, importID)
+	again.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil}}, nil), b, importID)
 	again.cover(b, vpcOnly)
 	if err := again.writeSelection(false); err != nil {
 		t.Fatal(err)
@@ -580,7 +629,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	filtered := NewRun()
 	withTag := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}, TagFilters: []string{"env=prod"}}
 	filtered.options = withTag
-	filtered.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, nil, a, importID)
+	filtered.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, nil), a, importID)
 	filtered.cover(a, withTag)
 	if err := filtered.writeSelection(false); err != nil {
 		t.Fatal(err)
@@ -603,7 +652,7 @@ func TestExcludeManagedReadsStateOnce(t *testing.T) {
 	}
 	run := NewRun()
 	options := Options{ManagedState: []string{path}}
-	if _, err := excludeManaged(t.Context(), run, options, listedForSelection, nil, importIDForSelection); err != nil {
+	if _, err := excludedManaged(t, run, options, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Gone now: a second read would fail.
@@ -611,28 +660,12 @@ func TestExcludeManagedReadsStateOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range []*Run{run, run.child()} {
-		defaults, err := excludeManaged(t.Context(), r, options, listedForSelection, nil, importIDForSelection)
+		defaults, err := excludedManaged(t, r, options, nil)
 		if err != nil {
 			t.Fatalf("the state was read again: %v", err)
 		}
 		if _, ok := defaults["aws_s3_bucket old-archive"]; !ok {
 			t.Errorf("defaults: %v", defaults)
-		}
-	}
-}
-
-// With --all, the types the default selection leaves out whole are
-// unwanted; a selection file that includes one wants it again.
-func TestUnwantedTypes(t *testing.T) {
-	t.Parallel()
-	cat := catalogue.MustBuiltin("aws")
-	if got := unwantedTypes(cat, nil); !reflect.DeepEqual(got, cat.SkippedWhole()) || len(got) == 0 {
-		t.Errorf("--all: got %v, want %v", got, cat.SkippedWhole())
-	}
-	f := &selection.File{Resources: []selection.Resource{{Type: "aws_iam_access_key", ID: "AKIA1", Include: true}}}
-	for _, typ := range unwantedTypes(cat, f) {
-		if typ == "aws_iam_access_key" {
-			t.Error("the selection file includes an access key, which is still unwanted")
 		}
 	}
 }

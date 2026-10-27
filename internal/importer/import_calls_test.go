@@ -317,8 +317,7 @@ func TestImportCallsCancelOnTheFirstFailure(t *testing.T) {
 // The regions of accounts imported at once share --parallel with them: no
 // more than that many calls run at once in all.
 func TestImportCallsShareParallelWithAccounts(t *testing.T) {
-	activeRun = NewRun()
-	defer func() { activeRun = nil }()
+	run := NewRun()
 	f := newFakeSteps()
 	var running, most atomic.Int32
 	f.list = func(context.Context, string) error {
@@ -334,8 +333,8 @@ func TestImportCallsShareParallelWithAccounts(t *testing.T) {
 		return nil
 	}
 	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
-	err := ImportEach(options, "account", []string{"111", "222", "333"}, func(o Options, account string) error {
-		return importCalls(t.Context(), o.run, fakeCalls(o, account+"-global", account+"-eu-west-1", account+"-eu-west-2"), f.steps())
+	err := run.ImportEach(options, "account", []string{"111", "222", "333"}, func(scopeRun *Run, o Options, account string) error {
+		return importCalls(t.Context(), scopeRun, fakeCalls(o, account+"-global", account+"-eu-west-1", account+"-eu-west-2"), f.steps())
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +342,7 @@ func TestImportCallsShareParallelWithAccounts(t *testing.T) {
 	if most.Load() > 2 {
 		t.Errorf("%d calls at once, want at most 2", most.Load())
 	}
-	if len(activeRun.report.Directories) != 9 || activeRun.discovered["aws_vpc"] != 9 {
-		t.Errorf("directories %v, discovered %v", activeRun.report.Directories, activeRun.discovered)
+	if len(run.report.Directories) != 9 || run.discovered["aws_vpc"] != 9 {
+		t.Errorf("directories %v, discovered %v", run.report.Directories, run.discovered)
 	}
 }

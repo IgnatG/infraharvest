@@ -7,10 +7,14 @@
 // command.go), registers it from init() and carries the build
 // constraint `!minimal || <name>`: a plain build includes every provider,
 // and `go build -tags minimal,aws,google` includes only those listed.
+// A command takes flags only, and checks them before it plans anything;
+// --check stops there.
 package providers
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -20,7 +24,7 @@ import (
 
 // entry ties a provider's command to its constructor.
 type entry struct {
-	newCmd      func(options importer.Options) *cobra.Command
+	newCmd      func(options importer.Options) (*cobra.Command, RunFunc)
 	newProvider func() harvest.Provider
 }
 
@@ -28,7 +32,7 @@ type entry struct {
 // their command.
 var registry = map[string]entry{}
 
-func register(name string, newCmd func(importer.Options) *cobra.Command, newProvider func() harvest.Provider) {
+func register(name string, newCmd func(importer.Options) (*cobra.Command, RunFunc), newProvider func() harvest.Provider) {
 	if _, dup := registry[name]; dup {
 		panic("provider registered twice: " + name)
 	}
@@ -45,9 +49,20 @@ func Names() []string {
 	return names
 }
 
+// Check rejects name unless it names a provider compiled in. The services
+// command and the MCP server's tools, which put the name on a command line
+// of their own, check it here, so that both say the same.
+func Check(name string) error {
+	if _, ok := registry[name]; !ok {
+		return fmt.Errorf("unknown provider %q: this infraharvest has %s", name, strings.Join(Names(), ", "))
+	}
+	return nil
+}
+
 // Command returns the named provider's command, which import and discover
-// add as a subcommand, with the options its flags fill in.
-func Command(name string, options importer.Options) *cobra.Command {
+// add as a subcommand, with the options its flags fill in, and what runs
+// it.
+func Command(name string, options importer.Options) (*cobra.Command, RunFunc) {
 	return registry[name].newCmd(options)
 }
 

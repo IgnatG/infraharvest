@@ -50,7 +50,7 @@ func newAWSProvider() harvest.Provider {
 }
 
 // awsFlags adds the AWS command's own flags. They all live in options.
-func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
+func awsFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
 	flags.StringVar(&options.Profile, "profile", "default", "AWS profile, from the shared configuration and credentials files, whose credentials the import uses")
 	flags.StringSliceVar(&options.Regions, "regions", nil, "regions to import, each into roots of its own, such as eu-west-1,us-east-1 (default: the region of the profile or the environment)")
 	flags.StringSliceVar(&options.Accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
@@ -59,7 +59,41 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 	flags.BoolVar(&options.ResourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see "+DocsURL+"aws/#resource-explorer)")
 	flags.StringArrayVar(&options.CloudFormationStacks, "cfn-stack", nil, "import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see "+DocsURL+"aws/#migrating-a-cloudformation-stack)")
 	flags.StringArrayVar(&options.CloudFormationIgnore, "cfn-ignore", nil, "with --cfn-stack: acknowledge that the stacks may be deleted without this resource, which Terraform can't import, such as a custom resource, by its logical ID, or as <stack>/<logical ID> where several stacks have it; repeat for others. It still needs Retain, as the copy of the template with Retain added gives it, so that deleting the stack never calls its handler. The CDK's Custom::S3AutoDeleteObjects and the like, which destroy what the stack's resources hold, can't be acknowledged (see "+DocsURL+"aws/#custom-resources)")
-	return planAWS
+	return checkAWS, planAWS
+}
+
+// checkAWS rejects --cfn-ignore without --cfn-stack, --cfn-stack with
+// several accounts or with a stack name in several regions, --accounts
+// with --organization, and several accounts through a role without
+// {account}, or into a layout without it.
+func checkAWS(options importer.Options) error {
+	several := options.Organization || len(options.Accounts) > 0
+	if len(options.CloudFormationIgnore) > 0 && len(options.CloudFormationStacks) == 0 {
+		return errors.New("--cfn-ignore acknowledges resources of the stacks --cfn-stack names: give --cfn-stack too")
+	}
+	if len(options.CloudFormationStacks) > 0 {
+		if several {
+			return errors.New("--cfn-stack imports stacks of the account the credentials reach: use it without --accounts or --organization, with --assume-role naming a role ARN to reach another account")
+		}
+		if len(options.Regions) > 1 {
+			for _, ref := range options.CloudFormationStacks {
+				if !strings.HasPrefix(ref, "arn:") {
+					return fmt.Errorf("--cfn-stack %s: a stack name is looked for in one region: give --regions one region, or the stack's ID (its ARN)", ref)
+				}
+			}
+		}
+		return nil
+	}
+	if options.Organization && len(options.Accounts) > 0 {
+		return errors.New("use either --accounts or --organization")
+	}
+	if !several {
+		return nil
+	}
+	if !strings.Contains(options.AssumeRole, "{account}") {
+		return fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
+	}
+	return checkScopesApart(options.Layout, "account")
 }
 
 // planAWS imports the account the credentials reach or, with --accounts or
@@ -67,18 +101,12 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) planner {
 // names.
 func planAWS(ctx context.Context, options importer.Options) (plan, error) {
 	awsprovider.UseResourceExplorer(options.ResourceExplorer)
+	if len(options.CloudFormationStacks) > 0 {
+		return planAWSStacks(ctx, options)
+	}
 	accounts, err := awsAccounts(ctx, options)
 	if err != nil {
 		return plan{}, err
-	}
-	if len(options.CloudFormationIgnore) > 0 && len(options.CloudFormationStacks) == 0 {
-		return plan{}, errors.New("--cfn-ignore acknowledges resources of the stacks --cfn-stack names: give --cfn-stack too")
-	}
-	if len(options.CloudFormationStacks) > 0 {
-		if accounts != nil {
-			return plan{}, errors.New("--cfn-stack imports stacks of the account the credentials reach: use it without --accounts or --organization, with --assume-role naming a role ARN to reach another account")
-		}
-		return planAWSStacks(ctx, options)
 	}
 	if accounts == nil {
 		return plan{calls: func(accountOptions importer.Options, _ string) []call {
@@ -105,16 +133,8 @@ func planAWS(ctx context.Context, options importer.Options) (plan, error) {
 // --regions, or the profile's.
 func planAWSStacks(ctx context.Context, options importer.Options) (plan, error) {
 	region := awsprovider.ProfileRegion
-	switch len(options.Regions) {
-	case 0:
-	case 1:
+	if len(options.Regions) == 1 {
 		region = options.Regions[0]
-	default:
-		for _, ref := range options.CloudFormationStacks {
-			if !strings.HasPrefix(ref, "arn:") {
-				return plan{}, fmt.Errorf("--cfn-stack %s: a stack name is looked for in one region: give --regions one region, or the stack's ID (its ARN)", ref)
-			}
-		}
 	}
 	roleARN := ""
 	if !strings.Contains(options.AssumeRole, "{account}") {
@@ -164,17 +184,8 @@ func planAWSStacks(ctx context.Context, options importer.Options) (plan, error) 
 // awsAccounts returns the accounts --accounts or --organization names, or
 // nil to import the one account the credentials reach.
 func awsAccounts(ctx context.Context, options importer.Options) ([]string, error) {
-	switch {
-	case options.Organization && len(options.Accounts) > 0:
-		return nil, errors.New("use either --accounts or --organization")
-	case !options.Organization && len(options.Accounts) == 0:
+	if !options.Organization && len(options.Accounts) == 0 {
 		return nil, nil
-	}
-	if !strings.Contains(options.AssumeRole, "{account}") {
-		return nil, fmt.Errorf("--assume-role %q needs {account} to reach several accounts", options.AssumeRole)
-	}
-	if err := checkScopesApart(options.Layout, "account"); err != nil {
-		return nil, err
 	}
 	if !options.Organization {
 		// Even a single account goes through the role, as --accounts asks.

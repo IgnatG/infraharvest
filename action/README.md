@@ -2,7 +2,7 @@
 
 Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch).
 
-The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
+The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Then, when importing, it checks the import as `infraharvest import <provider> --check` does, with the flags its inputs make and those the configuration file sets, so that an unknown provider or service, or a flag the import would refuse, fails the step before drift or the import reads anything. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
 ## Example: a scheduled import that opens a pull request
 
@@ -310,14 +310,14 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `token` | `github.token` | Token to download the release with |
 | `import` | `true` | Import resources; `false` only checks [drift](#drift) |
 | `provider` | | The provider command, such as `aws` (required when importing) |
-| `services` | | Services to import, comma-separated (required when importing) |
+| `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
-| `engine` | `terraform` | `terraform` or `tofu` |
+| `engine` | | `terraform` or `tofu`. Unset, the import uses what the configuration file sets, or `terraform`, and drift uses `terraform` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
 | `config` | | An infraharvest configuration file, for example with the state backend |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
-| `args` | | More flags for the import, one a line, each starting with `--`: for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
+| `args` | | More flags for the import, one a line, each starting with `--` (a bare `--` is refused): for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |

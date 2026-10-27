@@ -70,10 +70,6 @@ type listing struct {
 	// saved is whether the resources come from what discover saved (see
 	// listResources) rather than from listing them now.
 	saved bool
-	// outside are the resources the provider's scope leaves out, by
-	// "<type> <lister ID>", with the reason: no selection file brings them
-	// back (see applyImportScope).
-	outside map[string]string
 }
 
 // tagKey is how listing.tags and ProviderWithTags key a resource.
@@ -231,7 +227,7 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(options.Services, ","))
 	}
 	// Services list at the same time only where the provider says they can.
-	if c, ok := provider.(harvest.ProviderWithConcurrentListing); !ok || !c.ConcurrentListing() {
+	if !provider.Profile().ConcurrentListing {
 		options.ListParallel = 1
 	}
 	registry := harvest.NewRegistry(provider)

@@ -45,13 +45,23 @@ type azureScopes struct {
 }
 
 // azureFlags adds the Azure command's own flags.
-func azureFlags(flags *pflag.FlagSet, options *importer.Options) planner {
+func azureFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
 	scopes := &azureScopes{}
 	flags.StringVarP(&options.ResourceGroup, "resource-group", "g", "", "resource group to import (default: the whole subscription)")
 	flags.StringSliceVar(&scopes.subscriptions, "subscriptions", nil, "subscription IDs to import, each into roots of its own (default ARM_SUBSCRIPTION_ID)")
 	flags.StringVar(&scopes.managementGroup, "management-group", "", "import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group)")
 	flags.BoolVar(&scopes.azapi, "azapi", false, "import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out")
-	return scopes.plan
+	return scopes.check, scopes.plan
+}
+
+// check rejects several subscriptions of --subscriptions into a layout
+// without {account}; those of --management-group are known only once
+// listed (see plan).
+func (s *azureScopes) check(options importer.Options) error {
+	if len(s.subscriptions) > 1 {
+		return checkScopesApart(options.Layout, "subscription")
+	}
+	return nil
 }
 
 // plan imports ARM_SUBSCRIPTION_ID's subscription or, with --subscriptions

@@ -132,7 +132,7 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{}); err != nil || result.Reason != "" {
+	if result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
 	providers := readFile(t, dir, ProvidersFileName)

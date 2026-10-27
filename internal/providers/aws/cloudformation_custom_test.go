@@ -213,12 +213,12 @@ func TestImportScopeHeldPolicy(t *testing.T) {
 	p := &Provider{region: "eu-west-2"}
 	p.SetStackScope(&StackScope{stacks: []*scopedStack{stack}})
 
-	got, err := p.ImportScope(t.Context(), []harvest.Resource{harvest.RecordBare(queueURL, "jobs", "aws_sqs_queue", "aws")})
+	_, err = p.ImportScope(t.Context(), []harvest.Resource{harvest.RecordBare(queueURL, "jobs", "aws_sqs_queue", "aws")})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, r := range got.Stacks[0].Resources {
+	for _, r := range p.CloudFormationStacks()[0].Resources {
 		if len(r.Matches) != 1 || r.Matches[0].Type != "aws_sqs_queue" || r.Matches[0].ID != queueURL {
 			t.Errorf("%s: %+v", r.LogicalID, r.Matches)
 		}

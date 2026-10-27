@@ -5,7 +5,6 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -28,11 +27,10 @@ func newServicesCmd() *cobra.Command {
 		ValidArgs:    providers.Names(),
 		SilenceUsage: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			provider := providers.New(args[0])
-			if provider == nil {
-				return fmt.Errorf("unknown provider %q: this infraharvest has %s", args[0], strings.Join(providers.Names(), ", "))
+			if err := providers.Check(args[0]); err != nil {
+				return err
 			}
-			for _, service := range importer.Services(provider) {
+			for _, service := range importer.Services(providers.New(args[0])) {
 				if _, err := fmt.Fprintln(c.OutOrStdout(), service); err != nil {
 					return err
 				}

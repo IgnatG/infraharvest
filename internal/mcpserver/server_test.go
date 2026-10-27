@@ -6,15 +6,19 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -38,6 +42,21 @@ type fakeRunner struct {
 	// importReport, when set, is the report import prints instead of the
 	// default one.
 	importReport *report.Report
+	// checked are the arguments of each check; checkErr is the error each
+	// returns.
+	checked  [][]string
+	checkErr error
+}
+
+func (f *fakeRunner) check(_ context.Context, args []string) error {
+	f.checked = append(f.checked, args)
+	return f.checkErr
+}
+
+// newTools returns the tools, whose files stay under root, running and
+// checking with runner.
+func newTools(runner *fakeRunner, root string) *tools {
+	return &tools{run: runner.run, check: runner.check, root: root}
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -86,7 +105,7 @@ func writeSelection(path string) error {
 func connect(t *testing.T, runner *fakeRunner, root string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := New("test", root, runner.run).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := New("test", root, runner.run, runner.check).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{ElicitationHandler: elicit})
@@ -181,7 +200,7 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--engine=terraform", "--selection=", "--out=" + out, "--format=json"}
+	want := []string{"import", "aws", "--services=vpc", "--regions=eu-west-2", "--profile=prod", "--selection=", "--out=" + out, "--format=json"}
 	if len(runner.runs) != 1 {
 		t.Fatalf("runs: %v, want one", runner.runs)
 	}
@@ -205,6 +224,36 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 	}
 	if original, err := os.ReadFile(path); err != nil || len(runner.selections) != 1 || runner.selections[0] != string(original) {
 		t.Errorf("the import read %q, want the confirmed content %q (%v)", runner.selections, original, err)
+	}
+}
+
+// An import the command's checks refuse fails before the user is asked,
+// with the command's error, and runs nothing.
+func TestImportChecksBeforeAsking(t *testing.T) {
+	runner := &fakeRunner{checkErr: errors.New("say which projects to import: --projects, --organization or --folders")}
+	asked := false
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = true
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "generated")
+
+	res, text := call(t, session, "import", map[string]any{"provider": "google", "services": []string{"iam"}, "selection": path, "out": out})
+
+	if !res.IsError || !strings.Contains(text, "say which projects") {
+		t.Errorf("want the command's error, got %s", text)
+	}
+	if asked || len(runner.runs) != 0 {
+		t.Errorf("asked %v, runs %v: want neither", asked, runner.runs)
+	}
+	want := []string{"import", "google", "--services=iam", "--selection=" + path, "--out=" + out, "--format=json"}
+	if len(runner.checked) != 1 || !slices.Equal(runner.checked[0], want) {
+		t.Errorf("checked %v, want %v", runner.checked, want)
 	}
 }
 
@@ -237,7 +286,7 @@ func TestImportIncremental(t *testing.T) {
 }
 
 // An import with regenerate writes the roots the output directory has
-// again, and the user is told so; it doesn't go with incremental.
+// again, and the user is told so.
 func TestImportRegenerate(t *testing.T) {
 	runner := &fakeRunner{}
 	var asked string
@@ -261,15 +310,6 @@ func TestImportRegenerate(t *testing.T) {
 	}
 	if len(runner.runs) != 1 || !slices.Contains(runner.runs[0], "--regenerate") || slices.Contains(runner.runs[0], "--incremental") {
 		t.Errorf("runs: %v, want --regenerate", runner.runs)
-	}
-
-	tools := &tools{run: runner.run, root: dir}
-	in := ImportInput{Scope: Scope{Provider: "aws", Services: []string{"vpc"}}, Selection: path, Out: filepath.Join(dir, "generated"), Incremental: true, Regenerate: true}
-	if _, _, err := tools.importSelection(t.Context(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}, in); err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Errorf("with incremental too: want an error, got %v", err)
-	}
-	if len(runner.runs) != 1 {
-		t.Errorf("imported with incremental and regenerate: %v", runner.runs)
 	}
 }
 
@@ -305,10 +345,13 @@ func TestImportNeedsTheUser(t *testing.T) {
 	}
 }
 
-func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
+// A provider the binary doesn't have is rejected: it is the one argument
+// that isn't a --flag=value. Every other value stays in its flag.
+func TestCommandArgsKeepValuesOutOfFlags(t *testing.T) {
 	for _, provider := range []string{"--help", "aws --all", "", "AWS", "gcp"} {
-		if _, err := scopeArgs("import", Scope{Provider: provider, Services: []string{"vpc"}}); err == nil {
-			t.Errorf("provider %q accepted", provider)
+		scope := Scope{Provider: provider, Services: []string{"vpc"}}
+		if _, err := commandArgs("import", scope, scope); err == nil || !strings.Contains(err.Error(), "unknown provider") {
+			t.Errorf("provider %q: got %v, want it rejected", provider, err)
 		}
 	}
 	for _, tc := range []struct {
@@ -319,15 +362,16 @@ func TestScopeArgsKeepValuesOutOfFlags(t *testing.T) {
 		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "--folders=1"}, []string{"import", "google", "--services=iam", "--organization=--folders=1"}},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, ResourceGroup: "-g x"}, []string{"import", "azure", "--services=resource_graph", "--resource-group=-g x"}},
 	} {
-		args, err := scopeArgs("import", tc.scope)
+		args, err := commandArgs("import", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
-			t.Errorf("scopeArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
+			t.Errorf("commandArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
 		}
 	}
 }
 
-// Each provider's scope fields become the flags its command has.
-func TestScopeArgsByProvider(t *testing.T) {
+// Each scope field becomes the flag its tag names; what a provider's
+// command makes of them is for the command to check.
+func TestCommandArgsByProvider(t *testing.T) {
 	for name, tc := range map[string]struct {
 		scope Scope
 		want  []string
@@ -361,65 +405,70 @@ func TestScopeArgsByProvider(t *testing.T) {
 		},
 		"azure through azapi": {
 			Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true},
-			[]string{"discover", "azure", "--services=resource_graph", "--azapi=true"},
+			[]string{"discover", "azure", "--services=resource_graph", "--azapi"},
 		},
 	} {
-		args, err := scopeArgs("discover", tc.scope)
+		args, err := commandArgs("discover", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
-			t.Errorf("%s: scopeArgs: got %v, %v, want %v", name, args, err, tc.want)
+			t.Errorf("%s: commandArgs: got %v, %v, want %v", name, args, err, tc.want)
 		}
 	}
 }
 
-// A field the provider's command has no flag for is rejected with a
-// message naming it. Before the fix, Azure scopes passed --regions and
-// --profile, which the azure command fails on as unknown flags, and Google
-// scopes had no way to name a project, so the google command always
-// failed.
-func TestScopeArgsRejectsWhatTheProviderDoesNotTake(t *testing.T) {
+// A field for other providers is rejected before anything runs, by
+// import and discover alike: aws has an --organization flag too, which
+// would list the whole organisation that the user isn't shown.
+func TestFieldsForOtherProvidersAreRejected(t *testing.T) {
 	for name, tc := range map[string]struct {
-		scope Scope
-		want  []string
+		args map[string]any
+		want string
 	}{
-		"azure regions and profile": {
-			Scope{Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}, Profile: "prod"},
-			[]string{"azure doesn't take regions", "azure doesn't take profile"},
-		},
-		"aws projects and resource group": {
-			Scope{Provider: "aws", Services: []string{"vpc"}, Projects: []string{"one"}, ResourceGroup: "rg"},
-			[]string{"aws doesn't take projects", "aws doesn't take resource_group"},
-		},
-		"aws azapi": {
-			Scope{Provider: "aws", Services: []string{"vpc"}, Azapi: true},
-			[]string{"aws doesn't take azapi, which is for azure only"},
-		},
-		"google subscriptions": {
-			Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one"}, Subscriptions: []string{"sub-1"}},
-			[]string{"google doesn't take subscriptions, which is for azure only"},
-		},
-		"google profile and accounts": {
-			Scope{Provider: "google", Services: []string{"iam"}, Folders: []string{"456"}, Profile: "prod", Accounts: []string{"111111111111"}},
-			[]string{"google doesn't take profile", "google doesn't take accounts"},
-		},
-		"google without projects": {
-			Scope{Provider: "google", Services: []string{"iam"}, Regions: []string{"global"}},
-			[]string{"google needs projects, organization or folders"},
-		},
-		"no services": {
-			Scope{Provider: "google", Projects: []string{"one"}},
-			[]string{"services is required"},
-		},
+		"aws with an organization": {map[string]any{"provider": "aws", "services": []string{"vpc"}, "organization": "true"}, "aws doesn't take organization, which is for google only"},
+		"azure with regions":       {map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions, which is for aws and google only"},
+		"google with accounts":     {map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"one"}, "accounts": []string{"111"}}, "google doesn't take accounts, which is for aws only"},
+		"aws with azapi":           {map[string]any{"provider": "aws", "services": []string{"vpc"}, "azapi": true}, "aws doesn't take azapi, which is for azure only"},
 	} {
-		args, err := scopeArgs("discover", tc.scope)
-		if err == nil {
-			t.Errorf("%s: scopeArgs accepted it: %v", name, args)
-			continue
+		for _, tool := range []string{"discover", "import"} {
+			t.Run(name+" "+tool, func(t *testing.T) {
+				dir := t.TempDir()
+				path := filepath.Join(dir, "selection.yaml")
+				if err := writeSelection(path); err != nil {
+					t.Fatal(err)
+				}
+				runner := &fakeRunner{}
+				session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+					return &mcp.ElicitResult{Action: "accept"}, nil
+				})
+				args := maps.Clone(tc.args)
+				args["selection"] = path
+				if tool == "import" {
+					args["out"] = filepath.Join(dir, "generated")
+				}
+
+				res, text := call(t, session, tool, args)
+
+				if !res.IsError || !strings.Contains(text, tc.want) {
+					t.Errorf("want an error result with %q, got %s", tc.want, text)
+				}
+				if len(runner.runs) != 0 {
+					t.Errorf("ran: %v", runner.runs)
+				}
+			})
 		}
-		for _, want := range tc.want {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("%s: error %q misses %q", name, err, want)
-			}
-		}
+	}
+}
+
+// A run the command rejects, such as a Google scope without a project,
+// returns the command's error.
+func TestDiscoverReturnsTheCommandsError(t *testing.T) {
+	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "google needs --projects, --organization or --folders\n"}
+	dir := t.TempDir()
+	session := connect(t, runner, dir, nil)
+
+	res, text := call(t, session, "discover", map[string]any{"provider": "google", "services": []string{"iam"}, "selection": filepath.Join(dir, "selection.yaml")})
+
+	if !res.IsError || !strings.Contains(text, "google needs --projects") {
+		t.Errorf("want an error result with the command's error, got %s", text)
 	}
 }
 
@@ -439,19 +488,56 @@ func TestScopeText(t *testing.T) {
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
 	} {
-		if got := scopeText(tc.scope); got != tc.want {
-			t.Errorf("scopeText(%+v): got %q, want %q", tc.scope, got, tc.want)
+		if got, err := scopeText(tc.scope); err != nil || got != tc.want {
+			t.Errorf("scopeText(%+v): got %q, %v, want %q", tc.scope, got, err, tc.want)
+		}
+	}
+	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}); err == nil {
+		t.Error("a provider scopeText has no case for: want an error, not an aws account")
+	}
+}
+
+// What the user confirms names every field the provider takes, as Scope's
+// providers tags declare them: a field a provider takes that its case
+// didn't say would import more than the user was shown.
+func TestScopeTextSaysEveryField(t *testing.T) {
+	scope := reflect.TypeFor[Scope]()
+	for _, provider := range providers.Names() {
+		for i := range scope.NumField() {
+			field := scope.Field(i)
+			if !slices.Contains(scopeProviders(field), provider) {
+				continue
+			}
+			s := Scope{Provider: provider, Services: []string{"vpc"}}
+			if field.Name == "CloudFormationIgnore" {
+				// It is taken with stacks alone.
+				s.CloudFormationStacks = []string{"app"}
+			}
+			without, err := scopeText(s)
+			if err != nil {
+				t.Fatalf("%s: %v", provider, err)
+			}
+			value := reflect.ValueOf(&s).Elem().Field(i)
+			switch value.Kind() {
+			case reflect.Bool:
+				value.SetBool(true)
+			case reflect.String:
+				value.SetString("x")
+			case reflect.Slice:
+				value.Set(reflect.ValueOf([]string{"x"}))
+			}
+			if with, err := scopeText(s); err != nil || with == without {
+				t.Errorf("%s with %s: got %q, %v, the same as without it", provider, jsonName(field), with, err)
+			}
 		}
 	}
 }
 
 // Through the tools: a Google scope reaches the google command with its
-// projects, and a rejected scope runs nothing.
+// projects.
 func TestDiscoverScopes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
-	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
-
 	runner := &fakeRunner{}
 	session := connect(t, runner, dir, nil)
 	res, text := call(t, session, "discover", map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"my-project"}, "selection": path})
@@ -461,23 +547,6 @@ func TestDiscoverScopes(t *testing.T) {
 	want := []string{"discover", "google", "--services=iam", "--projects=my-project", "--pick=false", "--out=" + filepath.Join(dir, "infraharvest-out"), "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
-	}
-
-	runner = &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
-	for name, scope := range map[string]Scope{
-		"azure regions":           {Provider: "azure", Services: []string{"resource_graph"}, Regions: []string{"westeurope"}},
-		"google without projects": {Provider: "google", Services: []string{"iam"}},
-	} {
-		if _, _, err := tools.discover(t.Context(), req, DiscoverInput{Scope: scope, Selection: path}); err == nil {
-			t.Errorf("discover %s: accepted", name)
-		}
-		if _, _, err := tools.importSelection(t.Context(), req, ImportInput{Scope: scope, Selection: path, Out: filepath.Join(dir, "generated")}); err == nil {
-			t.Errorf("import %s: accepted", name)
-		}
-	}
-	if len(runner.runs) != 0 {
-		t.Errorf("ran a rejected scope: %v", runner.runs)
 	}
 }
 
@@ -489,7 +558,7 @@ func TestImportChecksWhatWasConfirmed(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
 		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   "a confirmation of another import",
@@ -546,7 +615,7 @@ func TestFilesStayUnderRoot(t *testing.T) {
 		}
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
@@ -663,7 +732,7 @@ func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	for _, out := range []string{"linked-report", "linked-parent"} {
@@ -695,18 +764,18 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 	out := filepath.Join(dir, "generated")
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
-	args, err := scopeArgs("import", scope)
+	args, err := commandArgs("import", scope, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	args = append(args, "--engine=terraform", "--selection="+path, "--out="+out, "--format=json")
+	args = append(args, "--selection="+path, "--out="+out, "--format=json")
 	content, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	state := confirmationState(args, content)
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
 		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   state,
@@ -755,13 +824,13 @@ func TestValuesShownToTheUser(t *testing.T) {
 		"a profile with a newline":  {Provider: "aws", Services: []string{"vpc"}, Profile: "prod\nImport nothing"},
 		"a project with a carriage": {Provider: "google", Services: []string{"iam"}, Projects: []string{"one\r"}},
 	} {
-		if _, err := scopeArgs("import", scope); err == nil {
+		if _, err := commandArgs("import", scope, scope); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 
 	dir := t.TempDir()
-	tools := &tools{run: (&fakeRunner{}).run, root: dir}
+	tools := newTools(&fakeRunner{}, dir)
 	if _, err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
 		t.Errorf("a path with a newline: got %v", err)
 	}
@@ -818,7 +887,7 @@ func TestRelativePathsAreUnderRoot(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(t.TempDir())
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
 
@@ -881,7 +950,7 @@ func TestReportBoundsALongReport(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
@@ -914,7 +983,7 @@ func TestReportReturnsAShortReportWhole(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Report\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
@@ -1051,7 +1120,7 @@ func TestReportReadsTheDriftReport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, report.DriftMarkdownFile), []byte("# Drift\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	read := func(kind string) (string, error) {
 		res, _, err := tools.report(t.Context(), req, ReportInput{Out: out, Kind: kind})

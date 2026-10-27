@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +18,7 @@ import (
 func fakeProviderCommand(run func(importer.Options) error) *cobra.Command {
 	options := importer.Options{}
 	cmd := &cobra.Command{Use: "fake", SilenceUsage: true, SilenceErrors: true}
-	cmd.RunE = withEngineRun(func(*cobra.Command, []string) error { return run(options) })
+	cmd.RunE = withEngineRun(func(*cobra.Command, []string, *importer.Run) error { return run(options) })
 	cmd.Flags().String("config", "", "")
 	providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
 	return cmd
@@ -45,27 +44,6 @@ func TestServicesFromConfig(t *testing.T) {
 	}
 	if want := []string{"vpc", "s3"}; !slices.Equal(got.Services, want) {
 		t.Errorf("services %v, want %v", got.Services, want)
-	}
-
-	ran := false
-	cmd = fakeProviderCommand(func(importer.Options) error { ran = true; return nil })
-	cmd.SetArgs([]string{"--engine", "terraform"})
-	if err := cmd.Execute(); !errors.Is(err, errNoServices) {
-		t.Errorf("got %v, want %v", err, errNoServices)
-	}
-	if ran {
-		t.Error("the import ran without services")
-	}
-
-	// --cfn-stack picks the services from the stacks' resources.
-	cmd = fakeProviderCommand(func(importer.Options) error { ran = true; return nil })
-	cmd.Flags().StringArray("cfn-stack", nil, "")
-	cmd.SetArgs([]string{"--engine", "terraform", "--cfn-stack", "app"})
-	if err := cmd.Execute(); err != nil {
-		t.Errorf("with --cfn-stack and no --services: %v", err)
-	}
-	if !ran {
-		t.Error("the import didn't run with --cfn-stack and no --services")
 	}
 }
 

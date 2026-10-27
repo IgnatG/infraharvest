@@ -5,18 +5,23 @@ package cli
 
 import (
 	"context"
-	"errors"
+	"io"
+	"slices"
 
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
-// withEngineRun wraps a provider command's RunE in a run of the importer:
-// the configuration file applies to the command's flags first, the run
-// collects what every import the command makes did, and finishes with the
-// report, the selection file and the exit code.
-func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Command, []string) error {
+// withEngineRun makes runE a provider command's RunE, in a run of the
+// importer it is passed: the configuration file applies to the command's
+// flags first, the run collects what every import the command makes did,
+// and finishes with the report, the selection file and the exit code.
+// With --check, the command only checks its flags (see CheckRun), and the
+// run is never done: it lists nothing, writes nothing, and catches no
+// signals.
+func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := importer.NewRun()
 		// Without a command, nothing catches signals.
@@ -27,11 +32,11 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 					return err
 				}
 			}
-			if err := requireServices(c); err != nil {
-				return err
-			}
 			if err := run.CheckMergeEnvironments(c.Flags()); err != nil {
 				return err
+			}
+			if f := c.Flag(providers.CheckFlag); f != nil && f.Value.String() == "true" {
+				return runE(c, args, run)
 			}
 			if f := c.Flag("pick"); f != nil {
 				run.OpenPicker = f.Value.String() == "true"
@@ -47,31 +52,23 @@ func withEngineRun(runE func(*cobra.Command, []string) error) func(*cobra.Comman
 			c.SetContext(ctx)
 		}
 		// An interrupted run exits with the signal's code, in the report too.
-		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args)) })
+		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args, run)) })
 	}
 }
 
-var errNoServices = errors.New("--services is required (flag or config file)")
-
-// requireServices fails a provider command run without --services, after
-// the configuration file has had its chance to set it. A command scoped to
-// CloudFormation stacks (--cfn-stack) needs none: the types of the stacks'
-// resources say which services to list.
-func requireServices(c *cobra.Command) error {
-	if c.Flags().Lookup("services") == nil {
-		return nil
-	}
-	if f := c.Flags().Lookup("cfn-stack"); f != nil {
-		if stacks, err := c.Flags().GetStringArray("cfn-stack"); err == nil && len(stacks) > 0 {
-			return nil
-		}
-	}
-	services, err := c.Flags().GetStringSlice("services")
-	if err != nil {
-		return err
-	}
-	if len(services) == 0 {
-		return errNoServices
-	}
-	return nil
+// CheckRun checks the run of the provider command args name, such as
+// import aws --services=vpc --all, as that command's --check does: its
+// options are built from args and the configuration file as for the run,
+// and checked as the run checks them, without listing anything. The MCP
+// server checks an import here before the user is asked to confirm it,
+// as the end-to-end tests' in-process server does.
+// args start with the command and the provider; --check goes right after
+// them, where a -- among the flags can't make it an argument.
+func CheckRun(ctx context.Context, args []string) error {
+	cmd := NewCmdRoot()
+	cmd.SetArgs(slices.Insert(slices.Clone(args), 2, "--"+providers.CheckFlag))
+	// Nothing to print: the MCP server's standard output is the protocol's.
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	return cmd.ExecuteContext(ctx)
 }

@@ -25,8 +25,6 @@ import (
 var (
 	_ harvest.Provider                      = (*Provider)(nil)
 	_ harvest.ProviderWithScope             = (*Provider)(nil)
-	_ harvest.ProviderWithConcurrentListing = (*Provider)(nil)
-	_ harvest.ProviderWithDefaultTags       = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
 	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
 	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
@@ -40,11 +38,9 @@ var (
 func TestCapabilitiesNotImplemented(t *testing.T) {
 	var p harvest.Provider = &Provider{}
 	for name, has := range map[string]bool{
-		"ChildImports":        implements[harvest.ProviderWithChildImports](p),
-		"ExcludedByDefault":   implements[harvest.ProviderWithSelectionDefaults](p),
-		"TerraformEnv":        implements[harvest.ProviderWithTerraformEnv](p),
-		"RegistrySource":      implements[harvest.ProviderWithRegistrySource](p),
-		"DefaultTagsArgument": implements[harvest.ProviderWithDefaultTagsArgument](p),
+		"ChildImports":      implements[harvest.ProviderWithChildImports](p),
+		"ExcludedByDefault": implements[harvest.ProviderWithSelectionDefaults](p),
+		"TerraformEnv":      implements[harvest.ProviderWithTerraformEnv](p),
 		// The listers record the tags themselves, from their answers.
 		"Tags": implements[harvest.ProviderWithTags](p),
 	} {
@@ -234,7 +230,7 @@ func TestProviderBlock(t *testing.T) {
 		t.Errorf("name %q", got)
 	}
 	// The roots go under the command's name; the provider stays azurerm.
-	if got := p.Directory(); got != "azure" {
+	if got := p.Profile().Command; got != "azure" {
 		t.Errorf("directory %q", got)
 	}
 }
@@ -312,11 +308,11 @@ func TestScope(t *testing.T) {
 }
 
 func TestDefaultTagsAndConcurrency(t *testing.T) {
-	p := &Provider{}
-	if attribute, block, reserved := p.DefaultTags(); attribute != "tags" || block != "" || reserved != "hidden-" {
-		t.Errorf("default tags %q, %q, %q", attribute, block, reserved)
+	profile := (&Provider{}).Profile()
+	if got, want := profile.DefaultTags, (&harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("default tags %+v, want %+v", got, want)
 	}
-	if !p.ConcurrentListing() {
+	if !profile.ConcurrentListing {
 		t.Error("services list one at a time")
 	}
 }

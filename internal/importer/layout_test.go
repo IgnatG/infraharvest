@@ -7,10 +7,20 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/harvest"
+	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
+	googleprovider "github.com/IgnatG/infraharvest/internal/providers/google"
 )
 
+// TestConfigFile lays out the resources of each provider by its own
+// profile.
 func TestConfigFile(t *testing.T) {
 	google := catalogue.MustBuiltin("google")
+	layouts := map[string]harvest.Layout{}
+	for _, p := range []harvest.Provider{&awsprovider.Provider{}, &azureprovider.Provider{}, &googleprovider.Provider{}} {
+		layouts[p.Name()] = p.Profile().Layout
+	}
 	for _, tc := range []struct {
 		provider, service, typ string
 		cat                    *catalogue.Catalogue
@@ -54,7 +64,7 @@ func TestConfigFile(t *testing.T) {
 		{"azurerm", "resource_graph", "azurerm_managed_disk", nil, "managed_disk.tf"},
 		{"azurerm", "managed_identity", "azurerm_user_assigned_identity", nil, "managed_identity.tf"},
 	} {
-		if got := configFile(tc.provider, tc.service, tc.typ, tc.cat); got != tc.want {
+		if got := configFile(layouts[tc.provider], tc.service, tc.typ, tc.cat); got != tc.want {
 			t.Errorf("configFile(%s, %s, %s) = %s, want %s", tc.provider, tc.service, tc.typ, got, tc.want)
 		}
 	}

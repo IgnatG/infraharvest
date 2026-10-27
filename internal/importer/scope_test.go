@@ -32,10 +32,13 @@ func (*stackScopedProvider) ImportScope(_ context.Context, resources []harvest.R
 			s.Outside[key] = report.OutsideScopePrefix + "not a resource of CloudFormation stack app (--cfn-stack)"
 		}
 	}
-	s.Stacks = []report.CloudFormationStack{{Name: "app", ID: "stack/app", Resources: []report.CloudFormationResource{
+	return s, nil
+}
+
+func (*stackScopedProvider) CloudFormationStacks() []report.CloudFormationStack {
+	return []report.CloudFormationStack{{Name: "app", ID: "stack/app", Resources: []report.CloudFormationResource{
 		{LogicalID: "Assets", Type: "AWS::S3::Bucket", Matches: []report.CloudFormationMatch{{Type: "aws_s3_bucket", ID: "app-assets"}}},
 	}}}
-	return s, nil
 }
 
 // The scope takes the stack's bucket, though the defaults leave it out as
@@ -48,23 +51,22 @@ func TestImportScope(t *testing.T) {
 		harvest.RecordBare("app-assets", "app-assets", "aws_s3_bucket", "aws"),
 		harvest.RecordBare("other", "other", "aws_s3_bucket", "aws"),
 	}}}
-	defaults := map[string]string{"aws_s3_bucket app-assets": report.OtherToolPrefix + "CloudFormation stack app (per its tag aws:cloudformation:stack-name=app; --include-owned imports it)"}
+	defaults := sourcesOf(t, listed, map[string]string{"aws_s3_bucket app-assets": report.OtherToolPrefix + "CloudFormation stack app (per its tag aws:cloudformation:stack-name=app; --include-owned imports it)"})
 	run := NewRun()
 
-	defaults, err := run.applyImportScope(t.Context(), &stackScopedProvider{}, &listed, defaults, scope)
-	if err != nil {
+	if err := run.applyImportScope(t.Context(), &stackScopedProvider{}, listed, defaults, scope); err != nil {
 		t.Fatal(err)
 	}
 
 	outside := report.OutsideScopePrefix + "not a resource of CloudFormation stack app (--cfn-stack)"
-	if want := map[string]string{"aws_s3_bucket other": outside}; !reflect.DeepEqual(defaults, want) {
-		t.Errorf("defaults %v, want %v", defaults, want)
+	if want := map[string]string{"aws_s3_bucket other": outside}; !reflect.DeepEqual(reasonsOf(listed, defaults), want) {
+		t.Errorf("defaults %v, want %v", reasonsOf(listed, defaults), want)
 	}
 	if got := run.report.CloudFormationStacks; len(got) != 1 || got[0].Resources[0].Matches[0].Scope != scope {
 		t.Errorf("stacks %+v", got)
 	}
 	f := &selection.File{Version: selection.Version, Rules: []selection.Rule{{Include: &selection.Match{Type: selection.Patterns{"*"}}}}}
-	selected, _ := run.selectResources(listed, defaults, f, scope, importIDForSelection)
+	selected, _ := run.selectResources(listed, defaults, f, scope, "", importIDForSelection)
 	if got := selectedIDs(selected); !reflect.DeepEqual(got, []string{"app-assets"}) {
 		t.Errorf("selected %v", got)
 	}
@@ -76,9 +78,9 @@ func TestImportScope(t *testing.T) {
 	}
 
 	// A provider without a scope changes nothing.
-	unchanged, err := NewRun().applyImportScope(t.Context(), &fakeProvider{}, &listed, map[string]string{"a b": "c"}, scope)
-	if err != nil || !reflect.DeepEqual(unchanged, map[string]string{"a b": "c"}) {
-		t.Errorf("unscoped: %v, %v", unchanged, err)
+	unchanged := sourcesOf(t, listed, map[string]string{"aws_s3_bucket other": "c"})
+	if err := NewRun().applyImportScope(t.Context(), &fakeProvider{}, listed, unchanged, scope); err != nil || !reflect.DeepEqual(reasonsOf(listed, unchanged), map[string]string{"aws_s3_bucket other": "c"}) {
+		t.Errorf("unscoped: %v, %v", reasonsOf(listed, unchanged), err)
 	}
 }
 
@@ -89,10 +91,14 @@ type stackOnlyProvider struct {
 }
 
 func (*stackOnlyProvider) ImportScope(context.Context, []harvest.Resource) (*harvest.ImportScope, error) {
-	return &harvest.ImportScope{Inside: map[string]bool{}, Outside: map[string]string{}, Stacks: []report.CloudFormationStack{{
+	return &harvest.ImportScope{Inside: map[string]bool{}, Outside: map[string]string{}}, nil
+}
+
+func (*stackOnlyProvider) CloudFormationStacks() []report.CloudFormationStack {
+	return []report.CloudFormationStack{{
 		Name: "seeds", ID: "stack/seeds", Region: "eu-west-2", Status: "CREATE_COMPLETE",
 		Resources: []report.CloudFormationResource{{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Retain: []string{"DeletionPolicy is Delete, the default"}}},
-	}}}, nil
+	}}
 }
 
 // brokenScopeProvider is scoped to stacks, but can't tell which resources
