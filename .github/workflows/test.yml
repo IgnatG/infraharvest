@@ -350,16 +350,20 @@ jobs:
   # The tests that seed testdata/aws (TestAWSRoundTrip, TestAWSSelection,
   # TestAWSIncremental) take most of the time, so each runs on a runner of
   # its own, with its own Floci, TestAWSSelection with the tests of its
-  # rules (TestAWSSelectionRules) and of --cfn-stack
-  # (TestAWSSelectionCloudFormation). The options tests (TestAWSOptions*), which
-  # import testdata/aws-options in an account of their own many times
-  # over, run on two more: those of the output (layout, modules, verify)
-  # and those of what is imported (report, filters, exit codes). The drift
+  # rules (TestAWSSelectionRules) and of --cfn-stack, from the command line
+  # and the MCP server (TestAWSSelectionCloudFormation*). The options
+  # tests (TestAWSOptions*), which import testdata/aws-options in an
+  # account of their own many times over, run on two more: those of the
+  # output (layout, modules, verify) and those of what is imported
+  # (report, filters, exit codes). The drift
   # test (TestAWSDrift), which applies and changes its estate many times
   # over, runs on another, with the shorter drift tests of an S3 backend
   # (TestAWSDriftBackend) and of the MCP server's drift tools
-  # (TestAWSDriftMCP), as does the test of the MCP server's other tools
-  # and of its drift tool with environments (TestAWSMCP), and the
+  # (TestAWSDriftMCP), as do the tests of the MCP server's other tools
+  # and of its drift tool with environments (TestAWSMCP), of its import
+  # tool into an output again and with a configuration file
+  # (TestAWSMCPImport), and of drift_accept's ordered rules and decisions
+  # file (TestAWSDriftMCPRules), and the
   # environments test (TestAWSEnvironments), which imports two accounts four times, with the
   # test of a feature's data sources there (TestAWSEnvironmentsData), and the
   # tests of --regenerate's moved and removed blocks
@@ -384,7 +388,7 @@ jobs:
           run: ^TestAWSRoundTrip$
           skip: ""
         - shard: selection
-          run: ^TestAWSSelection(Rules|CloudFormation)?$
+          run: ^TestAWSSelection(Rules|CloudFormation(MCP)?)?$
           skip: ""
         - shard: incremental
           run: ^TestAWSIncremental$
@@ -399,7 +403,7 @@ jobs:
           run: ^TestAWSDrift(Backend|MCP)?$
           skip: ""
         - shard: mcp
-          run: ^TestAWSMCP$
+          run: ^TestAWS(MCP(Import)?|DriftMCPRules)$
           skip: ""
         - shard: environments
           run: ^TestAWSEnvironments(Data)?$
@@ -409,7 +413,7 @@ jobs:
           skip: ""
         - shard: others
           run: ""
-          skip: ^TestAWS(RoundTrip|Selection(Rules|CloudFormation)?|Incremental|Options.*|Drift.*|MCP|Environments(Data)?|Regenerate.*)$
+          skip: ^TestAWS(RoundTrip|Selection.*|Incremental|Options.*|Drift.*|MCP.*|Environments(Data)?|Regenerate.*)$
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
