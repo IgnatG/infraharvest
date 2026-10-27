@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -432,5 +433,40 @@ func TestRecordedTagLeaves(t *testing.T) {
 		if got := recordedTagLeaves(tc.rc); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// The standards check of the edited code leaves the organisation's own
+// modules to their owners, as the verification gate does: it doesn't
+// read them, even where they hold what it couldn't parse.
+func TestDriftAcceptLeavesOwnModulesToTheirOwners(t *testing.T) {
+	t.Parallel()
+	dir, staging := acceptRoot(t, map[string]string{"main.tf": taggedBuckets + `
+module "own" {
+  source = "../../../own"
+}
+`})
+	own := filepath.Join(dir, "..", "..", "..", "own")
+	if err := os.MkdirAll(own, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(own, "main.tf"), []byte("resource \"aws_sqs_queue\" \"this\" {\n  name = \"${\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "prod", "dev")}}
+	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "dev", "prod")}}
+	edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs")}}
+	var calls []string
+	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
+	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, edited}}
+	opts := DriftOptions{Accept: func(DriftChange) bool { return true }, Adapters: []adapters.Adapter{{Source: own}}}
+
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten {
+		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
 }

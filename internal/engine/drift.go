@@ -22,6 +22,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // DriftTerraform is a Terraform that can also read a root's state and
@@ -116,6 +118,11 @@ type DriftOptions struct {
 	// (see Options.Omit), which the standards check of the edited code
 	// looks for.
 	Omit map[string][]string
+	// Adapters are the adapters of the organisation's own modules (see
+	// Options.Adapters): the standards check of the edited code leaves
+	// the modules in their directories to their owners, as the
+	// verification gate does.
+	Adapters []adapters.Adapter
 	// Environment is, for a root environments share (see
 	// MergedEnvironments), the environment to check it as: with its
 	// backend settings, vars/<env>/backend.hcl, or, for a root without a

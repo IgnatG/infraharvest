@@ -110,7 +110,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 			staged[name] = content
 		}
 	}
-	standards, err := checkStandards(staging, opts.Omit, nil)
+	standards, err := checkStandards(staging, opts.Omit, ownModuleDirs(opts.Adapters))
 	if err != nil {
 		return err
 	}
@@ -492,7 +492,7 @@ func driftChecks(ctx context.Context, stf DriftTerraform, staging string, origin
 		}
 		return CheckValidate + ": " + strings.Join(details, "; "), invalid, nil
 	}
-	nowStandards, err := checkStandards(staging, opts.Omit, nil)
+	nowStandards, err := checkStandards(staging, opts.Omit, ownModuleDirs(opts.Adapters))
 	if err != nil {
 		return "", nil, err
 	}
