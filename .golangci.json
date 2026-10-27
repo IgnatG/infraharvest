@@ -253,8 +253,7 @@
               "**/internal/ratelimit/*.go",
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
-              "**/internal/catalogue/schemameta/*.go",
-              "**/internal/cfnhcl/*.go"
+              "**/internal/catalogue/schemameta/*.go"
             ],
             "deny": [
               {
@@ -275,6 +274,17 @@
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal",
                 "desc": "the lock imports only the leaf fsutil of infraharvest's, to check its file the way the output's other files are"
+              }
+            ]
+          },
+          "cfn": {
+            "files": [
+              "**/pkg/cfn/**"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "pkg/cfn will be a module of its own, which can't import infraharvest's internal packages"
               }
             ]
           },

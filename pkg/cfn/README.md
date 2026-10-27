@@ -1,6 +1,6 @@
 # cfn: CloudFormation to Terraform
 
-Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it depends on nothing else of infraharvest's but `internal/cfnhcl`, the names and numbers it shares with the rest, which depends on nothing, so it can be used on its own.
+Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it depends on nothing else of infraharvest's but its subpackage `hclname`, the names and numbers it shares with the rest, which depends on nothing, so it can be used on its own.
 
 ```go
 t, err := cfn.Parse(file) // JSON or YAML, short-form tags included
@@ -66,4 +66,12 @@ Nothing is dropped silently: each of these is a `Diagnostic` (severity, path in 
 - `Fn::Equals` compares strings in CloudFormation. The converter writes a literal compared with a `Number` parameter as a number, and any other literal as a string; a comparison of two references keeps their types.
 - `AllowedPattern` is checked with Terraform's `regex()`, which uses RE2: a pattern with look-ahead or back-references can't be, and is reported.
 - Values are converted, not checked against the provider's schema: a value CloudFormation takes in another shape (a list of one for a single value, say) may need changing. The table covers the common cases, such as a security group rule's `CidrIp` becoming `cidr_blocks`.
-- Parsing caps how deeply a template nests and how many values its YAML aliases expand to, and `Convert` fails once the expressions it writes pass 64 MiB, so a template built to expand (nested `Fn::Sub` variables that repeat one another, say) can't exhaust memory.
+
+## Untrusted templates
+
+`Parse` and `Convert` are meant to take templates from anywhere, hostile ones included. Neither reads a file, the network or the environment, or runs anything a template names, and `FuzzParseConvert` checks that no template makes either panic or hang.
+
+- `Parse` fails on a template larger than 16 MiB, one that nests values more than 512 deep, or one whose YAML aliases expand to more than 1M values or 64 MiB of text.
+- `Convert` and `ConvertValue` fail once the expressions they write pass 64 MiB, so a template built to expand (nested `Fn::Sub` variables that repeat one another, say) can't exhaust memory.
+- They check a `Template` built by hand, rather than by `Parse`, against limits of their own before they convert it: a nil entry in a section, or a value that contains itself (a `List` can), nests more than 1026 deep or holds more than 16M values counting each repeat, is an error rather than a stack overflow or an endless loop. `MarshalJSON` of a `Map` or `Func` fails the same way.
+- The output is Terraform for a person to review before it is applied: it can still name any resource or value the template does. A `NoEcho` parameter's default is never written.

@@ -6,10 +6,11 @@ package cfn
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // Node is a value in a template: one of Null, Bool, Number, String, List,
@@ -42,7 +43,10 @@ type Map []Field
 
 // Field is a key of a Map and its value.
 type Field struct {
-	Key   string
+	// Key is the key as written.
+	Key string
+	// Value is the key's value. Parse writes an explicit null as Null; a
+	// nil in a Map built by hand is taken as null too.
 	Value Node
 }
 
@@ -58,8 +62,10 @@ type Field struct {
 // YAML tag !Condition; elsewhere, such as in an IAM policy statement, it is
 // an ordinary Map, so the parser leaves it one.
 type Func struct {
+	// Name is the function's long-form name, such as "Fn::Sub".
 	Name string
-	Arg  Node
+	// Arg is the function's argument as written.
+	Arg Node
 }
 
 func (Null) node()   {}
@@ -111,39 +117,36 @@ func (Null) MarshalJSON() ([]byte, error) {
 // and as a string otherwise (YAML allows forms such as 0x1F that JSON
 // doesn't).
 func (n Number) MarshalJSON() ([]byte, error) {
-	if cfnhcl.NumberPattern.MatchString(string(n)) {
+	if hclname.NumberPattern.MatchString(string(n)) {
 		return []byte(n), nil
 	}
 	return json.Marshal(string(n))
 }
 
-// MarshalJSON writes the map's fields in order.
+// MarshalJSON writes the map's fields in order. It fails, rather than
+// recurse without end, on a map that contains itself or nests values past
+// the converter's limit, which only a map built by hand can.
 func (m Map) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, f := range m {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		key, err := marshal(f.Key)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(key)
-		b.WriteByte(':')
-		value, err := marshal(f.Value)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(value)
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
+	return nodeJSON(m)
 }
 
 // MarshalJSON writes the function in its JSON long form, {"Fn::Sub": ...}.
+// Like Map's, it fails on an argument that contains itself or nests
+// values past the converter's limit.
 func (f Func) MarshalJSON() ([]byte, error) {
-	return Map{{Key: f.Name, Value: f.Arg}}.MarshalJSON()
+	return nodeJSON(f)
+}
+
+// nodeJSON returns n as JSON once checkValue has found that writing it
+// ends. It writes the whole value itself, so that the check covers it once
+// rather than again for each nested Map and Func.
+func nodeJSON(n Node) ([]byte, error) {
+	if err := checkValue(n, ""); err != nil {
+		return nil, err
+	}
+	w := &limitedBuilder{limit: math.MaxInt}
+	writeNodeJSON(w, n)
+	return []byte(w.b.String()), nil
 }
 
 // marshal encodes v as JSON without escaping <, > and &, which the

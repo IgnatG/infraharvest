@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // paramType is what a parameter type becomes.
@@ -30,7 +30,7 @@ type paramType struct {
 }
 
 func parseParamType(t string) paramType {
-	if ssm, list := cfnhcl.SSMParameterType(t); ssm {
+	if ssm, list := hclname.SSMParameterType(t); ssm {
 		return paramType{hcl: "string", ssm: true, ssmList: list, known: true}
 	}
 	switch {
@@ -79,7 +79,7 @@ func (c *converter) writeVariable(w *hclWriter, pi *paramInfo) {
 	desc := strings.TrimSpace(p.Description)
 	switch {
 	case pt.ssm:
-		desc = describe(desc, cfnhcl.SSMDescription(p.Type))
+		desc = describe(desc, hclname.SSMDescription(p.Type))
 	case pt.aws:
 		desc = describe(desc, fmt.Sprintf("CloudFormation type %s.", p.Type))
 	}
@@ -152,10 +152,10 @@ func (c *converter) paramDefault(pi *paramInfo, path string) (string, bool) {
 	return c.expr(pi.p.Default, path, nil), true
 }
 
-// numberLiteral returns s as a number (see cfnhcl.NumberLiteral), or
+// numberLiteral returns s as a number (see hclname.NumberLiteral), or
 // reports, as an error, that it isn't one.
 func (c *converter) numberLiteral(s, path string) (string, bool) {
-	if lit, ok := cfnhcl.NumberLiteral(s); ok {
+	if lit, ok := hclname.NumberLiteral(s); ok {
 		return lit, true
 	}
 	c.report(Error, path, fmt.Sprintf("%q isn't a number Terraform can read, so it is left out", s))
@@ -231,7 +231,7 @@ func (c *converter) validations(pi *paramInfo, path string) []validation {
 		if n == "" {
 			return
 		}
-		lit, ok := cfnhcl.NumberLiteral(string(n))
+		lit, ok := hclname.NumberLiteral(string(n))
 		if !ok {
 			c.report(Warning, path+"."+field, fmt.Sprintf("%s %q isn't a number, so it isn't checked", field, string(n)))
 			return

@@ -1,13 +1,13 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package cfnhcl holds what the CloudFormation converter (pkg/cfn) writes
-// that the rest of infraharvest must write alike, such as the stack intent
-// (internal/stackintent): the Terraform names of CloudFormation names, and
-// numbers as HCL literals. It is not part of pkg/cfn's API, and imports
-// nothing of infraharvest's, so that it moves with pkg/cfn if that becomes
-// a module of its own.
-package cfnhcl
+// Package hclname holds what the CloudFormation converter (package cfn)
+// writes that a program building on its output must write alike: the
+// Terraform names of CloudFormation names, numbers as HCL literals, and
+// the variables and data sources of SSM parameter types. infraharvest's
+// stack intent uses it to name what it carries into a root the way cfn
+// does. Like cfn, it imports nothing else of infraharvest's.
+package hclname
 
 import (
 	"math/big"

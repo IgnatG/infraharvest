@@ -44,11 +44,14 @@ func (s Severity) String() string {
 // converter can't carry over is left out silently: it is a diagnostic, and
 // a comment in the output where it would have been.
 type Diagnostic struct {
+	// Severity says how much the diagnostic matters.
 	Severity Severity
 	// Path is where the diagnostic is in the template, as dotted keys and
 	// list indexes, such as "Resources.Bucket.Properties.Tags[0].Value".
 	// It is empty for the template as a whole.
-	Path    string
+	Path string
+	// Message says what the converter did and, where a person has to act,
+	// what to do.
 	Message string
 }
 

@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // Options configures Convert. The zero value converts with DefaultMapper.
@@ -100,11 +100,17 @@ func (r *Result) HasErrors() bool {
 // whose values expand to more than 64 MiB of expressions (which takes
 // values built to repeat one another, such as nested Fn::Sub variables),
 // or if the HCL it writes doesn't parse, which would be a bug in the
-// converter. The
-// same template and options give the same output, byte for byte.
+// converter; and for what only a Template built by hand, rather than by
+// Parse, can hold: a nil entry in a section, or a value that contains
+// itself, nests more than 1026 deep, or holds more than 16M values,
+// counting each repeat. The same template and options give the same
+// output, byte for byte.
 func Convert(t *Template, opts Options) (*Result, error) {
 	if t == nil {
 		return nil, errors.New("cfn: no template to convert")
+	}
+	if err := checkTemplate(t); err != nil {
+		return nil, err
 	}
 	c := newConverter(t, opts)
 	var mainW, varsW, localsW, outputsW, dataW hclWriter
@@ -281,7 +287,7 @@ func newConverter(t *Template, opts Options) *converter {
 	// stand-in variable is the one that gets a suffix if they clash.
 	varNames := newNameSet()
 	for _, p := range t.Parameters {
-		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(cfnhcl.VariableName(p.Name))}
+		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(hclname.VariableName(p.Name))}
 	}
 	for _, s := range standInVariables {
 		c.standIn[s.pseudo] = varNames.claim(s.name)
@@ -577,7 +583,7 @@ func (c *converter) writeData(w *hclWriter) {
 		if !pi.typ.ssm {
 			continue
 		}
-		w.raw(cfnhcl.SSMData(pi.name, pi.name))
+		w.raw(hclname.SSMData(pi.name, pi.name))
 		w.blank()
 	}
 	for _, b := range c.dynamicBlocks {

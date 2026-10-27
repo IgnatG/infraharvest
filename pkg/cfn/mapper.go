@@ -49,6 +49,7 @@ type Mapper interface {
 // Name is an attribute path relative to the resource, such as "arn" or
 // "endpoint[0].address".
 type Mapped struct {
+	// Name is the Terraform resource type or attribute path.
 	Name string
 	// Guessed is set when the mapper derived the name from the
 	// CloudFormation one rather than knowing it.
@@ -94,6 +95,7 @@ const (
 type Property struct {
 	// Name is the Terraform argument or block name.
 	Name string
+	// Kind says how the property's value is written.
 	Kind PropertyKind
 	// List is set when Terraform takes a list where CloudFormation takes
 	// one value, such as a security group rule's cidr_blocks for its
@@ -146,6 +148,10 @@ func guessable(cfnType string) bool {
 	return len(parts) == 3 && parts[0] == "AWS" && parts[1] != "Serverless" && parts[1] != "CloudFormation" && parts[1] != "" && parts[2] != ""
 }
 
+// ResourceType returns the table's Terraform type for cfnType or, for an
+// AWS type the table lacks, aws_service_thing derived from
+// AWS::Service::Thing, marked Guessed. It returns false for a type
+// outside the AWS namespace, SAM's or AWS::CloudFormation's own.
 func (BaseMapper) ResourceType(cfnType string) (Mapped, bool) {
 	if e, ok := builtinTypes[cfnType]; ok {
 		return Mapped{Name: e.tf}, true
@@ -157,6 +163,12 @@ func (BaseMapper) ResourceType(cfnType string) (Mapped, bool) {
 	return Mapped{Name: "aws_" + snake(parts[1]) + "_" + snake(parts[2]), Guessed: true}, true
 }
 
+// Property returns the table's entry for the property at path or, for a
+// property it lacks, one derived from the last name in path: a top-level
+// Tags becomes a tags map, and, marked Guessed, a name ending in
+// PolicyDocument a JSON policy and any other name an argument named in
+// snake_case. It returns false for an empty path, and for a type
+// ResourceType has no answer for.
 func (BaseMapper) Property(cfnType string, path []string) (Property, bool) {
 	if len(path) == 0 {
 		return Property{}, false
@@ -178,6 +190,10 @@ func (BaseMapper) Property(cfnType string, path []string) (Property, bool) {
 	return Property{Name: ident(last), Guessed: true}, true
 }
 
+// Ref returns the attribute Ref to a cfnType resource reads: the table's,
+// which is id unless the table names another, or id marked Guessed for an
+// AWS type the table lacks. Like ResourceType, it returns false for the
+// types it derives no names for.
 func (BaseMapper) Ref(cfnType string) (Mapped, bool) {
 	if e, ok := builtinTypes[cfnType]; ok {
 		if e.ref == "" {
@@ -191,6 +207,11 @@ func (BaseMapper) Ref(cfnType string) (Mapped, bool) {
 	return Mapped{Name: "id", Guessed: true}, true
 }
 
+// Attribute returns the table's Terraform attribute for Fn::GetAtt of
+// attribute or, for one it lacks, arn for Arn (marked Guessed only for a
+// type the table lacks) and otherwise each dotted part in snake_case,
+// joined by underscores and marked Guessed. Like ResourceType, it returns
+// false for the types it derives no names for.
 func (BaseMapper) Attribute(cfnType, attribute string) (Mapped, bool) {
 	e, known := builtinTypes[cfnType]
 	if known {

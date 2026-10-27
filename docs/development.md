@@ -21,7 +21,7 @@ Everything but `main.go` and `pkg/cfn` is under `internal/`: infraharvest has no
 | `internal/discovery` | Runs the listing: one discoverer per service and scope (account and region, subscription, project), each with its deadline, a bounded number at a time. |
 | `internal/driftpolicy` | What `infraharvest drift` does with each change it finds: the rules of `--accept`, `--keep` and `--rules`, the decisions file, the order they decide in (`Decider`), and the digest of the roots (`RootsDigest`) that the MCP server confirms a run with and drift checks again. The importer applies what it decides. |
 | `internal/selection`, `report`, `managed`, `config` | The selection file and the default selection (`Sources`, which decides each listed resource and why), the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
-| `pkg/cfn`, `internal/cfnhcl`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), what it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
+| `pkg/cfn`, `pkg/cfn/hclname`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), the names and numbers it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
 | `internal/ratelimit`, `fsutil`, `filelock`, `logging`, `version` | Small shared helpers: request rates per cloud API, atomic file writes, locks on the output directory and the provider cache, the filter that drops client libraries' debug lines, and the version a build reports (set at link time by release builds). |
 | `internal/repocheck` | Tests of the repository's scripts and `.gitignore`, run against real Git repositories. |
@@ -61,9 +61,9 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
 | `internal/discovery` | anything of infraharvest's but `harvest` | It reads listed resources through `harvest`; the importer drives it. |
-| `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta`, `cfnhcl` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
+| `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
 | `internal/filelock` | anything of infraharvest's but `fsutil` | The lock checks its file with the leaf `fsutil`, as the output's other files are checked. |
-| `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
+| `pkg/cfn`, `pkg/cfn/hclname` | anything of infraharvest's but `pkg/cfn/hclname`, which imports nothing of infraharvest's | The two can move to a module of their own: the `depguard` rule keeps `internal/` out, and `TestNoInternalImports` the rest. |
 
 Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files golangci-lint compiles: the default build's, test files included, and the `integration`, `e2e` and `sandbox` ones (see [Build tags](#build-tags)). To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
 
