@@ -1,6 +1,8 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
+//go:build !minimal || aws
+
 package cli
 
 import (
@@ -17,6 +19,11 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
+
+// cfn translates CloudFormation templates, so only a build with AWS has it.
+func init() {
+	awsCommands = append(awsCommands, newCfnCmd)
+}
 
 func newCfnCmd() *cobra.Command {
 	cmd := &cobra.Command{
