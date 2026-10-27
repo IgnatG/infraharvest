@@ -73,10 +73,10 @@ infraharvest discover aws
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -124,10 +124,10 @@ infraharvest discover azure
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -174,11 +174,11 @@ infraharvest discover google
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -219,20 +219,20 @@ infraharvest drift [output-directory] [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--accept` |  | write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep and --rules, the last rule that matches a change decides) |
-| `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue, whose arguments kept only in state aren't drift (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: those the import used, whose arguments kept only in state aren't drift (see https://ignatg.github.io/infraharvest/catalogue/) |
 | `--config` |  | the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners |
 | `--decisions` |  | decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it |
 | `--detailed-exitcode` |  | exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none |
-| `--engine` | `terraform` | terraform or tofu |
-| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit) |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--environment` |  | for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it |
-| `--force-unlock` |  | check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a line per root; json prints drift.json |
 | `--keep` |  | keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable) |
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
 | `--rules` |  | accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given) |
-| `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
+| `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `--untrusted-roots` |  | Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first |
 | `--write-decisions` |  | write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else drift.yaml in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
 
@@ -268,10 +268,10 @@ infraharvest import aws
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -318,10 +318,10 @@ infraharvest import azure
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as management_lock=LOCK_ID; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -367,11 +367,11 @@ infraharvest import google
 | `--check` |  | check the flags and exit without listing anything: what the configuration file sets too, and the selection file, managed state sources and catalogue they name |
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
-| `--engine` | `terraform` | terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
-| `--force-unlock` |  | write to --out even when another run holds its lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as storage_bucket=my-logs; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
 | `--include-owned` |  | import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default |
@@ -454,13 +454,13 @@ infraharvest verify [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--catalogue` |  | directory of catalogue files the import used to add to or override the built-in catalogue (see https://ignatg.github.io/infraharvest/catalogue/) |
-| `--engine` | `terraform` | terraform or tofu |
-| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run (0: no limit) |
+| `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: those the import used (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--environment` |  | for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/) |
-| `--force-unlock` |  | verify even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock |
+| `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a summary; json prints each root's checks as JSON |
-| `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH, else installed as for import) |
+| `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 
 ## infraharvest version
 
