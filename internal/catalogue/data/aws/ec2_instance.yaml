@@ -42,3 +42,9 @@ types:
       - private_dns_name_options.enable_resource_name_dns_aaaa_record=false
       - private_dns_name_options.hostname_type=ip-name
       - tenancy=default
+    # A key no root manages, as the AWS-managed key of EBS encryption: the
+    # plan checks it is that key.
+    lookups:
+      - arguments: [kms_key_id]
+        match: '^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$'
+        data_source: { type: aws_kms_alias, label: ebs, arguments: { name: alias/aws/ebs }, attribute: target_key_arn }

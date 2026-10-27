@@ -69,6 +69,21 @@ type Profile struct {
 	// Merge is what the root the environments of a stack share reads of
 	// each environment's account and region.
 	Merge Merge
+	// Backend is the Terraform backend that keeps state in the provider's
+	// cloud, which roots infraharvest generates may have (see
+	// config.Backend), such as AWS's s3; nil for none. Drift reads the
+	// state of the backends of the providers infraharvest is built with.
+	Backend *Backend
+}
+
+// Backend is a Terraform backend that keeps state in a cloud.
+type Backend struct {
+	// Type is the backend's type, such as s3.
+	Type string
+	// Settings are the settings infraharvest configures it with, in its
+	// block and in an environment's backend settings, such as bucket and
+	// key: what the MCP server's drift tools run it with.
+	Settings []string
 }
 
 // Scope is what one import of a provider covers, which the user names it
@@ -198,4 +213,32 @@ type Merge struct {
 	// the local that holds it, which also names the variable that sets
 	// the provider's, and RegionExpr the expression that reads it.
 	RegionData, RegionLocal, RegionExpr string
+	// EnvironmentData returns what an environment's credentials and
+	// region give the data sources that read its scope and region, with
+	// no arguments of their own, such as AWS's aws_caller_identity, whose
+	// account_id is the account's ID, for the scope ID and the region of
+	// an environment, "" where they aren't known: a resource of the root
+	// environments share that reads them is told as the environment's own
+	// root has it (see engine.UnmergedBlocks). Nil for a provider with
+	// none.
+	EnvironmentData func(scope, region string) EnvironmentData
+}
+
+// EnvironmentData has, by data source type, the values of the
+// attributes, by name, of the data sources that read an environment's
+// scope and region (see Merge.EnvironmentData).
+type EnvironmentData map[string]map[string]string
+
+// Set sets the attributes names of the data source of type typ to value,
+// unless value is "", which isn't known.
+func (d EnvironmentData) Set(typ, value string, names ...string) {
+	if value == "" {
+		return
+	}
+	if d[typ] == nil {
+		d[typ] = map[string]string{}
+	}
+	for _, name := range names {
+		d[typ][name] = value
+	}
 }
