@@ -111,7 +111,7 @@ func TestAWSMCPImport(t *testing.T) {
 	// A configuration file that names a binary to run is refused before
 	// the user is asked, and nothing runs.
 	writeRootFile(t, root, "terraform-path.yaml", "version: 1\nsettings:\n  terraform-path: /bin/sh\n")
-	if text := callToolError(ctx, t, session, "import", importArgs(map[string]any{"config": "terraform-path.yaml"})); !strings.Contains(text, "terraform-path isn't a setting the tools take") {
+	if text := callToolError(ctx, t, session, "import", importArgs(map[string]any{"config": "terraform-path.yaml"})); !strings.Contains(text, "terraform-path isn't a setting the import tool takes") {
 		t.Errorf("import with terraform-path in the configuration file: %s", text)
 	}
 	if len(asked) != 0 {
