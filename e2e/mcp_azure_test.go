@@ -20,7 +20,8 @@ import (
 
 // TestAzureMCP drives the MCP server's discover and import tools on the
 // resource group testdata/azure creates, as an agent does: discover lists
-// it into a selection file, and the agent excludes the public IP. import
+// it into a selection file, which leaves out what another tool manages,
+// and the agent excludes the public IP as well. import
 // asks the user, naming the resource group and the subscription, and
 // imports what the file includes, and nothing else, into the one root of
 // the subscription and the resource group, which plans as imports with no
@@ -61,7 +62,7 @@ func TestAzureMCP(t *testing.T) {
 	if len(asked) != 1 || !strings.Contains(asked[0], reads) {
 		t.Errorf("import asked the user %q, want one confirmation that it reads %s", asked, reads)
 	}
-	if imported.ExitCode != report.ExitOK || imported.Totals.Imported == 0 || imported.Totals.Excluded != 1 || len(imported.FailedChecks) != 0 || len(imported.Failures) != 0 {
+	if imported.ExitCode != report.ExitOK || imported.Totals.Imported == 0 || imported.Totals.Excluded != summary.Excluded+1 || len(imported.FailedChecks) != 0 || len(imported.Failures) != 0 {
 		t.Errorf("import: %+v", imported)
 	}
 	out := filepath.Join(root, "generated")
