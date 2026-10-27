@@ -347,7 +347,7 @@ func TestRunGate(t *testing.T) {
 `)
 	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
 
-	gate, err := runGate(context.Background(), tf, dir, nil, Options{})
+	gate, err := runGate(context.Background(), tf, dir, nil, Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -418,7 +418,7 @@ func TestScannersDontSeeSecrets(t *testing.T) {
 		return nil, nil
 	}}
 
-	gate, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []Scanner{spy}})
+	gate, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []Scanner{spy}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

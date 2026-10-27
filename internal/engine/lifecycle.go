@@ -21,10 +21,10 @@ type Lifecycle struct {
 	Reason              string
 }
 
-// SetLifecycles adds to the resources in the file at path the lifecycle
+// setLifecycles adds to the resources in the file at path the lifecycle
 // settings lifecycles has for their type, and reports whether it changed
 // anything. A resource that already sets one keeps its own.
-func SetLifecycles(path string, lifecycles map[string]Lifecycle) (bool, error) {
+func setLifecycles(path string, lifecycles map[string]Lifecycle) (bool, error) {
 	if len(lifecycles) == 0 {
 		return false, nil
 	}

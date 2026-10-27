@@ -49,7 +49,7 @@ func thingRoot(t *testing.T) (string, map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, withDefaults)
-	content, err := ImportsFile([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
+	content, err := renderImports([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func roleRoot(t *testing.T, content string) (string, map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
 	writeConfig(t, dir, GeneratedFileName, content)
-	imports, err := ImportsFile([]Import{{Type: "aws_role", Name: "a", ID: "a"}})
+	imports, err := renderImports([]Import{{Type: "aws_role", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +463,7 @@ func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
   }
 }
 `)
-	imports, err := ImportsFile([]Import{{Type: "aws_lambda_function", Name: "a", ID: "a"}})
+	imports, err := renderImports([]Import{{Type: "aws_lambda_function", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
   }
 }
 `)
-	imports, err := ImportsFile([]Import{{Type: "aws_lb", Name: "a", ID: "a"}})
+	imports, err := renderImports([]Import{{Type: "aws_lb", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -589,7 +589,7 @@ resource "google_storage_bucket" "b" {
   }
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
+	content, err := renderImports([]Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
 	if err != nil {
 		t.Fatal(err)
 	}

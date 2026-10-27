@@ -115,7 +115,7 @@ func TestPostProcessPlanCount(t *testing.T) {
 	dir, tf := liftTagsDir(t)
 	writeConfig(t, dir, GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
 
-	if _, err := postProcess(context.Background(), tf, dir, Options{DefaultTags: &awsDefaultTags}, nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, generating(Options{DefaultTags: &awsDefaultTags}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -198,5 +198,44 @@ func TestVerifyStepsWithoutChanges(t *testing.T) {
 	}
 	if got := readFile(t, dir, GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf changed:\n%s", got)
+	}
+}
+
+// postProcess runs every pass after the passes it names, and every pass it
+// names is one of postProcess's.
+func TestTidyPassesRunAfterTheirPrerequisites(t *testing.T) {
+	t.Parallel()
+	passes := (&tidying{r: generating(Options{})}).passes()
+
+	if err := checkPassOrder(passes); err != nil {
+		t.Error(err)
+	}
+	names := map[string]bool{}
+	for _, p := range passes {
+		if names[p.name] {
+			t.Errorf("two passes are named %s", p.name)
+		}
+		names[p.name] = true
+		if (p.run == nil) == (p.step == nil) {
+			t.Errorf("the %s pass needs either run or step", p.name)
+		}
+	}
+}
+
+// A pass wired before one it must run after, or after one there isn't,
+// fails the order.
+func TestCheckPassOrderRejectsAPassBeforeItsPrerequisite(t *testing.T) {
+	t.Parallel()
+	tags := tidyPass{name: passTagLift}
+	literals := tidyPass{name: passLiterals, after: []string{passTagLift}}
+
+	if err := checkPassOrder([]tidyPass{tags, literals}); err != nil {
+		t.Errorf("in order: %v", err)
+	}
+	if err := checkPassOrder([]tidyPass{literals, tags}); err == nil {
+		t.Error("literals before the tag lift: want an error")
+	}
+	if err := checkPassOrder([]tidyPass{literals}); err == nil {
+		t.Error("after a pass there isn't: want an error")
 	}
 }

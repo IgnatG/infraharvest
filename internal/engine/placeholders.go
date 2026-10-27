@@ -17,7 +17,7 @@ import (
 
 // Placeholder is for configuration Terraform can't read back from the
 // cloud, such as where a Lambda function's code comes from: when a
-// resource sets none of OneOf, SetPlaceholders sets the arguments in Set
+// resource sets none of OneOf, setPlaceholders sets the arguments in Set
 // and makes Terraform ignore changes to Ignore, so the plan keeps what is
 // deployed. Reason goes in a comment above ignore_changes.
 type Placeholder struct {
@@ -30,10 +30,10 @@ type Placeholder struct {
 // placeholderField is an {argument} in a Placeholder value.
 var placeholderField = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 
-// SetPlaceholders sets the placeholders of the resources in the file at
+// setPlaceholders sets the placeholders of the resources in the file at
 // path that need them (see Placeholder), and reports whether it changed
 // anything.
-func SetPlaceholders(path string, placeholders map[string]Placeholder) (bool, error) {
+func setPlaceholders(path string, placeholders map[string]Placeholder) (bool, error) {
 	if len(placeholders) == 0 {
 		return false, nil
 	}

@@ -47,8 +47,8 @@ type Provider struct {
 	Config  map[string]interface{} // provider block arguments
 }
 
-// ImportsFile renders one import block per resource, sorted by address.
-func ImportsFile(imports []Import) ([]byte, error) {
+// renderImports renders one import block per resource, sorted by address.
+func renderImports(imports []Import) ([]byte, error) {
 	sorted := append([]Import(nil), imports...)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].Type != sorted[j].Type {
@@ -106,14 +106,14 @@ func VersionsFile(requiredVersion string, p Provider) []byte {
 // its environment when the user plans.
 var credentialArgument = regexp.MustCompile(`(?i)(^|_)(token|password|passwd|secret|secret_key|api_?key|access_key|private_key|credentials?)$`)
 
-// IsCredentialArgument reports whether a provider argument holds a
-// credential, by its name.
-func IsCredentialArgument(name string) bool {
+// isCredential reports whether a provider argument holds a credential, by
+// its name.
+func isCredential(name string) bool {
 	return credentialArgument.MatchString(name)
 }
 
 // WithoutCredentials returns args without the arguments that hold
-// credentials (see IsCredentialArgument), at any depth, and the names it
+// credentials (see isCredential), at any depth, and the names it
 // left out, sorted.
 func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
 	if args == nil {
@@ -122,7 +122,7 @@ func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 	var dropped []string
 	kept := make(map[string]interface{}, len(args))
 	for k, v := range args {
-		if IsCredentialArgument(k) {
+		if isCredential(k) {
 			dropped = append(dropped, k)
 			continue
 		}
