@@ -213,11 +213,6 @@ func TestWriteFileModeAndPlace(t *testing.T) {
 // and no temporary file behind: run with -race.
 func TestWriteFileConcurrently(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		// MoveFileEx can refuse to replace a file another rename is
-		// replacing at that moment, with access denied.
-		t.Skip("renames over one file at once can fail on Windows")
-	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".gitignore")
 	contents := make([]string, 16)
