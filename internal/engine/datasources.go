@@ -5,7 +5,6 @@ package engine
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -15,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // DataFileName holds the data sources of resources the configuration
@@ -56,20 +57,14 @@ type DataSource struct {
 	Type, Argument string
 }
 
-// addDataSources replaces literals in generated.tf that are the ID of an
-// external resource with a reference to a data source that reads it, such
-// as vpc_id = data.aws_vpc.vpc_0abc1234.id, and writes the data sources to
-// data.tf. Like addReferences, a value counts if it identifies a resource
-// on its own, or if the argument is named after the resource's type. Data
-// sources are named other than those in taken. It reports whether it
-// changed anything.
-func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
-	edited, err := addDataSourcesSkipping(dir, external, sources, taken, nil)
-	return len(edited) > 0, err
-}
-
-// addDataSourcesSkipping is addDataSources for the resources not in skip
-// (see verifyEach). It returns the resources it changed.
+// addDataSourcesSkipping replaces literals in generated.tf that are the
+// ID of an external resource with a reference to a data source that reads
+// it, such as vpc_id = data.aws_vpc.vpc_0abc1234.id, and writes the data
+// sources to data.tf. Like addReferencesSkipping, a value counts if it
+// identifies a resource on its own, or if the argument is named after the
+// resource's type. Data sources are named other than those in taken. It
+// leaves the resources in skip as they are (see verifyEach), and returns
+// the resources it changed.
 func addDataSourcesSkipping(dir string, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it, and
 	// each resource once, with a name if any of its entries has one.
@@ -161,5 +156,5 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
-	return edited, os.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return edited, fsutil.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
 }

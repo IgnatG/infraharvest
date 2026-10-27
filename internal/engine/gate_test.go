@@ -211,6 +211,39 @@ provider "pagerduty" {
 	}
 }
 
+// Every credential format is looked for in every file, the README and the
+// other files literalSecrets doesn't read as much as a .tf file; but a
+// password argument in a file is no connection string's password.
+func TestScanFileCredentialFormats(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		rel, content, want string
+	}{
+		"GitLab token in the README": {ReadmeFileName, "Set the token to glpat-" + fakeSecret("gitlab")[:20] + ".\n", "GitLab token"},
+		"npm token in the README":    {ReadmeFileName, "npm_" + fakeSecret("npm")[:36] + "\n", "npm token"},
+		"SendGrid key in a script":   {"scripts/send.sh", "KEY=SG." + fakeSecret("sg")[:22] + "." + fakeSecret("grid")[:43] + "\n", "SendGrid key"},
+		"webhook within the README":  {ReadmeFileName, "Alerts go to https://hooks.slack.com/services/" + fakeSecret("hook")[:24] + ".\n", "Slack webhook"},
+		"GitHub token in a .tf file": {GeneratedFileName, "# ghp_" + fakeSecret("gh")[:36] + "\n", "GitHub token"},
+		"password argument":          {GeneratedFileName, "resource \"aws_db_instance\" \"a\" {\n  password = var.db_password\n}\n", ""},
+		"password in the README":     {ReadmeFileName, "password = var.db_password\n", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			check := Check{Passed: true}
+			scanFile(&check, newValueMatcher(nil), tt.rel, tt.content)
+			if tt.want == "" {
+				if !check.Passed {
+					t.Errorf("clean file reported: %v", check.Details)
+				}
+				return
+			}
+			if want := []string{tt.rel + ": looks like it contains a " + tt.want}; check.Passed || !reflect.DeepEqual(check.Details, want) {
+				t.Errorf("got %v, want %v", check.Details, want)
+			}
+		})
+	}
+}
+
 // The local state of a root applied without a backend holds the values the
 // provider marks sensitive, but isn't configuration: the scan passes over
 // it, its workspaces' states too.

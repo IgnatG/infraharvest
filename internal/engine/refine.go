@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // refineFailed starts the warning of a root whose Refine edits were rolled
@@ -129,7 +131,7 @@ func restoreRoot(dir string, files map[string][]byte) error {
 		if info, err := os.Stat(path); err == nil {
 			mode = info.Mode().Perm()
 		}
-		if err := os.WriteFile(path, content, mode); err != nil {
+		if err := fsutil.WriteFile(path, content, mode); err != nil {
 			return err
 		}
 	}

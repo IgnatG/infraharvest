@@ -5,11 +5,12 @@ package engine
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // ReadmeFileName explains a generated directory and what is left to do.
@@ -296,5 +297,5 @@ func plural(n int, one, many string) string {
 
 // WriteReadme writes the README of dir, a root that holds result.
 func WriteReadme(dir string, result *Result) error {
-	return os.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
+	return fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
 }

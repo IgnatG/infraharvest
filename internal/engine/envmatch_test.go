@@ -123,36 +123,13 @@ resource "aws_sqs_queue" "c" {
 	}
 }
 
-func TestStackKey(t *testing.T) {
-	const pattern = "{out}/envs/{env}/{provider}/{account}/{region}/"
-	key := func(out, region string, n *normaliser) string {
-		return stackKey(pattern, map[string]string{"{out}": out, "{provider}": "aws", "{region}": region}, n)
-	}
-	if dev, prod := key("out", "eu-west-2", nil), key("out", "eu-west-2", nil); dev != prod || dev != "out/envs/aws/eu-west-2" {
-		t.Errorf("same region: %q and %q, want both out/envs/aws/eu-west-2", dev, prod)
-	}
-	if a, b := key("out", "eu-west-2", nil), key("out", "us-east-1", nil); a == b {
-		t.Errorf("different regions share %q", a)
-	}
-	if got := key(`C:\out`, "global", nil); got != "C:/out/envs/aws/global" {
-		t.Errorf("Windows path: %q", got)
-	}
-	// An Azure root's resource group, in {region}, named after its
-	// environment.
-	dev := newNormaliser(envRoot{env: "dev"})
-	prod := newNormaliser(envRoot{env: "prod", tokens: []string{"prd"}})
-	if a, b := key("out", "rg-shop-dev", dev), key("out", "rg-shop-prd", prod); a != b || a != "out/envs/aws/rg-shop-{env}" {
-		t.Errorf("resource groups: %q and %q", a, b)
-	}
-}
-
 // matchRoots matches roots, as mergeStack does.
 func matchRoots(roots []envRoot) []*stackResource {
 	norms := make([]*normaliser, len(roots))
 	for i, root := range roots {
 		norms[i] = newNormaliser(root)
 	}
-	return matchResources(roots, norms)
+	return matchResourcesWith(roots, norms, nil, nil)
 }
 
 // describeMatches describes each of resources: its address, how it was

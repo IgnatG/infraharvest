@@ -297,6 +297,27 @@ func TestCheckRejects(t *testing.T) {
 	}
 }
 
+// check reports what's wrong in the same order every run: by type, and
+// within a type, by attribute.
+func TestCheckErrorsInOrder(t *testing.T) {
+	t.Parallel()
+	var file strings.Builder
+	file.WriteString("provider: aws\ntypes:\n")
+	var want []string
+	for _, typ := range []string{"aws_a", "aws_b", "aws_c", "aws_d", "aws_e", "aws_f"} {
+		file.WriteString("  " + typ + ":\n    skip:\n      - reason: r\n        attribute_prefixes: { x: [\"\"], y: [\"\"], z: [\"\"] }\n")
+		for _, k := range []string{"x", "y", "z"} {
+			want = append(want, "x.yaml: "+typ+": skip[0]: attribute_prefixes: "+k+": want prefixes, none empty")
+		}
+	}
+	for range 5 {
+		_, err := load(t, map[string]string{"x.yaml": file.String()})
+		if err == nil || !strings.Contains(err.Error(), strings.Join(want, "\n")) {
+			t.Fatalf("got %v, want the errors in order:\n%s", err, strings.Join(want, "\n"))
+		}
+	}
+}
+
 // Overlay entries replace the fields they set, and add types.
 func TestLoadOverlay(t *testing.T) {
 	t.Parallel()

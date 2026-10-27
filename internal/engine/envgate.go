@@ -107,7 +107,7 @@ func (r *MergeResult) Passed() bool {
 
 // MergeRoots merges roots, the finished roots of one stack, each of
 // another environment, into one root in dir that every environment plans
-// and applies with its own var files (see writeMergedRoot), and checks it
+// and applies with its own var files (see mergedRootFiles), and checks it
 // with the verification gate once per environment, with that
 // environment's credentials and var files: every environment's plan must
 // import what its root imported and change nothing else, as its root's

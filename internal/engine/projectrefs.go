@@ -20,9 +20,9 @@ var projectArguments = []string{"project", "project_id", "projects"}
 // project the root manages as google_project refer to it, as a resource
 // would: project_id = google_project.main.project_id, not the project's
 // ID again. A call takes its arguments from the resources it replaces,
-// which name the project by its ID; addReferences doesn't refer them to
-// it, as a resource's project usually goes to the provider block instead
-// (see omitInherited). Only projectArguments count: another argument
+// which name the project by its ID; addReferencesSkipping doesn't refer
+// them to it, as a resource's project usually goes to the provider block
+// instead (see omitInherited). Only projectArguments count: another argument
 // with the same value, such as a bucket's name, isn't the project. It
 // reports whether it changed generated.tf.
 func referToProjects(dir string) (bool, error) {

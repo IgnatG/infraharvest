@@ -22,7 +22,7 @@ type referenceTarget struct {
 	// attribute is the attribute's name, or its path in a nested block,
 	// such as identity[0].principal_id (see nestedIdentities).
 	attribute string
-	// data is set for a data source (see addDataSources).
+	// data is set for a data source (see addDataSourcesSkipping).
 	data bool
 }
 
@@ -57,7 +57,7 @@ func (t referenceTarget) node() string {
 	return t.address
 }
 
-// addReferences replaces literals in generated.tf that are another
+// addReferencesSkipping replaces literals in generated.tf that are another
 // resource's id, ARN or self link, by its imported values, with a
 // reference to that attribute: vpc_id = aws_vpc.main.id. A value counts
 // if it identifies a resource on its own (see referenceable), or if the
@@ -68,17 +68,10 @@ func (t referenceTarget) node() string {
 // identities does: short IDs, names and the other attributes that
 // identify a resource, and IDs inside longer strings.
 // It doesn't make a resource refer to itself or two resources refer to
-// each other, directly or not. It reports whether it changed anything.
-func addReferences(dir string, values map[string]map[string]any) (bool, error) {
-	edited, err := addReferencesSkipping(dir, values, nil)
-	return len(edited) > 0, err
-}
-
-// addReferencesSkipping is addReferences for the resources skip leaves
-// it: a resource at level 1 gets only the references of the index and
-// its parents, which identify the resource by its whole ID, ARN or name;
-// one at level 2 or more gets none (see verifyEach). It returns the
-// resources it changed.
+// each other, directly or not. A resource skip has at level 1 gets only
+// the references of the index and its parents, which identify the
+// resource by its whole ID, ARN or name; one at level 2 or more gets none
+// (see verifyEach). It returns the resources it changed.
 func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {

@@ -55,6 +55,7 @@ import (
 	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
@@ -183,7 +184,7 @@ func (r *root) save() error {
 	}
 	sort.Strings(paths)
 	for _, path := range paths {
-		if err := os.WriteFile(path, hclwrite.Format(r.files[path].Bytes()), 0o644); err != nil {
+		if err := fsutil.WriteFile(path, hclwrite.Format(r.files[path].Bytes()), 0o644); err != nil {
 			return err
 		}
 	}
@@ -197,7 +198,7 @@ func (r *root) save() error {
 		if _, diags := hclsyntax.ParseConfig(src, name, hcl.InitialPos); diags.HasErrors() {
 			return fmt.Errorf("the generated %s isn't valid HCL, which is a bug: %w", name, diags)
 		}
-		if err := os.WriteFile(filepath.Join(r.dir, name), src, 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(r.dir, name), src, 0o644); err != nil {
 			return err
 		}
 	}

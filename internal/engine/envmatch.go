@@ -6,7 +6,6 @@ package engine
 import (
 	"fmt"
 	"maps"
-	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -27,37 +26,6 @@ const (
 	resourceGroupPlaceholder = "{resource_group}"
 )
 
-// stackPlaceholders are the layout placeholders that tell the roots of
-// one stack's environments apart, which its key leaves out.
-var stackPlaceholders = []string{"{env}", "{account}", "{subscription}", "{project}"}
-
-// stackKey returns the stack a root laid out by pattern belongs to: the
-// pattern without its segments that hold a placeholder of
-// stackPlaceholders, and with values (by placeholder, such as {provider})
-// filling in the others, normalised by n (see normaliser.value) if set,
-// as an Azure root's resource group may be named after its environment.
-// Roots of different environments with the same key merge: the same
-// provider, region and service.
-func stackKey(pattern string, values map[string]string, n *normaliser) string {
-	pairs := make([]string, 0, 2*len(values))
-	for _, placeholder := range slices.Sorted(maps.Keys(values)) {
-		pairs = append(pairs, placeholder, values[placeholder])
-	}
-	fill := strings.NewReplacer(pairs...)
-	var kept []string
-	for _, segment := range strings.Split(strings.ReplaceAll(pattern, "\\", "/"), "/") {
-		if slices.ContainsFunc(stackPlaceholders, func(p string) bool { return strings.Contains(segment, p) }) {
-			continue
-		}
-		segment = fill.Replace(segment)
-		if n != nil {
-			segment = n.value(segment)
-		}
-		kept = append(kept, segment)
-	}
-	return path.Clean(strings.ReplaceAll(strings.Join(kept, "/"), "\\", "/"))
-}
-
 // envRoot is one environment's finished root of a stack, as merging reads
 // it.
 type envRoot struct {
@@ -75,7 +43,7 @@ type envRoot struct {
 	data *hclFile
 
 	// What the merged root's other files are written from (see
-	// writeMergedRoot): the root's provider, its configuration without
+	// mergedRootFiles): the root's provider, its configuration without
 	// credentials; its required_version; the tags its provider applies
 	// to every resource (default_tags), if any, and whether it applies
 	// them with an argument (default_labels); the file each resource
@@ -422,22 +390,17 @@ func (r *stackResource) instance() hcl.Traversal {
 	return hcl.Traversal{hcl.TraverseRoot{Name: r.resourceType}, hcl.TraverseAttr{Name: r.label}}
 }
 
-// matchResources matches the resources of roots, one per environment of
-// a stack, whose normalisers are norms, in order: by type and normalised
-// import ID, a module call's by those of the resources in it; by type and normalised label, where the label is unique in
-// its root; and by type and the matched resources they refer to, where
-// one resource of each root is left. Each match takes each root's only
-// candidate, so two resources of one root never match one. A resource
-// that matches none is a stack resource of its environment alone. It
-// returns the stack's resources sorted by address, with labels unique per
-// type (see assignLabels).
-func matchResources(roots []envRoot, norms []*normaliser) []*stackResource {
-	return matchResourcesWith(roots, norms, nil, nil)
-}
-
-// matchResourcesWith is matchResources, with the resources isolated names,
-// by mergeKey, matched with no other environment's (see
-// mergeControls.isolated), labelled as keptLabels says, where it does.
+// matchResourcesWith matches the resources of roots, one per environment
+// of a stack, whose normalisers are norms, in order: by type and
+// normalised import ID, a module call's by those of the resources in it;
+// by type and normalised label, where the label is unique in its root;
+// and by type and the matched resources they refer to, where one resource
+// of each root is left. Each match takes each root's only candidate, so
+// two resources of one root never match one. A resource that matches
+// none is a stack resource of its environment alone, as is one isolated
+// names, by mergeKey (see mergeControls.isolated), labelled as keptLabels
+// says, where it does. It returns the stack's resources sorted by
+// address, with labels unique per type (see assignLabels).
 func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[string]bool, keptLabels map[string]string) []*stackResource {
 	byEnv := make([][]*envResource, len(roots))
 	labels := make([]map[string]int, len(roots))
