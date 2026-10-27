@@ -74,6 +74,13 @@ type fakeEngine struct {
 	merged [][]engine.MergeRoot
 	// mergeReason, if set, is why the roots of a stack don't merge.
 	mergeReason string
+	// readmes are the roots whose README was written after adding to
+	// them, notInCloud what each merged root listed as no longer in the
+	// cloud, and mergedMoves the moved blocks written into each merged
+	// root, by directory.
+	readmes     []string
+	notInCloud  map[string]map[string][]engine.Import
+	mergedMoves map[string][]engine.Move
 }
 
 func (f *fakeEngine) tools() *callTools {
@@ -178,6 +185,30 @@ func (f *fakeEngine) tools() *callTools {
 				result.Environments = append(result.Environments, engine.MergedEnvironment{Env: r.Env})
 			}
 			return result, os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# merged\n"), 0o644)
+		},
+		readme: func(dir string, _ *engine.Result) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.readmes = append(f.readmes, filepath.Base(dir))
+			return os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), []byte("# fake\n"), 0o644)
+		},
+		mergedNotInCloud: func(dir string, gone map[string][]engine.Import) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.notInCloud == nil {
+				f.notInCloud = map[string]map[string][]engine.Import{}
+			}
+			f.notInCloud[filepath.Base(dir)] = gone
+			return nil
+		},
+		mergedMoves: func(dir string, moved []engine.Move, _ []engine.Removal) (engine.Check, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.mergedMoves == nil {
+				f.mergedMoves = map[string][]engine.Move{}
+			}
+			f.mergedMoves[filepath.Base(dir)] = moved
+			return engine.Check{Name: engine.CheckMoves, Passed: true}, os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644)
 		},
 	}
 }

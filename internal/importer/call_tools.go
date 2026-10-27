@@ -14,8 +14,10 @@ import (
 // which tests replace (see Options.tools): the engine binary, the
 // registry the root files pin the provider from, and the engine that
 // writes each root, whether it generates, adds to or vacates it, or
-// merges the roots of a stack's environments, or vacates their merged
-// root. A nil *callTools, or a nil field, uses the real one.
+// writes the README of a root added to, or merges the roots of a stack's
+// environments, or writes what their merged root no longer finds in the
+// cloud, or its moved blocks, or vacates it. A nil *callTools, or a nil
+// field, uses the real one.
 type callTools struct {
 	// findBinary returns the path of the engine binary, as
 	// engine.Binary.Find does.
@@ -30,9 +32,17 @@ type callTools struct {
 	// vacateRoot writes a root with removed blocks alone, as engine.Vacate
 	// does.
 	vacateRoot func(dir string, opts engine.Options) (*engine.Result, error)
+	// readme writes the README of a root, as engine.WriteReadme does.
+	readme func(dir string, result *engine.Result) error
 	// merge merges the roots of a stack's environments, as
 	// engine.MergeRoots does.
 	merge func(ctx context.Context, dir string, roots []engine.MergeRoot, opts engine.MergeOptions) (*engine.MergeResult, error)
+	// mergedNotInCloud lists in a merged root's README what is no longer
+	// in the cloud, as engine.WriteMergedNotInCloud does.
+	mergedNotInCloud func(dir string, gone map[string][]engine.Import) error
+	// mergedMoves writes the moved and removed blocks of a merged root,
+	// as engine.WriteMergedMoves does.
+	mergedMoves func(dir string, moved []engine.Move, removed []engine.Removal) (engine.Check, error)
 	// vacateMergedRoot writes a merged root with removed blocks alone, as
 	// engine.VacateMerged does.
 	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, engine.Check, error)
@@ -80,6 +90,15 @@ func (t *callTools) vacate(dir string, opts engine.Options) (*engine.Result, err
 	return engine.Vacate(dir, opts)
 }
 
+// writeReadme writes the README of the root in dir, for result (see
+// engine.WriteReadme).
+func (t *callTools) writeReadme(dir string, result *engine.Result) error {
+	if t != nil && t.readme != nil {
+		return t.readme(dir, result)
+	}
+	return engine.WriteReadme(dir, result)
+}
+
 // mergeRoots merges roots into the root in dir (see engine.MergeRoots).
 func (t *callTools) mergeRoots(ctx context.Context, dir string, roots []engine.MergeRoot, opts engine.MergeOptions) (*engine.MergeResult, error) {
 	if t != nil && t.merge != nil {
@@ -95,4 +114,22 @@ func (t *callTools) vacateMerged(dir string, files []string, removed []engine.Re
 		return t.vacateMergedRoot(dir, files, removed)
 	}
 	return engine.VacateMerged(dir, files, removed)
+}
+
+// writeMergedNotInCloud lists gone in the README of the merged root in
+// dir (see engine.WriteMergedNotInCloud).
+func (t *callTools) writeMergedNotInCloud(dir string, gone map[string][]engine.Import) error {
+	if t != nil && t.mergedNotInCloud != nil {
+		return t.mergedNotInCloud(dir, gone)
+	}
+	return engine.WriteMergedNotInCloud(dir, gone)
+}
+
+// writeMergedMoves writes moved and removed into the merged root in dir,
+// and returns their moves check (see engine.WriteMergedMoves).
+func (t *callTools) writeMergedMoves(dir string, moved []engine.Move, removed []engine.Removal) (engine.Check, error) {
+	if t != nil && t.mergedMoves != nil {
+		return t.mergedMoves(dir, moved, removed)
+	}
+	return engine.WriteMergedMoves(dir, moved, removed)
 }

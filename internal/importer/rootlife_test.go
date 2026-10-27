@@ -77,6 +77,9 @@ func TestListCallAddsToAMergedRoot(t *testing.T) {
 	if added := f.added["all"]; len(added) != 1 || added[0].ID != "id-beta" {
 		t.Errorf("added %+v, want beta only", added)
 	}
+	if !slices.Equal(f.readmes, []string{"all"}) {
+		t.Errorf("README written for %v, want the root added to", f.readmes)
+	}
 	if set, err := premerged(out, dir); err != nil || !set {
 		t.Errorf("the root isn't set aside again: %v, %v", set, err)
 	}

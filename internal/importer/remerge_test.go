@@ -104,6 +104,24 @@ func TestMergedMoves(t *testing.T) {
 	if why, err := r.moveMerged(t.TempDir(), &engine.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
 		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
+
+	// With it, the moved blocks go into the merged root's moves.tf.
+	f := &fakeEngine{}
+	r.options = Options{Regenerate: true, tools: f.tools()}
+	stack := filepath.Join(t.TempDir(), "app")
+	if err := os.MkdirAll(stack, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result := &engine.MergeResult{}
+	if why, err := r.moveMerged(stack, result, before, now, kept, nil); why != "" || err != nil {
+		t.Fatalf("with --regenerate: %q, %v", why, err)
+	}
+	if got := f.mergedMoves["app"]; !slices.Equal(got, want) {
+		t.Errorf("moved blocks written %+v, want %+v", got, want)
+	}
+	if !slices.Equal(result.Files, []string{engine.MovesFileName}) {
+		t.Errorf("files %v, want %s", result.Files, engine.MovesFileName)
+	}
 }
 
 func TestKeptAsMerged(t *testing.T) {
@@ -376,11 +394,15 @@ func TestMergeStack(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{}
 	run, stack, members := stackMembers(t, out, f, "dev", "prod")
+	run.report.NotInCloud = []report.NotInCloud{{Path: "dev/app", Address: "fake_thing.gone", ID: "id-gone"}}
 	if err := run.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.merged) != 1 {
 		t.Fatalf("merged %d times, want once", len(f.merged))
+	}
+	if gone := f.notInCloud["app"]["dev"]; len(gone) != 1 || gone[0].ID != "id-gone" {
+		t.Errorf("listed as no longer in the cloud %+v, want dev's id-gone", f.notInCloud)
 	}
 	for i, r := range f.merged[0] {
 		if r.Env != members[i].env || r.Origin != members[i].dir || r.Dir != premergeDir(out, members[i].dir) {

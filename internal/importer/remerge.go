@@ -347,7 +347,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	r.recordMerge(merge, members)
 	if merge.Merged {
 		if gone := r.readdressNotInCloud(merge.Path, members, imports); len(gone) > 0 {
-			if err := engine.WriteMergedNotInCloud(stack, gone); err != nil {
+			if err := r.options.tools.writeMergedNotInCloud(stack, gone); err != nil {
 				return err
 			}
 		}
@@ -663,7 +663,7 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 	}
 	result.Files = append(result.Files, engine.MovesFileName)
 	sort.Strings(result.Files)
-	check, err := engine.WriteMergedMoves(stack, moves, removed)
+	check, err := r.options.tools.writeMergedMoves(stack, moves, removed)
 	if err != nil {
 		return "", err
 	}
