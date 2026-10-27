@@ -198,4 +198,32 @@ type Merge struct {
 	// the local that holds it, which also names the variable that sets
 	// the provider's, and RegionExpr the expression that reads it.
 	RegionData, RegionLocal, RegionExpr string
+	// EnvironmentData returns what an environment's credentials and
+	// region give the data sources that read its scope and region, with
+	// no arguments of their own, such as AWS's aws_caller_identity, whose
+	// account_id is the account's ID, for the scope ID and the region of
+	// an environment, "" where they aren't known: a resource of the root
+	// environments share that reads them is told as the environment's own
+	// root has it (see engine.UnmergedBlocks). Nil for a provider with
+	// none.
+	EnvironmentData func(scope, region string) EnvironmentData
+}
+
+// EnvironmentData has, by data source type, the values of the
+// attributes, by name, of the data sources that read an environment's
+// scope and region (see Merge.EnvironmentData).
+type EnvironmentData map[string]map[string]string
+
+// Set sets the attributes names of the data source of type typ to value,
+// unless value is "", which isn't known.
+func (d EnvironmentData) Set(typ, value string, names ...string) {
+	if value == "" {
+		return
+	}
+	if d[typ] == nil {
+		d[typ] = map[string]string{}
+	}
+	for _, name := range names {
+		d[typ][name] = value
+	}
 }

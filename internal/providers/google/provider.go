@@ -293,6 +293,11 @@ func (*Provider) Profile() harvest.Profile {
 			ScopeData:  "google_client_config.current",
 			ScopeLocal: "project_id",
 			ScopeExpr:  "data.google_client_config.current.project",
+			EnvironmentData: func(scope, _ string) harvest.EnvironmentData {
+				data := harvest.EnvironmentData{}
+				data.Set("google_client_config", scope, "project")
+				return data
+			},
 		},
 	}
 }

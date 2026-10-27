@@ -440,6 +440,11 @@ func (*Provider) Profile() harvest.Profile {
 			ScopeData:  "azurerm_client_config.current",
 			ScopeLocal: "subscription_id",
 			ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
+			EnvironmentData: func(scope, _ string) harvest.EnvironmentData {
+				data := harvest.EnvironmentData{}
+				data.Set("azurerm_client_config", scope, "subscription_id")
+				return data
+			},
 		},
 	}
 }

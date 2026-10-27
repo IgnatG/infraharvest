@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/managed"
+	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 )
 
 // writeGoneStack writes, in out/aws/eu-west-2, a root dev and prod share,
@@ -42,7 +43,8 @@ func writeGoneStack(t *testing.T, out string) string {
 
 // goneMember returns the member of env the import generated afresh in
 // out, a root of the queues of ids, by their labels there, whose listing
-// lists every queue, and found those of listed.
+// lists every queue, and found those of listed, with the aws provider's
+// merge profile.
 func goneMember(t *testing.T, out, env, account string, ids map[string]string, listed ...string) mergeMember {
 	t.Helper()
 	dir := filepath.Join(out, "envs", env, "aws", account, "eu-west-2")
@@ -58,7 +60,7 @@ func goneMember(t *testing.T, out, env, account string, ids map[string]string, l
 	for _, id := range listed {
 		here.ids[strings.ToLower(id)] = true
 	}
-	return mergeMember{env: env, dir: dir, stack: filepath.Join(out, "aws", "eu-west-2"), scope: "aws/" + account + "/eu-west-2", account: account, region: "eu-west-2", result: result, here: here}
+	return mergeMember{env: env, dir: dir, stack: filepath.Join(out, "aws", "eu-west-2"), scope: "aws/" + account + "/eu-west-2", account: account, region: "eu-west-2", result: result, here: here, profile: mergeProfile((&awsprovider.Provider{}).Profile())}
 }
 
 // checkKeptGone checks that keepGone put back into m, under out, the
