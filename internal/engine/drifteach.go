@@ -91,7 +91,7 @@ func forEachKey(address string) (string, bool) {
 // changed. Where the block reads the field more than once, or anything
 // but the block and its import blocks refers to the map, an edit of it
 // would reach more than the instance: a hand edit.
-func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i int) Source {
+func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	ref := w.text(x.Range())
 	field := ""
 	if t := x.Traversal; len(t) == 3 {
@@ -102,10 +102,10 @@ func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 		}
 	}
 	if field == "" {
-		return w.manual(SourceExpression, x.Range(), ref+" sets it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), ref+" sets it: edit it by hand")
 	}
 	if eachFieldUses(w.each.block, field) > 1 {
-		return w.manual(SourceExpression, x.Range(), ref+", which other arguments of the block read too, sets it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), ref+", which other arguments of the block read too, sets it: edit it by hand")
 	}
 	over, ok := w.each.forEach.(*hclsyntax.ScopeTraversalExpr)
 	name := ""
@@ -123,49 +123,49 @@ func (w *driftWalk) eachValue(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 	case "local":
 		def, ok := w.cfg.locals[name]
 		if !ok {
-			return w.manual(SourceLocal, x.Range(), source+" sets it, which the root doesn't define: edit it by hand")
+			return w.manual(sourceLocal, x.Range(), source+" sets it, which the root doesn't define: edit it by hand")
 		}
 		if w.cfg.uses[name] > blockUses(w.each.block, root, name)+importUses(w.cfg, root, name, w.address) {
-			return w.manual(SourceSharedLocal, x.Range(), source+", which other blocks use too, sets it: edit it by hand")
+			return w.manual(sourceSharedLocal, x.Range(), source+", which other blocks use too, sets it: edit it by hand")
 		}
 		inner := *w
 		inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
 		src := inner.entry(def.attr.Expr, source, field, path, i)
-		if src.Kind == SourceLiteral || src.Kind == SourceAbsent {
-			src.Kind = SourceLocal
+		if src.Kind == sourceLiteral || src.Kind == sourceAbsent {
+			src.Kind = sourceLocal
 		}
 		return src
 	case "var":
 		return w.eachVariable(x, name, field, path, i)
 	}
-	return w.manual(SourceExpression, x.Range(), "the block's for_each isn't a local or a variable: edit it by hand")
+	return w.manual(sourceExpression, x.Range(), "the block's for_each isn't a local or a variable: edit it by hand")
 }
 
 // eachVariable is eachValue for a for_each over var.name.
-func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field string, path []string, i int) Source {
+func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field string, path []string, i int) codeSource {
 	source := "var." + name
 	v := w.cfg.variables[name]
 	switch {
 	case v == nil:
-		return w.manual(SourceVariable, x.Range(), source+" sets it, which the root doesn't declare: edit it by hand")
+		return w.manual(sourceVariable, x.Range(), source+" sets it, which the root doesn't declare: edit it by hand")
 	case sensitiveVariable(v):
-		return w.manual(SourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which %s sets: update it in your secret store, or TF_VAR_%s", source, name))
+		return w.manual(sourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which %s sets: update it in your secret store, or TF_VAR_%s", source, name))
 	case w.e.env == "":
-		return w.manual(SourceVariable, x.Range(), source+" sets it: change the value the root is given")
+		return w.manual(sourceVariable, x.Range(), source+" sets it: change the value the root is given")
 	case w.cfg.varUses[name] > blockUses(w.each.block, "var", name)+importUses(w.cfg, "var", name, w.address):
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
 	}
 	file := w.e.envVars
 	f := w.cfg.files[file]
 	if f == nil {
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and the root has no %s: give it the value by hand", source, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and the root has no %s: give it the value by hand", source, file))
 	}
 	if attr, ok := f.syntax.Attributes[name]; ok {
 		inner := *w
 		inner.file, inner.f = file, f
 		src := inner.entry(attr.Expr, source+" in "+file, field, path, i)
-		if src.Edit != nil || src.Kind == SourceLiteral || src.Kind == SourceAbsent {
-			src.Kind = SourceVariable
+		if src.Edit != nil || src.Kind == sourceLiteral || src.Kind == sourceAbsent {
+			src.Kind = sourceVariable
 		}
 		return src
 	}
@@ -174,43 +174,43 @@ func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field st
 	def, ok := v.Body.Attributes["default"]
 	vf := w.cfg.variableFile(v)
 	if !ok || vf == nil {
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
 	}
 	inner := *w
 	inner.file, inner.f = vf.name, vf.f
 	src := inner.entry(def.Expr, "the default of "+source, field, path, i)
 	if src.Edit == nil {
-		src.Kind = SourceVariable
+		src.Kind = sourceVariable
 		return src
 	}
 	rng := def.Expr.Range()
 	edit := src.Edit
 	if len(src.Also) > 0 || edit.File != vf.name || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
 	}
 	value := string(vf.f.src[rng.Start.Byte:edit.Start]) + string(edit.Text) + string(vf.f.src[edit.End:rng.End.Byte])
 	line := []byte(name + " = " + value + "\n")
 	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
 		line = append([]byte("\n"), line...)
 	}
-	return Source{File: w.file, Range: x.Range(), Kind: SourceVariable, instance: true, Edit: &SourceEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &codeEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
 }
 
 // entry follows the path from step i into field of the item at the
 // instance's key of obj, the object literal source, the map for_each is
 // over: as for any expression (see expr), adding the field where the key
 // doesn't set it.
-func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path []string, i int) Source {
+func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path []string, i int) codeSource {
 	m, ok := obj.(*hclsyntax.ObjectConsExpr)
 	if !ok {
-		return w.manual(SourceExpression, obj.Range(), source+" isn't an object literal: edit it by hand")
+		return w.manual(sourceExpression, obj.Range(), source+" isn't an object literal: edit it by hand")
 	}
 	key := w.each.key
 	item, ok := objectItem(m, key).(*hclsyntax.ObjectConsExpr)
 	if !ok {
-		return w.manual(SourceExpression, m.Range(), fmt.Sprintf("%s has no object literal at the key %q: edit it by hand", source, key))
+		return w.manual(sourceExpression, m.Range(), fmt.Sprintf("%s has no object literal at the key %q: edit it by hand", source, key))
 	}
-	var src Source
+	var src codeSource
 	set := false
 	for j := range item.Items {
 		if keyName(item.Items[j].KeyExpr) == field {
@@ -224,7 +224,7 @@ func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path [
 	case i == len(w.steps):
 		src = w.insertKey(item, field, path, i)
 	default:
-		return w.manual(SourceExpression, item.Range(), fmt.Sprintf("%s doesn't set %s at the key %q: edit it by hand", source, field, key))
+		return w.manual(sourceExpression, item.Range(), fmt.Sprintf("%s doesn't set %s at the key %q: edit it by hand", source, field, key))
 	}
 	src.instance = src.Edit != nil
 	return src
@@ -294,7 +294,7 @@ func (cfg *driftConfig) variableFile(v *hclsyntax.Block) *namedFile {
 // : 0, which no other environment sets true (see envOnlyFlags), as for a
 // feature, or residue, only it has. The other environments have no
 // instance of the block, so the edit reaches only this one's.
-func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src Source) bool {
+func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource) bool {
 	if c.ModuleAddress != "" || c.shared != nil || src.Edit == nil {
 		return false
 	}
@@ -319,7 +319,7 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src Source) boo
 		return false
 	}
 	rng := b.b.Range()
-	for _, edit := range append([]SourceEdit{*src.Edit}, src.Also...) {
+	for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
 		if edit.File != b.file || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
 			return false
 		}

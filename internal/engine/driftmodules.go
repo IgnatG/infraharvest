@@ -537,9 +537,9 @@ func (w *driftWalk) known(n int) bool {
 // says; then as for a resource's argument (see driftWalk) in that
 // argument. Nothing under the modules is edited, but a literal of a
 // generated module that calls or environments share (see promoteLiteral).
-func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
-	manual := func(reason string) Source {
-		return Source{Kind: SourceModule, Reason: "in the module call " + c.ModuleAddress + ": " + reason}
+func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) codeSource {
+	manual := func(reason string) codeSource {
+		return codeSource{Kind: sourceModule, Reason: "in the module call " + c.ModuleAddress + ": " + reason}
 	}
 	calls, resource, key, ok := splitModuleAddress(c.Address)
 	if !ok {
@@ -561,7 +561,7 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 		}
 		parent = mods[i].cfg
 	}
-	callSource := func(reason string) Source {
+	callSource := func(reason string) codeSource {
 		src := manual(reason)
 		src.File, src.Range = blocks[0].file, blocks[0].b.DefRange()
 		return src
@@ -636,7 +636,7 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 	if level > 0 {
 		w.mod.adapter = nil
 	}
-	var src Source
+	var src codeSource
 	if hasInstances(b.b) {
 		src = w.instance(b.b, calls[0].key)
 	} else {
@@ -651,8 +651,8 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) Source {
 
 // moduleManual is the source of a change whose value the module m sets
 // in a way t says, that can't be traced back to the call.
-func (e *driftEditor) moduleManual(c *DriftChange, m *driftModule, t traced) Source {
-	src := Source{Range: t.rng, Kind: SourceModule}
+func (e *driftEditor) moduleManual(c *DriftChange, m *driftModule, t traced) codeSource {
+	src := codeSource{Range: t.rng, Kind: sourceModule}
 	if t.file != "" {
 		src.File = path.Join(m.dir, t.file)
 	}
@@ -713,16 +713,16 @@ func inputText(t traced) string {
 // call's count index or for_each key of what the argument indexes, such
 // as local.queues[count.index].settings. What it goes into is a list or
 // an object literal (see callLiteral).
-func (w *driftWalk) instance(block *hclsyntax.Block, key instanceKey) Source {
+func (w *driftWalk) instance(block *hclsyntax.Block, key instanceKey) codeSource {
 	name := w.steps[0].name
 	attr, ok := block.Body.Attributes[name]
 	if !ok {
-		return w.manual(SourceModule, block.DefRange(), "the call makes several instances, and doesn't set "+name+" for them: edit it by hand")
+		return w.manual(sourceModule, block.DefRange(), "the call makes several instances, and doesn't set "+name+" for them: edit it by hand")
 	}
 	w.attrAt = 1
 	lit, ok := w.instanceValue(block, attr.Expr, key)
 	if !ok {
-		return w.manual(SourceModule, attr.Expr.Range(), "the call makes several instances, and "+name+" isn't each one's own literal: edit it by hand")
+		return w.manual(sourceModule, attr.Expr.Range(), "the call makes several instances, and "+name+" isn't each one's own literal: edit it by hand")
 	}
 	w.file, w.f = lit.file, lit.f
 	w.steps = slices.Concat(w.steps[:1], lit.into, w.steps[1:])

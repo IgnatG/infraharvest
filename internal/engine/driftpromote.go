@@ -145,13 +145,13 @@ func (e *driftEditor) syncModules(contents map[string][]byte) {
 // that calls modules, or that no other call or environment shares; of a
 // call with count or for_each; or outside the resource's block, as in a
 // local of the module.
-func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call driftBlock, callName string, m *driftModule, res driftBlock, t traced, steps []pathStep) (Source, bool) {
+func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call driftBlock, callName string, m *driftModule, res driftBlock, t traced, steps []pathStep) (codeSource, bool) {
 	inBlock := t.file == res.file && res.b.Range().Start.Byte <= t.rng.Start.Byte && t.rng.End.Byte <= res.b.Range().End.Byte
 	if !m.inContents || !generatedModuleDir(m.dir) || len(m.cfg.calls) > 0 || (m.calls < 2 && e.env == "") || hasInstances(call.b) || !inBlock || t.at == 0 {
-		return Source{}, false
+		return codeSource{}, false
 	}
-	manual := func(reason string) (Source, bool) {
-		return Source{File: call.file, Range: call.b.DefRange(), Kind: SourceModule, Reason: fmt.Sprintf("in the module call %s: the module %s sets it to a literal the calls share, which can't be made a variable of it: %s", c.ModuleAddress, m.dir, reason)}, true
+	manual := func(reason string) (codeSource, bool) {
+		return codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Reason: fmt.Sprintf("in the module call %s: the module %s sets it to a literal the calls share, which can't be made a variable of it: %s", c.ModuleAddress, m.dir, reason)}, true
 	}
 	mf := m.cfg.files[t.file]
 	if mf == nil || t.rng.End.Byte > len(mf.src) {
@@ -183,7 +183,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 
 	// The module: the literal is the variable, whose default it is.
 	moduleFile := path.Join(m.dir, t.file)
-	edits := []SourceEdit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
+	edits := []codeEdit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
 	variablesFile := t.file
 	if m.cfg.files[VariablesFileName] != nil {
 		variablesFile = VariablesFileName
@@ -192,7 +192,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 	edits = append(edits, appendBlock(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal)))
 
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: call.file, f: call.f, address: "module." + callName}
-	src := Source{File: call.file, Range: call.b.DefRange(), Kind: SourceModule, Module: e.viaText(m, t)}
+	src := codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Module: e.viaText(m, t)}
 	if e.env == "" {
 		// The call sets the cloud's value.
 		edit := w.insertArgument(call.b, name, text)
@@ -224,7 +224,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 	if n := len(vars.src); n > 0 && vars.src[n-1] != '\n' {
 		line = "\n" + line
 	}
-	src.Edit = &SourceEdit{File: e.envVars, Start: len(vars.src), End: len(vars.src), Text: []byte(line)}
+	src.Edit = &codeEdit{File: e.envVars, Start: len(vars.src), End: len(vars.src), Text: []byte(line)}
 	src.Also = edits
 	return src, true
 }
@@ -267,7 +267,7 @@ func variableBlock(name, description, typeLine, value string) string {
 
 // appendBlock is the edit that adds text at the end of f, the file name,
 // after a blank line.
-func appendBlock(f *hclFile, name, text string) SourceEdit {
+func appendBlock(f *hclFile, name, text string) codeEdit {
 	var src []byte
 	if f != nil {
 		src = f.src
@@ -279,5 +279,5 @@ func appendBlock(f *hclFile, name, text string) SourceEdit {
 	default:
 		text = "\n\n" + text
 	}
-	return SourceEdit{File: name, Start: len(src), End: len(src), Text: []byte(text)}
+	return codeEdit{File: name, Start: len(src), End: len(src), Text: []byte(text)}
 }

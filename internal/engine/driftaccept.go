@@ -25,7 +25,7 @@ import (
 // all), and the outcome of each change the next apply would revert: kept,
 // or, accepted, a secret or a hand edit where sources, by change, say so.
 // It returns the accepted changes the code can take by an edit.
-func decideDrift(changes []DriftChange, sources []Source, accept func(DriftChange) bool) []*DriftChange {
+func decideDrift(changes []DriftChange, sources []codeSource, accept func(DriftChange) bool) []*DriftChange {
 	var accepted []*DriftChange
 	for i := range changes {
 		c := &changes[i]
@@ -55,7 +55,7 @@ func decideDrift(changes []DriftChange, sources []Source, accept func(DriftChang
 // one the edits couldn't take, and returns the others of changes, and
 // whether it unshared a change of shared tags (see unshare), whose
 // members it returns in its place.
-func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) ([]*DriftChange, bool) {
+func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]*DriftChange, bool) {
 	var left []*DriftChange
 	unshared := false
 	for _, c := range changes {
@@ -126,7 +126,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 	var p *tfjson.Plan
 	for len(pending) > 0 {
 		edited = maps.Clone(staged)
-		var applied, failed map[*DriftChange]Source
+		var applied, failed map[*DriftChange]codeSource
 		names, applied, failed, err = editor.apply(edited, pending)
 		if err != nil {
 			return err
@@ -252,7 +252,7 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // makes from them, are blamed for first, then those of the resources it refers to, else
 // all of them. A change of shared tags is judged on every resource it
 // covers. Reasons have the values of forms redacted.
-func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]Source, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
+func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]codeSource, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
 	rejected := map[*DriftChange]string{}
 	reject := func(c *DriftChange, reason string) {
 		if _, ok := rejected[c]; !ok {
@@ -352,7 +352,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	reason := "the edit changes what the plan does to " + strings.Join(leaked, ", ") + " too"
 	blamed := false
 	for _, c := range pending {
-		if src := sources[c]; src.Kind == SourceLocal || src.Kind == SourceSharedTags || src.Module != "" {
+		if src := sources[c]; src.Kind == sourceLocal || src.Kind == sourceSharedTags || src.Module != "" {
 			reject(c, reason)
 			blamed = true
 		}
@@ -391,7 +391,7 @@ func planLeaves(rc *tfjson.ResourceChange, stateOnly map[string][]string) []valu
 
 // diagnosticOf reports whether d is about the edit of c, made as src
 // says in contents: in its resource, or in the file and block it edits.
-func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src Source, contents map[string][]byte) bool {
+func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src codeSource, contents map[string][]byte) bool {
 	if c.shared != nil {
 		if d.Address != "" {
 			return slices.ContainsFunc(c.Covers, func(a string) bool { return trimInstanceKey(a) == trimInstanceKey(d.Address) })
@@ -415,7 +415,7 @@ func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src Source, contents map[
 		switch {
 		case !spans(b.Range(), d.Range.Start.Line):
 		case b.Type == "locals":
-			return src.Kind == SourceLocal
+			return src.Kind == sourceLocal
 		case b.Type == "module" && len(b.Labels) == 1 && src.Module != "":
 			calls, _, _, ok := splitModuleAddress(c.Address)
 			return ok && calls[0].name == b.Labels[0]
@@ -540,14 +540,14 @@ func filesNamed(details, names []string) []string {
 // say, are in files, the edited files a check fails on, each with
 // reason; every change of pending where files is empty, or none of their
 // edits is in one.
-func checkBlame(pending []*DriftChange, sources map[*DriftChange]Source, files []string, reason string) map[*DriftChange]string {
+func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, files []string, reason string) map[*DriftChange]string {
 	rejected := map[*DriftChange]string{}
 	for _, c := range pending {
 		src := sources[c]
 		if src.Edit == nil {
 			continue
 		}
-		for _, edit := range append([]SourceEdit{*src.Edit}, src.Also...) {
+		for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
 			if slices.Contains(files, edit.File) {
 				rejected[c] = reason
 				break

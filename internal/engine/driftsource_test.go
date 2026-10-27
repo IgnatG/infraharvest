@@ -74,7 +74,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"bucket": "logs", "tags": map[string]any{"Env": "dev"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Env", "dev"),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags = {
@@ -94,7 +94,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"tags": map[string]any{"Env": "prod", "Team": "data"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Team", "data"),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags = {
@@ -116,7 +116,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"tags": map[string]any{"Env": "prod"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Team", nil),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags = {
@@ -136,7 +136,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"bucket": "logs", "force_destroy": true},
 			change: driftAt("aws_s3_bucket.logs", "force_destroy", true),
-			kind:   SourceAbsent,
+			kind:   sourceAbsent,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket        = "logs"
   force_destroy = true
@@ -154,7 +154,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"name": "jobs", "tags": map[string]any{"Env": "dev"}},
 			change: driftAt("aws_sqs_queue.jobs", "tags.Env", "dev"),
-			kind:   SourceAbsent,
+			kind:   sourceAbsent,
 			want: map[string]string{"main.tf": `resource "aws_sqs_queue" "jobs" {
   name = "jobs"
   tags = {
@@ -175,7 +175,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"ami": "ami-1", "root_block_device": []any{map[string]any{"volume_size": float64(20)}}},
 			change: driftAt("aws_instance.web", "root_block_device[0].volume_size", float64(20)),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_instance" "web" {
   ami = "ami-1"
 
@@ -193,7 +193,7 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"cidr_blocks": []any{"0.0.0.0/0", "10.1.0.0/16"}},
 			change: driftAt("aws_security_group_rule.web", "cidr_blocks[0]", "0.0.0.0/0"),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_security_group_rule" "web" {
   cidr_blocks = ["0.0.0.0/0", "10.1.0.0/16"]
 }
@@ -209,7 +209,7 @@ func TestDriftSourceMapping(t *testing.T) {
 			after:  map[string]any{"port": "80", "protocol": float64(80)},
 			change: driftAt("aws_lb_listener.web", "port", "80"),
 			setup:  func(e *driftEditor) { e.schemas = listener },
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_lb_listener" "web" {
   port     = 80
   protocol = "HTTPS"
@@ -226,7 +226,7 @@ func TestDriftSourceMapping(t *testing.T) {
 			after:  map[string]any{"protocol": float64(80)},
 			change: driftAt("aws_lb_listener.web", "protocol", float64(80)),
 			setup:  func(e *driftEditor) { e.schemas = listener },
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_lb_listener" "web" {
   port     = 443
   protocol = "80"
@@ -243,7 +243,7 @@ func TestDriftSourceMapping(t *testing.T) {
 			after:  map[string]any{"name": "jobs", "delay_seconds": float64(0)},
 			change: driftAt("aws_sqs_queue.jobs", "delay_seconds", float64(0)),
 			setup:  func(e *driftEditor) { e.defaults = map[string][]string{"aws_sqs_queue": {"delay_seconds=0"}} },
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_sqs_queue" "jobs" {
   name = "jobs"
 }
@@ -266,7 +266,7 @@ func TestDriftSourceMapping(t *testing.T) {
 			},
 			after:  map[string]any{"tags": map[string]any{"Env": "dev"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Env", "dev"),
-			kind:   SourceLocal,
+			kind:   sourceLocal,
 			want: map[string]string{"locals.tf": `locals {
   logs_tags = {
     Env = "dev"
@@ -291,7 +291,7 @@ resource "aws_s3_bucket" "data" {
 			},
 			after:  map[string]any{"tags": map[string]any{"Env": "dev"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Env", "dev"),
-			kind:   SourceSharedLocal,
+			kind:   sourceSharedLocal,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags   = merge(local.tags, { Env = "dev" })
@@ -321,7 +321,7 @@ resource "aws_security_group_rule" "b" {
 			},
 			after:  map[string]any{"cidr_blocks": []any{"0.0.0.0/0"}},
 			change: driftAt("aws_security_group_rule.a", "cidr_blocks[0]", "0.0.0.0/0"),
-			kind:   SourceSharedLocal,
+			kind:   sourceSharedLocal,
 			want: map[string]string{"main.tf": `resource "aws_security_group_rule" "a" {
   cidr_blocks = ["0.0.0.0/0"]
 }
@@ -343,7 +343,7 @@ resource "aws_security_group_rule" "b" {
 			},
 			after:  map[string]any{"tags": map[string]any{"Env": "dev", "Team": "data"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Env", "dev"),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags   = merge(local.tags, { Team = "data", Env = "dev" })
@@ -361,7 +361,7 @@ resource "aws_security_group_rule" "b" {
 			},
 			after:  map[string]any{"tags": map[string]any{"Env": "dev"}},
 			change: driftAt("aws_s3_bucket.logs", "tags.Env", "dev"),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
   tags   = merge(local.tags, local.extra, { Env = "dev" })
@@ -379,7 +379,7 @@ resource "aws_security_group_rule" "b" {
 			setup: func(e *driftEditor) {
 				e.refs = referenceIndex(map[string]map[string]any{"aws_vpc.main": {"id": "vpc-0aaa1111"}, "aws_vpc.other": {"id": "vpc-0bbb2222"}})
 			},
-			kind: SourceReference,
+			kind: sourceReference,
 			want: map[string]string{"main.tf": `resource "aws_subnet" "a" {
   vpc_id = aws_vpc.other.id
 }
@@ -393,7 +393,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"vpc_id": "vpc-0ccc3333"},
 			change: driftAt("aws_subnet.a", "vpc_id", "vpc-0ccc3333"),
-			kind:   SourceReference,
+			kind:   sourceReference,
 			reason: "refers to aws_vpc.main.id",
 		},
 		{
@@ -411,7 +411,7 @@ resource "aws_security_group_rule" "b" {
 			},
 			after:  map[string]any{"vpc_id": "vpc-0bbb2222"},
 			change: driftAt("aws_subnet.a", "vpc_id", "vpc-0bbb2222"),
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			reason: "update it from that root",
 		},
 		{
@@ -429,7 +429,7 @@ resource "aws_security_group_rule" "b" {
 			},
 			after:  map[string]any{"password": "x"},
 			change: driftAt("aws_db_instance.db", "password", "x"),
-			kind:   SourceSensitiveVariable,
+			kind:   sourceSensitiveVariable,
 			reason: "TF_VAR_db_password",
 			secret: true,
 		},
@@ -441,7 +441,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"name": "work"},
 			change: driftAt("aws_sqs_queue.jobs", "name", "work"),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "lower() computes it",
 		},
 		{
@@ -452,7 +452,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"name": "work"},
 			change: driftAt("aws_sqs_queue.jobs", "name", "work"),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "edit it by hand",
 		},
 		{
@@ -463,7 +463,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"cidr_blocks": []any{"0.0.0.0/0"}},
 			change: driftAt("aws_security_group_rule.web", "cidr_blocks[0]", "0.0.0.0/0"),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "edit it by hand",
 		},
 		{
@@ -481,7 +481,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"ingress": []any{map[string]any{"from_port": float64(80)}}},
 			change: driftAt("aws_security_group.web", "ingress[0].from_port", float64(80)),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "a dynamic ingress block",
 		},
 		{
@@ -493,7 +493,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"name": "work"},
 			change: driftAt("aws_sqs_queue.jobs[0]", "name", "work"),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "count",
 		},
 		{
@@ -501,7 +501,7 @@ resource "aws_security_group_rule" "b" {
 			files:  map[string]string{"main.tf": "module \"data\" {\n  source = \"./data\"\n}\n"},
 			after:  map[string]any{"tags": map[string]any{"Team": "b"}},
 			change: &DriftChange{Address: "module.data.aws_s3_bucket.this", Type: "aws_s3_bucket", ModuleAddress: "module.data", Attribute: "tags.Team", Kind: DriftChanged, Outcome: DriftReverts, value: "b"},
-			kind:   SourceModule,
+			kind:   sourceModule,
 			reason: "module.data",
 		},
 		{
@@ -516,7 +516,7 @@ resource "aws_security_group_rule" "b" {
 				c.sensitive = true
 				return c
 			}(),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			reason: "never written",
 			secret: true,
 		},
@@ -532,7 +532,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"environment": []any{map[string]any{"variables": map[string]any{"LOG_LEVEL": fuzzToken("credential")}}}},
 			change: driftAt("aws_lambda_function.api", "environment[0].variables.LOG_LEVEL", fuzzToken("credential")),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			reason: "never written",
 			secret: true,
 		},
@@ -548,7 +548,7 @@ resource "aws_security_group_rule" "b" {
 `},
 			after:  map[string]any{"environment": []any{map[string]any{"variables": map[string]any{"LOG_LEVEL": "debug", "WEBHOOK_SECRET": fakeSecret("webhook")}}}},
 			change: driftAt("aws_lambda_function.api", "environment[0].variables.WEBHOOK_SECRET", fakeSecret("webhook")),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			reason: "never written",
 			secret: true,
 		},
@@ -703,7 +703,7 @@ func TestEditFilesRefusesASecretInPlaceOfAnother(t *testing.T) {
 	old := file(token, `"none"`)
 	edited := file(`"none"`, token)
 
-	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []SourceEdit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
+	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []codeEdit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
 
 	if !secret || reason == "" {
 		t.Errorf("wrote a secret in place of another: %q, secret %v", reason, secret)

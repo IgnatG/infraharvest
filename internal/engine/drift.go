@@ -256,7 +256,7 @@ func (e *UnsupportedBackendError) Error() string {
 // don't lock it, as a lock needs write access.
 //
 // The changes the next apply would put back that opts.Accept accepts are
-// taken into the root's code, where it can be told how (see Source):
+// taken into the root's code, where it can be told how (see codeSource):
 // edited in the copy, planned again without refreshing, and written into
 // the root only once the plan and the checks of the verification gate
 // say the edits take them and change nothing else (see acceptDrift); the
@@ -1021,12 +1021,12 @@ const maxSourceExpression = 120
 // addDriftSources sets, as best it can, where the root's code, contents
 // by file name, sets each change's attribute (see driftEditor.resolve),
 // and returns the sources it found, by change.
-func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]Source, error) {
+func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]codeSource, error) {
 	cfg, err := parseDriftConfig(contents)
 	if err != nil {
 		return nil, err
 	}
-	sources := make([]Source, len(changes))
+	sources := make([]codeSource, len(changes))
 	for i := range changes {
 		sources[i] = editor.resolve(cfg, &changes[i])
 		changes[i].Source = reportSource(cfg, sources[i], editor.forms)

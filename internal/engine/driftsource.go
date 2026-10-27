@@ -24,43 +24,43 @@ import (
 )
 
 // How a root's code sets an attribute that changed in the cloud
-// (Source.Kind).
+// (codeSource.Kind).
 const (
-	// SourceLiteral: a literal, or a key of an object or map literal.
-	SourceLiteral = "literal"
-	// SourceAbsent: no argument, as for a default or an empty value.
-	SourceAbsent = "absent"
-	// SourceLocal: a local value only this resource uses.
-	SourceLocal = "local"
-	// SourceSharedLocal: a local value other resources use too.
-	SourceSharedLocal = "shared_local"
-	// SourceReference: a reference to another resource or a data source.
-	SourceReference = "reference"
-	// SourceVariable: a variable, such as one whose default is another
+	// sourceLiteral: a literal, or a key of an object or map literal.
+	sourceLiteral = "literal"
+	// sourceAbsent: no argument, as for a default or an empty value.
+	sourceAbsent = "absent"
+	// sourceLocal: a local value only this resource uses.
+	sourceLocal = "local"
+	// sourceSharedLocal: a local value other resources use too.
+	sourceSharedLocal = "shared_local"
+	// sourceReference: a reference to another resource or a data source.
+	sourceReference = "reference"
+	// sourceVariable: a variable, such as one whose default is another
 	// root's value.
-	SourceVariable = "variable"
-	// SourceSensitiveVariable: a sensitive variable.
-	SourceSensitiveVariable = "sensitive_variable"
-	// SourceExpression: a function, a conditional, a for expression, a
+	sourceVariable = "variable"
+	// sourceSensitiveVariable: a sensitive variable.
+	sourceSensitiveVariable = "sensitive_variable"
+	// sourceExpression: a function, a conditional, a for expression, a
 	// dynamic block, or anything else that computes the value.
-	SourceExpression = "expression"
-	// SourceSharedTags: tags or labels several resources get from one
+	sourceExpression = "expression"
+	// sourceSharedTags: tags or labels several resources get from one
 	// place: the provider's default tags, or a local their tags refer to.
-	SourceSharedTags = "shared_tags"
-	// SourceModule: the resource is in a module call, and what sets it
+	sourceSharedTags = "shared_tags"
+	// sourceModule: the resource is in a module call, and what sets it
 	// there can't be traced back to the call's arguments, or takes a
 	// hand edit in the module.
-	SourceModule = "module"
-	// SourceResource: the whole resource, such as one deleted in the
+	sourceModule = "module"
+	// sourceResource: the whole resource, such as one deleted in the
 	// cloud.
-	SourceResource = "resource"
-	// SourceNoBlock: the code has no block for the resource.
-	SourceNoBlock = "no_block"
+	sourceResource = "resource"
+	// sourceNoBlock: the code has no block for the resource.
+	sourceNoBlock = "no_block"
 )
 
-// Source is where a root's code sets an attribute that changed in the
+// codeSource is where a root's code sets an attribute that changed in the
 // cloud, and how the code would take the cloud's value.
-type Source struct {
+type codeSource struct {
 	// File is the file, relative to the root; "" when there is none, as
 	// for a resource in a module call.
 	File string
@@ -70,11 +70,11 @@ type Source struct {
 	Kind  string
 	// Edit takes the cloud's value into the code; nil when that is a hand
 	// edit, as Reason says, or a secret.
-	Edit *SourceEdit
+	Edit *codeEdit
 	// Also are the other edits Edit takes, made with it, or not at all:
 	// for a literal of a generated module made a variable of it, the
 	// module's and the call's (see promoteLiteral).
-	Also []SourceEdit
+	Also []codeEdit
 	// Reason says why there is no Edit.
 	Reason string
 	// instance says Edit is of the instance's own value, its key's in the
@@ -91,9 +91,9 @@ type Source struct {
 	Note string
 }
 
-// SourceEdit replaces the bytes from Start to End of File, relative to
+// codeEdit replaces the bytes from Start to End of File, relative to
 // the root, with Text.
-type SourceEdit struct {
+type codeEdit struct {
 	File       string
 	Start, End int
 	Text       []byte
@@ -391,16 +391,16 @@ func valueAt(v any, steps []pathStep) (any, bool) {
 }
 
 // resolve finds where cfg sets c's attribute, and the edit that takes
-// the cloud's value (see Source). A secret, whether the plans mark it
+// the cloud's value (see codeSource). A secret, whether the plans mark it
 // sensitive, a sensitive variable sets it, or the edit would write one,
 // has no edit.
-func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
+func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) codeSource {
 	src := e.locate(cfg, c)
 	if reason, ok := e.providerTagged[c.Address+" "+c.Attribute]; ok && src.Edit == nil && c.value == nil && c.Kind == DriftChanged {
 		src.Reason = reason
 	}
 	switch {
-	case c.sensitive, src.Kind == SourceSensitiveVariable:
+	case c.sensitive, src.Kind == sourceSensitiveVariable:
 		src.Secret = true
 	case src.Edit != nil && e.writesSecret(src.Edit.Text):
 		src.Secret = true
@@ -411,7 +411,7 @@ func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) Source {
 	}
 	if src.Secret {
 		src.Edit, src.Also = nil, nil
-		if src.Kind != SourceSensitiveVariable {
+		if src.Kind != sourceSensitiveVariable {
 			src.Reason = "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store"
 		}
 	}
@@ -459,7 +459,7 @@ func (e *driftEditor) writesSecret(text []byte) bool {
 	return false
 }
 
-func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
+func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) codeSource {
 	if c.shared != nil {
 		return e.locateShared(cfg, c)
 	}
@@ -469,23 +469,23 @@ func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) Source {
 	address := trimInstanceKey(c.Address)
 	b, ok := cfg.blocks[address]
 	if !ok {
-		return Source{Kind: SourceNoBlock, Reason: "the root's code has no block for it"}
+		return codeSource{Kind: sourceNoBlock, Reason: "the root's code has no block for it"}
 	}
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: b.file, f: b.f, address: address, res: e.resources[c.Address]}
 	if c.Kind == DriftDeleted {
-		return w.manual(SourceResource, b.b.DefRange(), "deleted in the cloud: remove the resource from the code by hand, or apply to create it again")
+		return w.manual(sourceResource, b.b.DefRange(), "deleted in the cloud: remove the resource from the code by hand, or apply to create it again")
 	}
 	if reason := w.instances(b.b); reason != "" {
-		return w.manual(SourceExpression, b.b.DefRange(), reason)
+		return w.manual(sourceExpression, b.b.DefRange(), reason)
 	}
 	w.steps = splitPath(c.Attribute, e.pathValues(c.Address)...)
 	if len(w.steps) == 0 || w.steps[0].isIndex {
-		return w.manual(SourceExpression, b.b.DefRange(), "edit it by hand")
+		return w.manual(sourceExpression, b.b.DefRange(), "edit it by hand")
 	}
 	src := w.body(b.b, nil, 0)
 	if w.each != nil && src.Edit != nil && !src.instance {
 		// What the block sets but through each.value, every instance gets.
-		return Source{File: src.File, Range: src.Range, Kind: src.Kind, Reason: "every instance of the block's for_each gets it: edit it by hand, or give each key its own value in the map for_each is over"}
+		return codeSource{File: src.File, Range: src.Range, Kind: src.Kind, Reason: "every instance of the block's for_each gets it: edit it by hand, or give each key its own value in the map for_each is over"}
 	}
 	return src
 }
@@ -535,8 +535,8 @@ type holder struct {
 	item *hclsyntax.ObjectConsItem
 }
 
-func (w *driftWalk) manual(kind string, rng hcl.Range, reason string) Source {
-	return Source{File: w.file, Range: rng, Kind: kind, Reason: reason}
+func (w *driftWalk) manual(kind string, rng hcl.Range, reason string) codeSource {
+	return codeSource{File: w.file, Range: rng, Kind: kind, Reason: reason}
 }
 
 func (w *driftWalk) text(rng hcl.Range) string {
@@ -577,10 +577,10 @@ func (w *driftWalk) at(n int) any {
 
 // body follows the path from step i in block's body; names are the block
 // types from the resource's block to block, for the schema.
-func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
+func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) codeSource {
 	s := w.steps[i]
 	if s.isIndex {
-		return w.manual(SourceExpression, block.DefRange(), "edit it by hand")
+		return w.manual(sourceExpression, block.DefRange(), "edit it by hand")
 	}
 	path := append(slices.Clone(names), s.name)
 	if attr, ok := block.Body.Attributes[s.name]; ok {
@@ -590,7 +590,7 @@ func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
 	var nested []*hclsyntax.Block
 	for _, nb := range block.Body.Blocks {
 		if nb.Type == "dynamic" && len(nb.Labels) == 1 && nb.Labels[0] == s.name {
-			return w.manual(SourceExpression, nb.DefRange(), "a dynamic "+s.name+" block makes it: edit it by hand")
+			return w.manual(sourceExpression, nb.DefRange(), "a dynamic "+s.name+" block makes it: edit it by hand")
 		}
 		if nb.Type == s.name {
 			nested = append(nested, nb)
@@ -602,12 +602,12 @@ func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
 			j, next = w.steps[next].index, next+1
 		}
 		if j >= len(nested) || next >= len(w.steps) {
-			return w.manual(SourceExpression, nested[len(nested)-1].DefRange(), "a "+s.name+" block was added or removed in the cloud: edit the blocks by hand")
+			return w.manual(sourceExpression, nested[len(nested)-1].DefRange(), "a "+s.name+" block was added or removed in the cloud: edit the blocks by hand")
 		}
 		return w.body(nested[j], path, next)
 	}
 	if w.mod == nil && w.e.schemas != nil && schemaBlockType(w.e.schemas, w.c.Type, path) {
-		return w.manual(SourceAbsent, block.DefRange(), "the code has no "+s.name+" block: add it by hand")
+		return w.manual(sourceAbsent, block.DefRange(), "the code has no "+s.name+" block: add it by hand")
 	}
 	// An argument the code leaves out.
 	w.attrAt = i + 1
@@ -621,30 +621,30 @@ func (w *driftWalk) body(block *hclsyntax.Block, names []string, i int) Source {
 			value = map[string]any{w.steps[i+1].name: w.c.value}
 		}
 		if w.mod != nil && !w.mod.fits(s.name, value) {
-			return w.manual(SourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", whose type needs more than the cloud's value: add it by hand")
+			return w.manual(sourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", whose type needs more than the cloud's value: add it by hand")
 		}
 	case !w.known(i + 1):
-		return w.manual(SourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", and the cloud's value is only part of it: add it by hand")
+		return w.manual(sourceAbsent, block.DefRange(), "the call doesn't set "+s.name+", and the cloud's value is only part of it: add it by hand")
 	default:
 		value = w.at(i + 1)
 	}
 	if value == nil {
-		return w.manual(SourceAbsent, block.DefRange(), "the code doesn't set it, and the cloud has no value for it")
+		return w.manual(sourceAbsent, block.DefRange(), "the code doesn't set it, and the cloud has no value for it")
 	}
 	text, err := w.valueText(value, path, sub)
 	if err != nil {
-		return w.manual(SourceAbsent, block.DefRange(), "the cloud's value can't be written: add it by hand")
+		return w.manual(sourceAbsent, block.DefRange(), "the cloud's value can't be written: add it by hand")
 	}
 	edit := w.insertArgument(block, s.name, text)
 	if edit == nil {
-		return w.manual(SourceAbsent, block.DefRange(), "the block is on one line: add the argument by hand")
+		return w.manual(sourceAbsent, block.DefRange(), "the block is on one line: add the argument by hand")
 	}
-	return Source{File: w.file, Range: block.DefRange(), Kind: SourceAbsent, Edit: edit}
+	return codeSource{File: w.file, Range: block.DefRange(), Kind: sourceAbsent, Edit: edit}
 }
 
 // expr follows the path from step i in e, which h holds; path names the
 // argument e is, or is in, for the schema.
-func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int) Source {
+func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int) codeSource {
 	switch x := e.(type) {
 	case *hclsyntax.ParenthesesExpr:
 		return w.expr(x.Expression, holder{}, path, i)
@@ -655,7 +655,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 			if literalExpr(x) {
 				return w.replace(x, h, path, i)
 			}
-			return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 		}
 		s := w.steps[i]
 		if !s.isIndex {
@@ -672,7 +672,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 		if literalExpr(x) {
 			return w.replace(x, h, path, i)
 		}
-		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	case *hclsyntax.TupleConsExpr:
 		// A list is written whole: the order of a set's elements is the
 		// provider's, so its elements can't be told apart by index.
@@ -682,7 +682,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 		if i < len(w.steps) && w.steps[i].isIndex && w.steps[i].index < len(x.Exprs) {
 			return w.expr(x.Exprs[w.steps[i].index], holder{}, path, i+1)
 		}
-		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	case *hclsyntax.FunctionCallExpr:
 		if x.Name == "merge" && i+1 == len(w.steps) && !w.steps[i].isIndex && len(x.Args) > 0 && !x.ExpandFinal {
 			// The resource's own keys, which merge puts over the others.
@@ -691,16 +691,16 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 			}
 			return w.appendMergeArg(x, w.steps[i].name, path, i+1)
 		}
-		return w.manual(SourceExpression, x.Range(), x.Name+"() computes it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), x.Name+"() computes it: edit it by hand")
 	case *hclsyntax.TemplateExpr:
 		if !x.IsStringLiteral() {
-			return w.manual(SourceExpression, x.Range(), "a template computes it: edit it by hand")
+			return w.manual(sourceExpression, x.Range(), "a template computes it: edit it by hand")
 		}
 		return w.replace(x, h, path, i)
 	case *hclsyntax.LiteralValueExpr:
 		return w.replace(x, h, path, i)
 	}
-	return w.manual(SourceExpression, e.Range(), "an expression computes it: edit it by hand")
+	return w.manual(sourceExpression, e.Range(), "an expression computes it: edit it by hand")
 }
 
 // literalExpr reports whether expr is written out, with no references and
@@ -727,13 +727,13 @@ func literalExpr(expr hclsyntax.Expression) bool {
 // replace writes the cloud's value at step i over x, which h holds:
 // removing the argument or the key if the cloud has none, or if it is
 // the default the catalogue names for the argument.
-func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i int) Source {
+func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i int) codeSource {
 	rng := x.Range()
 	if !w.known(i) {
-		return w.manual(SourceLiteral, rng, "it sets more than the cloud's value: edit it by hand")
+		return w.manual(sourceLiteral, rng, "it sets more than the cloud's value: edit it by hand")
 	}
 	value := w.at(i)
-	src := Source{File: w.file, Range: rng, Kind: SourceLiteral}
+	src := codeSource{File: w.file, Range: rng, Kind: sourceLiteral}
 	if value == nil {
 		switch {
 		case h.attr != nil && w.mod != nil:
@@ -745,7 +745,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 				src.Edit = w.removeLines(h.attr.SrcRange)
 			}
 			if src.Edit == nil {
-				src.Edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
+				src.Edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
 				src.Note = note
 			}
 		case h.attr != nil:
@@ -754,13 +754,13 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 			src.Edit = w.removeItem(h.obj, h.item)
 		}
 		if src.Edit == nil {
-			return w.manual(SourceLiteral, rng, "the cloud has no value for it: edit it by hand")
+			return w.manual(sourceLiteral, rng, "the cloud has no value for it: edit it by hand")
 		}
 		return src
 	}
 	text, err := w.valueText(value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(SourceLiteral, rng, "the cloud's value can't be written: edit it by hand")
+		return w.manual(sourceLiteral, rng, "the cloud's value can't be written: edit it by hand")
 	}
 	if h.attr != nil && i == w.attrAt && w.isDefault(path, text) {
 		if edit := w.removeLines(h.attr.SrcRange); edit != nil {
@@ -768,7 +768,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 			return src
 		}
 	}
-	src.Edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
+	src.Edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
 	return src
 }
 
@@ -794,7 +794,7 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 	return !diags.HasErrors() && matchesValue(expr, want, nil)
 }
 
-func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i int) Source {
+func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	name := ""
 	if len(x.Traversal) == 2 {
 		if step, ok := x.Traversal[1].(hcl.TraverseAttr); ok {
@@ -804,21 +804,21 @@ func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i 
 	switch x.Traversal.RootName() {
 	case "local":
 		if name == "" {
-			return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 		}
 		return w.local(x, name, path, i)
 	case "var":
 		if name == "" {
-			return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 		}
 		return w.variable(x, name, path, i)
 	case "each":
 		if w.each != nil && w.mod == nil {
 			return w.eachValue(x, path, i)
 		}
-		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	case "count", "path", "terraform", "self":
-		return w.manual(SourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
 	}
 	return w.reference(x, path, i)
 }
@@ -830,60 +830,60 @@ const maxLocalDepth = 4
 // local follows the path into local.name, which x refers to: into its
 // value if this resource alone uses it; else the resource gets its own
 // value, merged over the local's for a key of it.
-func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
+func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
 	ref := w.text(x.Range())
 	def, ok := w.cfg.locals[name]
 	if !ok || w.depth >= maxLocalDepth {
-		return w.manual(SourceLocal, x.Range(), ref+" sets it: edit it by hand")
+		return w.manual(sourceLocal, x.Range(), ref+" sets it: edit it by hand")
 	}
 	if w.cfg.uses[name] <= 1 {
 		inner := *w
 		inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
 		src := inner.expr(def.attr.Expr, holder{}, path, i)
-		if src.Kind == SourceLiteral || src.Kind == SourceAbsent {
-			src.Kind = SourceLocal
+		if src.Kind == sourceLiteral || src.Kind == sourceAbsent {
+			src.Kind = sourceLocal
 		}
 		return src
 	}
 	if i+1 == len(w.steps) && !w.steps[i].isIndex {
 		if w.c.value == nil {
-			return w.manual(SourceSharedLocal, x.Range(), ref+", which other resources use too, has the key the cloud removed: edit it by hand")
+			return w.manual(sourceSharedLocal, x.Range(), ref+", which other resources use too, has the key the cloud removed: edit it by hand")
 		}
 		text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i+1):i+1])
 		if err != nil {
-			return w.manual(SourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
+			return w.manual(sourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
 		}
 		merged := fmt.Sprintf("merge(%s, { %s = %s })", ref, keyText(w.steps[i].name), text)
-		return Source{File: w.file, Range: x.Range(), Kind: SourceSharedLocal, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: []byte(merged)}}
+		return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: []byte(merged)}}
 	}
 	value := w.at(i)
 	if value == nil || !w.known(i) {
-		return w.manual(SourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value for all of it: edit it by hand")
+		return w.manual(sourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value for all of it: edit it by hand")
 	}
 	text, err := w.valueText(value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(SourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
+		return w.manual(sourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
 	}
-	return Source{File: w.file, Range: x.Range(), Kind: SourceSharedLocal, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 }
 
 // variable is the source of an attribute var.name, which x is, sets from
 // step i of the path, the argument at path or in it: edited only in the
 // var file of the environment of a root environments share (see
 // envVariable).
-func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
+func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
 	v := w.cfg.variables[name]
 	switch {
 	case v == nil:
-		return w.manual(SourceVariable, x.Range(), "var."+name+" sets it, which the root doesn't declare: edit it by hand")
+		return w.manual(sourceVariable, x.Range(), "var."+name+" sets it, which the root doesn't declare: edit it by hand")
 	case sensitiveVariable(v):
-		return w.manual(SourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which var.%s sets: update it in your secret store, or TF_VAR_%s", name, name))
+		return w.manual(sourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which var.%s sets: update it in your secret store, or TF_VAR_%s", name, name))
 	case w.e.env != "":
 		return w.envVariable(x, name, path, i)
 	case hasDefault(v):
-		return w.manual(SourceVariable, x.Range(), "var."+name+" sets it, with another root's value as its default: update it from that root")
+		return w.manual(sourceVariable, x.Range(), "var."+name+" sets it, with another root's value as its default: update it from that root")
 	}
-	return w.manual(SourceVariable, x.Range(), "var."+name+" sets it: change the value the root is given")
+	return w.manual(sourceVariable, x.Range(), "var."+name+" sets it: change the value the root is given")
 }
 
 // envVariable is the source of an attribute var.name, which x is, sets
@@ -895,37 +895,37 @@ func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path 
 // as the schema types the argument at path, and every other argument
 // that refers to the variable, whose value would reach it too, has the
 // cloud's value as well in the environment (see variableUses).
-func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) Source {
+func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
 	file := w.e.envVars
 	f := w.cfg.files[file]
 	switch {
 	case f == nil:
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
 	case w.mod != nil:
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
 	case i != len(w.steps):
 		return w.envVariableKey(x, name, f, path, i)
 	case w.c.value == nil:
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
 	}
 	if w.cfg.varUses[name] > 1 {
 		if reason := w.variableUses(name, nil); reason != "" {
-			return w.manual(SourceVariable, x.Range(), reason)
+			return w.manual(sourceVariable, x.Range(), reason)
 		}
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", name, file))
 	}
 	if attr, ok := f.syntax.Attributes[name]; ok {
 		rng := attr.Expr.Range()
-		return Source{File: file, Range: rng, Kind: SourceVariable, Edit: &SourceEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}}
+		return codeSource{File: file, Range: rng, Kind: sourceVariable, Edit: &codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}}
 	}
 	line := slices.Concat([]byte(name+" = "), text, []byte("\n"))
 	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
 		line = slices.Concat([]byte("\n"), line)
 	}
-	return Source{File: w.file, Range: x.Range(), Kind: SourceVariable, Edit: &SourceEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, Edit: &codeEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
 }
 
 // envVariableKey is envVariable for what var.name sets below step i of
@@ -935,24 +935,24 @@ func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, pa
 // keeping the rest. A hand edit where the file doesn't set the variable,
 // as when its default holds the environment's value, or sets it to
 // anything but a literal with the keys the path goes through.
-func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, f *hclFile, path []string, i int) Source {
+func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, f *hclFile, path []string, i int) codeSource {
 	file := w.e.envVars
 	attr, ok := f.syntax.Attributes[name]
 	switch {
 	case !ok:
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", name, file))
 	case !literalExpr(attr.Expr) || !literalKeys(attr.Expr, w.steps[i:]):
-		return w.manual(SourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
+		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
 	}
 	if w.cfg.varUses[name] > 1 {
 		if reason := w.variableUses(name, w.steps[i:]); reason != "" {
-			return w.manual(SourceVariable, x.Range(), reason)
+			return w.manual(sourceVariable, x.Range(), reason)
 		}
 	}
 	inner := *w
 	inner.file, inner.f = file, f
 	src := inner.expr(attr.Expr, holder{}, path, i)
-	src.Kind = SourceVariable
+	src.Kind = sourceVariable
 	if src.Edit == nil && src.Reason != "" {
 		src.Reason = fmt.Sprintf("var.%s sets it, in %s: %s", name, file, src.Reason)
 	}
@@ -996,17 +996,17 @@ func sensitiveVariable(b *hclsyntax.Block) bool {
 // reference is the source of an attribute x, a reference, sets: if the
 // cloud's value is another managed resource's ID, ARN or name, a
 // reference to it; else a hand edit.
-func (w *driftWalk) reference(x *hclsyntax.ScopeTraversalExpr, path []string, i int) Source {
+func (w *driftWalk) reference(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	ref := w.text(x.Range())
 	if value, ok := w.c.value.(string); ok && value != "" && i == len(w.steps) {
 		if target, ok := uniqueTarget(path[len(path)-1], value, w.e.refs[value]); ok && target.address != w.address {
 			text := hclwrite.TokensForTraversal(target.traversal()).Bytes()
 			if string(text) != ref {
-				return Source{File: w.file, Range: x.Range(), Kind: SourceReference, Edit: &SourceEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
+				return codeSource{File: w.file, Range: x.Range(), Kind: sourceReference, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 			}
 		}
 	}
-	return w.manual(SourceReference, x.Range(), "it refers to "+ref+", and the cloud's value isn't another managed resource's: edit it by hand")
+	return w.manual(sourceReference, x.Range(), "it refers to "+ref+", and the cloud's value isn't another managed resource's: edit it by hand")
 }
 
 // valueText writes value as HCL, typed as the schema types the argument
@@ -1087,7 +1087,7 @@ func keyText(key string) string {
 // insertArgument adds name = text at the end of block's body, which the
 // block's layout then puts in its place (see layoutBody); nil if the
 // block is on one line with something in it.
-func (w *driftWalk) insertArgument(block *hclsyntax.Block, name string, text []byte) *SourceEdit {
+func (w *driftWalk) insertArgument(block *hclsyntax.Block, name string, text []byte) *codeEdit {
 	src := w.f.src
 	line := slices.Concat([]byte(name+" = "), text, []byte("\n"))
 	opening, closing := block.OpenBraceRange, block.CloseBraceRange
@@ -1095,73 +1095,73 @@ func (w *driftWalk) insertArgument(block *hclsyntax.Block, name string, text []b
 		if len(block.Body.Attributes)+len(block.Body.Blocks) > 0 {
 			return nil
 		}
-		return &SourceEdit{File: w.file, Start: opening.End.Byte, End: closing.Start.Byte, Text: slices.Concat([]byte("\n"), line), Layout: w.address}
+		return &codeEdit{File: w.file, Start: opening.End.Byte, End: closing.Start.Byte, Text: slices.Concat([]byte("\n"), line), Layout: w.address}
 	}
 	at := lineStart(src, closing.Start.Byte)
 	if len(bytes.TrimSpace(src[at:closing.Start.Byte])) > 0 {
 		return nil
 	}
-	return &SourceEdit{File: w.file, Start: at, End: at, Text: line, Layout: w.address}
+	return &codeEdit{File: w.file, Start: at, End: at, Text: line, Layout: w.address}
 }
 
 // insertKey adds the key with the cloud's value to obj, an object
 // literal.
-func (w *driftWalk) insertKey(obj *hclsyntax.ObjectConsExpr, key string, path []string, i int) Source {
+func (w *driftWalk) insertKey(obj *hclsyntax.ObjectConsExpr, key string, path []string, i int) codeSource {
 	if w.c.value == nil {
-		return w.manual(SourceLiteral, obj.Range(), "the code doesn't have the key the cloud removed")
+		return w.manual(sourceLiteral, obj.Range(), "the code doesn't have the key the cloud removed")
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(SourceLiteral, obj.Range(), "the cloud's value can't be written: edit it by hand")
+		return w.manual(sourceLiteral, obj.Range(), "the cloud's value can't be written: edit it by hand")
 	}
 	item := keyText(key) + " = " + string(text)
 	src := w.f.src
 	rng := obj.Range()
 	end := rng.End.Byte - 1 // the closing brace
-	var edit *SourceEdit
+	var edit *codeEdit
 	switch {
 	case obj.OpenRange.Start.Line == rng.End.Line && len(obj.Items) == 0:
-		edit = &SourceEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("{\n" + item + "\n}")}
+		edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("{\n" + item + "\n}")}
 	case obj.OpenRange.Start.Line == rng.End.Line:
 		after := obj.Items[len(obj.Items)-1].ValueExpr.Range().End.Byte
-		edit = &SourceEdit{File: w.file, Start: after, End: after, Text: []byte(", " + item)}
+		edit = &codeEdit{File: w.file, Start: after, End: after, Text: []byte(", " + item)}
 	default:
 		at := lineStart(src, end)
 		if len(bytes.TrimSpace(src[at:end])) > 0 {
-			return w.manual(SourceLiteral, rng, "add the key by hand")
+			return w.manual(sourceLiteral, rng, "add the key by hand")
 		}
-		edit = &SourceEdit{File: w.file, Start: at, End: at, Text: []byte(item + "\n")}
+		edit = &codeEdit{File: w.file, Start: at, End: at, Text: []byte(item + "\n")}
 	}
-	return Source{File: w.file, Range: rng, Kind: SourceLiteral, Edit: edit}
+	return codeSource{File: w.file, Range: rng, Kind: sourceLiteral, Edit: edit}
 }
 
 // appendMergeArg adds { key = value } as the last argument of call, a
 // merge, so that the resource's value wins.
-func (w *driftWalk) appendMergeArg(call *hclsyntax.FunctionCallExpr, key string, path []string, i int) Source {
+func (w *driftWalk) appendMergeArg(call *hclsyntax.FunctionCallExpr, key string, path []string, i int) codeSource {
 	if w.c.value == nil {
-		return w.manual(SourceExpression, call.Range(), "merge() sets it, and the cloud removed the key: edit it by hand")
+		return w.manual(sourceExpression, call.Range(), "merge() sets it, and the cloud removed the key: edit it by hand")
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(SourceExpression, call.Range(), "the cloud's value can't be written: edit it by hand")
+		return w.manual(sourceExpression, call.Range(), "the cloud's value can't be written: edit it by hand")
 	}
 	at := call.CloseParenRange.Start.Byte
-	return Source{File: w.file, Range: call.Range(), Kind: SourceLiteral, Edit: &SourceEdit{File: w.file, Start: at, End: at, Text: []byte(", { " + keyText(key) + " = " + string(text) + " }")}}
+	return codeSource{File: w.file, Range: call.Range(), Kind: sourceLiteral, Edit: &codeEdit{File: w.file, Start: at, End: at, Text: []byte(", { " + keyText(key) + " = " + string(text) + " }")}}
 }
 
 // removeLines removes the lines of rng, if nothing else is on them.
-func (w *driftWalk) removeLines(rng hcl.Range) *SourceEdit {
+func (w *driftWalk) removeLines(rng hcl.Range) *codeEdit {
 	src := w.f.src
 	start, end := lineStart(src, rng.Start.Byte), lineEnd(src, rng.End.Byte)
 	if len(bytes.TrimSpace(src[start:rng.Start.Byte])) > 0 || len(bytes.TrimSpace(src[rng.End.Byte:end])) > 0 {
 		return nil
 	}
-	return &SourceEdit{File: w.file, Start: start, End: end}
+	return &codeEdit{File: w.file, Start: start, End: end}
 }
 
 // removeItem removes item from obj: its lines, if it is alone on them,
 // else the item and the comma after it.
-func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.ObjectConsItem) *SourceEdit {
+func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.ObjectConsItem) *codeEdit {
 	rng := hcl.RangeBetween(item.KeyExpr.Range(), item.ValueExpr.Range())
 	if edit := w.removeLines(rng); edit != nil && obj.OpenRange.Start.Line != rng.Start.Line {
 		return edit
@@ -1177,7 +1177,7 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 			end++
 		}
 	}
-	return &SourceEdit{File: w.file, Start: rng.Start.Byte, End: end}
+	return &codeEdit{File: w.file, Start: rng.Start.Byte, End: end}
 }
 
 // apply makes in contents, files by name, the edits that take the
@@ -1189,10 +1189,10 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 // edited by, and the sources of the changes it couldn't edit: a hand
 // edit, or a secret, which includes an edit that would add a value the
 // literal secrets check takes for one (see literalSecrets).
-func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) ([]string, map[*DriftChange]Source, map[*DriftChange]Source, error) {
+func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) ([]string, map[*DriftChange]codeSource, map[*DriftChange]codeSource, error) {
 	edited := map[string]bool{}
-	applied := map[*DriftChange]Source{}
-	failed := map[*DriftChange]Source{}
+	applied := map[*DriftChange]codeSource{}
+	failed := map[*DriftChange]codeSource{}
 	for _, c := range changes {
 		e.syncModules(contents)
 		cfg, err := parseDriftConfig(contents)
@@ -1204,7 +1204,7 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 			failed[c] = src
 			continue
 		}
-		next, reason, secret := editFiles(contents, slices.Concat([]SourceEdit{*src.Edit}, src.Also))
+		next, reason, secret := editFiles(contents, slices.Concat([]codeEdit{*src.Edit}, src.Also))
 		if reason != "" {
 			src.Edit, src.Also, src.Reason, src.Secret = nil, nil, reason, secret
 			failed[c] = src
@@ -1223,8 +1223,8 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 // them, each laid out where an argument was added and formatted; or why
 // they can't be made, as an edited file wouldn't parse or would hold a
 // literal secret it didn't (secret).
-func editFiles(contents map[string][]byte, edits []SourceEdit) (map[string][]byte, string, bool) {
-	byFile := map[string][]SourceEdit{}
+func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte, string, bool) {
+	byFile := map[string][]codeEdit{}
 	for _, edit := range edits {
 		byFile[edit.File] = append(byFile[edit.File], edit)
 	}
@@ -1283,13 +1283,13 @@ func layoutResource(src []byte, address string) []byte {
 // reportSource is src as a report shows it: the file and line, the
 // expression if on one line, with secrets left out, and how a module gets
 // the value from the call; nil without a file.
-func reportSource(cfg *driftConfig, src Source, forms []string) *DriftSource {
+func reportSource(cfg *driftConfig, src codeSource, forms []string) *DriftSource {
 	if src.File == "" {
 		return nil
 	}
 	out := &DriftSource{File: src.File, Line: src.Range.Start.Line, ModulePath: src.Module}
 	f := cfg.files[src.File]
-	if f == nil || src.Kind == SourceAbsent || src.Kind == SourceResource || src.Kind == SourceModule {
+	if f == nil || src.Kind == sourceAbsent || src.Kind == sourceResource || src.Kind == sourceModule {
 		return out
 	}
 	rng := src.Range
