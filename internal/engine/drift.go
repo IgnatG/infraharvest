@@ -259,7 +259,7 @@ func (e *UnsupportedBackendError) Error() string {
 // say the edits take them and change nothing else (see acceptDrift); the
 // others are kept. For a root environments share, checked as
 // opts.Environment, only that environment's var file, staged with the
-// copy, is edited, for a value a variable sets (see envVariable). Each
+// copy, is edited, for a value a variable sets (see variableResolver.env). Each
 // change's Outcome says what became of it.
 //
 // A root with an unsupported backend fails with an

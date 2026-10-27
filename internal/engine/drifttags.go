@@ -476,7 +476,7 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource 
 		}
 		text, err := w.valueText(c.value, nil, nil)
 		if err != nil {
-			return w.manual(sourceSharedTags, src.Range, "the cloud's value can't be written: edit it by hand")
+			return w.unwritable(sourceSharedTags, src.Range)
 		}
 		src.Edit = &codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
 		return src
