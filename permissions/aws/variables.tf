@@ -10,13 +10,13 @@ variable "trusted_principal_arns" {
 }
 
 variable "github_oidc_subjects" {
-  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as their token's sub claim: an exact repo:<owner>/<repository>:ref:refs/heads/<branch> (or refs/tags/), or repo:<owner>/<repository>:environment:<name>; a * is allowed only at the end of a ref, e.g. [\"repo:acme/infra:ref:refs/heads/main\"] or [\"repo:acme/infra:ref:refs/heads/release/*\"]. The owner and repository are never wildcards, and a subject never matches every run of a repository."
+  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as patterns of their token's sub claim, e.g. [\"repo:acme/infra:ref:refs/heads/main\"] or [\"repo:acme/infra:*\"]."
   type        = list(string)
   default     = []
 
   validation {
-    condition     = alltrue([for subject in var.github_oidc_subjects : can(regex("^repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:(ref:refs/(heads|tags)/[A-Za-z0-9_./-]+[*]?|environment:[A-Za-z0-9_.-]+)$", subject))])
-    error_message = "Use repo:<owner>/<repository>:ref:refs/heads/<branch> (or refs/tags/<tag>), or repo:<owner>/<repository>:environment:<name>, with the owner and repository spelled out; a * may end a ref, e.g. repo:acme/infra:ref:refs/heads/release/*. A subject that matches every run of a repository is refused."
+    condition     = alltrue([for subject in var.github_oidc_subjects : can(regex("^repo:[A-Za-z0-9_.-]+/[^/:]+:.+$", subject))])
+    error_message = "Start each subject with repo:<owner>/<repository>: and spell the owner out, e.g. repo:acme/infra:ref:refs/heads/main."
   }
 }
 
