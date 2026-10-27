@@ -202,6 +202,9 @@ types:
       type: compute.googleapis.com/InterconnectAttachment
       name: //compute.googleapis.com/projects/*/regions/*/interconnectAttachments/*
   google_compute_network:
+    # A network is global: a regional root reads one another root manages,
+    # by its project and name, as its subnetworks and routers name it.
+    root_lookup: { attribute: self_link, id: "projects/{project}/global/networks/{name}" }
     inventory:
       type: compute.googleapis.com/Network
       name: //compute.googleapis.com/projects/*/global/networks/*

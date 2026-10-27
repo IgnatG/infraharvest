@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
+	"go.yaml.in/yaml/v3"
 )
 
 // providerSchemasEnv names the directory with the providers' schemas, as
@@ -154,6 +156,18 @@ func schemaProblems(c *Catalogue, schema *tfjson.ProviderSchema, v *version.Vers
 		}
 		if e.DerivedIdentity != nil {
 			add("derived_identity", e.DerivedIdentity.Fields()...)
+		}
+		for _, n := range e.NamedBy {
+			add("named_by", n.Attribute)
+		}
+		if r := e.RootLookup; r != nil {
+			add("root_lookup", r.Attribute)
+			s := schema.DataSourceSchemas[typ]
+			for _, name := range append(r.ID.Fields(), r.Attribute) {
+				if s == nil || s.Block == nil || s.Block.Attributes[name] == nil {
+					fail("root_lookup: the data source %s has no attribute %s", typ, name)
+				}
+			}
 		}
 		for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
 			x := e.ProviderVersions[constraint]
@@ -334,6 +348,8 @@ func TestSchemaProblems(t *testing.T) {
 			Children:   []string{"aws_part"},
 			DataSource: &DataSource{Type: "aws_thing", Argument: "name"},
 			Lookups:    []Lookup{{Arguments: []string{"iops"}, DataSource: LookupSource{Type: "aws_thing", Arguments: map[string]Template{"name": {}}, Attribute: "name"}}},
+			NamedBy:    []NamedBy{{Attribute: "name"}},
+			RootLookup: &RootLookup{Attribute: "name", ID: idTemplate(t, "things/{name}")},
 			ProviderVersions: map[string]*Versioned{
 				// For older versions only: not checked against 6.1.0.
 				"< 6.0":  {Omit: []string{"gone"}},
@@ -358,6 +374,8 @@ func TestSchemaProblems(t *testing.T) {
 				{Arguments: []string{"speed"}, DataSource: LookupSource{Type: "aws_thing", Attribute: "arn"}},
 				{Arguments: []string{"size"}, DataSource: LookupSource{Type: "aws_nothing", Attribute: "id"}},
 			},
+			NamedBy:    []NamedBy{{Attribute: "dns_name"}},
+			RootLookup: &RootLookup{Attribute: "name", ID: idTemplate(t, "things/{size}")},
 			ProviderVersions: map[string]*Versioned{
 				">= 6.0": {StateOnly: []string{"renamed"}},
 			},
@@ -369,7 +387,9 @@ func TestSchemaProblems(t *testing.T) {
 		"data/aws/test.yaml: *: omit: *.nowhere isn't an argument or a nested block of the provider's schema",
 		"data/aws/test.yaml: aws_part: data_source: aws_part isn't a data source of the provider",
 		"data/aws/test.yaml: aws_renamed: not a resource type of the provider",
+		"data/aws/test.yaml: aws_thing: root_lookup: the data source aws_thing has no attribute size",
 		"data/aws/test.yaml: aws_thing: keep_empty: tag isn't an argument or a nested block of the provider's schema",
+		"data/aws/test.yaml: aws_thing: named_by: dns_name isn't an argument or a nested block of the provider's schema",
 		"data/aws/test.yaml: aws_thing: omit: nme isn't an argument or a nested block of the provider's schema",
 		"data/aws/test.yaml: aws_thing: omit: disk.iopz isn't an argument or a nested block of the provider's schema",
 		"data/aws/test.yaml: aws_thing: omit condition: disk.missing isn't an argument or a nested block of the provider's schema",
@@ -387,4 +407,14 @@ func TestSchemaProblems(t *testing.T) {
 	if got := schemaProblems(bad, schema, v); !slices.Equal(got, want) {
 		t.Errorf("problems: got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
+}
+
+// idTemplate parses an ID template as the catalogue's YAML would.
+func idTemplate(t *testing.T, source string) IDTemplate {
+	t.Helper()
+	var id IDTemplate
+	if err := yaml.Unmarshal([]byte(strconv.Quote(source)), &id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

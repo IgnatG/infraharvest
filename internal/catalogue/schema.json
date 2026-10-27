@@ -263,6 +263,31 @@
             }
           }
         },
+        "named_by": {
+          "description": "Built-in files only: values other than its ID that name a resource of the type, as other resources' arguments have them, such as a load balancer's DNS name or a Google resource's self link: a value one of match matches names the resources whose ID, read by id, has in its fields the values of the pattern's named groups; configuration refers to the resource's attribute instead. Under the type \"*\", for every type.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attribute", "match", "id"],
+            "properties": {
+              "attribute": { "$ref": "#/$defs/name" },
+              "match": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "\\(\\?P<" } },
+              "id": { "type": "string", "pattern": "^[^{}|]*(\\{[a-z][a-z0-9_]*\\}[^{}|]*)+$" }
+            }
+          }
+        },
+        "root_lookup": {
+          "description": "Built-in files only: how a root reads attribute of a resource of the type that another root manages, wherever the root is, such as a Google network's self link: by the data source of the type, whose arguments are the fields of the resource's ID, read by id.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attribute", "id"],
+          "properties": {
+            "attribute": { "$ref": "#/$defs/name" },
+            "id": { "type": "string", "pattern": "^[^{}|]*(\\{[a-z][a-z0-9_]*\\}[^{}|]*)+$" }
+          }
+        },
         "secret_when": {
           "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
           "type": "object",

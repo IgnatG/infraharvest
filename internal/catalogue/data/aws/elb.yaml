@@ -5,3 +5,11 @@ types:
   aws_elb:
     arn: { service: elasticloadbalancing, resource_type: "loadbalancer" }
     cloud_control: { type: "AWS::ElasticLoadBalancing::LoadBalancer", identifier: LoadBalancerName }
+    # The DNS name of a Classic Load Balancer, with its name, which is its
+    # ID: web-1234567890.eu-west-2.elb.amazonaws.com.
+    named_by:
+      - attribute: dns_name
+        match:
+          - '^(?:internal-)?(?P<name>[A-Za-z0-9-]+)-[0-9]+\.(?P<region>[a-z0-9-]+)\.elb\.amazonaws\.com$'
+          - '^(?:internal-)?(?P<name>[A-Za-z0-9-]+)-[0-9a-f]+\.elb\.(?P<region>[a-z0-9-]+)\.amazonaws\.com$'
+        id: "{name}"

@@ -4,6 +4,7 @@
 package catalogue
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -39,14 +40,16 @@ var builtinOnly = map[string]func(*Entry) bool{
 	"derived_identity":   func(e *Entry) bool { return e.DerivedIdentity != nil },
 	"lookups":            func(e *Entry) bool { return len(e.Lookups) > 0 },
 	"module_references":  func(e *Entry) bool { return e.ModuleReferences != nil },
+	"named_by":           func(e *Entry) bool { return len(e.NamedBy) > 0 },
 	"principal":          func(e *Entry) bool { return e.Principal != nil },
+	"root_lookup":        func(e *Entry) bool { return e.RootLookup != nil },
 	"secret_when":        func(e *Entry) bool { return e.SecretWhen != nil },
 	"unstable_id_suffix": func(e *Entry) bool { return e.UnstableIDSuffix != "" },
 }
 
 // everyType are the fields of builtinOnly that the entry for every type
 // takes too, for each of the provider's types.
-var everyType = map[string]bool{"lookups": true, "unstable_id_suffix": true}
+var everyType = map[string]bool{"lookups": true, "named_by": true, "unstable_id_suffix": true}
 
 // checkBuiltinOnly reports the fields an overlay's entry sets that only
 // the built-in catalogue takes.
@@ -117,6 +120,7 @@ func checkGeneration(typ string, e *Entry) []error {
 		}
 	}
 	errs = append(errs, checkLookups(e.Lookups)...)
+	errs = append(errs, checkNaming(e)...)
 	return errs
 }
 
@@ -143,6 +147,14 @@ func copyGeneration(copied, e *Entry) {
 			copied.Lookups[i] = l
 		}
 	}
+	if e.NamedBy != nil {
+		copied.NamedBy = make([]NamedBy, len(e.NamedBy))
+		for i, n := range e.NamedBy {
+			n.Match = slices.Clone(n.Match)
+			copied.NamedBy[i] = n
+		}
+	}
+	copied.RootLookup = clonePointer(e.RootLookup)
 }
 
 // BlocksAsList is a type's nested block that only names an element of a
@@ -418,6 +430,188 @@ func checkLookups(lookups []Lookup) []error {
 				if field != "name" || len(l.Names) == 0 {
 					fail("%q: only {name} of names is filled in", t)
 				}
+			}
+		}
+	}
+	return errs
+}
+
+// NamedBy is a value other than its ID that names a resource of a type,
+// as another resource's argument has it, such as a load balancer's DNS
+// name or a Google resource's self link: a value Match matches names the
+// resources of the type whose IDs have, in the fields of ID, the values
+// its named groups have.
+type NamedBy struct {
+	// Attribute is the resource's attribute that has the value.
+	Attribute string `yaml:"attribute"`
+	// Match are the patterns of the values, whose named groups are fields
+	// of ID; a value names nothing unless one matches.
+	Match []*Pattern `yaml:"match"`
+	// ID is the resource's ID, as fields and the text between them.
+	ID IDTemplate `yaml:"id"`
+}
+
+// IDTemplate is a template IDs are read by: a field is the text up to
+// the template's next text, the last one the rest of the ID, so that
+// "projects/{project}/global/networks/{name}" reads projects/p/global/
+// networks/n as the project p and the name n. Its compiled form, which
+// nothing changes, is shared with copies.
+type IDTemplate struct {
+	Template
+	re *regexp.Regexp
+}
+
+// UnmarshalYAML parses the template from a YAML string.
+func (t *IDTemplate) UnmarshalYAML(node *yaml.Node) error {
+	if err := node.Decode(&t.Template); err != nil {
+		return err
+	}
+	var pattern strings.Builder
+	pattern.WriteString("^")
+	for _, p := range t.parts {
+		if p.field == "" {
+			pattern.WriteString(regexp.QuoteMeta(p.text))
+		} else {
+			pattern.WriteString("(.+?)")
+		}
+	}
+	pattern.WriteString("$")
+	t.re = regexp.MustCompile(pattern.String())
+	return nil
+}
+
+// read returns the values of the fields of id, or false where the
+// template doesn't read it.
+func (t IDTemplate) read(id string) (map[string]string, bool) {
+	m := t.re.FindStringSubmatch(id)
+	if m == nil {
+		return nil, false
+	}
+	fields := map[string]string{}
+	for i, field := range t.Fields() {
+		fields[field] = m[i+1]
+	}
+	return fields, true
+}
+
+// Naming is what a value names of a type (see Catalogue.NamedBy).
+type Naming struct {
+	// Attribute is the attribute of the resources it names that has the
+	// value.
+	Attribute string
+	id        IDTemplate
+	fields    map[string]string
+}
+
+// Names reports whether the value names the resource whose ID is id.
+func (n Naming) Names(id string) bool {
+	fields, ok := n.id.read(id)
+	if !ok {
+		return false
+	}
+	for name, v := range n.fields {
+		if have, ok := fields[name]; ok && have != v {
+			return false
+		}
+	}
+	return true
+}
+
+// NamedBy returns how value, other than an ID, names resources of type
+// typ, if it does (see catalogue.NamedBy): by the type's own entry, then
+// by that of every type.
+func (c *Catalogue) NamedBy(typ, value string) []Naming {
+	var namings []Naming
+	for _, t := range []string{typ, AllTypes} {
+		e, ok := c.entries[t]
+		if !ok {
+			continue
+		}
+		for _, n := range e.NamedBy {
+			for _, p := range n.Match {
+				m := p.re.FindStringSubmatch(value)
+				if m == nil {
+					continue
+				}
+				fields := map[string]string{}
+				for i, name := range p.re.SubexpNames() {
+					if name != "" {
+						fields[name] = m[i]
+					}
+				}
+				namings = append(namings, Naming{Attribute: n.Attribute, id: n.ID, fields: fields})
+				break
+			}
+		}
+	}
+	return namings
+}
+
+// RootLookup is how a root reads an attribute of a resource of the type
+// that another root manages, wherever the root is, such as the self link
+// of a Google network, which is global, from a regional root: by the data
+// source of the type, whose arguments are the fields of the resource's
+// ID.
+type RootLookup struct {
+	// Attribute is the attribute the root reads.
+	Attribute string `yaml:"attribute"`
+	// ID is the resource's ID, as the data source's arguments and the
+	// text between them.
+	ID IDTemplate `yaml:"id"`
+}
+
+// RootLookup returns the data source of type typ that reads attribute of
+// the resource of the type whose ID is id, which another root manages, if
+// one does (see catalogue.RootLookup): its arguments, by name, and as its
+// label the value of the ID's last field, such as a network's name.
+func (c *Catalogue) RootLookup(typ, attribute, id string) (DataLookup, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.RootLookup == nil || e.RootLookup.Attribute != attribute {
+		return DataLookup{}, false
+	}
+	fields, ok := e.RootLookup.ID.read(id)
+	if !ok {
+		return DataLookup{}, false
+	}
+	names := e.RootLookup.ID.Fields()
+	found := DataLookup{Type: typ, Label: fields[names[len(names)-1]], Attribute: attribute}
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		found.Arguments = append(found.Arguments, [2]string{name, fields[name]})
+	}
+	return found, true
+}
+
+// checkNaming reports what's wrong with how values name e's resources and
+// how other roots read them: each needs an attribute, and an ID with
+// fields and no filters; a value's patterns need a named group that is a
+// field of the ID.
+func checkNaming(e *Entry) []error {
+	var errs []error
+	checkID := func(what string, t IDTemplate) {
+		if len(t.Fields()) == 0 || slices.ContainsFunc(t.parts, func(p templatePart) bool { return len(p.filters) > 0 }) {
+			errs = append(errs, fmt.Errorf("%s: id %q: want fields in braces, without filters, and the text between them", what, t))
+		}
+	}
+	for i, n := range e.NamedBy {
+		what := fmt.Sprintf("named_by[%d]", i)
+		if !identifier.MatchString(n.Attribute) || len(n.Match) == 0 {
+			errs = append(errs, fmt.Errorf("%s: want the attribute and the patterns of its values", what))
+		}
+		checkID(what, n.ID)
+		for _, p := range n.Match {
+			if p == nil || !slices.ContainsFunc(p.re.SubexpNames(), func(name string) bool { return name != "" && slices.Contains(n.ID.Fields(), name) }) {
+				errs = append(errs, fmt.Errorf("%s: match %v: want a named group that is a field of the id", what, p))
+			}
+		}
+	}
+	if r := e.RootLookup; r != nil {
+		if !identifier.MatchString(r.Attribute) {
+			errs = append(errs, errors.New("root_lookup: want the attribute"))
+		}
+		checkID("root_lookup", r.ID)
+		for _, field := range r.ID.Fields() {
+			if !identifier.MatchString(field) {
+				errs = append(errs, fmt.Errorf("root_lookup: %q isn't an argument name", field))
 			}
 		}
 	}
