@@ -4,8 +4,12 @@
 package report
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -203,5 +207,246 @@ func TestAddWarning(t *testing.T) {
 	r := &Report{}
 	if !r.AddWarning("w") || r.AddWarning("w") || !reflect.DeepEqual(r.Warnings, []string{"w"}) {
 		t.Errorf("warnings %v", r.Warnings)
+	}
+}
+
+// rendered returns r as its JSON report, decoded, and as report.md.
+func rendered(t *testing.T, r *Report) (map[string]any, string) {
+	t.Helper()
+	var out bytes.Buffer
+	if err := r.WriteJSON(&out); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("not one JSON document: %v\n%s", err, out.String())
+	}
+	return doc, r.Markdown()
+}
+
+// Failures are recorded as their messages, sorted by Finish, make the
+// import incomplete, and are listed in the JSON report and report.md.
+func TestAddFailure(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name         string
+		allowPartial bool
+		exitCode     int
+	}{
+		{"incomplete", false, ExitIncomplete},
+		{"partial", true, ExitPartial},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := &Report{}
+			r.AddFailure(errors.New("service s3: access denied"))
+			r.AddFailure(fmt.Errorf("account %s: %w", "111122223333", errors.New("assume role: access denied")))
+			r.Finish(nil, nil, tc.allowPartial)
+
+			want := []string{"account 111122223333: assume role: access denied", "service s3: access denied"}
+			if !reflect.DeepEqual(r.Failures, want) {
+				t.Errorf("failures %q, want %q", r.Failures, want)
+			}
+			if r.ExitCode != tc.exitCode {
+				t.Errorf("exit code %d, want %d", r.ExitCode, tc.exitCode)
+			}
+			doc, md := rendered(t, r)
+			if got := doc["failures"]; !reflect.DeepEqual(got, []any{want[0], want[1]}) {
+				t.Errorf("JSON failures %v, want %q", got, want)
+			}
+			if !strings.Contains(md, "\n## Failures\n") || !strings.Contains(md, "\n- "+want[0]+"\n- "+want[1]+"\n") {
+				t.Errorf("report.md:\n%s", md)
+			}
+		})
+	}
+	if doc, md := rendered(t, &Report{}); doc["failures"] != nil || strings.Contains(md, "## Failures") {
+		t.Errorf("a report without failures lists them: %v\n%s", doc["failures"], md)
+	}
+}
+
+// Types Terraform can't import are counted, with the reason, as not
+// importable, sorted by type, without making the import incomplete.
+func TestAddSkipped(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.AddSkipped("aws_main_route_table_association", 2)
+	r.AddSkipped("aws_default_network_acl", 1)
+	r.Finish(map[string]int{"aws_main_route_table_association": 2, "aws_default_network_acl": 1}, nil, false)
+
+	want := []Skipped{
+		{Type: "aws_default_network_acl", Count: 1, Reason: skippedReason},
+		{Type: "aws_main_route_table_association", Count: 2, Reason: skippedReason},
+	}
+	if !reflect.DeepEqual(r.Skipped, want) {
+		t.Errorf("skipped %+v, want %+v", r.Skipped, want)
+	}
+	if r.Totals.Skipped != 3 || r.Totals.Discovered != 3 || r.ExitCode != ExitOK {
+		t.Errorf("totals %+v, exit code %d; want 3 not importable and a complete import", r.Totals, r.ExitCode)
+	}
+	doc, md := rendered(t, r)
+	skipped, _ := doc["skipped"].([]any)
+	if len(skipped) != 2 || !reflect.DeepEqual(skipped[1], map[string]any{"type": "aws_main_route_table_association", "count": 2.0, "reason": skippedReason}) {
+		t.Errorf("JSON skipped %v", doc["skipped"])
+	}
+	for _, line := range []string{
+		"\n## Not importable\n",
+		"- `aws_default_network_acl` (1): " + skippedReason + "\n- `aws_main_route_table_association` (2): " + skippedReason + "\n",
+		"| `aws_main_route_table_association` | 2 | 0 | 0 | 0 | 2 | 0 |",
+	} {
+		if !strings.Contains(md, line) {
+			t.Errorf("report.md misses %q:\n%s", line, md)
+		}
+	}
+}
+
+// Kept roots are added to those there are, nil adding none, and are in the
+// JSON report.
+func TestAddKeptRoots(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.AddKeptRoots(nil)
+	if doc, md := rendered(t, r); doc["kept_roots"] != nil || strings.Contains(md, "Kept where they were") {
+		t.Errorf("no kept roots, yet listed: %v\n%s", doc["kept_roots"], md)
+	}
+	prod := KeptRoot{Path: "aws/2/us-east-1", Environments: []string{"prod"}, Scope: "aws/2/us-east-1"}
+	dev := KeptRoot{Path: "aws/1/us-east-1", Environments: []string{"dev"}}
+	r.AddKeptRoots([]KeptRoot{prod})
+	r.AddKeptRoots([]KeptRoot{dev})
+	if want := []KeptRoot{prod, dev}; !reflect.DeepEqual(r.KeptRoots, want) {
+		t.Errorf("kept roots %+v, want %+v", r.KeptRoots, want)
+	}
+	r.Finish(nil, nil, false)
+	doc, md := rendered(t, r)
+	want := []any{
+		map[string]any{"path": "aws/1/us-east-1", "environments": []any{"dev"}},
+		map[string]any{"path": "aws/2/us-east-1", "environments": []any{"prod"}, "scope": "aws/2/us-east-1"},
+	}
+	if !reflect.DeepEqual(doc["kept_roots"], want) {
+		t.Errorf("JSON kept roots %v, want %v", doc["kept_roots"], want)
+	}
+	if !strings.Contains(md, "- `aws/1/us-east-1`, of dev\n- `aws/2/us-east-1`, of prod\n") {
+		t.Errorf("report.md:\n%s", md)
+	}
+}
+
+// Handovers one root didn't finish are sorted by the root and address
+// they come from, said in report.md with what to do, and kept whole in
+// the JSON report; they don't make the import incomplete themselves, as
+// the failed root does.
+func TestAddIncompleteHandover(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	queue := IncompleteHandover{
+		Move:       Move{From: "aws_sqs_queue.orders", FromRoot: "aws/1/eu-west-2", To: "aws_sqs_queue.orders", ToRoot: "envs/prod/aws/1/eu-west-2"},
+		FailedRoot: "envs/prod/aws/1/eu-west-2",
+		Warning:    "it wasn't imported there: don't apply the removed block",
+	}
+	bucket := IncompleteHandover{
+		Move:       Move{From: "aws_s3_bucket.logs", FromRoot: "aws/1/eu-west-2", ToRoot: "envs/prod/aws/1/eu-west-2"},
+		FailedRoot: "aws/1/eu-west-2",
+		Warning:    "both roots have it: apply the removed block first",
+	}
+	global := IncompleteHandover{
+		Move:       Move{From: "aws_iam_role.app", FromRoot: "aws/1/aws-global", ToRoot: "envs/prod/aws/1/aws-global"},
+		FailedRoot: "aws/1/aws-global",
+		Warning:    "both roots have it",
+	}
+	r.AddIncompleteHandover(queue)
+	r.AddIncompleteHandover(bucket)
+	r.AddIncompleteHandover(global)
+	r.Finish(nil, nil, false)
+
+	if want := []IncompleteHandover{global, bucket, queue}; !reflect.DeepEqual(r.IncompleteHandovers, want) {
+		t.Errorf("handovers %+v, want %+v", r.IncompleteHandovers, want)
+	}
+	if r.ExitCode != ExitOK {
+		t.Errorf("exit code %d, want %d", r.ExitCode, ExitOK)
+	}
+	doc, md := rendered(t, r)
+	handovers, _ := doc["incomplete_handovers"].([]any)
+	if len(handovers) != 3 {
+		t.Fatalf("JSON handovers %v", doc["incomplete_handovers"])
+	}
+	if h, _ := handovers[2].(map[string]any); h["failed_root"] != queue.FailedRoot || h["warning"] != queue.Warning || h["from"] != queue.From {
+		t.Errorf("JSON handover %v, want %+v", h, queue)
+	}
+	for _, line := range []string{
+		"\n## Handovers not finished\n",
+		"- `aws_iam_role.app` from `aws/1/aws-global` to `envs/prod/aws/1/aws-global`: both roots have it\n" +
+			"- `aws_s3_bucket.logs` from `aws/1/eu-west-2` to `envs/prod/aws/1/eu-west-2`: both roots have it: apply the removed block first\n" +
+			"- `aws_sqs_queue.orders` from `aws/1/eu-west-2` to `envs/prod/aws/1/eu-west-2`: it wasn't imported there: don't apply the removed block\n",
+	} {
+		if !strings.Contains(md, line) {
+			t.Errorf("report.md misses %q:\n%s", line, md)
+		}
+	}
+}
+
+// The provider's version is what the lock file records for its source,
+// matched without regard to case, and none when the lock doesn't record it
+// or doesn't parse; the report shows it after the constraint.
+func TestLockProvider(t *testing.T) {
+	t.Parallel()
+	const source = "registry.terraform.io/hashicorp/aws"
+	lock := func(source, version string) string {
+		return "provider \"" + source + "\" {\n  version     = \"" + version + "\"\n  constraints = \"~> 6.67\"\n}\n"
+	}
+	for _, tc := range []struct {
+		name string
+		lock string
+		want string
+	}{
+		{"recorded", lock(source, "6.67.0"), "6.67.0"},
+		{"among others", lock("registry.terraform.io/hashicorp/random", "3.7.2") + lock(source, "6.68.1"), "6.68.1"},
+		{"another case", lock("registry.terraform.io/HashiCorp/AWS", "6.67.0"), "6.67.0"},
+		{"another provider", lock("registry.terraform.io/hashicorp/random", "3.7.2"), ""},
+		{"no version", "provider \"" + source + "\" {\n  constraints = \"~> 6.67\"\n}\n", ""},
+		{"empty", "", ""},
+		{"not HCL", "provider {", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := &Report{}
+			r.Provider = Provider{Source: source, Constraint: "~> 6.67", Version: "stale"}
+			r.LockProvider([]byte(tc.lock))
+			if r.Provider.Version != tc.want {
+				t.Errorf("version %q, want %q", r.Provider.Version, tc.want)
+			}
+			doc, md := rendered(t, r)
+			provider, _ := doc["provider"].(map[string]any)
+			heading := "provider `" + source + "` ~> 6.67."
+			if tc.want != "" {
+				heading = "provider `" + source + "` ~> 6.67 (" + tc.want + ")."
+			}
+			if v, _ := provider["version"].(string); v != tc.want || !strings.Contains(md, heading) {
+				t.Errorf("JSON provider %v, report.md:\n%s\nwant version %q and %q", provider, md, tc.want, heading)
+			}
+		})
+	}
+}
+
+// The exit code of an import that ended with an error is the one set
+// after Finish, in the JSON report and coverage.json alike.
+func TestSetExitCode(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.Finish(nil, nil, false)
+	if r.ExitCode != ExitOK {
+		t.Fatalf("exit code %d before SetExitCode", r.ExitCode)
+	}
+	r.SetExitCode(2)
+	if doc, _ := rendered(t, r); doc["exit_code"] != 2.0 {
+		t.Errorf("JSON exit code %v, want 2", doc["exit_code"])
+	}
+	dir := t.TempDir()
+	if err := r.WriteFiles(dir); err != nil {
+		t.Fatal(err)
+	}
+	read, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.ExitCode != 2 {
+		t.Errorf("coverage.json exit code %d, want 2", read.ExitCode)
 	}
 }

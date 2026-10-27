@@ -275,3 +275,16 @@ func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// A --catalogue that can't be read stops a --cfn-stack plan before any
+// stack is read.
+func TestPlanAWSStacksBadCatalogue(t *testing.T) {
+	_, err := planAWS(context.Background(), importer.Options{
+		CloudFormationStacks: []string{"app"},
+		AssumeRole:           DefaultAssumeRole,
+		Catalogue:            filepath.Join(t.TempDir(), "missing.yaml"),
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "--catalogue: ") {
+		t.Errorf("got %v, want a --catalogue error", err)
+	}
+}

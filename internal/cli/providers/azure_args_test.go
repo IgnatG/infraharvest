@@ -77,3 +77,46 @@ func TestAzureArgs(t *testing.T) {
 		})
 	}
 }
+
+// Several subscriptions of --subscriptions need {account} in the layout,
+// which the check says before anything is listed, and the plan again; one
+// subscription, or ARM_SUBSCRIPTION_ID's, needs nothing.
+func TestAzureSubscriptionsApart(t *testing.T) {
+	const shared = "{out}/{provider}/{region}/"
+	for _, tc := range []struct {
+		name   string
+		args   []string
+		layout string
+		want   string
+	}{
+		{"ARM_SUBSCRIPTION_ID's", nil, shared, ""},
+		{"one subscription", []string{"--subscriptions=s1"}, shared, ""},
+		{"several, by account", []string{"--subscriptions=s1,s2"}, importer.DefaultLayout, ""},
+		{"several, shared", []string{"--subscriptions=s1,s2"}, shared, `--layout "` + shared + `" needs {account} to keep several subscriptions apart`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			flags := pflag.NewFlagSet("azure", pflag.ContinueOnError)
+			options := importer.Options{}
+			check, planner := azureFlags(flags, &options)
+			if err := flags.Parse(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			options.Layout = tc.layout
+			for name, run := range map[string]func() error{
+				"check": func() error { return check(options) },
+				"plan": func() error {
+					_, err := planner(context.Background(), options)
+					return err
+				},
+			} {
+				got := ""
+				if err := run(); err != nil {
+					got = err.Error()
+				}
+				if got != tc.want {
+					t.Errorf("%s: got %q, want %q", name, got, tc.want)
+				}
+			}
+		})
+	}
+}
