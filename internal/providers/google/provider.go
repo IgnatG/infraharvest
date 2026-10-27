@@ -280,7 +280,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle: "Project",
 			ScopeData:  "google_client_config.current",
 			ScopeLocal: "project_id",
 			ScopeExpr:  "data.google_client_config.current.project",

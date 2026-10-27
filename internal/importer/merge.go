@@ -207,7 +207,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	region := c.region
 	// The region the provider block sets, where the provider has one (see
 	// harvest.Merge.RegionArgument).
-	profile := c.provider.Profile().Merge
+	profile := mergeProfile(c.provider.Profile())
 	if r, ok := c.toolchain.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
@@ -222,7 +222,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		group:          c.options.ResourceGroup,
 		provider:       c.provider,
 		engineProvider: c.toolchain.root.provider,
-		profile:        engine.MergeProfile(profile),
+		profile:        profile,
 		fingerprint:    fp,
 		result:         result,
 		opts:           opts,
@@ -233,6 +233,23 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		handovers:      c.handovers,
 		here:           c.here,
 	})
+}
+
+// mergeProfile is what the merged root reads of each environment's scope
+// and region, by profile: its Merge, titled by what the roots are scoped
+// by, its scope's noun, such as Account for account.
+func mergeProfile(profile harvest.Profile) engine.MergeProfile {
+	m, noun := profile.Merge, profile.Scope.Noun
+	title := noun
+	if noun != "" {
+		title = strings.ToUpper(noun[:1]) + noun[1:]
+	}
+	return engine.MergeProfile{
+		ScopeTitle: title,
+		ScopeData:  m.ScopeData, ScopeLocal: m.ScopeLocal, ScopeExpr: m.ScopeExpr,
+		RegionArgument: m.RegionArgument, RegionTitle: m.RegionTitle,
+		RegionData: m.RegionData, RegionLocal: m.RegionLocal, RegionExpr: m.RegionExpr,
+	}
 }
 
 // MergeEnvironments merges the roots of each stack of r's environments
