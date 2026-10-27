@@ -10,7 +10,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -185,12 +184,12 @@ const includeOwnedHint = "; --include-owned imports it"
 
 // OwnedReason is why a resource whose tags say another tool manages it is
 // left out. A Terraform or OpenTofu owner counts as Terraform's in the
-// report (see managed.Reason), other tools as another tool's (see
+// report (see report.TerraformPrefix), other tools as another tool's (see
 // report.OtherToolPrefix).
 func OwnedReason(o engine.Owner) string {
 	switch {
 	case o.TerraformState():
-		return managed.Reason + " (" + o.Tool + " elsewhere, per its tag " + o.Tag + includeOwnedHint + ")"
+		return report.TerraformPrefix + " (" + o.Tool + " elsewhere, per its tag " + o.Tag + includeOwnedHint + ")"
 	case o.Stack != "":
 		return report.OtherToolPrefix + "CloudFormation stack " + o.Stack + " (per its tag " + o.Tag + includeOwnedHint + ")"
 	default:
@@ -214,7 +213,7 @@ func OwnedBy(o engine.Owner) string {
 // managedReason is why a resource the Terraform state at where has is
 // left out.
 func managedReason(where string) string {
-	return managed.Reason + " (" + where + ")"
+	return report.TerraformPrefix + " (" + where + ")"
 }
 
 // Unwanted returns the types an import with the selection file f, nil for

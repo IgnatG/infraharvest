@@ -23,7 +23,6 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -537,15 +536,15 @@ func (f *File) refresh(m *Resource, l Resource) {
 }
 
 // isManaged reports whether reason says Terraform already manages the
-// resource (see managed.Reason).
+// resource (see report.TerraformPrefix).
 func isManaged(reason string) bool {
-	return strings.HasPrefix(reason, managed.Reason)
+	return strings.HasPrefix(reason, report.TerraformPrefix)
 }
 
 // owned reports whether reason, why the default selection excludes a
 // resource, says another Terraform state or tool manages it: the state
 // --managed-state reads, its tags, or the CloudFormation stack that lists
-// it (see managed.Reason and report.OtherToolPrefix). What the cloud
+// it (see report.TerraformPrefix and report.OtherToolPrefix). What the cloud
 // creates and manages itself, such as a default VPC, isn't owned.
 func owned(reason string) bool {
 	return isManaged(reason) || strings.HasPrefix(reason, report.OtherToolPrefix)

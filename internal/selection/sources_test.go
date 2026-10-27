@@ -13,7 +13,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -86,8 +85,8 @@ func TestSourcesReason(t *testing.T) {
 	if skipped == "" {
 		t.Fatal("the catalogue no longer skips AWSServiceRoleForECS")
 	}
-	inProd := managed.Reason + " (prod.tfstate)"
-	byTag := managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=Terraform; --include-owned imports it)"
+	inProd := report.TerraformPrefix + " (prod.tfstate)"
+	byTag := report.TerraformPrefix + " (Terraform elsewhere, per its tag ManagedBy=Terraform; --include-owned imports it)"
 	for _, tc := range []struct {
 		name         string
 		listed       Listed
@@ -127,7 +126,7 @@ func TestSourcesDecide(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "plain"},
 	}}
 	excludeByDefault := &File{Version: Version}
-	inProd := managed.Reason + " (prod.tfstate)"
+	inProd := report.TerraformPrefix + " (prod.tfstate)"
 	for _, tc := range []struct {
 		name   string
 		file   *File

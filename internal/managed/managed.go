@@ -26,10 +26,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
-// Reason starts the reason an import gives for leaving out a resource
-// Terraform already manages.
-const Reason = "already managed by Terraform"
-
 // ObjectStore reads state from a bucket.
 type ObjectStore interface {
 	// List returns the keys under prefix.
@@ -103,6 +99,13 @@ type Stores struct {
 	GCS          func(ctx context.Context) (ObjectStore, error)
 	AzureBlob    func(ctx context.Context, serviceURL string) (ObjectStore, error)
 	HCPTerraform func(ctx context.Context, host string) (ObjectStore, error)
+}
+
+// errNoStore is the error of a source whose kind of store, such as S3, the
+// Stores given have no way to open: a caller that leaves one out reads
+// no state of that kind, and says so rather than panicking.
+func errNoStore(kind string) error {
+	return fmt.Errorf("no %s store to read the state with", kind)
 }
 
 // DefaultStores read with each cloud's default credentials.
@@ -214,10 +217,36 @@ func parseWorkspaces(source string) (organization, pattern, host string, err err
 	return organization, pattern, host, nil
 }
 
-// azureBlobSuffixes are the hosts of Blob Storage in Azure's clouds:
-// public, US Government and China. The credentials the azurerm backend
-// uses go to the host a source names, so no other host is read from.
-var azureBlobSuffixes = []string{"blob.core.windows.net", "blob.core.usgovcloudapi.net", "blob.core.chinacloudapi.cn"}
+// The hosts of Blob Storage in Azure's clouds: public, US Government and
+// China.
+const (
+	publicBlobSuffix     = "blob.core.windows.net"
+	governmentBlobSuffix = "blob.core.usgovcloudapi.net"
+	chinaBlobSuffix      = "blob.core.chinacloudapi.cn"
+)
+
+// azureBlobSuffixes are the hosts of Blob Storage in Azure's clouds. The
+// credentials the azurerm backend uses go to the host a source names, so
+// no other host is read from.
+var azureBlobSuffixes = []string{publicBlobSuffix, governmentBlobSuffix, chinaBlobSuffix}
+
+// AzureBlobSuffix returns the host of Blob Storage in the Azure cloud
+// environment names, as ARM_ENVIRONMENT does to the azurerm backend when
+// its configuration names none, as the configuration file's doesn't. It
+// takes the names the Azure provider command takes, such as usgovernment
+// or AzureChinaCloud, by dropping a leading "azure" and a trailing
+// "cloud" first; "" is the public cloud.
+func AzureBlobSuffix(environment string) (string, error) {
+	switch strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(environment)), "azure"), "cloud") {
+	case "", "public", "global":
+		return publicBlobSuffix, nil
+	case "usgovernment", "usgovernmentl4", "usgovernmentl5", "dod":
+		return governmentBlobSuffix, nil
+	case "china":
+		return chinaBlobSuffix, nil
+	}
+	return "", fmt.Errorf("ARM_ENVIRONMENT %q: state is read from Blob Storage in Azure's public, US Government and China clouds only", environment)
+}
 
 // isAzureBlob tells whether source is a Blob Storage URL, whose host is
 // <account>.<one of azureBlobSuffixes>.
@@ -249,10 +278,19 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	var store ObjectStore
 	switch o.url.Scheme {
 	case "gs":
+		if stores.GCS == nil {
+			return errNoStore("Cloud Storage")
+		}
 		store, err = stores.GCS(ctx)
 	case "s3":
+		if stores.S3 == nil {
+			return errNoStore("S3")
+		}
 		store, err = stores.S3(ctx, o.url.Query().Get("region"), o.url.Query().Get("profile"))
 	default:
+		if stores.AzureBlob == nil {
+			return errNoStore("Blob Storage")
+		}
 		store, err = stores.AzureBlob(ctx, o.url.Scheme+"://"+o.url.Host+"/")
 	}
 	if err != nil {
@@ -334,6 +372,9 @@ func (r Resources) loadWorkspaces(ctx context.Context, source string, stores Sto
 	organization, pattern, host, err := parseWorkspaces(source)
 	if err != nil {
 		return err
+	}
+	if stores.HCPTerraform == nil {
+		return errNoStore("HCP Terraform")
 	}
 	store, err := stores.HCPTerraform(ctx, host)
 	if err != nil {

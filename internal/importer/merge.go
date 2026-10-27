@@ -304,7 +304,9 @@ func (r *Run) MergeEnvironments(ctx context.Context) error {
 // several of them, the merged root would be one of them or hold one, or
 // its directory holds a root no merge wrote, unless adopted says it is
 // a merged root told from its files (see adoptedCheckpoint), or one of
-// them has local state, which merging would leave where no root is.
+// them has local state, which merging would leave where no root is. A
+// merge checkpoint that can't be read refuses it too, rather than reading
+// as none.
 func mergeRefusal(out, stack string, members []mergeMember, adopted bool) string {
 	byEnv := map[string][]string{}
 	for _, m := range members {
@@ -325,7 +327,11 @@ func mergeRefusal(out, stack string, members []mergeMember, adopted bool) string
 	}
 	names, err := tfFiles(stack)
 	if err == nil && len(names) > 0 {
-		if c, _ := readMergeCheckpoint(out, stack); c == nil && !adopted {
+		c, err := readMergeCheckpoint(out, stack)
+		if err != nil {
+			return fmt.Sprintf("its merge checkpoint can't be read: %v", err)
+		}
+		if c == nil && !adopted {
 			return fmt.Sprintf("%s already holds %s, which no merge by infraharvest wrote", relativePath(out, stack), strings.Join(names, ", "))
 		}
 	}

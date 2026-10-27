@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -55,7 +54,7 @@ func TestImportIntoDiscovers(t *testing.T) {
 				t.Errorf("listed resource: %+v", r)
 			}
 		case "id-2":
-			if r.Include || !strings.HasPrefix(r.Reason, managed.Reason) || r.Service != "partial" {
+			if r.Include || !strings.HasPrefix(r.Reason, report.TerraformPrefix) || r.Service != "partial" {
 				t.Errorf("managed resource: %+v", r)
 			}
 		default:

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 // Each kind of exclusion gives its reason and owner, and Finish counts
@@ -24,7 +23,7 @@ func TestExclude(t *testing.T) {
 	}{
 		{InRoot(), "already in the root", OwnerTerraformRoot},
 		{InOtherRoot("aws/1/global"), "already in another root of the output, aws/1/global", OwnerTerraformRoot},
-		{Decided(managed.Reason + " (s3://state)"), managed.Reason + " (s3://state)", OwnerTerraformState},
+		{Decided(TerraformPrefix + " (s3://state)"), TerraformPrefix + " (s3://state)", OwnerTerraformState},
 		{Decided(OtherToolPrefix + "CloudFormation stack app"), OtherToolPrefix + "CloudFormation stack app", OwnerCloudFormation},
 		{Decided("a default VPC"), "a default VPC", OwnerCloud},
 		{Decided(ReasonSelectionRule), ReasonSelectionRule, OwnerSelection},
@@ -43,7 +42,7 @@ func TestExclude(t *testing.T) {
 	r.AddDiscovered(scope, 6)
 	r.Exclude(scope, "aws_sqs_queue", "q1", InRoot())
 	r.Exclude(scope, "aws_sqs_queue", "q2", InOtherRoot("aws/1/global"))
-	r.Exclude(scope, "aws_s3_bucket", "state", Decided(managed.Reason+" (s3://state)"))
+	r.Exclude(scope, "aws_s3_bucket", "state", Decided(TerraformPrefix+" (s3://state)"))
 	r.Exclude(scope, "aws_s3_bucket", "stack", Owned(OtherToolPrefix+"Pulumi (per its tag ManagedBy=pulumi)", OwnerOtherTool))
 	r.Exclude(scope, "aws_vpc", "vpc-1", Decided("a default VPC"))
 	r.Exclude(scope, "aws_vpc", "vpc-2", Decided(ReasonSelectionEntry))

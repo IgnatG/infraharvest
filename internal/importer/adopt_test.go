@@ -81,6 +81,15 @@ func TestMergedOwnStates(t *testing.T) {
 	if own, err := mergedOwnStates(out, false); err != nil || !reflect.DeepEqual(own, want) {
 		t.Errorf("every merged root: %v %v", own, err)
 	}
+	// A checkpoint that can't be read fails, naming it, rather than
+	// reading as none.
+	path := mergeCheckpointPath(out, stack)
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if own, err := mergedOwnStates(out, true); err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("a corrupt checkpoint: %v %v", own, err)
+	}
 }
 
 // With --incremental, what the state of an environment of a merged root
