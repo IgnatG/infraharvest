@@ -51,6 +51,9 @@ type File struct {
 	// Environments are the estate's environments: each gets roots of its
 	// own, under {out}/envs/<name>/ (see Environments.For).
 	Environments Environments `yaml:"environments,omitempty"`
+	// profiles are those Load read the file with, of the provider
+	// commands the binary is built with, whose settings Apply takes.
+	profiles []harvest.Profile
 }
 
 // Module is a module of the organisation's own, at a pinned version: a git
@@ -105,7 +108,7 @@ func Load(file string, profiles []harvest.Profile) (*File, error) {
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
-	f := &File{}
+	f := &File{profiles: profiles}
 	if err := decoder.Decode(f); err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
@@ -252,13 +255,13 @@ var commandLineOnly = []string{"check", "config"}
 // Apply sets the flags the command line didn't, from the file's settings
 // and the provider's. It fails on a setting that isn't a flag, or is one
 // of commandLineOnly, and on settings for a provider that is neither one
-// of the provider commands the file has sections for (see
-// providerCommands) nor provider, which would otherwise never apply.
+// of the provider commands the binary is built with, whose profiles Load
+// was given, nor provider, which would otherwise never apply (see
+// unknownProvider).
 func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
-	commands := providerCommands()
 	for _, name := range slices.Sorted(maps.Keys(f.Providers)) {
-		if name != provider && !slices.Contains(commands, name) {
-			return fmt.Errorf("providers: unknown provider %q: use %s", name, strings.Join(commands, ", "))
+		if name != provider && !slices.ContainsFunc(f.profiles, func(p harvest.Profile) bool { return p.Command == name }) {
+			return fmt.Errorf("providers: %w", unknownProvider(name, f.profiles))
 		}
 	}
 	for _, settings := range []map[string]any{f.Settings, f.Providers[provider]} {
