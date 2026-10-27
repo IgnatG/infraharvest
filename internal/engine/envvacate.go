@@ -62,11 +62,11 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 		reads[string(m[1])] = true
 	}
 	// What each environment plans the root with is kept: its backend
-	// settings, and the var files of its values, but not those of its
-	// import IDs, as the root imports nothing now.
-	backends, values := map[string]bool{}, map[string]bool{}
+	// settings, even those of an environment whose values are gone, and
+	// the var files of its values, but not those of its import IDs, as
+	// the root imports nothing now.
+	values := map[string]bool{}
 	for _, env := range envs {
-		backends[backendConfigPath(env)] = true
 		for _, name := range varFiles(env, false) {
 			values[name] = true
 		}
@@ -76,7 +76,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		keep := false
 		switch {
-		case name == ProvidersFileName, name == ".gitignore", name == LockFileName, backends[name]:
+		case name == ProvidersFileName, name == ".gitignore", name == LockFileName, isBackendConfig(name):
 			keep = true
 		case name == VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
@@ -106,7 +106,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 	if err != nil {
 		return nil, Check{}, err
 	}
-	backend := slices.ContainsFunc(left, func(name string) bool { return backends[name] })
+	backend := slices.ContainsFunc(left, isBackendConfig)
 	if err := fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
 		return nil, Check{}, err
 	}

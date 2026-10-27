@@ -203,3 +203,21 @@ func TestMergedRootFilesOnDisk(t *testing.T) {
 		t.Errorf("got %v, %v, want %v", got, err, want)
 	}
 }
+
+// A backend's settings are recognised by their path alone, so a handover
+// keeps those of an environment whose values are gone.
+func TestIsBackendConfig(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]bool{
+		"vars/prod/backend.hcl":      true,
+		"vars/backend.hcl":           false,
+		"vars/prod/eu/backend.hcl":   false,
+		"vars/prod/terraform.tfvars": false,
+		"other/prod/backend.hcl":     false,
+		"vars//backend.hcl":          false,
+	} {
+		if got := isBackendConfig(name); got != want {
+			t.Errorf("isBackendConfig(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

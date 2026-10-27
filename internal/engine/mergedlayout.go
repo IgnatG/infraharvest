@@ -64,6 +64,18 @@ func backendConfigPath(env string) string {
 	return varsDirName + "/" + env + "/" + backendConfigFileName
 }
 
+// isBackendConfig reports whether name, a path in the root with forward
+// slashes, is an environment's backend settings (see backendConfigPath),
+// whether or not the environment still has values of its own.
+func isBackendConfig(name string) bool {
+	env, ok := strings.CutPrefix(name, varsDirName+"/")
+	if !ok {
+		return false
+	}
+	env, ok = strings.CutSuffix(env, "/"+backendConfigFileName)
+	return ok && env != "" && !strings.Contains(env, "/")
+}
+
 // workspaceStateFile returns where the merged root in dir, without a
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.
