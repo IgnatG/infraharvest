@@ -56,3 +56,12 @@ func (c *Catalogue) EngineOptions(v *version.Version) engine.Options {
 	}
 	return opts
 }
+
+// DriftOptions returns the engine's drift options of what c knows about
+// its provider's resource types, for roots that pin the provider release
+// line of v: the arguments kept only in state, whose changes aren't
+// drift, their defaults, and the arguments to leave out. The rest of the
+// options are the caller's.
+func (c *Catalogue) DriftOptions(v *version.Version) engine.DriftOptions {
+	return engine.DriftOptions{StateOnly: c.StateOnlyFor(v), Defaults: c.DefaultsFor(v), Omit: c.OmitFor(v)}
+}

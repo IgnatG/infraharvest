@@ -406,7 +406,19 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel, Environment: env}
-	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env, RootLock: target.lock, Adapters: own}
+	var opts engine.DriftOptions
+	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
+		cat, err := providerCatalogue(provider, options.Catalogue)
+		if err != nil {
+			root.Error = err.Error()
+			return root, nil
+		}
+		opts = cat.DriftOptions(lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		// As the import passes its provider's modules alone (see
+		// Run.toolchain).
+		own = catalogueAdapters(own, provider.Name())
+	}
+	opts.CommandTimeout, opts.Environment, opts.RootLock, opts.Adapters = options.EngineTimeout, env, target.lock, own
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()
@@ -416,18 +428,6 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 			decided.record(c, d)
 			return d.accept
 		}
-	}
-	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
-		cat, err := providerCatalogue(provider, options.Catalogue)
-		if err != nil {
-			root.Error = err.Error()
-			return root, nil
-		}
-		v := lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider)
-		opts.StateOnly, opts.Defaults, opts.Omit = cat.StateOnlyFor(v), cat.DefaultsFor(v), cat.OmitFor(v)
-		// As the import passes its provider's modules alone (see
-		// Run.toolchain).
-		opts.Adapters = catalogueAdapters(own, provider.Name())
 	}
 	result, err := check(ctx, dir, driftStagingDir(options.Out, root.Name()), opts)
 	if err != nil {

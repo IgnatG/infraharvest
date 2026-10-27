@@ -63,25 +63,40 @@ func googleFlags(flags *pflag.FlagSet, options *importer.Options) (checker, plan
 // none of the flags the profile says the command needs one of (see
 // harvest.Scope.Needs).
 func (s *googleScopes) check(options importer.Options) error {
-	needs := (&google.Provider{}).Profile().Scope.Needs
-	if !slices.ContainsFunc(needs, s.set) {
-		names := make([]string, len(needs))
-		for i, name := range needs {
-			names[i] = "--" + name
-		}
-		return errors.New("say which projects to import: " + strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1])
+	if missing := unsetNeeds(s.flags, (&google.Provider{}).Profile().Scope.Needs); missing != "" {
+		return errors.New("say which projects to import: " + missing)
 	}
 	return checkProjectsApart(options.Layout, options.Projects)
 }
 
-// set reports whether the flag name has a value: a list that isn't
-// empty, or another value that isn't.
-func (s *googleScopes) set(name string) bool {
-	value := s.flags.Lookup(name).Value
-	if list, ok := value.(pflag.SliceValue); ok {
+// unsetNeeds returns, as "--a, --b or --c", the flags of needs if flags
+// sets none of them, or "" if it sets one, or needs is empty. A flag
+// flags doesn't have counts as unset.
+func unsetNeeds(flags *pflag.FlagSet, needs []string) string {
+	if len(needs) == 0 || slices.ContainsFunc(needs, func(name string) bool { return flagSet(flags, name) }) {
+		return ""
+	}
+	names := make([]string, len(needs))
+	for i, name := range needs {
+		names[i] = "--" + name
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+// flagSet reports whether flags has the flag name with a value: a list
+// that isn't empty, or another value that isn't.
+func flagSet(flags *pflag.FlagSet, name string) bool {
+	f := flags.Lookup(name)
+	if f == nil {
+		return false
+	}
+	if list, ok := f.Value.(pflag.SliceValue); ok {
 		return len(list.GetSlice()) > 0
 	}
-	return value.String() != ""
+	return f.Value.String() != ""
 }
 
 // checkProjectsApart fails when several projects would share roots. A

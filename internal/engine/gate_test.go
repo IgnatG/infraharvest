@@ -450,7 +450,7 @@ func TestGateCancelled(t *testing.T) {
 		}},
 		{"stopped at a failure", func(cancel func()) gatePolicy {
 			cancel() // as an interrupt while fmt runs
-			return gatePolicy{checks: []string{CheckFormat, CheckValidate}, edited: []string{GeneratedFileName}}
+			return gatePolicy{checks: []string{CheckFormat, CheckValidate}, diff: true, edited: []string{GeneratedFileName}}
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -623,6 +623,7 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 				checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
 				sensitive: []string{secret},
 				baseline:  baseline,
+				diff:      true,
 				before:    map[string][]byte{},
 				after:     map[string][]byte{},
 			}
@@ -650,6 +651,48 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 				t.Errorf("the gate went on past the failure: %+v", gate)
 			}
 		})
+	}
+}
+
+// A diff gate with no edited files still judges edits: no file fails
+// the format check, the secrets check scans none of the directory's, and
+// the gate stops at the first check that fails.
+func TestDiffGateWithoutEditedFiles(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-value"
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = { Name = "`+secret+`" }
+}
+`)
+	var calls []string
+	tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+	gate, _, err := gatePolicy{
+		checks:    []string{CheckFormat, CheckSecrets},
+		sensitive: []string{secret},
+		diff:      true,
+	}.run(context.Background(), tf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gate) != 2 || !gate[0].Passed || !gate[1].Passed {
+		t.Errorf("gate %+v, want format and secrets passed", gate)
+	}
+
+	// It stops at the first check that fails, here a moved block the
+	// root has without a baseline to judge it by.
+	writeConfig(t, dir, MovesFileName, `moved {
+  from = aws_vpc.old
+  to   = aws_vpc.missing
+}
+`)
+	gate, _, err = gatePolicy{checks: []string{CheckMoves, CheckSecrets}, sensitive: []string{secret}, diff: true}.run(context.Background(), tf, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gate) != 1 || gate[0].Name != CheckMoves || gate[0].Passed {
+		t.Errorf("gate %+v, want it stopped at the failed moves check", gate)
 	}
 }
 

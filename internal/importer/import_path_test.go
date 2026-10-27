@@ -537,7 +537,7 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	}
 	var excluded []string
 	for _, e := range run.report.Excluded {
-		if strings.HasPrefix(e.Reason, report.ReasonInOtherRoot) {
+		if strings.HasPrefix(e.Reason, whyText(report.InOtherRoot(""))) {
 			excluded = append(excluded, e.ID)
 		}
 	}

@@ -100,7 +100,7 @@ func TestAddToRootLeavesOutWhatTheRootLeftOutAsOwned(t *testing.T) {
 		t.Fatalf("want nothing new, got added=%v result=%v holds=%v err=%v", added, result, holds, err)
 	}
 	want := []report.Excluded{
-		{Type: "aws_iam_role", ID: "app", Reason: report.ReasonInRoot, Scope: "aws/123/global", Owner: report.OwnerTerraformRoot},
+		{Type: "aws_iam_role", ID: "app", Reason: whyText(report.InRoot()), Scope: "aws/123/global", Owner: report.OwnerTerraformRoot},
 		{Type: "aws_iam_role", ID: "ci", Reason: selection.OwnedReason(owner), Scope: "aws/123/global", Owner: report.OwnerTerraformTag},
 	}
 	if !reflect.DeepEqual(r.report.Excluded, want) {
@@ -231,7 +231,7 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	if want := []engine.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
 		t.Errorf("global: got %v, want %v", byDir[global], want)
 	}
-	want := []report.Excluded{{Type: subnet.Type, ID: subnet.ID, Reason: report.ReasonInOtherRoot + ", google/acme/us-central1", Scope: "acme/global", Owner: report.OwnerTerraformRoot}}
+	want := []report.Excluded{{Type: subnet.Type, ID: subnet.ID, Reason: whyText(report.InOtherRoot("google/acme/us-central1")), Scope: "acme/global", Owner: report.OwnerTerraformRoot}}
 	if !reflect.DeepEqual(r.report.Excluded, want) {
 		t.Errorf("excluded:\ngot  %+v\nwant %+v", r.report.Excluded, want)
 	}

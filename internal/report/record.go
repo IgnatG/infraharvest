@@ -20,8 +20,8 @@ import (
 // The reasons an incremental import gives for what it leaves out, as a
 // root of the output has it (see InRoot and InOtherRoot).
 const (
-	ReasonInRoot      = "already in the root"
-	ReasonInOtherRoot = "already in another root of the output"
+	reasonInRoot      = "already in the root"
+	reasonInOtherRoot = "already in another root of the output"
 )
 
 // skippedReason is why resources of a type are skipped (see AddSkipped).
@@ -36,13 +36,13 @@ type Why struct {
 // InRoot is why an incremental import leaves out a resource the root it
 // adds to has already.
 func InRoot() Why {
-	return Why{reason: ReasonInRoot, owner: OwnerTerraformRoot}
+	return Why{reason: reasonInRoot, owner: OwnerTerraformRoot}
 }
 
 // InOtherRoot is why an import leaves out a resource that root, another
 // root of the output, has already, as an earlier import put it there.
 func InOtherRoot(root string) Why {
-	return Why{reason: ReasonInOtherRoot + ", " + root, owner: OwnerTerraformRoot}
+	return Why{reason: reasonInOtherRoot + ", " + root, owner: OwnerTerraformRoot}
 }
 
 // Decided is why the selection left out a resource, as its decision says:
