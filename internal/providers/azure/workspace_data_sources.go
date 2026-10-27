@@ -49,8 +49,8 @@ func withoutWorkspaceDataSources(tree azlist.ARMSchemaTree) {
 }
 
 // workspaceDataSources lists the data sources of the workspaces in listed
-// that azurerm has a resource type for, with one filtered list per kind
-// and workspace. It returns them under the IDs azurerm imports them by,
+// that azurerm has a resource type for, and the import wants (see
+// Service.wants), with one filtered list per kind and workspace. It returns them under the IDs azurerm imports them by,
 // with their azurerm types by upper-case ID, so they need no further call
 // to tell their kind. A list that fails leaves the others to go on, and
 // the failures come back joined as a partial error (see harvest.Partial)
@@ -59,7 +59,7 @@ func withoutWorkspaceDataSources(tree azlist.ARMSchemaTree) {
 // must not read as complete. A workspace gone since it was listed (404)
 // is no failure, as nothing that exists is left out. Only a cancelled
 // context, or a client that can't be built, is a full failure.
-func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, listed []azlist.AzureResource) ([]azlist.AzureResource, map[string]string, error) {
+func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, listed []azlist.AzureResource, wants func(typ string) bool) ([]azlist.AzureResource, map[string]string, error) {
 	clients := map[string]*armoperationalinsights.DataSourcesClient{}
 	var found []azlist.AzureResource
 	var failures []error
@@ -82,6 +82,9 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 			clients[group.SubscriptionId] = client
 		}
 		for _, k := range workspaceDataSourceKinds {
+			if !wants(k.tfType) {
+				continue
+			}
 			pager := client.NewListByWorkspacePager(group.Name, workspace, "kind eq '"+string(k.kind)+"'", nil)
 			sources, err := listAll(ctx, pager, func(p armoperationalinsights.DataSourcesClientListByWorkspaceResponse) []*armoperationalinsights.DataSource {
 				return p.Value

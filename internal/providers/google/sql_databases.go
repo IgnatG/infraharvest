@@ -66,6 +66,10 @@ func (g *CloudSQLLister) List() error {
 	}
 	// What an earlier listing of the import left out isn't this one's.
 	setSQLDatabasesUnlisted(project, region.Name, false)
+	// The databases take a call per instance, and the instances one more.
+	if !wants(g.Settings(), sqlDatabaseType) {
+		return nil
+	}
 	ctx := g.Context()
 	svc, err := sqladmin.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {

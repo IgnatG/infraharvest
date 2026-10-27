@@ -5,6 +5,7 @@ package azure
 
 import (
 	"context"
+	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -26,6 +27,7 @@ const (
 	catalogueKey      = "catalogue"
 	listedKey         = "listed"
 	azapiKey          = "azapi"
+	unwantedKey       = "unwanted"
 )
 
 // serviceSettings are the settings Provider.Select passes each service,
@@ -48,11 +50,16 @@ type serviceSettings struct {
 	// azapi is --azapi: resource_graph imports what azurerm has no type
 	// for as azapi_resource (see azapiCandidates).
 	azapi bool
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see Provider.SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 }
 
-// args returns the settings as a service's settings map.
+// args returns the settings as a service's settings map. Without unwanted
+// types the map has no entry for them, so that the maps of equal settings
+// are deeply equal, which no func is.
 func (s serviceSettings) args() map[string]interface{} {
-	return map[string]interface{}{
+	args := map[string]interface{}{
 		subscriptionIDKey: s.subscriptionID,
 		credentialKey:     s.credential,
 		clientOptionsKey:  s.clientOptions,
@@ -61,6 +68,10 @@ func (s serviceSettings) args() map[string]interface{} {
 		listedKey:         s.listed,
 		azapiKey:          s.azapi,
 	}
+	if s.unwanted != nil {
+		args[unwantedKey] = s.unwanted
+	}
+	return args
 }
 
 // settingsOf returns the settings in a service's settings map, as args
@@ -75,6 +86,7 @@ func settingsOf(settings map[string]interface{}) serviceSettings {
 	s.catalogue, _ = settings[catalogueKey].(*catalogue.Catalogue)
 	s.listed, _ = settings[listedKey].([]harvest.Resource)
 	s.azapi, _ = settings[azapiKey].(bool)
+	s.unwanted, _ = settings[unwantedKey].(func(typ string) bool)
 	return s
 }
 
@@ -92,6 +104,24 @@ type Service struct {
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
 	s := settingsOf(az.Settings())
 	return s.subscriptionID, s.resourceGroup, s.credential, s.clientOptions
+}
+
+// wants reports whether the import may keep resources of typ: a lister
+// skips the calls that list only resources of a type it doesn't want.
+func (az *Service) wants(typ string) bool {
+	return settingsOf(az.Settings()).wants(typ)
+}
+
+// wantsAny reports whether the import may keep resources of any of types:
+// a call that lists several types is skipped only when it wants none.
+func (az *Service) wantsAny(types ...string) bool {
+	return slices.ContainsFunc(types, az.wants)
+}
+
+// wants reports whether the import may keep resources of typ (see
+// Service.wants).
+func (s serviceSettings) wants(typ string) bool {
+	return s.unwanted == nil || !s.unwanted(typ)
 }
 
 // customCloud reports whether the service's clients reach a cloud other

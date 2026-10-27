@@ -18,13 +18,27 @@ type SubnetLister struct {
 	Service
 }
 
+// subnetTypes are the types the subnets of the virtual networks give: the
+// subnets and their associations (see appendSubnet).
+var subnetTypes = []string{
+	"azurerm_subnet",
+	"azurerm_subnet_route_table_association",
+	"azurerm_subnet_network_security_group_association",
+	"azurerm_subnet_nat_gateway_association",
+}
+
 // List lists the subnets, their associations and the service
 // endpoint policies. Any listing that fails fails the service.
 func (az *SubnetLister) List() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
-	networks, err := az.listVirtualNetworks()
-	if err != nil {
-		return err
+	// The networks, and a network without its subnets, take a call each,
+	// for subnets and associations the import may not keep.
+	var networks []*armnetwork.VirtualNetwork
+	if az.wantsAny(subnetTypes...) {
+		var err error
+		if networks, err = az.listVirtualNetworks(); err != nil {
+			return err
+		}
 	}
 	subnetsClient, err := armnetwork.NewSubnetsClient(subscriptionID, credential, options)
 	if err != nil {

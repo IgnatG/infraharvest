@@ -47,6 +47,11 @@ func (az *NetworkSecurityGroupLister) List() error {
 			continue
 		}
 		az.recordTagged(*group.ID, *group.Name, "azurerm_network_security_group", group.Tags)
+		// A group without its rules takes a call, for rules the import
+		// may not keep.
+		if !az.wants("azurerm_network_security_rule") {
+			continue
+		}
 		rules, err := az.rulesOf(rulesClient, group)
 		if err != nil {
 			return err

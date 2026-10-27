@@ -57,7 +57,8 @@ func (f *kindTransport) Do(r *http.Request) (*http.Response, error) {
 // workspace, and for nothing else: before the fix, azlist listed them
 // without a kind, which Resource Manager refuses with KindNotSpecified, so
 // none was ever imported. A kind that fails to list leaves the others,
-// and makes the listing partial; a workspace gone since it was listed
+// and makes the listing partial, and a kind whose type the import leaves
+// out isn't asked for; a workspace gone since it was listed
 // does not. The IDs are in the form azurerm parses, whatever the case of
 // the ones listed, and the types come from the kind asked for.
 func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
@@ -74,6 +75,9 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 		// partial is whether the listing must fail in part, naming the
 		// kind whose list failed.
 		partial bool
+		// unwanted is a type the import leaves out, whose kind isn't
+		// asked for.
+		unwanted string
 	}{
 		{
 			name: "both kinds",
@@ -95,6 +99,14 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 			partial: true,
 		},
 		{
+			name: "an unwanted kind",
+			bodies: map[string]string{
+				"kind eq 'WindowsPerformanceCounter'": `{"value":[{"id":"` + lower + `cpu","name":"cpu","kind":"WindowsPerformanceCounter","properties":{}}]}`,
+			},
+			want:     map[string]string{path + "/cpu": "azurerm_log_analytics_datasource_windows_performance_counter"},
+			unwanted: "azurerm_log_analytics_datasource_windows_event",
+		},
+		{
 			name: "the workspace is gone",
 			bodies: map[string]string{
 				"kind eq 'WindowsEvent'":              workspaceGone,
@@ -111,7 +123,8 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 			listed(t, group+"/providers/Microsoft.Network/virtualNetworks/net1", nil),
 		}
 
-		found, types, err := workspaceDataSources(context.Background(), fakeCredential{}, options, inputs)
+		wants := func(typ string) bool { return typ != tc.unwanted }
+		found, types, err := workspaceDataSources(context.Background(), fakeCredential{}, options, inputs, wants)
 		switch {
 		case tc.partial:
 			if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "WindowsEvent data sources of "+workspace) {
@@ -121,7 +134,12 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 
-		wantRequests := []string{path + " kind eq 'WindowsEvent'", path + " kind eq 'WindowsPerformanceCounter'"}
+		var wantRequests []string
+		for _, k := range workspaceDataSourceKinds {
+			if k.tfType != tc.unwanted {
+				wantRequests = append(wantRequests, path+" kind eq '"+string(k.kind)+"'")
+			}
+		}
 		if !reflect.DeepEqual(transport.requests, wantRequests) {
 			t.Errorf("%s: requested %q, want %q", tc.name, transport.requests, wantRequests)
 		}

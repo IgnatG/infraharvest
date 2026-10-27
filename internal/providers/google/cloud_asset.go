@@ -78,9 +78,14 @@ func (g *CloudAssetLister) List() error {
 	}
 	region := regionSetting(g.Settings())
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
+	// Marking takes a list of the instances or the clusters, which those
+	// of types the import leaves out alone don't need.
+	wanted := slices.DeleteFunc(slices.Clone(resources), func(r harvest.Resource) bool {
+		return !wants(g.Settings(), r.Address.Type)
+	})
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
-		if err := mark(ctx, project, results, resources); err != nil {
+		if err := mark(ctx, project, results, wanted); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
