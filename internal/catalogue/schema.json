@@ -194,6 +194,19 @@
             "argument": { "$ref": "#/$defs/name" }
           }
         },
+        "container": {
+          "description": "Built-in files only: the type's resources hold others, such as an Azure resource group or a Google project, whose IDs start with theirs and read better whole than as a reference followed by the rest; with location, those in one at its location refer to its location.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "location": { "type": "boolean" }
+          }
+        },
+        "derived_identity": {
+          "description": "Built-in files only: the identity the type's resources have of several attributes, as Terraform reads it back in other resources, attributes in braces and the text between them, such as an ECS task definition's {family}:{revision}.",
+          "type": "string",
+          "pattern": "^[^{}|]*(\\{[a-z][a-z0-9_]*\\}[^{}|]*)+$"
+        },
         "module_references": {
           "description": "Built-in files only: the arguments of module calls that name a resource of the type by its attribute, alone or in a list, such as the curated modules' project_id and projects for a Google project's project_id: where the root manages the resource, the call refers to it.",
           "type": "object",

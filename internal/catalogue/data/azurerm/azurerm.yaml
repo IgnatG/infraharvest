@@ -34,6 +34,9 @@ types:
   # the flow logs, connection monitors and anything else a user puts in
   # the group are theirs, and imported.
   azurerm_resource_group:
+    # What is in a resource group has an ID that starts with the group's,
+    # and its location unless it sets another.
+    container: { location: true }
     skip:
       - reason: NetworkWatcherRG, which Azure creates to hold a network watcher per region when a virtual network is created
         ignore_case: true

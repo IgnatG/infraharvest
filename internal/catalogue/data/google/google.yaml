@@ -12,3 +12,7 @@ types:
     # terraform destroy does. An import sets it to its default, DELETE for
     # most types, which every resource then repeated.
     omit: [deletion_policy=DELETE]
+  # Folders hold projects, whose IDs start with theirs; no service lists
+  # them.
+  google_folder:
+    container: {}

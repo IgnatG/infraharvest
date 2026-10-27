@@ -33,6 +33,8 @@ func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 		"blocks_as_list":    "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
 		"principal":         "principal: { argument: principal_id, directory: Entra ID, note: n }",
 		"module_references": "module_references: { attribute: project_id, arguments: [project_id] }",
+		"container":         "container: { location: true }",
+		"derived_identity":  "derived_identity: \"{family}:{revision}\"",
 	} {
 		for _, typ := range []string{"aws_ssm_parameter", "aws_widget"} {
 			dir := t.TempDir()
@@ -56,6 +58,9 @@ func TestCheckRejectsGeneration(t *testing.T) {
 		"principal note":              "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, directory: Entra ID }\n",
 		"principal kinds":             "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
 		"module_references arguments": "provider: google\ntypes:\n  google_x:\n    module_references: { attribute: project_id, arguments: [] }\n",
+		"derived_identity filter":     "provider: aws\ntypes:\n  aws_x:\n    derived_identity: \"{family|trim_prefix:x}\"\n",
+		"derived_identity fields":     "provider: aws\ntypes:\n  aws_x:\n    derived_identity: \"family\"\n",
+		"every type's container":      "provider: aws\ntypes:\n  \"*\":\n    container: {}\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -69,6 +74,7 @@ func TestSchemaRejectsGeneration(t *testing.T) {
 	schema := loadSchema(t)
 	for name, file := range map[string]string{
 		"secret_when without in":      "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
+		"derived_identity filter":     "provider: aws\ntypes:\n  aws_x:\n    derived_identity: \"{family|trim_prefix:x}\"\n",
 		"principal kinds":             "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
 		"blocks_as_list argument":     "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
 		"module_references arguments": "provider: google\ntypes:\n  google_x:\n    module_references: { attribute: project_id, arguments: [] }\n",
@@ -129,5 +135,29 @@ func TestModuleReferences(t *testing.T) {
 	got, ok := ForType("google_project").ModuleReferences("google_project")
 	if !ok || got.Attribute != "project_id" || !reflect.DeepEqual(got.Arguments, []string{"project", "project_id", "projects"}) {
 		t.Errorf("google_project: got %+v, %v", got, ok)
+	}
+}
+
+// The types whose resources hold others, and those whose location what is
+// in them shares.
+func TestContainer(t *testing.T) {
+	t.Parallel()
+	for typ, location := range map[string]bool{"azurerm_resource_group": true, "google_project": false, "google_folder": false} {
+		if got, ok := ForType(typ).Container(typ); !ok || got.Location != location {
+			t.Errorf("%s: got %+v, %v, want a container with location %v", typ, got, ok, location)
+		}
+	}
+	if _, ok := ForType("azurerm_virtual_network").Container("azurerm_virtual_network"); ok {
+		t.Error("azurerm_virtual_network: want none")
+	}
+}
+
+// An ECS task definition is family:revision.
+func TestDerivedIdentity(t *testing.T) {
+	t.Parallel()
+	got, ok := ForType("aws_ecs_task_definition").DerivedIdentity("aws_ecs_task_definition")
+	want := []IdentityPart{{Attribute: "family"}, {Text: ":"}, {Attribute: "revision"}}
+	if !ok || !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, %v, want %+v", got, ok, want)
 	}
 }

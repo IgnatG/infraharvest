@@ -129,6 +129,14 @@ type Entry struct {
 	// ModuleReferences, of the fields the engine reads, are the arguments
 	// of module calls that name a resource of the type.
 	ModuleReferences *ModuleReferences `yaml:"module_references,omitempty"`
+	// Container, of the fields the engine reads, says the type's
+	// resources hold others.
+	Container *Container `yaml:"container,omitempty"`
+	// DerivedIdentity, of the fields the engine reads, is the identity the
+	// type's resources have of several attributes, as Terraform reads it
+	// back in other resources, such as {family}:{revision}; it shares its
+	// parsed form, which nothing changes, with copies.
+	DerivedIdentity *Template `yaml:"derived_identity,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

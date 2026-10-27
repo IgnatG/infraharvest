@@ -32,6 +32,8 @@ func ForType(typ string) *Catalogue {
 // change nothing.
 var builtinOnly = map[string]func(*Entry) bool{
 	"blocks_as_list":    func(e *Entry) bool { return e.BlocksAsList != nil },
+	"container":         func(e *Entry) bool { return e.Container != nil },
+	"derived_identity":  func(e *Entry) bool { return e.DerivedIdentity != nil },
 	"module_references": func(e *Entry) bool { return e.ModuleReferences != nil },
 	"principal":         func(e *Entry) bool { return e.Principal != nil },
 	"secret_when":       func(e *Entry) bool { return e.SecretWhen != nil },
@@ -104,13 +106,18 @@ func checkGeneration(typ string, e *Entry) []error {
 	if m := e.ModuleReferences; m != nil && (!identifier.MatchString(m.Attribute) || len(m.Arguments) == 0 || slices.ContainsFunc(m.Arguments, func(a string) bool { return !identifier.MatchString(a) })) {
 		fail("module_references: want an attribute and the module arguments that name the resource by it")
 	}
+	if d := e.DerivedIdentity; d != nil {
+		if len(d.Fields()) == 0 || slices.ContainsFunc(d.parts, func(p templatePart) bool { return len(p.filters) > 0 }) {
+			fail("derived_identity %q: want attributes in braces, without filters, and the text between them", d)
+		}
+	}
 	return errs
 }
 
 // copyGeneration copies into copied, a copy of e, the fields of e the
 // engine reads, sharing nothing with e.
 func copyGeneration(copied, e *Entry) {
-	copied.BlocksAsList = clonePointer(e.BlocksAsList)
+	copied.BlocksAsList, copied.Container = clonePointer(e.BlocksAsList), clonePointer(e.Container)
 	if e.ModuleReferences != nil {
 		copied.ModuleReferences = &ModuleReferences{Attribute: e.ModuleReferences.Attribute, Arguments: slices.Clone(e.ModuleReferences.Arguments)}
 	}
@@ -192,4 +199,47 @@ func (c *Catalogue) ModuleReferences(typ string) (ModuleReferences, bool) {
 		return ModuleReferences{}, false
 	}
 	return ModuleReferences{Attribute: e.ModuleReferences.Attribute, Arguments: slices.Clone(e.ModuleReferences.Arguments)}, true
+}
+
+// Container is a type whose resources hold others, such as an Azure
+// resource group or a Google project: the IDs of what is in one start
+// with its ID, and read better whole than as a reference to it followed
+// by the rest.
+type Container struct {
+	// Location says the resources in one share its location unless they
+	// set their own, so that a resource in it whose location is the
+	// container's refers to the container's.
+	Location bool `yaml:"location,omitempty"`
+}
+
+// Container returns whether the type's resources hold others, and how,
+// if they do.
+func (c *Catalogue) Container(typ string) (Container, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.Container == nil {
+		return Container{}, false
+	}
+	return *e.Container, true
+}
+
+// IdentityPart is a part of a derived identity: Text, or the value of
+// Attribute.
+type IdentityPart struct {
+	Text, Attribute string
+}
+
+// DerivedIdentity returns the parts of the identity the type's resources
+// have of several attributes, as Terraform reads it back in other
+// resources, such as an ECS task definition's family:revision, if they
+// have one.
+func (c *Catalogue) DerivedIdentity(typ string) ([]IdentityPart, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.DerivedIdentity == nil {
+		return nil, false
+	}
+	parts := make([]IdentityPart, len(e.DerivedIdentity.parts))
+	for i, p := range e.DerivedIdentity.parts {
+		parts[i] = IdentityPart{Text: p.text, Attribute: p.field}
+	}
+	return parts, true
 }

@@ -137,6 +137,24 @@ func schemaProblems(c *Catalogue, schema *tfjson.ProviderSchema, v *version.Vers
 			add("placeholder.ignore", p.Ignore...)
 			add("placeholder.set", slices.Sorted(maps.Keys(p.Set))...)
 		}
+		if s := e.SecretWhen; s != nil {
+			add("secret_when", s.Argument, s.When)
+		}
+		if b := e.BlocksAsList; b != nil {
+			add("blocks_as_list", b.Block+"."+b.Attribute, b.Argument)
+		}
+		if p := e.Principal; p != nil {
+			add("principal", p.Argument)
+			if p.KindArgument != "" {
+				add("principal", p.KindArgument)
+			}
+		}
+		if m := e.ModuleReferences; m != nil {
+			add("module_references", m.Attribute)
+		}
+		if e.DerivedIdentity != nil {
+			add("derived_identity", e.DerivedIdentity.Fields()...)
+		}
 		for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
 			x := e.ProviderVersions[constraint]
 			if x == nil || !accepts(constraint, v) {
