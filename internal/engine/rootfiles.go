@@ -47,8 +47,8 @@ type Provider struct {
 	Config  map[string]interface{} // provider block arguments
 }
 
-// renderImports renders one import block per resource, sorted by address.
-func renderImports(imports []Import) ([]byte, error) {
+// ImportsFile renders one import block per resource, sorted by address.
+func ImportsFile(imports []Import) ([]byte, error) {
 	sorted := append([]Import(nil), imports...)
 	sort.Slice(sorted, func(i, j int) bool {
 		if sorted[i].Type != sorted[j].Type {

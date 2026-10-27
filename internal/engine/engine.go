@@ -423,7 +423,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
 	imports = relabelled(imports, p.taken, opts.TidyLabels, opts.Previous)
-	importsHCL, err := renderImports(imports)
+	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
 	}

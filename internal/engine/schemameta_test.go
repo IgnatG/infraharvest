@@ -118,7 +118,7 @@ func provenRoot(t *testing.T) (string, map[string]string) {
   retries     = 3
 }
 `)
-	content, err := renderImports([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
+	content, err := ImportsFile([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ import (
 
 func TestRenderImports(t *testing.T) {
 	t.Parallel()
-	got, err := renderImports([]Import{
+	got, err := ImportsFile([]Import{
 		{Type: "aws_sqs_queue", Name: "r--orders", ID: "https://sqs.eu-west-1.amazonaws.com/123/orders"},
 		{Type: "aws_s3_bucket", Name: "r--logs", ID: `odd"id`},
 	})
@@ -50,7 +50,7 @@ import {
 
 func TestRenderImportsRejectsInvalidAddress(t *testing.T) {
 	t.Parallel()
-	if _, err := renderImports([]Import{{Type: "aws_sqs_queue", Name: "has space", ID: "x"}}); err == nil {
+	if _, err := ImportsFile([]Import{{Type: "aws_sqs_queue", Name: "has space", ID: "x"}}); err == nil {
 		t.Error("want an error for an invalid resource name")
 	}
 }
@@ -59,7 +59,7 @@ func TestRenderImportsRejectsInvalidAddress(t *testing.T) {
 // says so, or Terraform would use the implied one.
 func TestRenderImportsNamesTheProvider(t *testing.T) {
 	t.Parallel()
-	got, err := renderImports([]Import{{Type: "google_compute_network", Name: "main", ID: "projects/p/global/networks/main", Provider: "google-beta"}})
+	got, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "projects/p/global/networks/main", Provider: "google-beta"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRenderImportsNamesTheProvider(t *testing.T) {
 	if string(got) != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if _, err := renderImports([]Import{{Type: "google_compute_network", Name: "main", ID: "x", Provider: "google beta"}}); err == nil {
+	if _, err := ImportsFile([]Import{{Type: "google_compute_network", Name: "main", ID: "x", Provider: "google beta"}}); err == nil {
 		t.Error("want an error for an invalid provider name")
 	}
 }
