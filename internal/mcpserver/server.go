@@ -64,7 +64,7 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 2. Edit the selection file if the user wants a different selection, and show it to them.
 3. Call import with the selection file. The user is asked to confirm before anything is imported. To import into an output directory that already has roots, such as after discover found new resources, set incremental: what is new is added to the roots without changing them. To generate those roots again from scratch, set regenerate instead.
 4. Call report to read what was imported, what was left out and why, and the results of the checks.
-5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. Call report with kind drift to read the drift report it wrote. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with accept rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
+5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. Call report with kind drift to read the drift report it wrote. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
 // New returns the server, which runs infraharvest with run, and checks an
 // import with check before the user is asked to confirm it. The tools read
@@ -109,7 +109,7 @@ func New(version, root string, run Runner, check Checker) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "drift_accept",
 		Title:       "Take changes in the cloud into the code",
-		Description: "Checks the roots as drift does, and writes the cloud's values of the changes that accept rules or a decisions file accept into the roots' code, after the user confirms; each edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing. Secrets are never written. With write_decisions, writes the run's changes into a decisions file, which needs no confirmation on its own as it changes no code. Never applies, and never changes the state. " + driftExitHelp,
+		Description: "Checks the roots as drift does, and writes the cloud's values of the changes that its rules or a decisions file accept into the roots' code, after the user confirms; each edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing. Secrets are never written. With write_decisions, writes the run's changes into a decisions file, which needs no confirmation on its own as it changes no code. Never applies, and never changes the state. " + driftExitHelp,
 		// Not idempotent: an accepted change is no longer drift.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
 	}, t.driftAccept)
@@ -226,6 +226,60 @@ func resolve(path string) (string, error) {
 	return current, nil
 }
 
+// readWithin reads the file at path, which the agent chose, under the root
+// (see within), and returns the path to use and the content. The file is
+// opened once and read from that handle, which has to be the file path
+// leads to under the root once it is open, so a link swapped in between
+// the check and the open is refused; and the file may have no other name,
+// as a hard link to a file outside the root would give it, where the
+// platform counts them.
+func (t *tools) readWithin(what, path string) (string, []byte, error) {
+	path, err := t.within(what, path)
+	if err != nil {
+		return "", nil, err
+	}
+	// Before opening it, which would wait on a pipe.
+	if info, err := os.Stat(path); err == nil && !info.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("%s %q isn't a regular file", what, path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", nil, err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return "", nil, err
+	}
+	if !opened.Mode().IsRegular() {
+		return "", nil, fmt.Errorf("%s %q isn't a regular file", what, path)
+	}
+	// Checked again now that it is open, so a link swapped in before the
+	// open is caught, and the handle compared with where path leads.
+	if _, err := t.within(what, path); err != nil {
+		return "", nil, err
+	}
+	resolved, err := resolve(path)
+	if err != nil {
+		return "", nil, err
+	}
+	current, err := os.Stat(resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	if !os.SameFile(opened, current) {
+		return "", nil, fmt.Errorf("%s %q changed while it was opened", what, path)
+	}
+	if hardLinked(opened) {
+		return "", nil, fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
+	}
+	content, err := io.ReadAll(f)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, content, nil
+}
+
 // Scope is what to list: a provider command, its services, and where to
 // list them, in the provider's own terms. Each field but Provider sets the
 // flag its flag tag names (see flagArgs). A field with a providers tag is
@@ -305,7 +359,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	config, err := t.loadConfig(&in.Config)
+	config, err := t.loadConfig(&in.Config, configUse{tool: "discover", provider: in.Provider})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -436,7 +490,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	// The check reads the private copy of it that the run reads.
-	config, err := t.loadConfig(&in.Config)
+	config, err := t.loadConfig(&in.Config, configUse{tool: "import", provider: in.Provider})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -450,7 +504,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// import reads them from a private copy, so a file the agent changes in
 	// between, such as with a discover running at the same time, isn't what
 	// is imported.
-	content, err := os.ReadFile(in.Selection)
+	_, content, err := t.readWithin("selection", in.Selection)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -468,7 +522,11 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	reads, err := scopeText(in.Scope, in.Config != "", providers.New(in.Provider).Profile())
+	scope, err := config.scope(in.Scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	reads, err := scopeText(scope, providers.New(in.Provider).Profile())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1013,22 +1071,16 @@ func shellQuote(s string) string {
 // profile, the profile of scope's provider, describes of the flags scope
 // sets (see harvest.Scope.Describe), the provider's accounts,
 // subscriptions or projects and where in them, in the provider's own
-// terms; and the services, which, when scope names none, a configuration
-// file names if config says one applies, else the stacks' resources do.
-// scope has passed commandArgs, so that each field set is one its
-// provider takes.
-func scopeText(s Scope, config bool, profile harvest.Profile) (string, error) {
+// terms; and the services, which, when scope names none, the stacks'
+// resources do. scope is the run's: the tool's input, with what its
+// configuration file sets of the rest (see toolConfig.scope), and each
+// field set is one its provider takes.
+func scopeText(s Scope, profile harvest.Profile) (string, error) {
 	if profile.Scope.Describe == nil {
 		return "", fmt.Errorf("can't say what provider %q reads", s.Provider)
 	}
 	text := profile.Scope.Describe(scopeFlags(s))
-	switch {
-	case len(s.Services) > 0:
-	case config && len(s.CloudFormationStacks) > 0:
-		return text + " (the services the configuration file names, else those of the stacks' resources)", nil
-	case config:
-		return text + " (the services the configuration file names)", nil
-	default:
+	if len(s.Services) == 0 {
 		return text + " (the services of the stacks' resources)", nil
 	}
 	return text + " (" + strings.Join(s.Services, ", ") + ")", nil
