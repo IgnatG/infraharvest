@@ -1047,3 +1047,57 @@ resource "aws_sqs_queue" "b" {
 		t.Errorf("again: got %v, %v, want no reason", reasons, err)
 	}
 }
+
+// Each edit of generated.tf that changes it is the reason for the plan
+// that follows: placeholders, lifecycles and the conflicting arguments it
+// settles.
+func TestPrepareGeneratedReasons(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		config string
+		opts   Options
+		hints  schemaHints
+		want   []replanReason
+	}{
+		"placeholders": {
+			config: `resource "aws_lambda_function" "zip" {
+  filename      = null
+  function_name = "orders"
+}
+`,
+			opts: Options{Placeholders: lambdaPlaceholder},
+			want: []replanReason{replanPlaceholders},
+		},
+		"lifecycles": {
+			config: `resource "aws_api_gateway_deployment" "a" {
+  rest_api_id = "a1b2c3"
+}
+`,
+			opts: Options{Lifecycles: map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}}},
+			want: []replanReason{replanLifecycles},
+		},
+		"conflicts": {
+			config: `resource "aws_subnet" "a" {
+  availability_zone    = "us-east-1a"
+  availability_zone_id = "us-east-1-az1"
+}
+`,
+			hints: exactHints(subnetMetadata()),
+			want:  []replanReason{replanConflicts},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			writeConfig(t, dir, GeneratedFileName, tc.config)
+
+			reasons, err := prepareGenerated(filepath.Join(dir, GeneratedFileName), nil, tc.opts, tc.hints)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(reasons, tc.want) {
+				t.Errorf("reasons: got %v, want %v", reasons, tc.want)
+			}
+		})
+	}
+}

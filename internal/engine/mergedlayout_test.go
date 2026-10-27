@@ -224,3 +224,17 @@ func TestIsBackendConfig(t *testing.T) {
 		}
 	}
 }
+
+// A root without a backend keeps each environment's state in the
+// workspace named after it, in Terraform's local backend's own layout.
+func TestWorkspaceStateFile(t *testing.T) {
+	t.Parallel()
+	for env, want := range map[string]string{
+		"prod": "root/terraform.tfstate.d/prod/terraform.tfstate",
+		"dev":  "root/terraform.tfstate.d/dev/terraform.tfstate",
+	} {
+		if got := filepath.ToSlash(workspaceStateFile("root", env)); got != want {
+			t.Errorf("%s: got %q, want %q", env, got, want)
+		}
+	}
+}
