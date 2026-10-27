@@ -13,7 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // Options configures Convert. The zero value converts with DefaultMapper.
@@ -287,7 +287,7 @@ func newConverter(t *Template, opts Options) *converter {
 	// stand-in variable is the one that gets a suffix if they clash.
 	varNames := newNameSet()
 	for _, p := range t.Parameters {
-		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(cfnhcl.VariableName(p.Name))}
+		c.params[p.Name] = &paramInfo{p: p, typ: parseParamType(p.Type), name: varNames.claim(hclname.VariableName(p.Name))}
 	}
 	for _, s := range standInVariables {
 		c.standIn[s.pseudo] = varNames.claim(s.name)
@@ -583,7 +583,7 @@ func (c *converter) writeData(w *hclWriter) {
 		if !pi.typ.ssm {
 			continue
 		}
-		w.raw(cfnhcl.SSMData(pi.name, pi.name))
+		w.raw(hclname.SSMData(pi.name, pi.name))
 		w.blank()
 	}
 	for _, b := range c.dynamicBlocks {

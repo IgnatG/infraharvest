@@ -54,9 +54,9 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // Stack is a CloudFormation stack whose template Apply carries into a root.
@@ -82,7 +82,7 @@ type Stack struct {
 
 // FileName returns the name of the file Apply writes for a stack.
 func FileName(stack string) string {
-	return "cloudformation_" + cfnhcl.Name(stack) + ".tf"
+	return "cloudformation_" + hclname.Name(stack) + ".tf"
 }
 
 // Apply carries each stack's template into the root in dir (see the
@@ -369,7 +369,7 @@ func (s *stackRun) variable(name string) (*variable, string) {
 	if !ok {
 		return nil, "the stack's value of the parameter isn't known"
 	}
-	ssm, list := cfnhcl.SSMParameterType(p.Type)
+	ssm, list := hclname.SSMParameterType(p.Type)
 	v := &variable{param: p}
 	if ssm {
 		resolved, ok := s.st.Resolved[name]
@@ -384,18 +384,18 @@ func (s *stackRun) variable(name string) (*variable, string) {
 		}
 		v.typ, v.literal, v.def, v.value = typ, literal, value, value
 	}
-	v.name = claim(s.r.variables, cfnhcl.VariableName(name))
+	v.name = claim(s.r.variables, hclname.VariableName(name))
 	v.ref = "var." + v.name
 	if ssm {
 		v.ssm = s.r.claimData("aws_ssm_parameter", v.name)
-		v.ref = cfnhcl.SSMValue(v.ssm, list)
+		v.ref = hclname.SSMValue(v.ssm, list)
 	}
 	s.pending[name] = v
 	return v, ""
 }
 
 // ssmValue returns the value an SSM parameter type's data source reads,
-// as cfnhcl.SSMValue writes it: a list's split at each comma, as
+// as hclname.SSMValue writes it: a list's split at each comma, as
 // Terraform's split() does, without trimming.
 func ssmValue(resolved string, list bool) cty.Value {
 	if !list {
@@ -513,7 +513,7 @@ func (s *stackRun) outputs() []output {
 			continue
 		}
 		s.commit()
-		out = append(out, output{o: o, name: claim(s.r.outputs, cfnhcl.Name(o.Name)), expr: v.Expr, data: v.Data, sensitive: v.Sensitive})
+		out = append(out, output{o: o, name: claim(s.r.outputs, hclname.Name(o.Name)), expr: v.Expr, data: v.Data, sensitive: v.Sensitive})
 	}
 	if len(skipped) > 0 {
 		s.warn("outputs not written in this root: " + strings.Join(skipped, "; "))
@@ -532,7 +532,7 @@ func (s *stackRun) file(outputs []output) {
 			desc = fmt.Sprintf("The %s parameter of the CloudFormation stack %s.", name, s.st.Name)
 		}
 		if v.ssm != "" {
-			desc += " (" + strings.TrimSuffix(cfnhcl.SSMDescription(v.param.Type), ".") + ")"
+			desc += " (" + strings.TrimSuffix(hclname.SSMDescription(v.param.Type), ".") + ")"
 		}
 		fmt.Fprintf(&b, "variable %s {\n  type        = %s\n  description = %s\n  default     = %s\n", quoted(v.name), v.typ, quoted(desc), v.literal)
 		if allowed, ok := allowedValues(v); ok {
@@ -542,7 +542,7 @@ func (s *stackRun) file(outputs []output) {
 	}
 	for _, name := range s.order {
 		if v := s.vars[name]; v.ssm != "" {
-			b.WriteString(cfnhcl.SSMData(v.ssm, v.name) + "\n")
+			b.WriteString(hclname.SSMData(v.ssm, v.name) + "\n")
 		}
 	}
 	for _, o := range outputs {
@@ -748,10 +748,10 @@ func items(live string) []string {
 	return parts
 }
 
-// numberValue returns a number as an HCL literal (see cfnhcl.NumberLiteral)
+// numberValue returns a number as an HCL literal (see hclname.NumberLiteral)
 // and as a value.
 func numberValue(s string) (string, *big.Float, bool) {
-	lit, ok := cfnhcl.NumberLiteral(s)
+	lit, ok := hclname.NumberLiteral(s)
 	if !ok {
 		return "", nil, false
 	}

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/cfnhcl"
+	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // scope says how to convert the keys of a mapping in a value: as properties
@@ -256,7 +256,7 @@ func (c *converter) function(f Func, path string, sc *scope) string {
 // index, which a template may write as a string ("0").
 func (c *converter) numberExpr(n Node, path string) string {
 	if s, ok := scalar(n); ok {
-		if lit, ok := cfnhcl.NumberLiteral(s); ok {
+		if lit, ok := hclname.NumberLiteral(s); ok {
 			return lit
 		}
 	}
@@ -357,7 +357,7 @@ func (c *converter) guess(path, msg string) {
 // source that reads an SSM parameter's value.
 func (c *converter) paramRef(pi *paramInfo) string {
 	if pi.typ.ssm {
-		return cfnhcl.SSMValue(pi.name, pi.typ.ssmList)
+		return hclname.SSMValue(pi.name, pi.typ.ssmList)
 	}
 	if pi.p.NoEcho {
 		c.sensitive = true
@@ -800,7 +800,7 @@ func (c *converter) isNumberParam(n Node) bool {
 
 func (c *converter) equalsOperand(n Node, path string, numeric bool) string {
 	if s, ok := scalar(n); ok {
-		if lit, ok := cfnhcl.NumberLiteral(s); ok && numeric {
+		if lit, ok := hclname.NumberLiteral(s); ok && numeric {
 			return lit
 		}
 		return quote(s)

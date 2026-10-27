@@ -254,13 +254,23 @@
               "**/internal/ratelimit/*.go",
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
-              "**/internal/catalogue/schemameta/*.go",
-              "**/internal/cfnhcl/*.go"
+              "**/internal/catalogue/schemameta/*.go"
             ],
             "deny": [
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal",
                 "desc": "a leaf helper imports nothing of infraharvest's, so that anything can use it without a cycle"
+              }
+            ]
+          },
+          "cfn": {
+            "files": [
+              "**/pkg/cfn/**"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "pkg/cfn will be a module of its own, which can't import infraharvest's internal packages"
               }
             ]
           },

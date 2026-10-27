@@ -53,8 +53,8 @@
 // Terraform for a person to review: it can still name any resource or
 // value the template does.
 //
-// The package depends on nothing else of infraharvest's but internal/cfnhcl,
-// the names and numbers it shares with the rest, which depends on nothing,
-// so that it can be used, and later published, on its own. See the README
-// for what is and isn't converted.
+// The package depends on nothing else of infraharvest's but its subpackage
+// hclname, the names and numbers it shares with the rest, which depends on
+// nothing, so that it can be used, and later published, on its own. See
+// the README for what is and isn't converted.
 package cfn

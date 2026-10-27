@@ -1,6 +1,6 @@
 # cfn: CloudFormation to Terraform
 
-Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it depends on nothing else of infraharvest's but `internal/cfnhcl`, the names and numbers it shares with the rest, which depends on nothing, so it can be used on its own.
+Package `cfn` translates AWS CloudFormation templates into Terraform configuration for the AWS provider. infraharvest uses it to carry a stack's template intent (its parameters, outputs, conditions and references) into the configuration it writes for the stack's live resources; it depends on nothing else of infraharvest's but its subpackage `hclname`, the names and numbers it shares with the rest, which depends on nothing, so it can be used on its own.
 
 ```go
 t, err := cfn.Parse(file) // JSON or YAML, short-form tags included
