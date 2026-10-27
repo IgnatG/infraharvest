@@ -103,6 +103,10 @@ infraharvest discover azure --services=resource_group,virtual_network,subnet,net
 
 `subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one whose list leaves them out are they listed on their own. In a custom cloud (`ARM_ENVIRONMENT=stack`), one listed with none is asked again too, as emulators such as floci-az answer an empty list for subnets created on their own; in Azure's own clouds a network or group listed with none costs no request.
 
+A page of `resource_group`'s list of the subscription that fails after the first fails the service in part: the resource groups listed before it are imported, and the failure is reported, so that the groups it left out aren't taken for deleted.
+
+`managed_identity` lists each identity's federated credentials under the identity's own resource group. A list of them that fails fails the service in part, as `resource_group`'s does: the identity is imported with the credentials listed, and the failure is reported. An identity gone since it was listed (404) has none.
+
 ## Diagnostic settings
 
 `diagnostic_setting` imports diagnostic settings, which send a resource's logs and metrics to a Log Analytics workspace, a storage account, an event hub or a partner solution, as `azurerm_monitor_diagnostic_setting`, imported by `<target resource ID>|<name>`. Resource Graph doesn't index them, so each resource takes a request of its own: the service is opt-in, and `--services='*'` leaves it out. Name it with the services whose resources' settings you want:

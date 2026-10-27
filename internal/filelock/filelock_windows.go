@@ -7,6 +7,7 @@ package filelock
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -31,4 +32,27 @@ func lock(f *os.File) error {
 func unlock(f *os.File) error {
 	ol := &windows.Overlapped{OffsetHigh: lockedByte}
 	return windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, ol)
+}
+
+// open opens the file at path for TryLock, creating it if need be. Windows
+// has no O_NOFOLLOW, so a symbolic link or junction put in the file's
+// place since TryLock checked it is told by the file opened not being the
+// one at path.
+func open(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := f.Stat()
+	if err == nil {
+		var info os.FileInfo
+		if info, err = os.Lstat(path); err == nil && (!info.Mode().IsRegular() || !os.SameFile(opened, info)) {
+			err = fmt.Errorf("%s changed while it was opened, as to a link to another file", path)
+		}
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
 }

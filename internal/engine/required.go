@@ -169,7 +169,18 @@ type installedModule struct {
 // installedModules returns the modules Terraform installed for the root in
 // dir, as its modules.json lists them; none if it installed none.
 func installedModules(dir string) ([]installedModule, error) {
-	content, err := os.ReadFile(filepath.Join(dir, ".terraform", "modules", "modules.json"))
+	return installedModulesIn(dir, "")
+}
+
+// installedModulesIn is installedModules for a root whose init kept its
+// working files in dataDir, its TF_DATA_DIR, or .terraform in dir for "".
+// Terraform lists the modules it downloaded into a dataDir named by an
+// absolute path by their absolute paths, and the others relative to dir.
+func installedModulesIn(dir, dataDir string) ([]installedModule, error) {
+	if dataDir == "" {
+		dataDir = filepath.Join(dir, ".terraform")
+	}
+	content, err := os.ReadFile(filepath.Join(dataDir, "modules", "modules.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -187,9 +198,14 @@ func installedModules(dir string) ([]installedModule, error) {
 	}
 	var modules []installedModule
 	for _, m := range manifest.Modules {
-		if m.Key != "" && m.Dir != "" {
-			modules = append(modules, installedModule{key: m.Key, dir: filepath.Join(dir, filepath.FromSlash(m.Dir))})
+		if m.Key == "" || m.Dir == "" {
+			continue
 		}
+		path := filepath.FromSlash(m.Dir)
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		modules = append(modules, installedModule{key: m.Key, dir: path})
 	}
 	return modules, nil
 }

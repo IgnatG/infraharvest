@@ -11,10 +11,15 @@ import (
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print which version of infraharvest this is",
-	Run: func(_ *cobra.Command, _ []string) {
-		fmt.Println("infraharvest " + version.Version)
-	},
+// newVersionCmd returns the version command, a new one for each tree of
+// commands: adding a command to a root sets its parent, and the MCP server
+// builds roots at the same time (see CheckRun).
+func newVersionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print which version of infraharvest this is",
+		Run: func(cmd *cobra.Command, _ []string) {
+			fmt.Fprintln(cmd.OutOrStdout(), "infraharvest "+version.Version)
+		},
+	}
 }

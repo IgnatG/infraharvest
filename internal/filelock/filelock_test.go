@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -108,5 +109,49 @@ func TestWait(t *testing.T) {
 	}
 	if err := l.Unlock(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A symbolic link in the lock file's place, such as one a cloned
+// repository commits to a file of the user's, is refused, and the file it
+// leads to is left as it is, or not made; so is a link put there after
+// TryLock checked the file, which open doesn't follow.
+func TestTryLockRefusesLinks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	keys := filepath.Join(dir, "authorized_keys")
+	const content = "ssh-ed25519 key\n"
+	if err := os.WriteFile(keys, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "lock")
+	if err := os.Symlink(keys, link); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	missing := filepath.Join(dir, "missing")
+	dangling := filepath.Join(dir, "dangling")
+	if err := os.Symlink(missing, dangling); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{link, dangling} {
+		if l, err := TryLock(path); err == nil || !strings.Contains(err.Error(), "is a symbolic link") {
+			if l != nil {
+				_ = l.Record()
+				_ = l.Unlock()
+			}
+			t.Errorf("%s: got %v, want the link refused", path, err)
+		}
+	}
+	// As when the link is put there after the check.
+	if f, err := open(link); err == nil {
+		_ = f.Close()
+		t.Error("opened through the link")
+	}
+	if got, err := os.ReadFile(keys); err != nil || string(got) != content {
+		t.Errorf("the link's target changed: %q, %v", got, err)
+	}
+	if _, err := os.Lstat(missing); err == nil {
+		t.Error("the dangling link's target was made")
 	}
 }

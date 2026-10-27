@@ -420,7 +420,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 			first := changes[members[0]]
 			c := DriftChange{
 				Address: s.address, Attribute: attribute, Kind: DriftChanged, Outcome: DriftReverts,
-				Before: redactDriftValue(s.values[k], false, editor.forms), After: first.After,
+				Before: redactDriftValue(s.values[k], k, false, editor.forms), After: first.After,
 				Covers: covered, value: first.value,
 				shared: &tagShare{source: s, key: k},
 			}

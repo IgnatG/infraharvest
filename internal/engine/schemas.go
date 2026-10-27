@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	tfjson "github.com/hashicorp/terraform-json"
+	"golang.org/x/sync/singleflight"
 )
 
 // ProvidersSchema returns the schemas of the providers the root uses,
@@ -54,6 +55,9 @@ const maxCachedSchemas = 4
 type schemaStore struct {
 	mu      sync.Mutex
 	schemas map[string]*tfjson.ProviderSchemas
+	// reads makes the callers that miss a key together, as roots that
+	// generate in parallel do, wait on one read of it.
+	reads singleflight.Group
 }
 
 // processSchemas are the schemas the process has read (see
@@ -61,23 +65,39 @@ type schemaStore struct {
 var processSchemas = &schemaStore{}
 
 // get returns the schemas kept under key, or reads them with read and
-// keeps them. A failed read isn't kept.
+// keeps them; the callers that miss key while it is read get that read's
+// result. A failed read isn't kept: the next caller reads again.
 func (s *schemaStore) get(key string, read func() (*tfjson.ProviderSchemas, error)) (*tfjson.ProviderSchemas, error) {
-	s.mu.Lock()
-	schemas, ok := s.schemas[key]
-	s.mu.Unlock()
-	if ok {
+	if schemas, ok := s.cached(key); ok {
 		return schemas, nil
 	}
-	schemas, err := read()
+	v, err, _ := s.reads.Do(key, func() (any, error) {
+		// A read that ended after this caller missed has kept them.
+		if schemas, ok := s.cached(key); ok {
+			return schemas, nil
+		}
+		schemas, err := read()
+		if err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.schemas == nil || len(s.schemas) >= maxCachedSchemas {
+			s.schemas = map[string]*tfjson.ProviderSchemas{}
+		}
+		s.schemas[key] = schemas
+		return schemas, nil
+	})
 	if err != nil {
 		return nil, err
 	}
+	return v.(*tfjson.ProviderSchemas), nil
+}
+
+// cached returns the schemas kept under key.
+func (s *schemaStore) cached(key string) (*tfjson.ProviderSchemas, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.schemas == nil || len(s.schemas) >= maxCachedSchemas {
-		s.schemas = map[string]*tfjson.ProviderSchemas{}
-	}
-	s.schemas[key] = schemas
-	return schemas, nil
+	schemas, ok := s.schemas[key]
+	return schemas, ok
 }

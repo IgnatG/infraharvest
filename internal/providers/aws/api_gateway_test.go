@@ -80,3 +80,50 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 		}
 	}
 }
+
+// AWS requires a name for a REST API and its models and authorizers, and
+// for VPC links, usage plans and API keys, but an emulator may answer
+// without one: each is then named after its ID, and a model, which
+// Terraform imports by its name, is left out. Before, the missing name was
+// dereferenced, and the panic ended the whole run.
+func TestAPIGatewayWithoutNames(t *testing.T) {
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Path {
+		case "/restapis":
+			return `{"item":[{"id":"a1"}]}`
+		case "/restapis/a1/models":
+			return `{"item":[{"id":"m1","contentType":"application/json"}]}`
+		case "/restapis/a1/authorizers":
+			return `{"item":[{"id":"au1"}]}`
+		case "/vpclinks":
+			return `{"item":[{"id":"v1"}]}`
+		case "/usageplans":
+			return `{"item":[{"id":"u1"}]}`
+		case "/apikeys":
+			return `{"item":[{"id":"k1"}]}`
+		}
+		return `{"item":[]}`
+	})
+	g := &APIGatewayLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	assertIDs(t, g.Resources, "aws_api_gateway_model")
+	names := map[string]string{}
+	for _, r := range g.Resources {
+		names[r.Address.Type+" "+r.Observed.ID] = r.RawName
+	}
+	for key, want := range map[string]string{
+		"aws_api_gateway_rest_api a1":       "a1",
+		"aws_api_gateway_authorizer a1/au1": "a1_au1",
+		"aws_api_gateway_vpc_link v1":       "v1",
+		"aws_api_gateway_usage_plan u1":     "u1",
+		"aws_api_gateway_api_key k1":        "k1",
+	} {
+		if got, ok := names[key]; !ok || got != want {
+			t.Errorf("%s: named %q, want %q", key, got, want)
+		}
+	}
+}

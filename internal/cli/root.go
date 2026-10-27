@@ -47,7 +47,7 @@ func NewCmdRoot() *cobra.Command {
 		newDriftCmd(),
 		newReportCmd(),
 		newBootstrapCmd(),
-		versionCmd,
+		newVersionCmd(),
 	)
 	for _, newCmd := range awsCommands {
 		cmd.AddCommand(newCmd())

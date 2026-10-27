@@ -561,12 +561,73 @@ func TestDriftLeavesFoldTagsAndLabels(t *testing.T) {
 func TestRedactDriftValue(t *testing.T) {
 	t.Parallel()
 	token := "ghp_" + strings.Repeat("a1B2", 9)
-	got := redactDriftValue(map[string]any{"token": token, "name": "web", "list": []any{"hunter22-secret"}}, false, textForms([]string{"hunter22-secret"}))
-	want := map[string]any{"token": redacted, "name": "web", "list": []any{redacted}}
+	forms := textForms([]string{"hunter22-secret"})
+	for _, tc := range []struct {
+		name string
+		v    any
+		key  string
+		want any
+	}{
+		{"a credential, whatever its key", map[string]any{"token": token, "name": "web", "list": []any{"hunter22-secret"}}, "settings",
+			map[string]any{"token": redacted, "name": "web", "list": []any{redacted}}},
+		{"a key that names a secret", "Summer2026!", "DB_PASSWORD", redacted},
+		{"a key that names what identifies a secret", "db-password", "DB_PASSWORD_SECRET_NAME", "db-password"},
+		{"a key that names a secret, and a value that holds none", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db", "DB_PASSWORD", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db"},
+		{"a random-looking value", "a1b2c3d4e5f6a7b8c9d0", "etag", "a1b2c3d4e5f6a7b8c9d0"},
+		{"entries of a map, nested", map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": "Summer2026!", "hosts": []any{"a", "b"}}}, "variables",
+			map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": redacted, "hosts": []any{"a", "b"}}}},
+		{"map keys in a credential format", map[string]any{token: "a", "ghp_" + strings.Repeat("z9Y8", 9): "b", "Env": "prod"}, "tags",
+			map[string]any{redacted + " #1": "a", redacted + " #2": "b", "Env": "prod"}},
+		{"a list under a key that names a secret", []any{"Summer2026!", "Winter2026!"}, "passwords", []any{redacted, redacted}},
+		{"the value of a name/value pair", []any{map[string]any{"name": "DB_PASSWORD", "value": "Summer2026!"}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}, "env",
+			[]any{map[string]any{"name": "DB_PASSWORD", "value": redacted}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}},
+		{"a pair that names a secret kept elsewhere", map[string]any{"name": "DB_PASSWORD", "type": "SECRETS_MANAGER", "value": "prod/db:password"}, "environment_variable",
+			map[string]any{"name": "DB_PASSWORD", "type": "SECRETS_MANAGER", "value": "prod/db:password"}},
+		{"a JSON document", `{"environment":[{"name":"DB_PASSWORD","value":"Summer2026!"}],"image":"web"}`, "container_definitions",
+			`{"environment":[{"name":"DB_PASSWORD","value":"(sensitive value)"}],"image":"web"}`},
+		{"a JSON document without a secret, as it is", `{"b": 1, "a": "x"}`, "container_definitions", `{"b": 1, "a": "x"}`},
+		{"an IAM policy's condition keys", `{"Statement":[{"Condition":{"StringLike":{"token.actions.githubusercontent.com:sub":"repo:org/app:ref:refs/heads/main"}}}]}`, "assume_role_policy",
+			`{"Statement":[{"Condition":{"StringLike":{"token.actions.githubusercontent.com:sub":"repo:org/app:ref:refs/heads/main"}}}]}`},
+	} {
+		if got := redactDriftValue(tc.v, tc.key, false, forms); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if got := redactDriftValue(map[string]any{"a": "b"}, "a", true, nil); got != redacted {
+		t.Errorf("a sensitive value shows as %v", got)
+	}
+}
+
+// A value the cloud gained under a name that says it is a secret, at the
+// leaf or in a map that changed whole, never shows in a drift report.
+func TestClassifyDriftRedactsSecretsByName(t *testing.T) {
+	t.Parallel()
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{{
+		Address: "aws_lambda_function.api",
+		Mode:    tfjson.ManagedResourceMode,
+		Type:    "aws_lambda_function",
+		Change: &tfjson.Change{
+			Actions: tfjson.Actions{tfjson.ActionUpdate},
+			Before: map[string]any{
+				"environment": []any{map[string]any{"variables": map[string]any{"LOG_LEVEL": "info"}}},
+				"settings":    "none",
+			},
+			After: map[string]any{
+				"environment": []any{map[string]any{"variables": map[string]any{"LOG_LEVEL": "debug", "DB_PASSWORD": "Summer2026!"}}},
+				"settings":    map[string]any{"api_key": "Winter2026!", "region": "eu-west-1"},
+			},
+		},
+	}}}
+	got := map[string]any{}
+	for _, c := range classifyDrift(refresh, nil, nil, false) {
+		got[c.Attribute] = c.After
+	}
+	want := map[string]any{
+		"environment[0].variables.DB_PASSWORD": redacted,
+		"environment[0].variables.LOG_LEVEL":   "debug",
+		"settings":                             map[string]any{"api_key": redacted, "region": "eu-west-1"},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
-	}
-	if got := redactDriftValue(map[string]any{"a": "b"}, true, nil); got != redacted {
-		t.Errorf("a sensitive value shows as %v", got)
 	}
 }
