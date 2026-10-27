@@ -88,11 +88,11 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 			templates, _ = r.AttributeValues["id"].(string)
 		}
 	}
-	cfn := cloudformation.NewFromConfig(fixture)
-	if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["old"])}); err != nil {
+	stacks := cloudformation.NewFromConfig(fixture)
+	if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["old"])}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["old"])}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["old"])}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,14 +147,14 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if _, err := s3.NewFromConfig(fixture).PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(templates), Key: aws.String("network.yaml"), Body: strings.NewReader(nestedBody)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cfn.UpdateStack(ctx, &cloudformation.UpdateStackInput{
+	if _, err := stacks.UpdateStack(ctx, &cloudformation.UpdateStackInput{
 		StackName:    aws.String(names.app),
 		TemplateBody: aws.String(readFile(t, filepath.Join(first, filepath.FromSlash(app.RetainTemplate)))),
 		Capabilities: []cftypes.Capability{cftypes.CapabilityCapabilityNamedIam},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackUpdateCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(names.app)}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackUpdateCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(names.app)}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,10 +172,10 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	checkCFNOutcomes(t, coverage, names.app)
 
 	// 4. Every resource outlives the stack.
-	if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["app"])}); err != nil {
+	if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["app"])}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["app"])}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["app"])}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 	checkSeedNotDeleted(ctx, t, fixture, names.function)
@@ -316,13 +316,13 @@ func checkCFNOutcomes(t *testing.T, coverage report.Report, app string) {
 func deleteCFNSandbox(t *testing.T, config aws.Config, names cfnSandboxNames) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	cfn := cloudformation.NewFromConfig(config)
+	stacks := cloudformation.NewFromConfig(config)
 	for _, stack := range []string{names.app, names.old} {
-		if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stack)}); err != nil {
+		if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stack)}); err != nil {
 			t.Logf("delete stack %s: %v", stack, err)
 			continue
 		}
-		if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack)}, cfnStackWait); err != nil && !strings.Contains(err.Error(), "does not exist") {
+		if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack)}, cfnStackWait); err != nil && !strings.Contains(err.Error(), "does not exist") {
 			t.Errorf("delete stack %s: %v", stack, err)
 		}
 	}
