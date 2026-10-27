@@ -387,7 +387,7 @@ func TestGoldenMergedRoots(t *testing.T) {
 			}
 			gate, err := gateWith(context.Background(), &fakeTerraform{dir: dir}, dir, Options{}, func() (Check, []string, error) {
 				return Check{Name: CheckPlan, Passed: true}, nil, nil
-			})
+			}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

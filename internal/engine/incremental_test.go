@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // existingRoot writes a root an earlier import generated, and applied: its
@@ -417,6 +418,44 @@ func TestAddGatesTheRootWithItsOwnModules(t *testing.T) {
 				t.Errorf("%s: %s", c.Name, d)
 			}
 		}
+	}
+}
+
+// The root's scanners don't run where staging's plan marked a value of
+// the added configuration sensitive, which only staging's plan knew.
+func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
+	t.Parallel()
+	root := existingRoot(t)
+	staging := filepath.Join(t.TempDir(), "staging")
+	secret := "Zq8vT3kLm9Xw2RbN"
+	shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{{
+		Address: "aws_sqs_queue.jobs", Mode: tfjson.ManagedResourceMode,
+		Change: &tfjson.Change{
+			Actions:         tfjson.Actions{tfjson.ActionNoop},
+			Before:          map[string]interface{}{"name": secret},
+			BeforeSensitive: map[string]interface{}{"name": true},
+		},
+	}}}
+	tf := &fakeTerraform{dir: staging, generated: "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"" + secret + "\"\n}\n", shown: shown}
+	rootTF := &fakeTerraform{dir: root}
+	var ran []string
+	spy := Scanner{Name: "spy", Run: func(_ context.Context, dir string) ([]Finding, error) {
+		ran = append(ran, dir)
+		return nil, nil
+	}}
+	opts := addOptions
+	opts.Scanners = []Scanner{spy}
+
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ran) > 0 {
+		t.Errorf("a scanner ran on %v, holding staging's secret", ran)
+	}
+	if c := result.Gate.check(CheckSecrets); c.Passed {
+		t.Errorf("the secrets check passed: %+v", c)
 	}
 }
 

@@ -378,7 +378,11 @@ func (g *mergeGate) removeOverride() error {
 // check runs the gate of the merged root m wrote with w once per
 // environment: the whole gate with the first environment's credentials,
 // and the plan, and the secrets check of the values it marks sensitive,
-// with each other's.
+// with each other's. Every environment plans, and has its secrets
+// checked, before the external scanners run, which they do only if no
+// environment's check finds a secret value: a value only a later
+// environment's plan marks sensitive, such as a literal in its var file,
+// is as secret as the first's.
 func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]MergedEnvironment, error) {
 	// The first environment the run can plan as runs the whole gate.
 	first := slices.IndexFunc(g.roots, func(r MergeRoot) bool { return r.Terraform != nil })
@@ -401,30 +405,42 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			// keeps its part as it was, unplanned (see MergeRoot.Terraform).
 			envs[e].Unplanned = true
 			envs[e].Gate = Gate{{Name: CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
-			continue
 		}
-		envTF := tf
-		if e != first {
-			if envTF, err = g.terraform(e); err != nil {
-				return nil, err
+	}
+	// others is the secrets check of the other environments, which the
+	// first's gate holds its scanners back on.
+	others := Check{Name: CheckSecrets, Passed: true}
+	plan := func() (Check, []string, error) {
+		planned, sensitive, err := g.plan(ctx, tf, m, w, first)
+		if err != nil {
+			return Check{}, nil, err
+		}
+		for e := first + 1; e < len(g.roots); e++ {
+			if envs[e].Unplanned {
+				continue
+			}
+			envTF, err := g.terraform(e)
+			if err != nil {
+				return Check{}, nil, err
+			}
+			envPlanned, envSensitive, err := g.plan(ctx, envTF, m, w, e)
+			if err != nil {
+				return Check{}, nil, err
+			}
+			secrets, err := scanSecrets(g.dir, envSensitive)
+			if err != nil {
+				return Check{}, nil, err
+			}
+			envs[e].Gate = Gate{envPlanned, secrets}
+			if !secrets.Passed {
+				others.Passed = false
+				others.Details = append(others.Details, "environment "+m.envs[e])
 			}
 		}
-		plan := func() (Check, []string, error) { return g.plan(ctx, envTF, m, w, e) }
-		if e == first {
-			if envs[e].Gate, err = gateWith(ctx, envTF, g.dir, gateOpts, plan); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		planned, sensitive, err := plan()
-		if err != nil {
-			return nil, err
-		}
-		secrets, err := scanSecrets(g.dir, sensitive)
-		if err != nil {
-			return nil, err
-		}
-		envs[e].Gate = Gate{planned, secrets}
+		return planned, sensitive, nil
+	}
+	if envs[first].Gate, err = gateWith(ctx, tf, g.dir, gateOpts, plan, func() Check { return others }); err != nil {
+		return nil, err
 	}
 	return envs, nil
 }
