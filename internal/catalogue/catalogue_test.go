@@ -622,6 +622,10 @@ types:
 			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
 		}
 	}
+	// Drift judges a root by the same release's.
+	if d := c.DriftOptions(v5); !reflect.DeepEqual(d.Omit, c.OmitFor(v5)) || !reflect.DeepEqual(d.Defaults, c.DefaultsFor(v5)) || !reflect.DeepEqual(d.StateOnly, c.StateOnlyFor(v5)) {
+		t.Errorf("drift options for 5.10.0: omit %v, defaults %v, state_only %v", d.Omit, d.Defaults, d.StateOnly)
+	}
 
 	dir := t.TempDir()
 	write(t, dir, "azurerm.yaml", "provider: azurerm\ntypes:\n  azurerm_storage_account:\n    provider_versions:\n      \">= 6.0\":\n        omit: [b]\n")
