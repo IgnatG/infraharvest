@@ -31,6 +31,7 @@ func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 	for field, entry := range map[string]string{
 		"secret_when":    "secret_when: { argument: value, when: type, in: [SecureString] }",
 		"blocks_as_list": "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
+		"principal":      "principal: { argument: principal_id, directory: Entra ID, note: n }",
 	} {
 		for _, typ := range []string{"aws_ssm_parameter", "aws_widget"} {
 			dir := t.TempDir()
@@ -51,6 +52,8 @@ func TestCheckRejectsGeneration(t *testing.T) {
 		"every type's secret_when": "provider: aws\ntypes:\n  \"*\":\n    secret_when: { argument: value, when: type, in: [x] }\n",
 		"blocks_as_list argument":  "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
 		"every type's blocks":      "provider: aws\ntypes:\n  \"*\":\n    blocks_as_list: { block: a, attribute: b, argument: c }\n",
+		"principal note":           "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, directory: Entra ID }\n",
+		"principal kinds":          "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -64,6 +67,7 @@ func TestSchemaRejectsGeneration(t *testing.T) {
 	schema := loadSchema(t)
 	for name, file := range map[string]string{
 		"secret_when without in":  "provider: aws\ntypes:\n  aws_x:\n    secret_when: { argument: value, when: type }\n",
+		"principal kinds":         "provider: azurerm\ntypes:\n  azurerm_x:\n    principal: { argument: principal_id, kind_argument: principal_type, directory: Entra ID, note: n }\n",
 		"blocks_as_list argument": "provider: aws\ntypes:\n  aws_x:\n    blocks_as_list: { block: subnet_mapping, attribute: subnet_id }\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
@@ -99,5 +103,19 @@ func TestBlocksAsList(t *testing.T) {
 	}
 	if _, ok := ForType("aws_subnet").BlocksAsList("aws_subnet"); ok {
 		t.Error("aws_subnet: want none")
+	}
+}
+
+// An azurerm role assignment's principal is an Entra ID object, of the
+// kind its principal_type says.
+func TestPrincipal(t *testing.T) {
+	t.Parallel()
+	got, ok := ForType("azurerm_role_assignment").Principal("azurerm_role_assignment")
+	if !ok || got.Argument != "principal_id" || got.KindArgument != "principal_type" || got.Kinds["ServicePrincipal"] != "service principal" || got.Directory != "Entra ID" {
+		t.Fatalf("got %+v, %v", got, ok)
+	}
+	got.Kinds["User"] = "nobody"
+	if again, _ := ForType("azurerm_role_assignment").Principal("azurerm_role_assignment"); again.Kinds["User"] != "user" {
+		t.Error("changing what one caller got changed the built-in catalogue")
 	}
 }

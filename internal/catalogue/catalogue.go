@@ -123,6 +123,9 @@ type Entry struct {
 	// BlocksAsList, of the fields the engine reads, is a nested block that
 	// only names an element of a list an argument takes instead.
 	BlocksAsList *BlocksAsList `yaml:"blocks_as_list,omitempty"`
+	// Principal, of the fields the engine reads, is an argument that names
+	// an object of the cloud's directory.
+	Principal *Principal `yaml:"principal,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

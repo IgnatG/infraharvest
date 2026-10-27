@@ -144,6 +144,15 @@ types:
       - role_definition_name when @role_definition_listed
       - principal_type=ForeignGroup
       - principal_type=Device
+    # A principal no resource of the root is: users, groups and
+    # applications belong to the azuread provider, which an import doesn't
+    # use, so the engine notes what kind of Entra ID object it is.
+    principal:
+      argument: principal_id
+      kind_argument: principal_type
+      kinds: { User: user, Group: group, ForeignGroup: foreign group, ServicePrincipal: service principal, Device: device }
+      directory: Entra ID
+      note: users, groups and applications belong to the azuread provider
   azurerm_role_definition:
     # The custom roles that can be assigned only in the subscription, or
     # only in --resource-group and what is in it.

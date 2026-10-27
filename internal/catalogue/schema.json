@@ -194,6 +194,20 @@
             "argument": { "$ref": "#/$defs/name" }
           }
         },
+        "principal": {
+          "description": "Built-in files only: an argument that names an object of the cloud's directory, such as an Azure role assignment's principal_id; where no resource of the root is that object, it is noted as \"# <directory> <kind>: <note>\", with the kind kinds gives the value of kind_argument, else object.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["argument", "directory", "note"],
+          "dependentRequired": { "kind_argument": ["kinds"], "kinds": ["kind_argument"] },
+          "properties": {
+            "argument": { "$ref": "#/$defs/name" },
+            "kind_argument": { "$ref": "#/$defs/name" },
+            "kinds": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+            "directory": { "type": "string", "minLength": 1 },
+            "note": { "type": "string", "minLength": 1 }
+          }
+        },
         "secret_when": {
           "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
           "type": "object",
