@@ -56,6 +56,9 @@ func TestMergedVarFiles(t *testing.T) {
 		"prod": {"vars/common.tfvars", "vars/prod/terraform.tfvars", "vars/prod/imports.tfvars"},
 		"dev":  {"vars/common.tfvars", "vars/dev/terraform.tfvars"},
 	} {
+		if got := existingVarFiles(dir, env); strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("%s: existing %v, want %v", env, got, want)
+		}
 		opts, paths, err := mergedVarFiles(dir, env)
 		if err != nil {
 			t.Fatal(err)

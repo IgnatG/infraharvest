@@ -69,27 +69,15 @@ func driftContents(dir, env string) (map[string][]byte, error) {
 }
 
 // stageVarFiles copies the var files environment env plans the root in
-// dir with (see mergedVarFiles) to the same paths under staging, the
+// dir with (see existingVarFiles) to the same paths under staging, the
 // staged copy, whose plans read them there, as drift edits them.
 func stageVarFiles(dir, staging, env string) error {
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return err
-	}
-	_, paths, err := mergedVarFiles(dir, env)
-	if err != nil {
-		return err
-	}
-	for _, path := range paths {
-		rel, err := filepath.Rel(abs, path)
+	for _, name := range existingVarFiles(dir, env) {
+		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
 		if err != nil {
 			return err
 		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(staging, rel)
+		target := filepath.Join(staging, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
 		}

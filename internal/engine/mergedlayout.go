@@ -131,23 +131,41 @@ func varFileArgs(env string, imports bool) string {
 	return strings.Join(args, " ")
 }
 
-// mergedVarFiles returns the var files environment env plans the root
-// environments share in dir with, as -var-file options and as absolute
-// paths: those of varFiles, imports.tfvars among them, that are there,
+// existingVarFiles returns the var files environment env plans the root
+// environments share in dir with, by path in the root with forward
+// slashes: those of varFiles, imports.tfvars among them, that are there,
 // as imports.tfvars isn't after the first apply.
+func existingVarFiles(dir, env string) []string {
+	var names []string
+	for _, name := range varFiles(env, true) {
+		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err == nil {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// mergedVarFiles returns the var files environment env plans the root
+// environments share in dir with (see existingVarFiles), as -var-file
+// options and as absolute paths.
 func mergedVarFiles(dir, env string) ([]tfexec.PlanOption, []string, error) {
+	return varFileOptions(dir, existingVarFiles(dir, env))
+}
+
+// varFileOptions returns names, var files of the root in dir by path in
+// it with forward slashes, as -var-file options and as absolute paths.
+// Terraform fails the plan on one that isn't there.
+func varFileOptions(dir string, names []string) ([]tfexec.PlanOption, []string, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, nil, err
 	}
 	var vars []tfexec.PlanOption
 	var paths []string
-	for _, name := range varFiles(env, true) {
+	for _, name := range names {
 		path := filepath.Join(abs, filepath.FromSlash(name))
-		if _, err := os.Stat(path); err == nil {
-			vars = append(vars, tfexec.VarFile(path))
-			paths = append(paths, path)
-		}
+		vars = append(vars, tfexec.VarFile(path))
+		paths = append(paths, path)
 	}
 	return vars, paths, nil
 }
