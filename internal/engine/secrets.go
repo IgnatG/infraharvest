@@ -20,6 +20,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // Secret is a variable the generated configuration reads a secret value
@@ -365,28 +367,18 @@ func typeTokens(ty cty.Type) (hclwrite.Tokens, error) {
 	return f.Body().GetAttribute("type").Expr().BuildTokens(nil), nil
 }
 
-// publicRule names a sensitive argument whose value isn't secret when
-// another argument of the resource doesn't have one of some values.
-type publicRule struct {
-	attribute string // the sensitive argument
-	when      string // the argument that decides
-	secretIn  []string
+// publicSensitive returns the sensitive argument of a resource type whose
+// value is often public, as the catalogue has it (see
+// catalogue.SecretWhen), such as an SSM parameter's value, which is a
+// secret only in a SecureString parameter.
+func publicSensitive(typ string) (catalogue.SecretWhen, bool) {
+	return catalogue.ForType(typ).SecretWhen(typ)
 }
 
-// publicSensitive are, by resource type, sensitive arguments whose value
-// is often public. An SSM parameter's value is always sensitive in the
-// provider, but only a SecureString's is secret: a String or StringList
-// parameter's is written into the configuration as it is. Its
-// insecure_value would plan an update after import, as the provider reads
-// an imported parameter's value into value.
-var publicSensitive = map[string]publicRule{
-	"aws_ssm_parameter": {attribute: "value", when: "type", secretIn: []string{"SecureString"}},
-}
-
-// isPublic reports whether rule says the value of rule.attribute isn't
-// secret in a resource whose rule.when argument has value when.
-func (rule publicRule) isPublic(when string) bool {
-	return when != "" && !slices.Contains(rule.secretIn, when)
+// isPublic reports whether rule says the value of its argument isn't
+// secret in a resource whose rule.When argument has value when.
+func isPublic(rule catalogue.SecretWhen, when string) bool {
+	return when != "" && !slices.Contains(rule.In, when)
 }
 
 // publicSecretsToLiterals writes into the configuration the values of the
@@ -406,12 +398,12 @@ func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secr
 	for _, r := range generated.resources() {
 		bodies[r.address], writes[r.address] = r.syntax.Body, r.write.Body()
 	}
-	candidate := func(s Secret) (publicRule, bool) {
-		rule, ok := publicSensitive[strings.SplitN(s.Address, ".", 2)[0]]
-		if !ok || s.key != "" || s.Attribute != rule.attribute || bodies[s.Address] == nil {
+	candidate := func(s Secret) (catalogue.SecretWhen, bool) {
+		rule, ok := publicSensitive(strings.SplitN(s.Address, ".", 2)[0])
+		if !ok || s.key != "" || s.Attribute != rule.Argument || bodies[s.Address] == nil {
 			return rule, false
 		}
-		return rule, rule.isPublic(stringLiteral(attributeExpr(bodies[s.Address], rule.when)))
+		return rule, isPublic(rule, stringLiteral(attributeExpr(bodies[s.Address], rule.When)))
 	}
 	possible := false
 	for _, s := range secrets {
@@ -442,15 +434,15 @@ func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secr
 			kept = append(kept, s)
 			continue
 		}
-		value, isString := imported[s.Address][rule.attribute].(string)
+		value, isString := imported[s.Address][rule.Argument].(string)
 		name := stringLiteral(attributeExpr(bodies[s.Address], "name"))
 		if !isString || secretReason(name, value, true) != "" {
 			kept = append(kept, s)
 			continue
 		}
 		// Set afresh, without Terraform's "# sensitive" comment.
-		writes[s.Address].RemoveAttribute(rule.attribute)
-		writes[s.Address].SetAttributeValue(rule.attribute, cty.StringVal(value))
+		writes[s.Address].RemoveAttribute(rule.Argument)
+		writes[s.Address].SetAttributeValue(rule.Argument, cty.StringVal(value))
 		changed = true
 	}
 	if !changed {
@@ -466,13 +458,13 @@ func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secr
 // object that publicSensitive says isn't secret, as publicSecretsToLiterals
 // writes it.
 func publicValue(rc *tfjson.ResourceChange) (string, bool) {
-	rule, ok := publicSensitive[rc.Type]
+	rule, ok := publicSensitive(rc.Type)
 	if !ok || rc.Change == nil {
 		return "", false
 	}
 	before, _ := rc.Change.Before.(map[string]any)
-	when, _ := before[rule.when].(string)
-	value, isString := before[rule.attribute].(string)
+	when, _ := before[rule.When].(string)
+	value, isString := before[rule.Argument].(string)
 	name, _ := before["name"].(string)
-	return value, isString && rule.isPublic(when) && secretReason(name, value, true) == ""
+	return value, isString && isPublic(rule, when) && secretReason(name, value, true) == ""
 }

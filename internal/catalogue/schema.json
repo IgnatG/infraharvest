@@ -183,6 +183,17 @@
             "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" }
           }
         },
+        "secret_when": {
+          "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["argument", "when", "in"],
+          "properties": {
+            "argument": { "$ref": "#/$defs/name" },
+            "when": { "$ref": "#/$defs/name" },
+            "in": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+          }
+        },
         "inventory": {
           "description": "The cloud's inventory API's type for resources of this type (Cloud Asset Inventory, Resource Graph), and the pattern of their names when that type covers several: * is one segment between slashes.",
           "type": "object",

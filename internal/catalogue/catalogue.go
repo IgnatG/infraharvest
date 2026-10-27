@@ -115,6 +115,11 @@ type Entry struct {
 	// fields, which an overlay can't clear by setting them: data_source,
 	// arn, cloud_control, inventory, placeholder and lifecycle.
 	Remove []string `yaml:"remove,omitempty"`
+
+	// SecretWhen, of the fields the engine reads (see ForType), names a
+	// sensitive argument that is a secret only where another argument
+	// says so.
+	SecretWhen *SecretWhen `yaml:"secret_when,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.
@@ -307,6 +312,9 @@ func Load(provider, dir string) (*Catalogue, error) {
 	var errs []error
 	for typ, e := range overlay.entries {
 		merged.sources[typ] = filepath.Join(dir, overlay.sources[typ])
+		for _, err := range checkBuiltinOnly(e) {
+			errs = append(errs, fmt.Errorf("%s: %s: %w", merged.sources[typ], typ, err))
+		}
 		if existing, ok := merged.entries[typ]; ok {
 			for _, err := range checkRemove(e) {
 				errs = append(errs, fmt.Errorf("%s: %s: %w", merged.sources[typ], typ, err))
@@ -783,6 +791,7 @@ func (e *Entry) copy() *Entry {
 	}
 	copied.DataSource, copied.ARN, copied.CloudControl = clonePointer(e.DataSource), clonePointer(e.ARN), clonePointer(e.CloudControl)
 	copied.Inventory, copied.Lifecycle, copied.Placeholder = clonePointer(e.Inventory), clonePointer(e.Lifecycle), e.Placeholder.copy()
+	copyGeneration(&copied, e)
 	return &copied
 }
 

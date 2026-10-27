@@ -117,6 +117,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if p := e.Placeholder; p != nil {
 		errs = append(errs, checkPlaceholder(p)...)
 	}
+	errs = append(errs, checkGeneration(typ, e)...)
 	if len(e.Remove) > 0 {
 		fail("remove: only an overlay of a built-in entry takes remove")
 	}
