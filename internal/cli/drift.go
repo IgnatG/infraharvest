@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
 // driftSettings are the settings of a configuration file drift takes, of
@@ -36,7 +37,7 @@ func newDriftCmd() *cobra.Command {
 			"with its backend and its state pulled; a private copy is then refreshed once,\n" +
 			"and planned again with the code, to tell the changes the next apply would\n" +
 			"revert from those the code absorbs. Nothing is written to the state, and\n" +
-			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
+			"plans don't lock it, so read access to it is enough. " + sentence.List(options.Backends, "and") + "\n" +
 			"backends and local state are supported; HCP Terraform and other remote\n" +
 			"backends are refused. A root environments share is checked once per\n" +
 			"environment --environment names, or every one with --environment all, which\n" +
