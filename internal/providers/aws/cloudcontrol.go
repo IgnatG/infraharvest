@@ -81,10 +81,6 @@ type CloudControlLister struct {
 	types []cloudControlType
 }
 
-func newCloudControlLister(service string) *CloudControlLister {
-	return &CloudControlLister{types: cloudControlServices()[service]}
-}
-
 // List lists every type of the service, each on its own: a type that fails,
 // such as one an SCP denies, doesn't stop the others. When some types fail,
 // their errors, each naming its type, are returned together as a partial
