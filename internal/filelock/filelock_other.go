@@ -16,3 +16,8 @@ func lock(*os.File) error {
 func unlock(*os.File) error {
 	return nil
 }
+
+// open opens the file at path for TryLock, creating it if need be.
+func open(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+}

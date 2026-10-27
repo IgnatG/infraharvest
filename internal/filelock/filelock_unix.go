@@ -30,3 +30,10 @@ func lock(f *os.File) error {
 func unlock(f *os.File) error {
 	return unix.Flock(int(f.Fd()), unix.LOCK_UN)
 }
+
+// open opens the file at path for TryLock, creating it if need be, but
+// not through a symbolic link: one put in its place since TryLock checked
+// it fails the open.
+func open(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDWR|os.O_CREATE|unix.O_NOFOLLOW, 0o644)
+}
