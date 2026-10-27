@@ -51,7 +51,12 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 		for _, fileSystem := range page.FileSystems {
 			id := aws.ToString(fileSystem.FileSystemId)
 			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_efs_file_system", "aws"))
-			if g.listMountTargets(client, id) {
+			// A call each per file system, for mount targets and policies
+			// the import may not keep.
+			if g.wants("aws_efs_mount_target") && !g.listMountTargets(client, id) {
+				continue
+			}
+			if g.wants("aws_efs_file_system_policy") {
 				g.addFileSystemPolicy(client, id)
 			}
 		}

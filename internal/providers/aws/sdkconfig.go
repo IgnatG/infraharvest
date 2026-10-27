@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -109,6 +110,12 @@ func (s *Service) setUnwanted(unwanted func(typ string) bool) {
 // skips the calls that list only resources of a type it doesn't want.
 func (s *Service) wants(typ string) bool {
 	return s.unwanted == nil || !s.unwanted(typ)
+}
+
+// wantsAny reports whether the import may keep resources of any of types:
+// a call that lists several types is skipped only when it wants none.
+func (s *Service) wantsAny(types ...string) bool {
+	return slices.ContainsFunc(types, s.wants)
 }
 
 // configKey picks one SDK configuration: the services of one account and

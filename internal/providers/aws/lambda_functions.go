@@ -92,10 +92,18 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) er
 
 // functionParts returns the permissions, then the event invoke configs, of
 // the function functionName, whose ARN is functionARN.
+// Each takes a call of its own, skipped when the import doesn't keep its
+// type.
 func (g *LambdaLister) functionParts(svc *lambda.Client, functionARN, functionName string) ([]harvest.Resource, error) {
-	permissions, err := g.permissions(svc, functionARN)
-	if err != nil {
-		return nil, err
+	var permissions []harvest.Resource
+	if g.wants("aws_lambda_permission") {
+		var err error
+		if permissions, err = g.permissions(svc, functionARN); err != nil {
+			return nil, err
+		}
+	}
+	if !g.wants("aws_lambda_function_event_invoke_config") {
+		return permissions, nil
 	}
 	configs, err := g.eventInvokeConfigs(svc, functionARN, functionName)
 	return append(permissions, configs...), err

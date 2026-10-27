@@ -61,6 +61,10 @@ func (g *SnsLister) List() error {
 func (g *SnsLister) topic(svc *sns.Client, topicARN *string) ([]harvest.Resource, error) {
 	arn := aws.ToString(topicARN)
 	resources := []harvest.Resource{harvest.RecordBare(arn, snsLastPart(arn), "aws_sns_topic", "aws")}
+	// One call per topic, for subscriptions the import may not keep.
+	if !g.wants("aws_sns_topic_subscription") {
+		return resources, nil
+	}
 	pages := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())

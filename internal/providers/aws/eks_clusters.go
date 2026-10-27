@@ -59,15 +59,23 @@ func (g *EksLister) List() error {
 // cluster returns the parts of the cluster clusterName, then the cluster.
 func (g *EksLister) cluster(clusterName string, svc *eks.Client) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
-	parts := []func(string, *eks.Client, *[]harvest.Resource) error{
-		g.getNodeGroups,
-		g.getAddons,
-		g.getFargateProfiles,
-		g.getPodIdentityAssociations,
-		g.getAccessEntries,
+	// Each part takes a call or more per cluster, so those of types the
+	// import doesn't keep are skipped.
+	parts := []struct {
+		list  func(string, *eks.Client, *[]harvest.Resource) error
+		types []string
+	}{
+		{g.getNodeGroups, []string{"aws_eks_node_group"}},
+		{g.getAddons, []string{"aws_eks_addon"}},
+		{g.getFargateProfiles, []string{"aws_eks_fargate_profile"}},
+		{g.getPodIdentityAssociations, []string{"aws_eks_pod_identity_association"}},
+		{g.getAccessEntries, []string{"aws_eks_access_entry", "aws_eks_access_policy_association"}},
 	}
-	for _, list := range parts {
-		if err := list(clusterName, svc, &resources); err != nil {
+	for _, part := range parts {
+		if !g.wantsAny(part.types...) {
+			continue
+		}
+		if err := part.list(clusterName, svc, &resources); err != nil {
 			return nil, err
 		}
 	}
@@ -166,6 +174,10 @@ func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client, out *[
 		}
 		for _, principal := range page.AccessEntries {
 			*out = append(*out, harvest.RecordBare(clusterName+":"+principal, arnName(principal), "aws_eks_access_entry", "aws"))
+			// A call per entry, for associations the import may not keep.
+			if !g.wants("aws_eks_access_policy_association") {
+				continue
+			}
 			if err := g.getAccessPolicyAssociations(clusterName, principal, svc, out); err != nil {
 				return err
 			}
