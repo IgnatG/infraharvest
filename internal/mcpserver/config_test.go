@@ -5,6 +5,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -130,7 +131,7 @@ func TestConfig(t *testing.T) {
 			if want.asked == "" {
 				return
 			}
-			if s := `The configuration file "` + config + `" applies, setting ` + want.asked; !strings.Contains(asked, s) {
+			if s := fmt.Sprintf("The configuration file %q applies, setting ", config) + want.asked; !strings.Contains(asked, s) {
 				t.Errorf("confirmation %q misses %q", asked, s)
 			}
 		})
