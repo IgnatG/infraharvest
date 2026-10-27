@@ -30,6 +30,8 @@ const driftExitHelp = "Exit code 0 means no drift is left, 4 that changes are le
 type DriftInput struct {
 	Out    string `json:"out" jsonschema:"the output directory of an import, whose roots were applied"`
 	Engine string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
+	// Config is --config, checked as the other paths are.
+	Config string `json:"config,omitempty" jsonschema:"the import's configuration file, as --config takes it: its settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given here"`
 	// Roots are --root patterns.
 	Roots []string `json:"roots,omitempty" flag:"root,each" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
 	// Parallel is --parallel, 0 for its default.
@@ -121,7 +123,7 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, error) {
 		}
 		args = append(args, "--catalogue="+catalogue)
 	}
-	return args, nil
+	return t.configArg(args, &in.Config)
 }
 
 func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
@@ -285,6 +287,9 @@ func driftConfirmationMessage(in DriftAcceptInput, target string, d *report.Drif
 		message += fmt.Sprintf(" %d roots couldn't be checked.", d.Totals.Failed)
 	}
 	message += " An edit is kept only once the plan of the edited code shows the resource taking it and nothing else changing; secrets are never written, and changes that take a hand edit are reported instead."
+	if in.Config != "" {
+		message += fmt.Sprintf(" The configuration file %q applies: its settings drift has, such as the engine and the catalogue, apply where not given here.", in.Config)
+	}
 	if in.WriteDecisions {
 		message += fmt.Sprintf(" The run's changes are then written into the decisions file %q.", target)
 	}

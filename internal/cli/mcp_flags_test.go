@@ -359,6 +359,10 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		t.Error("an import the checks refuse ran")
 		return nil, nil, 2, nil
 	}
+	// The checks read the configuration file as the run would.
+	if err := os.WriteFile(filepath.Join(dir, "unknown-service.yaml"), []byte("version: 1\nproviders:\n  aws:\n    services: [nothing]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	asked := false
 	session := connectMCP(t, dir, run, CheckRun, func() { asked = true })
 	for _, tc := range []struct {
@@ -368,6 +372,7 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions"},
 		{map[string]any{"provider": "google", "services": []string{"iam"}}, "say which projects"},
 		{map[string]any{"provider": "aws"}, "--services is required"},
+		{map[string]any{"provider": "aws", "config": "unknown-service.yaml"}, "aws has no service nothing"},
 		{map[string]any{"provider": "aws", "services": []string{"vpc"}, "incremental": true, "regenerate": true}, "either --regenerate or --incremental"},
 	} {
 		tc.args["selection"], tc.args["out"] = selectionFile, "generated"

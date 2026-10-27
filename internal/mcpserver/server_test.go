@@ -478,22 +478,28 @@ func TestDiscoverReturnsTheCommandsError(t *testing.T) {
 func TestScopeText(t *testing.T) {
 	for _, tc := range []struct {
 		scope Scope
-		want  string
+		// config says a configuration file applies.
+		config bool
+		want   string
 	}{
-		{Scope{Provider: "aws", Services: []string{"vpc"}}, "the aws account (vpc)"},
-		{Scope{Provider: "aws", Services: []string{"vpc", "s3"}, Profile: "prod", Regions: []string{"eu-west-2"}}, "the aws account with profile prod in eu-west-2 (vpc, s3)"},
-		{Scope{Provider: "aws", Services: []string{"vpc"}, Accounts: []string{"111", "222"}}, "the aws accounts 111, 222 (vpc)"},
-		{Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}}, "the google projects one, two in global (iam)"},
-		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "123", Folders: []string{"456"}, Regions: []string{"europe-west1"}}, "every active google project of organization 123 and of folders 456 in europe-west1 (iam)"},
-		{Scope{Provider: "azure", Services: []string{"resource_graph"}}, "the azure subscription of ARM_SUBSCRIPTION_ID (resource_graph)"},
-		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
-		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
+		{Scope{Provider: "aws", Services: []string{"vpc"}}, false, "the aws account (vpc)"},
+		{Scope{Provider: "aws", Services: []string{"vpc", "s3"}, Profile: "prod", Regions: []string{"eu-west-2"}}, false, "the aws account with profile prod in eu-west-2 (vpc, s3)"},
+		{Scope{Provider: "aws", Services: []string{"vpc"}, Accounts: []string{"111", "222"}}, false, "the aws accounts 111, 222 (vpc)"},
+		{Scope{Provider: "google", Services: []string{"iam"}, Projects: []string{"one", "two"}}, false, "the google projects one, two in global (iam)"},
+		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "123", Folders: []string{"456"}, Regions: []string{"europe-west1"}}, false, "every active google project of organization 123 and of folders 456 in europe-west1 (iam)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}}, false, "the azure subscription of ARM_SUBSCRIPTION_ID (resource_graph)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Azapi: true}, false, "the azure subscription of ARM_SUBSCRIPTION_ID, what azurerm has no type for through azapi (resource_graph)"},
+		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, false, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
+		{Scope{Provider: "aws", Regions: []string{"eu-west-2"}}, true, "the aws account in eu-west-2 (the services the configuration file names)"},
+		{Scope{Provider: "aws", CloudFormationStacks: []string{"app"}}, true, "the aws account, only the resources of CloudFormation stacks app (the services the configuration file names, else those of the stacks' resources)"},
+		{Scope{Provider: "aws", CloudFormationStacks: []string{"app"}}, false, "the aws account, only the resources of CloudFormation stacks app (the services of the stacks' resources)"},
+		{Scope{Provider: "aws", Services: []string{"vpc"}}, true, "the aws account (vpc)"},
 	} {
-		if got, err := scopeText(tc.scope, providers.New(tc.scope.Provider).Profile()); err != nil || got != tc.want {
+		if got, err := scopeText(tc.scope, tc.config, providers.New(tc.scope.Provider).Profile()); err != nil || got != tc.want {
 			t.Errorf("scopeText(%+v): got %q, %v, want %q", tc.scope, got, err, tc.want)
 		}
 	}
-	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}, harvest.Profile{Command: "oracle"}); err == nil {
+	if _, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}}, false, harvest.Profile{Command: "oracle"}); err == nil {
 		t.Error("a provider whose profile can't describe its scope: want an error, not an aws account")
 	}
 }
@@ -505,7 +511,7 @@ func TestScopeTextOfAnotherProvider(t *testing.T) {
 	oracle := harvest.Profile{Command: "oracle", Scope: harvest.Scope{Describe: func(flags map[string][]string) string {
 		return "the oracle tenancy in " + strings.Join(flags["regions"], ", ")
 	}}}
-	got, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}, Regions: []string{"uk-london-1"}}, oracle)
+	got, err := scopeText(Scope{Provider: "oracle", Services: []string{"vcn"}, Regions: []string{"uk-london-1"}}, false, oracle)
 	if want := "the oracle tenancy in uk-london-1 (vcn)"; err != nil || got != want {
 		t.Errorf("got %q, %v, want %q", got, err, want)
 	}
@@ -528,7 +534,7 @@ func TestScopeTextSaysEveryField(t *testing.T) {
 				s.CloudFormationStacks = []string{"app"}
 			}
 			profile := providers.New(provider).Profile()
-			without, err := scopeText(s, profile)
+			without, err := scopeText(s, false, profile)
 			if err != nil {
 				t.Fatalf("%s: %v", provider, err)
 			}
@@ -541,7 +547,7 @@ func TestScopeTextSaysEveryField(t *testing.T) {
 			case reflect.Slice:
 				value.Set(reflect.ValueOf([]string{"x"}))
 			}
-			if with, err := scopeText(s, profile); err != nil || with == without {
+			if with, err := scopeText(s, false, profile); err != nil || with == without {
 				t.Errorf("%s with %s: got %q, %v, the same as without it", provider, jsonName(field), with, err)
 			}
 		}
@@ -1163,5 +1169,72 @@ func TestReportReadsTheDriftReport(t *testing.T) {
 	}
 	if _, err := read("verify"); err == nil || !strings.Contains(err.Error(), "kind must be") {
 		t.Errorf("kind verify: got %v, want it rejected", err)
+	}
+}
+
+// A configuration file under the root is passed on as --config, relative
+// to the root, for the check before the user is asked as for the run, and
+// the user is told it applies; one outside the root is refused before
+// anything runs.
+func TestConfig(t *testing.T) {
+	dir := t.TempDir()
+	config := filepath.Join(dir, "infraharvest.yaml")
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "generated")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	importInput := importArgs(path, out)
+	importInput["config"] = "infraharvest.yaml"
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+		// runs counts the runs, checks the checks, which the import makes
+		// before asking and again with the answer; asked is what the
+		// user is asked, if they are.
+		runs, checks int
+		asked        string
+	}{
+		{"discover", map[string]any{"provider": "aws", "services": []string{"vpc"}, "selection": path, "config": "infraharvest.yaml"}, 1, 0, ""},
+		{"import", importInput, 1, 2, fmt.Sprintf("The configuration file %q applies", config)},
+		{"drift", map[string]any{"out": out, "config": "infraharvest.yaml"}, 1, 0, ""},
+		{"drift_accept", map[string]any{"out": out, "config": "infraharvest.yaml", "rules": []string{"accept all"}}, 2, 0, fmt.Sprintf("The configuration file %q applies", config)},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			runner := &fakeRunner{}
+			var asked string
+			session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				asked = req.Params.Message
+				return &mcp.ElicitResult{Action: "accept"}, nil
+			})
+
+			if res, text := call(t, session, tc.tool, tc.args); res.IsError {
+				t.Fatalf("result: %s", text)
+			}
+			if len(runner.runs) != tc.runs || len(runner.checked) != tc.checks {
+				t.Fatalf("runs %v, checks %v: want %d and %d", runner.runs, runner.checked, tc.runs, tc.checks)
+			}
+			for _, args := range append(runner.runs, runner.checked...) {
+				if !slices.Contains(args, "--config="+config) {
+					t.Errorf("%v has no --config=%s", args, config)
+				}
+			}
+			if !strings.Contains(asked, tc.asked) {
+				t.Errorf("asked %q, want %q", asked, tc.asked)
+			}
+
+			outside := maps.Clone(tc.args)
+			outside["config"] = filepath.Join(t.TempDir(), "infraharvest.yaml")
+			runner.runs, runner.checked = nil, nil
+			if res, text := call(t, session, tc.tool, outside); !res.IsError || !strings.Contains(text, "must be under") {
+				t.Errorf("a configuration file outside the root: got %s, want it refused", text)
+			}
+			if len(runner.runs) != 0 || len(runner.checked) != 0 {
+				t.Errorf("ran %v, checked %v with a configuration file outside the root", runner.runs, runner.checked)
+			}
+		})
 	}
 }

@@ -1,6 +1,6 @@
 # Configuration
 
-`--config infraharvest.yaml` sets any flag the command line doesn't, but `--check` and `--config` itself, and the state backend of the generated roots:
+`--config infraharvest.yaml` sets any flag the command line doesn't, but `--check` and `--config` itself, and the state backend of the generated roots. The [MCP server](mcp.md)'s `discover`, `import`, `drift` and `drift_accept` tools take it as `config`, under their `--root`:
 
 ```yaml
 version: 1

@@ -264,6 +264,8 @@ type Scope struct {
 type DiscoverInput struct {
 	Scope
 	Selection string `json:"selection" jsonschema:"the selection file to write, such as selection.yaml"`
+	// Config is --config, checked as the other paths are.
+	Config string `json:"config,omitempty" jsonschema:"a configuration file, as --config takes it, which sets what the other parameters don't, such as the services and regions"`
 }
 
 // SelectionSummary counts a selection file's resources.
@@ -301,6 +303,9 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 		return nil, nil, errors.New("selection is required")
 	}
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
+		return nil, nil, err
+	}
+	if args, err = t.configArg(args, &in.Config); err != nil {
 		return nil, nil, err
 	}
 	// discover saves what it lists under the output directory: the default
@@ -367,7 +372,9 @@ type ImportInput struct {
 	Scope
 	Selection string `json:"selection" jsonschema:"the selection file to import, from discover"`
 	Out       string `json:"out" jsonschema:"the directory to write the configuration and report to"`
-	Engine    string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
+	// Config is --config, checked as the other paths are.
+	Config string `json:"config,omitempty" jsonschema:"a configuration file, as --config takes it, which sets what the other parameters don't, such as the services and regions, and the state backend of the generated roots"`
+	Engine string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
 	// Incremental adds to the roots Out already has (--incremental).
 	Incremental bool `json:"incremental,omitempty" flag:"incremental" jsonschema:"add what is new to the roots the output directory already has, after the blocks of the file of their type, without changing what they have; needed to import into an output directory again"`
 	// Regenerate generates the roots Out already has again (--regenerate).
@@ -425,6 +432,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err := t.linksStayUnder("out", in.Out); err != nil {
 		return nil, nil, err
 	}
+	// The checks below read it as the run does.
+	if args, err = t.configArg(args, &in.Config); err != nil {
+		return nil, nil, err
+	}
 	args = append(args, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
 	if err := t.check(ctx, args); err != nil {
 		return nil, nil, err
@@ -451,7 +462,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	reads, err := scopeText(in.Scope, providers.New(in.Provider).Profile())
+	reads, err := scopeText(in.Scope, in.Config != "", providers.New(in.Provider).Profile())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -464,6 +475,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if in.Regenerate {
 		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
 			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
+	}
+	if in.Config != "" {
+		message += fmt.Sprintf(" The configuration file %q applies: it sets what isn't given here, such as the services, the regions and the roots' state backend.", in.Config)
 	}
 	state := confirmationState(args, content)
 	if len(req.Params.InputResponses) == 0 {
@@ -735,6 +749,21 @@ func cutAt(b []byte, limit int) int {
 	return cut
 }
 
+// configArg returns args with --config, when *config, a configuration
+// file the agent chose, is set: it has to be under the root, as the other
+// files do, and *config is set to the path to use.
+func (t *tools) configArg(args []string, config *string) ([]string, error) {
+	if *config == "" {
+		return args, nil
+	}
+	path, err := t.within("config", *config)
+	if err != nil {
+		return nil, err
+	}
+	*config = path
+	return append(args, "--config="+path), nil
+}
+
 // linksStayUnder checks that no symbolic link under dir, which an import
 // writes into, leads out of the root, as one a cloned repository plants
 // could: the import would write there. Terraform's working directories
@@ -978,14 +1007,22 @@ func shellQuote(s string) string {
 // profile, the profile of scope's provider, describes of the flags scope
 // sets (see harvest.Scope.Describe), the provider's accounts,
 // subscriptions or projects and where in them, in the provider's own
-// terms; and the services. scope has passed commandArgs, so that each
-// field set is one its provider takes.
-func scopeText(s Scope, profile harvest.Profile) (string, error) {
+// terms; and the services, which, when scope names none, a configuration
+// file names if config says one applies, else the stacks' resources do.
+// scope has passed commandArgs, so that each field set is one its
+// provider takes.
+func scopeText(s Scope, config bool, profile harvest.Profile) (string, error) {
 	if profile.Scope.Describe == nil {
 		return "", fmt.Errorf("can't say what provider %q reads", s.Provider)
 	}
 	text := profile.Scope.Describe(scopeFlags(s))
-	if len(s.Services) == 0 {
+	switch {
+	case len(s.Services) > 0:
+	case config && len(s.CloudFormationStacks) > 0:
+		return text + " (the services the configuration file names, else those of the stacks' resources)", nil
+	case config:
+		return text + " (the services the configuration file names)", nil
+	default:
 		return text + " (the services of the stacks' resources)", nil
 	}
 	return text + " (" + strings.Join(s.Services, ", ") + ")", nil
