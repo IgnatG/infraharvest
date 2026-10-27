@@ -314,6 +314,25 @@
               }
             ]
           },
+          "importer": {
+            "files": [
+              "**/internal/importer/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/picker",
+                "desc": "the importer leaves the selection file it wrote to the command, which decides whether to open the picker on it"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands drive the importer, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "the importer knows nothing of the MCP server, which runs the binary"
+              }
+            ]
+          },
           "discovery": {
             "files": [
               "**/internal/discovery/*.go"

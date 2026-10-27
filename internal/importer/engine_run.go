@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -43,14 +44,8 @@ type Run struct {
 	lock []byte
 	// selection is the selection file the import follows, if any.
 	selection *selection.File
-	// listed are the resources discover lists into a selection file.
-	listed []selection.Resource
-	// covered are the services discover listed, by scope and service (see
-	// coverKey), and filtered is whether it listed with --id, --tag or
-	// --where: the selection file drops only the entries of what discover
-	// listed in full (see covers).
-	covered  map[string]bool
-	filtered bool
+	// discoverState is what discover lists into the selection file.
+	discoverState
 	// backend is the state backend of the generated roots, if configured.
 	backend *config.Backend
 	// modules are the organisation's own modules, if configured.
@@ -58,22 +53,13 @@ type Run struct {
 	// environments are the estate's environments, if configured (see
 	// config.Environments).
 	environments config.Environments
-	// members are the roots the run generated of the configuration file's
-	// environments, which the merge phase merges (see Run.MergeEnvironments).
-	members []mergeMember
-	// vacating are the handovers of the run's scopes that plan to vacate
-	// merged roots, all of whose resources go to other roots now (see
-	// handovers.vacating), which the merge phase vacates (see
-	// vacateMergedRoots).
-	vacating []*handovers
+	// mergeState is what the run hands its merge phase.
+	mergeState
 	// shared is what the run and its children work out once.
 	shared *shared
 	// tools are what the run's Import calls, and its merge phase, reach
 	// outside the process through; nil uses the real ones (see callTools).
 	tools *callTools
-	// OpenPicker opens the picker on the selection file discover writes,
-	// when run in a terminal (see pick).
-	OpenPicker bool
 	// scope is where the provider call being imported lists (see
 	// discoveryScope); the report counts by it.
 	scope string
@@ -82,6 +68,49 @@ type Run struct {
 	// listedHere); nil when it can't tell.
 	here *listedHere
 	used bool
+}
+
+// discoverState is what discover lists into the selection file it writes
+// (see Run.writeSelection), apart from what the run counts for its
+// report.
+type discoverState struct {
+	// listed are the resources discover lists into a selection file.
+	listed []selection.Resource
+	// covered are the services discover listed, by scope and service (see
+	// coverKey), and filtered is whether it listed with --id, --tag or
+	// --where: the selection file drops only the entries of what discover
+	// listed in full (see covers).
+	covered  map[string]bool
+	filtered bool
+	// toPick is the selection file discover wrote for the command to open
+	// in the picker, if it wants to (see SelectionToPick).
+	toPick string
+}
+
+// add adds what a child run listed (see Run.merge) to d.
+func (d *discoverState) add(child *discoverState) {
+	d.listed = append(d.listed, child.listed...)
+	maps.Copy(d.covered, child.covered)
+	d.filtered = d.filtered || child.filtered
+}
+
+// mergeState is what the run hands its merge phase (see
+// Run.MergeEnvironments), apart from what it counts for its report.
+type mergeState struct {
+	// members are the roots the run generated of the configuration file's
+	// environments, which the merge phase merges (see Run.MergeEnvironments).
+	members []mergeMember
+	// vacating are the handovers of the run's scopes that plan to vacate
+	// merged roots, all of whose resources go to other roots now (see
+	// handovers.vacating), which the merge phase vacates (see
+	// vacateMergedRoots).
+	vacating []*handovers
+}
+
+// add adds what a child run hands the merge phase (see Run.merge) to m.
+func (m *mergeState) add(child *mergeState) {
+	m.members = append(m.members, child.members...)
+	m.vacating = append(m.vacating, child.vacating...)
 }
 
 // shared is what a run and its children (see Run.child) work out once for
@@ -118,6 +147,24 @@ type shared struct {
 	// at once, over every account and region (see callSlots).
 	callsMu sync.Mutex
 	calls   chan struct{}
+
+	// limiter limits the requests of the command's listings to each API
+	// host, made with --rate-limit on first use (see rateLimiter).
+	limiterMu sync.Mutex
+	limiter   *ratelimit.Limiter
+}
+
+// rateLimiter returns the command's limiter, of perSecond requests a
+// second, made on first use: every Import call of the command, in every
+// account and region, gives its listing the same one (see listCall), and
+// no other run in the process changes its rate.
+func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+	if s.limiter == nil {
+		s.limiter = ratelimit.New(perSecond)
+	}
+	return s.limiter
 }
 
 // callSlots returns the slots the Import calls of the command take while
@@ -172,7 +219,7 @@ func (s *shared) managedState(ctx context.Context, sources []string, stores mana
 }
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, covered: map[string]bool{}, shared: &shared{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, discoverState: discoverState{covered: map[string]bool{}}, shared: &shared{}}
 }
 
 // recordFailure records that part of the command couldn't run, such as one
@@ -216,10 +263,8 @@ func (r *Run) finish(err error) error {
 			if writeErr := r.summary().WriteJSON(r.stdout()); writeErr != nil {
 				return couldNotRun(nil, writeErr)
 			}
-		} else if r.OpenPicker && Interactive() {
-			if err := Pick(r.selectionPath()); err != nil {
-				return err
-			}
+		} else {
+			r.toPick = r.selectionPath()
 		}
 		return checkFailures(r.failures, r.options.AllowPartial)
 	}
@@ -298,11 +343,8 @@ func (r *Run) merge(child *Run) {
 		r.skipped[typ] += n
 	}
 	r.failures = append(r.failures, child.failures...)
-	r.members = append(r.members, child.members...)
-	r.vacating = append(r.vacating, child.vacating...)
-	r.listed = append(r.listed, child.listed...)
-	maps.Copy(r.covered, child.covered)
-	r.filtered = r.filtered || child.filtered
+	r.mergeState.add(&child.mergeState)
+	r.discoverState.add(&child.discoverState)
 	if r.lock == nil {
 		r.lock = child.lock
 	}
@@ -335,6 +377,16 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, pro
 // and the exit code in the error.
 func (r *Run) Do(fn func() error) error {
 	return r.finish(fn())
+}
+
+// SelectionToPick returns the selection file a discover run that Do
+// finished wrote, for the command to open in the picker, or "" when there
+// is none to open: the run wasn't discover, the listing failed, or
+// --format json printed the summary where the picker would draw. It is
+// set even when what failed in part makes Do return an error, so that
+// what did list can still be picked.
+func (r *Run) SelectionToPick() string {
+	return r.toPick
 }
 
 // CheckMergeEnvironments rejects --merge-environments, or its setting in

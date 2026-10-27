@@ -68,6 +68,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		// run still writes one there, with the failure (see Run.finish).
 		run.options = options
 	}
+	// The provider signs in and lists with the run's limiter, not another
+	// run's (see ratelimit.FromContext).
+	ctx = ratelimit.NewContext(ctx, run.shared.rateLimiter(options.RateLimit))
 	c, err := run.prepareCall(ctx, provider, options, args)
 	if err != nil {
 		return nil, err
@@ -151,7 +154,9 @@ type callContext struct {
 // types the selection file leaves out, the services, and the scope, which
 // r counts what it records by from now on.
 func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, args []string) (*callContext, error) {
-	// Before the provider signs in: its clients take the rate.
+	// Before the provider signs in: its clients take the rate. The
+	// providers' clients still read the process's Default, not the run's
+	// limiter in ctx, so --rate-limit sets that too.
 	ratelimit.SetDefault(options.RateLimit)
 	if err := provider.Init(ctx, args); err != nil {
 		return nil, err

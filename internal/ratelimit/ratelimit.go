@@ -53,6 +53,25 @@ func SetDefault(perSecond float64) {
 	std.SetRate(perSecond)
 }
 
+// contextKey is the key of the Limiter NewContext puts in a context.
+type contextKey struct{}
+
+// NewContext returns ctx carrying l, the Limiter of the run whose calls
+// list with ctx: each run has its own, so that runs in one process, at
+// once or one after another, never reset each other's rate.
+func NewContext(ctx context.Context, l *Limiter) context.Context {
+	return context.WithValue(ctx, contextKey{}, l)
+}
+
+// FromContext returns the Limiter NewContext put in ctx, or Default if
+// there is none.
+func FromContext(ctx context.Context) *Limiter {
+	if l, ok := ctx.Value(contextKey{}).(*Limiter); ok {
+		return l
+	}
+	return std
+}
+
 // Rate is the requests a second each host gets; 0 or below: no limit.
 func (l *Limiter) Rate() float64 {
 	l.mu.Lock()

@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -73,7 +72,7 @@ func MCPProviders() mcpserver.Providers {
 }
 
 // childEnv returns env, the server's environment, without the variables
-// that profile a run (see importer.StartProfiles): a tool's child would
+// that profile a run (see startProfiles): a tool's child would
 // write its profiles over the server's, at the same paths, and over those
 // of the other children running at the same time.
 func childEnv(env []string) []string {
@@ -81,7 +80,7 @@ func childEnv(env []string) []string {
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		switch strings.ToUpper(name) {
-		case importer.CPUProfileEnv, importer.MemProfileEnv, importer.GoroutineLeakProfileEnv:
+		case cpuProfileEnv, memProfileEnv, goroutineLeakProfileEnv:
 			continue
 		}
 		kept = append(kept, kv)

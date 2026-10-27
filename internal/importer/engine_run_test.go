@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 func TestEngineRunCombinesImports(t *testing.T) {
@@ -146,5 +147,30 @@ func TestEngineRunReportsTheErrorItEndsOn(t *testing.T) {
 	}
 	if coverage.ExitCode != report.ExitCouldNotRun || len(coverage.Failures) != 1 {
 		t.Errorf("coverage.json: exit code %d, failures %q; want %d and the error", coverage.ExitCode, coverage.Failures, report.ExitCouldNotRun)
+	}
+}
+
+// A child run's listing and what it hands the merge phase join its
+// parent's, beside what the parent had.
+func TestRunMergesChildState(t *testing.T) {
+	parent := NewRun()
+	parent.listed = []selection.Resource{{Type: "aws_vpc", ID: "vpc-1"}}
+	parent.covered[coverKey("aws/1/eu-west-2", "vpc")] = true
+	parent.members = []mergeMember{{env: "dev"}}
+
+	child := parent.child()
+	child.used = true
+	child.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs"}}
+	child.covered[coverKey("aws/2/eu-west-2", "s3")] = true
+	child.filtered = true
+	child.members = []mergeMember{{env: "prod"}}
+	child.vacating = []*handovers{{}}
+	parent.merge(child)
+
+	if len(parent.listed) != 2 || len(parent.covered) != 2 || !parent.filtered {
+		t.Errorf("discover state: %+v", parent.discoverState)
+	}
+	if len(parent.members) != 2 || parent.members[1].env != "prod" || len(parent.vacating) != 1 {
+		t.Errorf("merge state: %+v", parent.mergeState)
 	}
 }

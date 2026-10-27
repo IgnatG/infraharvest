@@ -4,10 +4,20 @@
 package cli
 
 import (
+	"errors"
+	"log"
+	"os"
+
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/picker"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
+
+// errNoTerminal is returned when the picker can't run.
+var errNoTerminal = errors.New("the picker needs a terminal: edit the selection file instead")
 
 func newPickCmd() *cobra.Command {
 	path := importer.DefaultSelectionFile
@@ -21,9 +31,36 @@ func newPickCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(*cobra.Command, []string) error {
-			return importer.Pick(path)
+			return pick(path)
 		},
 	}
 	cmd.Flags().StringVar(&path, "selection", importer.DefaultSelectionFile, "selection file to edit, from infraharvest discover")
 	return cmd
+}
+
+// pick opens the picker on the selection file at path.
+func pick(path string) error {
+	if !interactive() {
+		return errNoTerminal
+	}
+	f, err := selection.Load(path)
+	if err != nil {
+		return err
+	}
+	saved, err := picker.Run(path, f)
+	if err != nil {
+		return err
+	}
+	if saved {
+		log.Printf("saved %s", path)
+	} else {
+		log.Printf("left %s as it was", path)
+	}
+	return nil
+}
+
+// interactive reports whether infraharvest runs in a terminal someone can
+// use: standard input and output both are one.
+func interactive() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }

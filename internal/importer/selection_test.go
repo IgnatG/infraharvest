@@ -729,7 +729,6 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 	var out bytes.Buffer
 	run := NewRun()
 	run.used = true
-	run.OpenPicker = true
 	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml"), Format: FormatJSON, Stdout: &out, ReportTags: []string{"team"}}
 	const scope = "aws/1/eu-west-2"
 	stack := report.OtherToolPrefix + "CloudFormation stack app"
@@ -743,6 +742,9 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 
 	if err := run.finish(nil); err != nil {
 		t.Fatal(err)
+	}
+	if path := run.SelectionToPick(); path != "" {
+		t.Errorf("the picker would draw over the summary on %s", path)
 	}
 
 	var got report.Discovery
@@ -791,5 +793,38 @@ func TestDiscoverRefreshesManaged(t *testing.T) {
 		if !partial && (!r.Include || r.Reason != "" || !r.New) {
 			t.Errorf("want the bucket included again, for review: %+v", r)
 		}
+	}
+}
+
+// discover leaves the selection file it wrote for the command to open in
+// the picker, after a listing that failed in part too, but not after one
+// that failed outright, nor where --format json prints the summary.
+func TestSelectionToPick(t *testing.T) {
+	tests := []struct {
+		name     string
+		format   string
+		failures []error
+		err      error
+		want     bool
+	}{
+		{name: "listed", want: true},
+		{name: "listed in part", failures: []error{errors.New("s3: denied")}, want: true},
+		{name: "failed", err: errors.New("no credentials")},
+		{name: "json", format: FormatJSON},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "selection.yaml")
+			run := NewRun()
+			run.used = true
+			run.failures = tt.failures
+			run.options = Options{Discover: true, Selection: path, Format: tt.format, Stdout: &bytes.Buffer{}}
+			run.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Scope: "aws/1/eu-west-2", Include: true}}
+			_ = run.finish(tt.err)
+			got := run.SelectionToPick()
+			if tt.want && got != path || !tt.want && got != "" {
+				t.Errorf("SelectionToPick() = %q, want it %v", got, tt.want)
+			}
+		})
 	}
 }
