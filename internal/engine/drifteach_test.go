@@ -135,7 +135,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			name:   "a field of the key in a local map",
 			files:  map[string]string{"main.tf": queuesLocal},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
-			kind:   SourceLocal,
+			kind:   sourceLocal,
 			want:   map[string]string{"main.tf": formatted(strings.Replace(queuesLocal, "7200", "9000", 1))},
 		},
 		{
@@ -143,7 +143,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			files:  map[string]string{"main.tf": queuesForEach, "vars/dev/terraform.tfvars": queuesVars},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
 			setup:  devEnvironment,
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			want:   map[string]string{"vars/dev/terraform.tfvars": formatted(strings.Replace(queuesVars, "7200", "9000", 1))},
 		},
 		{
@@ -154,7 +154,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
 			setup:  devEnvironment,
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			want:   map[string]string{"vars/dev/terraform.tfvars": formatted("env = \"dev\"\nsqs_queues = {\n  a = { message_retention_seconds = 3600, name = \"a\" }\n  b = { message_retention_seconds = 9000, name = \"b\" }\n}\n")},
 		},
 		{
@@ -162,21 +162,21 @@ func TestDriftEditsInstances(t *testing.T) {
 			files:  map[string]string{"main.tf": queuesForEach, "vars/dev/terraform.tfvars": queuesVars},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "delay_seconds", float64(10)),
 			setup:  devEnvironment,
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			reason: "every instance of the block's for_each gets it",
 		},
 		{
 			name:   "a field the block reads twice",
 			files:  map[string]string{"main.tf": strings.Replace(queuesLocal, "delay_seconds             = 5", "delay_seconds             = 5\n  max_message_size          = each.value.message_retention_seconds", 1)},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "other arguments of the block read too",
 		},
 		{
 			name:   "a local map other blocks use",
 			files:  map[string]string{"main.tf": queuesLocal + "\noutput \"queues\" {\n  value = local.sqs_queues\n}\n"},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
-			kind:   SourceSharedLocal,
+			kind:   sourceSharedLocal,
 			reason: "other blocks use too",
 		},
 		{
@@ -184,14 +184,14 @@ func TestDriftEditsInstances(t *testing.T) {
 			files:  map[string]string{"main.tf": queuesLocal, "vars/dev/terraform.tfvars": "env = \"dev\"\n"},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
 			setup:  devEnvironment,
-			kind:   SourceLocal,
+			kind:   sourceLocal,
 			reason: "the environments share this root's code",
 		},
 		{
 			name:   "a map variable of a root no environments share",
 			files:  map[string]string{"main.tf": queuesForEach},
 			change: driftAt(`aws_sqs_queue.this["b"]`, "message_retention_seconds", float64(9000)),
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			reason: "change the value the root is given",
 		},
 		{
@@ -201,7 +201,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			setup: func(e *driftEditor) {
 				e.env, e.envVars, e.ownFlags = "prod", envVarsPath("prod"), map[string]bool{"deploy_alerts": true}
 			},
-			kind: SourceLiteral,
+			kind: sourceLiteral,
 			want: map[string]string{"main.tf": formatted(strings.Replace(alertsFeature, "delay_seconds = 0", "delay_seconds = 30", 1))},
 		},
 		{
@@ -211,21 +211,21 @@ func TestDriftEditsInstances(t *testing.T) {
 			setup: func(e *driftEditor) {
 				e.env, e.envVars = "prod", envVarsPath("prod")
 			},
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			reason: "the environments share this root's code",
 		},
 		{
 			name:   "a resource of a feature, in a root no environments share",
 			files:  map[string]string{"main.tf": alertsFeature},
 			change: driftAt("aws_sqs_queue.alerts[0]", "delay_seconds", float64(30)),
-			kind:   SourceLiteral,
+			kind:   sourceLiteral,
 			want:   map[string]string{"main.tf": formatted(strings.Replace(alertsFeature, "delay_seconds = 0", "delay_seconds = 30", 1))},
 		},
 		{
 			name:   "a block that makes several resources with count",
 			files:  map[string]string{"main.tf": strings.Replace(alertsFeature, "var.deploy_alerts ? 1 : 0", "2", 1)},
 			change: driftAt("aws_sqs_queue.alerts[0]", "delay_seconds", float64(30)),
-			kind:   SourceExpression,
+			kind:   sourceExpression,
 			reason: "several resources with count",
 		},
 		{
@@ -237,7 +237,7 @@ func TestDriftEditsInstances(t *testing.T) {
 				// The third queue's feature isn't the environment's.
 				e.current = map[string]any{"aws_sqs_queue.a": map[string]any{"delay_seconds": float64(30)}, "aws_sqs_queue.b": map[string]any{"delay_seconds": float64(30)}}
 			},
-			kind: SourceVariable,
+			kind: sourceVariable,
 			want: map[string]string{"vars/dev/terraform.tfvars": "delay = 30\n"},
 		},
 		{
@@ -248,7 +248,7 @@ func TestDriftEditsInstances(t *testing.T) {
 				devEnvironment(e)
 				e.current = map[string]any{"aws_sqs_queue.a": map[string]any{"delay_seconds": float64(30)}, "aws_sqs_queue.b": map[string]any{"delay_seconds": float64(10)}}
 			},
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			reason: "var.delay sets aws_sqs_queue.b delay_seconds too, which doesn't have the cloud's value",
 		},
 		{
@@ -259,7 +259,7 @@ func TestDriftEditsInstances(t *testing.T) {
 				devEnvironment(e)
 				e.current = map[string]any{"aws_sqs_queue.a": map[string]any{"delay_seconds": float64(30)}}
 			},
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			reason: "which the environment's state doesn't have",
 		},
 		{
@@ -270,7 +270,7 @@ func TestDriftEditsInstances(t *testing.T) {
 				devEnvironment(e)
 				e.current = map[string]any{"aws_sqs_queue.a": map[string]any{"delay_seconds": float64(30)}, "aws_sqs_queue.b": map[string]any{"delay_seconds": float64(30)}}
 			},
-			kind:   SourceVariable,
+			kind:   sourceVariable,
 			reason: "other arguments use too",
 		},
 	} {
@@ -422,8 +422,8 @@ func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
 				if !ok {
 					t.Fatalf("edited %v as %+v, want no edit", names, applied[tc.change])
 				}
-				if src.Kind != SourceVariable || !strings.Contains(src.Reason, tc.reason) {
-					t.Errorf("source %s: %q, want %s saying %q", src.Kind, src.Reason, SourceVariable, tc.reason)
+				if src.Kind != sourceVariable || !strings.Contains(src.Reason, tc.reason) {
+					t.Errorf("source %s: %q, want %s saying %q", src.Kind, src.Reason, sourceVariable, tc.reason)
 				}
 				if !reflect.DeepEqual(contents, before) {
 					t.Errorf("the files changed: %v", names)
@@ -433,8 +433,8 @@ func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
 			if src, ok := failed[tc.change]; ok {
 				t.Fatalf("no edit: %s: %s", src.Kind, src.Reason)
 			}
-			if src := applied[tc.change]; src.Kind != SourceVariable || src.File != "vars/dev/terraform.tfvars" {
-				t.Errorf("source %s in %s, want %s in vars/dev/terraform.tfvars", src.Kind, src.File, SourceVariable)
+			if src := applied[tc.change]; src.Kind != sourceVariable || src.File != "vars/dev/terraform.tfvars" {
+				t.Errorf("source %s in %s, want %s in vars/dev/terraform.tfvars", src.Kind, src.File, sourceVariable)
 			}
 			for name, content := range contents {
 				want, ok := tc.want[name]

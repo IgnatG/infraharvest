@@ -210,8 +210,8 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 		return &ExitError{Code: report.ExitCouldNotRun, Err: fmt.Errorf("%d roots couldn't be checked:\n%s", len(failed), strings.Join(failed, "\n"))}
 	}
 	where := filepath.Join(options.Out, report.Dir, report.DriftMarkdownFile)
-	if options.DetailedExitCode && d.Totals.RejectedByPlan > 0 {
-		return &ExitError{Code: report.ExitDriftRejected, Err: fmt.Errorf("%d accepted changes failed verification, so they weren't written (see %s)", d.Totals.RejectedByPlan, where)}
+	if rejected := d.Totals.RejectedByPlan + d.Totals.RejectedByCheck; options.DetailedExitCode && rejected > 0 {
+		return &ExitError{Code: report.ExitDriftRejected, Err: fmt.Errorf("%d accepted changes failed verification, so they weren't written (see %s)", rejected, where)}
 	}
 	if options.DetailedExitCode && d.DriftFound {
 		left := d.Totals.Kept + d.Totals.Manual + d.Totals.Secret
@@ -446,6 +446,7 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 				{report.DriftWritten, "accepted into the code"},
 				{report.DriftKept, "reverted by the next apply"},
 				{report.DriftRejectedByPlan, "rejected by the plan"},
+				{report.DriftRejectedByCheck, "rejected by a check"},
 				{report.DriftManual, "need a hand edit"},
 				{report.DriftSecret, "secret"},
 				{report.DriftNotAssessable, "not assessable"},

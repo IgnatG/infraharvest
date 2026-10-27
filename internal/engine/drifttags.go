@@ -454,11 +454,11 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 // locateShared finds c's key in the shared tags it is of, and the edit
 // that takes the cloud's value: the key's value replaced, or the key
 // removed if the cloud has none.
-func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) Source {
+func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource {
 	s := c.shared.source
 	obj, file, ok := s.object(cfg)
 	if !ok {
-		return Source{Kind: SourceSharedTags, Reason: s.address + " is no longer a map literal: edit it by hand"}
+		return codeSource{Kind: sourceSharedTags, Reason: s.address + " is no longer a map literal: edit it by hand"}
 	}
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: file, f: cfg.files[file]}
 	for j := range obj.Items {
@@ -467,21 +467,21 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) Source {
 			continue
 		}
 		rng := item.ValueExpr.Range()
-		src := Source{File: file, Range: hcl.RangeBetween(item.KeyExpr.Range(), rng), Kind: SourceSharedTags}
+		src := codeSource{File: file, Range: hcl.RangeBetween(item.KeyExpr.Range(), rng), Kind: sourceSharedTags}
 		if c.value == nil {
 			if src.Edit = w.removeItem(obj, item); src.Edit == nil {
-				return w.manual(SourceSharedTags, src.Range, "remove the key from "+s.address+" by hand")
+				return w.manual(sourceSharedTags, src.Range, "remove the key from "+s.address+" by hand")
 			}
 			return src
 		}
 		text, err := w.valueText(c.value, nil, nil)
 		if err != nil {
-			return w.manual(SourceSharedTags, src.Range, "the cloud's value can't be written: edit it by hand")
+			return w.manual(sourceSharedTags, src.Range, "the cloud's value can't be written: edit it by hand")
 		}
-		src.Edit = &SourceEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
+		src.Edit = &codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
 		return src
 	}
-	return w.manual(SourceSharedTags, obj.Range(), s.address+" no longer has the key: edit it by hand")
+	return w.manual(sourceSharedTags, obj.Range(), s.address+" no longer has the key: edit it by hand")
 }
 
 // unshare leaves out the edit of c, a change of shared tags, for why,

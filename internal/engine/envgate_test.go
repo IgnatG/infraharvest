@@ -992,3 +992,50 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 		t.Errorf("prod's backend.hcl:\n%s", got)
 	}
 }
+
+// sensitiveFake is a mergeFake whose plans mark value sensitive.
+type sensitiveFake struct {
+	*mergeFake
+	value string
+}
+
+func (f sensitiveFake) ShowPlanFile(ctx context.Context, path string, opts ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	p, err := f.mergeFake.ShowPlanFile(ctx, path, opts...)
+	if err != nil || len(p.ResourceChanges) == 0 {
+		return p, err
+	}
+	change := p.ResourceChanges[0].Change
+	change.Before = map[string]interface{}{"password": f.value}
+	change.BeforeSensitive = map[string]interface{}{"password": true}
+	return p, nil
+}
+
+// External scanners never see the merged root while it holds a value
+// any environment's plan marks sensitive, although the first
+// environment's gate, the one that runs them, knows only its own.
+func TestMergeRootsScannersDontSeeLaterSecrets(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
+	var overrides []string
+	roots := mergeRoots(t, dir, nil, &overrides)
+	// prod's account is in its var files only.
+	prod := &mergeFake{env: "prod", dir: dir, overrides: &overrides}
+	roots[1].Terraform = func(string) (Terraform, error) { return sensitiveFake{mergeFake: prod, value: "222222222222"}, nil }
+	ran := false
+	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+		ran = true
+		return nil, nil
+	}}
+
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Scanners: []Scanner{spy}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if ran {
+		t.Error("a scanner ran on a merged root holding prod's secret")
+	}
+	if result.Passed() || !strings.Contains(result.Reason, CheckSecrets) {
+		t.Errorf("merged with prod's secret in its files: %s", result.Reason)
+	}
+}

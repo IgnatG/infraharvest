@@ -33,6 +33,7 @@ Each attribute that changed in the cloud gets an outcome:
 | `written` | You accepted it, and the cloud's value is now in the code |
 | `manual` | You accepted it, but where the code sets the value takes a hand edit, such as an expression; `reason` says why |
 | `rejected_by_plan` | You accepted it, but the plan of the edited code didn't take the edit, so nothing was written for it; `reason` says what the plan did |
+| `rejected_by_check` | You accepted it, and the plan of the edited code took the edit, but the edited file fails a check of the verification gate, such as format or secrets, so nothing was written for it; `reason` names the check |
 | `secret` | You accepted it, but it is a secret, which is never written into the code |
 | `not_assessable` | It can't be told here, such as a secret whose variable has no value |
 | `absorbed` | The code doesn't set it, such as an attribute the provider computes, or one `ignore_changes` names, or, with Google, a label added in the cloud that neither the resource nor the provider's `default_labels` set, as the google provider manages only the labels the code sets: the next apply keeps the cloud's value |
@@ -81,7 +82,7 @@ An accepted change is edited in place, keeping comments and the layout of everyt
 
 When the cloud's value is the default the catalogue names for an argument, such as an S3 bucket's `STANDARD` storage class, the argument is removed rather than written. A key or an argument the cloud no longer has is removed.
 
-Before anything is written into the root, the edits are made in the private copy and planned again without refreshing. Each accepted resource must then plan no change to what was accepted, and no change the plan of the code didn't already have, apart from secrets and arguments kept only in state. Every other resource must plan the same change as before: that catches an edit of a local that reaches another resource. The plan's errors and differences are traced back to the edits that caused them; those are left out as `rejected_by_plan`, and the rest are planned again. Then the edited copy must pass the format, validate, standards, secrets and moves checks of the [verification gate](output.md#verification-gate). Only then are the files written into the root, and if writing one fails, those already written are restored, so the root is left as it was.
+Before anything is written into the root, the edits are made in the private copy and planned again without refreshing. Each accepted resource must then plan no change to what was accepted, and no change the plan of the code didn't already have, apart from secrets and arguments kept only in state. Every other resource must plan the same change as before: that catches an edit of a local that reaches another resource. The plan's errors and differences are traced back to the edits that caused them; those are left out as `rejected_by_plan`, and the rest are planned again. Then the edited copy must pass the format, validate, standards, secrets and moves checks of the [verification gate](output.md#verification-gate). A check that fails is traced back to the edits in the files it fails on; those are left out as `rejected_by_check`, and the rest are planned and checked again. Only then are the files written into the root, and if writing one fails, those already written are restored, so the root is left as it was.
 
 Look the edits over, commit them, and apply as usual: the plan shows no change for what was written.
 
@@ -247,7 +248,7 @@ A decisions file (see [Decisions file](#decisions-file)) has an entry per enviro
 | Code | Meaning |
 |---|---|
 | 0 | Every root was checked. With `--detailed-exitcode`: and no change is left that the next apply reverts or that is not assessable |
-| 1 | With `--detailed-exitcode` only: an accepted change failed verification (`rejected_by_plan`), so it wasn't written |
+| 1 | With `--detailed-exitcode` only: an accepted change failed verification (`rejected_by_plan` or `rejected_by_check`), so it wasn't written |
 | 2 | A root couldn't be checked, such as one with a remote backend or without access to its state. The others are still checked and reported |
 | 4 | With `--detailed-exitcode` only: a change is left that the next apply reverts (kept, a hand edit or a secret), or that is not assessable |
 

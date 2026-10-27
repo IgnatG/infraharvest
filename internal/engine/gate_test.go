@@ -449,7 +449,7 @@ func TestGateCancelled(t *testing.T) {
 	_, err := gateWith(ctx, tf, dir, Options{}, func() (Check, []string, error) {
 		cancel() // as an interrupt while the plan runs
 		return Check{Name: CheckPlan, Passed: true}, nil, nil
-	})
+	}, nil)
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("want the cancellation, got %v", err)

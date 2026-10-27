@@ -97,7 +97,7 @@ func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, op
 			return Check{}, nil, err
 		}
 		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(sensitiveValues(p), knownValues(secrets)...), nil
-	})
+	}, nil)
 }
 
 // countImportBlocks counts the import blocks in dir's configuration: how
@@ -120,8 +120,11 @@ func countImportBlocks(dir string) (int, error) {
 
 // gateWith runs the verification gate's checks on dir, with plan for the
 // plan check; plan also returns the values the plan marks sensitive, which
-// no file may contain.
-func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan func() (Check, []string, error)) (Gate, error) {
+// no file may contain. withheld, if not nil, returns, once plan has run, a
+// secrets check of values dir must not hold that the gate doesn't report,
+// such as those other plans of dir mark sensitive: the external scanners
+// run only if it passes too.
+func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan func() (Check, []string, error), withheld func() Check) (Gate, error) {
 	var gate Gate
 
 	formatted, files, err := tf.FormatCheck(ctx)
@@ -162,7 +165,13 @@ func gateWith(ctx context.Context, tf Terraform, dir string, opts Options, plan 
 		return nil, err
 	}
 	scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
-	if secretCheck.Passed {
+	clean := secretCheck.Passed
+	if clean && withheld != nil {
+		other := withheld()
+		clean = other.Passed
+		scanners.Details = append(scanners.Details, other.Details...)
+	}
+	if clean {
 		scanners = runScanners(ctx, dir, opts.Scanners)
 	}
 	gate = append(gate, standards, movesCheck, scanners, secretCheck)

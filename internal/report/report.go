@@ -44,8 +44,8 @@ const (
 	// Drift.DriftFound).
 	ExitDrift = 4
 	// ExitDriftRejected: infraharvest drift --detailed-exitcode accepted a
-	// change whose edit the plan of the edited code rejected (see
-	// DriftTotals.RejectedByPlan).
+	// change whose edit the plan of the edited code, or a check of it,
+	// rejected (see DriftTotals.RejectedByPlan and RejectedByCheck).
 	ExitDriftRejected = 1
 	// ExitInterrupted: the import was interrupted (SIGINT, as by Ctrl-C).
 	// Like the codes a shell gives a process a signal ends, it is 128
