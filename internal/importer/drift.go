@@ -89,6 +89,10 @@ type DriftOptions struct {
 	// RootsDigest, if set, is the driftpolicy.RootsDigest of Out the
 	// roots must still have once the output directory is locked, before
 	// Terraform runs: the MCP server's, for the roots the user confirmed.
+	// Terraform then runs on a copy of the bytes the digest covers, never
+	// on Out, whose roots could change while others run (see
+	// confirmedRoots); what the run writes into the roots is written
+	// back once every root is checked.
 	RootsDigest string
 
 	// check checks one root, in place of the engine, for tests.
@@ -142,23 +146,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 		}
 		merge = m
 	}
-	all, err := generatedRoots(options.Out)
-	if err != nil {
-		return err
-	}
-	if len(all) == 0 {
-		return fmt.Errorf("no generated roots in %s", options.Out)
-	}
-	var roots []string
-	for _, dir := range all {
-		if matchesRoot(options.Roots, relativePath(options.Out, dir)) {
-			roots = append(roots, dir)
-		}
-	}
-	if len(roots) == 0 {
-		return fmt.Errorf("no root in %s matches --root %s", options.Out, strings.Join(options.Roots, ", "))
-	}
-	targets, err := driftTargets(roots, options.Environments)
+	targets, err := selectDriftTargets(options.Out, options)
 	if err != nil {
 		return err
 	}
@@ -170,13 +158,19 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if lock != nil {
 		defer func() { _ = lock.Unlock() }()
 	}
+	// run is what the roots are checked as: with a roots digest, in a copy
+	// of them as the user confirmed them, the roots of which are selected
+	// again, and from which what the run writes is written back.
+	run := options
+	var confirmed *confirmedRoots
 	if options.RootsDigest != "" {
-		digest, err := driftpolicy.RootsDigest(options.Out)
-		if err != nil {
+		if confirmed, err = copyConfirmedRoots(options.Out, options.RootsDigest); err != nil {
 			return err
 		}
-		if digest != options.RootsDigest {
-			return fmt.Errorf("the roots in %s changed since they were checked: a file Terraform reads under it isn't as it was", options.Out)
+		defer confirmed.remove()
+		run.Out = confirmed.copy
+		if targets, err = selectDriftTargets(run.Out, options); err != nil {
+			return err
 		}
 	}
 	check := options.check
@@ -198,14 +192,19 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 			select {
 			case slots <- struct{}{}:
 			case <-ctx.Done():
-				results[i] = report.DriftRoot{Path: relativePath(options.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
+				results[i] = report.DriftRoot{Path: relativePath(run.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
 				return
 			}
 			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, own, target)
+			results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, target)
 		}()
 	}
 	wg.Wait()
+	if confirmed != nil {
+		if err := confirmed.writeBack(); err != nil {
+			return err
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -296,6 +295,29 @@ func checkDriftCatalogue(options DriftOptions) error {
 		}
 	}
 	return nil
+}
+
+// selectDriftTargets returns what drift checks of the roots under out,
+// the output directory or a copy of it: those options.Roots matches, as
+// driftTargets returns them for options.Environments.
+func selectDriftTargets(out string, options DriftOptions) ([]driftTarget, error) {
+	all, err := generatedRoots(out)
+	if err != nil {
+		return nil, err
+	}
+	if len(all) == 0 {
+		return nil, fmt.Errorf("no generated roots in %s", options.Out)
+	}
+	var roots []string
+	for _, dir := range all {
+		if matchesRoot(options.Roots, relativePath(out, dir)) {
+			roots = append(roots, dir)
+		}
+	}
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("no root in %s matches --root %s", options.Out, strings.Join(options.Roots, ", "))
+	}
+	return driftTargets(roots, options.Environments)
 }
 
 // matchesRoot reports whether one of patterns matches rel, the path of a

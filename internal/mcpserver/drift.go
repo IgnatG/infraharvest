@@ -251,7 +251,9 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 // withRootsDigest returns args, a drift run's ending in -- and the output
 // directory, with --roots-digest set to digest, which the user confirmed:
 // drift refuses roots that no longer have it once it has locked the
-// output directory, before Terraform runs. It isn't in the command a user
+// output directory, before Terraform runs, which runs on a copy of the
+// files the digest covers, so that a root changed during the run isn't
+// run either. It isn't in the command a user
 // is given to run, who runs the roots as they are.
 func withRootsDigest(args []string, digest []byte) []string {
 	return slices.Insert(args, len(args)-2, "--roots-digest="+string(digest))
