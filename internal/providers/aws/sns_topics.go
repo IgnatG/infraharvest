@@ -21,8 +21,12 @@ type SnsLister struct {
 
 // List records every topic as an aws_sns_topic, imported by its
 // ARN and named after the ARN's last part, each followed by the
-// subscriptions Terraform can manage. Any listing error, a topic's
-// subscriptions included, fails the service.
+// subscriptions Terraform can manage. The subscriptions of a page's
+// topics are read resourceParallel topics at a time, and recorded in the
+// page's order. They are asked for by topic, not account-wide with
+// ListSubscriptions, which leaves out what other accounts subscribed to
+// the account's topics. Any listing error, a topic's subscriptions
+// included, fails the service, with what was read up to it recorded.
 func (g *SnsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -35,36 +39,43 @@ func (g *SnsLister) List() error {
 		if err != nil {
 			return err
 		}
-		for _, topic := range page.Topics {
-			arn := aws.ToString(topic.TopicArn)
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, snsLastPart(arn), "aws_sns_topic", "aws"))
-			if err := g.addSubscriptions(svc, topic.TopicArn); err != nil {
-				return err
+		reads := make([][]harvest.Resource, len(page.Topics))
+		errs := make([]error, len(page.Topics))
+		inParallel(len(page.Topics), resourceParallel, func(i int) {
+			reads[i], errs[i] = g.topic(svc, page.Topics[i].TopicArn)
+		})
+		for i := range page.Topics {
+			g.Resources = append(g.Resources, reads[i]...)
+			if errs[i] != nil {
+				return errs[i]
 			}
 		}
 	}
 	return nil
 }
 
-// addSubscriptions records the subscriptions of the topic topicARN that
+// topic returns the topic topicARN, followed by its subscriptions that
 // Terraform can manage as aws_sns_topic_subscription, imported by their
 // ARN and named after their endpoint and protocol (see subscriptionName).
-func (g *SnsLister) addSubscriptions(svc *sns.Client, topicARN *string) error {
+// An error is returned with what was read before it.
+func (g *SnsLister) topic(svc *sns.Client, topicARN *string) ([]harvest.Resource, error) {
+	arn := aws.ToString(topicARN)
+	resources := []harvest.Resource{harvest.RecordBare(arn, snsLastPart(arn), "aws_sns_topic", "aws")}
 	pages := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
-			return err
+			return resources, err
 		}
 		for _, subscription := range page.Subscriptions {
 			arn := aws.ToString(subscription.SubscriptionArn)
 			if !snsManagedSubscription(aws.ToString(subscription.Protocol), arn) {
 				continue
 			}
-			g.Resources = append(g.Resources, harvest.RecordBare(arn, subscriptionName(subscription.Endpoint, subscription.Protocol), "aws_sns_topic_subscription", "aws"))
+			resources = append(resources, harvest.RecordBare(arn, subscriptionName(subscription.Endpoint, subscription.Protocol), "aws_sns_topic_subscription", "aws"))
 		}
 	}
-	return nil
+	return resources, nil
 }
 
 // snsManagedSubscription reports whether Terraform can manage a

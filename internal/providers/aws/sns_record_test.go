@@ -75,3 +75,53 @@ func TestRecordSnsReturnsListTopicsError(t *testing.T) {
 
 	assertRecordedError(t, g.List(), "AuthorizationError")
 }
+
+// The topics' subscriptions are asked for several topics at once, and
+// recorded in the listed order. A topic whose subscriptions fail fails the
+// service, with the topics before it, and itself, recorded.
+func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
+	for _, failing := range []string{"", "b"} {
+		at := newOverlap(3)
+		useFakeAPI(t, func(call apiCall) string {
+			switch call.Op {
+			case "ListTopics":
+				return recordQuery(call.Op, recordSNSNS, `<Topics>`+
+					`<member><TopicArn>`+recordSNSARN+`a</TopicArn></member>`+
+					`<member><TopicArn>`+recordSNSARN+`b</TopicArn></member>`+
+					`<member><TopicArn>`+recordSNSARN+`c</TopicArn></member>`+
+					`</Topics>`)
+			case "ListSubscriptionsByTopic":
+				at.wait()
+				form, _ := url.ParseQuery(call.Body)
+				topic := snsLastPart(form.Get("TopicArn"))
+				if topic == failing {
+					return recordQueryError(recordSNSNS, "AuthorizationError")
+				}
+				return recordQuery(call.Op, recordSNSNS, `<Subscriptions>`+
+					recordSNSSubscription(recordSNSARN+topic+":sub", "sqs", recordSNSARN+topic+"-queue")+
+					`</Subscriptions>`)
+			}
+			return recordUnexpected(t, call)
+		})
+		g := &SnsLister{}
+
+		err := g.List()
+
+		at.check(t)
+		topic := func(name string) recordedResource {
+			return recordedResource{"aws_sns_topic", recordSNSARN + name, name, nil}
+		}
+		subscription := func(name string) recordedResource {
+			return recordedResource{"aws_sns_topic_subscription", recordSNSARN + name + ":sub", name + "-queue sqs", nil}
+		}
+		if failing == "" {
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertRecorded(t, g.Resources, topic("a"), subscription("a"), topic("b"), subscription("b"), topic("c"), subscription("c"))
+			continue
+		}
+		assertRecordedError(t, err, "AuthorizationError")
+		assertRecorded(t, g.Resources, topic("a"), subscription("a"), topic("b"))
+	}
+}
