@@ -113,11 +113,12 @@ jobs:
         retention-days: 14
 
   # Accounts and projects import in parallel (--parallel), and listers,
-  # discovery and the engine run concurrent work of their own: the state
-  # they share, under the race detector. Two providers keep most builds
-  # small; the CLI and the MCP server, whose tests take every provider's
-  # command, build with all three in a run of their own, so that each
-  # command runs under it. The provider packages build on their own.
+  # discovery, the engine and the managed state backends run concurrent
+  # work of their own: the state they share, under the race detector, with
+  # the drift rules and decisions the drift runs read. Two providers keep
+  # most builds small; the CLI and the MCP server, whose tests take every
+  # provider's command, build with all three in a run of their own, so that
+  # each command runs under it. The provider packages build on their own.
   race:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -148,6 +149,7 @@ jobs:
         go test -race -tags minimal,aws,google
         ./internal/config/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
+        ./internal/managed/... ./internal/driftpolicy/...
     - name: Race, with every provider's command
       run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
