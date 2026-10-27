@@ -5,9 +5,13 @@ package google
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
+	"strings"
 
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -37,9 +41,14 @@ type CloudSQLLister struct {
 
 // List lists the databases. A project without the Cloud SQL
 // Admin API enabled has no instances: that is logged, and lists nothing.
-// Any other failure to list the instances is an error; a failure to list
-// one instance's databases, as for an instance that is stopped or still
-// being created, is logged and that instance is left out.
+// Any other failure to list the instances is an error. An instance that
+// can't serve the database list, as one that is stopped, still being
+// created or deleted since it was listed (see sqlInstanceNotServing), is
+// logged and left out; any other
+// failure to list one instance's databases, such as a permission denied,
+// fails the listing in part (see harvest.Partial): the other instances'
+// databases are kept, and the run says that some are missing rather than
+// reading them as deleted.
 func (g *CloudSQLLister) List() error {
 	region := regionSetting(g.Settings())
 	if region.Name == "" {
@@ -63,6 +72,7 @@ func (g *CloudSQLLister) List() error {
 		return err
 	}
 	var resources []harvest.Resource
+	var unlisted []error
 	for _, instance := range instances {
 		// Databases aren't paged: the response holds every one.
 		list, err := svc.Databases.List(project, instance.Name).Context(ctx).Do()
@@ -70,7 +80,11 @@ func (g *CloudSQLLister) List() error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			log.Printf("%s: cloudsql: the databases of instance %s in project %s can't be listed, so they are left out: %v", g.Provider(), instance.Name, project, err)
+			if sqlInstanceNotServing(err) {
+				log.Printf("%s: cloudsql: the databases of instance %s in project %s can't be listed, so they are left out: %v", g.Provider(), instance.Name, project, err)
+				continue
+			}
+			unlisted = append(unlisted, fmt.Errorf("listing the databases of Cloud SQL instance %s in project %s: %w", instance.Name, project, err))
 			continue
 		}
 		for _, db := range list.Items {
@@ -78,7 +92,29 @@ func (g *CloudSQLLister) List() error {
 		}
 	}
 	g.Resources = resources
-	return nil
+	return harvest.Partial(errors.Join(unlisted...))
+}
+
+// sqlInstanceNotServing reports whether err says a Cloud SQL instance
+// can't serve a call in the state it is in, rather than that the call
+// failed: a 409, which the SQL Admin API answers with the reason
+// invalidState for an instance not in a state to handle the request, such
+// as one being created, or operationInProgress while another operation
+// runs; a 400 saying the instance is not running, as for one that is
+// stopped, whose reason is only invalid; or a 404, for an instance deleted
+// since it was listed, which has no databases left.
+func sqlInstanceNotServing(err error) bool {
+	var apiErr *googleapi.Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	switch apiErr.Code {
+	case http.StatusConflict, http.StatusNotFound:
+		return true
+	case http.StatusBadRequest:
+		return strings.Contains(strings.ToLower(apiErr.Message), "not running")
+	}
+	return false
 }
 
 // sqlPrimaries returns the project's Cloud SQL instances in region whose
