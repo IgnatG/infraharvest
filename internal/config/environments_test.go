@@ -90,7 +90,7 @@ func TestLoadEnvironments(t *testing.T) {
 // has none: its roots are laid out as without environments.
 func TestEnvironmentsForUnnamedScope(t *testing.T) {
 	t.Parallel()
-	envs := Environments{"dev": {AWS: &AWSScopes{Accounts: []string{"111111111111"}}}}
+	envs := Environments{"dev": {Sections: map[string]Section{"aws": {"accounts": {"111111111111"}}}}}
 	if got := envs.For(testProfile("aws"), "999999999999"); len(got) != 0 {
 		t.Errorf("got %v, want none", got)
 	}
@@ -174,10 +174,8 @@ func TestLoadRejectsEnvironmentMistakes(t *testing.T) {
 }
 
 // What the file reads of a provider command comes from its profile: a
-// fourth provider's accounts, IDs and settings take no change to the
-// configuration, but for the section that names its scopes in an
-// environment, which the file's format has for aws, azure and google
-// alone.
+// fourth provider's accounts, IDs, settings and the section that names
+// its scopes in an environment take no change to the configuration.
 func TestEnvironmentsOfAnotherProvider(t *testing.T) {
 	t.Parallel()
 	oracle := harvest.Profile{Command: "oracle", Scope: harvest.Scope{Noun: "tenancy", Field: "tenancies"}}
@@ -190,16 +188,7 @@ func TestEnvironmentsOfAnotherProvider(t *testing.T) {
 	if want := "the environments that name no account, subscription, project or tenancy"; err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("environments told apart by nothing: got %v, want %q", err, want)
 	}
-	// The format's sections are its own.
-	if _, err := Load(write(t, "version: 1\nenvironments:\n  dev: { oracle: { tenancies: [ocid1.tenancy.oc1..a] } }\n"), profiles); err == nil || !strings.Contains(err.Error(), "oracle") {
-		t.Errorf("an oracle section: got %v, want it unknown to the format", err)
-	}
-	// The other providers' sections hold any ID where the binary has no
-	// profile of theirs, as it never reads them.
-	if _, err := Load(write(t, "version: 1\nenvironments:\n  dev: { aws: { accounts: [\"1234\"] } }\n"), []harvest.Profile{oracle}); err != nil {
-		t.Errorf("an aws account without aws's profile: %v", err)
-	}
-	f, err := Load(write(t, "version: 1\nproviders:\n  oracle:\n    region: uk-london-1\n"), profiles)
+	f, err := Load(write(t, "version: 1\nproviders:\n  oracle:\n    region: uk-london-1\nenvironments:\n  dev: { oracle: { tenancies: [ocid1.tenancy.oc1..a] } }\n"), profiles)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,8 +197,43 @@ func TestEnvironmentsOfAnotherProvider(t *testing.T) {
 	if err := f.Apply(flags, "oracle"); err != nil || *region != "uk-london-1" {
 		t.Errorf("oracle's settings: got region %q, %v", *region, err)
 	}
-	if got := (Environments{"dev": {Tags: map[string]string{"Environment": "dev"}}}).For(oracle, "ocid1.tenancy.oc1..a"); !slices.Equal(got, []string{"dev"}) {
-		t.Errorf("an oracle tenancy: got %v, want the environment told by tags", got)
+	if got := f.Environments.For(oracle, "ocid1.tenancy.oc1..a"); !slices.Equal(got, []string{"dev"}) {
+		t.Errorf("an oracle tenancy: got %v, want the environment that names it", got)
+	}
+	if _, err := Load(write(t, "version: 1\nenvironments:\n  dev: { oracle: { tenancy: [ocid1.tenancy.oc1..a] } }\n"), profiles); err == nil || !strings.Contains(err.Error(), `dev: oracle: unknown key "tenancy": use tenancies`) {
+		t.Errorf("a key the profile doesn't name: got %v", err)
+	}
+}
+
+// A build with -tags minimal,aws has aws's profile alone: a section of
+// the file for another provider, in an environment or under providers:,
+// fails, naming the build tag that adds it, rather than going unread.
+func TestSectionsOfProvidersNotBuiltIn(t *testing.T) {
+	t.Parallel()
+	aws := []harvest.Profile{testProfile("aws")}
+	for name, tc := range map[string]struct{ content, want string }{
+		"an environment's section": {
+			"version: 1\nenvironments:\n  dev: { aws: { accounts: [\"111111111111\"] }, azure: { subscriptions: [s] } }\n",
+			`environments: dev: unknown provider "azure": use aws; for a provider this infraharvest was built without, build it with -tags minimal,azure, or without minimal`,
+		},
+		"a section without IDs": {
+			"version: 1\nenvironments:\n  dev: { google: { projects: [] }, tags: { Environment: dev } }\n",
+			"build it with -tags minimal,google",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(write(t, tc.content), aws); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want %q", err, tc.want)
+			}
+		})
+	}
+	f, err := Load(write(t, "version: 1\nproviders:\n  google:\n    projects: [p]\n"), aws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, _, _, _, _ := flags()
+	if err := f.Apply(fs, "aws"); err == nil || !strings.Contains(err.Error(), `providers: unknown provider "google": use aws; for a provider this infraharvest was built without, build it with -tags minimal,google`) {
+		t.Errorf("google's settings: got %v", err)
 	}
 }
 
@@ -243,7 +267,7 @@ func TestCheckEnvironmentFlags(t *testing.T) {
 
 func TestCheckMergeEnvironments(t *testing.T) {
 	t.Parallel()
-	envs := Environments{"dev": {AWS: &AWSScopes{Accounts: []string{"111111111111"}}}}
+	envs := Environments{"dev": {Sections: map[string]Section{"aws": {"accounts": {"111111111111"}}}}}
 	for _, tc := range []struct {
 		envs       Environments
 		merge, set bool

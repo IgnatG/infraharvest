@@ -157,8 +157,8 @@ func TestConfiguredEnvOf(t *testing.T) {
 		tagKey(vpc):    {"Environment": "shared-services"},
 	}
 	envs := config.Environments{
-		"dev":  {AWS: &config.AWSScopes{Accounts: []string{"111111111111"}}, Tags: map[string]string{"Environment": "dev"}},
-		"prod": {AWS: &config.AWSScopes{Accounts: []string{"111111111111", "222222222222"}}, Tags: map[string]string{"Environment": "prod"}},
+		"dev":  {Sections: map[string]config.Section{"aws": {"accounts": {"111111111111"}}}, Tags: map[string]string{"Environment": "dev"}},
+		"prod": {Sections: map[string]config.Section{"aws": {"accounts": {"111111111111", "222222222222"}}}, Tags: map[string]string{"Environment": "prod"}},
 	}
 	for _, tc := range []struct {
 		name  string
@@ -337,7 +337,7 @@ func TestKeptRootsSplit(t *testing.T) {
 func TestWarnUnscoped(t *testing.T) {
 	run := NewRun()
 	run.environments = config.Environments{
-		"prod":   {AWS: &config.AWSScopes{Accounts: []string{"111111111111"}}},
+		"prod":   {Sections: map[string]config.Section{"aws": {"accounts": {"111111111111"}}}},
 		"shared": {Tags: map[string]string{"Environment": "shared"}},
 	}
 	aws := &namedProvider{name: "aws"}

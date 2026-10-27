@@ -277,7 +277,9 @@ func setScopeField(value reflect.Value, setting any, each bool) error {
 // struct's fields that are set, by their YAML names, and a map's entries,
 // sorted, each as {name: value, ...}, a list as [value, ...], and every
 // text quoted, keys too, so that none can make the confirmation say
-// something else. It returns "" for a value that isn't set.
+// something else. It returns "" for a value that isn't set. The keys of
+// an inline map, an environment's provider sections, are the file's
+// own, as fields' are (see sectionsText).
 func valueText(v reflect.Value) string {
 	for v.Kind() == reflect.Interface || v.Kind() == reflect.Pointer {
 		if v.IsNil() {
@@ -301,19 +303,22 @@ func valueText(v reflect.Value) string {
 			return ""
 		}
 		var entries []string
-		for _, key := range slices.SortedFunc(slices.Values(v.MapKeys()), func(a, b reflect.Value) int { return strings.Compare(a.String(), b.String()) }) {
+		for _, key := range sortedKeys(v) {
 			entries = append(entries, fmt.Sprintf("%q: %s", key.String(), valueText(v.MapIndex(key))))
 		}
 		return "{" + strings.Join(entries, ", ") + "}"
 	case reflect.Struct:
 		var fields []string
 		for i := range v.NumField() {
-			name, _, _ := strings.Cut(v.Type().Field(i).Tag.Get("yaml"), ",")
-			if v.Field(i).IsZero() || name == "" || name == "-" {
-				continue
-			}
-			if text := valueText(v.Field(i)); text != "" {
-				fields = append(fields, name+": "+text)
+			name, options, _ := strings.Cut(v.Type().Field(i).Tag.Get("yaml"), ",")
+			switch {
+			case v.Field(i).IsZero() || name == "-":
+			case options == "inline" && v.Field(i).Kind() == reflect.Map:
+				fields = append(fields, sectionsText(v.Field(i))...)
+			case name != "":
+				if text := valueText(v.Field(i)); text != "" {
+					fields = append(fields, name+": "+text)
+				}
 			}
 		}
 		if len(fields) == 0 {
@@ -322,6 +327,33 @@ func valueText(v reflect.Value) string {
 		return "{" + strings.Join(fields, ", ") + "}"
 	}
 	return fmt.Sprint(v.Interface())
+}
+
+// sectionsText writes out sections, an environment's provider sections,
+// by provider command, as fields: name: {key: value}. Their keys go
+// unquoted, as a struct's fields do, because config.Load has checked
+// them: each is a provider command's, with the one key of its profile,
+// such as aws's accounts.
+func sectionsText(sections reflect.Value) []string {
+	var fields []string
+	for _, command := range sortedKeys(sections) {
+		section := sections.MapIndex(command)
+		var entries []string
+		for _, key := range sortedKeys(section) {
+			if text := valueText(section.MapIndex(key)); text != "" {
+				entries = append(entries, key.String()+": "+text)
+			}
+		}
+		if len(entries) > 0 {
+			fields = append(fields, command.String()+": {"+strings.Join(entries, ", ")+"}")
+		}
+	}
+	return fields
+}
+
+// sortedKeys returns the keys of m, a map with string keys, sorted.
+func sortedKeys(m reflect.Value) []reflect.Value {
+	return slices.SortedFunc(slices.Values(m.MapKeys()), func(a, b reflect.Value) int { return strings.Compare(a.String(), b.String()) })
 }
 
 // message says, for the user to confirm, that the file applies, and what
