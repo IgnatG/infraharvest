@@ -147,11 +147,9 @@ func (r *Run) warnUnscoped(provider harvest.Provider, scope string) {
 		return
 	}
 	w := fmt.Sprintf("%s couldn't say which account, subscription or project it lists in, so the configuration file's environments that name one (%s) don't apply to what it lists", provider.Name(), strings.Join(named, ", "))
-	if slices.Contains(r.report.Warnings, w) {
-		return
+	if r.report.AddWarning(w) {
+		log.Printf("warning: %s", w)
 	}
-	log.Printf("warning: %s", w)
-	r.report.Warnings = append(r.report.Warnings, w)
 }
 
 // keptRoots keeps resources in the roots earlier imports generated for

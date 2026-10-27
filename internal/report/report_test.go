@@ -270,7 +270,6 @@ func TestCountsByTag(t *testing.T) {
 	t.Parallel()
 	scope := "aws/1/eu-west-2"
 	r := &Report{
-		TagKeys: []string{"team"},
 		Directories: []Directory{{Path: "aws/1/eu-west-2", Scope: scope,
 			Imported: []Resource{{Address: "aws_sqs_queue.jobs", ID: "jobs"}},
 			LeftOut:  []LeftOut{{Address: "aws_lb.web", ID: "arn:lb"}},
@@ -281,7 +280,9 @@ func TestCountsByTag(t *testing.T) {
 			{Type: "aws_vpc", ID: "vpc-1", Reason: "excluded in the selection file", Scope: scope},
 		},
 	}
-	other := &Report{TagKeys: []string{"team"}}
+	other := &Report{}
+	r.CountByTags([]string{"team"})
+	other.CountByTags([]string{"team"})
 	for _, l := range []Listed{
 		{Scope: scope, Type: "aws_sqs_queue", ID: "jobs", Tags: map[string]string{"team": "data"}},
 		{Scope: scope, Type: "aws_lb", ID: "arn:lb", Tags: map[string]string{"team": "web"}},

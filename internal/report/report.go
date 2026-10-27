@@ -65,13 +65,13 @@ type Report struct {
 	Manifest
 	Coverage
 	ExitCode int `json:"exit_code"`
-	// TagKeys are the tag keys Finish counts by (see Coverage.Tags).
-	TagKeys []string `json:"-"`
+	// tagKeys are the tag keys Finish counts by (see CountByTags).
+	tagKeys []string
 	// listed are the resources the listers found, with their tags, for
 	// the counts by tag (see AddListed).
 	listed []Listed
 	// arrived are the resources roots import that other roots hand over,
-	// which Finish matches with Departed (see AddArrival).
+	// which Finish matches with Departed (see AddDirectory).
 	arrived []Move
 }
 
@@ -189,7 +189,7 @@ type Coverage struct {
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
 	// Tags count by the value of each of the tag keys asked for (see
-	// Report.TagKeys), "" for resources without the tag.
+	// Report.CountByTags), "" for resources without the tag.
 	Tags []TagCount `json:"tags,omitempty"`
 	// CloudFormationStacks are the CloudFormation stacks the import is
 	// scoped to, and those nested in them, with what became of their
@@ -488,13 +488,6 @@ func mergeKeptRoots(kept []KeptRoot) []KeptRoot {
 	return merged
 }
 
-// AddArrival records a resource a root imports that another root hands
-// over: Finish sets the address it has there on the departure that
-// matches it.
-func (r *Report) AddArrival(m Move) {
-	r.arrived = append(r.arrived, m)
-}
-
 // Skipped counts resources of a type infraharvest doesn't import.
 type Skipped struct {
 	Type   string `json:"type"`
@@ -545,8 +538,8 @@ func (r *Report) Merge(other *Report) {
 	r.Failures = append(r.Failures, other.Failures...)
 	r.Warnings = append(r.Warnings, other.Warnings...)
 	r.listed = append(r.listed, other.listed...)
-	if len(r.TagKeys) == 0 {
-		r.TagKeys = other.TagKeys
+	if len(r.tagKeys) == 0 {
+		r.tagKeys = other.tagKeys
 	}
 	for _, s := range other.Scopes {
 		r.AddDiscovered(s.Scope, s.Discovered)
@@ -708,11 +701,11 @@ func sortMoves(moves []Move) {
 	})
 }
 
-// countByTag counts the listed resources by the value of each of TagKeys:
+// countByTag counts the listed resources by the value of each of tagKeys:
 // imported or left out, as the directories say; excluded, and why, as the
 // exclusions say; failed otherwise, as in a directory that failed.
 func (r *Report) countByTag() []TagCount {
-	if len(r.TagKeys) == 0 {
+	if len(r.tagKeys) == 0 {
 		return nil
 	}
 	key := func(scope, typ, id string) string { return scope + "\n" + typ + " " + id }
@@ -730,7 +723,7 @@ func (r *Report) countByTag() []TagCount {
 		excluded[key(e.Scope, e.Type, e.ID)] = e.ManagedBy()
 	}
 	var counts []TagCount
-	for _, tagKey := range r.TagKeys {
+	for _, tagKey := range r.tagKeys {
 		byValue := map[string]*CoverageTotal{}
 		for _, l := range r.listed {
 			value := l.Tags[tagKey]

@@ -16,12 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
 )
-
-// InRootReason is why an incremental import leaves out a resource: the
-// root has it.
-const InRootReason = "already in the root"
 
 // addToRoot adds to dir, a root an earlier import generated in full (see
 // listedCall.decideRoot), the resources of imports it doesn't have yet
@@ -56,11 +51,11 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	for _, imp := range imports {
 		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope, Owner: report.OwnerTerraformRoot})
+			r.report.Exclude(r.scope, imp.Type, imp.ID, report.InRoot())
 			continue
 		}
 		if owner, ok := owned[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: selection.OwnedReason(owner), Scope: r.scope, Owner: selection.OwnedBy(owner)})
+			r.report.Exclude(r.scope, imp.Type, imp.ID, ownedByTags(owner))
 			continue
 		}
 		added = append(added, imp)
@@ -147,10 +142,6 @@ func stagingDir(out, dir string) string {
 	return filepath.Join(base, hex.EncodeToString(sum[:])[:16])
 }
 
-// InOtherRootReason is why an incremental import leaves out a resource
-// another root of the output imports, which the reason names after it.
-const InOtherRootReason = "already in another root of the output"
-
 // heldElsewhere returns, by type and import ID, the root, relative to
 // out, that imports each resource the checkpoints under out record for a
 // root other than those of byDir: a resource goes into one root only, so
@@ -232,7 +223,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.Ext
 		var kept []engine.Import
 		for _, imp := range byDir[dir] {
 			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope, Owner: report.OwnerTerraformRoot})
+				r.report.Exclude(r.scope, imp.Type, imp.ID, report.InOtherRoot(root))
 				continue
 			}
 			kept = append(kept, imp)

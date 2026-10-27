@@ -204,7 +204,7 @@ func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string
 	}
 	state := r.shared.loadedState()
 	ids := map[string]string{}
-	for _, res := range resultResources(result) {
+	for _, res := range result.Blocks() {
 		found, ok := state.Find(res.Type, res.ID)
 		if ok && found.Address != "" && own[stateLocation(found.Where)] {
 			ids[found.Address] = res.ID
@@ -223,36 +223,6 @@ func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string
 	return ids, nil
 }
 
-// resultResources returns what result, of a root, imports, by type and
-// import ID, with the address of the block of the root each is in: a
-// resource's, or a module call's.
-func resultResources(result *engine.Result) []engine.Managed {
-	var resources []engine.Managed
-	if len(result.Addresses) > 0 {
-		for _, a := range result.Addresses {
-			resources = append(resources, engine.Managed{Type: a.Type, ID: a.ID, Address: blockAddress(a.Address)})
-		}
-		return resources
-	}
-	for _, imp := range result.Imported {
-		resources = append(resources, engine.Managed{Type: imp.Type, ID: imp.ID, Address: imp.Type + "." + imp.Name})
-	}
-	return resources
-}
-
-// blockAddress returns the address of the block of a root an instance
-// address is of: module.logs for module.logs.aws_s3_bucket.this[0], and
-// aws_sqs_queue.orders for aws_sqs_queue.orders["a"].
-func blockAddress(address string) string {
-	if rest, ok := strings.CutPrefix(address, "module."); ok {
-		name, _, _ := strings.Cut(rest, ".")
-		name, _, _ = strings.Cut(name, "[")
-		return "module." + name
-	}
-	address, _, _ = strings.Cut(address, "[")
-	return address
-}
-
 // newSinceMerge returns the addresses of the blocks of result, the root
 // of an environment the import generated afresh, none of whose resources
 // ids, the import IDs the merged root has of the environment by address,
@@ -265,7 +235,7 @@ func newSinceMerge(result *engine.Result, ids map[string]string) []string {
 	}
 	held := map[string]bool{}
 	seen := map[string]bool{}
-	for _, res := range resultResources(result) {
+	for _, res := range result.Blocks() {
 		seen[res.Address] = true
 		if had[engine.ResourceKey(res.Type, res.ID)] {
 			held[res.Address] = true
@@ -292,7 +262,7 @@ func goneFromMerged(m mergeMember, ids map[string]string) map[string]string {
 		return nil
 	}
 	held := map[engine.External]bool{}
-	for _, res := range resultResources(m.result) {
+	for _, res := range m.result.Blocks() {
 		held[engine.ResourceKey(res.Type, res.ID)] = true
 	}
 	gone := map[string]string{}
@@ -330,7 +300,7 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 		if why != "" {
 			return fmt.Sprintf("what it has of %s that is no longer in the cloud can't be kept as it is: %s", m.env, why), nil
 		}
-		for _, res := range resultResources(m.result) {
+		for _, res := range m.result.Blocks() {
 			for address, b := range blocks {
 				if res.Address == b.Address {
 					return fmt.Sprintf("what it has of %s that is no longer in the cloud can't be kept as it is: %s is at %s, which the root generated afresh gives %s", m.env, address, b.Address, res.ID), nil
@@ -344,9 +314,7 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 		if len(blocks) == 0 {
 			continue
 		}
-		result := *m.result
-		result.Imported = slices.Clone(result.Imported)
-		result.Addresses = slices.Clone(result.Addresses)
+		var kept []engine.Import
 		for _, address := range slices.Sorted(maps.Keys(blocks)) {
 			b := blocks[address]
 			if err := appendFile(filepath.Join(m.dir, b.File), b.Text); err != nil {
@@ -356,13 +324,10 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 				return "", err
 			}
 			typ := engine.AddressType(b.Address)
-			result.Imported = append(result.Imported, engine.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
-			if len(result.Addresses) > 0 {
-				result.Addresses = append(result.Addresses, engine.Managed{Type: typ, ID: gone[address], Address: b.Address})
-			}
-			r.report.NotInCloud = append(r.report.NotInCloud, report.NotInCloud{Path: relativePath(out, m.dir), Address: b.Address, ID: gone[address], Scope: m.scope})
+			kept = append(kept, engine.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
 		}
-		members[i].result = &result
+		members[i].result = m.result.WithKept(kept)
+		r.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
 		log.Printf("%s: no longer in the cloud: %d of what %s has of %s; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", relativePath(out, m.dir), len(blocks), relativePath(out, stack), m.env, filepath.Join(out, report.Dir, "report.md"))
 	}
 	return "", nil
@@ -431,7 +396,7 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 		}
 	}
 	more := map[string]string{}
-	for _, res := range resultResources(m.result) {
+	for _, res := range m.result.Blocks() {
 		had, ok := moved[engine.ResourceKey(res.Type, res.ID)]
 		if !ok || slices.Contains(m.isolated, res.Address) {
 			continue
@@ -447,7 +412,7 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 // is of: shop_audit for aws_sqs_queue.shop_audit[0], and logs for
 // module.logs[0].aws_s3_bucket.this.
 func mergedLabel(address string) string {
-	block := blockAddress(address)
+	block := engine.RemovedFrom(address)
 	if name, ok := strings.CutPrefix(block, "module."); ok {
 		return name
 	}

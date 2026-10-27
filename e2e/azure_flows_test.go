@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -124,8 +123,8 @@ func TestAzureIncremental(t *testing.T) {
 	checkAddedTo(t, out, azureRoot(out), "azurerm_network_security_group", "infraharvest-e2e-added", before, after)
 	coverage := coverageOf(t, out)
 	checkCoverage(t, "--incremental", coverage, azureEmulatorFailure)
-	if !slices.ContainsFunc(coverage.Excluded, func(x report.Excluded) bool { return x.Reason == importer.InRootReason }) {
-		t.Errorf("--incremental: nothing is reported %s: %+v", importer.InRootReason, coverage.Excluded)
+	if !slices.ContainsFunc(coverage.Excluded, func(x report.Excluded) bool { return x.Reason == report.ReasonInRoot }) {
+		t.Errorf("--incremental: nothing is reported %s: %+v", report.ReasonInRoot, coverage.Excluded)
 	}
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, out) {
