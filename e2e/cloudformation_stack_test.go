@@ -6,6 +6,8 @@
 package e2e
 
 import (
+	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,10 +15,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
 )
 
@@ -115,5 +121,81 @@ func TestAWSSelectionCloudFormation(t *testing.T) {
 	}
 	if !uses {
 		t.Errorf("no argument of %s refers to var.bucket_name", bucketRoot)
+	}
+}
+
+// TestAWSSelectionCloudFormationMCP drives the MCP server's discover and
+// import tools with cfn_stacks, as an agent does, on the CloudFormation
+// stack of testdata/aws, without services: discover lists the services
+// of the stack's types into a selection file, the stack's bucket
+// included, though the default selection leaves out what a stack
+// manages. import asks the user, naming the stack and saying it lists the
+// services of its resources, and imports the bucket and its
+// configuration alone, reporting the stack as not safe to delete, as
+// TestAWSSelectionCloudFormation does from the command line.
+func TestAWSSelectionCloudFormationMCP(t *testing.T) {
+	e := seedAWS(t)
+	root := t.TempDir()
+	var asked []string
+	session := mcpSession(e.ctx, t, root, e.execPath, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = append(asked, req.Params.Message)
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	scope := map[string]any{"provider": "aws", "regions": []string{"us-east-1"}, "cfn_stacks": []string{"infraharvest-e2e-app"}, "selection": "selection.yaml"}
+
+	var summary mcpserver.SelectionSummary
+	callTool(e.ctx, t, session, "discover", scope, &summary)
+	f, err := selection.Load(filepath.Join(root, "selection.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bucket := f.Resources[selectionEntry(t, f, "aws_s3_bucket", "infraharvest-e2e-cfn-assets")]; !bucket.Include {
+		t.Errorf("discover: the stack's bucket isn't included: %+v", bucket)
+	}
+	for _, r := range f.Resources {
+		if r.Include && r.ID != "infraharvest-e2e-cfn-assets" {
+			t.Errorf("discover: %s %s, which isn't the stack's, is included", r.Type, r.ID)
+		}
+	}
+	if len(asked) != 0 {
+		t.Errorf("discover asked the user: %q", asked)
+	}
+
+	var imported mcpserver.ImportResult
+	importArgs := maps.Clone(scope)
+	importArgs["out"], importArgs["engine"] = "generated", e.engineName
+	callTool(e.ctx, t, session, "import", importArgs, &imported)
+	if len(asked) != 1 || !strings.Contains(asked[0], "Import the 1 resources") ||
+		!strings.Contains(asked[0], "the aws account in us-east-1, only the resources of CloudFormation stacks infraharvest-e2e-app (the services of the stacks' resources)") {
+		t.Errorf("import asked the user %q, want one confirmation of importing the stack's bucket", asked)
+	}
+	if imported.ExitCode != report.ExitOK || imported.Totals.Imported == 0 || len(imported.FailedChecks) != 0 || len(imported.Failures) != 0 {
+		t.Errorf("import: %+v", imported)
+	}
+	r, err := report.Read(filepath.Join(root, "generated"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The bucket and its configuration, as from the command line.
+	var resources []string
+	for _, d := range r.Directories {
+		for _, res := range d.Imported {
+			resources = append(resources, engine.AddressType(res.Address)+" "+res.ID)
+		}
+	}
+	if !slices.Contains(resources, "aws_s3_bucket infraharvest-e2e-cfn-assets") {
+		t.Errorf("import: the stack's bucket wasn't imported: %v", resources)
+	}
+	for _, res := range resources {
+		if !strings.HasPrefix(res, "aws_s3_bucket") {
+			t.Errorf("import: imported %s, which isn't the stack's", res)
+		}
+	}
+	if len(r.CloudFormationStacks) != 1 {
+		t.Fatalf("stacks %+v", r.CloudFormationStacks)
+	}
+	s := r.CloudFormationStacks[0]
+	if s.Name != "infraharvest-e2e-app" || len(s.Resources) != 1 || s.Resources[0].Outcome != report.StackImported || s.SafeToDelete {
+		t.Errorf("stack %+v, want its bucket imported, and it not safe to delete", s)
 	}
 }
