@@ -61,10 +61,14 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 	return f.checkErr
 }
 
+// compiled are the providers compiled into the tests, as internal/cli passes
+// them to the server.
+var compiled = Providers{Profiles: providers.Profiles(), Check: providers.Check}
+
 // newTools returns the tools, whose files stay under root, running and
 // checking with runner.
 func newTools(runner *fakeRunner, root string) *tools {
-	return &tools{run: runner.run, check: runner.check, root: root}
+	return &tools{run: runner.run, check: runner.check, providers: compiled, root: root}
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -121,7 +125,7 @@ func writeSelection(path string) error {
 func connect(t *testing.T, runner *fakeRunner, root string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := New("test", root, runner.run, runner.check).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := New("test", root, runner.run, runner.check, compiled).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{ElicitationHandler: elicit})
@@ -366,7 +370,7 @@ func TestImportNeedsTheUser(t *testing.T) {
 func TestCommandArgsKeepValuesOutOfFlags(t *testing.T) {
 	for _, provider := range []string{"--help", "aws --all", "", "AWS", "gcp"} {
 		scope := Scope{Provider: provider, Services: []string{"vpc"}}
-		if _, err := commandArgs("import", scope, scope); err == nil || !strings.Contains(err.Error(), "unknown provider") {
+		if _, err := compiled.commandArgs("import", scope, scope); err == nil || !strings.Contains(err.Error(), "unknown provider") {
 			t.Errorf("provider %q: got %v, want it rejected", provider, err)
 		}
 	}
@@ -378,7 +382,7 @@ func TestCommandArgsKeepValuesOutOfFlags(t *testing.T) {
 		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "--folders=1"}, []string{"import", "google", "--services=iam", "--organization=--folders=1"}},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, ResourceGroup: "-g x"}, []string{"import", "azure", "--services=resource_graph", "--resource-group=-g x"}},
 	} {
-		args, err := commandArgs("import", tc.scope, tc.scope)
+		args, err := compiled.commandArgs("import", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
 			t.Errorf("commandArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
 		}
@@ -424,7 +428,7 @@ func TestCommandArgsByProvider(t *testing.T) {
 			[]string{"discover", "azure", "--services=resource_graph", "--azapi"},
 		},
 	} {
-		args, err := commandArgs("discover", tc.scope, tc.scope)
+		args, err := compiled.commandArgs("discover", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
 			t.Errorf("%s: commandArgs: got %v, %v, want %v", name, args, err, tc.want)
 		}
@@ -737,6 +741,45 @@ func TestToolAnnotations(t *testing.T) {
 	}
 }
 
+// The tools describe the providers the server is passed, which are those
+// of the binary it runs, and no others.
+func TestToolsDescribeTheProvidersPassed(t *testing.T) {
+	aws, err := compiled.profile("aws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	passed := Providers{Profiles: []harvest.Profile{aws}, Check: compiled.Check}
+	runner := &fakeRunner{}
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+	if _, err := New("test", t.TempDir(), runner.run, runner.check, passed).Connect(t.Context(), serverTransport, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil).Connect(t.Context(), clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	res, err := session.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range res.Tools {
+		if tool.Name != "discover" && tool.Name != "import" {
+			continue
+		}
+		schema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(schema), `the provider command: aws"`) {
+			t.Errorf("%s: the provider's description in %s doesn't name aws alone", tool.Name, schema)
+		}
+		if want := "Where to list depends on the provider: aws takes "; !strings.Contains(tool.Description, want) || strings.Contains(tool.Description, "azure") || strings.Contains(tool.Description, "google") {
+			t.Errorf("%s: description %q, want it to say %q of aws alone", tool.Name, tool.Description, want)
+		}
+	}
+}
+
 // A symbolic link a cloned repository plants under the output directory
 // doesn't take the report tool, or an import, out of the root.
 func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
@@ -796,7 +839,7 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 	out := filepath.Join(dir, "generated")
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
-	args, err := commandArgs("import", scope, scope)
+	args, err := compiled.commandArgs("import", scope, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -856,7 +899,7 @@ func TestValuesShownToTheUser(t *testing.T) {
 		"a profile with a newline":  {Provider: "aws", Services: []string{"vpc"}, Profile: "prod\nImport nothing"},
 		"a project with a carriage": {Provider: "google", Services: []string{"iam"}, Projects: []string{"one\r"}},
 	} {
-		if _, err := commandArgs("import", scope, scope); err == nil {
+		if _, err := compiled.commandArgs("import", scope, scope); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}

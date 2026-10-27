@@ -44,7 +44,6 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -59,6 +58,41 @@ type Runner func(ctx context.Context, args []string) (stdout, stderr []byte, exi
 // fail with.
 type Checker func(ctx context.Context, args []string) error
 
+// Providers are the providers compiled into the binary the tools run. The
+// server knows them only through what its caller passes it, so that it
+// imports neither the listers nor their clouds' SDKs: it runs the binary.
+type Providers struct {
+	// Profiles are their profiles, sorted by the names of their commands
+	// (see harvest.Profile.Command).
+	Profiles []harvest.Profile
+	// Check rejects a name unless it names one of them, as the commands
+	// that take a provider's name do.
+	Check func(name string) error
+}
+
+// names returns the names of the providers' commands, sorted.
+func (p Providers) names() []string {
+	names := make([]string, 0, len(p.Profiles))
+	for _, profile := range p.Profiles {
+		names = append(names, profile.Command)
+	}
+	return names
+}
+
+// profile returns the profile of the provider whose command is named
+// name, or the error Check returns for a name it doesn't know.
+func (p Providers) profile(name string) (harvest.Profile, error) {
+	if err := p.Check(name); err != nil {
+		return harvest.Profile{}, err
+	}
+	for _, profile := range p.Profiles {
+		if profile.Command == name {
+			return profile, nil
+		}
+	}
+	return harvest.Profile{}, fmt.Errorf("the provider %q has no profile", name)
+}
+
 // instructions tell agents how to use the tools.
 const instructions = `infraharvest turns existing cloud resources into Terraform configuration that plans with no changes. It only reads the cloud and never applies anything.
 
@@ -69,17 +103,19 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. It runs Terraform on the roots, which runs their providers with the server's credentials, so the user is asked to confirm first, and roots that use providers infraharvest doesn't generate roots with, or modules from elsewhere than the output directory and its curated modules, are refused: the user can run infraharvest drift on them from a terminal if they trust them. Call report with kind drift to read the drift report it wrote, and show the user the changes. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with rules or a decisions file; the user is asked to confirm first, seeing the rules or the decisions file. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
 // New returns the server, which runs infraharvest with run, and checks an
-// import with check before the user is asked to confirm it. The tools read
-// and write files under root only: selection files, output directories,
-// reports and drift decisions files.
-func New(version, root string, run Runner, check Checker) *mcp.Server {
+// import with check before the user is asked to confirm it; compiled are
+// the providers infraharvest has. The tools read and write files under
+// root only: selection files, output directories, reports and drift
+// decisions files.
+func New(version, root string, run Runner, check Checker, compiled Providers) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
-	t := &tools{run: run, check: check, root: root}
+	t := &tools{run: run, check: check, providers: compiled, root: root}
+	help := scopeHelp(compiled)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
 		Title:       "List resources into a selection file",
-		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + scopeHelp,
-		InputSchema: scopeSchema[DiscoverInput](),
+		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + help,
+		InputSchema: scopeSchema[DiscoverInput](compiled.names()),
 		// It writes the selection file, merging into one that is there, so
 		// it isn't read-only, though it destroys nothing.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
@@ -87,8 +123,8 @@ func New(version, root string, run Runner, check Checker) *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
-		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + scopeHelp,
-		InputSchema: scopeSchema[ImportInput](),
+		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + help,
+		InputSchema: scopeSchema[ImportInput](compiled.names()),
 		// Not idempotent: the same import again is refused, with
 		// incremental adds what is new since, or with regenerate writes
 		// the roots again.
@@ -126,6 +162,8 @@ type tools struct {
 	// check checks an import's arguments before the user is asked to
 	// confirm it, so that what the command would refuse isn't confirmed.
 	check Checker
+	// providers are those of the binary run runs.
+	providers Providers
 	// root is the directory the tools' files must be under.
 	root string
 
@@ -352,7 +390,7 @@ type TypeCount struct {
 }
 
 func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in DiscoverInput) (*mcp.CallToolResult, *SelectionSummary, error) {
-	args, err := commandArgs("discover", in.Scope, in)
+	args, err := t.providers.commandArgs("discover", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -476,7 +514,7 @@ type ImportResult struct {
 }
 
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
-	args, err := commandArgs("import", in.Scope, in)
+	args, err := t.providers.commandArgs("import", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -529,7 +567,11 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, nil, err
 	}
-	reads, err := scopeText(scope, providers.New(in.Provider).Profile())
+	profile, err := t.providers.profile(in.Provider)
+	if err != nil {
+		return nil, nil, err
+	}
+	reads, err := scopeText(scope, profile)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -884,12 +926,13 @@ func (t *tools) linksStayUnder(what, dir string) error {
 // tools' descriptions, from their providers tags, and which of them a
 // provider's command needs one of, from its profile (see
 // harvest.Scope.Needs).
-var scopeHelp = func() string {
+func scopeHelp(compiled Providers) string {
 	scope := reflect.TypeFor[Scope]()
 	var takes, needs []string
-	for _, provider := range providers.Names() {
+	for _, profile := range compiled.Profiles {
+		provider := profile.Command
 		var fields, needed []string
-		required := providers.New(provider).Profile().Scope.Needs
+		required := profile.Scope.Needs
 		for i := range scope.NumField() {
 			field := scope.Field(i)
 			if !slices.Contains(scopeProviders(field), provider) {
@@ -906,7 +949,7 @@ var scopeHelp = func() string {
 		}
 	}
 	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + "." + strings.Join(needs, "")
-}()
+}
 
 // scopeProviders returns the providers that field, one of Scope's, is
 // for, as its providers tag names them, or none for a field every
@@ -939,13 +982,13 @@ func sentenceJoin(words []string, conjunction string) string {
 // in after the provider's description: the provider command: aws, azure
 // or google. It panics where the schema can't be inferred, as the SDK
 // does.
-func scopeSchema[In any]() *jsonschema.Schema {
+func scopeSchema[In any](names []string) *jsonschema.Schema {
 	schema, err := jsonschema.For[In](&jsonschema.ForOptions{})
 	if err != nil {
 		panic(fmt.Sprintf("mcpserver: the input schema of %T: %v", *new(In), err))
 	}
 	provider := schema.Properties["provider"]
-	provider.Description += ": " + sentenceJoin(providers.Names(), "or")
+	provider.Description += ": " + sentenceJoin(names, "or")
 	return schema
 }
 
@@ -983,11 +1026,11 @@ func isSet(value reflect.Value) bool {
 // without a project, is for the command to check: discover returns the
 // error it runs into, and import checks them with the command's checks
 // before the user is asked (see Checker).
-func commandArgs(command string, scope Scope, in any) ([]string, error) {
+func (p Providers) commandArgs(command string, scope Scope, in any) ([]string, error) {
 	// The provider is the one argument that isn't a --flag=value: one the
 	// binary doesn't have would be taken for something else, such as a
 	// flag.
-	if err := providers.Check(scope.Provider); err != nil {
+	if err := p.Check(scope.Provider); err != nil {
 		return nil, err
 	}
 	if err := checkScopeNames(scope); err != nil {

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/config"
 )
 
@@ -122,7 +121,7 @@ func (t *tools) loadConfig(path *string, use configUse) (*toolConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := config.Load(copied.path, providers.Profiles())
+	f, err := config.Load(copied.path, t.providers.Profiles)
 	if err == nil {
 		err = checkConfig(f, use)
 	}

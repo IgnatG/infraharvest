@@ -49,7 +49,7 @@ func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit
 		return stdout.Bytes(), stderr.Bytes(), importer.ExitCode(err), nil
 	}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("e2e", root, run, cli.CheckRun).Connect(ctx, serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("e2e", root, run, cli.CheckRun, cli.MCPProviders()).Connect(ctx, serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "e2e"}, &mcp.ClientOptions{ElicitationHandler: elicit})
