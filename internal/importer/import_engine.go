@@ -791,7 +791,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	}
 	reported.Warnings = result.Warnings
 	for _, o := range result.Owned {
-		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: resourceTypeOf(o.Address), ID: o.ID, Reason: selection.OwnedReason(o.Owner), Scope: r.scope, Owner: selection.OwnedBy(o.Owner)})
+		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: engine.AddressType(o.Address), ID: o.ID, Reason: selection.OwnedReason(o.Owner), Scope: r.scope, Owner: selection.OwnedBy(o.Owner)})
 	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)

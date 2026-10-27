@@ -830,26 +830,9 @@ func importTargetsIn(f *hclFile) map[string]string {
 			continue
 		}
 		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src)))
-		targets[addressType(address)+"\x00"+v.AsString()] = address
+		targets[AddressType(address)+"\x00"+v.AsString()] = address
 	}
 	return targets
-}
-
-// AddressType returns the resource type of an address, such as
-// aws_sqs_queue for aws_sqs_queue.this["orders"] or
-// module.logs.aws_s3_bucket.this[0].
-func AddressType(address string) string {
-	return addressType(address)
-}
-
-// addressType returns the resource type of an address such as
-// aws_s3_bucket.logs or module.logs.aws_s3_bucket.this[0].
-func addressType(address string) string {
-	parts := strings.Split(address, ".")
-	for len(parts) > 2 && parts[0] == "module" {
-		parts = parts[2:]
-	}
-	return parts[0]
 }
 
 // movedAddresses returns the new address of each resource whose import

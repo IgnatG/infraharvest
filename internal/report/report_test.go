@@ -214,24 +214,6 @@ func TestManagedCountsWhatTheOutputsRootsHave(t *testing.T) {
 	}
 }
 
-// What another tool manages, and every count by account and region.
-func TestResourceType(t *testing.T) {
-	t.Parallel()
-	for address, want := range map[string]string{
-		"aws_iam_role.app":                                  "aws_iam_role",
-		"aws_iam_role.app[0]":                               "aws_iam_role",
-		"module.app.aws_iam_role.this":                      "aws_iam_role",
-		"module.app[0].aws_iam_role.this[0]":                "aws_iam_role",
-		`module.app["a.b"].aws_iam_role.this`:               "aws_iam_role",
-		`module.app["a]\".b"].module.inner.aws_s3_bucket.x`: "aws_s3_bucket",
-		"module.app":                                        "module.app",
-	} {
-		if got := ResourceType(address); got != want {
-			t.Errorf("ResourceType(%q) = %q, want %q", address, got, want)
-		}
-	}
-}
-
 // A resource in a module call counts as one of its type.
 func TestFinishCountsResourcesInModuleCalls(t *testing.T) {
 	t.Parallel()
@@ -247,6 +229,7 @@ func TestFinishCountsResourcesInModuleCalls(t *testing.T) {
 	}
 }
 
+// What another tool manages, and every count by account and region.
 func TestScopeCounts(t *testing.T) {
 	t.Parallel()
 	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"

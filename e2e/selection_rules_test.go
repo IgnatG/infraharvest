@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
 // selectionRules is a selection file of rules alone, as a person writes
@@ -51,7 +51,7 @@ func TestAWSSelectionRules(t *testing.T) {
 	imported := map[string][]string{}
 	for _, d := range coverage.Directories {
 		for _, r := range d.Imported {
-			typ := report.ResourceType(r.Address)
+			typ := engine.AddressType(r.Address)
 			imported[typ] = append(imported[typ], r.ID)
 		}
 	}

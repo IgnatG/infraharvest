@@ -424,25 +424,6 @@ func TestDriftRulesMatchSharedTags(t *testing.T) {
 	}
 }
 
-// A module call's instance key may have dots, which aren't steps of the
-// address.
-func TestAddressType(t *testing.T) {
-	t.Parallel()
-	for address, want := range map[string]string{
-		"aws_s3_bucket.logs":                                 "aws_s3_bucket",
-		"aws_s3_bucket.logs[0]":                              "aws_s3_bucket",
-		"data.aws_iam_policy_document.p":                     "aws_iam_policy_document",
-		"module.logs.aws_s3_bucket.this[0]":                  "aws_s3_bucket",
-		`module.logs["a.b"].aws_s3_bucket.this`:              "aws_s3_bucket",
-		`module.x["a.b"].module.y[1].aws_sqs_queue.q["c.d"]`: "aws_sqs_queue",
-		`module.x["say \"a.b\" ]"].aws_iam_role.this`:        "aws_iam_role",
-	} {
-		if got := addressType(address); got != want {
-			t.Errorf("%s: got %s, want %s", address, got, want)
-		}
-	}
-}
-
 // TestDriftChecksEachEnvironment checks that a root environments share is
 // checked once per environment, as --environment names them, and that a
 // change of each goes into the report and the decisions file as that

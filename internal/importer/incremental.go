@@ -120,7 +120,7 @@ func previouslyOwned(previous *engine.Result, opts engine.Options) map[engine.Ex
 	}
 	owned := map[engine.External]engine.Owner{}
 	for _, o := range previous.Owned {
-		typ := resourceTypeOf(o.Address)
+		typ := engine.AddressType(o.Address)
 		if opts.KeepOwned[typ+" "+o.ID] {
 			continue
 		}

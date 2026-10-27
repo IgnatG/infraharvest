@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -630,10 +631,10 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		sort.Slice(d.Imported, func(a, b int) bool { return d.Imported[a].Address < d.Imported[b].Address })
 		sort.Slice(d.LeftOut, func(a, b int) bool { return d.LeftOut[a].Address < d.LeftOut[b].Address })
 		for _, res := range d.Imported {
-			count(ResourceType(res.Address)).Imported++
+			count(engine.AddressType(res.Address)).Imported++
 		}
 		for _, res := range d.LeftOut {
-			count(ResourceType(res.Address)).LeftOut++
+			count(engine.AddressType(res.Address)).LeftOut++
 		}
 		inScope(d.Scope, func(c *CoverageTotal) {
 			c.Imported += len(d.Imported)
@@ -718,10 +719,10 @@ func (r *Report) countByTag() []TagCount {
 	imported, leftOut := map[string]bool{}, map[string]bool{}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			imported[key(d.Scope, ResourceType(res.Address), res.ID)] = true
+			imported[key(d.Scope, engine.AddressType(res.Address), res.ID)] = true
 		}
 		for _, res := range d.LeftOut {
-			leftOut[key(d.Scope, ResourceType(res.Address), res.ID)] = true
+			leftOut[key(d.Scope, engine.AddressType(res.Address), res.ID)] = true
 		}
 	}
 	excluded := map[string]string{}
@@ -795,50 +796,6 @@ func (r *Report) SkippedChecks() []string {
 		}
 	}
 	return skipped
-}
-
-// ResourceType returns the type of the resource at address, in a module
-// call or not: aws_iam_role for both aws_iam_role.app and
-// module.app["a.b"].aws_iam_role.this.
-func ResourceType(address string) string {
-	for {
-		rest, ok := strings.CutPrefix(address, "module.")
-		if !ok {
-			break
-		}
-		// Past the call's name and its key, if any, which may hold dots.
-		i := strings.IndexAny(rest, ".[")
-		if i < 0 {
-			return address
-		}
-		if rest[i] == '[' {
-			end := keyEnd(rest[i:])
-			if end < 0 || i+end+1 >= len(rest) || rest[i+end+1] != '.' {
-				return address
-			}
-			i += end + 1
-		}
-		address = rest[i+1:]
-	}
-	t, _, _ := strings.Cut(address, ".")
-	return t
-}
-
-// keyEnd returns the index of the bracket that closes the key key starts
-// with, such as ["a.b"] or [0], or -1 if none does.
-func keyEnd(key string) int {
-	quoted := false
-	for i := 1; i < len(key); i++ {
-		switch {
-		case quoted && key[i] == '\\':
-			i++
-		case key[i] == '"':
-			quoted = !quoted
-		case !quoted && key[i] == ']':
-			return i
-		}
-	}
-	return -1
 }
 
 // WriteFiles writes coverage.json, manifest.json and report.md into the

@@ -609,7 +609,7 @@ func (r *Run) recordMoves(path string, result *engine.Result) {
 	for _, m := range result.Moves {
 		had, ok := types[m.To]
 		if !ok {
-			had = engine.Managed{Type: resourceTypeOf(m.To)}
+			had = engine.Managed{Type: engine.AddressType(m.To)}
 		}
 		r.report.Moved = append(r.report.Moved, report.Move{Type: had.Type, ID: had.ID, FromRoot: path, From: m.From, ToRoot: path, To: m.To})
 	}
