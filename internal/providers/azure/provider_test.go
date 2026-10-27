@@ -19,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 // The capabilities the importer looks for.
@@ -331,6 +332,9 @@ func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 	b := limitedClient("sub-graph-b", nil).(*limitedDoer)
 	if graph := graphLimiter(); graph == nil || graphLimiter() != graph {
 		t.Fatal("Resource Graph queries got more than one limiter")
+	}
+	if got, want := graphLimiter().Rate(), min(graphRate, ratelimit.Default().Rate()); got != want {
+		t.Errorf("Resource Graph queries are limited to %v a second, want %v", got, want)
 	}
 	if graphLimiter() == subscriptionLimiter("sub-graph-a") || subscriptionLimiter("sub-graph-a") == subscriptionLimiter("sub-graph-b") {
 		t.Error("Resource Manager requests don't keep their subscription's limiter")

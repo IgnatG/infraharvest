@@ -231,13 +231,17 @@ func subscriptionLimiter(subscriptionID string) *ratelimit.Limiter {
 	return l.(*ratelimit.Limiter)
 }
 
-// graphLimiter is the limiter of every Resource Graph query, made with
-// Default's rate the first time it is asked for. Azure throttles Resource
-// Graph per user, not per subscription, so the queries of every
-// subscription of a run share one limit.
+// graphLimiter is the limiter of every Resource Graph query, made the
+// first time it is asked for with graphRate, or Default's rate if that is
+// lower. Azure throttles Resource Graph per user, not per subscription, so
+// the queries of every subscription of a run share one limit.
 var graphLimiter = sync.OnceValue(func() *ratelimit.Limiter {
-	return ratelimit.Like(ratelimit.Default())
+	return ratelimit.New(min(graphRate, ratelimit.Default().Rate()))
 })
+
+// graphRate is how many Resource Graph queries a second a run sends at
+// most: Azure allows a user 15 every 5 seconds.
+const graphRate = 3.0
 
 // graphPathPrefix is how the path of every Resource Graph request begins,
 // in lower case.
