@@ -26,8 +26,8 @@ var (
 // check reports what's wrong with the catalogue's entries.
 func (c *Catalogue) check() error {
 	var errs []error
-	if !identifier.MatchString(c.Provider) {
-		errs = append(errs, fmt.Errorf("provider %q: want a provider's local name, such as aws", c.Provider))
+	if !identifier.MatchString(c.provider) {
+		errs = append(errs, fmt.Errorf("provider %q: want a provider's local name, such as aws", c.provider))
 	}
 	// Sorted, so that the errors come in the same order every run.
 	for _, typ := range slices.Sorted(maps.Keys(c.entries)) {
@@ -47,8 +47,8 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
 			fail("the entry for every type only takes omit, state_only, provider_versions and skip")
 		}
-	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.Provider+"_") {
-		fail("not a %s resource type", c.Provider)
+	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.provider+"_") {
+		fail("not a %s resource type", c.provider)
 	}
 	if e.Service != "" && !identifier.MatchString(e.Service) {
 		fail("service %q: want an infraharvest service name", e.Service)
@@ -176,8 +176,8 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	}
 	if d := e.DataSource; d != nil && (!identifier.MatchString(d.Type) || !identifier.MatchString(d.Argument)) {
 		fail("data_source: want a type and an argument")
-	} else if d != nil && !strings.HasPrefix(d.Type, c.Provider+"_") {
-		fail("data_source: %s isn't a %s data source", d.Type, c.Provider)
+	} else if d != nil && !strings.HasPrefix(d.Type, c.provider+"_") {
+		fail("data_source: %s isn't a %s data source", d.Type, c.provider)
 	}
 	if a := e.ARN; a != nil && (a.Service == "" || strings.ContainsAny(a.Service+a.ResourceType, ":/ ")) {
 		fail("arn: want an ARN's service and resource type")

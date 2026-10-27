@@ -218,9 +218,12 @@ type CloudControl struct {
 	Identifier string `yaml:"identifier"`
 }
 
-// Catalogue is a provider's entries, by Terraform type.
+// Catalogue is a provider's entries, by Terraform type. Its methods only
+// read it and hand out copies, as the built-in catalogues are shared by
+// the whole process (see Builtin).
 type Catalogue struct {
-	Provider string
+	// provider is the Terraform provider's local name: aws, google.
+	provider string
 	entries  map[string]*Entry
 	// sources records where each entry came from, for errors.
 	sources map[string]string
@@ -245,7 +248,8 @@ var (
 )
 
 // Builtin returns the provider's built-in catalogue, empty for a provider
-// without one.
+// without one. Every caller gets the same one, loaded once, which nothing
+// can change: what its methods return are copies.
 func Builtin(provider string) (*Catalogue, error) {
 	builtinOnce.Do(func() {
 		builtins, builtinErr = loadFS(builtin, "data", true, nil)
@@ -256,7 +260,7 @@ func Builtin(provider string) (*Catalogue, error) {
 	if c, ok := builtins[provider]; ok {
 		return c, nil
 	}
-	return &Catalogue{Provider: provider, entries: map[string]*Entry{}, sources: map[string]string{}}, nil
+	return &Catalogue{provider: provider, entries: map[string]*Entry{}, sources: map[string]string{}}, nil
 }
 
 // Providers names the providers with a built-in catalogue.
@@ -345,7 +349,7 @@ func loadFS(fsys fs.FS, root string, check bool, providers []string) (map[string
 		}
 		c, ok := catalogues[f.Provider]
 		if !ok {
-			c = &Catalogue{Provider: f.Provider, entries: map[string]*Entry{}, sources: map[string]string{}}
+			c = &Catalogue{provider: f.Provider, entries: map[string]*Entry{}, sources: map[string]string{}}
 			catalogues[f.Provider] = c
 		}
 		for typ, e := range f.Types {
@@ -391,6 +395,11 @@ func Parse(content []byte) (*File, error) {
 	return f, nil
 }
 
+// Provider returns the Terraform provider's local name: aws, google.
+func (c *Catalogue) Provider() string {
+	return c.provider
+}
+
 // Types returns the catalogue's types, sorted, without AllTypes.
 func (c *Catalogue) Types() []string {
 	types := make([]string, 0, len(c.entries))
@@ -403,10 +412,14 @@ func (c *Catalogue) Types() []string {
 	return types
 }
 
-// Entry returns the entry for a Terraform type.
+// Entry returns a copy of the entry for a Terraform type: changing it
+// changes nothing in c.
 func (c *Catalogue) Entry(typ string) (*Entry, bool) {
 	e, ok := c.entries[typ]
-	return e, ok
+	if !ok {
+		return nil, false
+	}
+	return e.copy(), true
 }
 
 // Source names the file the entry for typ came from.
@@ -534,6 +547,18 @@ func accepts(constraint string, v *version.Version) bool {
 // per type.
 func (c *Catalogue) KeepEmpty() map[string][]string {
 	return c.lists(nil, func(e *Entry) []string { return e.KeepEmpty }, func(*Versioned) []string { return nil })
+}
+
+// ARNs returns where the ARNs of each type that says so name its
+// resources.
+func (c *Catalogue) ARNs() map[string]ARN {
+	arns := map[string]ARN{}
+	for typ, e := range c.entries {
+		if e.ARN != nil {
+			arns[typ] = *e.ARN
+		}
+	}
+	return arns
 }
 
 // DataSources returns the data source of each type that has one.
@@ -721,7 +746,7 @@ func (c *Catalogue) With(other *Catalogue) *Catalogue {
 }
 
 func (c *Catalogue) clone() *Catalogue {
-	clone := &Catalogue{Provider: c.Provider, entries: make(map[string]*Entry, len(c.entries)), sources: make(map[string]string, len(c.sources))}
+	clone := &Catalogue{provider: c.provider, entries: make(map[string]*Entry, len(c.entries)), sources: make(map[string]string, len(c.sources))}
 	for typ, e := range c.entries {
 		copied := *e
 		clone.entries[typ] = &copied
@@ -730,6 +755,65 @@ func (c *Catalogue) clone() *Catalogue {
 		clone.sources[typ] = s
 	}
 	return clone
+}
+
+// copy returns a copy of e that shares nothing with it but its import ID
+// templates, which nothing changes once parsed.
+func (e *Entry) copy() *Entry {
+	copied := *e
+	copied.ImportID = slices.Clone(e.ImportID)
+	copied.Omit, copied.Defaults, copied.StateOnly = slices.Clone(e.Omit), slices.Clone(e.Defaults), slices.Clone(e.StateOnly)
+	copied.KeepEmpty, copied.Children, copied.Remove = slices.Clone(e.KeepEmpty), slices.Clone(e.Children), slices.Clone(e.Remove)
+	if e.ProviderVersions != nil {
+		copied.ProviderVersions = make(map[string]*Versioned, len(e.ProviderVersions))
+		for constraint, x := range e.ProviderVersions {
+			if x != nil {
+				x = &Versioned{Omit: slices.Clone(x.Omit), Defaults: slices.Clone(x.Defaults), StateOnly: slices.Clone(x.StateOnly)}
+			}
+			copied.ProviderVersions[constraint] = x
+		}
+	}
+	if e.Skip != nil {
+		copied.Skip = make([]SkipRule, len(e.Skip))
+		for i, r := range e.Skip {
+			r.IDs, r.IDPrefixes, r.Attributes = slices.Clone(r.IDs), slices.Clone(r.IDPrefixes), maps.Clone(r.Attributes)
+			r.AttributePrefixes, r.AttributeSuffixes = cloneLists(r.AttributePrefixes), cloneLists(r.AttributeSuffixes)
+			copied.Skip[i] = r
+		}
+	}
+	copied.DataSource, copied.ARN, copied.CloudControl = clonePointer(e.DataSource), clonePointer(e.ARN), clonePointer(e.CloudControl)
+	copied.Inventory, copied.Lifecycle, copied.Placeholder = clonePointer(e.Inventory), clonePointer(e.Lifecycle), e.Placeholder.copy()
+	return &copied
+}
+
+// copy returns a copy of p that shares nothing with it, nil for nil.
+func (p *Placeholder) copy() *Placeholder {
+	if p == nil {
+		return nil
+	}
+	return &Placeholder{OneOf: slices.Clone(p.OneOf), Set: maps.Clone(p.Set), Ignore: slices.Clone(p.Ignore), Reason: p.Reason}
+}
+
+// clonePointer returns a pointer to a copy of what p points to, nil for
+// nil: for the entry's fields of strings and bools alone.
+func clonePointer[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	copied := *p
+	return &copied
+}
+
+// cloneLists returns a copy of lists that shares no list with it.
+func cloneLists(lists map[string][]string) map[string][]string {
+	if lists == nil {
+		return nil
+	}
+	copied := make(map[string][]string, len(lists))
+	for k, l := range lists {
+		copied[k] = slices.Clone(l)
+	}
+	return copied
 }
 
 // merge returns e with the fields overlay sets replaced.
@@ -830,7 +914,7 @@ func (c *Catalogue) Placeholders() map[string]Placeholder {
 	placeholders := map[string]Placeholder{}
 	for typ, e := range c.entries {
 		if e.Placeholder != nil {
-			placeholders[typ] = *e.Placeholder
+			placeholders[typ] = *e.Placeholder.copy()
 		}
 	}
 	return placeholders

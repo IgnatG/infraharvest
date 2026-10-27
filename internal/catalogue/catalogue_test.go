@@ -783,3 +783,84 @@ func TestFallbackImportID(t *testing.T) {
 		t.Errorf("a type without templates: got %q", got)
 	}
 }
+
+// Every caller shares the built-in catalogues, so what their methods
+// return is the caller's own: changing it, down to the strings in an
+// entry's skip rules, changes nothing the next caller gets.
+func TestBuiltinHandsOutCopies(t *testing.T) {
+	providers, err := Providers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		get  func(*Catalogue) any
+	}{
+		{"entries", func(c *Catalogue) any {
+			entries := map[string]*Entry{}
+			for _, typ := range append(c.Types(), AllTypes) {
+				if e, ok := c.Entry(typ); ok {
+					entries[typ] = e
+				}
+			}
+			return entries
+		}},
+		{"types", func(c *Catalogue) any { return c.Types() }},
+		{"omit", func(c *Catalogue) any { return c.Omit(nil) }},
+		{"defaults", func(c *Catalogue) any { return c.Defaults(nil) }},
+		{"state_only", func(c *Catalogue) any { return c.StateOnly(nil) }},
+		{"keep_empty", func(c *Catalogue) any { return c.KeepEmpty() }},
+		{"data sources", func(c *Catalogue) any { return c.DataSources() }},
+		{"ARNs", func(c *Catalogue) any { return c.ARNs() }},
+		{"placeholders", func(c *Catalogue) any { return c.Placeholders() }},
+		{"lifecycles", func(c *Catalogue) any { return c.Lifecycles() }},
+	} {
+		for _, provider := range providers {
+			// As YAML, a snapshot that shares nothing with the catalogue.
+			snapshot := func() string {
+				out, err := yaml.Marshal(tt.get(MustBuiltin(provider)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(out)
+			}
+			want := snapshot()
+			scribble(reflect.ValueOf(tt.get(MustBuiltin(provider))))
+			if snapshot() != want {
+				t.Errorf("%s of %s: changing what one caller got changed the built-in catalogue", tt.name, provider)
+			}
+		}
+	}
+}
+
+// scribble changes every string and bool that v reaches through
+// pointers, slices, maps and exported struct fields.
+func scribble(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Pointer:
+		if !v.IsNil() {
+			scribble(v.Elem())
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Field(i).CanSet() {
+				scribble(v.Field(i))
+			}
+		}
+	case reflect.Slice:
+		for i := range v.Len() {
+			scribble(v.Index(i))
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			value := reflect.New(v.Type().Elem()).Elem()
+			value.Set(v.MapIndex(k))
+			scribble(value)
+			v.SetMapIndex(k, value)
+		}
+	case reflect.String:
+		v.SetString(v.String() + "!")
+	case reflect.Bool:
+		v.SetBool(!v.Bool())
+	}
+}

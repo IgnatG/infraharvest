@@ -81,8 +81,8 @@ func catalogueEngineOptions(cat *catalogue.Catalogue, v *goversion.Version) engi
 	opts := engine.Options{Omit: cat.Omit(v), Defaults: cat.Defaults(v), StateOnly: cat.StateOnly(v), KeepEmpty: cat.KeepEmpty()}
 	// Without the metadata, the engine finds defaults by planning, as it
 	// always could: a broken file costs plans, not the import.
-	if meta, err := schemameta.Builtin(cat.Provider); err != nil {
-		log.Printf("%s: the built-in schema metadata: %v", cat.Provider, err)
+	if meta, err := schemameta.Builtin(cat.Provider()); err != nil {
+		log.Printf("%s: the built-in schema metadata: %v", cat.Provider(), err)
 	} else {
 		opts.SchemaMetadata = meta
 	}
@@ -92,12 +92,10 @@ func catalogueEngineOptions(cat *catalogue.Catalogue, v *goversion.Version) engi
 			opts.DataSources[typ] = engine.DataSource{Type: d.Type, Argument: d.Argument}
 		}
 	}
-	for _, typ := range cat.Types() {
-		if e, ok := cat.Entry(typ); ok && e.ARN != nil {
-			if opts.ARNs == nil {
-				opts.ARNs = map[string]engine.ARN{}
-			}
-			opts.ARNs[typ] = engine.ARN{Service: e.ARN.Service, ResourceType: e.ARN.ResourceType}
+	if arns := cat.ARNs(); len(arns) > 0 {
+		opts.ARNs = map[string]engine.ARN{}
+		for typ, a := range arns {
+			opts.ARNs[typ] = engine.ARN{Service: a.Service, ResourceType: a.ResourceType}
 		}
 	}
 	if placeholders := cat.Placeholders(); len(placeholders) > 0 {
