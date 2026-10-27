@@ -112,8 +112,23 @@ resource "aws_sqs_queue" "peered" {
 	return dir
 }
 
+// awsEnv is the environment name of an AWS account and region, "" where
+// not known, with what the aws provider's profile says its credentials
+// give the data sources that read them.
+func awsEnv(name, account, region string) UnmergeEnv {
+	data := map[string]map[string]string{}
+	if account != "" {
+		data["aws_caller_identity"] = map[string]string{"account_id": account, "id": account}
+	}
+	if region != "" {
+		data["aws_region"] = map[string]string{"region": region, "name": region, "id": region}
+		data["aws_partition"] = map[string]string{"partition": "aws", "id": "aws", "dns_suffix": "amazonaws.com"}
+	}
+	return UnmergeEnv{Name: name, Data: data}
+}
+
 // devEnv is the environment of writeUnmergeRoot's tests.
-var devEnv = UnmergeEnv{Name: "dev", Account: "111111111111", Region: "eu-west-2"}
+var devEnv = awsEnv("dev", "111111111111", "eu-west-2")
 
 // flatHCL returns s with its runs of white space made one space.
 func flatHCL(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -193,29 +208,12 @@ func TestUnmergedBlocksReadingDataSources(t *testing.T) {
 	}{
 		{devEnv, "aws_sqs_queue.elsewhere", "data.aws_region.other.region"},
 		{devEnv, "aws_sqs_queue.peered", "data.aws_vpc.shop.id"},
-		{UnmergeEnv{Name: "dev", Region: "eu-west-2"}, "aws_sqs_queue.owned", "data.aws_caller_identity.current.account_id"},
-		{UnmergeEnv{Name: "dev", Account: "111111111111"}, "aws_sqs_queue.owned", "data.aws_partition.current.partition, data.aws_region.current.name, data.aws_region.current.region"},
+		{awsEnv("dev", "", "eu-west-2"), "aws_sqs_queue.owned", "data.aws_caller_identity.current.account_id"},
+		{awsEnv("dev", "111111111111", ""), "aws_sqs_queue.owned", "data.aws_partition.current.partition, data.aws_region.current.name, data.aws_region.current.region"},
 	} {
 		blocks, why, err := UnmergedBlocks(dir, c.env, map[string]string{c.address: "id"})
 		if err != nil || blocks != nil || !strings.Contains(why, "reads "+c.reading+", whose value") {
 			t.Errorf("%s as %+v: %v, %q, %v, want why reading %s", c.address, c.env, blocks, why, err, c.reading)
-		}
-	}
-}
-
-// awsPartition tells the partitions of commercial, China and GovCloud
-// regions, and no other.
-func TestAWSPartition(t *testing.T) {
-	t.Parallel()
-	for region, want := range map[string][2]string{
-		"eu-west-2":     {"aws", "amazonaws.com"},
-		"cn-north-1":    {"aws-cn", "amazonaws.com.cn"},
-		"us-gov-west-1": {"aws-us-gov", "amazonaws.com"},
-		"us-iso-east-1": {"", ""},
-		"":              {"", ""},
-	} {
-		if partition, suffix := awsPartition(region); partition != want[0] || suffix != want[1] {
-			t.Errorf("%q: %q %q, want %q", region, partition, suffix, want)
 		}
 	}
 }

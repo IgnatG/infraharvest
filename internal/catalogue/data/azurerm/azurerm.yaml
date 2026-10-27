@@ -30,6 +30,18 @@ types:
       - reason: in an AzureBackupRG_<region>_<n> resource group, which Azure Backup creates for the restore point collections of the virtual machines it backs up; select it to import it
         ignore_case: true
         attribute_prefixes: { resource_group_name: [AzureBackupRG_] }
+    lookups:
+      # The tenant the provider signs in to; the plan checks it is the
+      # resource's.
+      - arguments: [tenant_id]
+        match: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        data_source: { type: azurerm_client_config, label: current, attribute: tenant_id }
+      # The subscription the provider signs in to, as the scope of a role
+      # assignment or a role definition, or where a role definition can
+      # be assigned; the plan checks it is the same.
+      - arguments: [scope, assignable_scopes]
+        match: '^/subscriptions/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+        data_source: { type: azurerm_subscription, label: current, attribute: id }
   # NetworkWatcherRG and its network watchers, one per region, are Azure's;
   # the flow logs, connection monitors and anything else a user puts in
   # the group are theirs, and imported.

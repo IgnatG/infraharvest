@@ -50,7 +50,7 @@ func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, er
 	if err != nil {
 		return nil, err
 	}
-	backend, err := rootBackend(files)
+	backend, err := rootBackend(files, opts.Backends)
 	if err != nil {
 		return nil, err
 	}

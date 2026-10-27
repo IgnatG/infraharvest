@@ -33,13 +33,20 @@ import (
 // generates no others.
 type driftAllowed struct {
 	sources, modules map[string]bool
+	// backends are what infraharvest configures the backends of the
+	// providers' clouds with (see harvest.Profile.Backend), in their
+	// blocks and in an environment's backend settings, by type.
+	backends map[string]*settings
 }
 
 // newDriftAllowed returns what the drift tools run Terraform with, of
 // the providers compiled.
 func newDriftAllowed(compiled Providers) driftAllowed {
-	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}}
+	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}, backends: map[string]*settings{}}
 	for _, profile := range compiled.Profiles {
+		if b := profile.Backend; b != nil {
+			a.backends[b.Type] = &settings{arguments: b.Settings}
+		}
 		for _, source := range compiled.Sources[profile.Command] {
 			a.sources[providerAddress(source)] = true
 		}
@@ -366,9 +373,9 @@ func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File, allowed 
 	}
 	for _, b := range uses.backends {
 		what := "the " + b.Labels[0] + " backend"
-		s, ok := backendSettings[b.Labels[0]]
+		s, ok := allowed.backends[b.Labels[0]]
 		if !ok {
-			return nil, fmt.Errorf("%s: %s, which infraharvest doesn't generate roots with (%s)", where(b.DefRange), what, strings.Join(slices.Sorted(maps.Keys(backendSettings)), ", "))
+			return nil, fmt.Errorf("%s: %s, which infraharvest doesn't generate roots with (%s)", where(b.DefRange), what, strings.Join(slices.Sorted(maps.Keys(allowed.backends)), ", "))
 		}
 		// drift initialises the backend with the settings of the
 		// environment it checks, as -backend-config.
@@ -420,15 +427,6 @@ var providerSettings = map[string]*settings{
 	"azure/azapi":           {arguments: []string{"alias", "subscription_id"}},
 	"hashicorp/google":      {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
 	"hashicorp/google-beta": {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
-}
-
-// backendSettings are what infraharvest configures each backend it
-// generates roots with with (see config.Backend.File), in its block and
-// in an environment's backend settings, by type.
-var backendSettings = map[string]*settings{
-	"s3":      {arguments: []string{"bucket", "encrypt", "key", "kms_key_id", "region", "use_lockfile"}},
-	"azurerm": {arguments: []string{"container_name", "key", "resource_group_name", "storage_account_name"}},
-	"gcs":     {arguments: []string{"bucket", "prefix"}},
 }
 
 // checkSettings refuses body, the body of what, a provider or backend

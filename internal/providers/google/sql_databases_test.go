@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/sqladmin/v1"
@@ -375,6 +376,77 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 				t.Errorf("another region's partial types %v, want no %s", got, sqlDatabaseType)
 			}
 		})
+	}
+}
+
+// The databases of several instances are listed at once, each instance
+// with its own outcome as when listed one after another, and the
+// resources come in the instances' order whichever answers first: orders
+// answers only once billing, after it, has been asked.
+func TestCloudSQLListsDatabasesAtOnce(t *testing.T) {
+	asked := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/projects/acme/instances":
+			_, _ = w.Write([]byte(`{"items": [
+				{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+				{"name": "billing", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+				{"name": "gone", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+				{"name": "stopped", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+				{"name": "secret", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+				{"name": "audit", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}
+			]}`))
+		case "/v1/projects/acme/instances/orders/databases":
+			select {
+			case <-asked:
+				_, _ = w.Write([]byte(`{"items": [{"name": "app"}, {"name": "mysql"}]}`))
+			case <-time.After(30 * time.Second):
+				http.Error(w, `{"error": {"code": 500, "message": "billing wasn't asked while orders was"}}`, http.StatusInternalServerError)
+			}
+		case "/v1/projects/acme/instances/billing/databases":
+			close(asked)
+			_, _ = w.Write([]byte(`{"items": [{"name": "ledger"}]}`))
+		case "/v1/projects/acme/instances/gone/databases":
+			http.Error(w, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist."}}`, http.StatusNotFound)
+		case "/v1/projects/acme/instances/stopped/databases":
+			http.Error(w, `{"error": {"code": 400, "message": "Invalid request since instance is not running."}}`, http.StatusBadRequest)
+		case "/v1/projects/acme/instances/secret/databases":
+			http.Error(w, `{"error": {"code": 403, "message": "The client is not authorized to make this request."}}`, http.StatusForbidden)
+		case "/v1/projects/acme/instances/audit/databases":
+			_, _ = w.Write([]byte(`{"items": [{"name": "events"}]}`))
+		default:
+			http.Error(w, `{"error": {"code": 404, "message": "`+r.URL.Path+`"}}`, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	t.Setenv(EndpointEnv, server.URL)
+	t.Cleanup(func() { testCaches().setSQLDatabasesUnlisted("acme", "us-central1", false) })
+
+	g := newCloudSQL(t, "us-central1")
+	err := g.List()
+
+	// secret's failure alone fails the listing, in part.
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "orders") || strings.Contains(err.Error(), "stopped") || strings.Contains(err.Error(), "gone") {
+		t.Errorf("error %v, want a partial one naming secret alone", err)
+	}
+	var got []string
+	for _, r := range g.Resources {
+		got = append(got, r.Observed.ID)
+	}
+	want := []string{
+		"projects/acme/instances/orders/databases/app",
+		"projects/acme/instances/orders/databases/mysql",
+		"projects/acme/instances/billing/databases/ledger",
+		"projects/acme/instances/audit/databases/events",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("resources:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// stopped's databases are left out, not taken for deleted.
+	p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}}
+	if !slices.Contains(p.PartialTypes(), sqlDatabaseType) {
+		t.Errorf("partial types %v, want %s among them", p.PartialTypes(), sqlDatabaseType)
 	}
 }
 

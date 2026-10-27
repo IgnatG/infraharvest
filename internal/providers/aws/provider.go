@@ -99,9 +99,10 @@ func (*Provider) Name() string {
 // services of a region may list at once, as each has its own lister and
 // they share only the SDK configuration, which is safe to share;
 // default_tags applies tags to every resource, and keys starting with
-// aws: are AWS's own; the network's services share network.tf; and a
-// root that environments share reads the account and the region from the
-// provider, which plans each environment in its own.
+// aws: are AWS's own; the network's services share network.tf; a root
+// that environments share reads the account and the region from the
+// provider, which plans each environment in its own; and the s3 backend
+// keeps state in AWS.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: providerName,
@@ -126,17 +127,41 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeData:      "aws_caller_identity.current",
-			ScopeLocal:     "aws_account_id",
-			ScopeExpr:      "data.aws_caller_identity.current.account_id",
-			RegionArgument: "region",
-			RegionTitle:    "AWS region",
-			RegionData:     "aws_region.current",
-			RegionLocal:    "aws_region",
-			RegionExpr:     "data.aws_region.current.region",
+			ScopeData:       "aws_caller_identity.current",
+			ScopeLocal:      "aws_account_id",
+			ScopeExpr:       "data.aws_caller_identity.current.account_id",
+			RegionArgument:  "region",
+			RegionTitle:     "AWS region",
+			RegionData:      "aws_region.current",
+			RegionLocal:     "aws_region",
+			RegionExpr:      "data.aws_region.current.region",
+			EnvironmentData: environmentData,
 		},
+		Backend: &harvest.Backend{Type: "s3", Settings: []string{"bucket", "encrypt", "key", "kms_key_id", "region", "use_lockfile"}},
 	}
 }
+
+// environmentData returns what an environment's credentials and region
+// give the data sources that read its account and region: the account's
+// ID, the region, and the partition the region is in, with its DNS
+// suffix, where it is known (see partitionDNSSuffixes).
+func environmentData(account, region string) harvest.EnvironmentData {
+	data := harvest.EnvironmentData{}
+	data.Set("aws_caller_identity", account, "account_id", "id")
+	data.Set("aws_region", region, "region", "name", "id")
+	if region == "" {
+		return data
+	}
+	if partition := partitionOf(region); partitionDNSSuffixes[partition] != "" {
+		data.Set("aws_partition", partition, "partition", "id")
+		data.Set("aws_partition", partitionDNSSuffixes[partition], "dns_suffix")
+	}
+	return data
+}
+
+// partitionDNSSuffixes are the DNS suffixes of the partitions whose
+// suffix is known: the commercial one's, China's and GovCloud's.
+var partitionDNSSuffixes = map[string]string{"aws": "amazonaws.com", "aws-cn": "amazonaws.com.cn", "aws-us-gov": "amazonaws.com"}
 
 // accountID matches an AWS account ID.
 var accountID = regexp.MustCompile(`^[0-9]{12}$`)

@@ -11,45 +11,22 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
-// The first signal cancels the context with the signal as the cause, and
-// releases the handler, so that a second one stops the process.
-func TestInterruptOnTheFirstSignal(t *testing.T) {
-	signals := make(chan os.Signal, 1)
-	released := make(chan struct{})
-	ctx, stop := interruptOn(t.Context(), signals, func() { close(released) })
-	defer stop()
-
-	signals <- syscall.SIGTERM
-	<-ctx.Done()
-	var interrupt *Interrupt
-	if !errors.As(context.Cause(ctx), &interrupt) || interrupt.Signal != syscall.SIGTERM {
-		t.Fatalf("cause %v, want the SIGTERM", context.Cause(ctx))
-	}
-	select {
-	case <-released:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the handler is still there after the first signal")
-	}
-	stop() // releases only once
+// interruptedBy returns a context a signal cancelled, as the command
+// line's does (see Interrupt).
+func interruptedBy(t *testing.T, sig os.Signal) context.Context {
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(&Interrupt{Signal: sig})
+	return ctx
 }
 
 // A run a signal stopped exits as a shell reports a process the signal
 // ended; one cancelled otherwise, or ending without an error, keeps its
 // code.
 func TestInterruptedExitCodes(t *testing.T) {
-	interruptedBy := func(sig os.Signal) context.Context {
-		signals := make(chan os.Signal, 1)
-		ctx, stop := interruptOn(t.Context(), signals, func() {})
-		t.Cleanup(stop)
-		signals <- sig
-		<-ctx.Done()
-		return ctx
-	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	for _, tc := range []struct {
@@ -58,12 +35,12 @@ func TestInterruptedExitCodes(t *testing.T) {
 		err  error
 		want int
 	}{
-		{"interrupt", interruptedBy(os.Interrupt), context.Canceled, report.ExitInterrupted},
-		{"SIGTERM", interruptedBy(syscall.SIGTERM), context.Canceled, report.ExitTerminated},
-		{"a failure the interrupt caused", interruptedBy(os.Interrupt), &ExitError{Code: report.ExitIncomplete, Err: errors.New("service s3: stopped")}, report.ExitInterrupted},
+		{"interrupt", interruptedBy(t, os.Interrupt), context.Canceled, report.ExitInterrupted},
+		{"SIGTERM", interruptedBy(t, syscall.SIGTERM), context.Canceled, report.ExitTerminated},
+		{"a failure the interrupt caused", interruptedBy(t, os.Interrupt), &ExitError{Code: report.ExitIncomplete, Err: errors.New("service s3: stopped")}, report.ExitInterrupted},
 		{"cancelled without a signal", canceled, context.Canceled, report.ExitCouldNotRun},
 		{"not interrupted", t.Context(), errors.New("no credentials"), report.ExitCouldNotRun},
-		{"interrupted after it finished", interruptedBy(os.Interrupt), nil, report.ExitOK},
+		{"interrupted after it finished", interruptedBy(t, os.Interrupt), nil, report.ExitOK},
 	} {
 		err := Interrupted(tc.ctx, tc.err)
 		if code := ExitCode(err); code != tc.want {
@@ -82,11 +59,7 @@ func TestInterruptedRunReportsItsExitCode(t *testing.T) {
 	run := NewRun()
 	run.used = true
 	run.options = Options{Out: out}
-	signals := make(chan os.Signal, 1)
-	ctx, stop := interruptOn(t.Context(), signals, func() {})
-	defer stop()
-	signals <- os.Interrupt
-	<-ctx.Done()
+	ctx := interruptedBy(t, os.Interrupt)
 
 	err := run.finish(Interrupted(ctx, ctx.Err()))
 

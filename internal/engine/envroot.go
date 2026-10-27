@@ -955,12 +955,16 @@ func (w *rootWriter) backendType() string {
 	return ""
 }
 
-// backendSettings are the settings each backend type takes, for the
-// backend.hcl of an environment whose root had none.
-var backendSettings = map[string][]string{
-	"s3":      {"bucket", "key", "region", "encrypt", "use_lockfile"},
-	"azurerm": {"resource_group_name", "storage_account_name", "container_name", "key"},
-	"gcs":     {"bucket", "prefix"},
+// backendSettings are the settings the roots' backends of type typ set,
+// as the first root that has one sets them, for the backend.hcl of an
+// environment whose root had none.
+func (w *rootWriter) backendSettings(typ string) []string {
+	for e := range w.m.roots {
+		if t, names, _ := w.rootBackend(e); t == typ {
+			return names
+		}
+	}
+	return nil
 }
 
 // backendConfig writes environment env's backend.hcl: its root's backend
@@ -976,7 +980,7 @@ func (w *rootWriter) backendConfig(env int) []byte {
 	typ, names, values := w.rootBackend(env)
 	if typ != want {
 		fmt.Fprintf(&b, "# The %s root had no %s backend: set these.\n", w.m.envs[env], want)
-		for _, name := range backendSettings[want] {
+		for _, name := range w.backendSettings(want) {
 			fmt.Fprintf(&b, "# %s = \"\"\n", name)
 		}
 		return []byte(b.String())

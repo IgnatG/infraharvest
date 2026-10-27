@@ -168,3 +168,11 @@ func TestCheck(t *testing.T) {
 		t.Errorf("got %v, want the provider refused, naming %v", err, Names())
 	}
 }
+
+// Drift reads the state of the backends of the three clouds, which their
+// providers declare, in the order of their commands.
+func TestBackends(t *testing.T) {
+	if got, want := Backends(), []string{"s3", "azurerm", "gcs"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

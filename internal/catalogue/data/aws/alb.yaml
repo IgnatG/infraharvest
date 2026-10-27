@@ -8,6 +8,15 @@ types:
     # subnet_mapping blocks that name every subnet of a module's output,
     # and nothing else, become subnets, set to the output.
     blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }
+    # The DNS names of Application and Network Load Balancers, with the
+    # balancer's name and region: web-1234567890.eu-west-2.elb.amazonaws.com
+    # and web-0123456789abcdef.elb.eu-west-2.amazonaws.com.
+    named_by:
+      - attribute: dns_name
+        match:
+          - '^(?:internal-)?(?P<name>[A-Za-z0-9-]+)-[0-9]+\.(?P<region>[a-z0-9-]+)\.elb\.amazonaws\.com$'
+          - '^(?:internal-)?(?P<name>[A-Za-z0-9-]+)-[0-9a-f]+\.elb\.(?P<region>[a-z0-9-]+)\.amazonaws\.com$'
+        id: "arn:{partition}:elasticloadbalancing:{region}:{account}:loadbalancer/{kind}/{name}/{lb_id}"
   aws_lb_listener:
     # Mutual TLS that is off.
     omit: [mutual_authentication when mutual_authentication.mode=off]
