@@ -218,7 +218,7 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 	}
 
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
 		InputResponses: mcp.InputResponseMap{driftConfirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   "a confirmation of another run",
@@ -344,7 +344,7 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 	dir := t.TempDir()
 	out := generatedOut(t, dir)
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	for name, tc := range map[string]struct {
 		in   DriftAcceptInput
@@ -391,7 +391,7 @@ func TestDriftFilesStayUnderRoot(t *testing.T) {
 	inside := filepath.Join(root, "generated")
 	decisions := writeFile(t, outside, "drift.yaml", "version: 1\n")
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	if _, _, err := tools.drift(t.Context(), req, DriftInput{Out: outside}); err == nil || !strings.Contains(err.Error(), "must be under") {
@@ -465,7 +465,7 @@ func TestDriftCatalogue(t *testing.T) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
 
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	if _, _, err := tools.drift(t.Context(), req, DriftInput{Out: out, Catalogue: t.TempDir()}); err == nil || !strings.Contains(err.Error(), "must be under") {
 		t.Errorf("a catalogue outside the root: got %v, want it rejected", err)

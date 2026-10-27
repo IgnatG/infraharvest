@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,21 @@ type fakeRunner struct {
 	// importReport, when set, is the report import prints instead of the
 	// default one.
 	importReport *report.Report
+	// checked are the arguments of each check; checkErr is the error each
+	// returns.
+	checked  [][]string
+	checkErr error
+}
+
+func (f *fakeRunner) check(_ context.Context, args []string) error {
+	f.checked = append(f.checked, args)
+	return f.checkErr
+}
+
+// newTools returns the tools, whose files stay under root, running and
+// checking with runner.
+func newTools(runner *fakeRunner, root string) *tools {
+	return &tools{run: runner.run, check: runner.check, root: root}
 }
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
@@ -86,7 +102,7 @@ func writeSelection(path string) error {
 func connect(t *testing.T, runner *fakeRunner, root string, elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := New("test", root, runner.run).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := New("test", root, runner.run, runner.check).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{ElicitationHandler: elicit})
@@ -205,6 +221,36 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 	}
 	if original, err := os.ReadFile(path); err != nil || len(runner.selections) != 1 || runner.selections[0] != string(original) {
 		t.Errorf("the import read %q, want the confirmed content %q (%v)", runner.selections, original, err)
+	}
+}
+
+// An import the command's checks refuse fails before the user is asked,
+// with the command's error, and runs nothing.
+func TestImportChecksBeforeAsking(t *testing.T) {
+	runner := &fakeRunner{checkErr: errors.New("say which projects to import: --projects, --organization or --folders")}
+	asked := false
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = true
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "generated")
+
+	res, text := call(t, session, "import", map[string]any{"provider": "google", "services": []string{"iam"}, "selection": path, "out": out})
+
+	if !res.IsError || !strings.Contains(text, "say which projects") {
+		t.Errorf("want the command's error, got %s", text)
+	}
+	if asked || len(runner.runs) != 0 {
+		t.Errorf("asked %v, runs %v: want neither", asked, runner.runs)
+	}
+	want := []string{"import", "google", "--services=iam", "--selection=" + path, "--out=" + out, "--format=json"}
+	if len(runner.checked) != 1 || !slices.Equal(runner.checked[0], want) {
+		t.Errorf("checked %v, want %v", runner.checked, want)
 	}
 }
 
@@ -427,7 +473,7 @@ func TestImportChecksWhatWasConfirmed(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
 		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   "a confirmation of another import",
@@ -484,7 +530,7 @@ func TestFilesStayUnderRoot(t *testing.T) {
 		}
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
@@ -601,7 +647,7 @@ func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	for _, out := range []string{"linked-report", "linked-parent"} {
@@ -644,7 +690,7 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 	state := confirmationState(args, content)
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: dir}
+	tools := newTools(runner, dir)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
 		InputResponses: mcp.InputResponseMap{confirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   state,
@@ -699,7 +745,7 @@ func TestValuesShownToTheUser(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	tools := &tools{run: (&fakeRunner{}).run, root: dir}
+	tools := newTools(&fakeRunner{}, dir)
 	if _, err := tools.within("out", filepath.Join(dir, "gen\nInto nothing")); err == nil || !strings.Contains(err.Error(), "control character") {
 		t.Errorf("a path with a newline: got %v", err)
 	}
@@ -756,7 +802,7 @@ func TestRelativePathsAreUnderRoot(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(t.TempDir())
 	runner := &fakeRunner{}
-	tools := &tools{run: runner.run, root: root}
+	tools := newTools(runner, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	scope := Scope{Provider: "aws", Services: []string{"vpc"}}
 
@@ -819,7 +865,7 @@ func TestReportBoundsALongReport(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
@@ -852,7 +898,7 @@ func TestReportReturnsAShortReportWhole(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte("# Report\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 
 	res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")})
@@ -989,7 +1035,7 @@ func TestReportReadsTheDriftReport(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, report.DriftMarkdownFile), []byte("# Drift\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tools := &tools{run: (&fakeRunner{}).run, root: root}
+	tools := newTools(&fakeRunner{}, root)
 	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
 	read := func(kind string) (string, error) {
 		res, _, err := tools.report(t.Context(), req, ReportInput{Out: out, Kind: kind})
