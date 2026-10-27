@@ -112,7 +112,8 @@ type Provider struct {
 // --azapi, else "". It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
 // any request. A custom cloud's endpoints are read from its metadata host,
-// with ctx.
+// with ctx, and the requests are limited at the rate of the run's limiter
+// in ctx (see ratelimit.FromContext).
 func (p *Provider) Init(ctx context.Context, args []string) error {
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
@@ -146,7 +147,8 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 
 // signIn completes cfg's cloud, reading a metadata host's endpoints with
 // ctx when cfg has one, and returns cfg so completed, the credential cfg
-// signs in with and the options of the Resource Manager clients. It sends
+// signs in with and the options of the Resource Manager clients, whose
+// requests the limiters of ctx's run limit (see limitedClient). It sends
 // no request other than the metadata one: the credential signs in on its
 // first token. Every sign-in of the run with the same configuration, for
 // whichever subscription, shares one credential, and so its tokens, and
@@ -161,7 +163,7 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
 			Telemetry: policy.TelemetryOptions{ApplicationID: telemetryApplicationID},
-			Transport: limitedClient(cfg.subscriptionID, resourceManagerHTTPClient()),
+			Transport: limitedClient(ratelimit.FromContext(ctx), cfg.subscriptionID, resourceManagerHTTPClient()),
 		},
 		AuxiliaryTenants: cfg.auxiliaryTenants,
 		// The SDK otherwise answers a MissingSubscriptionRegistration
@@ -220,28 +222,53 @@ func signInKey(cfg authConfig) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// limiters holds each subscription's *ratelimit.Limiter, by subscription
-// ID: Azure throttles Resource Manager reads per subscription, so every
-// service and Resource Manager request of a subscription shares one limit.
-var limiters sync.Map
-
-// subscriptionLimiter returns the subscription's limiter, made with
-// Default's rate the first time it is asked for.
-func subscriptionLimiter(subscriptionID string) *ratelimit.Limiter {
-	if l, ok := limiters.Load(subscriptionID); ok {
-		return l.(*ratelimit.Limiter)
-	}
-	l, _ := limiters.LoadOrStore(subscriptionID, ratelimit.Like(ratelimit.Default()))
-	return l.(*ratelimit.Limiter)
+// runLimiters are the limiters of one run's requests, kept with the run's
+// limiter (see limitersOf), so that another run, with a rate of its own,
+// has its own.
+type runLimiters struct {
+	// rate is the run's limiter, whose rate each subscription gets.
+	rate *ratelimit.Limiter
+	// graph is the limiter of every Resource Graph query, of graphRate, or
+	// the run's rate if that is lower. Azure throttles Resource Graph per
+	// user, not per subscription, so the queries of every subscription of
+	// a run share one limit.
+	graph *ratelimit.Limiter
+	// mu guards subscriptions.
+	mu sync.Mutex
+	// subscriptions holds each subscription's limiter, by subscription ID:
+	// Azure throttles Resource Manager reads per subscription, so every
+	// service and Resource Manager request of a subscription shares one
+	// limit.
+	subscriptions map[string]*ratelimit.Limiter
 }
 
-// graphLimiter is the limiter of every Resource Graph query, made the
-// first time it is asked for with graphRate, or Default's rate if that is
-// lower. Azure throttles Resource Graph per user, not per subscription, so
-// the queries of every subscription of a run share one limit.
-var graphLimiter = sync.OnceValue(func() *ratelimit.Limiter {
-	return ratelimit.New(min(graphRate, ratelimit.Default().Rate()))
-})
+// runLimitersKey is the key of a run's limiters kept with its limiter.
+type runLimitersKey struct{}
+
+// limitersOf returns the limiters of the run whose limiter is run, made
+// the first time it is asked for.
+func limitersOf(run *ratelimit.Limiter) *runLimiters {
+	return ratelimit.Kept(run, runLimitersKey{}, func() *runLimiters {
+		return &runLimiters{
+			rate:          run,
+			graph:         ratelimit.New(min(graphRate, run.Rate())),
+			subscriptions: map[string]*ratelimit.Limiter{},
+		}
+	})
+}
+
+// subscription returns the subscription's limiter, made with the run's
+// rate the first time it is asked for.
+func (r *runLimiters) subscription(subscriptionID string) *ratelimit.Limiter {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	l, ok := r.subscriptions[subscriptionID]
+	if !ok {
+		l = ratelimit.Like(r.rate)
+		r.subscriptions[subscriptionID] = l
+	}
+	return l
+}
 
 // graphRate is how many Resource Graph queries a second a run sends at
 // most: Azure allows a user 15 every 5 seconds.
@@ -251,13 +278,14 @@ const graphRate = 3.0
 // in lower case.
 const graphPathPrefix = "/providers/microsoft.resourcegraph/"
 
-// limitedClient sends each request through base once its limit allows: a
-// Resource Graph query graphLimiter's, any other request the
-// subscription's (see subscriptionLimiter).
-func limitedClient(subscriptionID string, base ratelimit.Doer) ratelimit.Doer {
+// limitedClient sends each request through base once its limit in the
+// run whose limiter is run allows: a Resource Graph query the run's graph
+// limiter's, any other request the subscription's (see runLimiters).
+func limitedClient(run *ratelimit.Limiter, subscriptionID string, base ratelimit.Doer) ratelimit.Doer {
+	limiters := limitersOf(run)
 	return &limitedDoer{
-		resourceManager: subscriptionLimiter(subscriptionID).Client(base),
-		graph:           graphLimiter().Client(base),
+		resourceManager: limiters.subscription(subscriptionID).Client(base),
+		graph:           limiters.graph.Client(base),
 	}
 }
 

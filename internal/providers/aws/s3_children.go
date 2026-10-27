@@ -98,9 +98,7 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 	if r.Address.Type != "aws_s3_bucket" || !ok || len(entry.Children) == 0 {
 		return nil, nil
 	}
-	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
-	service.SetContext(ctx)
+	service := p.service(ctx)
 	config, err := service.sdkConfig()
 	if err != nil {
 		return nil, err

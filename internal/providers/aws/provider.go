@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -60,12 +61,18 @@ type Provider struct {
 	// scopedStacks are the stacks of stackScope as ImportScope last
 	// matched them with what is listed (see CloudFormationStacks).
 	scopedStacks []report.CloudFormationStack
+	// limiter is the limiter of the run Init was given (see
+	// ratelimit.FromContext), whose configurations the provider's own
+	// calls use, whatever context they are given (see service).
+	limiter *ratelimit.Limiter
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]). It contacts nothing, so it never fails: the
-// credentials are resolved when the first service lists.
-func (p *Provider) Init(_ context.Context, args []string) error {
+// a role to assume (args[2]), and the run's limiter from ctx. It contacts
+// nothing, so it never fails: the credentials are resolved when the first
+// service lists.
+func (p *Provider) Init(ctx context.Context, args []string) error {
+	p.limiter = ratelimit.FromContext(ctx)
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -247,6 +254,20 @@ func (p *Provider) Select(name string, verbose bool) error {
 // Service.sdkConfig).
 func (p *Provider) serviceArgs() map[string]interface{} {
 	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}.args()
+}
+
+// service returns a Service of the provider's settings, for the provider's
+// own calls with ctx, in the run Init was given: Terraform's credentials
+// are asked for with the context of the generation, which carries no
+// limiter, and they must come from the run's configuration all the same.
+func (p *Provider) service(ctx context.Context) *Service {
+	if p.limiter != nil {
+		ctx = ratelimit.NewContext(ctx, p.limiter)
+	}
+	service := &Service{}
+	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	service.SetContext(ctx)
+	return service
 }
 
 // SetUnwantedTypes takes what reports the types the import leaves out

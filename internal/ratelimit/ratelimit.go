@@ -4,7 +4,8 @@
 // Package ratelimit limits the requests a run sends to each API host, such
 // as ec2.eu-west-1.amazonaws.com or compute.googleapis.com: the clouds
 // throttle by API, and a run lists many services, regions and accounts at
-// once. The clients of the listers send their requests through Default.
+// once. The clients of the listers send their requests through their
+// run's Limiter (see FromContext).
 package ratelimit
 
 import (
@@ -27,6 +28,12 @@ type Limiter struct {
 	mu    sync.Mutex
 	rate  float64
 	hosts map[string]*rate.Limiter
+
+	// keptMu guards kept, apart from mu, so that making a value never
+	// holds up a request.
+	keptMu sync.Mutex
+	// kept are the values kept with the Limiter, by key (see Kept).
+	kept map[any]any
 }
 
 // New returns a Limiter of perSecond requests a second to each host; 0 or
@@ -70,6 +77,30 @@ func FromContext(ctx context.Context) *Limiter {
 		return l
 	}
 	return std
+}
+
+// Kept returns the value kept with l for key, which build makes the first
+// time it is asked for. A run's Limiter is the one thing every listing of
+// the run shares (see NewContext), so the providers keep with it what
+// the run builds once for all of them, such as the clients it limits: it
+// lasts as long as the run, and no other run sees it. build runs with l's
+// values locked, so it must be quick and must not ask l for another. A
+// nil Limiter keeps nothing: each call makes the value again.
+func Kept[T any](l *Limiter, key any, build func() T) T {
+	if l == nil {
+		return build()
+	}
+	l.keptMu.Lock()
+	defer l.keptMu.Unlock()
+	if value, ok := l.kept[key]; ok {
+		return value.(T)
+	}
+	value := build()
+	if l.kept == nil {
+		l.kept = map[any]any{}
+	}
+	l.kept[key] = value
+	return value
 }
 
 // Rate is the requests a second each host gets; 0 or below: no limit.

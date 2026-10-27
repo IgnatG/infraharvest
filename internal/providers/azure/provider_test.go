@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -174,15 +176,77 @@ func TestSignInSharesTheCredential(t *testing.T) {
 	}
 }
 
-// Every sign-in for a subscription shares its limiter; other subscriptions
-// have their own.
+// Every sign-in of a run for a subscription shares its limiter, of the
+// run's rate; other subscriptions have their own.
 func TestSubscriptionLimiterIsShared(t *testing.T) {
-	a := subscriptionLimiter("sub-limiter-a")
-	if a == nil || subscriptionLimiter("sub-limiter-a") != a {
+	run := limitersOf(ratelimit.New(7))
+	a := run.subscription("sub-limiter-a")
+	if a == nil || run.subscription("sub-limiter-a") != a {
 		t.Error("the same subscription got another limiter")
 	}
-	if subscriptionLimiter("sub-limiter-b") == a {
+	if run.subscription("sub-limiter-b") == a {
 		t.Error("two subscriptions share a limiter")
+	}
+	if a.Rate() != 7 {
+		t.Errorf("the subscription's rate is %v, want the run's 7", a.Rate())
+	}
+}
+
+// Two runs in one process, at once, sign in for the same subscription
+// with their own rates: each has its own subscription and Resource Graph
+// limiters, at its own rate, the graph's no more than graphRate, and the
+// requests of one never wait for the other's. Run with -race.
+func TestRunsKeepTheirOwnLimits(t *testing.T) {
+	type run struct {
+		limiter     *ratelimit.Limiter
+		graph, subs float64
+		waits       bool
+		client      ratelimit.Doer
+	}
+	runs := []*run{
+		{limiter: ratelimit.New(1), graph: 1, subs: 1, waits: true},
+		{limiter: ratelimit.New(1000), graph: graphRate, subs: 1000},
+	}
+	var wg sync.WaitGroup
+	for _, r := range runs {
+		wg.Go(func() {
+			ctx := ratelimit.NewContext(t.Context(), r.limiter)
+			if _, _, options, err := signIn(ctx, authConfig{subscriptionID: "sub-runs", tenantID: "tenant-runs"}); err != nil || options.Transport == nil {
+				t.Errorf("sign-in: %v", err)
+			}
+			r.client = limitedClient(r.limiter, "sub-runs", &recordingDoer{})
+		})
+	}
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
+	for _, r := range runs {
+		limiters := limitersOf(r.limiter)
+		if got := limiters.graph.Rate(); got != r.graph {
+			t.Errorf("run of %v: Resource Graph rate %v, want %v", r.subs, got, r.graph)
+		}
+		if got := limiters.subscription("sub-runs").Rate(); got != r.subs {
+			t.Errorf("run of %v: subscription rate %v", r.subs, got)
+		}
+		// The second request waits past its deadline only at 1 a second.
+		var waited bool
+		for i := range 2 {
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://management.azure.com/subscriptions/sub-runs/resourceGroups", http.NoBody)
+			_, err := r.client.Do(req)
+			cancel()
+			if err != nil {
+				waited = i == 1
+				break
+			}
+		}
+		if waited != r.waits {
+			t.Errorf("run of %v: the second request waited: %t, want %t", r.subs, waited, r.waits)
+		}
+	}
+	if limitersOf(runs[0].limiter) == limitersOf(runs[1].limiter) {
+		t.Error("the runs share their limiters")
 	}
 }
 
@@ -328,15 +392,17 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 // Resource Graph queries share one limiter across subscriptions, as Azure
 // throttles them per user; every other request keeps its subscription's.
 func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
-	a := limitedClient("sub-graph-a", nil).(*limitedDoer)
-	b := limitedClient("sub-graph-b", nil).(*limitedDoer)
-	if graph := graphLimiter(); graph == nil || graphLimiter() != graph {
+	run := ratelimit.New(ratelimit.DefaultRate)
+	a := limitedClient(run, "sub-graph-a", nil).(*limitedDoer)
+	b := limitedClient(run, "sub-graph-b", nil).(*limitedDoer)
+	limiters := limitersOf(run)
+	if graph := limiters.graph; graph == nil || limitersOf(run).graph != graph {
 		t.Fatal("Resource Graph queries got more than one limiter")
 	}
-	if got, want := graphLimiter().Rate(), min(graphRate, ratelimit.Default().Rate()); got != want {
+	if got, want := limiters.graph.Rate(), min(graphRate, run.Rate()); got != want {
 		t.Errorf("Resource Graph queries are limited to %v a second, want %v", got, want)
 	}
-	if graphLimiter() == subscriptionLimiter("sub-graph-a") || subscriptionLimiter("sub-graph-a") == subscriptionLimiter("sub-graph-b") {
+	if limiters.graph == limiters.subscription("sub-graph-a") || limiters.subscription("sub-graph-a") == limiters.subscription("sub-graph-b") {
 		t.Error("Resource Manager requests don't keep their subscription's limiter")
 	}
 	if a == b {
