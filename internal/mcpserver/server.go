@@ -848,12 +848,14 @@ func commandArgs(command string, scope Scope, in any) ([]string, error) {
 // flagArgs returns the flags that in, a tool's input, sets: for each field
 // with a flag tag, in this one place, the flag that tag names, with the
 // field's value, or none when the field isn't set. A list goes into one
-// flag, comma-separated, or with ",each" in the tag, as a flag that takes
-// one value each time such as --cfn-stack, into a flag per value. Every
-// value is part of a --flag=value argument, so none can become a flag of
-// its own; one with a control character, such as a newline, which could
-// make the confirmation the user is shown say something else, is
-// rejected. The fields of an embedded struct come in its place.
+// flag, comma-separated, so that a value of it with a comma, which the
+// command would take for two, is rejected; or with ",each" in the tag, as
+// a flag that takes one value each time such as --cfn-stack, into a flag
+// per value. An empty value in a list is rejected. Every value is part of
+// a --flag=value argument, so none can become a flag of its own; one with
+// a control character, such as a newline, which could make the
+// confirmation the user is shown say something else, is rejected. The
+// fields of an embedded struct come in its place.
 func flagArgs(in any) ([]string, error) {
 	var args []string
 	v := reflect.ValueOf(in)
@@ -889,13 +891,21 @@ func flagArgs(in any) ([]string, error) {
 			}
 		case reflect.Slice:
 			values = value.Interface().([]string)
+			for _, v := range values {
+				if v == "" {
+					return nil, fmt.Errorf("%s has an empty value", jsonName(field))
+				}
+				if mode != "each" && strings.Contains(v, ",") {
+					return nil, fmt.Errorf("%s %q has a comma", jsonName(field), v)
+				}
+			}
 			if len(values) > 0 && mode != "each" {
 				values = []string{strings.Join(values, ",")}
 			}
 		}
 		for _, value := range values {
 			if strings.ContainsFunc(value, unicode.IsControl) {
-				return nil, fmt.Errorf("%q has a control character", value)
+				return nil, fmt.Errorf("%s %q has a control character", jsonName(field), value)
 			}
 			args = append(args, "--"+name+"="+value)
 		}

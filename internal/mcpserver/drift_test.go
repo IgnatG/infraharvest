@@ -118,12 +118,12 @@ func TestDrift(t *testing.T) {
 	session := connect(t, runner, dir, nil)
 	out := generatedOut(t, dir)
 
-	res, text := call(t, session, "drift", map[string]any{"out": out, "roots": []string{"aws/*"}, "parallel": 2})
+	res, text := call(t, session, "drift", map[string]any{"out": out, "roots": []string{"aws/*"}, "parallel": 2, "environments": []string{"prod", "dev"}})
 
 	if res.IsError || !strings.Contains(text, "3 changes in the cloud") || !strings.Contains(text, "2 kept") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"drift", "--format=json", "--detailed-exitcode", "--root=aws/*", "--parallel=2", "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -353,10 +353,14 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 		"nothing to do":         {DriftAcceptInput{DriftInput: DriftInput{Out: out}}, "call drift"},
 		"no output directory":   {DriftAcceptInput{Accept: []string{"all"}}, "out is required"},
 		"a rule of no field":    {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Accept: []string{"name=x"}}, "attribute="},
-		"a rule with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Keep: []string{"attribute=tags.*\nand accept all"}}, "control character"},
-		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, "control character"},
-		"a bad decisions file":  {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
-		"no decisions file":     {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
+		"a rule with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Keep: []string{"attribute=tags.*\nand accept all"}}, `keep "attribute=tags.*\nand accept all" has a control character`},
+		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, `roots "aws/*\n" has a control character`},
+		"an empty root":         {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{""}}, Accept: []string{"all"}}, "roots has an empty value"},
+		"an empty environment":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod", ""}}, Accept: []string{"all"}}, "environments has an empty value"},
+		// --environment takes a list: prod,dev would be two environments.
+		"an environment with a comma": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod,dev"}}, Accept: []string{"all"}}, `environments "prod,dev" has a comma`},
+		"a bad decisions file":        {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
+		"no decisions file":           {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
 	} {
 		if _, _, err := tools.driftAccept(t.Context(), req, tc.in); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: got %v, want an error with %q", name, err, tc.want)
