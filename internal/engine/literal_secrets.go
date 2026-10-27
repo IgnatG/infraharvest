@@ -54,7 +54,7 @@ type foundSecret struct {
 
 // tagAttribute reports whether an attribute or block holds tags or labels:
 // metadata anyone who can list the resource reads, which only the
-// credential formats of secretPatterns are looked for in.
+// credential formats of credentialPatterns are looked for in.
 func tagAttribute(name string) bool {
 	switch name {
 	case "tags", "tags_all", "labels", "tag", "terraform_labels", "effective_labels", "default_labels", "user_labels", "resource_labels":
@@ -414,26 +414,6 @@ func secretReason(key, value string, freeForm bool) string {
 	return ""
 }
 
-// literalSecretPatterns are credential formats looked for in single
-// values, besides secretPatterns. A webhook URL is the whole value.
-var literalSecretPatterns = map[string]*regexp.Regexp{
-	"password in a connection string": regexp.MustCompile(`(?im)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
-	"Azure shared access key":         regexp.MustCompile(`SharedAccessKey=[A-Za-z0-9+/=]{20,}`),
-	"Azure SAS token":                 regexp.MustCompile(`[?&]sig=[A-Za-z0-9%+/=]{20,}`),
-	"Slack webhook":                   regexp.MustCompile(`^https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}`),
-	"Discord webhook":                 regexp.MustCompile(`^https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}`),
-	"Microsoft Teams webhook":         regexp.MustCompile(`^https://([A-Za-z0-9-]+\.webhook|outlook)\.office(365)?\.com/webhook(b2)?/\S{20,}`),
-	"Zapier webhook":                  regexp.MustCompile(`^https://hooks\.zapier\.com/hooks/catch/[0-9]+/[A-Za-z0-9]+`),
-	"GitHub fine-grained token":       regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`),
-	"GitLab token":                    regexp.MustCompile(`\bglpat-[A-Za-z0-9_-]{20,}\b`),
-	"npm token":                       regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`),
-	"API key":                         regexp.MustCompile(`\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}\b`),
-	"SendGrid key":                    regexp.MustCompile(`\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b`),
-	"Stripe restricted key":           regexp.MustCompile(`\brk_live_[0-9A-Za-z]{20,}\b`),
-}
-
-var literalSecretPatternNames = sortedKeys(literalSecretPatterns)
-
 // authorizationPattern matches the value of an Authorization header with
 // the Basic or Bearer scheme.
 var authorizationPattern = regexp.MustCompile(`^(?i)(basic|bearer)\s+([A-Za-z0-9._~+/-]+=*)$`)
@@ -463,14 +443,9 @@ func credentialFormat(value string) string {
 	if authorizationHeader(value) {
 		return "credential in an Authorization header"
 	}
-	for _, name := range secretPatternNames {
-		if secretPatterns[name].MatchString(value) {
-			return name
-		}
-	}
-	for _, name := range literalSecretPatternNames {
-		if literalSecretPatterns[name].MatchString(value) {
-			return name
+	for _, p := range credentialPatterns {
+		if p.inValue.MatchString(value) {
+			return p.name
 		}
 	}
 	return ""
