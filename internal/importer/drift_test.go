@@ -357,6 +357,7 @@ func TestDriftAcceptsByRule(t *testing.T) {
 		{"none accepted", report.DriftWritten, nil, report.ExitDrift},
 		{"all written", report.DriftWritten, []DriftRule{{Accept: true}}, report.ExitOK},
 		{"rejected", report.DriftRejectedByPlan, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
+		{"rejected by a check", report.DriftRejectedByCheck, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
 		{"a hand edit", report.DriftManual, []DriftRule{{Accept: true}}, report.ExitDrift},
 		{"in another root", report.DriftWritten, []DriftRule{{Accept: true, Field: "root", Pattern: "google/*"}}, report.ExitDrift},
 	} {

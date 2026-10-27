@@ -275,11 +275,67 @@ func TestDriftAcceptChecksTheEditedCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByPlan || !strings.Contains(c.Reason, CheckFormat) {
+	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, CheckFormat) {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "main.tf"); got != taggedBuckets {
 		t.Errorf("main.tf changed:\n%s", got)
+	}
+}
+
+// A check the edited code fails rejects only the changes whose edits are
+// in the files it fails on: the others are planned, checked and written.
+func TestDriftAcceptChecksBlameTheEditsOfTheFilesTheyFailOn(t *testing.T) {
+	t.Parallel()
+	const logs = `resource "aws_s3_bucket" "logs" {
+  bucket = "logs"
+  tags = {
+    Env = "prod"
+  }
+}
+`
+	const data = `resource "aws_s3_bucket" "data" {
+  bucket = "data"
+  tags = {
+    Env = "prod"
+  }
+}
+`
+	dir, staging := acceptRoot(t, map[string]string{"main.tf": logs, "data.tf": data})
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{
+		tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "prod", "dev"),
+		tagChange("aws_s3_bucket.data", tfjson.Actions{tfjson.ActionUpdate}, "prod", "dev"),
+	}}
+	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "dev", "prod"),
+		tagChange("aws_s3_bucket.data", tfjson.Actions{tfjson.ActionUpdate}, "dev", "prod"),
+	}}
+	both := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs"), noChange("aws_s3_bucket.data")}}
+	logsOnly := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		noChange("aws_s3_bucket.logs"),
+		tagChange("aws_s3_bucket.data", tfjson.Actions{tfjson.ActionUpdate}, "dev", "prod"),
+	}}
+	var calls []string
+	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
+	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, both, logsOnly}, unformatted: []string{"data.tf"}}
+
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := outcomes(result)
+	if c := got["aws_s3_bucket.data tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, "data.tf") {
+		t.Errorf("data: %s: %s", c.Outcome, c.Reason)
+	}
+	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten {
+		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
+	}
+	if got := readFile(t, dir, "data.tf"); got != data {
+		t.Errorf("data.tf changed:\n%s", got)
+	}
+	if got := readFile(t, dir, "main.tf"); !strings.Contains(got, `Env = "dev"`) {
+		t.Errorf("main.tf:\n%s", got)
 	}
 }
 

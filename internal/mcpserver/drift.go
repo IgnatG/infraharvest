@@ -404,8 +404,8 @@ func driftResult(d *report.Drift, code int, out string) *DriftResult {
 // driftText summarises result.
 func driftText(result *DriftResult) string {
 	t, code := result.Totals, result.ExitCode
-	text := fmt.Sprintf("Checked %d roots (%d couldn't be): %d changes in the cloud since they were applied; %d accepted into the code, %d kept, which the next apply reverts, %d need a hand edit, %d rejected by the plan, %d secrets, %d not assessable, and %d the code absorbs (exit code %d). The report is in %s.",
-		t.Roots-t.Failed, t.Failed, t.Changes, t.Written, t.Kept, t.Manual, t.RejectedByPlan, t.Secret, t.NotAssessable, t.Absorbed, code, result.Report)
+	text := fmt.Sprintf("Checked %d roots (%d couldn't be): %d changes in the cloud since they were applied; %d accepted into the code, %d kept, which the next apply reverts, %d need a hand edit, %d rejected by the plan, %d rejected by a check, %d secrets, %d not assessable, and %d the code absorbs (exit code %d). The report is in %s.",
+		t.Roots-t.Failed, t.Failed, t.Changes, t.Written, t.Kept, t.Manual, t.RejectedByPlan, t.RejectedByCheck, t.Secret, t.NotAssessable, t.Absorbed, code, result.Report)
 	if result.MoreChanges > 0 {
 		text += fmt.Sprintf(" The result lists the first %d changes and leaves out %d more: the report has them all.", maxDriftChanges, result.MoreChanges)
 	}

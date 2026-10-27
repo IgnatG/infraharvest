@@ -68,6 +68,10 @@ const (
 	// of the edited code didn't take it as it should, so the edit wasn't
 	// written.
 	DriftRejectedByPlan = "rejected_by_plan"
+	// DriftRejectedByCheck: the cloud's value was accepted, and the plan
+	// of the edited code took it, but the edit fails a check of the
+	// verification gate, such as format or secrets, so it wasn't written.
+	DriftRejectedByCheck = "rejected_by_check"
 	// DriftManual: the cloud's value was accepted, but where the code
 	// sets it takes a hand edit, as Reason says.
 	DriftManual = "manual"
@@ -179,7 +183,8 @@ type DriftChange struct {
 	Decision string
 	// Outcome is DriftAbsorbed or DriftNotAssessable, or, for a change the
 	// next apply would revert, DriftKept, DriftWritten,
-	// DriftRejectedByPlan, DriftManual or DriftSecret.
+	// DriftRejectedByPlan, DriftRejectedByCheck, DriftManual or
+	// DriftSecret.
 	Outcome string
 	Reason  string
 	// ForcesReplacement says the next apply would replace the resource

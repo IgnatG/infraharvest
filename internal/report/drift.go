@@ -33,6 +33,10 @@ const (
 	// DriftRejectedByPlan: accepted, but the plan of the edited code
 	// didn't take it, so nothing was written for it.
 	DriftRejectedByPlan = "rejected_by_plan"
+	// DriftRejectedByCheck: accepted, and the plan of the edited code
+	// took it, but the edit fails a check of the verification gate, so
+	// nothing was written for it.
+	DriftRejectedByCheck = "rejected_by_check"
 	// DriftManual: accepted, but taking it into the code is a hand edit.
 	DriftManual = "manual"
 	// DriftSecret: accepted, but a secret, which is never written.
@@ -85,16 +89,17 @@ type Drift struct {
 
 // DriftTotals count the roots and changes of a Drift.
 type DriftTotals struct {
-	Roots          int `json:"roots"`
-	Failed         int `json:"failed"`
-	Changes        int `json:"changes"`
-	Written        int `json:"written"`
-	Kept           int `json:"kept"`
-	RejectedByPlan int `json:"rejected_by_plan"`
-	Manual         int `json:"manual"`
-	Secret         int `json:"secret"`
-	NotAssessable  int `json:"not_assessable"`
-	Absorbed       int `json:"absorbed"`
+	Roots           int `json:"roots"`
+	Failed          int `json:"failed"`
+	Changes         int `json:"changes"`
+	Written         int `json:"written"`
+	Kept            int `json:"kept"`
+	RejectedByPlan  int `json:"rejected_by_plan"`
+	RejectedByCheck int `json:"rejected_by_check"`
+	Manual          int `json:"manual"`
+	Secret          int `json:"secret"`
+	NotAssessable   int `json:"not_assessable"`
+	Absorbed        int `json:"absorbed"`
 }
 
 // DriftRoot is one root drift checked, or couldn't.
@@ -155,8 +160,8 @@ type DriftChange struct {
 	// decided for other values: the cloud changed it again, so it is kept,
 	// unless --accept accepts it.
 	DecisionStale bool `json:"decision_stale,omitempty"`
-	// Outcome is written, kept, rejected_by_plan, manual, secret,
-	// not_assessable or absorbed.
+	// Outcome is written, kept, rejected_by_plan, rejected_by_check,
+	// manual, secret, not_assessable or absorbed.
 	Outcome string `json:"outcome"`
 	Reason  string `json:"reason,omitempty"`
 	// ForcesReplacement says the next apply would replace the resource to
@@ -239,6 +244,8 @@ func (d *Drift) Finish() {
 			t.Kept++
 		case DriftRejectedByPlan:
 			t.RejectedByPlan++
+		case DriftRejectedByCheck:
+			t.RejectedByCheck++
 		case DriftManual:
 			t.Manual++
 		case DriftSecret:
@@ -250,7 +257,7 @@ func (d *Drift) Finish() {
 		}
 	}
 	d.Totals = t
-	d.DriftFound = t.Kept+t.RejectedByPlan+t.Manual+t.Secret+t.NotAssessable > 0
+	d.DriftFound = t.Kept+t.RejectedByPlan+t.RejectedByCheck+t.Manual+t.Secret+t.NotAssessable > 0
 }
 
 // WriteFiles writes drift.json and drift.md into the report directory
@@ -297,7 +304,7 @@ func (d *Drift) Markdown() string {
 	}
 	t := d.Totals
 	b.WriteString("| Roots | Not checked | Changes | Accepted into the code | Kept | Needs a hand edit | Secret or not assessable | Absorbed |\n|---|---|---|---|---|---|---|---|\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d | %d |\n", t.Roots, t.Failed, t.Changes, t.Written, t.Kept, t.RejectedByPlan+t.Manual, t.Secret+t.NotAssessable, t.Absorbed)
+	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d | %d | %d |\n", t.Roots, t.Failed, t.Changes, t.Written, t.Kept, t.RejectedByPlan+t.RejectedByCheck+t.Manual, t.Secret+t.NotAssessable, t.Absorbed)
 	if t.Changes == 0 && t.Failed == 0 {
 		b.WriteString("\nNo drift: the cloud is as the roots' state records it.\n")
 	}
@@ -308,7 +315,7 @@ func (d *Drift) Markdown() string {
 	}{
 		{[]string{DriftWritten}, "Accepted into the code", "The code now has the cloud's value, at the line each change gives: the next apply leaves it as it is. Look the edits over and commit them."},
 		{[]string{DriftKept}, "Kept: the next apply reverts the cloud", "The code still has the value the state recorded: the next apply puts it back in the cloud. To keep the cloud's value instead, accept the change with `--accept`, or in the decisions file (`--decisions`)."},
-		{[]string{DriftRejectedByPlan, DriftManual}, "Needs a hand edit", "Accepted, but not written: where the code sets the value takes a hand edit, or the plan of the edited code didn't take the edit, as each says. Until then, the next apply puts the code's value back."},
+		{[]string{DriftRejectedByPlan, DriftRejectedByCheck, DriftManual}, "Needs a hand edit", "Accepted, but not written: where the code sets the value takes a hand edit, or the plan of the edited code didn't take the edit, or the edit fails a check of the verification gate, as each says. Until then, the next apply puts the code's value back."},
 		{[]string{DriftSecret, DriftNotAssessable}, "Secrets and not assessable", "Secrets are never written into the code: update them where the root's secret variables come from. Whether the next apply puts back the others can't be told here."},
 		{[]string{DriftAbsorbed}, "Absorbed", "The code doesn't set these, such as attributes the provider computes or that `ignore_changes` names: the next apply keeps the cloud's value. Nothing to do."},
 	}

@@ -82,17 +82,18 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]Source) ([]*Dri
 // must then plan no change to it, and no other change than the plan of
 // the code had, code, but on what is secret or kept only in state; every
 // other resource must plan what code has it plan (see changeSignature),
-// which an edit of a local others use would break. The edits the plan
-// blames are left out (see judgeDrift), and the others planned again;
-// a change of shared tags whose edit is blamed, or can't be made, is
-// accepted at each resource it covers instead (see unshare).
-// Then the edited files must pass the format, validate, standards,
-// moves and secrets checks. Only then are the edits made in the root's
-// own files, which are restored if writing one fails. For a root
-// environments share, root and the copy's files hold the environment's
-// var file too, the only file edited (see envVariable), and a change
-// written gets its source there. Each accepted change ends written,
-// rejected by the plan, a hand edit or a secret.
+// which an edit of a local others use would break. Then the edited files
+// must pass the format, validate, standards, moves and secrets checks
+// (see driftChecks). The edits the plan or a check blames are left out
+// (see judgeDrift and checkBlame), and the others planned and checked
+// again; a change of shared tags whose edit is blamed, or can't be made,
+// is accepted at each resource it covers instead (see unshare). Only
+// then are the edits made in the root's own files, which are restored if
+// writing one fails. For a root environments share, root and the copy's
+// files hold the environment's var file too, the only file edited (see
+// envVariable), and a change written gets its source there. Each
+// accepted change ends written, rejected by the plan or a check, a hand
+// edit or a secret.
 func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
@@ -153,9 +154,17 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		if err != nil {
 			return err
 		}
+		outcome := DriftRejectedByPlan
 		rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.forms)
 		if len(rejected) == 0 {
-			break
+			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
+			if err != nil {
+				return err
+			}
+			if failedCheck == "" {
+				break
+			}
+			outcome, rejected = DriftRejectedByCheck, checkBlame(pending, applied, files, "the edited code fails "+failedCheck)
 		}
 		var left []*DriftChange
 		for _, c := range pending {
@@ -165,7 +174,7 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 					left = append(left, unshare(c, reason)...)
 					continue
 				}
-				c.Outcome, c.Reason = DriftRejectedByPlan, reason
+				c.Outcome, c.Reason = outcome, reason
 				continue
 			}
 			left = append(left, c)
@@ -173,16 +182,6 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		pending = left
 	}
 	if len(pending) == 0 {
-		return nil
-	}
-	failedCheck, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
-	if err != nil {
-		return err
-	}
-	if failedCheck != "" {
-		for _, c := range pending {
-			c.Outcome, c.Reason = DriftRejectedByPlan, "the edited code fails "+failedCheck
-		}
 		return nil
 	}
 
@@ -456,11 +455,12 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 // and G8 moves, failing on what they find that they didn't before, as
 // standards and moves; and G6 secrets of the edited files, with the
 // values p and sensitive have that no file may hold. It returns the
-// check that fails, with what it found, or "".
-func driftChecks(ctx context.Context, stf DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, error) {
+// check that fails, with what it found, and the edited files it fails
+// on, none where it can't tell; or "".
+func driftChecks(ctx context.Context, stf DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
 	formatted, files, err := stf.FormatCheck(ctx)
 	if err != nil {
-		return "", fmt.Errorf("terraform fmt: %w", err)
+		return "", nil, fmt.Errorf("terraform fmt: %w", err)
 	}
 	if !formatted {
 		var unformatted []string
@@ -470,33 +470,41 @@ func driftChecks(ctx context.Context, stf DriftTerraform, staging string, origin
 			}
 		}
 		if len(unformatted) > 0 {
-			return CheckFormat + ": " + strings.Join(unformatted, ", ") + " isn't formatted", nil
+			return CheckFormat + ": " + strings.Join(unformatted, ", ") + " isn't formatted", unformatted, nil
 		}
 	}
 	validation, err := stf.Validate(ctx)
 	if err != nil {
-		return "", fmt.Errorf("terraform validate: %w", err)
+		return "", nil, fmt.Errorf("terraform validate: %w", err)
 	}
 	if !validation.Valid {
-		var details []string
+		var details, invalid []string
 		for _, d := range errorDiagnostics(validation.Diagnostics) {
 			details = append(details, formatDiagnostic(d))
+			if d.Range == nil {
+				continue
+			}
+			for _, name := range names {
+				if name == filepath.ToSlash(d.Range.Filename) || name == filepath.Base(d.Range.Filename) {
+					invalid = append(invalid, name)
+				}
+			}
 		}
-		return CheckValidate + ": " + strings.Join(details, "; "), nil
+		return CheckValidate + ": " + strings.Join(details, "; "), invalid, nil
 	}
 	nowStandards, err := checkStandards(staging, opts.Omit, nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if added := addedDetails(standards, nowStandards); len(added) > 0 {
-		return CheckStandards + ": " + strings.Join(added, "; "), nil
+		return CheckStandards + ": " + strings.Join(added, "; "), filesNamed(added, names), nil
 	}
 	nowMoves, err := checkMoves(staging)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if added := addedDetails(moves, nowMoves); len(added) > 0 {
-		return CheckMoves + ": " + strings.Join(added, "; "), nil
+		return CheckMoves + ": " + strings.Join(added, "; "), filesNamed(added, names), nil
 	}
 	values := newValueMatcher(append(sensitiveValues(p), sensitive...))
 	for _, name := range names {
@@ -505,10 +513,53 @@ func driftChecks(ctx context.Context, stf DriftTerraform, staging string, origin
 		scanFile(&after, values, name, string(edited[name]))
 		if len(addedDetails(before, after)) > 0 {
 			// What it found is a secret's whereabouts, not for a report.
-			return CheckSecrets + ": " + name + " would hold a secret", nil
+			return CheckSecrets + ": " + name + " would hold a secret", []string{name}, nil
 		}
 	}
-	return "", nil
+	return "", nil, nil
+}
+
+// filesNamed returns the files of names that details, a check's
+// findings, name, such as main.tf in "main.tf:3: moved block has no to".
+func filesNamed(details, names []string) []string {
+	var files []string
+	for _, name := range names {
+		if slices.ContainsFunc(details, func(d string) bool {
+			return slices.ContainsFunc(strings.Fields(d), func(field string) bool {
+				file, _, _ := strings.Cut(field, ":")
+				return file == name
+			})
+		}) {
+			files = append(files, name)
+		}
+	}
+	return files
+}
+
+// checkBlame returns the changes of pending whose edits, made as sources
+// say, are in files, the edited files a check fails on, each with
+// reason; every change of pending where files is empty, or none of their
+// edits is in one.
+func checkBlame(pending []*DriftChange, sources map[*DriftChange]Source, files []string, reason string) map[*DriftChange]string {
+	rejected := map[*DriftChange]string{}
+	for _, c := range pending {
+		src := sources[c]
+		if src.Edit == nil {
+			continue
+		}
+		for _, edit := range append([]SourceEdit{*src.Edit}, src.Also...) {
+			if slices.Contains(files, edit.File) {
+				rejected[c] = reason
+				break
+			}
+		}
+	}
+	if len(rejected) == 0 {
+		for _, c := range pending {
+			rejected[c] = reason
+		}
+	}
+	return rejected
 }
 
 // addedDetails returns the details of after that before doesn't have.
