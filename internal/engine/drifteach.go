@@ -6,6 +6,7 @@ package engine
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -156,14 +157,14 @@ func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field st
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
 	}
 	file := w.e.envVars
-	f := w.cfg.files[file]
-	if f == nil {
+	vars := mergedVars(w.cfg.files)
+	if vars.own(w.e.env) == nil {
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and the root has no %s: give it the value by hand", source, file))
 	}
-	if attr, ok := f.syntax.Attributes[name]; ok {
+	if val, ok := w.envValue(name); ok {
 		inner := *w
-		inner.file, inner.f = file, f
-		src := inner.entry(attr.Expr, source+" in "+file, field, path, i)
+		inner.file, inner.f = val.file, val.f
+		src := inner.entry(val.attr.Expr, source+" in "+file, field, path, i)
 		if src.Edit != nil || src.Kind == sourceLiteral || src.Kind == sourceAbsent {
 			src.Kind = sourceVariable
 		}
@@ -188,12 +189,9 @@ func (w *driftWalk) eachVariable(x *hclsyntax.ScopeTraversalExpr, name, field st
 	if len(src.Also) > 0 || edit.File != vf.name || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("%s sets it, and %s doesn't give it a value: give it one by hand", source, file))
 	}
-	value := string(vf.f.src[rng.Start.Byte:edit.Start]) + string(edit.Text) + string(vf.f.src[edit.End:rng.End.Byte])
-	line := []byte(name + " = " + value + "\n")
-	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
-		line = append([]byte("\n"), line...)
-	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &codeEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+	value := slices.Concat(vf.f.src[rng.Start.Byte:edit.Start], edit.Text, vf.f.src[edit.End:rng.End.Byte])
+	set, _ := vars.set(w.e.env, name, value)
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &set}
 }
 
 // entry follows the path from step i into field of the item at the
@@ -329,10 +327,8 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource)
 
 // envOnlyFlags returns the bool variables, declared in files, of the root
 // environments share in dir that environment env alone sets true, such as
-// the deploy_ variables of the features, and residue, only it has: as the
-// var files of each environment's values set them (see mergedValues),
-// over their defaults. A variable whose value can't be told for an
-// environment isn't one.
+// the deploy_ variables of the features, and residue, only it has (see
+// mergedVars.ownFlags).
 func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 	envs, err := MergedEnvironments(dir)
 	if err != nil {
@@ -359,51 +355,11 @@ func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 			defaults[b.Labels[0]] = value
 		}
 	}
-	values := func(e string) (map[string]cty.Value, error) {
-		set, err := mergedValues(dir, e)
-		if err != nil {
-			return nil, err
-		}
-		out := map[string]cty.Value{}
-		for name, def := range defaults {
-			out[name] = def
-			if v, ok := set[name]; ok {
-				out[name] = v
-			}
-		}
-		return out, nil
-	}
-	isTrue := func(v cty.Value) bool {
-		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.True()
-	}
-	isFalse := func(v cty.Value) bool {
-		return v.IsKnown() && !v.IsNull() && v.Type().Equals(cty.Bool) && v.False()
-	}
-	mine, err := values(env)
+	vars, err := loadMergedVars(dir, append(envs, env))
 	if err != nil {
 		return nil, err
 	}
-	flags := map[string]bool{}
-	for name, v := range mine {
-		if isTrue(v) {
-			flags[name] = true
-		}
-	}
-	for _, other := range envs {
-		if other == env {
-			continue
-		}
-		theirs, err := values(other)
-		if err != nil {
-			return nil, err
-		}
-		for name := range flags {
-			if !isFalse(theirs[name]) {
-				delete(flags, name)
-			}
-		}
-	}
-	return flags, nil
+	return vars.ownFlags(env, defaults), nil
 }
 
 // variableUses returns why var.name, which other arguments use too,

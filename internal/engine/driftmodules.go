@@ -803,15 +803,12 @@ func (w *driftWalk) callLiteral(block *hclsyntax.Block, e hclsyntax.Expression) 
 			}
 			lit = instanceLiteral{expr: def.attr.Expr, file: def.file, f: def.f}
 		case root == "var" && w.e.env != "":
-			v, f := w.cfg.variables[name], w.cfg.files[w.e.envVars]
-			if v == nil || sensitiveVariable(v) || f == nil || w.cfg.varUses[name] > blockUses(block, root, name) {
+			v := w.cfg.variables[name]
+			val, ok := w.envValue(name)
+			if v == nil || sensitiveVariable(v) || !ok || w.cfg.varUses[name] > blockUses(block, root, name) {
 				return instanceLiteral{}, false
 			}
-			attr, ok := f.syntax.Attributes[name]
-			if !ok {
-				return instanceLiteral{}, false
-			}
-			lit = instanceLiteral{expr: attr.Expr, file: w.e.envVars, f: f}
+			lit = instanceLiteral{expr: val.attr.Expr, file: val.file, f: val.f}
 		}
 	}
 	switch lit.expr.(type) {
