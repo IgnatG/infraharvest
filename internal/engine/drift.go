@@ -16,9 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -493,21 +490,13 @@ func stageDrift(dir, staging string, state []byte) error {
 // blocks, and with local module sources relative to staging, or calling
 // copies in it of the generated modules (see stageModule).
 func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
-	wf, diags := hclwrite.ParseConfig(content, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("parse %s: %w", path, diags)
+	f, err := parseHCL(path, content)
+	if err != nil {
+		return nil, err
 	}
-	sf, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("parse %s: %w", path, diags)
-	}
-	syntax, ok := sf.Body.(*hclsyntax.Body)
-	if !ok {
-		return content, nil
-	}
-	blocks := wf.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	changed := false
-	for i, b := range syntax.Blocks {
+	for i, b := range f.syntax.Blocks {
 		if i >= len(blocks) {
 			break
 		}
@@ -552,7 +541,7 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 	if !changed {
 		return content, nil
 	}
-	return wf.Bytes(), nil
+	return f.edit().Bytes(), nil
 }
 
 // stateAddresses returns the addresses of the managed resources in state.
@@ -668,18 +657,12 @@ func tfvarsNames(dir string, more ...string) map[string]bool {
 	paths = append(paths, filepath.Join(dir, "terraform.tfvars"))
 	paths = append(paths, more...)
 	for _, path := range paths {
-		content, err := os.ReadFile(path)
-		if err != nil {
+		f, err := readVarFile(path)
+		if err != nil || f == nil {
 			continue
 		}
-		f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
-		if diags.HasErrors() {
-			continue
-		}
-		if body, ok := f.Body.(*hclsyntax.Body); ok {
-			for name := range body.Attributes {
-				names[name] = true
-			}
+		for name := range f.syntax.Attributes {
+			names[name] = true
 		}
 	}
 	return names

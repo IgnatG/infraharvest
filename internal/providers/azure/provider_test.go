@@ -23,13 +23,12 @@ import (
 
 // The capabilities the importer looks for.
 var (
-	_ harvest.Provider                      = (*Provider)(nil)
-	_ harvest.ProviderWithScope             = (*Provider)(nil)
-	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
-	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
-	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
-	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
-	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
+	_ harvest.Provider                    = (*Provider)(nil)
+	_ harvest.ProviderWithScope           = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
+	_ harvest.ProviderWithModuleProviders = (*Provider)(nil)
+	_ harvest.ProviderWithListedByOthers  = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 )
 
 // The importer's defaults apply where Provider has no capability of

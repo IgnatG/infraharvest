@@ -257,7 +257,7 @@ type callLayout struct {
 // --env-tags and the configuration file's environments of its scope.
 func (r *Run) layOut(ctx context.Context, provider harvest.Provider, c *callContext) (callLayout, error) {
 	options := c.options
-	l := callLayout{envNames: r.environments.For(providerDir(provider), scopeAccount(c.scope))}
+	l := callLayout{envNames: r.environments.For(provider.Profile(), scopeAccount(c.scope))}
 	r.warnUnscoped(provider, c.scope)
 	l.pattern = withEnvLayout(options.Layout, len(options.EnvTags) > 0 || len(l.envNames) > 0)
 	layouts, err := rootLayouts(ctx, provider, l.pattern, withEnvLayout(options.Layout, len(options.EnvTags) > 0))
@@ -312,7 +312,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		if mode == ModulesLatestUntested {
 			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
 		}
-		resolved, t.newer, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(providerDir(provider)), selected), engineProvider(provider).Source, mode == ModulesLatestUntested)
+		resolved, t.newer, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Profile().Modules), selected), engineProvider(provider).Source, mode == ModulesLatestUntested)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
 		resolved = append(own, resolved...)

@@ -53,7 +53,7 @@ func omitInherited(ctx context.Context, tf Terraform, dir string, names []string
 	}
 	changed := false
 	for _, c := range candidates {
-		s := schemaAttribute(schemas, resourceTypeOf(c.r.address), []string{c.name})
+		s := schemaAttribute(schemas, AddressType(c.r.address), []string{c.name})
 		if s == nil || !s.Optional || !s.Computed || s.Required {
 			continue
 		}
@@ -112,6 +112,6 @@ func resourceProvider(r resourceBlock) string {
 		}
 		return traversal.RootName()
 	}
-	provider, _, _ := strings.Cut(resourceTypeOf(r.address), "_")
+	provider, _, _ := strings.Cut(AddressType(r.address), "_")
 	return provider
 }

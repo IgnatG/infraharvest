@@ -114,7 +114,7 @@ func requireMinimumVersion(dir string) error {
 	}
 	want := fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)
 	changed := false
-	blocks := versions.file.Body().Blocks()
+	blocks := versions.edit().Body().Blocks()
 	for i, b := range versions.syntax.Blocks {
 		if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) || stringAttribute(b.Body, "required_version") == want {
 			continue
@@ -265,7 +265,7 @@ func raiseRequiredVersion(dir string) error {
 	need := featuresNeed(files)
 	want := fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)
 	for _, f := range files {
-		blocks := f.file.Body().Blocks()
+		blocks := f.edit().Body().Blocks()
 		changed := false
 		for i, b := range f.syntax.Blocks {
 			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) {

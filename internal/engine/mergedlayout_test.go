@@ -4,11 +4,14 @@
 package engine
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -235,6 +238,147 @@ func TestWorkspaceStateFile(t *testing.T) {
 	} {
 		if got := filepath.ToSlash(workspaceStateFile("root", env)); got != want {
 			t.Errorf("%s: got %q, want %q", env, got, want)
+		}
+	}
+}
+
+// loadedVars writes files, a merged root's by path, and loads the var
+// files of envs.
+func loadedVars(t *testing.T, files map[string]string, envs ...string) mergedVars {
+	t.Helper()
+	vars, err := loadMergedVars(mergedRootDir(t, files), envs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return vars
+}
+
+// setVar sets name to text for env, and returns env's var file as the
+// edit leaves it.
+func setVar(t *testing.T, vars mergedVars, env, name, text string) string {
+	t.Helper()
+	edit, ok := vars.set(env, name, []byte(text))
+	if !ok {
+		t.Fatalf("%s: no var file of its own", env)
+	}
+	if want := envVarsPath(env); edit.File != want {
+		t.Fatalf("%s: edits %s, want %s", env, edit.File, want)
+	}
+	src := vars.own(env).src
+	return string(slices.Concat(src[:edit.Start], edit.Text, src[edit.End:]))
+}
+
+// An environment's own value goes over the one every environment shares,
+// and a variable neither sets has none.
+func TestMergedVarsPrecedence(t *testing.T) {
+	t.Parallel()
+	vars := loadedVars(t, map[string]string{
+		"vars/common.tfvars":         "region = \"eu-west-2\"\ntimeout = 30\n",
+		"vars/prod/terraform.tfvars": "timeout = 120\n",
+		"vars/dev/terraform.tfvars":  "name = \"dev\"\n",
+	}, "prod", "dev", "qa")
+	for _, tc := range []struct{ env, name, file string }{
+		{"prod", "timeout", "vars/prod/terraform.tfvars"},
+		{"prod", "region", commonVarsPath},
+		{"dev", "timeout", commonVarsPath},
+		{"dev", "name", "vars/dev/terraform.tfvars"},
+		{"qa", "region", commonVarsPath},
+	} {
+		v, ok := vars.value(tc.env, tc.name)
+		if !ok || v.file != tc.file || v.f != vars[tc.file] {
+			t.Errorf("%s %s: %q %v, want %q", tc.env, tc.name, v.file, ok, tc.file)
+		}
+	}
+	if _, ok := vars.value("prod", "name"); ok {
+		t.Error("prod name: set, though only dev sets it")
+	}
+	if got := vars.environments(); !slices.Equal(got, []string{"dev", "prod"}) {
+		t.Errorf("environments: %v, want those with a var file of their own", got)
+	}
+}
+
+// Setting a variable for one environment replaces its own value, or adds
+// one over the shared value, in its own file only; an environment without
+// a file of its own can't be set.
+func TestMergedVarsSet(t *testing.T) {
+	t.Parallel()
+	vars := loadedVars(t, map[string]string{
+		"vars/common.tfvars":         "timeout = 30\n",
+		"vars/prod/terraform.tfvars": "timeout = 120\nname = \"prod\"\n",
+		"vars/dev/terraform.tfvars":  "name = \"dev\"\n",
+	}, "prod", "dev", "qa")
+	if got, want := setVar(t, vars, "prod", "timeout", "300"), "timeout = 300\nname = \"prod\"\n"; got != want {
+		t.Errorf("prod, its own value replaced:\n%s\nwant:\n%s", got, want)
+	}
+	if got, want := setVar(t, vars, "dev", "timeout", "60"), "name = \"dev\"\ntimeout = 60\n"; got != want {
+		t.Errorf("dev, over the shared value:\n%s\nwant:\n%s", got, want)
+	}
+	if _, ok := vars.set("qa", "timeout", []byte("60")); ok {
+		t.Error("qa: set, though it has no var file of its own")
+	}
+}
+
+// A map one file sets replaces the other's whole, as Terraform reads var
+// files, and setting it for an environment replaces its own whole literal.
+func TestMergedVarsMaps(t *testing.T) {
+	t.Parallel()
+	vars := loadedVars(t, map[string]string{
+		"vars/common.tfvars":         "tags = {\n  team  = \"core\"\n  owner = \"ops\"\n}\n",
+		"vars/prod/terraform.tfvars": "tags = {\n  owner = \"sre\"\n}\n",
+	}, "prod")
+	want := cty.ObjectVal(map[string]cty.Value{"owner": cty.StringVal("sre")})
+	if got := vars.values("prod")["tags"]; !got.RawEquals(want) {
+		t.Errorf("prod tags: %#v, want its own, with no shared key", got)
+	}
+	v, ok := vars.value("prod", "tags")
+	if _, isObject := v.attr.Expr.(*hclsyntax.ObjectConsExpr); !ok || !isObject {
+		t.Fatalf("prod tags: %v, want its own object literal", ok)
+	}
+	if got, want := setVar(t, vars, "prod", "tags", "{ owner = \"dba\" }"), "tags = { owner = \"dba\" }\n"; got != want {
+		t.Errorf("prod tags set:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A line added to a var file starts on a line of its own, whether or not
+// the file ends in a newline.
+func TestMergedVarsNewlineGuard(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, src, want string }{
+		{"empty", "", "timeout = 60\n"},
+		{"newline", "name = \"a\"\n", "name = \"a\"\ntimeout = 60\n"},
+		{"no newline", "name = \"a\"", "name = \"a\"\ntimeout = 60\n"},
+	} {
+		vars := loadedVars(t, map[string]string{"vars/dev/terraform.tfvars": tc.src}, "dev")
+		if got := setVar(t, vars, "dev", "timeout", "60"); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A bool variable is an environment's own where its value, over the
+// default, is true and every other environment's is false.
+func TestMergedVarsOwnFlags(t *testing.T) {
+	t.Parallel()
+	vars := loadedVars(t, map[string]string{
+		"vars/common.tfvars":         "deploy_shared = true\n",
+		"vars/dev/terraform.tfvars":  "deploy_default = false\n",
+		"vars/prod/terraform.tfvars": "deploy_alerts = true\ndeploy_unset = true\ndeploy_odd = \"yes\"\n",
+		"vars/qa/terraform.tfvars":   "deploy_default = false\n",
+	}, "dev", "prod", "qa")
+	defaults := map[string]cty.Value{
+		"deploy_alerts":  cty.False,
+		"deploy_shared":  cty.False,
+		"deploy_default": cty.True,
+		"deploy_unset":   cty.NullVal(cty.Bool),
+		"deploy_odd":     cty.False,
+	}
+	for env, want := range map[string]map[string]bool{
+		"prod": {"deploy_alerts": true, "deploy_default": true},
+		"dev":  {},
+		"qa":   {},
+	} {
+		if got := vars.ownFlags(env, defaults); !maps.Equal(got, want) {
+			t.Errorf("%s: %v, want %v", env, got, want)
 		}
 	}
 }

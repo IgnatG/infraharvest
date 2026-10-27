@@ -3,6 +3,8 @@
 
 package harvest
 
+import "regexp"
+
 // Profile is what sets a provider apart from the others, whatever it
 // lists: the facts the importer, and through it the engine, read of it
 // rather than tell providers apart by their names. Each provider declares
@@ -14,6 +16,27 @@ type Profile struct {
 	// the first part of the selection file's scope, so that the output is
 	// laid out by what the user typed. Without it, Name.
 	Command string
+	// Scope is what one import of the provider covers, which the user
+	// names it by.
+	Scope Scope
+	// Modules names the family of curated public modules the provider's
+	// resources can move into (see adapters.For), such as google, whose
+	// modules google-beta's resources move into too; none without.
+	Modules string
+	// OptInServices are the services that the wildcard --services=*
+	// leaves out, because they list another way what other services
+	// already list, as Azure's do, or because the cloud's service has
+	// reached end of support, as AWS's have. They are listed only when
+	// named.
+	OptInServices []string
+	// DependentServices are the services that list from what the
+	// import's other services listed, such as Azure's diagnostic
+	// settings, which take a request for each listed resource that can
+	// have them, rather than one for everything the cloud has. The
+	// importer lists them once the others are done, and gives their
+	// providers what the others listed first (see
+	// ProviderWithListedByOthers).
+	DependentServices []string
 	// Source is the Terraform provider's registry source address, such as
 	// DataDog/datadog, for the required_providers block; hashicorp/<Name>
 	// without it.
@@ -43,6 +66,31 @@ type Profile struct {
 	// Merge is what the root the environments of a stack share reads of
 	// each environment's account and region.
 	Merge Merge
+}
+
+// Scope is what one import of a provider covers, which the user names it
+// by: an AWS account, an Azure subscription or a Google Cloud project.
+type Scope struct {
+	// Noun is what one is called, such as account.
+	Noun string
+	// Field is the key, in an environment of the configuration file, of
+	// the IDs of the provider's scopes under its command, such as
+	// accounts in aws: { accounts: [...] }.
+	Field string
+	// ID, if set, matches the ID of a scope, and IDFormat says what that
+	// is, for the error of one that doesn't, such as "an account ID, 12
+	// digits".
+	ID       *regexp.Regexp
+	IDFormat string
+	// FoldCase says two IDs that differ only in case are the same scope,
+	// as Azure's subscription IDs, which are GUIDs, are.
+	FoldCase bool
+	// Describe says what the provider's command reads, in the provider's
+	// own terms, for the user to confirm an import before it runs, such
+	// as "the aws accounts 111111111111, 222222222222 in eu-west-2". flags
+	// are the command's flags that are set, by name, with their values;
+	// a flag that takes none, such as --azapi, has true.
+	Describe func(flags map[string][]string) string
 }
 
 // DefaultTags is how a provider applies tags to every resource.

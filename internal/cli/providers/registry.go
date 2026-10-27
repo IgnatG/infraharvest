@@ -49,6 +49,18 @@ func Names() []string {
 	return names
 }
 
+// Profiles returns the profiles of the providers compiled in, by the
+// names of their commands, sorted: the configuration file reads what their
+// accounts, subscriptions and projects are like from them (see
+// config.Load).
+func Profiles() []harvest.Profile {
+	profiles := make([]harvest.Profile, 0, len(registry))
+	for _, name := range Names() {
+		profiles = append(profiles, registry[name].newProvider().Profile())
+	}
+	return profiles
+}
+
 // Check rejects name unless it names a provider compiled in. The services
 // command and the MCP server's tools, which put the name on a command line
 // of their own, check it here, so that both say the same.

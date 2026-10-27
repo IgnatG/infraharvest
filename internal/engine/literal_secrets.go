@@ -698,14 +698,11 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 // need (see secretValues), and warnings about tags named after AWS access
 // key IDs.
 func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, error) {
-	src, err := os.ReadFile(path)
+	file, err := loadHCL(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	file, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, nil, fmt.Errorf("parse %s: %w", path, diags)
-	}
+	src := file.src
 	used := map[string]bool{}
 	for name := range taken {
 		if v, ok := strings.CutPrefix(name, "var."); ok {
@@ -728,7 +725,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 		used[n] = true
 		return n
 	}
-	for _, b := range file.Body.(*hclsyntax.Body).Blocks {
+	for _, b := range file.syntax.Blocks {
 		if b.Type != "resource" || len(b.Labels) != 2 {
 			continue
 		}
@@ -798,7 +795,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 	for _, e := range edits {
 		out = append(out[:e.start:e.start], append([]byte(e.text), out[e.end:]...)...)
 	}
-	if _, diags := hclwrite.ParseConfig(out, path, hcl.InitialPos); diags.HasErrors() {
+	if _, diags := parseFile(path, out); diags.HasErrors() {
 		return nil, nil, fmt.Errorf("move secrets out of %s: %w", path, diags)
 	}
 	return secrets, warnings, fsutil.WriteFile(path, hclwrite.Format(out), 0o644)
@@ -919,22 +916,23 @@ func redactBytes(b []byte, secrets []Secret) []byte {
 	return []byte(redact(string(b), secrets))
 }
 
+// readsLiteralSecrets reports whether literalSecrets reads the file rel: a
+// .tf or .hcl file, or a merged root's var file.
+func readsLiteralSecrets(rel string) bool {
+	return strings.HasSuffix(rel, ".tf") || strings.HasSuffix(rel, ".hcl") || isMergedVarFile(rel)
+}
+
 // literalSecrets returns, for a .tf or .hcl file, a finding for each
 // secret value secretsInBody finds in any of its blocks; and for a merged
 // root's var file (see isMergedVarFile), in its arguments too, the values it
 // sets, as secretsInBody judges a provider's arguments.
-func literalSecrets(f *parsedFile) []string {
-	rel := f.rel
-	varFile := isMergedVarFile(rel)
-	if !strings.HasSuffix(rel, ".tf") && !strings.HasSuffix(rel, ".hcl") && !varFile {
-		return nil
-	}
-	body, ok := f.body()
-	if !ok {
+func literalSecrets(f *hclFile) []string {
+	rel, body := f.path, f.syntax
+	if !readsLiteralSecrets(rel) {
 		return nil
 	}
 	var findings []string
-	if varFile {
+	if isMergedVarFile(rel) {
 		names := make([]string, 0, len(body.Attributes))
 		for name := range body.Attributes {
 			names = append(names, name)

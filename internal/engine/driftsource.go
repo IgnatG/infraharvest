@@ -102,6 +102,27 @@ type codeEdit struct {
 	Layout string
 }
 
+// appendEdit is the edit that adds text, whole lines, at the end of f,
+// the file name, nil where there is none yet: on a line of its own, and
+// after a blank line where blank says so and f has anything to keep
+// apart from.
+func appendEdit(f *hclFile, name string, text []byte, blank bool) codeEdit {
+	var src []byte
+	if f != nil {
+		src = f.src
+	}
+	var before []byte
+	if n := len(src); n > 0 {
+		if src[n-1] != '\n' {
+			before = append(before, '\n')
+		}
+		if blank {
+			before = append(before, '\n')
+		}
+	}
+	return codeEdit{File: name, Start: len(src), End: len(src), Text: slices.Concat(before, text)}
+}
+
 // refreshedResource is a resource as the refresh found it: the state's
 // values, the cloud's, and which of the cloud's are sensitive.
 type refreshedResource struct {
@@ -780,11 +801,11 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 		if w.mod.adapter == nil || len(path) != 1 {
 			return false
 		}
-		f, diags := hclwrite.ParseConfig(slices.Concat([]byte("x = "), text, []byte("\n")), "", hcl.InitialPos)
-		if diags.HasErrors() || f.Body().GetAttribute("x") == nil {
+		tokens := parseExpr(string(text))
+		if tokens == nil {
 			return false
 		}
-		return w.mod.adapter.IsDefault(path[0], f.Body().GetAttribute("x").Expr().BuildTokens(nil))
+		return w.mod.adapter.IsDefault(path[0], tokens)
 	}
 	want, ok := defaultValues(w.e.defaults[w.c.Type])[strings.Join(path, ".")]
 	if !ok {
@@ -897,14 +918,14 @@ func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path 
 // cloud's value as well in the environment (see variableUses).
 func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
 	file := w.e.envVars
-	f := w.cfg.files[file]
+	vars := mergedVars(w.cfg.files)
 	switch {
-	case f == nil:
+	case vars.own(w.e.env) == nil:
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
 	case w.mod != nil:
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
 	case i != len(w.steps):
-		return w.envVariableKey(x, name, f, path, i)
+		return w.envVariableKey(x, name, path, i)
 	case w.c.value == nil:
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
 	}
@@ -917,31 +938,36 @@ func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, pa
 	if err != nil {
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", name, file))
 	}
-	if attr, ok := f.syntax.Attributes[name]; ok {
-		rng := attr.Expr.Range()
-		return codeSource{File: file, Range: rng, Kind: sourceVariable, Edit: &codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}}
+	edit, _ := vars.set(w.e.env, name, text)
+	if v, ok := w.envValue(name); ok {
+		return codeSource{File: file, Range: v.attr.Expr.Range(), Kind: sourceVariable, Edit: &edit}
 	}
-	line := slices.Concat([]byte(name+" = "), text, []byte("\n"))
-	if n := len(f.src); n > 0 && f.src[n-1] != '\n' {
-		line = slices.Concat([]byte("\n"), line)
-	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, Edit: &codeEdit{File: file, Start: len(f.src), End: len(f.src), Text: line}}
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, Edit: &edit}
+}
+
+// envValue returns the argument the environment's own var file sets
+// var.name to, in a root environments share; false where it doesn't, as
+// where vars/common.tfvars or the variable's default holds the value,
+// which drift doesn't edit for one environment.
+func (w *driftWalk) envValue(name string) (varValue, bool) {
+	v, ok := mergedVars(w.cfg.files).value(w.e.env, name)
+	return v, ok && v.file == w.e.envVars
 }
 
 // envVariableKey is envVariable for what var.name sets below step i of
 // the path, such as the owner key of tags = var.tags: the element of the
-// object or map literal the environment's var file, f, sets the variable
+// object or map literal the environment's var file sets the variable
 // to, edited alone with the cloud's value, or the key added to it,
 // keeping the rest. A hand edit where the file doesn't set the variable,
 // as when its default holds the environment's value, or sets it to
 // anything but a literal with the keys the path goes through.
-func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, f *hclFile, path []string, i int) codeSource {
+func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
 	file := w.e.envVars
-	attr, ok := f.syntax.Attributes[name]
+	v, ok := w.envValue(name)
 	switch {
 	case !ok:
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", name, file))
-	case !literalExpr(attr.Expr) || !literalKeys(attr.Expr, w.steps[i:]):
+	case !literalExpr(v.attr.Expr) || !literalKeys(v.attr.Expr, w.steps[i:]):
 		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
 	}
 	if w.cfg.varUses[name] > 1 {
@@ -950,8 +976,8 @@ func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string,
 		}
 	}
 	inner := *w
-	inner.file, inner.f = file, f
-	src := inner.expr(attr.Expr, holder{}, path, i)
+	inner.file, inner.f = v.file, v.f
+	src := inner.expr(v.attr.Expr, holder{}, path, i)
 	src.Kind = sourceVariable
 	if src.Edit == nil && src.Reason != "" {
 		src.Reason = fmt.Sprintf("var.%s sets it, in %s: %s", name, file, src.Reason)
@@ -1246,13 +1272,17 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 			content = layoutResource(content, address)
 		}
 		content = hclwrite.Format(content)
-		if _, diags := hclsyntax.ParseConfig(content, name, hcl.InitialPos); diags.HasErrors() {
+		edited, err := parseHCL(name, content)
+		if err != nil {
 			return nil, "the edit wouldn't parse: edit it by hand", false
 		}
 		// The findings, not their count: an edit may remove one secret and
 		// add another.
-		had := Check{Details: literalSecrets(&parsedFile{rel: name, content: string(old)})}
-		if len(addedDetails(had, Check{Details: literalSecrets(&parsedFile{rel: name, content: string(content)})})) > 0 {
+		var had Check
+		if f, err := parseHCL(name, old); err == nil {
+			had.Details = literalSecrets(f)
+		}
+		if len(addedDetails(had, Check{Details: literalSecrets(edited)})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content
@@ -1263,11 +1293,11 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 // layoutResource lays out the block of the resource at address in src
 // (see layoutBody), and only that block.
 func layoutResource(src []byte, address string) []byte {
-	file, diags := hclsyntax.ParseConfig(src, "", hcl.InitialPos)
-	if diags.HasErrors() {
+	f, err := parseHCL("", src)
+	if err != nil {
 		return src
 	}
-	for _, b := range file.Body.(*hclsyntax.Body).Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "resource" || len(b.Labels) != 2 || b.Labels[0]+"."+b.Labels[1] != address || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 			continue
 		}

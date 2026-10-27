@@ -199,7 +199,9 @@ type optInProvider struct {
 	servicesProvider
 }
 
-func (*optInProvider) OptInServices() []string { return []string{"s3"} }
+func (*optInProvider) Profile() harvest.Profile {
+	return harvest.Profile{OptInServices: []string{"s3"}}
+}
 
 // * leaves out the opt-in services, and an opt-in service named beside it
 // is listed too, once, as is one that * lists already.
@@ -342,7 +344,9 @@ type dependentProvider struct {
 	after  *afterService
 }
 
-func (*dependentProvider) DependentServices() []string { return []string{"after"} }
+func (*dependentProvider) Profile() harvest.Profile {
+	return harvest.Profile{DependentServices: []string{"after"}}
+}
 
 func (p *dependentProvider) SetListedByOthers(resources []harvest.Resource) { p.listed = resources }
 

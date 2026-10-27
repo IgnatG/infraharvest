@@ -979,7 +979,7 @@ func TestLiteralTokens(t *testing.T) {
 		{src: `jsonencode({ Version = "2012-10-17", Statement = [{ Sid = "Dev" }] })`, want: `"{\"Statement\":[{\"Sid\":\"Dev\"}],\"Version\":\"2012-10-17\"}"`, ok: true},
 		{src: `upper("x")`, ok: false},
 	} {
-		got, ok := literalTokens(exprTokens(tc.src))
+		got, ok := literalTokens(parseExpr(tc.src))
 		if ok != tc.ok {
 			t.Errorf("%s: ok %v, want %v", tc.src, ok, tc.ok)
 			continue

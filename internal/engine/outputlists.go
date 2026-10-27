@@ -96,7 +96,7 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 		return attr != nil && attr.AttributeType.IsSetType(), nil
 	}
 	changed := false
-	blocks := generated.file.Body().Blocks()
+	blocks := generated.edit().Body().Blocks()
 	for i, b := range generated.syntax.Blocks {
 		if i >= len(blocks) || len(b.Labels) == 0 || (b.Type != "resource" && b.Type != "module") {
 			continue

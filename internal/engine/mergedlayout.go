@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
@@ -172,41 +171,165 @@ func varFileOptions(dir string, names []string) ([]tfexec.PlanOption, []string, 
 
 // mergedValues returns the values the var files of environment env of the
 // root environments share in dir set its variables to, by name, of those
-// that are literals: those of vars/common.tfvars, and over them those of
-// vars/<env>/terraform.tfvars. The import IDs aren't among them.
+// that are literals (see mergedVars.values). The import IDs aren't among
+// them.
 func mergedValues(dir, env string) (map[string]cty.Value, error) {
-	values := map[string]cty.Value{}
-	for _, name := range varFiles(env, false) {
-		set, err := varFileValues(filepath.Join(dir, filepath.FromSlash(name)))
-		if err != nil {
-			return nil, err
-		}
-		maps.Copy(values, set)
-	}
-	return values, nil
-}
-
-// varFileValues returns the values the var file at path sets, by name, of
-// those that are literals; none where there is no file.
-func varFileValues(path string) (map[string]cty.Value, error) {
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	vars, err := loadMergedVars(dir, []string{env})
 	if err != nil {
 		return nil, err
 	}
-	f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
+	return vars.values(env), nil
+}
+
+// mergedVars is the var files of a merged root that set its variables,
+// vars/common.tfvars and each environment's vars/<env>/terraform.tfvars,
+// parsed, by path in the root with forward slashes; files by any other
+// path are ignored. It says what an environment's variables are set to,
+// its own file's values over common's, as Terraform reads them (see
+// varFiles), and makes the edits that set one for one environment alone,
+// which is all drift edits in a root environments share. The files are
+// those on disk (see loadMergedVars), or those of the contents drift
+// edits (see driftContents), as the edits before have left them.
+type mergedVars map[string]*hclFile
+
+// loadMergedVars reads vars/common.tfvars of the merged root in dir and
+// the own var files of envs; those that aren't there are left out.
+func loadMergedVars(dir string, envs []string) (mergedVars, error) {
+	vars := mergedVars{}
+	names := []string{commonVarsPath}
+	for _, env := range envs {
+		names = append(names, envVarsPath(env))
 	}
-	values := map[string]cty.Value{}
-	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
-		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
-			values[name] = v
+	for _, name := range names {
+		if _, ok := vars[name]; ok {
+			continue
+		}
+		f, err := readVarFile(filepath.Join(dir, filepath.FromSlash(name)))
+		if err != nil {
+			return nil, err
+		}
+		if f != nil {
+			vars[name] = f
 		}
 	}
-	return values, nil
+	return vars, nil
+}
+
+// environments returns the environments that have var files of their
+// own, sorted.
+func (v mergedVars) environments() []string {
+	var envs []string
+	for name := range v {
+		rest, ok := strings.CutPrefix(name, varsDirName+"/")
+		if !ok {
+			continue
+		}
+		if env, ok := strings.CutSuffix(rest, "/"+envVarsFileName); ok && env != "" && !strings.Contains(env, "/") {
+			envs = append(envs, env)
+		}
+	}
+	slices.Sort(envs)
+	return envs
+}
+
+// own returns environment env's own var file, or nil where it has none.
+func (v mergedVars) own(env string) *hclFile {
+	return v[envVarsPath(env)]
+}
+
+// varValue is the argument of a var file that sets a variable.
+type varValue struct {
+	file string // by path in the root with forward slashes
+	f    *hclFile
+	attr *hclsyntax.Attribute
+}
+
+// value returns the argument that sets variable name for environment
+// env: its own var file's, or else vars/common.tfvars'; false where
+// neither sets it, as where the variable's default holds the value. A
+// map or object one file sets replaces the other's whole, as in
+// Terraform: their keys aren't merged.
+func (v mergedVars) value(env, name string) (varValue, bool) {
+	for _, file := range []string{envVarsPath(env), commonVarsPath} {
+		if f := v[file]; f != nil {
+			if attr, ok := f.syntax.Attributes[name]; ok {
+				return varValue{file: file, f: f, attr: attr}, true
+			}
+		}
+	}
+	return varValue{}, false
+}
+
+// values returns the values environment env's var files set its
+// variables to, by name, of those that are literals: those of
+// vars/common.tfvars, and over them those of its own.
+func (v mergedVars) values(env string) map[string]cty.Value {
+	values := map[string]cty.Value{}
+	for _, file := range []string{commonVarsPath, envVarsPath(env)} {
+		if f := v[file]; f != nil {
+			maps.Copy(values, f.values())
+		}
+	}
+	return values
+}
+
+// set returns the edit that sets variable name to text, an expression,
+// for environment env alone: in its own var file, replacing the value
+// there, or else adding name = text at its end, which goes over the value
+// vars/common.tfvars gives the others. False where env has no var file
+// of its own.
+func (v mergedVars) set(env, name string, text []byte) (codeEdit, bool) {
+	file := envVarsPath(env)
+	f := v[file]
+	if f == nil {
+		return codeEdit{}, false
+	}
+	if attr, ok := f.syntax.Attributes[name]; ok {
+		rng := attr.Expr.Range()
+		return codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}, true
+	}
+	return appendEdit(f, file, slices.Concat([]byte(name+" = "), text, []byte("\n")), false), true
+}
+
+// ownFlags returns the bool variables of defaults, each declared one's
+// default, null for one without, that environment env alone sets true,
+// such as the deploy_ variables of the features, and residue, only it
+// has (see featureFlagName): as its var files set them, over their
+// defaults, true, and every other environment's false. A variable whose
+// value can't be told for an environment isn't one.
+func (v mergedVars) ownFlags(env string, defaults map[string]cty.Value) map[string]bool {
+	values := func(e string) map[string]cty.Value {
+		set := v.values(e)
+		out := map[string]cty.Value{}
+		for name, def := range defaults {
+			out[name] = def
+			if value, ok := set[name]; ok {
+				out[name] = value
+			}
+		}
+		return out
+	}
+	is := func(value cty.Value, want bool) bool {
+		return value.IsKnown() && !value.IsNull() && value.Type().Equals(cty.Bool) && value.True() == want
+	}
+	flags := map[string]bool{}
+	for name, value := range values(env) {
+		if is(value, true) {
+			flags[name] = true
+		}
+	}
+	for _, other := range v.environments() {
+		if other == env {
+			continue
+		}
+		theirs := values(other)
+		for name := range flags {
+			if !is(theirs[name], false) {
+				delete(flags, name)
+			}
+		}
+	}
+	return flags
 }
 
 // backendConfigFile returns the absolute path of environment env's
@@ -253,18 +376,11 @@ func MergedEnvironments(dir string) ([]string, error) {
 // addresses in the root; none once it is deleted, after the first apply.
 func MergedImportIDs(dir, env string) (map[string]string, error) {
 	path := filepath.Join(dir, filepath.FromSlash(importVarsPath(env)))
-	src, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
+	f, err := readVarFile(path)
+	if f == nil {
 		return nil, err
 	}
-	f, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
-	}
-	attr, ok := f.Body.(*hclsyntax.Body).Attributes[importIDsVariableName]
+	attr, ok := f.syntax.Attributes[importIDsVariableName]
 	if !ok {
 		return nil, nil
 	}
@@ -293,20 +409,16 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 func MergedStateLocations(dir, env string) ([]string, error) {
 	locations := []string{workspaceStateFile(dir, env)}
 	path := filepath.Join(dir, filepath.FromSlash(backendConfigPath(env)))
-	src, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return locations, nil
-	}
+	f, err := readVarFile(path)
 	if err != nil {
 		return nil, err
 	}
-	f, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
+	if f == nil {
+		return locations, nil
 	}
 	settings := map[string]string{}
-	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
-		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
+	for name, v := range f.values() {
+		if v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
 			settings[name] = v.AsString()
 		}
 	}

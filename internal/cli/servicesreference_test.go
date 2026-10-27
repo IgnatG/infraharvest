@@ -103,10 +103,7 @@ func writeProviderServices(b *strings.Builder, name string) error {
 	if err != nil {
 		return err
 	}
-	var optIn []string
-	if p, ok := provider.(harvest.ProviderWithOptInServices); ok {
-		optIn = slices.Sorted(slices.Values(p.OptInServices()))
-	}
+	optIn := slices.Sorted(slices.Values(provider.Profile().OptInServices))
 	services := importer.Services(provider)
 	supported := provider.Services()
 

@@ -108,11 +108,10 @@ func withoutNullAttributes(tokens hclwrite.Tokens) hclwrite.Tokens {
 		last = end
 	}
 	out = append(out, src[last:]...)
-	f, diags := hclwrite.ParseConfig(hclwrite.Format(append([]byte("x = "), append(out, '\n')...)), "", hcl.InitialPos)
-	if diags.HasErrors() {
-		return tokens
+	if formatted := formatExpr(out); formatted != nil {
+		return formatted
 	}
-	return f.Body().GetAttribute("x").Expr().BuildTokens(nil)
+	return tokens
 }
 
 // hasObjects reports whether ty is or holds an object type, whose

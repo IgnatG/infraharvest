@@ -424,7 +424,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 		a := &list[ai]
 		grouped := map[string]bool{}
 		for _, anchor := range resources {
-			if clustered[anchor.address] || resourceTypeOf(anchor.address) != a.Anchor {
+			if clustered[anchor.address] || AddressType(anchor.address) != a.Anchor {
 				continue
 			}
 			c := adapters.Cluster{Anchor: resourceOf(anchor)}
@@ -443,7 +443,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				// resources don't anchor it again.
 				grouped[key] = true
 				refers = func(r resourceBlock) bool {
-					if resourceTypeOf(r.address) != a.Anchor {
+					if AddressType(r.address) != a.Anchor {
 						return refs.refers[r.address][anchor.address]
 					}
 					k, ok := a.Group(resourceOf(r))
@@ -455,7 +455,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			// join adds r to the cluster if it is of one of kinds, linked to
 			// it, and in no cluster yet.
 			join := func(r resourceBlock, kinds []string, linked func(resourceBlock) bool) bool {
-				typ := resourceTypeOf(r.address)
+				typ := AddressType(r.address)
 				if clustered[r.address] || slices.ContainsFunc(in, func(b resourceBlock) bool { return b.address == r.address }) ||
 					(types[typ] && !slices.Contains(a.Repeated, typ)) || !slices.Contains(kinds, typ) || !linked(r) {
 					return false
@@ -664,7 +664,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 	if err != nil {
 		return err
 	}
-	body := generated.file.Body()
+	body := generated.edit().Body()
 	moved := map[string]bool{}
 	importTo := map[string]string{}
 	var renames []referenceRename
@@ -786,7 +786,7 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		}
 		imp.write.Body().SetAttributeTraversal("to", traversal)
 	}
-	body := imports.file.Body()
+	body := imports.edit().Body()
 	for _, imp := range added {
 		id := ids[imp.Of]
 		if id == "" {
@@ -1062,7 +1062,7 @@ func requireProviders(dir string, names []string, configured map[string]Provider
 		return err
 	}
 	var required *hclwrite.Body
-	for _, b := range versions.file.Body().Blocks() {
+	for _, b := range versions.edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}
@@ -1080,12 +1080,12 @@ func requireProviders(dir string, names []string, configured map[string]Provider
 		if required.GetAttribute(name) == nil {
 			required.SetAttributeValue(name, cty.ObjectVal(map[string]cty.Value{"source": cty.StringVal(p.Source)}))
 		}
-		if providers.file.Body().FirstMatchingBlock("provider", []string{name}) != nil {
+		if providers.edit().Body().FirstMatchingBlock("provider", []string{name}) != nil {
 			continue
 		}
 		config, _ := withoutCredentials(p.Config)
-		providers.file.Body().AppendNewline()
-		if err := writeBody(providers.file.Body().AppendNewBlock("provider", []string{name}).Body(), config); err != nil {
+		providers.edit().Body().AppendNewline()
+		if err := writeBody(providers.edit().Body().AppendNewBlock("provider", []string{name}).Body(), config); err != nil {
 			return fmt.Errorf("provider %s: %w", name, err)
 		}
 	}
@@ -1119,7 +1119,7 @@ func pinModuleProviders(dir string, configured map[string]Provider) error {
 	}
 	sort.Strings(names)
 	changed := false
-	for _, b := range versions.file.Body().Blocks() {
+	for _, b := range versions.edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}

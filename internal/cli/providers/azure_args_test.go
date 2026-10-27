@@ -26,7 +26,7 @@ func TestAzureArgs(t *testing.T) {
 	if err := os.WriteFile(file, []byte("version: 1\nproviders:\n  azure:\n    azapi: true\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	withAzapi, err := config.Load(file)
+	withAzapi, err := config.Load(file, Profiles())
 	if err != nil {
 		t.Fatal(err)
 	}

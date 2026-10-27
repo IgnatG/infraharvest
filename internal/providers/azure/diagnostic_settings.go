@@ -53,7 +53,7 @@ const diagnosticListParallel = childListParallel
 // are extension resources (Microsoft.Insights/diagnosticSettings) that
 // Resource Graph doesn't index, so each resource takes a request of its
 // own: the service is opt-in, and lists after the others (see
-// Provider.DependentServices), from what they listed, so that it asks
+// Provider.Profile), from what they listed, so that it asks
 // only about what the import found. Named alone, it lists only the
 // subscription's.
 //

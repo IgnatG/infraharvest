@@ -155,7 +155,9 @@ EOT
 }
 `)
 	f.Fuzz(func(t *testing.T, content string) {
-		_ = literalSecrets(&parsedFile{rel: "generated.tf", content: content})
+		if parsed, err := parseHCL("generated.tf", []byte(content)); err == nil {
+			_ = literalSecrets(parsed)
+		}
 		path := filepath.Join(t.TempDir(), GeneratedFileName)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)

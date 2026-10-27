@@ -413,8 +413,8 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 // initialised, a filter that doesn't parse, or an interrupt.
 //
 // The services that list from what the others listed (see
-// harvest.ProviderWithDependentServices) list once the others are done,
-// given what they listed.
+// harvest.Profile.DependentServices) list once the others are done, given
+// what they listed.
 func listServices(ctx context.Context, registry *harvest.Registry, c *callContext, parallel int, args []string) ([]error, error) {
 	options := c.options
 	filters, err := options.filters()
@@ -423,7 +423,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 	}
 	discoverers := make([]discovery.Discoverer, 0, len(c.services))
 	var dependent []discovery.Discoverer
-	var waiting []harvest.ProviderWithDependentServices
+	var waiting []harvest.ProviderWithListedByOthers
 	for _, service := range c.services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
@@ -438,9 +438,11 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
-		if p, ok := serviceProvider.(harvest.ProviderWithDependentServices); ok && slices.Contains(p.DependentServices(), service) {
+		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
-			waiting = append(waiting, p)
+			if p, ok := serviceProvider.(harvest.ProviderWithListedByOthers); ok {
+				waiting = append(waiting, p)
+			}
 			continue
 		}
 		discoverers = append(discoverers, d)
@@ -488,13 +490,10 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 }
 
 // Services returns the names of provider's services, sorted, without its
-// opt-in services (see harvest.ProviderWithOptInServices): those are
-// imported only when named, never as part of "*".
+// opt-in services (see harvest.Profile.OptInServices): those are imported
+// only when named, never as part of "*".
 func Services(provider harvest.Provider) []string {
-	var optIn []string
-	if p, ok := provider.(harvest.ProviderWithOptInServices); ok {
-		optIn = p.OptInServices()
-	}
+	optIn := provider.Profile().OptInServices
 	services := make([]string, 0, len(provider.Services()))
 	for name := range provider.Services() {
 		if !slices.Contains(optIn, name) {
