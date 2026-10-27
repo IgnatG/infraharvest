@@ -205,8 +205,9 @@ var sqlInstanceLists projectLists[[]*sqladmin.DatabaseInstance]
 // sqlInstancesOnce returns the project's Cloud SQL instances, from every
 // page of the instance list, listing them only the first time the process
 // asks (see projectLists): the imports of a project's regions share the
-// list, which they only read. A list that fails isn't kept, so the next
-// import lists again.
+// list, which they only read. A list that fails is kept too, so that the
+// other imports don't make it again; only one whose context ended isn't,
+// so the next import lists again.
 func sqlInstancesOnce(ctx context.Context, svc *sqladmin.Service, project string) ([]*sqladmin.DatabaseInstance, error) {
 	return sqlInstanceLists.once(project, func() ([]*sqladmin.DatabaseInstance, error) {
 		var instances []*sqladmin.DatabaseInstance

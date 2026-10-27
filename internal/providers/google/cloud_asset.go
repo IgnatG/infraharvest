@@ -130,8 +130,9 @@ var searches projectLists[[]*cloudasset.ResourceSearchResult]
 // searchOnce returns what searchAll finds in the project for assetTypes,
 // which are sorted, searching only the first time the process asks (see
 // projectLists): the imports of a project's regions and of global share
-// the search, which they only read. A search that fails isn't kept, so
-// the next import searches again.
+// the search, which they only read. A search that fails is kept too, so
+// that the other imports don't make it again; only one whose context ended
+// isn't, so the next import searches again.
 func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
 	return searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
 		return searchAll(ctx, svc, project, assetTypes)
