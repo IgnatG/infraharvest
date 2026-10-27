@@ -22,6 +22,8 @@ run "data_reads_denied_but_objects" {
   assert {
     condition = length(setsubtract([
       "logging.googleapis.com/logEntries.list",
+      "logging.googleapis.com/views.access",
+      "logging.googleapis.com/buckets.copyLogEntries",
       "bigquery.googleapis.com/tables.getData",
       "datastore.googleapis.com/entities.get",
     ], google_iam_deny_policy.data_reads[0].rules[0].deny_rule[0].denied_permissions)) == 0

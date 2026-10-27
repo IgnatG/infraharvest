@@ -32,15 +32,20 @@ locals {
 
   # Data reads roles/viewer allows, directly or through the project's
   # convenience values (projectReaders on BigQuery datasets, projectViewers
-  # on fine-grained Cloud Storage buckets and objects): log entries, table,
+  # on fine-grained Cloud Storage buckets and objects): log entries, read
+  # directly, through a log view or copied out of their bucket, table,
   # model, row and entity data, objects, downloads, function source, traces
-  # and health records. infraharvest lists through Cloud Asset Inventory
+  # and health records. Reading through a log view takes views.access,
+  # which view-level grants give, so it is denied as well. infraharvest lists through Cloud Asset Inventory
   # and the services' configuration APIs, and the generated roots import no
   # data, so none of them needs these.
   denied_data_reads = [
     "logging.googleapis.com/logEntries.list",
+    "logging.googleapis.com/views.access",
+    "logging.googleapis.com/buckets.copyLogEntries",
     "bigquery.googleapis.com/tables.getData",
     "bigquery.googleapis.com/models.getData",
+    "bigquery.googleapis.com/objectRefs.read",
     "storage.googleapis.com/objects.get",
     "storage.googleapis.com/objects.list",
     "spanner.googleapis.com/databases.read",

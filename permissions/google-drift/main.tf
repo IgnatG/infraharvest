@@ -45,8 +45,11 @@ locals {
   # conditions match resource tags alone, so objects stay readable.
   denied_data_reads = [
     "logging.googleapis.com/logEntries.list",
+    "logging.googleapis.com/views.access",
+    "logging.googleapis.com/buckets.copyLogEntries",
     "bigquery.googleapis.com/tables.getData",
     "bigquery.googleapis.com/models.getData",
+    "bigquery.googleapis.com/objectRefs.read",
     "spanner.googleapis.com/databases.read",
     "spanner.googleapis.com/databases.select",
     "bigtable.googleapis.com/tables.readRows",
