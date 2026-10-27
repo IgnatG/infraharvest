@@ -31,7 +31,7 @@ type DriftInput struct {
 	Out    string `json:"out" jsonschema:"the output directory of an import, whose roots were applied"`
 	Engine string `json:"engine,omitempty" flag:"engine" jsonschema:"terraform (the default) or tofu"`
 	// Config is --config, checked as the other paths are.
-	Config string `json:"config,omitempty" jsonschema:"the import's configuration file, as --config takes it: its settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given here"`
+	Config string `json:"config,omitempty" jsonschema:"a configuration file, as --config takes it, that sets engine or engine-timeout under settings, which apply where not given here; a file that sets anything else, such as the import's scope, backend or environments, is refused"`
 	// Roots are --root patterns.
 	Roots []string `json:"roots,omitempty" flag:"root,each" jsonschema:"check only the roots whose path in the output directory, or a directory it is in, matches one of these patterns, such as aws/*/eu-west-2 (default: every root)"`
 	// Parallel is --parallel, 0 for its default.
@@ -97,9 +97,9 @@ const driftConfirmation = "confirm_drift"
 // driftArgs checks the paths of in and returns the arguments of drift
 // without the flags of a tool's input (see flagArgs), nor the output
 // directory, which goes last, with the configuration file in, if any,
-// which the caller removes (see loadConfig). in.Out is set to the path to
-// use.
-func (t *tools) driftArgs(in *DriftInput) ([]string, *toolConfig, error) {
+// which the caller removes (see loadConfig), checked for tool, the drift
+// tool calling it. in.Out is set to the path to use.
+func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, error) {
 	if in.Out == "" {
 		return nil, nil, errors.New("out is required")
 	}
@@ -125,7 +125,7 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, *toolConfig, error) {
 		}
 		args = append(args, "--catalogue="+catalogue)
 	}
-	config, err := t.loadConfig(&in.Config)
+	config, err := t.loadConfig(&in.Config, configUse{tool: tool})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,7 +133,7 @@ func (t *tools) driftArgs(in *DriftInput) ([]string, *toolConfig, error) {
 }
 
 func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, config, err := t.driftArgs(&in)
+	args, config, err := t.driftArgs("drift", &in)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,7 +152,7 @@ func (t *tools) drift(ctx context.Context, _ *mcp.CallToolRequest, in DriftInput
 }
 
 func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in DriftAcceptInput) (*mcp.CallToolResult, *DriftResult, error) {
-	args, config, err := t.driftArgs(&in.DriftInput)
+	args, config, err := t.driftArgs("drift_accept", &in.DriftInput)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -182,12 +182,9 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	var content []byte
 	var decisions *importer.DriftDecisions
 	if in.Decisions != "" {
-		if in.Decisions, err = t.within("decisions", in.Decisions); err != nil {
-			return nil, nil, err
-		}
 		// Read once: the user confirms these bytes, as for an import's
 		// selection file.
-		if content, err = os.ReadFile(in.Decisions); err != nil {
+		if in.Decisions, content, err = t.readWithin("decisions", in.Decisions); err != nil {
 			return nil, nil, err
 		}
 		if decisions, err = importer.ParseDriftDecisions(in.Decisions, content); err != nil {
