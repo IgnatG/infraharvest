@@ -931,7 +931,7 @@ func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
 			for _, r := range m.Resources {
 				var mask any
 				_ = json.Unmarshal(r.SensitiveValues, &mask)
-				values := map[string]any(r.AttributeValues)
+				values := r.AttributeValues
 				collectSensitive(values, mask, seen)
 				collectDriftSecrets(values, "", true, seen)
 			}
