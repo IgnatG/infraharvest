@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1138,6 +1139,33 @@ func TestReportBoundsALongReport(t *testing.T) {
 	left := len(content) - len(head)
 	if want := fmt.Sprintf("%d of the report's %d bytes are left out here: the full report is %s]", left, len(content), path); note != want {
 		t.Errorf("note: %q, want %q", note, want)
+	}
+}
+
+// A report that is a hard link to a file elsewhere, which the report
+// tool would otherwise read as the report, is refused, as any file the
+// agent names is.
+func TestReportRefusesAHardLinkedReport(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows' file info doesn't count hard links")
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "generated", report.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(t.TempDir(), "credentials")
+	if err := os.WriteFile(secret, []byte("[default]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(secret, filepath.Join(dir, "report.md")); err != nil {
+		t.Skipf("can't make a hard link: %v", err)
+	}
+	tools := newTools(&fakeRunner{}, root)
+	req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{}}
+
+	if res, _, err := tools.report(t.Context(), req, ReportInput{Out: filepath.Join(root, "generated")}); err == nil || !strings.Contains(err.Error(), "hard link") {
+		t.Errorf("got %+v, %v, want the hard link refused", res, err)
 	}
 }
 

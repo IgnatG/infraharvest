@@ -277,13 +277,28 @@ func resolve(path string) (string, error) {
 }
 
 // readWithin reads the file at path, which the agent chose, under the root
-// (see within), and returns the path to use and the content. The file is
-// opened once and read from that handle, which has to be the file path
-// leads to under the root once it is open, so a link swapped in between
-// the check and the open is refused; and the file may have no other name,
-// as a hard link to a file outside the root would give it, where the
-// platform counts them.
+// (see openWithin), and returns the path to use and the content.
 func (t *tools) readWithin(what, path string) (string, []byte, error) {
+	path, f, err := t.openWithin(what, path)
+	if err != nil {
+		return "", nil, err
+	}
+	defer f.Close()
+	content, err := io.ReadAll(f)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, content, nil
+}
+
+// openWithin opens the file at path, which the agent chose, under the root
+// (see within), and returns the path to use and the open file, to read
+// from. The file is opened once, and has to be the file path leads to
+// under the root once it is open, so a link swapped in between the check
+// and the open is refused; and the file may have no other name, as a
+// hard link to a file outside the root would give it, where the platform
+// counts them.
+func (t *tools) openWithin(what, path string) (string, *os.File, error) {
 	path, err := t.within(what, path)
 	if err != nil {
 		return "", nil, err
@@ -296,38 +311,44 @@ func (t *tools) readWithin(what, path string) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	defer f.Close()
-	opened, err := f.Stat()
-	if err != nil {
+	if err := t.checkOpened(what, path, f); err != nil {
+		_ = f.Close()
 		return "", nil, err
 	}
+	return path, f, nil
+}
+
+// checkOpened checks that f, opened at path, is a regular file, the file
+// path leads to under the root now that it is open, and has no other name,
+// where the platform counts them (see openWithin).
+func (t *tools) checkOpened(what, path string, f *os.File) error {
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	if !opened.Mode().IsRegular() {
-		return "", nil, fmt.Errorf("%s %q isn't a regular file", what, path)
+		return fmt.Errorf("%s %q isn't a regular file", what, path)
 	}
 	// Checked again now that it is open, so a link swapped in before the
 	// open is caught, and the handle compared with where path leads.
 	if _, err := t.within(what, path); err != nil {
-		return "", nil, err
+		return err
 	}
 	resolved, err := resolve(path)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	current, err := os.Stat(resolved)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	if !os.SameFile(opened, current) {
-		return "", nil, fmt.Errorf("%s %q changed while it was opened", what, path)
+		return fmt.Errorf("%s %q changed while it was opened", what, path)
 	}
 	if hardLinked(opened) {
-		return "", nil, fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
+		return fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
 	}
-	content, err := io.ReadAll(f)
-	if err != nil {
-		return "", nil, err
-	}
-	return path, content, nil
+	return nil
 }
 
 // Scope is what to list: a provider command, its services, and where to
@@ -850,16 +871,19 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 			}
 		}
 	}
-	// The report's own path too: .infraharvest or the report could be a
-	// symbolic link that leads out of the root, such as one a cloned
-	// repository plants to a credentials file.
-	if _, err := t.within("report", path); err != nil {
+	// Opened as any file the agent names is (see openWithin):
+	// .infraharvest or the report could be a symbolic link that leads out
+	// of the root, such as one a cloned repository plants to a credentials
+	// file, or a hard link to one.
+	path, f, err := t.openWithin("report", path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("report %q isn't a regular file", path)
-	}
-	content, size, err := readHead(path, maxReport)
+	defer f.Close()
+	content, size, err := readHead(f, maxReport)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
 	}
@@ -875,15 +899,10 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 // fill an agent's context.
 const maxReport = 256 << 10
 
-// readHead reads at most limit bytes of the file at path, cut after the
-// last whole line that fits, or else the last whole character, and
-// returns them with the file's size.
-func readHead(path string, limit int) ([]byte, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer f.Close()
+// readHead reads at most limit bytes of f, cut after the last whole line
+// that fits, or else the last whole character, and returns them with the
+// file's size.
+func readHead(f *os.File, limit int) ([]byte, int64, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, 0, err
