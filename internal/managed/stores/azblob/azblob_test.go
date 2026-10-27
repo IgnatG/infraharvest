@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+package azblob
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func TestAzureBlobClient(t *testing.T) {
+func TestNewClient(t *testing.T) {
 	const serviceURL = "https://acmestate.blob.core.windows.net/"
 	key := base64.StdEncoding.EncodeToString([]byte("not a real key"))
 	for name, env := range map[string]map[string]string{
@@ -24,7 +24,7 @@ func TestAzureBlobClient(t *testing.T) {
 		"SAS token":         {"ARM_SAS_TOKEN": "?sv=2022-11-02&sig=x"},
 		"service principal": {"ARM_CLIENT_ID": "client", "ARM_CLIENT_SECRET": "secret", "ARM_TENANT_ID": "tenant"},
 	} {
-		client, err := azureBlobClient(serviceURL, func(k string) string { return env[k] })
+		client, err := newClient(serviceURL, func(k string) string { return env[k] })
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
@@ -33,7 +33,7 @@ func TestAzureBlobClient(t *testing.T) {
 			t.Errorf("%s: URL %q", name, client.URL())
 		}
 	}
-	if _, err := azureBlobClient(serviceURL, func(k string) string {
+	if _, err := newClient(serviceURL, func(k string) string {
 		if k == "ARM_ACCESS_KEY" {
 			return "not base64!"
 		}
@@ -42,6 +42,9 @@ func TestAzureBlobClient(t *testing.T) {
 		t.Error("want an error for an access key that isn't base64")
 	}
 }
+
+// state is the content of the state object the store serves.
+const state = `{"version": 4, "resources": [{"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{"attributes": {"id": "vpc-0abc1234"}}]}]}`
 
 // fakeBlob serves one container's blobs: List Blobs, a blob a page with
 // NextMarker, and Get Blob.
@@ -100,7 +103,7 @@ func fakeBlob(t *testing.T, container string, blobs map[string]string) *httptest
 	return server
 }
 
-func TestAzureBlobListAndGet(t *testing.T) {
+func TestListAndGet(t *testing.T) {
 	blobs := map[string]string{
 		"imported/azurerm/uksouth/terraform.tfstate": state,
 		"imported/azurerm/global/terraform.tfstate":  `{"version": 4}`,
@@ -108,7 +111,7 @@ func TestAzureBlobListAndGet(t *testing.T) {
 		"other/terraform.tfstate":                    `{"version": 4}`,
 	}
 	server := fakeBlob(t, "tfstate", blobs)
-	client, err := azureBlobClient(server.URL+"/", func(k string) string {
+	client, err := newClient(server.URL+"/", func(k string) string {
 		if k == "ARM_SAS_TOKEN" {
 			return "sv=2022-11-02&sig=x"
 		}
@@ -117,7 +120,7 @@ func TestAzureBlobListAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := &AzureBlob{client: client}
+	store := &Store{client: client}
 	ctx := context.Background()
 
 	// One blob a page: every page is read, under the prefix only.

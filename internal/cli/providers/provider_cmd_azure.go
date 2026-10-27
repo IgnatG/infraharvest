@@ -14,6 +14,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/managed/stores/azblob"
 	"github.com/IgnatG/infraharvest/internal/providers/azure"
 )
 
@@ -21,6 +23,7 @@ func init() {
 	define(definition{
 		name:        "azure",
 		newProvider: func() harvest.Provider { return &azure.Provider{} },
+		stores:      func(s *managed.Stores) { s.AzureBlob = azblob.New },
 		short:       "Generate Terraform configuration for the resources of Azure subscriptions",
 		long: "List the resources of the services --services names in an Azure subscription,\n" +
 			"or in one of its resource groups with --resource-group, and generate their\n" +

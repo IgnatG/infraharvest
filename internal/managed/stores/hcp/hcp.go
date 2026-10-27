@@ -1,7 +1,10 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+// Package hcp reads the current state of HCP Terraform (formerly Terraform
+// Cloud) or Terraform Enterprise workspaces through their API. It is plain
+// HTTP and links no cloud SDK, so every build includes it.
+package hcp
 
 import (
 	"context"
@@ -18,16 +21,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
-// DefaultHCPTerraformHost is the host of HCP Terraform (formerly Terraform
-// Cloud); Terraform Enterprise has its own.
-const DefaultHCPTerraformHost = "app.terraform.io"
-
-// HCPTerraform reads the current state of HCP Terraform or Terraform
-// Enterprise workspaces, through the API, as an ObjectStore: buckets are
+// Store reads the current state of HCP Terraform or Terraform Enterprise
+// workspaces, through the API, as an ObjectStore: buckets are
 // organizations, keys are workspace names.
-type HCPTerraform struct {
+type Store struct {
 	client *http.Client
 	// base is the API's URL, https://<host>/api/v2.
 	base  string
@@ -37,19 +38,19 @@ type HCPTerraform struct {
 	ids sync.Map
 }
 
-// newHCPTerraform opens the API of host with the token Terraform uses for
-// it: TF_TOKEN_<host> (dots as _, hyphens as __), or the one terraform
-// login saved in credentials.tfrc.json.
-func newHCPTerraform(_ context.Context, host string) (ObjectStore, error) {
-	token, err := hcpTerraformToken(host, os.Getenv)
+// New opens the API of host with the token Terraform uses for it:
+// TF_TOKEN_<host> (dots as _, hyphens as __), or the one terraform login
+// saved in credentials.tfrc.json.
+func New(_ context.Context, host string) (managed.ObjectStore, error) {
+	token, err := apiToken(host, os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	return &HCPTerraform{client: &http.Client{Timeout: time.Minute}, base: "https://" + host + "/api/v2", token: token}, nil
+	return &Store{client: &http.Client{Timeout: time.Minute}, base: "https://" + host + "/api/v2", token: token}, nil
 }
 
-// hcpTerraformToken returns the API token for host, as Terraform finds it.
-func hcpTerraformToken(host string, getenv func(string) string) (string, error) {
+// apiToken returns the API token for host, as Terraform finds it.
+func apiToken(host string, getenv func(string) string) (string, error) {
 	name := "TF_TOKEN_" + strings.NewReplacer(".", "_", "-", "__").Replace(host)
 	if token := getenv(name); token != "" {
 		return token, nil
@@ -94,7 +95,7 @@ func credentialsFile(getenv func(string) string) (string, error) {
 
 // List returns the names of the organization's workspaces that start with
 // prefix.
-func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([]string, error) {
+func (h *Store) List(ctx context.Context, organization, prefix string) ([]string, error) {
 	var names []string
 	for page := 1; page != 0; {
 		query := url.Values{"page[number]": {strconv.Itoa(page)}, "page[size]": {"100"}}
@@ -133,7 +134,7 @@ func (h *HCPTerraform) List(ctx context.Context, organization, prefix string) ([
 
 // Get returns the current state of the organization's workspace, nil if it
 // has none yet.
-func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) ([]byte, error) {
+func (h *Store) Get(ctx context.Context, organization, workspace string) ([]byte, error) {
 	id, err := h.workspaceID(ctx, organization, workspace)
 	if err != nil {
 		return nil, err
@@ -160,7 +161,7 @@ func (h *HCPTerraform) Get(ctx context.Context, organization, workspace string) 
 
 // workspaceID returns the ID of the organization's workspace: the one List
 // found, or else the API's.
-func (h *HCPTerraform) workspaceID(ctx context.Context, organization, workspace string) (string, error) {
+func (h *Store) workspaceID(ctx context.Context, organization, workspace string) (string, error) {
 	if id, ok := h.ids.Load(organization + "/" + workspace); ok {
 		return id.(string), nil
 	}
@@ -178,7 +179,7 @@ func (h *HCPTerraform) workspaceID(ctx context.Context, organization, workspace 
 var errNotFound = errors.New("not found")
 
 // get decodes the JSON:API document at u into v.
-func (h *HCPTerraform) get(ctx context.Context, u string, v any) error {
+func (h *Store) get(ctx context.Context, u string, v any) error {
 	body, err := h.fetch(ctx, u, u, "application/vnd.api+json")
 	if err != nil {
 		return err
@@ -188,7 +189,7 @@ func (h *HCPTerraform) get(ctx context.Context, u string, v any) error {
 
 // download returns the state at u, a signed URL that grants access to the
 // state, which what describes in errors instead.
-func (h *HCPTerraform) download(ctx context.Context, u, what string) ([]byte, error) {
+func (h *Store) download(ctx context.Context, u, what string) ([]byte, error) {
 	return h.fetch(ctx, u, what, "application/json")
 }
 
@@ -196,10 +197,10 @@ func (h *HCPTerraform) download(ctx context.Context, u, what string) ([]byte, er
 // host gets the token: state downloads are signed URLs, which can be on
 // another host, and which errors, logs and an MCP client must never see,
 // so no error quotes u unless what is u.
-func (h *HCPTerraform) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
+func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
+		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
 	if api, err := url.Parse(h.base); err == nil && req.URL.Host == api.Host {
 		req.Header.Set("Authorization", "Bearer "+h.token)
@@ -207,7 +208,7 @@ func (h *HCPTerraform) fetch(ctx context.Context, u, what, accept string) ([]byt
 	req.Header.Set("Accept", accept)
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
+		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
@@ -216,19 +217,9 @@ func (h *HCPTerraform) fetch(ctx context.Context, u, what, accept string) ([]byt
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", what, resp.Status)
 	}
-	body, err := readState(resp.Body)
+	body, err := managed.ReadState(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, withoutURL(err))
+		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
 	return body, nil
-}
-
-// withoutURL returns the error a *url.Error wraps, whose message quotes
-// the URL, or err.
-func withoutURL(err error) error {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return ue.Err
-	}
-	return err
 }

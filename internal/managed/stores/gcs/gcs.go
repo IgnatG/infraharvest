@@ -1,7 +1,10 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+// Package gcs reads Terraform state from Cloud Storage, where the gcs
+// backend keeps it. It links Google's API client, so only a build with
+// Google Cloud includes it.
+package gcs
 
 import (
 	"context"
@@ -11,18 +14,20 @@ import (
 
 	"google.golang.org/api/option"
 	"google.golang.org/api/storage/v1"
+
+	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
-// GCS reads state from Cloud Storage with Application Default Credentials,
-// as Terraform's gcs backend does, through the JSON API.
-type GCS struct {
+// Store reads state from Cloud Storage with Application Default
+// Credentials, as Terraform's gcs backend does, through the JSON API.
+type Store struct {
 	service *storage.Service
 }
 
-// newGCS opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
+// New opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
 // from that emulator, without credentials, as Cloud Storage's own client
 // libraries do; a host without a scheme is taken as http.
-func newGCS(ctx context.Context) (ObjectStore, error) {
+func New(ctx context.Context) (managed.ObjectStore, error) {
 	opts := []option.ClientOption{option.WithScopes(storage.DevstorageReadOnlyScope)}
 	if host := os.Getenv("STORAGE_EMULATOR_HOST"); host != "" {
 		endpoint, err := emulatorEndpoint(host)
@@ -35,7 +40,7 @@ func newGCS(ctx context.Context) (ObjectStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &GCS{service: service}, nil
+	return &Store{service: service}, nil
 }
 
 // emulatorEndpoint returns the JSON API's base URL on the emulator at host,
@@ -54,9 +59,9 @@ func emulatorEndpoint(host string) (string, error) {
 }
 
 // List returns the names of the objects under prefix, every page of them.
-func (g *GCS) List(ctx context.Context, bucket, prefix string) ([]string, error) {
+func (s *Store) List(ctx context.Context, bucket, prefix string) ([]string, error) {
 	var names []string
-	err := g.service.Objects.List(bucket).Prefix(prefix).Fields("items/name", "nextPageToken").
+	err := s.service.Objects.List(bucket).Prefix(prefix).Fields("items/name", "nextPageToken").
 		Pages(ctx, func(page *storage.Objects) error {
 			for _, o := range page.Items {
 				names = append(names, o.Name)
@@ -70,11 +75,11 @@ func (g *GCS) List(ctx context.Context, bucket, prefix string) ([]string, error)
 }
 
 // Get returns an object's content.
-func (g *GCS) Get(ctx context.Context, bucket, name string) ([]byte, error) {
-	resp, err := g.service.Objects.Get(bucket, name).Context(ctx).Download()
+func (s *Store) Get(ctx context.Context, bucket, name string) ([]byte, error) {
+	resp, err := s.service.Objects.Get(bucket, name).Context(ctx).Download()
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return readState(resp.Body)
+	return managed.ReadState(resp.Body)
 }

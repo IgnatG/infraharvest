@@ -16,6 +16,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/managed/stores/gcs"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
@@ -24,6 +26,7 @@ func init() {
 	define(definition{
 		name:        "google",
 		newProvider: func() harvest.Provider { return &google.Provider{} },
+		stores:      func(s *managed.Stores) { s.GCS = gcs.New },
 		short:       "Generate Terraform configuration for the resources of Google Cloud projects",
 		long: "List the resources of the services --services names in Google Cloud projects,\n" +
 			"region by region, and generate their Terraform configuration with import\n" +

@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package managed
+package s3
 
 import (
 	"context"
@@ -17,8 +17,11 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
+
+// state is the content of the state object the store serves.
+const state = `{"version": 4, "resources": [{"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{"attributes": {"id": "vpc-0abc1234"}}]}]}`
 
 // fakeS3 serves one bucket's objects, path-style: ListObjectsV2, a key a
 // page, and GetObject.
@@ -71,7 +74,7 @@ func fakeS3(t *testing.T, bucket string, objects map[string]string) *httptest.Se
 	return server
 }
 
-func TestS3ListAndGet(t *testing.T) {
+func TestListAndGet(t *testing.T) {
 	objects := map[string]string{
 		"imported/aws/eu-west-2/terraform.tfstate": state,
 		"imported/aws/global/terraform.tfstate":    `{"version": 4}`,
@@ -79,7 +82,7 @@ func TestS3ListAndGet(t *testing.T) {
 		"other/terraform.tfstate":                  `{"version": 4}`,
 	}
 	server := fakeS3(t, "acme-state", objects)
-	store := &S3{client: s3.New(s3.Options{
+	store := &Store{client: awss3.New(awss3.Options{
 		Region:       "eu-west-2",
 		BaseEndpoint: aws.String(server.URL),
 		UsePathStyle: true,
@@ -111,9 +114,9 @@ func TestS3ListAndGet(t *testing.T) {
 	}
 }
 
-// newS3 takes the region from ?region= first, then from the profile, and
+// New takes the region from ?region= first, then from the profile, and
 // fails for a profile the shared config doesn't have.
-func TestNewS3(t *testing.T) {
+func TestNew(t *testing.T) {
 	dir := t.TempDir()
 	config := filepath.Join(dir, "config")
 	if err := os.WriteFile(config, []byte("[profile state]\nregion = us-east-2\n"), 0o600); err != nil {
@@ -136,16 +139,16 @@ func TestNewS3(t *testing.T) {
 		{"", "state", "us-east-2"},
 		{"eu-west-1", "state", "eu-west-1"},
 	} {
-		store, err := newS3(ctx, tc.region, tc.profile)
+		store, err := New(ctx, tc.region, tc.profile)
 		if err != nil {
-			t.Errorf("newS3(%q, %q): %v", tc.region, tc.profile, err)
+			t.Errorf("New(%q, %q): %v", tc.region, tc.profile, err)
 			continue
 		}
-		if got := store.(*S3).client.Options().Region; got != tc.want {
-			t.Errorf("newS3(%q, %q): region %q, want %q", tc.region, tc.profile, got, tc.want)
+		if got := store.(*Store).client.Options().Region; got != tc.want {
+			t.Errorf("New(%q, %q): region %q, want %q", tc.region, tc.profile, got, tc.want)
 		}
 	}
-	if _, err := newS3(ctx, "", "missing"); err == nil {
+	if _, err := New(ctx, "", "missing"); err == nil {
 		t.Error("want an error for a profile the shared config doesn't have")
 	}
 }

@@ -89,11 +89,17 @@ func isAzureID(id string) bool {
 	return false
 }
 
+// DefaultHCPTerraformHost is the host of HCP Terraform (formerly Terraform
+// Cloud); Terraform Enterprise has its own.
+const DefaultHCPTerraformHost = "app.terraform.io"
+
 // Stores open the object stores state is read from: S3 in a region, with
 // the credentials of a shared config profile ("" for the defaults), Cloud
 // Storage, the Azure Blob Storage account at a service URL, and the
-// workspaces of HCP Terraform or Terraform Enterprise at a host (see
-// HCPTerraform).
+// workspaces of HCP Terraform or Terraform Enterprise at a host. Each
+// store is a package of its own under stores/, which links its cloud's
+// SDK: the command that builds Stores includes only the clouds compiled
+// in, so this package links none.
 type Stores struct {
 	S3           func(ctx context.Context, region, profile string) (ObjectStore, error)
 	GCS          func(ctx context.Context) (ObjectStore, error)
@@ -107,9 +113,6 @@ type Stores struct {
 func errNoStore(kind string) error {
 	return fmt.Errorf("no %s store to read the state with", kind)
 }
-
-// DefaultStores read with each cloud's default credentials.
-var DefaultStores = Stores{S3: newS3, GCS: newGCS, AzureBlob: newAzureBlob, HCPTerraform: newHCPTerraform}
 
 // Load reads the state in sources: state files, directories with state
 // files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=
@@ -502,9 +505,10 @@ func (r Resources) loadLocal(source string) error {
 // state.
 var stateSizeLimit int64 = 512 << 20
 
-// readState reads one state from r, failing rather than cutting it off if
-// it takes more than stateSizeLimit.
-func readState(r io.Reader) ([]byte, error) {
+// ReadState reads one state from r, failing rather than cutting it off if
+// it takes more than stateSizeLimit. Every ObjectStore reads what it gets
+// through it, so that each source has the same limit.
+func ReadState(r io.Reader) ([]byte, error) {
 	content, err := io.ReadAll(io.LimitReader(r, stateSizeLimit+1))
 	if err != nil {
 		return nil, err
@@ -515,14 +519,26 @@ func readState(r io.Reader) ([]byte, error) {
 	return content, nil
 }
 
-// readStateFile reads the state file at path (see readState).
+// WithoutURL returns the error a *url.Error wraps, whose message quotes
+// the URL, or err. A store whose URLs carry a credential, such as a SAS
+// token or a signed download URL, returns its errors through it, so that
+// no error, log or MCP client sees one.
+func WithoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
+// readStateFile reads the state file at path (see ReadState).
 func readStateFile(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	return readState(f)
+	return ReadState(f)
 }
 
 // Parse adds the managed resources of a state file found at where, in

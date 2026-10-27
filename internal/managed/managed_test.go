@@ -397,11 +397,11 @@ func TestReadStateLimit(t *testing.T) {
 	defer func() { stateSizeLimit = limit }()
 	stateSizeLimit = 4 << 20
 
-	content, err := readState(strings.NewReader(strings.Repeat("x", 4<<20)))
+	content, err := ReadState(strings.NewReader(strings.Repeat("x", 4<<20)))
 	if err != nil || len(content) != 4<<20 {
 		t.Errorf("at the limit: %d bytes, %v", len(content), err)
 	}
-	if _, err := readState(strings.NewReader(strings.Repeat("x", 4<<20+1))); err == nil || !strings.Contains(err.Error(), "larger than 4 MiB") {
+	if _, err := ReadState(strings.NewReader(strings.Repeat("x", 4<<20+1))); err == nil || !strings.Contains(err.Error(), "larger than 4 MiB") {
 		t.Errorf("over the limit: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "big.tfstate")
@@ -477,6 +477,64 @@ func TestParseKeepsAddresses(t *testing.T) {
 		res, ok := r.Find(tc.typ, tc.id)
 		if !ok || res.Address != tc.want || res.Type != tc.typ || res.Where != "prod.tfstate" {
 			t.Errorf("Find(%s, %s) = %+v, %v, want address %q", tc.typ, tc.id, res, ok, tc.want)
+		}
+	}
+}
+
+// fakeWorkspaces are an organization's workspaces and their state, nil
+// for none.
+type fakeWorkspaces map[string][]byte
+
+func (f fakeWorkspaces) List(_ context.Context, _, prefix string) ([]string, error) {
+	var names []string
+	for name := range f {
+		if strings.HasPrefix(name, prefix) {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+func (f fakeWorkspaces) Get(_ context.Context, _, name string) ([]byte, error) {
+	state, ok := f[name]
+	if !ok {
+		return nil, fmt.Errorf("no workspace %s", name)
+	}
+	return state, nil
+}
+
+func TestLoadWorkspaces(t *testing.T) {
+	stateOf := func(id string) []byte {
+		return []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`)
+	}
+	workspaces := fakeWorkspaces{
+		"network-prod":  stateOf("network"),
+		"network-stage": nil, // no state yet
+		"app-prod":      stateOf("app"),
+	}
+	var hosts []string
+	stores := Stores{HCPTerraform: func(_ context.Context, host string) (ObjectStore, error) {
+		hosts = append(hosts, host)
+		return workspaces, nil
+	}}
+
+	r, err := Load(t.Context(), []string{"tfc://acme/network-*", "tfc://acme/app-prod?host=tfe.example.com"}, stores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if where, _ := r.Lookup("aws_s3_bucket", "network"); where != "tfc://acme/network-prod" {
+		t.Errorf("network: %q", where)
+	}
+	if where, _ := r.Lookup("aws_s3_bucket", "app"); where != "tfc://tfe.example.com/acme/app-prod" {
+		t.Errorf("app: %q", where)
+	}
+	if strings.Join(hosts, ",") != DefaultHCPTerraformHost+",tfe.example.com" {
+		t.Errorf("hosts: %v", hosts)
+	}
+
+	for _, source := range []string{"tfc://acme/missing", "tfc://acme", "tfc:///network-prod"} {
+		if _, err := Load(t.Context(), []string{source}, stores); err == nil {
+			t.Errorf("%s: want an error", source)
 		}
 	}
 }
