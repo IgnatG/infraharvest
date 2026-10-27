@@ -47,6 +47,11 @@ import (
 // standard error and its exit code. err is set only if it couldn't run.
 type Runner func(ctx context.Context, args []string) (stdout, stderr []byte, exitCode int, err error)
 
+// Checker checks infraharvest's args as the command they name would before
+// running, without running it, and returns the error the command would
+// fail with.
+type Checker func(ctx context.Context, args []string) error
+
 // instructions tell agents how to use the tools.
 const instructions = `infraharvest turns existing cloud resources into Terraform configuration that plans with no changes. It only reads the cloud and never applies anything.
 
@@ -56,12 +61,13 @@ const instructions = `infraharvest turns existing cloud resources into Terraform
 4. Call report to read what was imported, what was left out and why, and the results of the checks.
 5. Once the user has applied the roots, call drift to see what changed in the cloud since, and what the next apply would do about each change: drift changes neither the code nor the state. Call report with kind drift to read the drift report it wrote. To take the cloud's values into the code instead of letting the next apply revert them, call drift_accept with accept rules or a decisions file; the user is asked to confirm first, seeing how many changes would be accepted. With write_decisions, drift_accept writes a decisions file with an entry per change, for the user to decide each, then apply with decisions.`
 
-// New returns the server, which runs infraharvest with run. The tools read
+// New returns the server, which runs infraharvest with run, and checks an
+// import with check before the user is asked to confirm it. The tools read
 // and write files under root only: selection files, output directories,
 // reports and drift decisions files.
-func New(version, root string, run Runner) *mcp.Server {
+func New(version, root string, run Runner, check Checker) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infraharvest", Version: version}, &mcp.ServerOptions{Instructions: instructions})
-	t := &tools{run: run, root: root}
+	t := &tools{run: run, check: check, root: root}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "discover",
 		Title:       "List resources into a selection file",
@@ -107,6 +113,9 @@ func ptr[T any](v T) *T { return &v }
 
 type tools struct {
 	run Runner
+	// check checks an import's arguments before the user is asked to
+	// confirm it, so that what the command would refuse isn't confirmed.
+	check Checker
 	// root is the directory the tools' files must be under.
 	root string
 
@@ -420,6 +429,9 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	args = append(args, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
+	if err := t.check(ctx, args); err != nil {
+		return nil, nil, err
+	}
 	// The selection file is read once: the user confirms these bytes, and the
 	// import reads them from a private copy, so a file the agent changes in
 	// between, such as with a discover running at the same time, isn't what
@@ -753,8 +765,9 @@ const scopeHelp = "Where to list depends on the provider: aws takes regions, pro
 // commandArgs returns the arguments of command on scope's provider, with
 // the flags of in, a tool's input that has scope in it (see flagArgs).
 // What the provider's command makes of them, such as a field it has no
-// flag for or a Google scope without a project, is left for the command
-// to check, whose error the tool returns.
+// flag for or a Google scope without a project, is for the command to
+// check: discover returns the error it runs into, and import checks them
+// with the command's checks before the user is asked (see Checker).
 func commandArgs(command string, scope Scope, in any) ([]string, error) {
 	// The provider is the one argument that isn't a --flag=value: one the
 	// binary doesn't have would be taken for something else, such as a

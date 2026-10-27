@@ -185,3 +185,5 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | Azure `--subscriptions`, `--management-group` | Combine, and without either the import covers `ARM_SUBSCRIPTION_ID`; `--resource-group` narrows each subscription to that group |
 | Google Cloud `--projects`, `--organization`, `--folders` | Combine; at least one is required |
 | `--allow-partial` | Turns exit code 1 into 3; an import that can't run still exits 2 |
+
+`--check` checks these rules, and the rest of what a run would check before listing (the flags the configuration file sets, the selection file, the `--managed-state` sources and the `--catalogue` directory), and exits without listing anything: 0 if the run could start, 2 with the error otherwise, such as `infraharvest import aws --services=vpc --all --check` in a pipeline before the run itself.

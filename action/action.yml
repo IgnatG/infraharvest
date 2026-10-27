@@ -127,7 +127,7 @@ runs:
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
       # Only what must be checked before infraharvest is installed, or what
       # the action itself makes of its inputs: infraharvest checks the
-      # provider (see Check the provider) and the import's flags, such as
+      # provider and the import's flags (see Check the import), such as
       # --services, itself.
       run: |
         fail() {
@@ -228,21 +228,57 @@ runs:
         if command -v sha256sum > /dev/null; then sha256sum --check --ignore-missing "$sums"; else shasum -a 256 --check --ignore-missing "$sums"; fi
         if [[ "$ext" == zip ]]; then unzip -q -o "$archive"; else tar -xzf "$archive"; fi
         echo "$dir" >> "$GITHUB_PATH"
-    # Before drift, which can take long: the provider is the import's one
-    # argument that isn't a flag, so one infraharvest doesn't have would be
-    # taken for something else. infraharvest services checks it as the
-    # import would.
-    - name: Check the provider
+    # Before drift, which can take long: the import's arguments are built
+    # here, and infraharvest checks them as the import would (--check),
+    # listing nothing, so that a run the import would refuse, such as one
+    # without services, fails at once. The import step runs them as they
+    # are. The provider, the one argument that isn't a flag, is checked
+    # first, by infraharvest services: one infraharvest doesn't have would
+    # be taken for something else.
+    - name: Check the import
       if: inputs.import == 'true'
       shell: bash
       env:
         BINARY: ${{ inputs.binary }}
         PROVIDER: ${{ inputs.provider }}
+        SERVICES: ${{ inputs.services }}
+        REGIONS: ${{ inputs.regions }}
+        SELECTION: ${{ inputs.selection }}
+        ENGINE: ${{ inputs.engine }}
+        OUT: ${{ inputs.out }}
+        CONFIG: ${{ inputs.config }}
+        ALLOW_PARTIAL: ${{ inputs.allow-partial }}
+        INCREMENTAL: ${{ inputs.incremental }}
+        ARGS: ${{ inputs.args }}
+        MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
-        if ! err=$("${BINARY:-infraharvest}" services -- "$PROVIDER" 2>&1 > /dev/null); then
+        bin="${BINARY:-infraharvest}"
+        if ! err=$("$bin" services -- "$PROVIDER" 2>&1 > /dev/null); then
           echo "::error::provider: $err (set import to false to only check drift)"
           exit 1
         fi
+        args=(import "$PROVIDER" "--engine=$ENGINE" "--services=$SERVICES" "--out=$OUT" --format=json)
+        [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
+        [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
+        [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
+        [[ "$INCREMENTAL" == true ]] && args+=(--incremental)
+        [[ -n "$MANAGED_STATE" ]] && args+=("--managed-state=$MANAGED_STATE")
+        if [[ -n "$SELECTION" ]]; then args+=("--selection=$SELECTION"); else args+=(--all); fi
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          line="${line%"${line##*[![:space:]]}"}"
+          [[ -z "$line" ]] && continue
+          if [[ "$line" != --* ]]; then
+            echo "::error::args: '$line' isn't a flag; give one --flag a line"
+            exit 1
+          fi
+          args+=("$line")
+        done <<< "$ARGS"
+        if ! err=$("$bin" "${args[@]}" --check 2>&1 > /dev/null); then
+          echo "::error::import: $err"
+          exit 1
+        fi
+        printf '%s\0' "${args[@]}" > "$RUNNER_TEMP/infraharvest-import-args"
     # Drift first, on the code the repository has, so that what the import
     # adds next isn't taken for drift: one pull request then carries both.
     - name: Drift
@@ -335,36 +371,13 @@ runs:
       shell: bash
       env:
         BINARY: ${{ inputs.binary }}
-        PROVIDER: ${{ inputs.provider }}
-        SERVICES: ${{ inputs.services }}
-        REGIONS: ${{ inputs.regions }}
-        SELECTION: ${{ inputs.selection }}
-        ENGINE: ${{ inputs.engine }}
         OUT: ${{ inputs.out }}
-        CONFIG: ${{ inputs.config }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
-        INCREMENTAL: ${{ inputs.incremental }}
-        ARGS: ${{ inputs.args }}
-        MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
         bin="${BINARY:-infraharvest}"
-        args=(import "$PROVIDER" "--engine=$ENGINE" "--services=$SERVICES" "--out=$OUT" --format=json)
-        [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
-        [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
-        [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
-        [[ "$INCREMENTAL" == true ]] && args+=(--incremental)
-        [[ -n "$MANAGED_STATE" ]] && args+=("--managed-state=$MANAGED_STATE")
-        if [[ -n "$SELECTION" ]]; then args+=("--selection=$SELECTION"); else args+=(--all); fi
-        while IFS= read -r line; do
-          line="${line#"${line%%[![:space:]]*}"}"
-          line="${line%"${line##*[![:space:]]}"}"
-          [[ -z "$line" ]] && continue
-          if [[ "$line" != --* ]]; then
-            echo "::error::args: '$line' isn't a flag; give one --flag a line"
-            exit 1
-          fi
-          args+=("$line")
-        done <<< "$ARGS"
+        # The arguments Check the import checked.
+        args=()
+        while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-import-args"
         code=0
         "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
         report="$OUT/report/report.md"

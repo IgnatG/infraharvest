@@ -6,10 +6,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -81,7 +84,9 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &parsingRunner{}
-	session := connectMCP(t, dir, runner.run)
+	// The runs parse the arguments; what the command's checks make of
+	// these values, such as services named x, is beside the point here.
+	session := connectMCP(t, dir, runner.run, func(context.Context, []string) error { return nil }, nil)
 
 	// The parameters each tool needs to run at all, and the values of the
 	// others that aren't any text, list or number.
@@ -162,14 +167,18 @@ func TestMCPToolFlagsExist(t *testing.T) {
 }
 
 // connectMCP returns a client session with an MCP server whose tools run
-// run, and whose user confirms everything.
-func connectMCP(t *testing.T, root string, run mcpserver.Runner) *mcp.ClientSession {
+// run and check with check, and whose user confirms everything, after
+// asked, if set, is called.
+func connectMCP(t *testing.T, root string, run mcpserver.Runner, check mcpserver.Checker, asked func()) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.New("test", root, run).Connect(t.Context(), serverTransport, nil); err != nil {
+	if _, err := mcpserver.New("test", root, run, check).Connect(t.Context(), serverTransport, nil); err != nil {
 		t.Fatal(err)
 	}
 	confirm := func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		if asked != nil {
+			asked()
+		}
 		return &mcp.ElicitResult{Action: "accept"}, nil
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, &mcp.ClientOptions{ElicitationHandler: confirm})
@@ -236,4 +245,83 @@ func firstError(errs []error) error {
 		}
 	}
 	return nil
+}
+
+// --check checks a provider command's flags as the run would, and exits
+// without listing anything: a run that would list exits 0 with nothing
+// written, and one the run would refuse fails with the run's error.
+func TestCheckFlag(t *testing.T) {
+	for _, p := range referenceProviders {
+		if providers.New(p) == nil {
+			t.Skipf("built without %s", p)
+		}
+	}
+	out := filepath.Join(t.TempDir(), "out")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out}, ""},
+		{[]string{"discover", "google", "--services=iam", "--projects=p", "--out=" + out}, ""},
+		{[]string{"import", "aws", "--all", "--out=" + out}, "--services is required"},
+		{[]string{"import", "aws", "--services=vpc", "--out=" + out}, "selection"},
+		{[]string{"import", "google", "--services=iam", "--all", "--out=" + out}, "say which projects"},
+		{[]string{"import", "azure", "--services=resource_graph", "--all", "--regions=westeurope", "--out=" + out}, "unknown flag: --regions"},
+		{[]string{"discover", "aws", "--services=vpc", "--accounts=111122223333", "--organization", "--out=" + out}, "either --accounts or --organization"},
+		{[]string{"import", "aws", "--services=vpc", "--all", "--engine=pulumi", "--out=" + out}, `unknown --engine "pulumi"`},
+	} {
+		err := CheckRun(t.Context(), tc.args)
+		switch {
+		case tc.want == "" && err != nil:
+			t.Errorf("%v: %v", tc.args, err)
+		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+			t.Errorf("%v: got %v, want %q", tc.args, err, tc.want)
+		}
+	}
+	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("--check wrote %s: %v", out, err)
+	}
+}
+
+// The MCP import tool checks an import with the command's own checks
+// before the user is asked to confirm it, and returns the command's error.
+func TestMCPImportChecksBeforeAsking(t *testing.T) {
+	for _, p := range referenceProviders {
+		if providers.New(p) == nil {
+			t.Skipf("built without %s", p)
+		}
+	}
+	dir := t.TempDir()
+	selectionFile := filepath.Join(dir, "selection.yaml")
+	if err := (&selection.File{Version: selection.Version}).Save(selectionFile); err != nil {
+		t.Fatal(err)
+	}
+	run := func(context.Context, []string) ([]byte, []byte, int, error) {
+		t.Error("an import the checks refuse ran")
+		return nil, nil, 2, nil
+	}
+	asked := false
+	session := connectMCP(t, dir, run, CheckRun, func() { asked = true })
+	for _, tc := range []struct {
+		args map[string]any
+		want string
+	}{
+		{map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "unknown flag: --regions"},
+		{map[string]any{"provider": "google", "services": []string{"iam"}}, "say which projects"},
+		{map[string]any{"provider": "aws"}, "--services is required"},
+		{map[string]any{"provider": "aws", "services": []string{"vpc"}, "incremental": true, "regenerate": true}, "either --regenerate or --incremental"},
+	} {
+		tc.args["selection"], tc.args["out"] = selectionFile, "generated"
+		res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: "import", Arguments: tc.args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, _ := json.Marshal(res.Content)
+		if !res.IsError || !strings.Contains(string(text), tc.want) {
+			t.Errorf("%v: got %s, want an error with %q", tc.args, text, tc.want)
+		}
+	}
+	if asked {
+		t.Error("the user was asked to confirm an import the checks refuse")
+	}
 }

@@ -5,6 +5,8 @@ package cli
 
 import (
 	"context"
+	"io"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +18,9 @@ import (
 // importer it is passed: the configuration file applies to the command's
 // flags first, the run collects what every import the command makes did,
 // and finishes with the report, the selection file and the exit code.
+// With --check, the command only checks its flags (see CheckRun), and the
+// run is never done: it lists nothing, writes nothing, and catches no
+// signals.
 func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := importer.NewRun()
@@ -29,6 +34,9 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 			}
 			if err := run.CheckMergeEnvironments(c.Flags()); err != nil {
 				return err
+			}
+			if f := c.Flag(providers.CheckFlag); f != nil && f.Value.String() == "true" {
+				return runE(c, args, run)
 			}
 			if f := c.Flag("pick"); f != nil {
 				run.OpenPicker = f.Value.String() == "true"
@@ -46,4 +54,18 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 		// An interrupted run exits with the signal's code, in the report too.
 		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args, run)) })
 	}
+}
+
+// CheckRun checks the run of the provider command args name, such as
+// import aws --services=vpc --all, as that command's --check does: its
+// options are built from args and the configuration file as for the run,
+// and checked as the run checks them, without listing anything. The MCP
+// server checks an import here before the user is asked to confirm it.
+func CheckRun(ctx context.Context, args []string) error {
+	cmd := NewCmdRoot()
+	cmd.SetArgs(append(slices.Clone(args), "--"+providers.CheckFlag))
+	// Nothing to print: the MCP server's standard output is the protocol's.
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	return cmd.ExecuteContext(ctx)
 }

@@ -45,7 +45,7 @@ func TestAzureArgs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			flags := pflag.NewFlagSet("azure", pflag.ContinueOnError)
 			options := importer.Options{}
-			planner := azureFlags(flags, &options)
+			_, planner := azureFlags(flags, &options)
 			if err := flags.Parse(tc.args); err != nil {
 				t.Fatal(err)
 			}

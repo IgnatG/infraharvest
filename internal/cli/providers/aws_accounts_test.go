@@ -29,14 +29,14 @@ func TestAWSAccounts(t *testing.T) {
 	if accounts, err := awsAccounts(ctx, importer.Options{AssumeRole: DefaultAssumeRole}); err != nil || accounts != nil {
 		t.Errorf("one account: %v, %v", accounts, err)
 	}
-	if _, err := awsAccounts(ctx, importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
+	if err := checkAWS(importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
 		t.Error("both: want an error")
 	}
 	for name, options := range map[string]importer.Options{
 		"a role for one account":                     {Accounts: []string{"111122223333"}, AssumeRole: "arn:aws:iam::111122223333:role/x"},
 		"a role for one account of the organization": {Organization: true, AssumeRole: "arn:aws:iam::111122223333:role/x"},
 	} {
-		if _, err := awsAccounts(ctx, options); err == nil || !strings.Contains(err.Error(), "{account}") {
+		if err := checkAWS(options); err == nil || !strings.Contains(err.Error(), "{account}") {
 			t.Errorf("%s: want an error about {account}, got %v", name, err)
 		}
 	}
@@ -231,8 +231,7 @@ func TestAWSSingleAccountRole(t *testing.T) {
 // --cfn-stack reaches the one account the credentials reach, and a stack
 // name is looked for in one region: both are refused before any stack is
 // read.
-func TestPlanAWSStacksRefuses(t *testing.T) {
-	ctx := context.Background()
+func TestCheckAWSStacksRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
 		options importer.Options
 		want    string
@@ -240,7 +239,7 @@ func TestPlanAWSStacksRefuses(t *testing.T) {
 		"with --accounts":           {importer.Options{CloudFormationStacks: []string{"app"}, Accounts: []string{"111122223333"}, AssumeRole: DefaultAssumeRole}, "without --accounts or --organization"},
 		"a name in several regions": {importer.Options{CloudFormationStacks: []string{"app"}, Regions: []string{"eu-west-1", "eu-west-2"}, AssumeRole: DefaultAssumeRole}, "--cfn-stack app: a stack name is looked for in one region"},
 	} {
-		if _, err := planAWS(ctx, c.options); err == nil || !strings.Contains(err.Error(), c.want) {
+		if err := checkAWS(c.options); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: got %v, want an error with %q", name, err, c.want)
 		}
 	}
@@ -271,7 +270,7 @@ func TestCloudFormationFlagsFromConfig(t *testing.T) {
 // --cfn-ignore acknowledges resources of the stacks --cfn-stack names, so
 // it needs it.
 func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
-	_, err := planAWS(context.Background(), importer.Options{CloudFormationIgnore: []string{"Seed"}, AssumeRole: DefaultAssumeRole})
+	err := checkAWS(importer.Options{CloudFormationIgnore: []string{"Seed"}, AssumeRole: DefaultAssumeRole})
 	if err == nil || !strings.Contains(err.Error(), "give --cfn-stack too") {
 		t.Errorf("got %v", err)
 	}
