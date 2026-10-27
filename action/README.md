@@ -43,7 +43,7 @@ The role only needs read access: [permissions/aws](../permissions/aws) creates i
 terraform apply -var 'github_oidc_subjects=["repo:acme/infra:ref:refs/heads/main"]'
 ```
 
-A scheduled or manually dispatched run on the default branch has the subject `repo:<owner>/<repository>:ref:refs/heads/<branch>`; a job with a GitHub `environment` has `repo:<owner>/<repository>:environment:<name>` instead. `permissions/aws-drift` takes the same variables, and Azure and Google Cloud trust the workflow through a federated credential or a workload identity pool instead: see [Permissions](../docs/permissions.md).
+A scheduled or manually dispatched run on the default branch has the subject `repo:<owner>/<repository>:ref:refs/heads/<branch>`; a job with a GitHub `environment` has `repo:<owner>/<repository>:environment:<name>` instead. A repository with immutable subject claims has `repo:<owner>@<owner ID>/<repository>@<repository ID>:` in place of `repo:<owner>/<repository>:`. `permissions/aws-drift` takes the same variables, and Azure and Google Cloud trust the workflow through a federated credential or a workload identity pool instead: see [Permissions](../docs/permissions.md).
 
 ## Checks on the pull request
 

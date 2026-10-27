@@ -128,3 +128,76 @@ run "other_claim_refused" {
 
   expect_failures = [var.github_oidc_subjects]
 }
+
+# GitHub's immutable subjects name the owner and the repository with their
+# IDs, as repo:<owner>@<owner ID>/<repository>@<repository ID>:...
+run "immutable_subjects_accepted" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = [
+      "repo:acme@123456/infra@456789:ref:refs/heads/main",
+      "repo:acme@123456/infra@456789:environment:production",
+    ]
+  }
+
+  assert {
+    condition     = local.github_subjects.StringEquals == ["repo:acme@123456/infra@456789:ref:refs/heads/main", "repo:acme@123456/infra@456789:environment:production"]
+    error_message = "The immutable subjects aren't matched exactly."
+  }
+
+  assert {
+    condition     = local.github_subjects.StringLike == []
+    error_message = "An immutable subject is matched as a pattern."
+  }
+}
+
+run "immutable_owner_wildcard_refused" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = ["repo:acme@*/infra@456789:ref:refs/heads/main"]
+  }
+
+  expect_failures = [var.github_oidc_subjects]
+}
+
+run "immutable_repository_wildcard_refused" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = ["repo:acme@123456/*:ref:refs/heads/main"]
+  }
+
+  expect_failures = [var.github_oidc_subjects]
+}
+
+run "immutable_id_not_a_number_refused" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = ["repo:acme@123456/infra@45678?:ref:refs/heads/main"]
+  }
+
+  expect_failures = [var.github_oidc_subjects]
+}
+
+run "immutable_owner_id_alone_refused" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = ["repo:acme@123456/infra:ref:refs/heads/main"]
+  }
+
+  expect_failures = [var.github_oidc_subjects]
+}
+
+run "immutable_branch_wildcard_refused" {
+  command = plan
+
+  variables {
+    github_oidc_subjects = ["repo:acme@123456/infra@456789:ref:refs/heads/*"]
+  }
+
+  expect_failures = [var.github_oidc_subjects]
+}
