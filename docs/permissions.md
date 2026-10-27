@@ -84,11 +84,11 @@ terraform apply -var project_id=<project> -var member=serviceAccount:<email>
 
 For a folder or organisation, grant the same three roles there with `google_folder_iam_member` or `google_organization_iam_member`.
 
-The template grants the roles to a member you bring, and leaves how it signs in to you. For GitHub Actions, use a workload identity pool with a provider for `https://token.actions.githubusercontent.com` whose attribute condition limits it to your repositories (such as `assertion.repository_owner == 'acme'`), and either grant the roles to the repository's identities in the pool directly:
+The template grants the roles to a member you bring, and leaves how it signs in to you. For GitHub Actions, use a workload identity pool with a provider for `https://token.actions.githubusercontent.com` that maps the repository's and its owner's immutable IDs (`attribute.repository_id = assertion.repository_id`, `attribute.repository_owner_id = assertion.repository_owner_id`) and whose attribute condition limits it to your repositories by them (such as `assertion.repository_owner_id == '123456'`). Match on the IDs, not the names: after a rename, another account or repository can take the old name, but never the ID. `gh api repos/acme/infra --jq '.id, .owner.id'` prints them. Then either grant the roles to the repository's identities in the pool directly:
 
 ```sh
 terraform apply -var project_id=<project> \
-  -var member=principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.repository/acme/infra
+  -var member=principalSet://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/attribute.repository_id/456789
 ```
 
 or grant them to a service account (`member=serviceAccount:<email>`) that those identities may impersonate (`roles/iam.workloadIdentityUser`). The workflow signs in with `google-github-actions/auth`, which writes the credentials file Application Default Credentials read (see [Google Cloud](google.md)).
