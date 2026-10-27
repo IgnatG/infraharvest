@@ -4,8 +4,12 @@
 package aws
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -204,6 +208,67 @@ func TestSDKConfigRemembersFailures(t *testing.T) {
 	configMu.Unlock()
 	if _, err := s.sdkConfig(); err != nil {
 		t.Errorf("once the failure is old, want the configuration built again, got %v", err)
+	}
+}
+
+// recordAssumeRole is STS's answer to AssumeRole.
+const recordAssumeRole = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleResult>` +
+	`<Credentials><AccessKeyId>ASIA</AccessKeyId><SecretAccessKey>secret</SecretAccessKey><SessionToken>token</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials>` +
+	`<AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/role/infraharvest</Arn><AssumedRoleId>AROA:infraharvest</AssumedRoleId></AssumedRoleUser>` +
+	`</AssumeRoleResult></AssumeRoleResponse>`
+
+// The configurations of different accounts build at once, each assuming
+// its role while the other does; the services that ask for one that is
+// being built wait for it, so that it is built, and its role assumed,
+// once.
+func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
+	useEnvironmentCredentials(t, "test")
+	resetSDKConfigs(t)
+	const roleA, roleB = "arn:aws:iam::111111111111:role/a", "arn:aws:iam::222222222222:role/b"
+	at := newOverlap(2)
+	var mu sync.Mutex
+	assumed := map[string]int{}
+	sts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.Form.Get("Action") != "AssumeRole" {
+			t.Errorf("unexpected STS call %v (%v)", r.Form, err)
+		}
+		mu.Lock()
+		assumed[r.Form.Get("RoleArn")]++
+		mu.Unlock()
+		at.wait()
+		w.Header().Set("Content-Type", "text/xml")
+		fmt.Fprint(w, recordAssumeRole)
+	}))
+	t.Cleanup(sts.Close)
+	t.Setenv("AWS_ENDPOINT_URL_STS", sts.URL)
+	inRole := func(role string) *Service {
+		s := &Service{}
+		s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1", "profile": "", "role_arn": role}})
+		return s
+	}
+	services := []*Service{inRole(roleA), inRole(roleA), inRole(roleB), inRole(roleA)}
+
+	built := make([]aws.Config, len(services))
+	var wg sync.WaitGroup
+	for i, s := range services {
+		wg.Go(func() {
+			var err error
+			if built[i], err = s.sdkConfig(); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+
+	at.check(t)
+	if assumed[roleA] != 1 || assumed[roleB] != 1 {
+		t.Errorf("roles assumed %v, want each once", assumed)
+	}
+	if built[0].HTTPClient != built[1].HTTPClient || built[0].HTTPClient != built[3].HTTPClient {
+		t.Error("one key's configuration was built more than once")
+	}
+	if built[0].HTTPClient == built[2].HTTPClient {
+		t.Error("two keys share one configuration")
 	}
 }
 
