@@ -4,6 +4,7 @@
 package report
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -395,5 +396,81 @@ func TestShellArg(t *testing.T) {
 		if got := shellArg(in); got != want {
 			t.Errorf("shellArg(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A stack's template body and parameter values are for the import alone:
+// the accessors give what was set, a stack merged into the report keeps
+// them, and neither the JSON report nor the report files have them, as
+// people share reports and a value may be one only the stack's owners
+// should see; a report read back has none.
+func TestStackTemplateAndParameters(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-db-password"
+	const resolved = "ami-0123456789abcdef0"
+	s := scopedStack(nil)
+	if s.Parameters() != nil || s.ResolvedParameters() != nil {
+		t.Fatalf("parameters before SetParameters: %v, %v", s.Parameters(), s.ResolvedParameters())
+	}
+	values := map[string]string{"DBPassword": secret, "ImageId": "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"}
+	s.SetParameters(values, map[string]string{"ImageId": resolved})
+	if got := s.Parameters(); !reflect.DeepEqual(got, values) {
+		t.Errorf("parameters %v, want %v", got, values)
+	}
+	if got := s.ResolvedParameters(); !reflect.DeepEqual(got, map[string]string{"ImageId": resolved}) {
+		t.Errorf("resolved %v", got)
+	}
+	if got := s.TemplateBody(); got != "Resources: {}\n" {
+		t.Errorf("template body %q", got)
+	}
+
+	r := &Report{}
+	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	// Another call's record of the stack adds its matches, and leaves the
+	// first's template and parameters as they were.
+	again := scopedStack(nil)
+	again.SetTemplates("Resources: {Other: {}}\n", "", "yaml")
+	r.AddCloudFormationStacks([]CloudFormationStack{again})
+	r.Directories = []Directory{imports(Check{Name: "G3 plan", Passed: true})}
+	r.Finish(nil, nil, false)
+	got := &r.CloudFormationStacks[0]
+	if !reflect.DeepEqual(got.Parameters(), values) || got.TemplateBody() != "Resources: {}\n" {
+		t.Errorf("merged stack: parameters %v, template %q", got.Parameters(), got.TemplateBody())
+	}
+
+	var out bytes.Buffer
+	if err := r.WriteJSON(&out); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := r.WriteFiles(dir); err != nil {
+		t.Fatal(err)
+	}
+	reports := map[string]string{"JSON report": out.String(), "Markdown": r.Markdown()}
+	for _, name := range []string{"coverage.json", "manifest.json", "report.md"} {
+		content, err := os.ReadFile(filepath.Join(dir, Dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reports[name] = string(content)
+	}
+	for name, content := range reports {
+		for _, kept := range []string{secret, resolved, "DBPassword", "Resources: {}"} {
+			if strings.Contains(content, kept) {
+				t.Errorf("%s has %q:\n%s", name, kept, content)
+			}
+		}
+	}
+
+	read, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.CloudFormationStacks) != 1 {
+		t.Fatalf("read back %d stacks", len(read.CloudFormationStacks))
+	}
+	back := &read.CloudFormationStacks[0]
+	if back.Parameters() != nil || back.ResolvedParameters() != nil || back.TemplateBody() != "" {
+		t.Errorf("read back: parameters %v, resolved %v, template %q", back.Parameters(), back.ResolvedParameters(), back.TemplateBody())
 	}
 }
