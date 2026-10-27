@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // VerifyMerged runs the verification gate on the root environments share
@@ -31,8 +33,8 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 	if err != nil {
 		return nil, err
 	}
-	tf = withTimeout(tf, opts.CommandTimeout)
-	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
+	tf = tfrun.WithTimeout(tf, opts.CommandTimeout)
+	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	vars, _, err := mergedVarFiles(dir, env)

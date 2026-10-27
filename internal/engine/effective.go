@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -54,7 +55,7 @@ const maxFillRounds = 2
 // configuration doesn't plan, no resource keeps tags. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
-func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
+func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
 	backup, err := backupFiles(dir, GeneratedFileName)
 	if err != nil {
 		return false, nil, err

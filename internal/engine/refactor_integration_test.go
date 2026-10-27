@@ -15,6 +15,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // refactorBefore is the root as an earlier import left it, applied: two
@@ -108,13 +110,13 @@ func TestRefactorBlocksWithRealEngines(t *testing.T) {
 	defer cancel()
 	cache := t.TempDir()
 	engines := map[string]string{}
-	execPath, err := FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	engines["terraform"] = execPath
 	// CI installs OpenTofu, so there it must be found.
-	switch tofu, err := TofuBinary.Find(ctx, "", filepath.Join(cache, "tofu")); {
+	switch tofu, err := tfrun.TofuBinary.Find(ctx, "", filepath.Join(cache, "tofu")); {
 	case err == nil:
 		engines["tofu"] = tofu
 	case os.Getenv("CI") != "":
@@ -135,7 +137,7 @@ func TestRefactorBlocksWithRealEngines(t *testing.T) {
 func checkRefactorBlocks(ctx context.Context, t *testing.T, execPath, plugins string) {
 	dir := t.TempDir()
 	writeRefactorRoot(t, dir, refactorBefore, "x", "y")
-	tf, err := NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +236,7 @@ func writeRefactorRoot(t *testing.T, dir, main string, labels ...string) {
 }
 
 // planRefactor plans the root of tf and returns the plan.
-func planRefactor(ctx context.Context, t *testing.T, tf *Runner) *tfjson.Plan {
+func planRefactor(ctx context.Context, t *testing.T, tf *tfrun.Runner) *tfjson.Plan {
 	t.Helper()
 	planFile := filepath.Join(t.TempDir(), "root.tfplan")
 	if _, err := tf.Plan(ctx, tfexec.Out(planFile)); err != nil {

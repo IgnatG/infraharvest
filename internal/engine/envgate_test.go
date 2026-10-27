@@ -23,6 +23,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // writeRootDir writes the files of a finished AWS root of environment
@@ -92,8 +93,8 @@ import {
   id = "vpc-0123456789abcdef0"
 }
 `,
-		ImportsFileName: imports,
-		LockFileName:    "# lock\n",
+		ImportsFileName:    imports,
+		tfrun.LockFileName: "# lock\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -181,7 +182,7 @@ func mergeRoots(t *testing.T, dir string, changed map[string]map[string]int, ove
 				"allowed_account_ids": []string{account},
 				"assume_role":         map[string]interface{}{"role_arn": "arn:aws:iam::" + account + ":role/deploy"},
 			}},
-			Terraform: func(string) (Terraform, error) { return fake, nil },
+			Terraform: func(string) (tfrun.Terraform, error) { return fake, nil },
 		}
 	}
 	return []MergeRoot{root("dev", "dev", "111111111111", "30"), root("prod", "prd", "222222222222", "60")}
@@ -269,7 +270,7 @@ func TestMergeRoots(t *testing.T) {
 	if result.Shared != 2 || len(result.Residue) != 0 {
 		t.Errorf("shared %d, residue %+v", result.Shared, result.Residue)
 	}
-	for _, name := range []string{ProvidersFileName, VariablesFileName, ImportsFileName, "sqs.tf", "s3.tf", DataFileName, LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
+	for _, name := range []string{ProvidersFileName, VariablesFileName, ImportsFileName, "sqs.tf", "s3.tf", DataFileName, tfrun.LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -300,7 +301,7 @@ func TestMergeRoots(t *testing.T) {
 // stateCounter counts the plans of a Terraform runner, and those given a
 // state file (-state).
 type stateCounter struct {
-	Terraform
+	tfrun.Terraform
 	plans, stateless *int
 }
 
@@ -339,7 +340,7 @@ func TestMergeRootsPlansWithoutLocalState(t *testing.T) {
 	plans, stateless := 0, 0
 	for i := range roots {
 		next := roots[i].Terraform
-		roots[i].Terraform = func(d string) (Terraform, error) {
+		roots[i].Terraform = func(d string) (tfrun.Terraform, error) {
 			tf, err := next(d)
 			return &stateCounter{Terraform: tf, plans: &plans, stateless: &stateless}, err
 		}
@@ -356,7 +357,7 @@ func TestMergeRootsPlansWithoutLocalState(t *testing.T) {
 	if plans == 0 || stateless != plans {
 		t.Errorf("%d of %d plans were given a state, want all", stateless, plans)
 	}
-	if left, err := filepath.Glob(filepath.Join(temp, emptyStatePattern+"*")); err != nil || len(left) > 0 {
+	if left, err := filepath.Glob(filepath.Join(temp, tfrun.EmptyStatePattern+"*")); err != nil || len(left) > 0 {
 		t.Errorf("empty states left: %v, %v", left, err)
 	}
 	for name, want := range states {
@@ -450,7 +451,7 @@ func goneRoots(t *testing.T, dir string, gone ...string) []MergeRoot {
 	addQueue(t, roots[1], "alerts")
 	roots[1].Isolated = []string{"aws_sqs_queue.alerts"}
 	next := roots[0].Terraform
-	roots[0].Terraform = func(d string) (Terraform, error) {
+	roots[0].Terraform = func(d string) (tfrun.Terraform, error) {
 		tf, err := next(d)
 		if err != nil {
 			return nil, err
@@ -745,7 +746,9 @@ func TestVerifyMerged(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
 	// Each runs in a copy of the root, beside it.
-	prodFake := func(d string) (Terraform, error) { return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil }
+	prodFake := func(d string) (tfrun.Terraform, error) {
+		return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil
+	}
 	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
@@ -945,7 +948,7 @@ func TestWriteMergedNotInCloud(t *testing.T) {
 // backendWatcher records, at each plan, whether the merged root's
 // providers.tf in dir configures a backend.
 type backendWatcher struct {
-	Terraform
+	tfrun.Terraform
 	dir     string
 	planned *[]bool
 }
@@ -972,7 +975,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 			t.Fatal(err)
 		}
 		next := roots[i].Terraform
-		roots[i].Terraform = func(d string) (Terraform, error) {
+		roots[i].Terraform = func(d string) (tfrun.Terraform, error) {
 			tf, err := next(d)
 			return &backendWatcher{Terraform: tf, dir: dir, planned: &planned}, err
 		}
@@ -1022,7 +1025,9 @@ func TestMergeRootsScannersDontSeeLaterSecrets(t *testing.T) {
 	roots := mergeRoots(t, dir, nil, &overrides)
 	// prod's account is in its var files only.
 	prod := &mergeFake{env: "prod", dir: dir, overrides: &overrides}
-	roots[1].Terraform = func(string) (Terraform, error) { return sensitiveFake{mergeFake: prod, value: "222222222222"}, nil }
+	roots[1].Terraform = func(string) (tfrun.Terraform, error) {
+		return sensitiveFake{mergeFake: prod, value: "222222222222"}, nil
+	}
 	ran := false
 	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
 		ran = true

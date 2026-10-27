@@ -27,6 +27,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
@@ -42,7 +43,7 @@ func seed(ctx context.Context, t *testing.T, fixture, execPath, pluginCache stri
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := engine.NewTerraform(dir, execPath, pluginCache, nil)
+	tf, err := tfrun.New(dir, execPath, pluginCache, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func configBlocks(t *testing.T, dir string) []*hclsyntax.Block {
 // imports.
 func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string]int {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, pluginCache, nil)
+	tf, err := tfrun.New(dir, execPath, pluginCache, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,16 +289,16 @@ func changedAttributes(before, after interface{}) map[string]string {
 
 // e2eEngine returns the engine E2E_ENGINE names: terraform (the default) or
 // tofu.
-func e2eEngine(t *testing.T) (string, engine.Binary) {
+func e2eEngine(t *testing.T) (string, tfrun.Binary) {
 	t.Helper()
 	switch name := os.Getenv("E2E_ENGINE"); name {
 	case "", "terraform":
-		return "terraform", engine.TerraformBinary
+		return "terraform", tfrun.TerraformBinary
 	case "tofu":
-		return name, engine.TofuBinary
+		return name, tfrun.TofuBinary
 	default:
 		t.Fatalf("E2E_ENGINE=%s: use terraform or tofu", name)
-		return "", engine.Binary{}
+		return "", tfrun.Binary{}
 	}
 }
 
@@ -384,7 +385,7 @@ func addedConfiguration(t *testing.T, before, after map[string]string) map[strin
 // has and opts, such as tfexec.Refresh(false), and returns the plan.
 func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, opts ...tfexec.PlanOption) *tfjson.Plan {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +408,7 @@ func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, 
 // into the local state it has.
 func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, env)
+	tf, err := tfrun.New(dir, execPath, plugins, env)
 	if err != nil {
 		t.Fatal(err)
 	}

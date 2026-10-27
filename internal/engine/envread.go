@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // MergeRoot is one environment's finished root of a stack, which
@@ -49,7 +50,7 @@ type MergeRoot struct {
 	// root is as an earlier import generated it: the merged root isn't
 	// planned as it (see MergedEnvironment.Unplanned). One environment at
 	// least must have it.
-	Terraform func(dir string) (Terraform, error)
+	Terraform func(dir string) (tfrun.Terraform, error)
 	// Isolated are the addresses, in the root, of the resources an
 	// incremental import added since the stack was merged: each stays a
 	// resource of its environment, matched with no other environment's,

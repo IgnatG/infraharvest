@@ -16,6 +16,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Rejection is a resource Generate left out because Terraform couldn't
@@ -58,7 +59,7 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 	for _, addr := range addresses {
 		var messages []string
 		for _, d := range errs[addr] {
-			if m := diagnosticMessage(d); !slices.Contains(messages, m) {
+			if m := tfrun.DiagnosticMessage(d); !slices.Contains(messages, m) {
 				messages = append(messages, m)
 			}
 		}
@@ -92,14 +93,6 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 		return nil, err
 	}
 	return rejections, generated.Save()
-}
-
-// diagnosticMessage renders d as "summary: detail" on one line.
-func diagnosticMessage(d tfjson.Diagnostic) string {
-	if detail := strings.Join(strings.Fields(d.Detail), " "); detail != "" {
-		return d.Summary + ": " + detail
-	}
-	return d.Summary
 }
 
 // unconfigured returns, as errors by address, the import blocks in dir

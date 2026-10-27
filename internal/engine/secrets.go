@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Secret is a variable the generated configuration reads a secret value
@@ -144,7 +145,7 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 // with the attributes still null as Terraform generated them; if that plan
 // doesn't succeed, found is returned as it is. It reports whether it
 // removed any attribute.
-func withoutUnset(ctx context.Context, tf Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
+func withoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
 	p, _, _, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil || p == nil {
 		return found, false, err
@@ -388,7 +389,7 @@ func isPublic(rule catalogue.SecretWhen, when string) bool {
 // (see secretReason) stay in their variables. It plans only if a secret
 // may be public, with the values of known, if set, for the secrets Generate
 // found (see secretValues).
-func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
+func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	generated, err := hclfile.Load(path)
 	if err != nil {

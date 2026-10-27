@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // existingRoot writes a root an earlier import generated, and applied: its
@@ -932,7 +933,7 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	lock := "provider \"registry.terraform.io/hashicorp/aws\" {\n  version = \"6.30.1\"\n}\n"
-	if err := os.WriteFile(filepath.Join(staging, LockFileName), []byte(lock), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(staging, tfrun.LockFileName), []byte(lock), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	opts := addOptions
@@ -943,7 +944,7 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
 	var lockAtInit, versionsAtInit string
 	tf.onInit = func() {
-		lockAtInit = readFile(t, staging, LockFileName)
+		lockAtInit = readFile(t, staging, tfrun.LockFileName)
 		versionsAtInit = readFile(t, staging, VersionsFileName)
 	}
 	rootTF := &fakeTerraform{dir: root}

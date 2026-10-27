@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // ModuleCall is a module call Generate made, or a cluster of resources it
@@ -81,7 +82,7 @@ func (t *trial) moduleAddress(member string) string {
 // trial.literals). It returns the clusters it didn't move, with why, and
 // the plan's change summary with the calls it kept, and the lengths of
 // their list outputs (see outputLists).
-func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values map[string]map[string]any, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, changeSummary, map[string]int, error) {
+func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, tfrun.ChangeSummary, map[string]int, error) {
 	opts := r.opts
 	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName, ProvidersFileName, VersionsFileName)
 	if err != nil {
@@ -101,7 +102,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 	if err := writeCalls(dir, trials, opts.ModuleProviders, opts.DefaultTags); err != nil {
 		return nil, baseline, nil, errors.Join(err, backup.restore())
 	}
-	if err := initTerraform(ctx, tf); err != nil {
+	if err := tfrun.Init(ctx, tf); err != nil {
 		// Typically: the registry can't be reached.
 		reject(fmt.Sprintf("terraform init: %v", err), trials...)
 	}
@@ -109,7 +110,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 	// accepted together, and keptSummary is that plan's summary.
 	written := trials
 	var kept []*trial
-	var keptSummary changeSummary
+	var keptSummary tfrun.ChangeSummary
 	write := func(ts []*trial) error {
 		if slices.Equal(ts, written) {
 			return nil
@@ -245,19 +246,19 @@ func activeTrials(trials []*trial) []*trial {
 // plan fails with nothing to tell the calls apart by, an error about none
 // of them or totals that don't match, it also returns why, and rejects
 // none for it: the caller plans them apart.
-func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
+func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags []tfjson.Diagnostic, baseline tfrun.ChangeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
 	if len(diags) > 0 || p == nil {
 		unattributed := ""
 		for _, d := range diags {
 			t := trialOf(active, d)
 			if t == nil {
 				if unattributed == "" {
-					unattributed = "plan error: " + diagnosticMessage(d)
+					unattributed = "plan error: " + tfrun.DiagnosticMessage(d)
 				}
 				continue
 			}
 			if t.rejected == "" {
-				t.rejected = "plan error: " + diagnosticMessage(d)
+				t.rejected = "plan error: " + tfrun.DiagnosticMessage(d)
 			}
 		}
 		return false, unattributed
@@ -1159,10 +1160,10 @@ func pinModuleProviders(dir string, configured map[string]Provider) error {
 	if len(configured) == 0 {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, LockFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, tfrun.LockFileName)); err != nil {
 		return nil
 	}
-	lock, err := hclfile.Load(filepath.Join(dir, LockFileName))
+	lock, err := hclfile.Load(filepath.Join(dir, tfrun.LockFileName))
 	if err != nil {
 		return err
 	}

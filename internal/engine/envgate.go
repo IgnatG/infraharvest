@@ -25,6 +25,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -134,8 +135,8 @@ func MergeRoots(ctx context.Context, dir string, roots []MergeRoot, opts MergeOp
 		envRoots[i] = root
 	}
 	// The merged root's plans read no state, such as a workspace's that
-	// an environment applied without a backend (see statelessTerraform).
-	state, removeState, err := emptyState()
+	// an environment applied without a backend (see tfrun.Stateless).
+	state, removeState, err := tfrun.EmptyState()
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ type mergeGate struct {
 	written []string
 	// newest is the root whose provider the merged root pins.
 	newest int
-	// emptyState is the state its plans read (see emptyState).
+	// emptyState is the state its plans read (see tfrun.EmptyState).
 	emptyState string
 }
 
@@ -264,7 +265,7 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	if err != nil {
 		return nil, err
 	}
-	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
+	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	schemas, err := tf.ProvidersSchema(ctx)
@@ -278,22 +279,22 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 // the merged root pins into dir, so that the merged root plans with the
 // provider release that root did.
 func (g *mergeGate) copyLock() error {
-	lock, err := os.ReadFile(filepath.Join(g.roots[g.newest].Dir, LockFileName))
+	lock, err := os.ReadFile(filepath.Join(g.roots[g.newest].Dir, tfrun.LockFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	if err := fsutil.WriteFile(filepath.Join(g.dir, LockFileName), lock, 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(g.dir, tfrun.LockFileName), lock, 0o644); err != nil {
 		return err
 	}
-	g.record(LockFileName)
+	g.record(tfrun.LockFileName)
 	return nil
 }
 
 // terraform returns environment env's Terraform runner in dir.
-func (g *mergeGate) terraform(env int) (Terraform, error) {
+func (g *mergeGate) terraform(env int) (tfrun.Terraform, error) {
 	if g.roots[env].Terraform == nil {
 		return nil, fmt.Errorf("%s: no Terraform runner", g.roots[env].Env)
 	}
@@ -301,7 +302,7 @@ func (g *mergeGate) terraform(env int) (Terraform, error) {
 	if err != nil {
 		return nil, err
 	}
-	return withTimeout(&statelessTerraform{Terraform: tf, state: g.emptyState}, g.opts.CommandTimeout), nil
+	return tfrun.WithTimeout(tfrun.Stateless(tf, g.emptyState), g.opts.CommandTimeout), nil
 }
 
 // record notes that g wrote name, a path in dir with forward slashes.
@@ -316,7 +317,7 @@ func (g *mergeGate) record(name string) {
 // file stays.
 func (g *mergeGate) write(files map[string][]byte) error {
 	for _, name := range slices.Clone(g.written) {
-		if name == LockFileName {
+		if name == tfrun.LockFileName {
 			continue
 		}
 		if err := os.Remove(filepath.Join(g.dir, filepath.FromSlash(name))); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -394,7 +395,7 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 	if err != nil {
 		return nil, err
 	}
-	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
+	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	envs := make([]MergedEnvironment, len(g.roots))
@@ -443,7 +444,7 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 // environment's resources, and change nothing else but what the
 // secrets' placeholders and the state-only arguments may (see
 // planCheck).
-func (g *mergeGate) plan(ctx context.Context, tf Terraform, m *stackMerge, w *rootWriter, env int) (Check, []string, error) {
+func (g *mergeGate) plan(ctx context.Context, tf tfrun.Terraform, m *stackMerge, w *rootWriter, env int) (Check, []string, error) {
 	if err := g.writeOverride(env, w); err != nil {
 		return Check{}, nil, err
 	}

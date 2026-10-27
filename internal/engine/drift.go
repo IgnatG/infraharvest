@@ -22,19 +22,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
-
-// DriftTerraform is a Terraform that can also read a root's state and
-// apply a saved plan, which only Drift needs: *Runner is one.
-type DriftTerraform interface {
-	Terraform
-	StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error)
-	Apply(ctx context.Context, opts ...tfexec.ApplyOption) error
-	ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error)
-}
-
-var _ DriftTerraform = (*Runner)(nil)
 
 // What changed in the cloud (DriftChange.Kind).
 const (
@@ -284,14 +274,14 @@ func (e *UnsupportedBackendError) Error() string {
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
-func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged func(dir string) (DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
+func Drift(ctx context.Context, tf tfrun.DriftTerraform, dir, staging string, staged func(dir string) (tfrun.DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
 	s, err := openDriftSession(dir, staging, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer s.close()
 	result := &RootDrift{Backend: s.backend}
-	applied, err := s.stage(ctx, driftWithTimeout(tf, opts.CommandTimeout))
+	applied, err := s.stage(ctx, tfrun.DriftWithTimeout(tf, opts.CommandTimeout))
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +404,7 @@ func stageDrift(dir, staging string, state []byte) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info" {
+		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -431,7 +421,7 @@ func stageDrift(dir, staging string, state []byte) error {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(staging, localStateFileName), state, 0o600)
+	return os.WriteFile(filepath.Join(staging, tfrun.LocalStateFileName), state, 0o600)
 }
 
 // stagedConfig returns content, the configuration file at path of the
@@ -619,13 +609,13 @@ func tfvarsNames(dir string, more ...string) map[string]bool {
 
 // savedPlan plans with opts into the plan file path and returns it as
 // JSON, or the plan's errors.
-func savedPlan(ctx context.Context, tf DriftTerraform, path string, opts ...tfexec.PlanOption) (*tfjson.Plan, error) {
-	diags, summary, err := plan(ctx, tf, append(opts, tfexec.Out(path))...)
+func savedPlan(ctx context.Context, tf tfrun.DriftTerraform, path string, opts ...tfexec.PlanOption) (*tfjson.Plan, error) {
+	diags, summary, err := tfrun.Plan(ctx, tf, append(opts, tfexec.Out(path))...)
 	if err != nil {
 		return nil, err
 	}
 	if len(diags) > 0 {
-		return nil, diagnosticsError(diags)
+		return nil, tfrun.DiagnosticsError(diags)
 	}
 	if summary == nil {
 		return nil, errors.New("terraform plan reported no change summary")
@@ -1048,44 +1038,4 @@ func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *
 		}
 	}
 	return sources, nil
-}
-
-// timedDriftTerraform is a DriftTerraform whose every command runs for at
-// most a timeout (see timedTerraform).
-type timedDriftTerraform struct {
-	*timedTerraform
-	drift DriftTerraform
-}
-
-func driftWithTimeout(tf DriftTerraform, timeout time.Duration) DriftTerraform {
-	if _, ok := tf.(*timedDriftTerraform); ok || timeout <= 0 {
-		return tf
-	}
-	return &timedDriftTerraform{timedTerraform: &timedTerraform{Terraform: tf, timeout: timeout}, drift: tf}
-}
-
-func (t *timedDriftTerraform) StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error) {
-	var state string
-	err := t.bounded(ctx, func(ctx context.Context) error {
-		var err error
-		state, err = t.drift.StatePull(ctx, opts...)
-		return err
-	})
-	return state, err
-}
-
-func (t *timedDriftTerraform) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
-	return t.bounded(ctx, func(ctx context.Context) error {
-		return t.drift.Apply(ctx, opts...)
-	})
-}
-
-func (t *timedDriftTerraform) ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error) {
-	var state *tfjson.State
-	err := t.bounded(ctx, func(ctx context.Context) error {
-		var err error
-		state, err = t.drift.ShowStateFile(ctx, statePath, opts...)
-		return err
-	})
-	return state, err
 }

@@ -13,6 +13,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // A session of an environment of a root environments share pulls its
@@ -48,7 +50,7 @@ func TestDriftSessionOfAnEnvironment(t *testing.T) {
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, shown: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
 		Resources: []*tfjson.StateResource{{Address: "aws_sqs_queue.orders", Mode: tfjson.ManagedResourceMode}},
 	}}}}
-	if err := s.open(ctx, func(string) (DriftTerraform, error) { return copied, nil }); err != nil {
+	if err := s.open(ctx, func(string) (tfrun.DriftTerraform, error) { return copied, nil }); err != nil {
 		t.Fatal(err)
 	}
 	inState, err := s.inState(ctx)

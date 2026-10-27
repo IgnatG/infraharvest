@@ -22,7 +22,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -258,7 +258,7 @@ func changeOutOfBand(ctx context.Context, t *testing.T, config, execPath, plugin
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

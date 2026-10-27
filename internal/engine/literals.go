@@ -16,6 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // typeLiterals writes the literal values of the .tf files of dir as the
@@ -205,7 +206,7 @@ func moduleVariableTypes(dir string) (map[string]map[string]cty.Type, error) {
 
 // typeLiteralsOf types the literals of dir (see typeLiterals), with the
 // providers' schemas tf has, which it reads only if dir has literals.
-func typeLiteralsOf(ctx context.Context, tf Terraform, dir string) error {
+func typeLiteralsOf(ctx context.Context, tf tfrun.Terraform, dir string) error {
 	files, err := configFiles(dir)
 	if err != nil {
 		return err

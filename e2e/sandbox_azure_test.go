@@ -21,6 +21,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -120,7 +121,7 @@ func newAzureSandbox(ctx context.Context, t *testing.T) *azureSandbox {
 	s.fixtureDir = envOr("SANDBOX_FIXTURE_DIR", t.TempDir())
 	s.plugins = envOr("SANDBOX_PLUGIN_CACHE", t.TempDir())
 	s.out = envOr("SANDBOX_OUTPUT_DIR", t.TempDir())
-	var binary engine.Binary
+	var binary tfrun.Binary
 	s.engineName, binary = e2eEngine(t)
 	var err error
 	if s.execPath, err = binary.Find(ctx, "", filepath.Join(s.plugins, binary.Name)); err != nil {

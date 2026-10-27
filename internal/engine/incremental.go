@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -208,9 +209,9 @@ func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) 
 // empties staging but for it, and pins the providers opts.Config requires
 // to its releases (see pinnedToLock), so that the additions are generated
 // with the provider releases root runs.
-func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
-	rootTF = withTimeout(rootTF, opts.CommandTimeout)
-	lock, err := os.ReadFile(filepath.Join(staging, LockFileName))
+func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
+	lock, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -221,7 +222,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		if err := os.MkdirAll(staging, 0o755); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(filepath.Join(staging, LockFileName), lock, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(staging, tfrun.LockFileName), lock, 0o644); err != nil {
 			return nil, err
 		}
 	}
@@ -244,7 +245,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	fileOf := blockFiles(result.Imported, result.Modules)
 	// The providers that added module calls use go into providers.tf and
 	// the file of the root's required_providers (see mergeProviders).
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName, VersionsFileName}
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, tfrun.LockFileName, ProvidersFileName, VersionsFileName}
 	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
 		names = append(names, required)
 	}
@@ -279,7 +280,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	}
 	result.Files = added
 	// After merge: the calls it added need their modules installed.
-	if err := initTerraform(ctx, rootTF, tfexec.Backend(false)); err != nil {
+	if err := tfrun.Init(ctx, rootTF, tfexec.Backend(false)); err != nil {
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate
@@ -552,9 +553,9 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return added, err
 	}
-	lock := filepath.Join(root, LockFileName)
+	lock := filepath.Join(root, tfrun.LockFileName)
 	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
-		if content, err := os.ReadFile(filepath.Join(staging, LockFileName)); err == nil {
+		if content, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName)); err == nil {
 			return added, fsutil.WriteFile(lock, content, 0o644)
 		}
 	}

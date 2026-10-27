@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // The layout of a merged root (see mergedRootFiles), the one root several
@@ -90,7 +91,7 @@ func isMergedVarFile(rel string) bool {
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.
 func workspaceStateFile(dir, env string) string {
-	return filepath.Join(dir, workspaceStateDir, env, localStateFileName)
+	return filepath.Join(dir, workspaceStateDir, env, tfrun.LocalStateFileName)
 }
 
 // featureFlagName returns the name of the variable that says whether an

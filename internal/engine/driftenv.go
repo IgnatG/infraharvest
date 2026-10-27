@@ -13,6 +13,8 @@ import (
 	"sort"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // pullDriftState returns the state of the root in dir, whose backend is
@@ -22,7 +24,7 @@ import (
 // without a backend keeps each environment's state in the workspace named
 // after it (see workspaceStateFile), which is read as it is: "" where env
 // has none yet.
-func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env string) (string, error) {
+func pullDriftState(ctx context.Context, tf tfrun.DriftTerraform, dir, backend, env string) (string, error) {
 	if env != "" && backend == "local" {
 		content, err := os.ReadFile(workspaceStateFile(dir, env))
 		if errors.Is(err, fs.ErrNotExist) {
@@ -38,7 +40,7 @@ func pullDriftState(ctx context.Context, tf DriftTerraform, dir, backend, env st
 		}
 		opts = append(opts, tfexec.BackendConfig(settings))
 	}
-	if err := initTerraform(ctx, tf, opts...); err != nil {
+	if err := tfrun.Init(ctx, tf, opts...); err != nil {
 		return "", fmt.Errorf("terraform init: %w", err)
 	}
 	state, err := tf.StatePull(ctx)

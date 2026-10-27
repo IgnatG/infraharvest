@@ -14,6 +14,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // driftSession is one check of a root for drift: the root in dir, the
@@ -36,7 +37,7 @@ type driftSession struct {
 	// staged says the copy was made, to remove.
 	staged bool
 	// tf plans the copy, once opened.
-	tf DriftTerraform
+	tf tfrun.DriftTerraform
 	// vars are the -var and -var-file options every plan of the copy
 	// takes: env's var files, as staged, then the placeholders.
 	vars []tfexec.PlanOption
@@ -71,7 +72,7 @@ func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, er
 // is edited first. It reports whether the state has resources: without,
 // there is nothing to check, and no copy. Checks of the root's other
 // environments wait until it is done (see DriftOptions.WithRootLock).
-func (s *driftSession) stage(ctx context.Context, tf DriftTerraform) (bool, error) {
+func (s *driftSession) stage(ctx context.Context, tf tfrun.DriftTerraform) (bool, error) {
 	locked := s.opts.WithRootLock
 	if locked == nil {
 		locked = func(f func() error) error { return f() }
@@ -85,7 +86,7 @@ func (s *driftSession) stage(ctx context.Context, tf DriftTerraform) (bool, erro
 }
 
 // pullAndStage is stage, with the root's lock held.
-func (s *driftSession) pullAndStage(ctx context.Context, tf DriftTerraform) (bool, error) {
+func (s *driftSession) pullAndStage(ctx context.Context, tf tfrun.DriftTerraform) (bool, error) {
 	state, err := pullDriftState(ctx, tf, s.dir, s.backend, s.env)
 	if err != nil || !stateHasResources(state) {
 		return false, err
@@ -112,13 +113,13 @@ func (s *driftSession) close() {
 }
 
 // open initialises the copy through the Terraform staged returns for it.
-func (s *driftSession) open(ctx context.Context, staged func(dir string) (DriftTerraform, error)) error {
+func (s *driftSession) open(ctx context.Context, staged func(dir string) (tfrun.DriftTerraform, error)) error {
 	stf, err := staged(s.staging)
 	if err != nil {
 		return err
 	}
-	s.tf = driftWithTimeout(stf, s.opts.CommandTimeout)
-	if err := initTerraform(ctx, s.tf); err != nil {
+	s.tf = tfrun.DriftWithTimeout(stf, s.opts.CommandTimeout)
+	if err := tfrun.Init(ctx, s.tf); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
 	}
 	return nil
@@ -127,7 +128,7 @@ func (s *driftSession) open(ctx context.Context, staged func(dir string) (DriftT
 // inState returns the addresses of the managed resources of the copy's
 // state.
 func (s *driftSession) inState(ctx context.Context) (map[string]bool, error) {
-	shown, err := s.tf.ShowStateFile(ctx, filepath.Join(s.staging, localStateFileName))
+	shown, err := s.tf.ShowStateFile(ctx, filepath.Join(s.staging, tfrun.LocalStateFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform show: %w", err)
 	}

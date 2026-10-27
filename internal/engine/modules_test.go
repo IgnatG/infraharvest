@@ -14,6 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 const twoBuckets = `resource "aws_iam_policy" "read" {
@@ -187,9 +188,9 @@ func TestModularizeDeclines(t *testing.T) {
 func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
-	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: changeSummary{Change: 1}}}}
+	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, nil, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, tfrun.ChangeSummary{}, nil, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -207,7 +208,7 @@ func TestLiftModulesKeeps(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, nil, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, tfrun.ChangeSummary{}, nil, nil)
 	if err != nil || !kept {
 		t.Fatalf("want the modules kept, got kept=%v err=%v", kept, err)
 	}
@@ -360,7 +361,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
 	changes := map[string]string{"aws_iam_policy.read": changeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, changes, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, tfrun.ChangeSummary{}, changes, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}

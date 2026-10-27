@@ -19,9 +19,11 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// fakeDriftTerraform is a DriftTerraform for Drift's tests: it records
+// fakeDriftTerraform is a tfrun.DriftTerraform for Drift's tests: it records
 // its calls, prefixed with its name, into calls, which the root's and the
 // staged copy's share, and returns plans in order from ShowPlanFile.
 type fakeDriftTerraform struct {
@@ -220,12 +222,12 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		if info, err := os.Stat(staging); err == nil {
 			stagedMode = info.Mode().Perm()
 		}
-		if info, err := os.Stat(filepath.Join(staging, localStateFileName)); err == nil {
+		if info, err := os.Stat(filepath.Join(staging, tfrun.LocalStateFileName)); err == nil {
 			stateMode = info.Mode().Perm()
 		}
 	}
 	var stagedDir string
-	result, err := Drift(context.Background(), root, dir, staging, func(d string) (DriftTerraform, error) {
+	result, err := Drift(context.Background(), root, dir, staging, func(d string) (tfrun.DriftTerraform, error) {
 		stagedDir = d
 		return copied, nil
 	}, DriftOptions{StateOnly: map[string][]string{"aws_s3_bucket": {"force_destroy"}}, Backends: cloudBackends})
@@ -268,7 +270,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	if _, ok := stagedFiles["backend.tf"]; ok {
 		t.Error("the staged copy has backend.tf")
 	}
-	if got := stagedFiles[localStateFileName]; got != driftState {
+	if got := stagedFiles[tfrun.LocalStateFileName]; got != driftState {
 		t.Errorf("staged state %q, want the pulled state", got)
 	}
 	if !strings.Contains(stagedFiles["main.tf"], `source = "../../modules/bucket"`) {
@@ -365,7 +367,7 @@ func TestDriftWithoutDriftAppliesNothing(t *testing.T) {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{{}}}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{})
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +385,7 @@ func TestDriftOfARootNeverAppliedPlansNothing(t *testing.T) {
 	dir, staging := driftRoot(t, map[string]string{"imports.tf": "import {\n  to = aws_s3_bucket.logs\n  id = \"logs\"\n}\n"})
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) {
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) {
 		t.Error("staged a root without state")
 		return nil, errors.New("staged")
 	}, DriftOptions{})
@@ -423,7 +425,7 @@ func TestDriftHoldsTheRootLock(t *testing.T) {
 		}
 		lock.Unlock()
 	}}
-	if _, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{WithRootLock: func(f func() error) error {
+	if _, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{WithRootLock: func(f func() error) error {
 		lock.Lock()
 		defer lock.Unlock()
 		return f()
@@ -451,7 +453,7 @@ func TestDriftRefusesRemoteBackends(t *testing.T) {
 			dir, staging := driftRoot(t, map[string]string{"backend.tf": backend})
 			var calls []string
 			root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
-			_, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return root, nil }, DriftOptions{Backends: cloudBackends})
+			_, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return root, nil }, DriftOptions{Backends: cloudBackends})
 			var unsupported *UnsupportedBackendError
 			if !errors.As(err, &unsupported) || unsupported.Backend != name {
 				t.Fatalf("got %v, want the %s backend refused", err, name)
@@ -523,8 +525,8 @@ func TestStageDriftRemovesBackendBlocksAnywhere(t *testing.T) {
 	if strings.Contains(files["versions.tf"], "backend") || !strings.Contains(files["versions.tf"], "required_version") {
 		t.Errorf("staged versions.tf:\n%s", files["versions.tf"])
 	}
-	if files[localStateFileName] != "{}" {
-		t.Errorf("staged state %q", files[localStateFileName])
+	if files[tfrun.LocalStateFileName] != "{}" {
+		t.Errorf("staged state %q", files[tfrun.LocalStateFileName])
 	}
 	if _, ok := files["terraform.tfstate.bak"]; ok {
 		t.Error("staged an old state file")

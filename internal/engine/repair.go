@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // maxRepairRounds bounds the validate-and-repair loop. Most configurations
@@ -28,7 +29,7 @@ const maxRepairRounds = 5
 // that is safe: it fixes what validation rejects (see removeRejected) until
 // the configuration validates or nothing more can be fixed. It reports
 // whether it changed the file.
-func repair(ctx context.Context, tf Terraform, path string) (bool, error) {
+func repair(ctx context.Context, tf tfrun.Terraform, path string) (bool, error) {
 	repaired := false
 	for range maxRepairRounds {
 		out, err := tf.Validate(ctx)

@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -349,14 +350,14 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 			rootEnv = maps.Clone(env)
 			rootEnv["TF_DATA_DIR"] = opts.DataDir
 		}
-		newTF := func(dir string) (engine.DriftTerraform, error) {
-			tf, err := engine.NewTerraform(dir, execPath, plugins, env)
+		newTF := func(dir string) (tfrun.DriftTerraform, error) {
+			tf, err := tfrun.New(dir, execPath, plugins, env)
 			if err != nil {
 				return nil, err
 			}
 			return tf, nil
 		}
-		tf, err := engine.NewTerraform(dir, execPath, plugins, rootEnv)
+		tf, err := tfrun.New(dir, execPath, plugins, rootEnv)
 		if err != nil {
 			return nil, err
 		}

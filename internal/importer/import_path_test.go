@@ -17,6 +17,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -87,7 +88,7 @@ type fakeEngine struct {
 
 func (f *fakeEngine) tools() *callTools {
 	return &callTools{
-		findBinary: func(context.Context, engine.Binary, string, string) (string, error) {
+		findBinary: func(context.Context, tfrun.Binary, string, string) (string, error) {
 			return "terraform", nil
 		},
 		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
@@ -161,7 +162,7 @@ func (f *fakeEngine) tools() *callTools {
 			}
 			return result, nil
 		},
-		addTo: func(_ context.Context, _, _ engine.Terraform, _, root string, imports []engine.Import, _ engine.Options, _ map[engine.External]string) (*engine.Result, error) {
+		addTo: func(_ context.Context, _, _ tfrun.Terraform, _, root string, imports []engine.Import, _ engine.Options, _ map[engine.External]string) (*engine.Result, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.added == nil {

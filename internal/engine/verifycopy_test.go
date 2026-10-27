@@ -13,12 +13,14 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // copyInspector is a Terraform runner that records, when initialised,
 // the files of the directory it runs in, by path with forward slashes.
 type copyInspector struct {
-	Terraform
+	tfrun.Terraform
 	dir  string
 	seen map[string]string
 }
@@ -78,7 +80,7 @@ func TestVerifyChecksACopyWithoutTheBackend(t *testing.T) {
 	dir, files := verifiedRoot(t)
 	var calls []string
 	var inspector *copyInspector
-	newTF := func(d string) (Terraform, error) {
+	newTF := func(d string) (tfrun.Terraform, error) {
 		inspector = &copyInspector{Terraform: &fakeDriftTerraform{name: "verify", calls: &calls}, dir: d}
 		return inspector, nil
 	}
@@ -140,7 +142,7 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 		t.Fatalf("the merged root has no backend:\n%s", providers)
 	}
 	var inspector *copyInspector
-	newTF := func(d string) (Terraform, error) {
+	newTF := func(d string) (tfrun.Terraform, error) {
 		inspector = &copyInspector{Terraform: &mergeFake{env: "prod", dir: d, overrides: &overrides}, dir: d}
 		return inspector, nil
 	}

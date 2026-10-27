@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -72,11 +73,11 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	}
 	// The same provider versions as the root.
 	lock := r.lock
-	if content, err := os.ReadFile(filepath.Join(dir, engine.LockFileName)); err == nil {
+	if content, err := os.ReadFile(filepath.Join(dir, tfrun.LockFileName)); err == nil {
 		lock = content
 	}
 	if lock != nil {
-		if err := os.WriteFile(filepath.Join(staging, engine.LockFileName), lock, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(staging, tfrun.LockFileName), lock, 0o644); err != nil {
 			return added, nil, nil, err
 		}
 	}
@@ -89,7 +90,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 		return added, nil, nil, err
 	}
 	if r.lock == nil {
-		r.lock, _ = os.ReadFile(filepath.Join(dir, engine.LockFileName))
+		r.lock, _ = os.ReadFile(filepath.Join(dir, tfrun.LockFileName))
 	}
 	holds := previous.With(result)
 	if previous != nil {

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -120,7 +121,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 	case rootResumed:
 		log.Printf("%s: %s is unchanged since it was generated (--resume)", c.provider.Name(), dir)
 		if run.lock == nil {
-			run.lock, _ = os.ReadFile(filepath.Join(rootSource(out, dir), engine.LockFileName))
+			run.lock, _ = os.ReadFile(filepath.Join(rootSource(out, dir), tfrun.LockFileName))
 		}
 		result = d.result
 	case rootIncremental:

@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Providers quote the value they reject, and Terraform doesn't scrub what
@@ -27,7 +29,7 @@ func TestRedactingTerraformHidesValues(t *testing.T) {
 	r := &redactingTerraform{Terraform: fake}
 	r.hide([]Secret{{Variable: "a", value: plain}, {Variable: "b", value: quoted}, {Variable: "c", value: "short"}})
 
-	diags, _, err := plan(context.Background(), r)
+	diags, _, err := tfrun.Plan(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +37,7 @@ func TestRedactingTerraformHidesValues(t *testing.T) {
 		t.Fatalf("got %d diagnostics, want 2: %+v", len(diags), diags)
 	}
 	for _, d := range diags {
-		text := diagnosticMessage(d)
+		text := tfrun.DiagnosticMessage(d)
 		for _, v := range []string{plain, quoted, fmt.Sprintf("%q", quoted)[1 : len(fmt.Sprintf("%q", quoted))-1]} {
 			if strings.Contains(text, v) {
 				t.Errorf("diagnostic holds a secret value: %s", text)
@@ -54,7 +56,7 @@ func TestRedactingTerraformRedactsErrors(t *testing.T) {
 	r := &redactingTerraform{Terraform: &fakeTerraform{plans: []fakePlan{{err: cause}}}}
 	r.hide([]Secret{{Variable: "a", value: secret}})
 
-	_, _, err := plan(context.Background(), r)
+	_, _, err := tfrun.Plan(context.Background(), r)
 	if err == nil {
 		t.Fatal("no error")
 	}

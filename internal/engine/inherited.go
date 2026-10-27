@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // omitInherited leaves out of the resources in generated.tf the arguments
@@ -23,7 +24,7 @@ import (
 // does a resource's project and region. Resources that set another value,
 // or name an aliased provider, keep theirs. It reports whether it changed
 // generated.tf.
-func omitInherited(ctx context.Context, tf Terraform, dir string, names []string) (bool, error) {
+func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []string) (bool, error) {
 	defaults, err := providerValues(dir, names)
 	if err != nil || len(defaults) == 0 {
 		return false, err

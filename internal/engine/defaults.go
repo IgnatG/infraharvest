@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -90,7 +91,7 @@ func (c defaultCandidate) key() string {
 // shows in the plan, so it could hide a real setting. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
-func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -185,7 +186,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				return false, nil, err
 			}
 			if len(unassigned) > 0 || len(assigned) == 0 {
-				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, diagnosticsError(diags))
+				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(diags))
 				return nullsOnly()
 			}
 			for address, ds := range assigned {
@@ -245,7 +246,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
-func removeValid(ctx context.Context, tf Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
+func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
@@ -274,7 +275,7 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 		if out.Valid {
 			return removed, nil
 		}
-		assigned, _, err := assignErrors(dir, errorDiagnostics(out.Diagnostics))
+		assigned, _, err := assignErrors(dir, tfrun.ErrorDiagnostics(out.Diagnostics))
 		if err != nil {
 			return nil, err
 		}

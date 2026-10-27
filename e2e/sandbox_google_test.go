@@ -28,6 +28,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -178,7 +179,7 @@ func newGoogleSandbox(ctx context.Context, t *testing.T) *googleSandbox {
 	s.fixtureDir = envOr("SANDBOX_FIXTURE_DIR", t.TempDir())
 	s.plugins = envOr("SANDBOX_PLUGIN_CACHE", t.TempDir())
 	s.out = envOr("SANDBOX_OUTPUT_DIR", t.TempDir())
-	var binary engine.Binary
+	var binary tfrun.Binary
 	s.engineName, binary = e2eEngine(t)
 	var err error
 	if s.execPath, err = binary.Find(ctx, "", filepath.Join(s.plugins, binary.Name)); err != nil {
@@ -537,7 +538,7 @@ func checkGoogleLabels(ctx context.Context, t *testing.T, s *googleSandbox, cove
 // default_labels.
 func plannedLabels(ctx context.Context, t *testing.T, dir, execPath, plugins string) map[string]map[string]any {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Names of the verification gate's checks, numbered G1 to G8 (see also
@@ -78,7 +80,7 @@ func (g Gate) check(name string) Check {
 // arguments opts.StateOnly names per type, which providers keep only in
 // state and import can't set. known, if set, has the values of the
 // secrets Generate found (see secretValues).
-func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
+func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
 	expected, err := countImportBlocks(dir)
 	if err != nil {
 		return nil, err
@@ -190,7 +192,7 @@ func (p gatePolicy) runs(name string) bool {
 // in but for the scanners, listed before the secrets check that holds
 // them back; and the gate of each of p.others. A cancelled run fails as
 // cancelled.
-func (p gatePolicy) run(ctx context.Context, tf Terraform, dir string) (Gate, []Gate, error) {
+func (p gatePolicy) run(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
 	gate, others, err := p.runChecks(ctx, tf, dir)
 	if err != nil {
 		return nil, nil, err
@@ -204,7 +206,7 @@ func (p gatePolicy) run(ctx context.Context, tf Terraform, dir string) (Gate, []
 }
 
 // runChecks is run but for its cancellation.
-func (p gatePolicy) runChecks(ctx context.Context, tf Terraform, dir string) (Gate, []Gate, error) {
+func (p gatePolicy) runChecks(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
 	var gate Gate
 	// add adds c to the gate, and reports whether the gate stops there.
 	add := func(c Check) bool {
@@ -316,7 +318,7 @@ func (p gatePolicy) runChecks(ctx context.Context, tf Terraform, dir string) (Ga
 
 // format runs the format check. Where the gate blames edited files, only
 // those fail it.
-func (p gatePolicy) format(ctx context.Context, tf Terraform) (Check, error) {
+func (p gatePolicy) format(ctx context.Context, tf tfrun.Terraform) (Check, error) {
 	formatted, files, err := tf.FormatCheck(ctx)
 	if err != nil {
 		return Check{}, fmt.Errorf("terraform fmt: %w", err)
@@ -339,14 +341,14 @@ func (p gatePolicy) format(ctx context.Context, tf Terraform) (Check, error) {
 
 // validate runs the validate check, blaming the edited files an error is
 // in.
-func (p gatePolicy) validate(ctx context.Context, tf Terraform) (Check, error) {
+func (p gatePolicy) validate(ctx context.Context, tf tfrun.Terraform) (Check, error) {
 	validation, err := tf.Validate(ctx)
 	if err != nil {
 		return Check{}, fmt.Errorf("terraform validate: %w", err)
 	}
 	c := Check{Name: CheckValidate, Passed: validation.Valid}
-	for _, d := range errorDiagnostics(validation.Diagnostics) {
-		c.Details = append(c.Details, formatDiagnostic(d))
+	for _, d := range tfrun.ErrorDiagnostics(validation.Diagnostics) {
+		c.Details = append(c.Details, tfrun.FormatDiagnostic(d))
 		if d.Range == nil {
 			continue
 		}

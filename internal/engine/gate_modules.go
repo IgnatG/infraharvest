@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // walkOutput calls visit with each file Generate wrote into dir, by path
@@ -30,7 +31,7 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 			}
 			return nil
 		}
-		if d.Name() == LockFileName || LocalStateFile(d.Name()) {
+		if d.Name() == tfrun.LockFileName || LocalStateFile(d.Name()) {
 			return nil
 		}
 		content, err := os.ReadFile(path)

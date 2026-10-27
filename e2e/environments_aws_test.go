@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -218,7 +218,7 @@ func TestAWSEnvironments(t *testing.T) {
 	// alone, as the environments share the code; drift as prod finds none.
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

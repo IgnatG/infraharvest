@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // tagMap is a map of tags, from keys and values in turn; nil for none.
@@ -306,7 +308,7 @@ func TestDriftKeepsSharedTags(t *testing.T) {
 		seen = append(seen, c)
 		return len(c.Covers) == 0
 	}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
 	if err != nil {
 		t.Fatal(err)
 	}

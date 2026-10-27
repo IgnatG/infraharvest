@@ -25,6 +25,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // ModulesDirName is the directory of the output that holds generated local
@@ -761,7 +762,7 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 // installs them, and keeps the change only if the plan, with vars, still
 // has the baseline's totals and each resource left in the root plans the
 // change it had (see sameChanges), as verify checks an edit.
-func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, refs *ModuleRefs, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
+func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
@@ -782,7 +783,7 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, refs
 		return false, nil
 	}
 	// The module calls need their modules installed.
-	if err := initTerraform(ctx, tf); err != nil {
+	if err := tfrun.Init(ctx, tf); err != nil {
 		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
