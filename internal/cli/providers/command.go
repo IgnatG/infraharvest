@@ -67,12 +67,12 @@ type plan struct {
 	// "subscription" or "project".
 	kind string
 	// scopes are the accounts, subscriptions or projects to import, each
-	// through importer.ImportEach. Without any, calls covers the one scope
-	// the credentials reach, and is passed "" for it.
+	// through importer.Run.ImportEach. Without any, calls covers the one
+	// scope the credentials reach, and is passed "" for it.
 	scopes []string
 	// calls returns the Import calls that cover one scope, in order, from
-	// the options importer.ImportEach hands that scope; importer.ImportCalls
-	// makes them.
+	// the options importer.Run.ImportEach hands that scope;
+	// importer.ImportCalls makes them.
 	calls func(options importer.Options, scope string) []call
 	// newProvider, if set, returns the provider of each Import call in
 	// place of the definition's, such as an AWS provider scoped to

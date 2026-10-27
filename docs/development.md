@@ -12,7 +12,7 @@ Everything but `main.go` is under `internal/`: infraharvest has no Go API for ot
 |---|---|
 | `internal/cli` | The Cobra commands and nothing else: flags, help text, wiring to `internal/importer`. |
 | `internal/cli/providers` | One file per provider command (`provider_cmd_<provider>.go`) with its own flags, the shared flags, and the registry of what is compiled in. |
-| `internal/importer` | The orchestration of an import, with no Cobra in it: `Options`, `Import`, `ImportEach`, `Run`, `Verify`, the report and the exit codes. Anything a command does that can be tested without a command goes here. |
+| `internal/importer` | The orchestration of an import, with no Cobra in it: `Options`, `Import`, `Run` with its `ImportEach`, `Verify`, the report and the exit codes. Anything a command does that can be tested without a command goes here. |
 | `internal/harvest` | The API listers implement and the importer drives: `Provider`, `Lister`, `ListerBase`, `Resource`, `Registry`, filters, tags and labels. |
 | `internal/providers/aws`, `azure`, `google` | The listers: the only code that calls the clouds' APIs. |
 | `internal/catalogue` | What infraharvest knows about each Terraform resource type, as YAML under `data/`, its schema and its golden tests (see [Catalogue](catalogue.md)), and in `schemameta`, the defaults and argument constraints read out of the providers' code, with their generator (see [Schema metadata](catalogue.md#schema-metadata)). |
