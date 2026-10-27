@@ -280,7 +280,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle: "Project",
 			ScopeData:  "google_client_config.current",
 			ScopeLocal: "project_id",
 			ScopeExpr:  "data.google_client_config.current.project",
@@ -313,9 +312,18 @@ func describeScope(flags map[string][]string) string {
 	return strings.Join(parts, " and ") + " in " + strings.Join(regions, ", ")
 }
 
-// ModuleProviders configures google-beta, which some curated modules
-// create resources with, for the same project and region as the import.
+// ModuleProviders configures the counterpart of the root's provider,
+// which curated modules create resources with besides it, for the same
+// project and region as the import: google-beta, which some modules
+// name, for a root of google, and google, which every module's google_*
+// resources use unless they name google-beta, for a root of google-beta
+// (with --beta).
 func (p *Provider) ModuleProviders() map[string]harvest.ModuleProvider {
+	if p.providerType != "" {
+		return map[string]harvest.ModuleProvider{
+			providerName: {Source: "hashicorp/" + providerName, Config: p.providerConfig()},
+		}
+	}
 	return map[string]harvest.ModuleProvider{
 		"google-beta": {Source: "hashicorp/google-beta", Config: p.providerConfig()},
 	}

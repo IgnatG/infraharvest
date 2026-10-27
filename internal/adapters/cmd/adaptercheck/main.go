@@ -31,6 +31,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -101,7 +102,10 @@ func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapt
 	if err != nil {
 		return err
 	}
-	providers := append([]string{moduleProvider(a)}, a.Providers...)
+	providers := a.Providers
+	if root := moduleProvider(a); !slices.Contains(providers, root) {
+		providers = append([]string{root}, providers...)
+	}
 	if latest == a.Version {
 		return checkPinned(ctx, client, a, providers, notes)
 	}

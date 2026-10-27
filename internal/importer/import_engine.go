@@ -787,7 +787,9 @@ func (b importBlocks) of(service string, r harvest.Resource) (engine.Import, boo
 	}
 	imp := engine.Import{Type: typ, Name: b.nameOf(r), File: b.fileOf(service, r), ID: id, Provider: importProvider(b.provider, typ)}
 	implied, _, _ := strings.Cut(typ, "_")
-	if _, ok := b.configured[implied]; ok {
+	// google --beta's roots configure google too, for modules: its own
+	// google_* resources still name google-beta.
+	if _, ok := b.configured[implied]; ok && implied != catalogueName(b.provider) {
 		imp.Provider = ""
 	}
 	if b.cat == nil || r.Observed == nil {

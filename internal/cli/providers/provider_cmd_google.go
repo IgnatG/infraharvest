@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -38,8 +39,10 @@ func init() {
 
 // googleScopes are the Google command's flags that aren't options: what
 // widens the import to the projects of an organization or folders, and
-// whether to generate for google-beta.
+// whether to generate for google-beta; and the command's flags, of which
+// check reads those the profile says it needs one of.
 type googleScopes struct {
+	flags        *pflag.FlagSet
 	organization string
 	folders      []string
 	beta         bool
@@ -47,7 +50,7 @@ type googleScopes struct {
 
 // googleFlags adds the Google command's own flags.
 func googleFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
-	scopes := &googleScopes{}
+	scopes := &googleScopes{flags: flags}
 	flags.StringSliceVar(&options.Regions, "regions", []string{"global"}, "regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region")
 	flags.StringSliceVar(&options.Projects, "projects", nil, "projects to import")
 	flags.StringVar(&scopes.organization, "organization", "", "import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants)")
@@ -56,12 +59,29 @@ func googleFlags(flags *pflag.FlagSet, options *importer.Options) (checker, plan
 	return scopes.check, scopes.plan
 }
 
-// check rejects a run that names no projects to import.
+// check rejects a run that names no projects to import: one that sets
+// none of the flags the profile says the command needs one of (see
+// harvest.Scope.Needs).
 func (s *googleScopes) check(options importer.Options) error {
-	if len(options.Projects) == 0 && s.organization == "" && len(s.folders) == 0 {
-		return errors.New("say which projects to import: --projects, --organization or --folders")
+	needs := (&google.Provider{}).Profile().Scope.Needs
+	if !slices.ContainsFunc(needs, s.set) {
+		names := make([]string, len(needs))
+		for i, name := range needs {
+			names[i] = "--" + name
+		}
+		return errors.New("say which projects to import: " + strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1])
 	}
 	return checkProjectsApart(options.Layout, options.Projects)
+}
+
+// set reports whether the flag name has a value: a list that isn't
+// empty, or another value that isn't.
+func (s *googleScopes) set(name string) bool {
+	value := s.flags.Lookup(name).Value
+	if list, ok := value.(pflag.SliceValue); ok {
+		return len(list.GetSlice()) > 0
+	}
+	return value.String() != ""
 }
 
 // checkProjectsApart fails when several projects would share roots. A

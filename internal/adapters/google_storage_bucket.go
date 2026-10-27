@@ -30,9 +30,10 @@ var GoogleStorageBucket = Adapter{
 		"project_id", "public_access_prevention", "retention_policy", "soft_delete_policy", "storage_class",
 		"versioning", "website",
 	},
-	Outputs: []string{"bucket", "name", "url"},
-	Targets: []string{"google_storage_bucket.bucket"},
-	Map:     mapGoogleStorageBucket,
+	Outputs:   []string{"bucket", "name", "url"},
+	Providers: []string{"google"},
+	Targets:   []string{"google_storage_bucket.bucket"},
+	Map:       mapGoogleStorageBucket,
 	// The module's variables' defaults, from its variables.tf.
 	Defaults: map[string]cty.Value{
 		"autoclass":                cty.False,

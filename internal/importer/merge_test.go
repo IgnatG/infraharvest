@@ -9,6 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/harvest"
+	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
+	googleprovider "github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -246,5 +250,25 @@ func TestRecordMerge(t *testing.T) {
 	}
 	if len(run.report.Merges) != 1 {
 		t.Errorf("merges: %+v", run.report.Merges)
+	}
+}
+
+// A merged root's README titles the scope by its noun, and reads the
+// rest of the provider's Merge as it is.
+func TestMergeProfile(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		provider harvest.Provider
+		title    string
+	}{
+		{&awsprovider.Provider{}, "Account"},
+		{&azureprovider.Provider{}, "Subscription"},
+		{&googleprovider.Provider{}, "Project"},
+	} {
+		got := mergeProfile(tc.provider.Profile())
+		merge := tc.provider.Profile().Merge
+		if got.ScopeTitle != tc.title || got.ScopeExpr != merge.ScopeExpr || got.RegionExpr != merge.RegionExpr || got.RegionTitle != merge.RegionTitle {
+			t.Errorf("%s: %+v", tc.provider.Name(), got)
+		}
 	}
 }

@@ -35,7 +35,7 @@ var GoogleNetwork = Adapter{
 		"routing_mode", "secondary_ranges", "subnets",
 	},
 	Outputs:   []string{"network_id", "network_name", "network_self_link", "subnets"},
-	Providers: []string{"google-beta"},
+	Providers: []string{"google", "google-beta"},
 	Targets:   []string{"module.firewall_rules.google_compute_firewall.rules", "module.subnets.google_compute_subnetwork.subnetwork", "module.vpc.google_compute_network.network"},
 	Map:       mapGoogleNetwork,
 	// The module's variables' defaults, from its variables.tf; its

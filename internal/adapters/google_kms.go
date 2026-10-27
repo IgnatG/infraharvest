@@ -30,9 +30,10 @@ var GoogleKMS = Adapter{
 		"key_protection_level", "key_rotation_period", "keyring", "keys", "labels", "location",
 		"project_id", "purpose", "skip_initial_version_creation",
 	},
-	Outputs: []string{"keyring", "keyring_name", "keys"},
-	Targets: []string{"google_kms_crypto_key.key", "google_kms_key_ring.key_ring"},
-	Map:     mapGoogleKMS,
+	Outputs:   []string{"keyring", "keyring_name", "keys"},
+	Providers: []string{"google"},
+	Targets:   []string{"google_kms_crypto_key.key", "google_kms_key_ring.key_ring"},
+	Map:       mapGoogleKMS,
 	// The module sets these from the inputs as they are, for every key
 	// (main.tf).
 	Inverse: map[string]string{

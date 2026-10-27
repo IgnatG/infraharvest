@@ -158,11 +158,9 @@ type Layout struct {
 // Merge is what the root the environments of a stack share reads of each
 // environment's account (or subscription, or project) and region, where
 // the environments' roots differ by them. The importer hands it to the
-// engine as engine.MergeProfile, which has the same fields.
+// engine as engine.MergeProfile, which has the same fields and a
+// title of the scope, Scope.Noun capitalised, for the README.
 type Merge struct {
-	// ScopeTitle is what the roots are scoped by, for the README, such as
-	// Account.
-	ScopeTitle string
 	// ScopeData is the data source that reads the ID of the account,
 	// ScopeLocal the local that holds the ID, and ScopeExpr the
 	// expression that reads it; all empty for a provider with none.

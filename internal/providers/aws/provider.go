@@ -118,7 +118,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle:     "Account",
 			ScopeData:      "aws_caller_identity.current",
 			ScopeLocal:     "aws_account_id",
 			ScopeExpr:      "data.aws_caller_identity.current.account_id",

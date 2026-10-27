@@ -364,7 +364,6 @@ func (*Provider) Profile() harvest.Profile {
 			},
 		},
 		Merge: harvest.Merge{
-			ScopeTitle: "Subscription",
 			ScopeData:  "azurerm_client_config.current",
 			ScopeLocal: "subscription_id",
 			ScopeExpr:  "data.azurerm_client_config.current.subscription_id",
