@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func mustParse(t *testing.T, src string) *Template {
@@ -266,5 +267,37 @@ func TestAliasBudget(t *testing.T) {
 	b.WriteString("Resources: {}\n")
 	if _, err := Parse(strings.NewReader(b.String())); err == nil || !strings.Contains(err.Error(), "too many values") {
 		t.Errorf("err = %v, want too many values", err)
+	}
+}
+
+// The template's keys and strings reach a diagnostic's text, or a parse
+// error's, with their control characters escaped: printing either can't
+// send a terminal an escape sequence the template carries.
+func TestDiagnosticsEscapeControlCharacters(t *testing.T) {
+	tmpl := mustParse(t, `{"Resources": {"Bad\u001b[2J": {"Type": "AWS::S3::Bucket", "DependsOn": "Gone\u001b]0;x\u0007"}}}`)
+	res, err := Convert(tmpl, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, d := range res.Diagnostics {
+		text := d.String()
+		if strings.ContainsFunc(text, unicode.IsControl) {
+			t.Errorf("diagnostic %q holds control characters", text)
+		}
+		if strings.Contains(text, `Bad\x1b[2J`) && strings.Contains(text, `Gone\x1b]0;x\a`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no diagnostic names the escaped logical IDs: %v", res.Diagnostics)
+	}
+
+	_, err = Parse(strings.NewReader("{\"Resources\": {\"Bad\\u001b[2J\": {}}}"))
+	if err == nil || strings.ContainsFunc(err.Error(), unicode.IsControl) || !strings.Contains(err.Error(), `Bad\x1b[2J`) {
+		t.Errorf("Parse: %v, want the key escaped", err)
+	}
+	if got := printable("ok\xffé\u009b"); got != `ok`+"�"+`é\u009b` {
+		t.Errorf("printable: %q", got)
 	}
 }

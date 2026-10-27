@@ -206,7 +206,7 @@ func (s *driftSession) editor(refresh, code *tfjson.Plan, root map[string][]byte
 	e := newDriftEditor(refresh, code, s.opts.Defaults)
 	e.modules = loadDriftModules(s.dir, s.opts.DataDir)
 	e.adapters = s.opts.Adapters
-	if err := addModuleFiles(root, s.dir, e.modules); err != nil {
+	if err := addModuleFiles(root, s.dir, s.opts.OutDir, e.modules); err != nil {
 		return nil, err
 	}
 	e.syncModules(root)

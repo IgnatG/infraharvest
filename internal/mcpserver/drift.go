@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,7 +19,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -353,7 +353,7 @@ func (t *tools) finishDrift(ctx context.Context, args []string, in DriftAcceptIn
 	result := driftResult(d, code, in.Out)
 	text := driftText(result)
 	if in.WriteDecisions {
-		if err := copyBackDecisions(copied, target, content); err != nil {
+		if err := t.copyBackDecisions(copied, target, content); err != nil {
 			text += fmt.Sprintf(" The decisions weren't written to %s: %v.", target, err)
 		} else {
 			result.Decisions = target
@@ -365,8 +365,11 @@ func (t *tools) finishDrift(ctx context.Context, args []string, in DriftAcceptIn
 
 // copyBackDecisions copies the decisions file drift merged into copied
 // to target, unless target no longer has content, the content the user
-// confirmed. Without copied, drift wrote target itself.
-func copyBackDecisions(copied *snapshot, target string, content []byte) error {
+// confirmed. Without copied, drift wrote target itself. Target is read and
+// written as any file the agent names is (see openWithin and
+// writeWithin), so that a link swapped in while drift ran doesn't lead
+// either out of the root.
+func (t *tools) copyBackDecisions(copied *snapshot, target string, content []byte) error {
 	if copied == nil {
 		return nil
 	}
@@ -374,7 +377,19 @@ func copyBackDecisions(copied *snapshot, target string, content []byte) error {
 	if err != nil {
 		return err
 	}
-	current, err := os.ReadFile(target)
+	target, f, err := t.openWithin("decisions", target)
+	if err != nil {
+		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	current, err := io.ReadAll(f)
+	// Closed before it is written: Windows refuses to rename over a file
+	// open.
+	_ = f.Close()
 	if err != nil {
 		return err
 	}
@@ -384,11 +399,7 @@ func copyBackDecisions(copied *snapshot, target string, content []byte) error {
 	if bytes.Equal(merged, content) {
 		return nil
 	}
-	info, err := os.Stat(target)
-	if err != nil {
-		return err
-	}
-	return fsutil.WriteFile(target, merged, info.Mode().Perm())
+	return t.writeWithin(target, merged, info.Mode().Perm())
 }
 
 // runDrift runs drift with args and reads the drift.json it prints. When

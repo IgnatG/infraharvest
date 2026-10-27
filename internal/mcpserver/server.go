@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -226,9 +227,44 @@ func checkWithin(what, root, path string) error {
 		if !under(resolvedRoot, resolved) {
 			return fmt.Errorf("%s %q must be under %s", what, path, root)
 		}
+		if err := noJunctionsBelow(resolvedRoot, resolved); err != nil {
+			return fmt.Errorf("%s %q: %w", what, path, err)
+		}
 	}
 	if !under(root, abs) {
 		return fmt.Errorf("%s %q must be under %s", what, path, root)
+	}
+	return nil
+}
+
+// noJunctionsBelow checks that no directory or file on the way from root
+// to path, which resolve returned and is under root, both of which are
+// absolute, is a link resolve doesn't follow (see unfollowedLink): a
+// junction on Windows, which Go reports as fs.ModeIrregular since 1.23,
+// not as a symbolic link, and filepath.EvalSymlinks leaves as it is, so
+// that path seems under the root where it leads out of it.
+func noJunctionsBelow(root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return err
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		linked, err := unfollowedLink(current, info)
+		if err != nil {
+			return err
+		}
+		if linked {
+			return fmt.Errorf("%s is a junction or another link that can't be followed", current)
+		}
 	}
 	return nil
 }
@@ -277,13 +313,27 @@ func resolve(path string) (string, error) {
 }
 
 // readWithin reads the file at path, which the agent chose, under the root
-// (see within), and returns the path to use and the content. The file is
-// opened once and read from that handle, which has to be the file path
-// leads to under the root once it is open, so a link swapped in between
-// the check and the open is refused; and the file may have no other name,
-// as a hard link to a file outside the root would give it, where the
-// platform counts them.
+// (see openWithin), and returns the path to use and the content.
 func (t *tools) readWithin(what, path string) (string, []byte, error) {
+	path, f, err := t.openWithin(what, path)
+	if err != nil {
+		return "", nil, err
+	}
+	defer f.Close()
+	content, err := io.ReadAll(f)
+	if err != nil {
+		return "", nil, err
+	}
+	return path, content, nil
+}
+
+// openWithin opens the file at path, which the agent chose, under the root
+// (see within), and returns the path to use and the open file, to read
+// from. The file is opened once, and has to be the file path leads to
+// under the root once it is open, so a link swapped in between the check
+// and the open is refused; and the file may have no other name, as a
+// hard link to a file outside the root would give it.
+func (t *tools) openWithin(what, path string) (string, *os.File, error) {
 	path, err := t.within(what, path)
 	if err != nil {
 		return "", nil, err
@@ -296,38 +346,94 @@ func (t *tools) readWithin(what, path string) (string, []byte, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	defer f.Close()
-	opened, err := f.Stat()
-	if err != nil {
+	if err := t.checkOpened(what, path, f); err != nil {
+		_ = f.Close()
 		return "", nil, err
 	}
+	return path, f, nil
+}
+
+// checkOpened checks that f, opened at path, is a regular file, the file
+// path leads to under the root now that it is open, and has no other name
+// (see openWithin).
+func (t *tools) checkOpened(what, path string, f *os.File) error {
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
 	if !opened.Mode().IsRegular() {
-		return "", nil, fmt.Errorf("%s %q isn't a regular file", what, path)
+		return fmt.Errorf("%s %q isn't a regular file", what, path)
 	}
 	// Checked again now that it is open, so a link swapped in before the
 	// open is caught, and the handle compared with where path leads.
 	if _, err := t.within(what, path); err != nil {
-		return "", nil, err
+		return err
 	}
 	resolved, err := resolve(path)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	current, err := os.Stat(resolved)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
 	if !os.SameFile(opened, current) {
-		return "", nil, fmt.Errorf("%s %q changed while it was opened", what, path)
+		return fmt.Errorf("%s %q changed while it was opened", what, path)
 	}
-	if hardLinked(opened) {
-		return "", nil, fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
-	}
-	content, err := io.ReadAll(f)
+	linked, err := hardLinked(f, opened)
 	if err != nil {
-		return "", nil, err
+		return err
 	}
-	return path, content, nil
+	if linked {
+		return fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
+	}
+	return nil
+}
+
+// writeWithin writes data to the file at path under the root, as
+// fsutil.WriteFile does, through a temporary file in the same directory
+// renamed over path once complete, but through the root opened as an
+// os.Root: a symbolic link swapped in for path or a directory on the way
+// to it, after path was checked, can't lead the write out of the root.
+func (t *tools) writeWithin(path string, data []byte, perm fs.FileMode) (err error) {
+	root, err := filepath.Abs(t.root)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	temp := filepath.Join(filepath.Dir(rel), fmt.Sprintf(".%s.%d.tmp", filepath.Base(rel), rand.Uint64()))
+	f, err := r.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = f.Close()
+			_ = r.Remove(temp)
+		}
+	}()
+	if _, err = f.Write(data); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	// After closing: Windows can't change an open file's mode.
+	if err = r.Chmod(temp, perm); err != nil {
+		return err
+	}
+	return r.Rename(temp, rel)
 }
 
 // Scope is what to list: a provider command, its services, and where to
@@ -850,16 +956,19 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 			}
 		}
 	}
-	// The report's own path too: .infraharvest or the report could be a
-	// symbolic link that leads out of the root, such as one a cloned
-	// repository plants to a credentials file.
-	if _, err := t.within("report", path); err != nil {
+	// Opened as any file the agent names is (see openWithin):
+	// .infraharvest or the report could be a symbolic link that leads out
+	// of the root, such as one a cloned repository plants to a credentials
+	// file, or a hard link to one.
+	path, f, err := t.openWithin("report", path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
-	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("report %q isn't a regular file", path)
-	}
-	content, size, err := readHead(path, maxReport)
+	defer f.Close()
+	content, size, err := readHead(f, maxReport)
 	if err != nil {
 		return nil, nil, fmt.Errorf("no report in %s: %w", in.Out, err)
 	}
@@ -875,15 +984,10 @@ func (t *tools) report(_ context.Context, _ *mcp.CallToolRequest, in ReportInput
 // fill an agent's context.
 const maxReport = 256 << 10
 
-// readHead reads at most limit bytes of the file at path, cut after the
-// last whole line that fits, or else the last whole character, and
-// returns them with the file's size.
-func readHead(path string, limit int) ([]byte, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer f.Close()
+// readHead reads at most limit bytes of f, cut after the last whole line
+// that fits, or else the last whole character, and returns them with the
+// file's size.
+func readHead(f *os.File, limit int) ([]byte, int64, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, 0, err
@@ -915,8 +1019,9 @@ func cutAt(b []byte, limit int) int {
 
 // linksStayUnder checks that no symbolic link under dir, which an import
 // writes into, leads out of the root, as one a cloned repository plants
-// could: the import would write there. Terraform's working directories
-// are skipped, where terraform init links providers from the plugin cache.
+// could: the import would write there; nor is any a junction. Terraform's
+// working directories are skipped, where terraform init links providers
+// from the plugin cache.
 func (t *tools) linksStayUnder(what, dir string) error {
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -925,7 +1030,9 @@ func (t *tools) linksStayUnder(what, dir string) error {
 		if d.IsDir() && d.Name() == ".terraform" {
 			return filepath.SkipDir
 		}
-		if d.Type()&fs.ModeSymlink != 0 {
+		// A junction on Windows is fs.ModeIrregular, which within
+		// refuses (see noJunctionsBelow).
+		if d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
 			_, err := t.within(what, path)
 			return err
 		}
