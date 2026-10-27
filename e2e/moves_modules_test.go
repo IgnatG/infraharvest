@@ -146,7 +146,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 		if strings.HasPrefix(r.Address, "module.") {
 			t.Errorf("--modules=none: %s is in a module call", r.Address)
 		}
-		plain[engine.External{Type: report.ResourceType(r.Address), ID: r.ID}] = r.Address
+		plain[engine.External{Type: engine.AddressType(r.Address), ID: r.ID}] = r.Address
 	}
 	if len(plain) != c.resources {
 		t.Fatalf("%s imports %v, want %d resources", rootPath, plain, c.resources)
@@ -287,7 +287,7 @@ func importedAs(t *testing.T, coverage report.Report, path string, id engine.Ext
 			continue
 		}
 		for _, r := range d.Imported {
-			if r.ID == id.ID && report.ResourceType(r.Address) == id.Type {
+			if r.ID == id.ID && engine.AddressType(r.Address) == id.Type {
 				return r.Address
 			}
 		}

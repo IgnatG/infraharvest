@@ -52,9 +52,9 @@ func (f *Filter) Keeps(resource Resource) bool {
 	}
 	attributes := resource.Observed.Attributes
 	if f.Values == nil {
-		return HasPath(f.Path, attributes)
+		return hasPath(f.Path, attributes)
 	}
-	for _, value := range ValuesAt(f.Path, attributes) {
+	for _, value := range valuesAt(f.Path, attributes) {
 		if slices.Contains(f.Values, reflect.ValueOf(value).String()) {
 			return true
 		}

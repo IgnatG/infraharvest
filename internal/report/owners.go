@@ -12,14 +12,17 @@ import (
 	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
-// What manages a resource the selection leaves out, as the reason it gives
-// says (see OwnerOf).
+// What manages a resource the selection leaves out (see Excluded.Owner and
+// OwnerOf).
 const (
 	// OwnerTerraformState: a state --managed-state read has it.
 	OwnerTerraformState = "terraform_state"
 	// OwnerTerraformTag: its tags or labels say another Terraform or
 	// OpenTofu state manages it.
 	OwnerTerraformTag = "terraform_tag"
+	// OwnerTerraformRoot: a root of the output has it, which an incremental
+	// import leaves out as Terraform manages it there.
+	OwnerTerraformRoot = "terraform_root"
 	// OwnerCloudFormation: a CloudFormation stack manages it, as the stacks
 	// that list it, or its tags, say.
 	OwnerCloudFormation = "cloudformation"
@@ -48,7 +51,9 @@ const (
 const byTagMarker = "per its tag "
 
 // OwnerOf returns what manages a resource the selection leaves out with
-// reason, one of the Owner constants; "" for no reason.
+// reason, one of the Owner constants; "" for no reason. A selection file
+// keeps only the reason, which this reads; what an import leaves out
+// itself it records with its owner (see Excluded.Owner).
 func OwnerOf(reason string) string {
 	switch {
 	case reason == "":

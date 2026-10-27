@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -250,11 +251,11 @@ func (r *Report) finishStacks() {
 	scopeOf := map[string]string{}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			imported[key(d.Scope, ResourceType(res.Address), res.ID)] = at{d.Path, res.Address}
+			imported[key(d.Scope, engine.AddressType(res.Address), res.ID)] = at{d.Path, res.Address}
 			scopeOf[d.Path] = d.Scope
 		}
 		for _, res := range d.LeftOut {
-			leftOut[key(d.Scope, ResourceType(res.Address), res.ID)] = strings.Join(res.Errors, "; ")
+			leftOut[key(d.Scope, engine.AddressType(res.Address), res.ID)] = strings.Join(res.Errors, "; ")
 		}
 		if d.Error != "" {
 			checks[d.Path] = append(checks[d.Path], "failed: "+d.Error)
@@ -265,9 +266,9 @@ func (r *Report) finishStacks() {
 			}
 		}
 	}
-	excluded := map[string]string{}
+	excluded := map[string]Excluded{}
 	for _, e := range r.Excluded {
-		excluded[key(e.Scope, e.Type, e.ID)] = e.Reason
+		excluded[key(e.Scope, e.Type, e.ID)] = e
 	}
 	sort.Slice(r.CloudFormationStacks, func(i, j int) bool {
 		a, b := r.CloudFormationStacks[i], r.CloudFormationStacks[j]
@@ -318,12 +319,12 @@ func (r *Report) finishStacks() {
 				if errs, ok := leftOut[k]; ok {
 					return StackNotImported, "left out: " + errs
 				}
-				if reason, ok := excluded[k]; ok {
-					switch OwnerOf(reason) {
-					case OwnerSelection, OwnerTerraformState:
-						return StackExcluded, reason
+				if e, ok := excluded[k]; ok {
+					switch e.ManagedBy() {
+					case OwnerSelection, OwnerTerraformState, OwnerTerraformRoot:
+						return StackExcluded, e.Reason
 					}
-					return StackNotImported, "excluded: " + reason
+					return StackNotImported, "excluded: " + e.Reason
 				}
 				return StackNotImported, "not imported, as its root or its service failed"
 			})

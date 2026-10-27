@@ -111,7 +111,7 @@ func TestS3ListAndGet(t *testing.T) {
 	}
 }
 
-// NewS3 takes the region from ?region= first, then from the profile, and
+// newS3 takes the region from ?region= first, then from the profile, and
 // fails for a profile the shared config doesn't have.
 func TestNewS3(t *testing.T) {
 	dir := t.TempDir()
@@ -136,16 +136,16 @@ func TestNewS3(t *testing.T) {
 		{"", "state", "us-east-2"},
 		{"eu-west-1", "state", "eu-west-1"},
 	} {
-		store, err := NewS3(ctx, tc.region, tc.profile)
+		store, err := newS3(ctx, tc.region, tc.profile)
 		if err != nil {
-			t.Errorf("NewS3(%q, %q): %v", tc.region, tc.profile, err)
+			t.Errorf("newS3(%q, %q): %v", tc.region, tc.profile, err)
 			continue
 		}
 		if got := store.(*S3).client.Options().Region; got != tc.want {
-			t.Errorf("NewS3(%q, %q): region %q, want %q", tc.region, tc.profile, got, tc.want)
+			t.Errorf("newS3(%q, %q): region %q, want %q", tc.region, tc.profile, got, tc.want)
 		}
 	}
-	if _, err := NewS3(ctx, "", "missing"); err == nil {
+	if _, err := newS3(ctx, "", "missing"); err == nil {
 		t.Error("want an error for a profile the shared config doesn't have")
 	}
 }

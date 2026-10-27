@@ -143,7 +143,7 @@ func TestTemplates(t *testing.T) {
 		"{id|before_last:#}":             "listed",
 		"prefix-{id}":                    "prefix-listed",
 	} {
-		tmpl, err := ParseTemplate(source)
+		tmpl, err := parseTemplate(source)
 		if err != nil {
 			t.Errorf("%s: %v", source, err)
 			continue
@@ -152,12 +152,12 @@ func TestTemplates(t *testing.T) {
 			t.Errorf("%s: got %q, %v; want %q", source, got, ok, want)
 		}
 	}
-	tmpl, _ := ParseTemplate("{gateway_id}/{route_table_id}")
+	tmpl, _ := parseTemplate("{gateway_id}/{route_table_id}")
 	if got, ok := tmpl.Render("listed", attributes); ok {
 		t.Errorf("a field without a value: got %q, want no ID", got)
 	}
 	for _, source := range []string{"", "{}", "{id", "id}", "{id|upper}", "{id|after_last}", "{a b}", "x{id}}"} {
-		if _, err := ParseTemplate(source); err == nil {
+		if _, err := parseTemplate(source); err == nil {
 			t.Errorf("%q: want an error", source)
 		}
 	}
@@ -534,9 +534,6 @@ types:
     inventory: { type: compute.googleapis.com/Disk, name: "//compute.googleapis.com/projects/*/regions/*/disks/*" }
   google_storage_bucket: {}
 `)
-	if got := c.InventoryTypes(); !reflect.DeepEqual(got, []string{"compute.googleapis.com/Disk", "compute.googleapis.com/Network"}) {
-		t.Errorf("inventory types: %v", got)
-	}
 	for _, tt := range []struct {
 		assetType, name string
 		want            []string

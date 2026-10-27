@@ -474,3 +474,36 @@ func TestMergeStackOfOneEnvironment(t *testing.T) {
 		t.Errorf("merged %d times, merges %+v", len(f.merged), run.report.Merges)
 	}
 }
+
+// A stack merged before that fails to merge again, before the merge
+// itself, as where a root it copies aside is gone or Terraform's
+// credentials can't be had, keeps its merged root as it was.
+func TestMergeStackFailingKeepsTheMergedRoot(t *testing.T) {
+	for name, fail := range map[string]func(t *testing.T, members []mergeMember){
+		// The roots of the stack merged before are gone, so copying them
+		// aside again fails.
+		"copy": func(*testing.T, []mergeMember) {},
+		"credentials": func(t *testing.T, members []mergeMember) {
+			for i, m := range members {
+				writeRootFiles(t, m.dir, map[string]string{engine.VersionsFileName: "terraform {}\n"})
+				members[i].provider = &envProvider{asked: 1}
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			f := &fakeEngine{}
+			run, stack, members := stackMembers(t, out, f, "dev", "prod")
+			if err := run.mergeStack(t.Context(), stack, members); err != nil {
+				t.Fatal(err)
+			}
+			fail(t, members)
+			if err := run.mergeStack(t.Context(), stack, members); err == nil {
+				t.Fatal("merging again succeeded")
+			}
+			if content, err := os.ReadFile(filepath.Join(stack, "main.tf")); err != nil || string(content) != "# merged\n" {
+				t.Errorf("the merged root isn't as it was: %q, %v", content, err)
+			}
+		})
+	}
+}

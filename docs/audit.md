@@ -122,14 +122,14 @@ The import exits 1 when a resource couldn't be imported or a check failed, and 3
 `audit-out/report/report.md` (`infraharvest report audit-out` prints it again) has:
 
 - A table of totals: discovered, imported, excluded, left out, not importable (types Terraform can't import) and failed.
-- **Managed and unmanaged**: for each type, and for each account and region when there are several, how much was discovered, how much Terraform manages (by the state or by tags), how much another tool manages, how much the cloud manages itself (or the default selection leaves out for another reason, such as a VPC another account shares), and how much none of them does. It is there whenever something was discovered, also when nothing is managed.
+- **Managed and unmanaged**: for each type, and for each account and region when there are several, how much was discovered, how much Terraform manages (by the state, by tags, or, with `--incremental`, in a root of the output already), how much another tool manages, how much the cloud manages itself (or the default selection leaves out for another reason, such as a VPC another account shares), and how much none of them does. It is there whenever something was discovered, also when nothing is managed.
 - **By tag**, with `--report-tags`: the same for each value of each tag key, `(not tagged)` included, with what was imported.
 - **Excluded**: every resource the selection left out, with its reason, as in the selection file.
 - **Failures**: services, accounts or projects that couldn't be listed. The audit is incomplete for them.
 
 `Not managed` is what was discovered less what Terraform, other tools and the cloud manage. It still counts what you left out yourself, by the selection file, and types Terraform can't import. What was imported, and what was left out after Terraform rejected it, is what is unmanaged and importable.
 
-`coverage.json` holds the same, for tools, and `--format json` prints the whole report on stdout (see [Report](output.md#report)). `managed`, `other_tool` and `cloud` are left out where they are 0. With [jq](https://jqlang.org/):
+`coverage.json` holds the same, for tools, and `--format json` prints the whole report on stdout (see [Report](output.md#report)). `managed`, `other_tool` and `cloud` are left out where they are 0. Each of `excluded` has an `owner`, what manages it: `terraform_state`, `terraform_tag`, `terraform_root` (a root of the output has it), `cloudformation`, `other_tool`, `cloud`, or `selection` (you left it out). With [jq](https://jqlang.org/):
 
 ```sh
 # totals: discovered, imported, excluded, managed, other_tool, cloud ...
@@ -141,7 +141,7 @@ jq -r '.scopes[]? | [.scope, .discovered - (.managed // 0) - (.other_tool // 0) 
 # what is unmanaged and importable, one resource per line
 jq -r '.directories[] | (.imported[]?, .left_out[]?) | "\(.address) \(.id)"' audit-out/report/coverage.json
 # what other tools manage, with the tool
-jq -r '.excluded[]? | select(.reason | startswith("managed by ")) | "\(.type) \(.id): \(.reason)"' audit-out/report/coverage.json
+jq -r '.excluded[]? | select(.owner == "cloudformation" or .owner == "other_tool") | "\(.type) \(.id): \(.reason)"' audit-out/report/coverage.json
 ```
 
 `not_in_cloud` stays empty in a scratch directory: it lists what roots an earlier import generated have that the cloud no longer has (see [Choosing what to import](usage.md#choosing-what-to-import)).

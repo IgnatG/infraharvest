@@ -154,15 +154,15 @@ type Decision struct {
 }
 
 // Decide returns the decision for the untagged resource of resourceType
-// with id and name, whatever scope it is listed in (see DecideIn).
+// with id and name, whatever scope it is listed in (see decideIn).
 func (f *File) Decide(resourceType, id, name string) Decision {
-	return f.DecideIn("", resourceType, id, name, nil)
+	return f.decideIn("", resourceType, id, name, nil)
 }
 
-// DecideIn returns the decision for the resource of resourceType with id,
+// decideIn returns the decision for the resource of resourceType with id,
 // name and tags in scope: its entry in Resources if it has one (see
-// HasIn), else the last rule that matches it, else Defaults.
-func (f *File) DecideIn(scope, resourceType, id, name string, tags map[string]string) Decision {
+// hasIn), else the last rule that matches it, else Defaults.
+func (f *File) decideIn(scope, resourceType, id, name string, tags map[string]string) Decision {
 	if r, ok := f.lookup(scope, resourceType, id); ok {
 		if r.Include {
 			return Decision{Include: true}
@@ -374,9 +374,9 @@ func (f *File) Has(resourceType, id string) bool {
 	return ok
 }
 
-// HasIn reports whether the file lists the resource of resourceType with
+// hasIn reports whether the file lists the resource of resourceType with
 // id in scope: an entry in that scope, or one listed without a scope.
-func (f *File) HasIn(scope, resourceType, id string) bool {
+func (f *File) hasIn(scope, resourceType, id string) bool {
 	_, ok := f.lookup(scope, resourceType, id)
 	return ok
 }
@@ -471,7 +471,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 		if d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, l.Reason); ok {
 			l.Include, l.Reason = d.Include, d.Reason
 		} else if l.Include {
-			d := f.DecideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
+			d := f.decideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
 			l.Include, l.Reason = d.Include, d.Reason
 		}
 		l.New = true
@@ -587,7 +587,7 @@ func (f *File) Summary() Summary {
 			c = &TypeCount{Type: r.Type}
 			byType[r.Type] = c
 		}
-		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
+		d := f.decideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
 		if d.Include {
 			c.Included++
 			s.Included++

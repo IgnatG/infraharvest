@@ -88,7 +88,7 @@ func goldenPanics(fn func()) (panicked bool) {
 	return false
 }
 
-// goldenString is a named string type, a leaf for ValuesAt as a string is.
+// goldenString is a named string type, a leaf for valuesAt as a string is.
 type goldenString string
 
 // goldenCtxKey keys a context value in TestGoldenListerAccessors.
@@ -161,8 +161,8 @@ func TestGoldenAPISignatures(t *testing.T) {
 	goldenSignature[func(string) (Filter, error)](ParseIDFilter)
 	goldenSignature[func(string) (Filter, error)](ParseTagFilter)
 	goldenSignature[func(string) (Filter, error)](ParseWhereFilter)
-	goldenSignature[func(string, interface{}) []interface{}](ValuesAt)
-	goldenSignature[func(string, interface{}) bool](HasPath)
+	goldenSignature[func(string, interface{}) []interface{}](valuesAt)
+	goldenSignature[func(string, interface{}) bool](hasPath)
 	goldenSignature[func(*Filter, Resource) bool]((*Filter).Keeps)
 	goldenSignature[func(*Filter, string) bool]((*Filter).AppliesTo)
 	goldenSignature[func(*ProviderBase) Lister]((*ProviderBase).Selected)
@@ -588,12 +588,12 @@ func TestGoldenWalk(t *testing.T) {
 	}
 	got := make([]result, 0, len(cases))
 	for _, c := range cases {
-		values := ValuesAt(c.path, c.data)
+		values := valuesAt(c.path, c.data)
 		var types []string
 		for _, v := range values {
 			types = append(types, fmt.Sprintf("%T", v))
 		}
-		got = append(got, result{Case: c.name, Path: c.path, Data: c.data, Values: values, ValueTypes: types, Found: HasPath(c.path, c.data)})
+		got = append(got, result{Case: c.name, Path: c.path, Data: c.data, Values: values, ValueTypes: types, Found: hasPath(c.path, c.data)})
 	}
 	goldenCheck(t, "walk", got)
 }

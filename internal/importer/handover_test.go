@@ -586,3 +586,14 @@ func TestListCallRegenerateWarnsWhenTheRootAResourceLeavesFails(t *testing.T) {
 		t.Errorf("incomplete handovers %+v", got)
 	}
 }
+
+// A move into a module call that the result has no address for is
+// reported with its resource's type, not the module call's.
+func TestRecordMovesIntoAModuleCall(t *testing.T) {
+	t.Parallel()
+	run := NewRun()
+	run.recordMoves("aws/eu-west-2", &engine.Result{Moves: []engine.Move{{From: "aws_s3_bucket.logs", To: `module.logs["a.b"].aws_s3_bucket.this`}}})
+	if len(run.report.Moved) != 1 || run.report.Moved[0].Type != "aws_s3_bucket" {
+		t.Errorf("moved: %+v", run.report.Moved)
+	}
+}

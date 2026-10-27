@@ -68,7 +68,7 @@ func (r DriftRule) matches(root string, c engine.DriftChange) bool {
 		value = c.Attribute
 	case "type":
 		if len(c.Covers) > 0 {
-			return slices.ContainsFunc(c.Covers, func(a string) bool { return patterns.Matches(addressType(a)) })
+			return slices.ContainsFunc(c.Covers, func(a string) bool { return patterns.Matches(engine.AddressType(a)) })
 		}
 		value = c.Type
 	case "address":
@@ -82,54 +82,4 @@ func (r DriftRule) matches(root string, c engine.DriftChange) bool {
 		return false
 	}
 	return patterns.Matches(value)
-}
-
-// addressType returns the type of the resource at address, such as
-// aws_s3_bucket for module.logs.aws_s3_bucket.this[0], or for
-// module.logs["a.b"].aws_s3_bucket.this.
-func addressType(address string) string {
-	parts := addressNames(address)
-	for len(parts) > 2 && parts[0] == "module" {
-		parts = parts[2:]
-	}
-	if len(parts) > 1 && parts[0] == "data" {
-		parts = parts[1:]
-	}
-	return parts[0]
-}
-
-// addressNames returns the names of an address, split at its dots,
-// without its instance keys, whose quoted strings may have dots of their
-// own: module, logs, aws_s3_bucket and this for
-// module.logs["a.b"].aws_s3_bucket.this[0].
-func addressNames(address string) []string {
-	var names []string
-	var name strings.Builder
-	depth, quoted, escaped := 0, false, false
-	for _, r := range address {
-		switch {
-		case quoted:
-			switch {
-			case escaped:
-				escaped = false
-			case r == '\\':
-				escaped = true
-			case r == '"':
-				quoted = false
-			}
-		case r == '"' && depth > 0:
-			quoted = true
-		case r == '[':
-			depth++
-		case r == ']' && depth > 0:
-			depth--
-		case depth > 0:
-		case r == '.':
-			names = append(names, name.String())
-			name.Reset()
-		default:
-			name.WriteRune(r)
-		}
-	}
-	return append(names, name.String())
 }

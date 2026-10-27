@@ -156,3 +156,61 @@ func Retyped(previous, now []Managed) []string {
 	sort.Strings(changed)
 	return changed
 }
+
+// AddressType returns the type of the resource at address, in module calls
+// or not, a data source's too: aws_s3_bucket for aws_s3_bucket.logs,
+// module.logs["a.b"].aws_s3_bucket.this[0] and data.aws_s3_bucket.logs.
+// An address of no resource, such as module.logs, a module call alone,
+// has none: "".
+func AddressType(address string) string {
+	names := addressNames(address)
+	for len(names) > 0 && names[0] == "module" {
+		if len(names) < 2 {
+			return ""
+		}
+		names = names[2:]
+	}
+	if len(names) > 0 && names[0] == "data" {
+		names = names[1:]
+	}
+	if len(names) < 2 {
+		return ""
+	}
+	return names[0]
+}
+
+// addressNames returns the names of an address, split at its dots,
+// without its instance keys, whose quoted strings may have dots and
+// brackets of their own: module, logs, aws_s3_bucket and this for
+// module.logs["a.b"].aws_s3_bucket.this[0].
+func addressNames(address string) []string {
+	var names []string
+	var name strings.Builder
+	depth, quoted, escaped := 0, false, false
+	for _, r := range address {
+		switch {
+		case quoted:
+			switch {
+			case escaped:
+				escaped = false
+			case r == '\\':
+				escaped = true
+			case r == '"':
+				quoted = false
+			}
+		case r == '"' && depth > 0:
+			quoted = true
+		case r == '[':
+			depth++
+		case r == ']' && depth > 0:
+			depth--
+		case depth > 0:
+		case r == '.':
+			names = append(names, name.String())
+			name.Reset()
+		default:
+			name.WriteRune(r)
+		}
+	}
+	return append(names, name.String())
+}

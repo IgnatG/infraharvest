@@ -126,7 +126,7 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 			add(imp.Type, imp.ID, imp.Type+"."+imp.Name)
 		}
 		for _, r := range previous.Rejected {
-			add(addressType(r.Address), r.ID, "")
+			add(AddressType(r.Address), r.ID, "")
 		}
 	}
 	for _, f := range files {

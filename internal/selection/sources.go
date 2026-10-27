@@ -163,8 +163,8 @@ func (s *Sources) Decide(f *File, scope, id string, l Listed) Decision {
 	typ := l.Address.Type
 	reason := s.Reason(l.Resource)
 	switch {
-	case f != nil && f.HasIn(scope, typ, id):
-		return f.DecideIn(scope, typ, id, l.RawName, l.Tags)
+	case f != nil && f.hasIn(scope, typ, id):
+		return f.decideIn(scope, typ, id, l.RawName, l.Tags)
 	case f != nil:
 		if ruled, ok := f.byRuleFor(typ, id, l.RawName, l.Tags, reason); ok {
 			return ruled
@@ -172,7 +172,7 @@ func (s *Sources) Decide(f *File, scope, id string, l Listed) Decision {
 		if reason != "" {
 			return Decision{Reason: reason}
 		}
-		return f.DecideIn(scope, typ, id, l.RawName, l.Tags)
+		return f.decideIn(scope, typ, id, l.RawName, l.Tags)
 	case reason != "":
 		return Decision{Reason: reason}
 	}
@@ -195,6 +195,19 @@ func OwnedReason(o engine.Owner) string {
 		return report.OtherToolPrefix + "CloudFormation stack " + o.Stack + " (per its tag " + o.Tag + includeOwnedHint + ")"
 	default:
 		return report.OtherToolPrefix + o.Tool + " (per its tag " + o.Tag + includeOwnedHint + ")"
+	}
+}
+
+// OwnedBy returns what manages a resource whose tags say o manages it, one
+// of the report.Owner constants, as OwnedReason gives its reason.
+func OwnedBy(o engine.Owner) string {
+	switch {
+	case o.TerraformState():
+		return report.OwnerTerraformTag
+	case o.Stack != "":
+		return report.OwnerCloudFormation
+	default:
+		return report.OwnerOtherTool
 	}
 }
 

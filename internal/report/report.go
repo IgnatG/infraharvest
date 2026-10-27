@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -232,7 +233,8 @@ type CoverageTotal struct {
 	Skipped    int `json:"skipped"`
 	Excluded   int `json:"excluded"`
 	Failed     int `json:"failed"`
-	// Managed counts the excluded resources Terraform already manages.
+	// Managed counts the excluded resources Terraform already manages: by a
+	// state, by its tags, or in a root of the output.
 	Managed int `json:"managed,omitempty"`
 	// OtherTool counts the excluded resources another tool manages, such as
 	// CloudFormation (see OtherToolPrefix).
@@ -243,12 +245,12 @@ type CoverageTotal struct {
 	Cloud int `json:"cloud,omitempty"`
 }
 
-// exclude counts an excluded resource, and what manages it by reason (see
-// OwnerOf).
-func (c *CoverageTotal) exclude(reason string) {
+// exclude counts an excluded resource, and what manages it, owner, one of
+// the Owner constants.
+func (c *CoverageTotal) exclude(owner string) {
 	c.Excluded++
-	switch OwnerOf(reason) {
-	case OwnerTerraformState, OwnerTerraformTag:
+	switch owner {
+	case OwnerTerraformState, OwnerTerraformTag, OwnerTerraformRoot:
 		c.Managed++
 	case OwnerCloudFormation, OwnerOtherTool:
 		c.OtherTool++
@@ -257,9 +259,9 @@ func (c *CoverageTotal) exclude(reason string) {
 	}
 }
 
-// NotManaged counts what was discovered that neither Terraform, another
+// notManaged counts what was discovered that neither Terraform, another
 // tool nor the cloud manages.
-func (c CoverageTotal) NotManaged() int {
+func (c CoverageTotal) notManaged() int {
 	return c.Discovered - c.Managed - c.OtherTool - c.Cloud
 }
 
@@ -333,10 +335,24 @@ type Check struct {
 
 // Excluded is a listed resource the selection left out.
 type Excluded struct {
-	Type   string `json:"type"`
-	ID     string `json:"id"`
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// Reason says why, for people.
 	Reason string `json:"reason"`
 	Scope  string `json:"scope,omitempty"`
+	// Owner is what manages it, one of the Owner constants, as the code
+	// that left it out knows it. Reports older than it have none (see
+	// ManagedBy).
+	Owner string `json:"owner,omitempty"`
+}
+
+// ManagedBy returns what manages e, one of the Owner constants: its Owner,
+// or, in a report older than it, what its reason says (see OwnerOf).
+func (e Excluded) ManagedBy() string {
+	if e.Owner != "" {
+		return e.Owner
+	}
+	return OwnerOf(e.Reason)
 }
 
 // NotInCloud is a resource a root has, by its address in the root, that
@@ -607,18 +623,18 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		}
 	}
 	for _, e := range r.Excluded {
-		count(e.Type).exclude(e.Reason)
-		inScope(e.Scope, func(c *CoverageTotal) { c.exclude(e.Reason) })
+		count(e.Type).exclude(e.ManagedBy())
+		inScope(e.Scope, func(c *CoverageTotal) { c.exclude(e.ManagedBy()) })
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
 		sort.Slice(d.Imported, func(a, b int) bool { return d.Imported[a].Address < d.Imported[b].Address })
 		sort.Slice(d.LeftOut, func(a, b int) bool { return d.LeftOut[a].Address < d.LeftOut[b].Address })
 		for _, res := range d.Imported {
-			count(ResourceType(res.Address)).Imported++
+			count(engine.AddressType(res.Address)).Imported++
 		}
 		for _, res := range d.LeftOut {
-			count(ResourceType(res.Address)).LeftOut++
+			count(engine.AddressType(res.Address)).LeftOut++
 		}
 		inScope(d.Scope, func(c *CoverageTotal) {
 			c.Imported += len(d.Imported)
@@ -653,7 +669,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	r.finishStacks()
 
 	switch {
-	case !r.Incomplete():
+	case !r.incomplete():
 		r.ExitCode = ExitOK
 	case allowPartial:
 		r.ExitCode = ExitPartial
@@ -703,15 +719,15 @@ func (r *Report) countByTag() []TagCount {
 	imported, leftOut := map[string]bool{}, map[string]bool{}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			imported[key(d.Scope, ResourceType(res.Address), res.ID)] = true
+			imported[key(d.Scope, engine.AddressType(res.Address), res.ID)] = true
 		}
 		for _, res := range d.LeftOut {
-			leftOut[key(d.Scope, ResourceType(res.Address), res.ID)] = true
+			leftOut[key(d.Scope, engine.AddressType(res.Address), res.ID)] = true
 		}
 	}
 	excluded := map[string]string{}
 	for _, e := range r.Excluded {
-		excluded[key(e.Scope, e.Type, e.ID)] = e.Reason
+		excluded[key(e.Scope, e.Type, e.ID)] = e.ManagedBy()
 	}
 	var counts []TagCount
 	for _, tagKey := range r.TagKeys {
@@ -725,14 +741,14 @@ func (r *Report) countByTag() []TagCount {
 			}
 			c.Discovered++
 			k := key(l.Scope, l.Type, l.ID)
-			reason, isExcluded := excluded[k]
+			owner, isExcluded := excluded[k]
 			switch {
 			case imported[k]:
 				c.Imported++
 			case leftOut[k]:
 				c.LeftOut++
 			case isExcluded:
-				c.exclude(reason)
+				c.exclude(owner)
 			default:
 				c.Failed++
 			}
@@ -749,9 +765,9 @@ func (r *Report) countByTag() []TagCount {
 	return counts
 }
 
-// Incomplete reports whether something listed wasn't imported, other than
+// incomplete reports whether something listed wasn't imported, other than
 // types infraharvest doesn't import, or a directory failed a check.
-func (r *Report) Incomplete() bool {
+func (r *Report) incomplete() bool {
 	return len(r.Failures) > 0 || r.Totals.LeftOut > 0 || r.Totals.Failed > 0 || len(r.FailedChecks()) > 0
 }
 
@@ -780,50 +796,6 @@ func (r *Report) SkippedChecks() []string {
 		}
 	}
 	return skipped
-}
-
-// ResourceType returns the type of the resource at address, in a module
-// call or not: aws_iam_role for both aws_iam_role.app and
-// module.app["a.b"].aws_iam_role.this.
-func ResourceType(address string) string {
-	for {
-		rest, ok := strings.CutPrefix(address, "module.")
-		if !ok {
-			break
-		}
-		// Past the call's name and its key, if any, which may hold dots.
-		i := strings.IndexAny(rest, ".[")
-		if i < 0 {
-			return address
-		}
-		if rest[i] == '[' {
-			end := keyEnd(rest[i:])
-			if end < 0 || i+end+1 >= len(rest) || rest[i+end+1] != '.' {
-				return address
-			}
-			i += end + 1
-		}
-		address = rest[i+1:]
-	}
-	t, _, _ := strings.Cut(address, ".")
-	return t
-}
-
-// keyEnd returns the index of the bracket that closes the key key starts
-// with, such as ["a.b"] or [0], or -1 if none does.
-func keyEnd(key string) int {
-	quoted := false
-	for i := 1; i < len(key); i++ {
-		switch {
-		case quoted && key[i] == '\\':
-			i++
-		case key[i] == '"':
-			quoted = !quoted
-		case !quoted && key[i] == ']':
-			return i
-		}
-	}
-	return -1
 }
 
 // WriteFiles writes coverage.json, manifest.json and report.md into the
@@ -914,13 +886,13 @@ func (r *Report) Markdown() string {
 		if len(r.Scopes) > 1 {
 			b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {
-				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.NotManaged())
+				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
 			}
 			b.WriteString("\n")
 		}
 		b.WriteString("| Type " + header + "\n|---|---|---|---|---|---|\n")
 		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
 		}
 	}
 	if len(r.Tags) > 0 {
@@ -935,7 +907,7 @@ func (r *Report) Markdown() string {
 			if c.Value != "" {
 				value = "`" + c.Value + "`"
 			}
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
+			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
 		}
 	}
 

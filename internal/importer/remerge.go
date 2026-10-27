@@ -67,7 +67,7 @@ func (c *listedCall) recordAdded(dir, fp string, holds *engine.Result, opts engi
 // matched with the others'; where that fails, or would give what the
 // merged root has other addresses, its roots stay apart, and the stack
 // merges again without it (see mergeWithout).
-func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMember) error {
+func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMember) (err error) {
 	out := r.options.Out
 	var envs []string
 	for _, m := range members {
@@ -169,7 +169,21 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		return nil
 	}
 
+	// What the merged root of a stack merged before had, which comes back
+	// on any error until the stack either keeps it (see restore) or its
+	// merged root is written for good.
 	var backup *treeBackup
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, backup.restore())
+		}
+	}()
+	// restore writes back what the merged root had, once only.
+	restore := func() error {
+		b := backup
+		backup = nil
+		return b.restore()
+	}
 	// The moved and removed blocks of its moves.tf, while it is there:
 	// those of an earlier merge with --regenerate, not yet applied and
 	// deleted.
@@ -178,9 +192,11 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if prev != nil && prev.Merge.Merged {
 		// Merged again: what it had goes, and comes back if this merge
 		// fails.
-		if backup, err = backupTree(stack); err != nil {
+		b, err := backupTree(stack)
+		if err != nil {
 			return err
 		}
+		backup = b
 		if kept, err = engine.ReadMoves(stack); err != nil {
 			return err
 		}
@@ -271,13 +287,13 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		}
 		log.Printf("%s: merging again, with what would get another address kept apart as its environment's", merge.Path)
 		if err := clearMerged(stack, result.Files); err != nil {
-			return errors.Join(err, backup.restore())
+			return err
 		}
 		result, err = r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())
-		return errors.Join(err, backup.restore())
+		return err
 	}
 	imports := map[string]map[string]string{}
 	for _, env := range result.Environments {
@@ -309,7 +325,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	if !merge.Merged && backup != nil && len(joining) > 0 {
 		// The merged root an earlier import wrote stays as it was for
 		// what it has, and the environments new to it keep their roots.
-		if err := backup.restore(); err != nil {
+		if err := restore(); err != nil {
 			return err
 		}
 		return r.mergeWithout(ctx, stack, prev, members, joining, merge.Reason)
@@ -318,7 +334,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		// The merged root an earlier import wrote, which may be in use,
 		// stays; so do the roots set aside, with what is new in them, which
 		// keepMerged sets aside.
-		if err := backup.restore(); err != nil {
+		if err := restore(); err != nil {
 			return err
 		}
 		return r.keepMerged(stack, prev, members, "merging it again failed, so it stays as it was, and what is new waits in the roots set aside under "+filepath.ToSlash(filepath.Join(CheckpointDir, premergeDirName))+": "+merge.Reason)
@@ -331,6 +347,9 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 			}
 		}
 	} else {
+		// The merged root is written for good: what it had doesn't come
+		// back over it.
+		backup = nil
 		log.Printf("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
 		if prev != nil && prev.Merge.Merged {
 			r.recordMergedMoves(merge.Path, prev.Imports, imports, removed)

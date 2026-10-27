@@ -70,7 +70,7 @@ func TestImportScope(t *testing.T) {
 	if got := selectedIDs(selected); !reflect.DeepEqual(got, []string{"app-assets"}) {
 		t.Errorf("selected %v", got)
 	}
-	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "other", Reason: outside, Scope: scope}}; !reflect.DeepEqual(run.report.Excluded, want) {
+	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "other", Reason: outside, Scope: scope, Owner: report.OwnerSelection}}; !reflect.DeepEqual(run.report.Excluded, want) {
 		t.Errorf("excluded %+v", run.report.Excluded)
 	}
 	if report.OwnerOf(outside) != report.OwnerSelection {
