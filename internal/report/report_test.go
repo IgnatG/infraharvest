@@ -191,6 +191,29 @@ func TestManagedCounts(t *testing.T) {
 	}
 }
 
+// What an incremental import leaves out as a root of the output has it
+// counts as Terraform's, by the owner the import gave it, whatever its
+// reason says; an exclusion without one, as in an older report, counts by
+// its reason.
+func TestManagedCountsWhatTheOutputsRootsHave(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.Excluded = []Excluded{
+		{Type: "aws_iam_role", ID: "app", Reason: "already in the root", Owner: OwnerTerraformRoot},
+		{Type: "aws_iam_role", ID: "ci", Reason: "already in another root of the output, aws/eu-west-2", Owner: OwnerTerraformRoot},
+		{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC, which AWS creates in every region"},
+	}
+	r.Finish(map[string]int{"aws_iam_role": 2, "aws_vpc": 1}, nil, false)
+
+	if r.Totals.Managed != 2 || r.Totals.Cloud != 1 || r.Totals.Excluded != 3 {
+		t.Errorf("totals: %+v", r.Totals)
+	}
+	var read struct{ Excluded []Excluded }
+	if err := json.Unmarshal([]byte(`{"excluded": [{"type": "aws_vpc", "id": "vpc-1", "reason": "default VPC"}]}`), &read); err != nil || len(read.Excluded) != 1 || read.Excluded[0].ManagedBy() != OwnerCloud {
+		t.Errorf("an exclusion of an older report: %+v, %v", read.Excluded, err)
+	}
+}
+
 // What another tool manages, and every count by account and region.
 func TestResourceType(t *testing.T) {
 	t.Parallel()

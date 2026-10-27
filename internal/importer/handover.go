@@ -405,7 +405,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 		var kept []engine.Import
 		for _, imp := range imports {
 			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope})
+				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope, Owner: report.OwnerTerraformRoot})
 				continue
 			}
 			kept = append(kept, imp)

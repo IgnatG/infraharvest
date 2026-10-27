@@ -198,6 +198,19 @@ func OwnedReason(o engine.Owner) string {
 	}
 }
 
+// OwnedBy returns what manages a resource whose tags say o manages it, one
+// of the report.Owner constants, as OwnedReason gives its reason.
+func OwnedBy(o engine.Owner) string {
+	switch {
+	case o.TerraformState():
+		return report.OwnerTerraformTag
+	case o.Stack != "":
+		return report.OwnerCloudFormation
+	default:
+		return report.OwnerOtherTool
+	}
+}
+
 // managedReason is why a resource the Terraform state at where has is
 // left out.
 func managedReason(where string) string {

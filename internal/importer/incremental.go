@@ -56,11 +56,11 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	for _, imp := range imports {
 		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InRootReason, Scope: r.scope, Owner: report.OwnerTerraformRoot})
 			continue
 		}
 		if owner, ok := owned[key]; ok {
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: selection.OwnedReason(owner), Scope: r.scope})
+			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: selection.OwnedReason(owner), Scope: r.scope, Owner: selection.OwnedBy(owner)})
 			continue
 		}
 		added = append(added, imp)
@@ -232,7 +232,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.Ext
 		var kept []engine.Import
 		for _, imp := range byDir[dir] {
 			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope})
+				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: r.scope, Owner: report.OwnerTerraformRoot})
 				continue
 			}
 			kept = append(kept, imp)

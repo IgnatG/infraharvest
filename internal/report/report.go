@@ -232,7 +232,8 @@ type CoverageTotal struct {
 	Skipped    int `json:"skipped"`
 	Excluded   int `json:"excluded"`
 	Failed     int `json:"failed"`
-	// Managed counts the excluded resources Terraform already manages.
+	// Managed counts the excluded resources Terraform already manages: by a
+	// state, by its tags, or in a root of the output.
 	Managed int `json:"managed,omitempty"`
 	// OtherTool counts the excluded resources another tool manages, such as
 	// CloudFormation (see OtherToolPrefix).
@@ -243,12 +244,12 @@ type CoverageTotal struct {
 	Cloud int `json:"cloud,omitempty"`
 }
 
-// exclude counts an excluded resource, and what manages it by reason (see
-// OwnerOf).
-func (c *CoverageTotal) exclude(reason string) {
+// exclude counts an excluded resource, and what manages it, owner, one of
+// the Owner constants.
+func (c *CoverageTotal) exclude(owner string) {
 	c.Excluded++
-	switch OwnerOf(reason) {
-	case OwnerTerraformState, OwnerTerraformTag:
+	switch owner {
+	case OwnerTerraformState, OwnerTerraformTag, OwnerTerraformRoot:
 		c.Managed++
 	case OwnerCloudFormation, OwnerOtherTool:
 		c.OtherTool++
@@ -333,10 +334,24 @@ type Check struct {
 
 // Excluded is a listed resource the selection left out.
 type Excluded struct {
-	Type   string `json:"type"`
-	ID     string `json:"id"`
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// Reason says why, for people.
 	Reason string `json:"reason"`
 	Scope  string `json:"scope,omitempty"`
+	// Owner is what manages it, one of the Owner constants, as the code
+	// that left it out knows it. Reports older than it have none (see
+	// ManagedBy).
+	Owner string `json:"owner,omitempty"`
+}
+
+// ManagedBy returns what manages e, one of the Owner constants: its Owner,
+// or, in a report older than it, what its reason says (see OwnerOf).
+func (e Excluded) ManagedBy() string {
+	if e.Owner != "" {
+		return e.Owner
+	}
+	return OwnerOf(e.Reason)
 }
 
 // NotInCloud is a resource a root has, by its address in the root, that
@@ -607,8 +622,8 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		}
 	}
 	for _, e := range r.Excluded {
-		count(e.Type).exclude(e.Reason)
-		inScope(e.Scope, func(c *CoverageTotal) { c.exclude(e.Reason) })
+		count(e.Type).exclude(e.ManagedBy())
+		inScope(e.Scope, func(c *CoverageTotal) { c.exclude(e.ManagedBy()) })
 	}
 	for i := range r.Directories {
 		d := &r.Directories[i]
@@ -711,7 +726,7 @@ func (r *Report) countByTag() []TagCount {
 	}
 	excluded := map[string]string{}
 	for _, e := range r.Excluded {
-		excluded[key(e.Scope, e.Type, e.ID)] = e.Reason
+		excluded[key(e.Scope, e.Type, e.ID)] = e.ManagedBy()
 	}
 	var counts []TagCount
 	for _, tagKey := range r.TagKeys {
@@ -725,14 +740,14 @@ func (r *Report) countByTag() []TagCount {
 			}
 			c.Discovered++
 			k := key(l.Scope, l.Type, l.ID)
-			reason, isExcluded := excluded[k]
+			owner, isExcluded := excluded[k]
 			switch {
 			case imported[k]:
 				c.Imported++
 			case leftOut[k]:
 				c.LeftOut++
 			case isExcluded:
-				c.exclude(reason)
+				c.exclude(owner)
 			default:
 				c.Failed++
 			}

@@ -131,7 +131,7 @@ func TestSelectResourcesWithAll(t *testing.T) {
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
-	if want := []report.Excluded{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}}; !reflect.DeepEqual(run.report.Excluded, want) {
+	if want := []report.Excluded{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC", Owner: report.OwnerCloud}}; !reflect.DeepEqual(run.report.Excluded, want) {
 		t.Errorf("excluded %+v, want %+v", run.report.Excluded, want)
 	}
 	if run.discovered["aws_vpc"] != 1 {
@@ -233,7 +233,7 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	if want := []string{"app-bucket", "kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
-	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "stack-bucket", Reason: stack}}; !reflect.DeepEqual(run.report.Excluded, want) {
+	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "stack-bucket", Reason: stack, Owner: report.OwnerCloudFormation}}; !reflect.DeepEqual(run.report.Excluded, want) {
 		t.Errorf("excluded %+v, want %+v", run.report.Excluded, want)
 	}
 
