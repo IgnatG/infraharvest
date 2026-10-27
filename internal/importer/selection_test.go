@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -501,6 +502,48 @@ func TestWithProfile(t *testing.T) {
 		if got := withProfile(tc.source, tc.profile); got != tc.want {
 			t.Errorf("withProfile(%q, %q) = %q, want %q", tc.source, tc.profile, got, tc.want)
 		}
+	}
+}
+
+// --managed-state=backend reads the configured backend's state under its
+// key prefix, escaped, and Blob Storage in the cloud ARM_ENVIRONMENT
+// names.
+func TestBackendStateSource(t *testing.T) {
+	azurerm := &config.Backend{AzureRM: &config.AzureRM{StorageAccountName: "acmestate", ContainerName: "tfstate", KeyPrefix: "imported/"}}
+	for _, tc := range []struct {
+		name        string
+		backend     *config.Backend
+		environment string
+		want        string
+		prefix      string
+	}{
+		{"s3", &config.Backend{S3: &config.S3{Bucket: "acme-state", Region: "eu-west-2", KeyPrefix: "imported"}}, "", "s3://acme-state/imported?region=eu-west-2", "/imported"},
+		{"s3 escaped", &config.Backend{S3: &config.S3{Bucket: "acme-state", Region: "eu-west-2", KeyPrefix: "team a/50%?#x"}}, "", "s3://acme-state/team%20a/50%25%3F%23x?region=eu-west-2", "/team a/50%?#x"},
+		{"gcs escaped", &config.Backend{GCS: &config.GCS{Bucket: "acme-gcs", Prefix: "roots #1"}}, "", "gs://acme-gcs/roots%20%231", "/roots #1"},
+		{"azurerm public", azurerm, "", "https://acmestate.blob.core.windows.net/tfstate/imported/", "/tfstate/imported/"},
+		{"azurerm US Government", azurerm, "usgovernment", "https://acmestate.blob.core.usgovcloudapi.net/tfstate/imported/", "/tfstate/imported/"},
+		{"azurerm China", azurerm, "AzureChinaCloud", "https://acmestate.blob.core.chinacloudapi.cn/tfstate/imported/", "/tfstate/imported/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := backendStateSource(tc.backend, func(name string) string {
+				if name == "ARM_ENVIRONMENT" {
+					return tc.environment
+				}
+				return ""
+			})
+			if err != nil || got != tc.want {
+				t.Fatalf("got %q, %v, want %q", got, err, tc.want)
+			}
+			if u, err := url.Parse(got); err != nil || u.Path != tc.prefix {
+				t.Errorf("%q reads back as %q, %v, want %q", got, u.Path, err, tc.prefix)
+			}
+		})
+	}
+	if _, err := backendStateSource(azurerm, func(string) string { return "stack" }); err == nil || !strings.Contains(err.Error(), `ARM_ENVIRONMENT "stack"`) {
+		t.Errorf("Azure Stack Hub: %v", err)
+	}
+	if _, err := backendStateSource(&config.Backend{}, func(string) string { return "" }); err == nil {
+		t.Error("want an error without a backend")
 	}
 }
 

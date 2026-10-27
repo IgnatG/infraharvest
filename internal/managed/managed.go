@@ -217,10 +217,36 @@ func parseWorkspaces(source string) (organization, pattern, host string, err err
 	return organization, pattern, host, nil
 }
 
-// azureBlobSuffixes are the hosts of Blob Storage in Azure's clouds:
-// public, US Government and China. The credentials the azurerm backend
-// uses go to the host a source names, so no other host is read from.
-var azureBlobSuffixes = []string{"blob.core.windows.net", "blob.core.usgovcloudapi.net", "blob.core.chinacloudapi.cn"}
+// The hosts of Blob Storage in Azure's clouds: public, US Government and
+// China.
+const (
+	publicBlobSuffix     = "blob.core.windows.net"
+	governmentBlobSuffix = "blob.core.usgovcloudapi.net"
+	chinaBlobSuffix      = "blob.core.chinacloudapi.cn"
+)
+
+// azureBlobSuffixes are the hosts of Blob Storage in Azure's clouds. The
+// credentials the azurerm backend uses go to the host a source names, so
+// no other host is read from.
+var azureBlobSuffixes = []string{publicBlobSuffix, governmentBlobSuffix, chinaBlobSuffix}
+
+// AzureBlobSuffix returns the host of Blob Storage in the Azure cloud
+// environment names, as ARM_ENVIRONMENT does to the azurerm backend when
+// its configuration names none, as the configuration file's doesn't. It
+// takes the names the Azure provider command takes, such as usgovernment
+// or AzureChinaCloud, by dropping a leading "azure" and a trailing
+// "cloud" first; "" is the public cloud.
+func AzureBlobSuffix(environment string) (string, error) {
+	switch strings.TrimSuffix(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(environment)), "azure"), "cloud") {
+	case "", "public", "global":
+		return publicBlobSuffix, nil
+	case "usgovernment", "usgovernmentl4", "usgovernmentl5", "dod":
+		return governmentBlobSuffix, nil
+	case "china":
+		return chinaBlobSuffix, nil
+	}
+	return "", fmt.Errorf("ARM_ENVIRONMENT %q: state is read from Blob Storage in Azure's public, US Government and China clouds only", environment)
+}
 
 // isAzureBlob tells whether source is a Blob Storage URL, whose host is
 // <account>.<one of azureBlobSuffixes>.
