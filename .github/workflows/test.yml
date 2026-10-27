@@ -279,8 +279,9 @@ jobs:
       run: .github/scripts/govulncheck-gate.sh ./infraharvest
 
   # Fuzzes the parsers of what people and clouds hand infraharvest (state,
-  # selection files, filters) and the secret detectors, briefly: go test
-  # ./... runs only their seed inputs. go test fuzzes one target at a time.
+  # selection files, filters, CloudFormation templates) and the secret
+  # detectors, briefly: go test ./... runs only their seed inputs. go test
+  # fuzzes one target at a time.
   # A failing input is uploaded; commit it under the package's
   # testdata/fuzz to keep it as a seed.
   fuzz:
@@ -302,7 +303,9 @@ jobs:
       run: |
         while read -r target pkg; do
           echo "::group::$target ($pkg)"
-          go test -run='^$' -fuzz="^$target\$" -fuzztime=30s "$pkg"
+          # A new input is minimised for 60s by default, which would leave a
+          # 30s run fuzzing almost nothing.
+          go test -run='^$' -fuzz="^$target\$" -fuzztime=30s -fuzzminimizetime=1s "$pkg"
           echo "::endgroup::"
         done <<'EOF'
         FuzzSecretsInJSONString ./internal/engine/
@@ -313,13 +316,16 @@ jobs:
         FuzzParse ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
+        FuzzParseConvert ./pkg/cfn/
         EOF
     - name: Upload the failing inputs
       if: failure()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: fuzz-failures
-        path: internal/**/testdata/fuzz/
+        path: |
+          internal/**/testdata/fuzz/
+          pkg/**/testdata/fuzz/
         if-no-files-found: ignore
 
   # Runs the Terraform engine end to end against real Terraform and the
