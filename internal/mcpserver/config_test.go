@@ -97,8 +97,8 @@ func TestConfig(t *testing.T) {
 	}{
 		"discover":     {sampleConfig, 1, ""},
 		"import":       {sampleConfig, 3, `settings {"engine": "tofu"}; providers {"aws": {"regions": ["eu-west-2"]}}; backend {s3: {bucket: "states", region: "eu-west-2"}}; environments {"prod": {aws: {accounts: ["111111111111"]}}}.`},
-		"drift":        {sampleDriftConfig, 1, ""},
-		"drift_accept": {sampleDriftConfig, 2, `settings {"engine": "tofu", "engine-timeout": "30m"}.`},
+		"drift":        {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`},
+		"drift_accept": {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`},
 	} {
 		t.Run(tool, func(t *testing.T) {
 			dir, tools := configFixture(t, want.content)
@@ -337,9 +337,9 @@ func TestConfigScopeChecked(t *testing.T) {
 // was asked: one the agent edits before the run isn't used, and nothing
 // runs with it.
 func TestConfigEditedAfterConfirmation(t *testing.T) {
-	for _, tool := range []string{"import", "drift_accept"} {
+	for _, tool := range []string{"import", "drift", "drift_accept"} {
 		t.Run(tool, func(t *testing.T) {
-			content := map[string]string{"import": sampleConfig, "drift_accept": sampleDriftConfig}[tool]
+			content := map[string]string{"import": sampleConfig, "drift": sampleDriftConfig, "drift_accept": sampleDriftConfig}[tool]
 			dir, tools := configFixture(t, content)
 			edited := strings.Replace(content, "tofu", "terraform", 1)
 			runner := &fakeRunner{}
@@ -350,12 +350,8 @@ func TestConfigEditedAfterConfirmation(t *testing.T) {
 			if res, text := call(t, session, tool, tools[tool]); !res.IsError || !strings.Contains(text, "didn't confirm") {
 				t.Errorf("got %s, want it refused", text)
 			}
-			// Only the check before asking ran, with the file the user confirmed.
-			if want := map[string]int{"import": 0, "drift_accept": 1}[tool]; len(runner.runs) != want {
-				t.Errorf("runs %v, want %d", runner.runs, want)
-			}
-			if tool == "drift_accept" && (len(runner.configs) != 1 || runner.configs[0] != content) {
-				t.Errorf("the runs read %q, want the confirmed content", runner.configs)
+			if len(runner.runs) != 0 {
+				t.Errorf("runs %v, want none", runner.runs)
 			}
 		})
 	}

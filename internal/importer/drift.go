@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -80,6 +81,15 @@ type DriftOptions struct {
 	// edited code leave those in directories to their owners, as the
 	// import's verification gate does (see engine.DriftOptions.Adapters).
 	Modules []config.Module
+	// UntrustedRoots says the roots may come from someone else, as the
+	// MCP server's runs take them: Terraform ignores the .terraform
+	// directories they have and any filesystem mirror, and installs
+	// providers from their registries alone (see untrustedTerraform).
+	UntrustedRoots bool
+	// RootsDigest, if set, is the driftpolicy.RootsDigest of Out the
+	// roots must still have once the output directory is locked, before
+	// Terraform runs: the MCP server's, for the roots the user confirmed.
+	RootsDigest string
 
 	// check checks one root, in place of the engine, for tests.
 	check driftCheck
@@ -159,6 +169,15 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	}
 	if lock != nil {
 		defer func() { _ = lock.Unlock() }()
+	}
+	if options.RootsDigest != "" {
+		digest, err := driftpolicy.RootsDigest(options.Out)
+		if err != nil {
+			return err
+		}
+		if digest != options.RootsDigest {
+			return fmt.Errorf("the roots in %s changed since they were checked: a file Terraform reads under it isn't as it was", options.Out)
+		}
 	}
 	check := options.check
 	if check == nil {
@@ -311,20 +330,52 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 		return nil, err
 	}
 	plugins := filepath.Join(cacheDir, "plugins")
-	newTF := func(dir string) (engine.DriftTerraform, error) {
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-		if err != nil {
-			return nil, err
-		}
-		return tf, nil
-	}
 	return func(ctx context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
-		tf, err := newTF(dir)
+		var env map[string]string
+		var rootEnv map[string]string
+		if options.UntrustedRoots {
+			private, err := os.MkdirTemp("", "infraharvest-drift-")
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = os.RemoveAll(private) }()
+			if env, err = untrustedTerraform(private); err != nil {
+				return nil, err
+			}
+			opts.DataDir = filepath.Join(private, "data")
+			rootEnv = maps.Clone(env)
+			rootEnv["TF_DATA_DIR"] = opts.DataDir
+		}
+		newTF := func(dir string) (engine.DriftTerraform, error) {
+			tf, err := engine.NewTerraform(dir, execPath, plugins, env)
+			if err != nil {
+				return nil, err
+			}
+			return tf, nil
+		}
+		tf, err := engine.NewTerraform(dir, execPath, plugins, rootEnv)
 		if err != nil {
 			return nil, err
 		}
 		return engine.Drift(ctx, tf, dir, staging, newTF, opts)
 	}, nil
+}
+
+// untrustedTerraform returns the environment Terraform runs with on roots
+// that may come from someone else, writing its CLI configuration into
+// private, a directory of the run's own: providers are installed from
+// their registries alone, which verify what they download against the
+// lock file and their signatures, never from a filesystem mirror, such as
+// a terraform.d directory the roots could carry. The root's own init
+// keeps its working files in private too (see engine.DriftOptions.DataDir),
+// rather than in the root's .terraform, whose providers and modules it
+// would use as they are. The plugin cache is the user's, as ever.
+func untrustedTerraform(private string) (map[string]string, error) {
+	config := filepath.Join(private, "terraform.rc")
+	if err := os.WriteFile(config, []byte("provider_installation {\n  direct {}\n}\n"), 0o600); err != nil {
+		return nil, err
+	}
+	return map[string]string{"TF_CLI_CONFIG_FILE": config}, nil
 }
 
 // driftTarget is a root drift checks, and, for a root environments
