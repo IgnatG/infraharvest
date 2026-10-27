@@ -606,24 +606,24 @@ types:
 		got, want []string
 	}{
 		{"omit without a version", c.Omit()["azurerm_storage_account"], []string{"a"}},
-		{"omit for 4.81.0", c.OmitFor(v4)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=true"}},
-		{"omit for 5.10.0", c.OmitFor(v5)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=false"}},
+		{"omit for 4.81.0", c.omitFor(v4)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=true"}},
+		{"omit for 5.10.0", c.omitFor(v5)["azurerm_storage_account"], []string{"a", "allow_nested_items_to_be_public=false"}},
 		{"defaults without a version", c.Defaults()["azurerm_storage_account"], nil},
-		{"defaults for 4.81.0", c.DefaultsFor(v4)["azurerm_storage_account"], []string{"min_tls_version=TLS1_0"}},
-		{"defaults for 5.10.0", c.DefaultsFor(v5)["azurerm_storage_account"], []string{"min_tls_version=TLS1_2"}},
+		{"defaults for 4.81.0", c.defaultsFor(v4)["azurerm_storage_account"], []string{"min_tls_version=TLS1_0"}},
+		{"defaults for 5.10.0", c.defaultsFor(v5)["azurerm_storage_account"], []string{"min_tls_version=TLS1_2"}},
 		{"state_only without a version", c.StateOnly()["azurerm_storage_account"], []string{"s"}},
-		{"state_only for 4.81.0", c.StateOnlyFor(v4)["azurerm_storage_account"], []string{"s"}},
-		{"state_only for 5.10.0", c.StateOnlyFor(v5)["azurerm_storage_account"], []string{"s", "t"}},
+		{"state_only for 4.81.0", c.stateOnlyFor(v4)["azurerm_storage_account"], []string{"s"}},
+		{"state_only for 5.10.0", c.stateOnlyFor(v5)["azurerm_storage_account"], []string{"s", "t"}},
 		{"only versioned, without a version", c.Omit()["azurerm_log_analytics_workspace"], nil},
-		{"only versioned, for 4.81.0", c.OmitFor(v4)["azurerm_log_analytics_workspace"], nil},
-		{"only versioned, for 5.10.0", c.OmitFor(v5)["azurerm_log_analytics_workspace"], []string{"internet_ingestion_enabled"}},
+		{"only versioned, for 4.81.0", c.omitFor(v4)["azurerm_log_analytics_workspace"], nil},
+		{"only versioned, for 5.10.0", c.omitFor(v5)["azurerm_log_analytics_workspace"], []string{"internet_ingestion_enabled"}},
 	} {
 		if !reflect.DeepEqual(tt.got, tt.want) {
 			t.Errorf("%s: got %v, want %v", tt.name, tt.got, tt.want)
 		}
 	}
 	// Drift judges a root by the same release's.
-	if d := c.DriftOptions(v5); !reflect.DeepEqual(d.Omit, c.OmitFor(v5)) || !reflect.DeepEqual(d.Defaults, c.DefaultsFor(v5)) || !reflect.DeepEqual(d.StateOnly, c.StateOnlyFor(v5)) {
+	if d := c.DriftOptions(v5); !reflect.DeepEqual(d.Omit, c.omitFor(v5)) || !reflect.DeepEqual(d.Defaults, c.defaultsFor(v5)) || !reflect.DeepEqual(d.StateOnly, c.stateOnlyFor(v5)) {
 		t.Errorf("drift options for 5.10.0: omit %v, defaults %v, state_only %v", d.Omit, d.Defaults, d.StateOnly)
 	}
 
@@ -633,7 +633,7 @@ types:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := overlaid.OmitFor(v5)["azurerm_storage_account"]; slices.Contains(got, "allow_nested_items_to_be_public=false") {
+	if got := overlaid.omitFor(v5)["azurerm_storage_account"]; slices.Contains(got, "allow_nested_items_to_be_public=false") {
 		t.Errorf("an overlay's provider_versions replace the built-in ones; got %v", got)
 	}
 }

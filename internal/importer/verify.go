@@ -75,15 +75,15 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	var results []verifiedRoot
 	var failed []string
 	for _, dir := range roots {
-		opts := engine.Options{Scanners: scanners, CommandTimeout: options.EngineTimeout}
+		var opts engine.Options
 		if provider := rootProvider(out, dir, options); provider != nil {
 			cat, err := providerCatalogue(provider, catalogueDir)
 			if err != nil {
 				return err
 			}
-			v := lockedProviderVersion(dir, binary.Registry, provider)
-			opts.Omit, opts.StateOnly = cat.OmitFor(v), cat.StateOnlyFor(v)
+			opts = cat.VerifyOptions(lockedProviderVersion(dir, binary.Registry, provider))
 		}
+		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
 		newTF := func(d string) (engine.Terraform, error) {
 			return engine.NewTerraform(d, execPath, filepath.Join(cacheDir, "plugins"), nil)

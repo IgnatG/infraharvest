@@ -116,7 +116,7 @@ func TestEngineOptionsOfTheStages(t *testing.T) {
 
 	opts := engineOptions(&rootsProvider{}, c, &callListing{leftOut: external}, tools)
 
-	if !reflect.DeepEqual(opts.Omit, cat.OmitFor(v)) || !reflect.DeepEqual(opts.StateOnly, cat.StateOnlyFor(v)) || opts.ARNs == nil {
+	if catOpts := cat.EngineOptions(v); !reflect.DeepEqual(opts.Omit, catOpts.Omit) || !reflect.DeepEqual(opts.StateOnly, catOpts.StateOnly) || opts.ARNs == nil {
 		t.Error("the catalogue's options are missing")
 	}
 	if !reflect.DeepEqual(opts.Config, files) || !reflect.DeepEqual(opts.Adapters, own) || opts.ModulesDir != "modules" {

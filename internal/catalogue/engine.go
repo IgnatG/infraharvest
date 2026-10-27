@@ -20,7 +20,7 @@ import (
 // lifecycle settings of each type. The rest of the options are the
 // caller's.
 func (c *Catalogue) EngineOptions(v *version.Version) engine.Options {
-	opts := engine.Options{Omit: c.OmitFor(v), Defaults: c.DefaultsFor(v), StateOnly: c.StateOnlyFor(v), KeepEmpty: c.KeepEmpty()}
+	opts := engine.Options{Omit: c.omitFor(v), Defaults: c.defaultsFor(v), StateOnly: c.stateOnlyFor(v), KeepEmpty: c.KeepEmpty()}
 	// Without the metadata, the engine finds defaults by planning, as it
 	// always could: a broken file costs plans, not the import.
 	if meta, err := schemameta.Builtin(c.Provider); err != nil {
@@ -57,11 +57,21 @@ func (c *Catalogue) EngineOptions(v *version.Version) engine.Options {
 	return opts
 }
 
+// VerifyOptions returns the engine's options of what c knows about its
+// provider's resource types that the verification gate needs, for roots
+// that pin the provider release line of v: the arguments to leave out,
+// which the standards check doesn't hold against the root, and those kept
+// only in state, whose updates the zero-change check allows. The rest of
+// the options are the caller's.
+func (c *Catalogue) VerifyOptions(v *version.Version) engine.Options {
+	return engine.Options{Omit: c.omitFor(v), StateOnly: c.stateOnlyFor(v)}
+}
+
 // DriftOptions returns the engine's drift options of what c knows about
 // its provider's resource types, for roots that pin the provider release
 // line of v: the arguments kept only in state, whose changes aren't
 // drift, their defaults, and the arguments to leave out. The rest of the
 // options are the caller's.
 func (c *Catalogue) DriftOptions(v *version.Version) engine.DriftOptions {
-	return engine.DriftOptions{StateOnly: c.StateOnlyFor(v), Defaults: c.DefaultsFor(v), Omit: c.OmitFor(v)}
+	return engine.DriftOptions{StateOnly: c.stateOnlyFor(v), Defaults: c.defaultsFor(v), Omit: c.omitFor(v)}
 }
