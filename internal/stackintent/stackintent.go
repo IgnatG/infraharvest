@@ -47,6 +47,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -562,7 +563,7 @@ func (s *stackRun) file(outputs []output) {
 		}
 		if o.o.Export != nil {
 			export := cfnText(o.o.Export)
-			fmt.Fprintf(&b, "# CloudFormation exported this output as %s: Terraform has no exports, so another configuration reads it from this root's state.\n", export)
+			comment(&b, "", fmt.Sprintf("CloudFormation exported this output as %s: Terraform has no exports, so another configuration reads it from this root's state.", export))
 		}
 		fmt.Fprintf(&b, "output %s {\n  description = %s\n  value       = %s", quoted(o.name), quoted(desc), o.expr)
 		if !strings.HasSuffix(o.expr, "\n") {
@@ -577,17 +578,22 @@ func (s *stackRun) file(outputs []output) {
 		return
 	}
 	var head strings.Builder
-	fmt.Fprintf(&head, "# From the template of the CloudFormation stack %s: the parameters it\n# sets arguments from, as variables whose defaults are the stack's values,\n# and its outputs. The resources keep their live configuration.\n", s.st.Name)
+	comment(&head, "", fmt.Sprintf("From the template of the CloudFormation stack %s: the parameters it", s.st.Name))
+	comment(&head, "", "sets arguments from, as variables whose defaults are the stack's values,")
+	comment(&head, "", "and its outputs. The resources keep their live configuration.")
 	if len(s.t.Conditions) > 0 {
-		head.WriteString("#\n# Its conditions, which decided what the stack has; the root has what was\n# deployed, so they decide nothing here:\n")
+		comment(&head, "", "")
+		comment(&head, "", "Its conditions, which decided what the stack has; the root has what was")
+		comment(&head, "", "deployed, so they decide nothing here:")
 		for _, c := range s.t.Conditions {
-			fmt.Fprintf(&head, "#   %s: %s\n", c.Name, cfnText(c.Expr))
+			comment(&head, "  ", c.Name+": "+cfnText(c.Expr))
 		}
 	}
 	if len(s.reported) > 0 {
-		head.WriteString("#\n# Not carried over:\n")
+		comment(&head, "", "")
+		comment(&head, "", "Not carried over:")
 		for _, r := range s.reported {
-			fmt.Fprintf(&head, "#   - %s\n", r)
+			comment(&head, "  - ", r)
 		}
 	}
 	head.WriteString("\n")
@@ -606,6 +612,34 @@ func dataKey(block string) string {
 		}
 	}
 	return block
+}
+
+// comment writes text as comment lines, the first after lead and the
+// rest indented as far. Text from the template or the stack may hold
+// line breaks: each part is a line of its own, so none ends the comment
+// and turns the rest into configuration, and other control characters are
+// spaces.
+func comment(b *strings.Builder, lead, text string) {
+	text = strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text)
+	indent := strings.Repeat(" ", len(lead))
+	for i, line := range strings.Split(text, "\n") {
+		line = strings.Map(func(r rune) rune {
+			if r != '\t' && unicode.IsControl(r) {
+				return ' '
+			}
+			return r
+		}, line)
+		if i == 0 {
+			line = lead + line
+		} else {
+			line = indent + line
+		}
+		if line = strings.TrimRight("# "+line, " \t"); line == "#" {
+			b.WriteString("#\n")
+			continue
+		}
+		b.WriteString(line + "\n")
+	}
 }
 
 // cfnText returns a template value as one line, for a comment.
