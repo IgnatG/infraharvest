@@ -7,7 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -73,5 +76,45 @@ func TestSchemaStore(t *testing.T) {
 	}
 	if len(s.schemas) > maxCachedSchemas {
 		t.Errorf("keeps %d sets of schemas, want at most %d", len(s.schemas), maxCachedSchemas)
+	}
+}
+
+// Roots that miss the same key together, as with --parallel, share one
+// read of the schemas, and one failure, which isn't kept.
+func TestSchemaStoreReadsOnceForConcurrentCallers(t *testing.T) {
+	t.Parallel()
+	const callers = 8
+	want := &tfjson.ProviderSchemas{FormatVersion: "1.0"}
+	for _, fail := range []bool{false, true} {
+		s := &schemaStore{}
+		var reads atomic.Int32
+		release := make(chan struct{})
+		read := func() (*tfjson.ProviderSchemas, error) {
+			reads.Add(1)
+			<-release
+			if fail {
+				return nil, errors.New("provider crashed")
+			}
+			return want, nil
+		}
+		var wg sync.WaitGroup
+		for range callers {
+			wg.Go(func() {
+				got, err := s.get("k", read)
+				if fail != (err != nil) || (!fail && got != want) {
+					t.Errorf("fail %v: got %v, %v", fail, got, err)
+				}
+			})
+		}
+		// Every caller gets to the store while the read is in flight.
+		time.Sleep(100 * time.Millisecond)
+		close(release)
+		wg.Wait()
+		if n := reads.Load(); n != 1 {
+			t.Errorf("fail %v: read %d times, want once", fail, n)
+		}
+		if _, ok := s.cached("k"); ok == fail {
+			t.Errorf("fail %v: kept %v", fail, ok)
+		}
 	}
 }
