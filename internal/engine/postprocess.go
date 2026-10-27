@@ -498,8 +498,9 @@ const maxEditRounds = 3
 // changeSignature), or an error is about it, it makes edit again on the
 // files as they were, with that resource's level in skip raised, until
 // the plan, with vars, matches baseline, every resource planning the
-// change it had (see sameChanges). edit returns the resources it
-// changed. It undoes the edit if the plan differs in a way no resource it
+// change it had (see sameChanges), in at most maxEditRounds plans (see
+// verifier). edit returns the resources it changed. It undoes the edit
+// if the plan still differs then, or differs in a way no resource it
 // changed explains, and reports whether it kept any of it.
 func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
 	backup, err := backupFiles(dir, files...)
@@ -507,43 +508,44 @@ func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSu
 		return false, err
 	}
 	skip := map[string]int{}
-	for round := 0; round < maxEditRounds; round++ {
-		if round > 0 {
-			if err := backup.restore(); err != nil {
-				return false, err
+	retry := false
+	kept, err := verifier[string, bool]{
+		edit: func(context.Context) ([]string, error) {
+			if retry {
+				if err := backup.restore(); err != nil {
+					return nil, err
+				}
 			}
-		}
-		edited, err := edit(skip)
-		if err != nil {
-			// The edit may have changed some of the files before failing.
-			return false, errors.Join(err, backup.restore())
-		}
-		if len(edited) == 0 {
-			return false, backup.restore()
-		}
-		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
-		if err != nil {
-			return false, errors.Join(err, backup.restore())
-		}
-		if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
-			return true, nil
-		}
-		blamed, err := blame(dir, p, diags, changes)
-		if err != nil {
-			return false, errors.Join(err, backup.restore())
-		}
-		progress := false
-		for address := range blamed {
-			if edited[address] {
+			retry = true
+			resources, err := edit(skip)
+			return sortedKeys(resources), err
+		},
+		verify: func(ctx context.Context) (*verdict[string, bool], error) {
+			p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+			if err != nil {
+				return nil, err
+			}
+			if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+				return nil, nil
+			}
+			blamed, err := blame(dir, p, diags, changes)
+			return &verdict[string, bool]{blamed: blamed}, err
+		},
+		drop: func(blamed map[string]bool) {
+			for address := range blamed {
 				skip[address]++
-				progress = true
 			}
-		}
-		if !progress {
-			break
-		}
+		},
+		rounds: maxEditRounds,
+	}.run(ctx)
+	if err != nil {
+		// The edit may have changed some of the files before failing.
+		return false, errors.Join(err, backup.restore())
 	}
-	return false, backup.restore()
+	if !kept {
+		return false, backup.restore()
+	}
+	return true, nil
 }
 
 // dataReaders returns the resources of generated that refer to the data

@@ -11,7 +11,7 @@ import (
 )
 
 // callTools are what an Import call reaches outside the process through,
-// which tests replace (see Options.tools): the engine binary, the
+// which tests replace (see Run.tools): the engine binary, the
 // registry the root files pin the provider from, and the engine that
 // writes each root, whether it generates, adds to or vacates it, or
 // writes the README of a root added to, or merges the roots of a stack's

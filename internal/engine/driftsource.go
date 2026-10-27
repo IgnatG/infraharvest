@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -78,7 +76,7 @@ type codeSource struct {
 	// Reason says why there is no Edit.
 	Reason string
 	// instance says Edit is of the instance's own value, its key's in the
-	// map the block's for_each is over (see eachValue).
+	// map the block's for_each is over (see eachResolver).
 	instance bool
 	// Secret says the value is a secret, which is never written.
 	Secret bool
@@ -221,104 +219,6 @@ func rootStateValues(state *tfjson.State) map[string]map[string]any {
 		}
 	}
 	return values
-}
-
-// driftConfig is a root's configuration files, parsed, as resolve reads
-// them.
-type driftConfig struct {
-	files     map[string]*hclFile // by name, relative to the root
-	blocks    map[string]driftBlock
-	locals    map[string]driftLocal
-	uses      map[string]int // how often each local is referred to
-	varUses   map[string]int // and each variable, outside variables and outputs
-	variables map[string]*hclsyntax.Block
-	calls     map[string]driftBlock // module calls, by name
-}
-
-type driftBlock struct {
-	file string
-	f    *hclFile
-	b    *hclsyntax.Block
-}
-
-type driftLocal struct {
-	file string
-	f    *hclFile
-	attr *hclsyntax.Attribute
-}
-
-// tfContents returns the contents of the .tf files of dir, by name,
-// without override files.
-func tfContents(dir string) (map[string][]byte, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
-	if err != nil {
-		return nil, err
-	}
-	contents := map[string][]byte{}
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
-			continue
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		contents[name] = content
-	}
-	return contents, nil
-}
-
-// parseDriftConfig parses the root's files of contents, without the files
-// of the modules it calls it may hold (see isModuleFile).
-func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
-	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
-	for _, name := range sortedKeys(contents) {
-		if isModuleFile(name) {
-			continue
-		}
-		f, err := parseHCL(name, contents[name])
-		if err != nil {
-			return nil, err
-		}
-		cfg.files[name] = f
-		for _, b := range f.syntax.Blocks {
-			switch {
-			case b.Type == "resource" && len(b.Labels) == 2:
-				cfg.blocks[b.Labels[0]+"."+b.Labels[1]] = driftBlock{file: name, f: f, b: b}
-			case b.Type == "locals":
-				for n, attr := range b.Body.Attributes {
-					cfg.locals[n] = driftLocal{file: name, f: f, attr: attr}
-				}
-			case b.Type == "variable" && len(b.Labels) == 1:
-				cfg.variables[b.Labels[0]] = b
-			case b.Type == "module" && len(b.Labels) == 1:
-				cfg.calls[b.Labels[0]] = driftBlock{file: name, f: f, b: b}
-			}
-		}
-		for _, t := range allTraversals(f.syntax) {
-			if t.RootName() != "local" || len(t) < 2 {
-				continue
-			}
-			if step, ok := t[1].(hcl.TraverseAttr); ok {
-				cfg.uses[step.Name]++
-			}
-		}
-		for _, b := range f.syntax.Blocks {
-			if b.Type == "variable" || b.Type == "output" {
-				continue
-			}
-			for _, t := range allTraversals(b.Body) {
-				if t.RootName() != "var" || len(t) < 2 {
-					continue
-				}
-				if step, ok := t[1].(hcl.TraverseAttr); ok {
-					cfg.varUses[step.Name]++
-				}
-			}
-		}
-	}
-	return cfg, nil
 }
 
 // pathStep is a step of an attribute's path: a name, of an argument, a
@@ -544,7 +444,7 @@ type driftWalk struct {
 	// aren't the resource's path (see callWalk).
 	mod *callWalk
 	// each is set for the walk of a resource's block with for_each: the
-	// instance the change is of (see eachValue).
+	// instance the change is of (see eachResolver).
 	each *eachInstance
 }
 
@@ -676,7 +576,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 			if literalExpr(x) {
 				return w.replace(x, h, path, i)
 			}
-			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
+			return w.computed(x.Range())
 		}
 		s := w.steps[i]
 		if !s.isIndex {
@@ -693,7 +593,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 		if literalExpr(x) {
 			return w.replace(x, h, path, i)
 		}
-		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.computed(x.Range())
 	case *hclsyntax.TupleConsExpr:
 		// A list is written whole: the order of a set's elements is the
 		// provider's, so its elements can't be told apart by index.
@@ -703,7 +603,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 		if i < len(w.steps) && w.steps[i].isIndex && w.steps[i].index < len(x.Exprs) {
 			return w.expr(x.Exprs[w.steps[i].index], holder{}, path, i+1)
 		}
-		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
+		return w.computed(x.Range())
 	case *hclsyntax.FunctionCallExpr:
 		if x.Name == "merge" && i+1 == len(w.steps) && !w.steps[i].isIndex && len(x.Args) > 0 && !x.ExpandFinal {
 			// The resource's own keys, which merge puts over the others.
@@ -721,7 +621,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 	case *hclsyntax.LiteralValueExpr:
 		return w.replace(x, h, path, i)
 	}
-	return w.manual(sourceExpression, e.Range(), "an expression computes it: edit it by hand")
+	return w.computed(e.Range())
 }
 
 // literalExpr reports whether expr is written out, with no references and
@@ -781,7 +681,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 	}
 	text, err := w.valueText(value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(sourceLiteral, rng, "the cloud's value can't be written: edit it by hand")
+		return w.unwritable(sourceLiteral, rng)
 	}
 	if h.attr != nil && i == w.attrAt && w.isDefault(path, text) {
 		if edit := w.removeLines(h.attr.SrcRange); edit != nil {
@@ -813,176 +713,6 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 	}
 	expr, diags := hclsyntax.ParseExpression(text, "", hcl.InitialPos)
 	return !diags.HasErrors() && matchesValue(expr, want, nil)
-}
-
-func (w *driftWalk) traversal(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
-	name := ""
-	if len(x.Traversal) == 2 {
-		if step, ok := x.Traversal[1].(hcl.TraverseAttr); ok {
-			name = step.Name
-		}
-	}
-	switch x.Traversal.RootName() {
-	case "local":
-		if name == "" {
-			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
-		}
-		return w.local(x, name, path, i)
-	case "var":
-		if name == "" {
-			return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
-		}
-		return w.variable(x, name, path, i)
-	case "each":
-		if w.each != nil && w.mod == nil {
-			return w.eachValue(x, path, i)
-		}
-		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
-	case "count", "path", "terraform", "self":
-		return w.manual(sourceExpression, x.Range(), "an expression computes it: edit it by hand")
-	}
-	return w.reference(x, path, i)
-}
-
-// maxLocalDepth bounds how many locals referring to locals resolve
-// follows.
-const maxLocalDepth = 4
-
-// local follows the path into local.name, which x refers to: into its
-// value if this resource alone uses it; else the resource gets its own
-// value, merged over the local's for a key of it.
-func (w *driftWalk) local(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
-	ref := w.text(x.Range())
-	def, ok := w.cfg.locals[name]
-	if !ok || w.depth >= maxLocalDepth {
-		return w.manual(sourceLocal, x.Range(), ref+" sets it: edit it by hand")
-	}
-	if w.cfg.uses[name] <= 1 {
-		inner := *w
-		inner.file, inner.f, inner.depth = def.file, def.f, w.depth+1
-		src := inner.expr(def.attr.Expr, holder{}, path, i)
-		if src.Kind == sourceLiteral || src.Kind == sourceAbsent {
-			src.Kind = sourceLocal
-		}
-		return src
-	}
-	if i+1 == len(w.steps) && !w.steps[i].isIndex {
-		if w.c.value == nil {
-			return w.manual(sourceSharedLocal, x.Range(), ref+", which other resources use too, has the key the cloud removed: edit it by hand")
-		}
-		text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i+1):i+1])
-		if err != nil {
-			return w.manual(sourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
-		}
-		merged := fmt.Sprintf("merge(%s, { %s = %s })", ref, keyText(w.steps[i].name), text)
-		return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: []byte(merged)}}
-	}
-	value := w.at(i)
-	if value == nil || !w.known(i) {
-		return w.manual(sourceSharedLocal, x.Range(), ref+", which other resources use too, sets it, and the cloud has no value for all of it: edit it by hand")
-	}
-	text, err := w.valueText(value, path, w.steps[min(w.attrAt, i):i])
-	if err != nil {
-		return w.manual(sourceSharedLocal, x.Range(), "the cloud's value can't be written: edit it by hand")
-	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
-}
-
-// variable is the source of an attribute var.name, which x is, sets from
-// step i of the path, the argument at path or in it: edited only in the
-// var file of the environment of a root environments share (see
-// envVariable).
-func (w *driftWalk) variable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
-	v := w.cfg.variables[name]
-	switch {
-	case v == nil:
-		return w.manual(sourceVariable, x.Range(), "var."+name+" sets it, which the root doesn't declare: edit it by hand")
-	case sensitiveVariable(v):
-		return w.manual(sourceSensitiveVariable, x.Range(), fmt.Sprintf("a secret, which var.%s sets: update it in your secret store, or TF_VAR_%s", name, name))
-	case w.e.env != "":
-		return w.envVariable(x, name, path, i)
-	case hasDefault(v):
-		return w.manual(sourceVariable, x.Range(), "var."+name+" sets it, with another root's value as its default: update it from that root")
-	}
-	return w.manual(sourceVariable, x.Range(), "var."+name+" sets it: change the value the root is given")
-}
-
-// envVariable is the source of an attribute var.name, which x is, sets
-// from step i of the path in a root environments share: the value the
-// environment's var file gives the variable, or, where the file doesn't
-// set it, x, with an edit that adds it to the file. The value is set
-// only where it is the whole of what changed, or a key of the object or
-// map literal the file sets the variable to (see envVariableKey), written
-// as the schema types the argument at path, and every other argument
-// that refers to the variable, whose value would reach it too, has the
-// cloud's value as well in the environment (see variableUses).
-func (w *driftWalk) envVariable(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
-	file := w.e.envVars
-	vars := mergedVars(w.cfg.files)
-	switch {
-	case vars.own(w.e.env) == nil:
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the root has no %s: give it the value by hand", name, file))
-	case w.mod != nil:
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
-	case i != len(w.steps):
-		return w.envVariableKey(x, name, path, i)
-	case w.c.value == nil:
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets it, and the cloud has no value for it: change it in %s by hand", name, file))
-	}
-	if w.cfg.varUses[name] > 1 {
-		if reason := w.variableUses(name, nil); reason != "" {
-			return w.manual(sourceVariable, x.Range(), reason)
-		}
-	}
-	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
-	if err != nil {
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", name, file))
-	}
-	edit, _ := vars.set(w.e.env, name, text)
-	if v, ok := w.envValue(name); ok {
-		return codeSource{File: file, Range: v.attr.Expr.Range(), Kind: sourceVariable, Edit: &edit}
-	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, Edit: &edit}
-}
-
-// envValue returns the argument the environment's own var file sets
-// var.name to, in a root environments share; false where it doesn't, as
-// where vars/common.tfvars or the variable's default holds the value,
-// which drift doesn't edit for one environment.
-func (w *driftWalk) envValue(name string) (varValue, bool) {
-	v, ok := mergedVars(w.cfg.files).value(w.e.env, name)
-	return v, ok && v.file == w.e.envVars
-}
-
-// envVariableKey is envVariable for what var.name sets below step i of
-// the path, such as the owner key of tags = var.tags: the element of the
-// object or map literal the environment's var file sets the variable
-// to, edited alone with the cloud's value, or the key added to it,
-// keeping the rest. A hand edit where the file doesn't set the variable,
-// as when its default holds the environment's value, or sets it to
-// anything but a literal with the keys the path goes through.
-func (w *driftWalk) envVariableKey(x *hclsyntax.ScopeTraversalExpr, name string, path []string, i int) codeSource {
-	file := w.e.envVars
-	v, ok := w.envValue(name)
-	switch {
-	case !ok:
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", name, file))
-	case !literalExpr(v.attr.Expr) || !literalKeys(v.attr.Expr, w.steps[i:]):
-		return w.manual(sourceVariable, x.Range(), fmt.Sprintf("var.%s sets more than the cloud's value: change it in %s by hand", name, file))
-	}
-	if w.cfg.varUses[name] > 1 {
-		if reason := w.variableUses(name, w.steps[i:]); reason != "" {
-			return w.manual(sourceVariable, x.Range(), reason)
-		}
-	}
-	inner := *w
-	inner.file, inner.f = v.file, v.f
-	src := inner.expr(v.attr.Expr, holder{}, path, i)
-	src.Kind = sourceVariable
-	if src.Edit == nil && src.Reason != "" {
-		src.Reason = fmt.Sprintf("var.%s sets it, in %s: %s", name, file, src.Reason)
-	}
-	return src
 }
 
 // literalKeys reports whether expr, an object or map literal, has the
@@ -1017,22 +747,6 @@ func sensitiveVariable(b *hclsyntax.Block) bool {
 	}
 	v, diags := attr.Expr.Value(nil)
 	return !diags.HasErrors() && v.Type() == cty.Bool && v.IsKnown() && !v.IsNull() && v.True()
-}
-
-// reference is the source of an attribute x, a reference, sets: if the
-// cloud's value is another managed resource's ID, ARN or name, a
-// reference to it; else a hand edit.
-func (w *driftWalk) reference(x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
-	ref := w.text(x.Range())
-	if value, ok := w.c.value.(string); ok && value != "" && i == len(w.steps) {
-		if target, ok := uniqueTarget(path[len(path)-1], value, w.e.refs[value]); ok && target.address != w.address {
-			text := hclwrite.TokensForTraversal(target.traversal()).Bytes()
-			if string(text) != ref {
-				return codeSource{File: w.file, Range: x.Range(), Kind: sourceReference, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
-			}
-		}
-	}
-	return w.manual(sourceReference, x.Range(), "it refers to "+ref+", and the cloud's value isn't another managed resource's: edit it by hand")
 }
 
 // valueText writes value as HCL, typed as the schema types the argument
@@ -1138,7 +852,7 @@ func (w *driftWalk) insertKey(obj *hclsyntax.ObjectConsExpr, key string, path []
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(sourceLiteral, obj.Range(), "the cloud's value can't be written: edit it by hand")
+		return w.unwritable(sourceLiteral, obj.Range())
 	}
 	item := keyText(key) + " = " + string(text)
 	src := w.f.src
@@ -1169,7 +883,7 @@ func (w *driftWalk) appendMergeArg(call *hclsyntax.FunctionCallExpr, key string,
 	}
 	text, err := w.valueText(w.c.value, path, w.steps[min(w.attrAt, i):i])
 	if err != nil {
-		return w.manual(sourceExpression, call.Range(), "the cloud's value can't be written: edit it by hand")
+		return w.unwritable(sourceExpression, call.Range())
 	}
 	at := call.CloseParenRange.Start.Byte
 	return codeSource{File: w.file, Range: call.Range(), Kind: sourceLiteral, Edit: &codeEdit{File: w.file, Start: at, End: at, Text: []byte(", { " + keyText(key) + " = " + string(text) + " }")}}
@@ -1219,10 +933,12 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 	edited := map[string]bool{}
 	applied := map[*DriftChange]codeSource{}
 	failed := map[*DriftChange]codeSource{}
+	var cfg *driftConfig
 	for _, c := range changes {
+		// Only the files the change before edited are parsed again.
 		e.syncModules(contents)
-		cfg, err := parseDriftConfig(contents)
-		if err != nil {
+		var err error
+		if cfg, err = cfg.reparse(contents); err != nil {
 			return nil, nil, nil, err
 		}
 		src := e.resolve(cfg, c)

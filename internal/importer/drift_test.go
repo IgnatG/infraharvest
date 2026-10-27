@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -602,5 +604,49 @@ func TestDriftTargetsNeedAnEnvironmentForSeveral(t *testing.T) {
 	}
 	if targets, err := driftTargets([]string{dev, prod}, []string{"all"}); err != nil || len(targets) != 2 {
 		t.Errorf("--environment all: %+v, %v", targets, err)
+	}
+}
+
+// The checks of an accepted change's edited code leave the
+// organisation's own modules in directories to their owners, as the
+// import's do: each root gets the adapters of its provider's, from the
+// configuration file's modules. Modules drift would have to fetch aren't.
+func TestDriftPassesTheOrganisationsModules(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/1/eu-west-2")
+	module := func(content string) string {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	bucket := module("variable \"name\" {\n  type = string\n}\n\nresource \"aws_s3_bucket\" \"this\" {\n  bucket = var.name\n}\n")
+	storage := module("resource \"google_storage_bucket\" \"this\" {\n  name     = \"b\"\n  location = \"EU\"\n}\n")
+	var mu sync.Mutex
+	var got [][]adapters.Adapter
+	check := func(_ context.Context, _, _ string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+		mu.Lock()
+		got = append(got, opts.Adapters)
+		mu.Unlock()
+		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+	}
+	options := DriftOptions{
+		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1,
+		Provider: func(name string) harvest.Provider {
+			if name == "aws" {
+				return &catalogueProvider{}
+			}
+			return nil
+		},
+		Names:   []string{"aws"},
+		Modules: []config.Module{{Source: bucket}, {Source: storage}, {Source: "git::https://example.com/modules.git//queue?ref=v1"}},
+		check:   check,
+	}
+	if err := Drift(t.Context(), options, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0]) != 1 || got[0][0].Source != bucket {
+		t.Errorf("adapters %+v, want the bucket module's alone", got)
 	}
 }

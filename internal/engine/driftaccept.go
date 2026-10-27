@@ -85,15 +85,16 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 // which an edit of a local others use would break. Then the edited files
 // must pass the format, validate, standards, moves and secrets checks
 // (see driftChecks). The edits the plan or a check blames are left out
-// (see judgeDrift and checkBlame), and the others planned and checked
-// again; a change of shared tags whose edit is blamed, or can't be made,
-// is accepted at each resource it covers instead (see unshare). Only
-// then are the edits made in the root's own files, which are restored if
-// writing one fails. For a root environments share, root and the copy's
-// files hold the environment's var file too, the only file edited (see
-// envVariable), and a change written gets its source there. Each
-// accepted change ends written, rejected by the plan or a check, a hand
-// edit or a secret.
+// (see judgeDrift and checkBlame; one that blames no file blames them
+// all), and the others planned and checked again, in at most as many
+// rounds as there are edits (see verifier); a change of shared tags
+// whose edit is blamed, or can't be made, is accepted at each resource
+// it covers instead (see unshare). Only then are the edits made in the
+// root's own files, which are restored if writing one fails. For a root
+// environments share, root and the copy's files hold the environment's
+// var file too, the only file edited (see variableResolver.env), and a change
+// written gets its source there. Each accepted change ends written,
+// rejected by the plan or a check, a hand edit or a secret.
 func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
@@ -119,69 +120,102 @@ func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, r
 		return err
 	}
 	planOpts := append(slices.Clone(vars), tfexec.Refresh(false), tfexec.Lock(false))
+	// Each round that fails rejects an edit, or has a change of shared
+	// tags edited at each resource it covers instead: no round makes
+	// progress without dropping an edit, so the rounds can't outnumber
+	// the edits, those of the shared tags' members counted.
+	rounds := 0
+	for _, c := range accepted {
+		rounds++
+		if c.shared != nil {
+			rounds += len(c.shared.members)
+		}
+	}
 	pending := accepted
 	written := map[string]bool{}
 	var edited map[string][]byte
 	var names []string
-	var p *tfjson.Plan
-	for len(pending) > 0 {
-		edited = maps.Clone(staged)
-		var applied, failed map[*DriftChange]codeSource
-		names, applied, failed, err = editor.apply(edited, pending)
-		if err != nil {
-			return err
-		}
-		var unshared bool
-		if pending, unshared = settleDrift(pending, failed); len(pending) == 0 {
-			break
-		}
-		if unshared {
-			// Its members are edited in the next round.
-			continue
-		}
-		for _, name := range names {
-			written[name] = true
-		}
-		// The files an earlier round edited are as they were, but for this
-		// round's edits.
-		for _, name := range sortedKeys(written) {
-			if err := fsutil.WriteFile(stagedPath(staging, name), edited[name], 0o600); err != nil {
-				return err
-			}
-		}
-		var diags []tfjson.Diagnostic
-		p, _, diags, err = showPlanWithSummary(ctx, stf, planOpts)
-		if err != nil {
-			return err
-		}
-		outcome := DriftRejectedByPlan
-		rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.forms)
-		if len(rejected) == 0 {
-			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
-			if err != nil {
-				return err
-			}
-			if failedCheck == "" {
-				break
-			}
-			outcome, rejected = DriftRejectedByCheck, checkBlame(pending, applied, files, "the edited code fails "+failedCheck)
-		}
-		var left []*DriftChange
-		for _, c := range pending {
-			if reason, ok := rejected[c]; ok {
-				if c.shared != nil {
-					// Each resource it covers is edited on its own instead.
-					left = append(left, unshare(c, reason)...)
-					continue
+	var applied map[*DriftChange]codeSource
+	passed, err := verifier[*DriftChange, driftRejection]{
+		edit: func(context.Context) ([]*DriftChange, error) {
+			// A change of shared tags whose edit can't be made has its
+			// members edited before anything is planned.
+			for unshared := true; unshared && len(pending) > 0; {
+				edited = maps.Clone(staged)
+				var failed map[*DriftChange]codeSource
+				var err error
+				names, applied, failed, err = editor.apply(edited, pending)
+				if err != nil {
+					return nil, err
 				}
-				c.Outcome, c.Reason = outcome, reason
-				continue
+				pending, unshared = settleDrift(pending, failed)
 			}
-			left = append(left, c)
-		}
-		pending = left
+			if len(pending) == 0 {
+				return nil, nil
+			}
+			for _, name := range names {
+				written[name] = true
+			}
+			// The files an earlier round edited are as they were, but for
+			// this round's edits.
+			for _, name := range sortedKeys(written) {
+				if err := fsutil.WriteFile(stagedPath(staging, name), edited[name], 0o600); err != nil {
+					return nil, err
+				}
+			}
+			return pending, nil
+		},
+		verify: func(ctx context.Context) (*verdict[*DriftChange, driftRejection], error) {
+			p, _, diags, err := showPlanWithSummary(ctx, stf, planOpts)
+			if err != nil {
+				return nil, err
+			}
+			failure := &verdict[*DriftChange, driftRejection]{blamed: map[*DriftChange]driftRejection{}}
+			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.forms); len(rejected) > 0 {
+				for c, reason := range rejected {
+					failure.blamed[c] = driftRejection{DriftRejectedByPlan, reason}
+				}
+				return failure, nil
+			}
+			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
+			if err != nil || failedCheck == "" {
+				return nil, err
+			}
+			failure.why = driftRejection{DriftRejectedByCheck, "the edited code fails " + failedCheck}
+			for _, c := range checkBlame(pending, applied, files) {
+				failure.blamed[c] = failure.why
+			}
+			return failure, nil
+		},
+		drop: func(rejected map[*DriftChange]driftRejection) {
+			var left []*DriftChange
+			for _, c := range pending {
+				r, ok := rejected[c]
+				switch {
+				case !ok:
+					left = append(left, c)
+				case c.shared != nil:
+					// Each resource it covers is edited on its own instead.
+					left = append(left, unshare(c, r.reason)...)
+				default:
+					c.Outcome, c.Reason = r.outcome, r.reason
+				}
+			}
+			pending = left
+		},
+		// A check that can't tell which edited files fail it fails them
+		// all.
+		blameAll: true,
+		rounds:   rounds,
+	}.run(ctx)
+	if err != nil {
+		return err
 	}
-	if len(pending) == 0 {
+	if !passed {
+		// Only the bound, which no round reaches, leaves changes pending.
+		for _, c := range pending {
+			c.Outcome, c.Reason = DriftRejectedByPlan, fmt.Sprintf("the edits weren't settled in %d plans", rounds)
+		}
 		return nil
 	}
 
@@ -480,11 +514,9 @@ func driftChecks(ctx context.Context, stf DriftTerraform, staging string, origin
 }
 
 // checkBlame returns the changes of pending whose edits, made as sources
-// say, are in files, the edited files a check fails on, each with
-// reason; every change of pending where files is empty, or none of their
-// edits is in one.
-func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, files []string, reason string) map[*DriftChange]string {
-	rejected := map[*DriftChange]string{}
+// say, are in files, the edited files a check fails on.
+func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, files []string) []*DriftChange {
+	var blamed []*DriftChange
 	for _, c := range pending {
 		src := sources[c]
 		if src.Edit == nil {
@@ -492,17 +524,18 @@ func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, fil
 		}
 		for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
 			if slices.Contains(files, edit.File) {
-				rejected[c] = reason
+				blamed = append(blamed, c)
 				break
 			}
 		}
 	}
-	if len(rejected) == 0 {
-		for _, c := range pending {
-			rejected[c] = reason
-		}
-	}
-	return rejected
+	return blamed
+}
+
+// A driftRejection is why the plan or a check rejects an accepted
+// change: the outcome it ends with, and the reason.
+type driftRejection struct {
+	outcome, reason string
 }
 
 // mergedTagAttributes are, by a resource's own tags or labels, the

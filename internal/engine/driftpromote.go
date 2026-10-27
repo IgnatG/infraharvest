@@ -105,7 +105,8 @@ func addModuleFiles(contents map[string][]byte, dir string, modules map[string]*
 }
 
 // syncModules parses again, from contents, the modules whose files
-// contents has (see addModuleFiles), as the edits before have left them.
+// contents has (see addModuleFiles), as the edits before have left them:
+// only the files those edits changed (see driftConfig.reparse).
 func (e *driftEditor) syncModules(contents map[string][]byte) {
 	parsed := map[string]*driftModule{}
 	for key, m := range e.modules {
@@ -122,11 +123,15 @@ func (e *driftEditor) syncModules(contents map[string][]byte) {
 		if len(files) == 0 {
 			continue
 		}
-		synced, err := newDriftModule(files)
+		cfg, err := m.cfg.reparse(files)
 		if err != nil {
 			continue
 		}
-		synced.dir, synced.calls, synced.inContents = m.dir, m.calls, true
+		synced := m
+		if cfg != m.cfg || !m.inContents {
+			synced = newDriftModule(cfg)
+			synced.dir, synced.calls, synced.inContents = m.dir, m.calls, true
+		}
 		parsed[m.dir] = synced
 		e.modules[key] = synced
 	}

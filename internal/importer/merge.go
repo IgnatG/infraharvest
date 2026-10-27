@@ -208,7 +208,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	// The region the provider block sets, where the provider has one (see
 	// harvest.Merge.RegionArgument).
 	profile := c.provider.Profile().Merge
-	if r, ok := c.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
+	if r, ok := c.toolchain.root.provider.Config[profile.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
 	c.run.members = append(c.run.members, mergeMember{
@@ -221,13 +221,13 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		region:         region,
 		group:          c.options.ResourceGroup,
 		provider:       c.provider,
-		engineProvider: c.root.provider,
+		engineProvider: c.toolchain.root.provider,
 		profile:        engine.MergeProfile(profile),
 		fingerprint:    fp,
 		result:         result,
 		opts:           opts,
-		execPath:       c.execPath,
-		cacheDir:       c.cacheDir,
+		execPath:       c.toolchain.execPath,
+		cacheDir:       c.toolchain.cacheDir,
 		premerged:      set,
 		isolated:       isolated,
 		handovers:      c.handovers,

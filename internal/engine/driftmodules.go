@@ -56,10 +56,11 @@ func loadDriftModules(dir string) map[string]*driftModule {
 		if err != nil || len(contents) == 0 {
 			continue
 		}
-		mod, err := newDriftModule(contents)
+		cfg, err := parseDriftConfig(contents)
 		if err != nil {
 			continue
 		}
+		mod := newDriftModule(cfg)
 		mod.dir = filepath.ToSlash(m.dir)
 		if rel, err := filepath.Rel(dir, m.dir); err == nil {
 			mod.dir = filepath.ToSlash(rel)
@@ -70,12 +71,8 @@ func loadDriftModules(dir string) map[string]*driftModule {
 	return modules
 }
 
-// newDriftModule parses a module's files, contents by name.
-func newDriftModule(contents map[string][]byte) (*driftModule, error) {
-	cfg, err := parseDriftConfig(contents)
-	if err != nil {
-		return nil, err
-	}
+// newDriftModule is the module of cfg, its files parsed.
+func newDriftModule(cfg *driftConfig) *driftModule {
 	m := &driftModule{cfg: cfg, variables: map[string]cty.Type{}, calls: 1}
 	for name, b := range cfg.variables {
 		attr, ok := b.Body.Attributes["type"]
@@ -86,7 +83,7 @@ func newDriftModule(contents map[string][]byte) (*driftModule, error) {
 			m.variables[name] = ty
 		}
 	}
-	return m, nil
+	return m
 }
 
 // instanceKey is the instance key of a resource or a module call: a

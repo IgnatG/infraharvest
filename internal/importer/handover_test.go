@@ -381,7 +381,7 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	// Generated again, the vacated roots keep their removed blocks while
 	// nothing goes from them, and the new root imports the same.
 	f = &fakeEngine{}
-	options.tools = f.tools()
+	options.engine = f
 	run = importPath(t, options)
 	if len(run.failures) != 0 || !slices.Equal(f.generated, []string{"all"}) {
 		t.Errorf("generated %v, failures %v", f.generated, run.failures)

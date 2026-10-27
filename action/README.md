@@ -315,7 +315,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
 | `engine` | | `terraform` or `tofu`. Unset, the import and drift use what the configuration file sets, or `terraform` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
-| `config` | | An infraharvest configuration file, for example with the state backend; drift takes its settings `engine`, `terraform-path`, `engine-timeout` and `catalogue` (`--config`) |
+| `config` | | An infraharvest configuration file, for example with the state backend; drift takes its settings `engine`, `terraform-path`, `engine-timeout` and `catalogue`, and its own `modules` (`--config`) |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
 | `args` | | More flags for the import, one a line, each starting with `--` (a bare `--` is refused): for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |

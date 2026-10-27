@@ -50,7 +50,9 @@ func newDriftCmd() *cobra.Command {
 			"next apply puts them back. Secrets are never written.\n\n" +
 			"--config takes the import's configuration file: its settings drift has, engine,\n" +
 			"terraform-path, engine-timeout and catalogue, apply where the command line\n" +
-			"doesn't give them, and the rest are left to the import.\n\n" +
+			"doesn't give them, and the rest are left to the import. Its own modules in\n" +
+			"directories are left to their owners by the checks of the edited code, as by\n" +
+			"the import's.\n\n" +
 			"--write-decisions writes a decisions file, drift.yaml in the output directory,\n" +
 			"the --decisions file, or the file --write-decisions=<file> names, with an entry\n" +
 			"per change to accept or keep; edit it, and apply it with --decisions. A file\n" +
@@ -71,6 +73,7 @@ func newDriftCmd() *cobra.Command {
 				if err := f.ApplyShared(cmd.Flags(), cmd.Name(), driftSettings); err != nil {
 					return fmt.Errorf("%s: %w", configFile, err)
 				}
+				options.Modules = f.Modules
 			}
 			options.Out = importer.DefaultOut
 			if len(args) == 1 {
@@ -81,7 +84,7 @@ func newDriftCmd() *cobra.Command {
 			return importer.Interrupted(ctx, importer.Drift(ctx, options, cmd.OutOrStdout()))
 		},
 	}
-	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line")
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners")
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
 	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit)")
