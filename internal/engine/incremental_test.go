@@ -427,16 +427,16 @@ func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
 	t.Parallel()
 	root := existingRoot(t)
 	staging := filepath.Join(t.TempDir(), "staging")
-	secret := "Zq8vT3kLm9Xw2RbN"
+	sensitive := "staging-only-queue-name"
 	shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{{
 		Address: "aws_sqs_queue.jobs", Mode: tfjson.ManagedResourceMode,
 		Change: &tfjson.Change{
 			Actions:         tfjson.Actions{tfjson.ActionNoop},
-			Before:          map[string]interface{}{"name": secret},
+			Before:          map[string]interface{}{"name": sensitive},
 			BeforeSensitive: map[string]interface{}{"name": true},
 		},
 	}}}
-	tf := &fakeTerraform{dir: staging, generated: "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"" + secret + "\"\n}\n", shown: shown}
+	tf := &fakeTerraform{dir: staging, generated: "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"" + sensitive + "\"\n}\n", shown: shown}
 	rootTF := &fakeTerraform{dir: root}
 	var ran []string
 	spy := Scanner{Name: "spy", Run: func(_ context.Context, dir string) ([]Finding, error) {
