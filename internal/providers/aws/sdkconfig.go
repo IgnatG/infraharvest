@@ -96,19 +96,19 @@ const credentialsExpiryWindow = 5 * time.Minute
 // and role_arn, see Provider.serviceArgs).
 type Service struct {
 	harvest.ListerBase
-	// unwanted are the types the import leaves out whatever is listed (see
-	// Provider.SetUnwantedTypes).
-	unwanted map[string]bool
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see Provider.SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 }
 
-func (s *Service) setUnwanted(types map[string]bool) {
-	s.unwanted = types
+func (s *Service) setUnwanted(unwanted func(typ string) bool) {
+	s.unwanted = unwanted
 }
 
 // wants reports whether the import may keep resources of typ: a lister
 // skips the calls that list only resources of a type it doesn't want.
 func (s *Service) wants(typ string) bool {
-	return !s.unwanted[typ]
+	return s.unwanted == nil || !s.unwanted(typ)
 }
 
 // configKey picks one SDK configuration: the services of one account and

@@ -130,11 +130,12 @@ type callContext struct {
 	// --catalogue overlay merged in; the provider of each service listed
 	// is given it (see listServices).
 	cat *catalogue.Catalogue
-	// unwanted are the types the import leaves out whatever is listed (see
-	// selection.Unwanted), whose listing the provider of each service
-	// listed may skip (see listServices); none for discover, which lists
-	// every type, so that the selection file can include any.
-	unwanted []string
+	// unwanted reports whether the import leaves out every resource of a
+	// type whatever is listed (see selection.Unwanted), whose listing the
+	// provider of each service listed may skip (see listServices); nil for
+	// discover, which lists every type, so that the selection file can
+	// include any.
+	unwanted func(typ string) bool
 	// services are the services the call lists: options.Services resolved
 	// (see ResolveServices).
 	services []string

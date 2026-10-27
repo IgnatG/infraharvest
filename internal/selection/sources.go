@@ -6,6 +6,7 @@ package selection
 import (
 	"context"
 	"maps"
+	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -216,16 +217,31 @@ func managedReason(where string) string {
 	return report.TerraformPrefix + " (" + where + ")"
 }
 
-// Unwanted returns the types an import with the selection file f, nil for
-// --all, leaves out whatever is listed: those the catalogue's default
-// selection leaves out whole (see catalogue.Catalogue.SkippedWhole),
-// unless f may include them (see File.mayInclude).
-func Unwanted(cat *catalogue.Catalogue, f *File) []string {
-	var types []string
+// Unwanted returns a function that reports whether an import with the
+// selection file f, nil for --all, leaves out every resource of a type
+// whatever is listed: a type the catalogue's default selection leaves out
+// whole (see catalogue.Catalogue.SkippedWhole), unless f may include it
+// (see File.mayInclude), and a type f itself leaves out whole (see
+// File.excludesWhole). A type f excludes only some resources of isn't
+// unwanted. The function is safe for concurrent use: the listers of an
+// import's services ask it at once.
+func Unwanted(cat *catalogue.Catalogue, f *File) func(typ string) bool {
+	skipped := map[string]bool{}
 	for _, typ := range cat.SkippedWhole() {
-		if f == nil || !f.mayInclude(typ) {
-			types = append(types, typ)
-		}
+		skipped[typ] = true
 	}
-	return types
+	if f == nil {
+		return func(typ string) bool { return skipped[typ] }
+	}
+	// Listers ask once per resource they might look into further, and
+	// the file's entries can be many: each type is worked out once.
+	var decided sync.Map
+	return func(typ string) bool {
+		if unwanted, ok := decided.Load(typ); ok {
+			return unwanted.(bool)
+		}
+		unwanted := !f.mayInclude(typ) && (skipped[typ] || f.excludesWhole(typ))
+		decided.Store(typ, unwanted)
+		return unwanted
+	}
 }

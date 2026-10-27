@@ -110,7 +110,7 @@ func TestTypesListedInFull(t *testing.T) {
 			t.Errorf("aws: %s listed in full: got %v, want %v", typ, aws[typ], want)
 		}
 	}
-	if unwanted := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}, unwanted: []string{"aws_sqs_queue"}}); unwanted["aws_sqs_queue"] {
+	if unwanted := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}, unwanted: func(typ string) bool { return typ == "aws_sqs_queue" }}); unwanted["aws_sqs_queue"] {
 		t.Error("aws: a type the import doesn't list is listed in full")
 	}
 	if partial := typesListedInFull(&partialProvider{partial: []string{"aws_sqs_queue"}}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}}); partial["aws_sqs_queue"] {
