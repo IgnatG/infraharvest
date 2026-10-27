@@ -419,13 +419,13 @@ func (c *Catalogue) Source(typ string) string {
 // type: the entries whose conditions don't depend on what a lister
 // recorded (see ResourceOmit).
 func (c *Catalogue) Omit() map[string][]string {
-	return c.OmitFor(nil)
+	return c.omitFor(nil)
 }
 
-// OmitFor returns the arguments to leave out of configuration generated
+// omitFor returns the arguments to leave out of configuration generated
 // with version v of the provider: Omit, and what the entries'
 // provider_versions add for v. A nil v adds nothing.
-func (c *Catalogue) OmitFor(v *version.Version) map[string][]string {
+func (c *Catalogue) omitFor(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return withoutListerConditions(e.Omit) }, func(x *Versioned) []string { return withoutListerConditions(x.Omit) })
 }
 
@@ -496,25 +496,25 @@ func listerConditionHolds(condition string, attributes map[string]string) bool {
 // Defaults returns the values optional arguments default to whatever the
 // provider's version, as path=value, per type.
 func (c *Catalogue) Defaults() map[string][]string {
-	return c.DefaultsFor(nil)
+	return c.defaultsFor(nil)
 }
 
-// DefaultsFor returns the values optional arguments default to with
+// defaultsFor returns the values optional arguments default to with
 // version v of the provider: Defaults, and what the entries'
 // provider_versions add for v, such as a default a major release changed.
-func (c *Catalogue) DefaultsFor(v *version.Version) map[string][]string {
+func (c *Catalogue) defaultsFor(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return e.Defaults }, func(x *Versioned) []string { return x.Defaults })
 }
 
 // StateOnly returns the arguments the provider keeps only in state,
 // whatever its version, per type and under AllTypes for every type.
 func (c *Catalogue) StateOnly() map[string][]string {
-	return c.StateOnlyFor(nil)
+	return c.stateOnlyFor(nil)
 }
 
-// StateOnlyFor returns the arguments version v of the provider keeps only
+// stateOnlyFor returns the arguments version v of the provider keeps only
 // in state: StateOnly, and what the entries' provider_versions add for v.
-func (c *Catalogue) StateOnlyFor(v *version.Version) map[string][]string {
+func (c *Catalogue) stateOnlyFor(v *version.Version) map[string][]string {
 	return c.lists(v, func(e *Entry) []string { return e.StateOnly }, func(x *Versioned) []string { return x.StateOnly })
 }
 
