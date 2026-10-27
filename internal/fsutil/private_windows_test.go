@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package fsutil
 
 import (
 	"os"
@@ -25,11 +25,11 @@ func TestMakePrivateSetsAProtectedAccessList(t *testing.T) {
 		t.Fatal("a new directory's access list is protected already")
 	}
 
-	restore, err := makePrivate(dir)
+	restore, err := MakePrivate(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(dir, GeneratedFileName)
+	file := filepath.Join(dir, "generated.tf")
 	if err := os.WriteFile(file, []byte("# secrets\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -113,4 +113,19 @@ func accessList(t *testing.T, path string) (protected bool, sids []string) {
 		sids = append(sids, sid.String())
 	}
 	return control&windows.SE_DACL_PROTECTED != 0, sids
+}
+
+// MkdirPrivate gives a directory it creates the private access list.
+func TestMkdirPrivateSetsAProtectedAccessList(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "out", ".infraharvest")
+	if err := MkdirPrivate(dir); err != nil {
+		t.Fatal(err)
+	}
+	if protected, _ := accessList(t, dir); !protected {
+		t.Error("the private directory inherits its parent's access")
+	}
+	if protected, _ := accessList(t, filepath.Dir(dir)); protected {
+		t.Error("its parent's access list is protected")
+	}
 }

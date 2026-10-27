@@ -61,8 +61,9 @@ type fakeEngine struct {
 	opts      map[string]engine.Options
 	imports   map[string][]engine.Import
 	// fail is the error generating a root whose directory ends in it
-	// returns, if set.
-	fail string
+	// returns, if set, once it has written the root's files, as the
+	// engine does; leak the root whose secrets check fails.
+	fail, leak string
 	// label, if set, gives the label of each resource the root imports,
 	// for its address; its name otherwise.
 	label func(engine.Import) string
@@ -108,9 +109,6 @@ func (f *fakeEngine) tools() *callTools {
 			}
 			f.opts[filepath.Base(dir)] = opts
 			f.imports[filepath.Base(dir)] = imports
-			if f.fail != "" && filepath.Base(dir) == f.fail {
-				return nil, errors.New("plan failed")
-			}
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return nil, err
 			}
@@ -119,7 +117,13 @@ func (f *fakeEngine) tools() *callTools {
 					return nil, err
 				}
 			}
+			if f.fail != "" && filepath.Base(dir) == f.fail {
+				return nil, errors.New("plan failed")
+			}
 			result := &engine.Result{Imported: imports}
+			if f.leak != "" && filepath.Base(dir) == f.leak {
+				result.Gate = engine.Gate{{Name: engine.CheckSecrets, Details: []string{"generated.tf: fake_thing.leak holds a secret value"}}}
+			}
 			for _, imp := range imports {
 				label := imp.Name
 				if f.label != nil {
@@ -514,6 +518,49 @@ func TestListCallRecordsRootsThatFail(t *testing.T) {
 	}
 	if run.failed["fake_thing"] != 2 {
 		t.Errorf("failed %v", run.failed)
+	}
+}
+
+// A new root that fails, or whose secrets check fails, keeps none of what
+// the import wrote, such as a generated.tf that may hold secrets in the
+// clear, but the files no import wrote and the checkpoint that says its
+// generation didn't finish.
+func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	notes := []byte("someone's notes\n")
+	for _, service := range []string{"gamma", "delta"} {
+		dir := filepath.Join(out, "fake", service)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "NOTES.txt"), notes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := &fakeEngine{fail: "gamma", leak: "delta"}
+	run := importPath(t, pathOptions(out, f, "beta", "gamma", "delta"))
+
+	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/beta", "fake/delta (failed)", "fake/gamma (failed)"}) {
+		t.Errorf("reported directories %v", got)
+	}
+	for _, service := range []string{"gamma", "delta"} {
+		dir := filepath.Join(out, "fake", service)
+		names, err := tfFiles(dir)
+		if err != nil || len(names) > 0 {
+			t.Errorf("%s keeps %v, %v, want none of what the import wrote", service, names, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(dir, "NOTES.txt")); err != nil || !slices.Equal(got, notes) {
+			t.Errorf("%s's NOTES.txt: %q, %v, want it kept", service, got, err)
+		}
+		if unfinished, err := unfinishedRoot(out, dir); err != nil || !unfinished {
+			t.Errorf("%s: unfinished %v, %v, want its checkpoint to say so", service, unfinished, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "fake", "beta", engine.GeneratedFileName)); err != nil {
+		t.Errorf("beta: %v", err)
+	}
+	if failures := errors.Join(run.failures...); len(run.failures) != 2 || !strings.Contains(failures.Error(), "plan failed") || !strings.Contains(failures.Error(), engine.CheckSecrets+" failed") {
+		t.Errorf("failures %v", run.failures)
 	}
 }
 
