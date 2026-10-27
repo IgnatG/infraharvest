@@ -235,6 +235,12 @@ func byID(resources []harvest.Resource) map[string]harvest.Resource {
 	return m
 }
 
+// allInventoryTypes returns the asset types of every inventory entry of
+// cat, sorted, each once: what a search for all of its types asks for.
+func allInventoryTypes(cat *catalogue.Catalogue) []string {
+	return inventoryTypes(cat, cat.Types())
+}
+
 // One search, page by page, for the catalogue's asset types; the global
 // import takes what isn't in a region, and the subnetworks of every
 // region, with their networks, with the IDs Terraform imports.
@@ -262,7 +268,7 @@ func TestCloudAssetListsTheProject(t *testing.T) {
 	if len(search.requests) < 2 {
 		t.Errorf("want the search's pages, got %d requests", len(search.requests))
 	}
-	if !reflect.DeepEqual(search.requests[0], catalogue.MustBuiltin("google").InventoryTypes()) || search.masks[0] != searchReadMask {
+	if !reflect.DeepEqual(search.requests[0], allInventoryTypes(catalogue.MustBuiltin("google"))) || search.masks[0] != searchReadMask {
 		t.Errorf("search: asset types %v, read mask %q", search.requests[0], search.masks[0])
 	}
 
@@ -409,7 +415,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 	// The rejected search, then two for each halving down to the type.
-	if n, most := len(cat.InventoryTypes()), 1+2*bits.Len(uint(len(cat.InventoryTypes()))); len(search.requests) > most {
+	if n, most := len(allInventoryTypes(cat)), 1+2*bits.Len(uint(len(allInventoryTypes(cat)))); len(search.requests) > most {
 		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
 	}
 
@@ -427,7 +433,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 // a type, and fails.
 func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 	cat := catalogue.MustBuiltin("google")
-	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: cat.InventoryTypes()}
+	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: allInventoryTypes(cat)}
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)

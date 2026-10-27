@@ -8,18 +8,18 @@ import (
 	"strings"
 )
 
-// ValuesAt returns the string values found at the dotted path in data,
+// valuesAt returns the string values found at the dotted path in data,
 // which is made of maps with string keys, []interface{} arrays and string
 // leaves, as decoded JSON or flattened attributes are. See walkPath for how
 // a path is followed. The result is empty, and may be nil, when nothing is
 // found.
-func ValuesAt(path string, data interface{}) []interface{} {
+func valuesAt(path string, data interface{}) []interface{} {
 	return walkPath(path, data).values
 }
 
-// HasPath reports whether the dotted path leads somewhere in
-// data, as ValuesAt follows it.
-func HasPath(path string, data interface{}) bool {
+// hasPath reports whether the dotted path leads somewhere in
+// data, as valuesAt follows it.
+func hasPath(path string, data interface{}) bool {
 	return walkPath(path, data).found
 }
 

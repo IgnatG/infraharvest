@@ -73,7 +73,7 @@ func TestFinishComplete(t *testing.T) {
 
 	r.Finish(map[string]int{"aws_vpc": 1, "aws_main_route_table_association": 1}, nil, false)
 
-	if r.ExitCode != ExitOK || r.Incomplete() {
+	if r.ExitCode != ExitOK || r.incomplete() {
 		t.Errorf("want a complete import, got exit code %d", r.ExitCode)
 	}
 }
@@ -365,7 +365,7 @@ func TestSkippedChecks(t *testing.T) {
 	if got, want := r.SkippedChecks(), []string{"aws: G5 scanners: no scanner installed (tflint, trivy, checkov)"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("skipped checks: %v, want %v", got, want)
 	}
-	if len(r.FailedChecks()) != 0 || r.Incomplete() {
+	if len(r.FailedChecks()) != 0 || r.incomplete() {
 		t.Errorf("a skipped check counts as failed: %v", r.FailedChecks())
 	}
 	if md := r.Markdown(); !strings.Contains(md, "## Skipped checks") || !strings.Contains(md, "- aws: G5 scanners: no scanner installed") || strings.Contains(md, "## Failed checks") {

@@ -20,7 +20,7 @@ type AzureBlob struct {
 	client *azblob.Client
 }
 
-// NewAzureBlob opens the Blob Storage account at serviceURL
+// newAzureBlob opens the Blob Storage account at serviceURL
 // (https://<account>.blob.core.windows.net/) with the credentials the
 // azurerm backend takes from the environment: the account's access key
 // (ARM_ACCESS_KEY), a SAS token (ARM_SAS_TOKEN), or a service principal
@@ -28,7 +28,7 @@ type AzureBlob struct {
 // Azure's default credential chain, such as the Azure CLI's login. All but
 // the first two need a data role on the account, such as Storage Blob Data
 // Reader.
-func NewAzureBlob(_ context.Context, serviceURL string) (ObjectStore, error) {
+func newAzureBlob(_ context.Context, serviceURL string) (ObjectStore, error) {
 	client, err := azureBlobClient(serviceURL, os.Getenv)
 	if err != nil {
 		return nil, err

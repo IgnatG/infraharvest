@@ -639,21 +639,6 @@ func (c *Catalogue) Skipped(typ, id string, attributes map[string]string) string
 	return ""
 }
 
-// InventoryTypes returns the asset types of the cloud's inventory API the
-// catalogue maps to Terraform types, sorted.
-func (c *Catalogue) InventoryTypes() []string {
-	seen := map[string]bool{}
-	var types []string
-	for _, e := range c.entries {
-		if e.Inventory != nil && !seen[e.Inventory.Type] {
-			seen[e.Inventory.Type] = true
-			types = append(types, e.Inventory.Type)
-		}
-	}
-	sort.Strings(types)
-	return types
-}
-
 // FromInventory returns the Terraform types of a resource the cloud's
 // inventory API lists as assetType, named name: the types whose inventory
 // entry has that type and a name pattern that matches, if it has one,

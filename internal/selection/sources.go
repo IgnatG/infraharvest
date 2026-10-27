@@ -163,8 +163,8 @@ func (s *Sources) Decide(f *File, scope, id string, l Listed) Decision {
 	typ := l.Address.Type
 	reason := s.Reason(l.Resource)
 	switch {
-	case f != nil && f.HasIn(scope, typ, id):
-		return f.DecideIn(scope, typ, id, l.RawName, l.Tags)
+	case f != nil && f.hasIn(scope, typ, id):
+		return f.decideIn(scope, typ, id, l.RawName, l.Tags)
 	case f != nil:
 		if ruled, ok := f.byRuleFor(typ, id, l.RawName, l.Tags, reason); ok {
 			return ruled
@@ -172,7 +172,7 @@ func (s *Sources) Decide(f *File, scope, id string, l Listed) Decision {
 		if reason != "" {
 			return Decision{Reason: reason}
 		}
-		return f.DecideIn(scope, typ, id, l.RawName, l.Tags)
+		return f.decideIn(scope, typ, id, l.RawName, l.Tags)
 	case reason != "":
 		return Decision{Reason: reason}
 	}

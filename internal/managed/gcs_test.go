@@ -71,11 +71,11 @@ func TestGCSListAndGet(t *testing.T) {
 		"other/default.tfstate":               `{"version": 4}`,
 	}
 	server := fakeGCS(t, "acme-state", objects)
-	// NewGCS reads from an emulator, without credentials, as Terraform's
+	// newGCS reads from an emulator, without credentials, as Terraform's
 	// gcs backend does.
 	t.Setenv("STORAGE_EMULATOR_HOST", server.URL)
 	ctx := context.Background()
-	store, err := NewGCS(ctx)
+	store, err := newGCS(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

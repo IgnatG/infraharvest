@@ -259,9 +259,9 @@ func (c *CoverageTotal) exclude(owner string) {
 	}
 }
 
-// NotManaged counts what was discovered that neither Terraform, another
+// notManaged counts what was discovered that neither Terraform, another
 // tool nor the cloud manages.
-func (c CoverageTotal) NotManaged() int {
+func (c CoverageTotal) notManaged() int {
 	return c.Discovered - c.Managed - c.OtherTool - c.Cloud
 }
 
@@ -669,7 +669,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	r.finishStacks()
 
 	switch {
-	case !r.Incomplete():
+	case !r.incomplete():
 		r.ExitCode = ExitOK
 	case allowPartial:
 		r.ExitCode = ExitPartial
@@ -765,9 +765,9 @@ func (r *Report) countByTag() []TagCount {
 	return counts
 }
 
-// Incomplete reports whether something listed wasn't imported, other than
+// incomplete reports whether something listed wasn't imported, other than
 // types infraharvest doesn't import, or a directory failed a check.
-func (r *Report) Incomplete() bool {
+func (r *Report) incomplete() bool {
 	return len(r.Failures) > 0 || r.Totals.LeftOut > 0 || r.Totals.Failed > 0 || len(r.FailedChecks()) > 0
 }
 
@@ -886,13 +886,13 @@ func (r *Report) Markdown() string {
 		if len(r.Scopes) > 1 {
 			b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {
-				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.NotManaged())
+				fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", s.Scope, s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
 			}
 			b.WriteString("\n")
 		}
 		b.WriteString("| Type " + header + "\n|---|---|---|---|---|---|\n")
 		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
+			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
 		}
 	}
 	if len(r.Tags) > 0 {
@@ -907,7 +907,7 @@ func (r *Report) Markdown() string {
 			if c.Value != "" {
 				value = "`" + c.Value + "`"
 			}
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.NotManaged())
+			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
 		}
 	}
 
