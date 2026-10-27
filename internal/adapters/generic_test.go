@@ -103,6 +103,54 @@ func TestGenericMatchesAModulesSignature(t *testing.T) {
 	}
 }
 
+// An own module's providers are those it requires, or else those its
+// resources are created with: the one a provider argument names, or the
+// one the type implies.
+func TestGenericProviders(t *testing.T) {
+	t.Parallel()
+	const network = `resource "google_compute_network" "this" {
+  provider = google-beta.shared
+  name     = var.name
+}
+
+resource "google_compute_subnetwork" "this" {
+  network = google_compute_network.this.id
+}
+
+variable "name" {
+  type = string
+}
+`
+	const requires = `terraform {
+  required_providers {
+    google = {
+      source = "hashicorp/google"
+    }
+    random = {
+      source = "hashicorp/random"
+    }
+  }
+}
+`
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+		want  []string
+	}{
+		{"implied by the types", map[string]string{"main.tf": bucketModule}, []string{"aws"}},
+		{"named by the resources", map[string]string{"main.tf": network}, []string{"google", "google-beta"}},
+		{"required", map[string]string{"main.tf": network, "versions.tf": requires}, []string{"google", "random"}},
+	} {
+		a, err := Generic("./module", "", moduleDir(t, tc.files))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(a.Providers, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, a.Providers, tc.want)
+		}
+	}
+}
+
 func TestGenericDeclines(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct{ module, cluster, reason string }{

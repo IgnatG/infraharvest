@@ -59,6 +59,7 @@ type Adapter struct {
 	// root's own, such as google and google-beta, of which google --beta's
 	// root has only google-beta: the root configures each it doesn't
 	// have as its own provider, for the same project or subscription.
+	// Generic reads them from the module itself.
 	Providers []string
 	// Map returns the module call for a cluster, or a *Decline.
 	Map func(Cluster) (*Call, error)
