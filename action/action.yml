@@ -306,6 +306,7 @@ runs:
         DRIFT_ACCEPT: ${{ inputs.drift-accept }}
         ENVIRONMENT: ${{ inputs.environment }}
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         trim() {
           local s="$1"
           s="${s#"${s%%[![:space:]]*}"}"
@@ -313,7 +314,7 @@ runs:
         }
         if [[ ! -d "$OUT" ]]; then
           echo "::notice::$OUT doesn't exist yet: there are no roots to check for drift"
-          echo "drift-found=false" >> "$GITHUB_OUTPUT"
+          output drift-found false
           exit 0
         fi
         bin="${BINARY:-infraharvest}"
@@ -359,11 +360,9 @@ runs:
         if command -v jq > /dev/null && [[ -s "$json" ]] && [[ "$(jq -r '.drift_found' "$json" 2> /dev/null)" == true ]]; then
           found=true
         fi
-        {
-          echo "exit-code=$code"
-          echo "drift-found=$found"
-          if [[ -f "$report" ]]; then echo "drift-report=$report"; fi
-        } >> "$GITHUB_OUTPUT"
+        output exit-code "$code"
+        output drift-found "$found"
+        if [[ -f "$report" ]]; then output drift-report "$report"; fi
         if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
         # 4 says drift is left, which the report and drift-found tell; it
         # doesn't fail the step. 1 (an accepted change failed verification),
@@ -381,6 +380,7 @@ runs:
         OUT: ${{ inputs.out }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         bin="${BINARY:-infraharvest}"
         # The arguments Check the import checked.
         args=()
@@ -388,8 +388,8 @@ runs:
         code=0
         "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
         report="$OUT/report/report.md"
-        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
-        echo "report=$report" >> "$GITHUB_OUTPUT"
+        output exit-code "$code"
+        output report "$report"
         if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
         if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
           echo "::error::infraharvest exited with $code; see the job summary"

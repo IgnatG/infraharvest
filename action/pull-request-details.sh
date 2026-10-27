@@ -18,6 +18,9 @@
 #   pull-request-details.sh
 set -euo pipefail
 
+# shellcheck source=action/output.sh
+source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
+
 # drift accept writes accepted changes into the code; drift report accepts
 # nothing, and records the changes, in the decisions file and the report,
 # for review.
@@ -66,14 +69,11 @@ for file in "${IMPORT_REPORT-}" "${DRIFT_REPORT-}"; do
     cat "$file" >> "$body"
   fi
 done
-{
-  echo "title=$title"
-  echo "commit-message=$commit"
-  echo "branch=$branch"
-  echo "body-path=$body"
-  # The decisions file, wherever it is, is part of the change.
-  echo "add-paths<<INFRAHARVEST_PATHS"
-  echo "$OUT"
-  if [[ "$DRIFT" != off && -n "${DRIFT_DECISIONS-}" ]]; then echo "$DRIFT_DECISIONS"; fi
-  echo "INFRAHARVEST_PATHS"
-} >> "$GITHUB_OUTPUT"
+output title "$title"
+output commit-message "$commit"
+output branch "$branch"
+output body-path "$body"
+# The decisions file, wherever it is, is part of the change.
+paths=("$OUT")
+if [[ "$DRIFT" != off && -n "${DRIFT_DECISIONS-}" ]]; then paths+=("$DRIFT_DECISIONS"); fi
+multiline_output add-paths "${paths[@]}"

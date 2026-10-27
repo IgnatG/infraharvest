@@ -16,6 +16,9 @@
 #   [BRANCH=<branch>] commit.sh
 set -euo pipefail
 
+# shellcheck source=action/output.sh
+source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
+
 fail() {
   echo "::error::$1"
   exit 1
@@ -42,7 +45,7 @@ done <<< "$ADD_PATHS"
 if ((${#paths[@]} > 0)); then git add --all -- "${paths[@]}"; fi
 if ((${#paths[@]} == 0)) || git diff --cached --quiet -- "${paths[@]}"; then
   echo "::notice::commit: the output hasn't changed; nothing to commit or push"
-  echo "commit-sha=" >> "$GITHUB_OUTPUT"
+  output commit-sha ""
   exit 0
 fi
 
@@ -75,4 +78,4 @@ if ! git -c "http.$server/.extraheader=" -c "http.$server/.extraheader=AUTHORIZA
   fail "commit: couldn't push to $branch; see the log above"
 fi
 echo "::notice::commit: pushed $sha to $branch"
-echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
+output commit-sha "$sha"

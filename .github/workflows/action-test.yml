@@ -1095,6 +1095,19 @@ jobs:
           expect import body-path "$RUNNER_TEMP/import/infraharvest-pull-request.md"
           expect import add-paths infraharvest-out
           cmp "$RUNNER_TEMP/report.md" "$(output import body-path)"
+          # add-paths ends at a delimiter of random bytes, which no path can
+          # hold to end it early.
+          grep -Eq '^add-paths<<INFRAHARVEST_[0-9a-f]{32}$' "$RUNNER_TEMP/import.out"
+          # A branch with a line break would set another output: refused.
+          if details newline IMPORT=true DRIFT=off OUT=infraharvest-out BRANCH=$'infraharvest/x\nbody-path=/etc/passwd' \
+            DRIFT_DECISIONS= IMPORT_REPORT= DRIFT_REPORT=; then
+            echo "::error::a branch with a line break was written to the outputs"
+            exit 1
+          fi
+          if grep -q '^body-path=/etc/passwd' "$RUNNER_TEMP/newline.out"; then
+            echo "::error::a branch with a line break set body-path"
+            exit 1
+          fi
 
           # Drift accepted, then an import: both reports, and the decisions
           # file, wherever it is.
