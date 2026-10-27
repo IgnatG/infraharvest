@@ -310,7 +310,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `token` | `github.token` | Token to download the release with |
 | `import` | `true` | Import resources; `false` only checks [drift](#drift) |
 | `provider` | | The provider command, such as `aws` (required when importing) |
-| `services` | | Services to import, comma-separated (required when importing) |
+| `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
 | `engine` | `terraform` | `terraform` or `tofu` |

@@ -28,7 +28,7 @@ inputs:
     description: The provider command, such as aws. Required when importing.
     required: false
   services:
-    description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing.
+    description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing, unless the config file sets them or --cfn-stack in args leaves them to the stacks.
     required: false
   regions:
     description: Regions to import, comma-separated.
@@ -257,7 +257,9 @@ runs:
           echo "::error::provider: $err (set import to false to only check drift)"
           exit 1
         fi
-        args=(import "$PROVIDER" "--engine=$ENGINE" "--services=$SERVICES" "--out=$OUT" --format=json)
+        args=(import "$PROVIDER" "--engine=$ENGINE" "--out=$OUT" --format=json)
+        # Empty, --services would still be set, over the config file's.
+        [[ -n "$SERVICES" ]] && args+=("--services=$SERVICES")
         [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
         [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
         [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
