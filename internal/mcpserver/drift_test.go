@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -101,6 +102,15 @@ func structured(t *testing.T, res *mcp.CallToolResult) DriftResult {
 	return r
 }
 
+// accepting returns an elicitation handler that confirms every request,
+// recording what the user is asked in asked.
+func accepting(asked *[]string) func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+	return func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		*asked = append(*asked, req.Params.Message)
+		return &mcp.ElicitResult{Action: "accept"}, nil
+	}
+}
+
 // generatedOut makes an output directory under dir.
 func generatedOut(t *testing.T, dir string) string {
 	t.Helper()
@@ -111,11 +121,14 @@ func generatedOut(t *testing.T, dir string) string {
 	return out
 }
 
-// Detection asks nobody: it changes no code.
+// Detection asks the user first: it changes no code, but runs Terraform
+// on the roots, which runs their providers with the server's
+// credentials.
 func TestDrift(t *testing.T) {
 	runner := &fakeRunner{}
 	dir := t.TempDir()
-	session := connect(t, runner, dir, nil)
+	var asked []string
+	session := connect(t, runner, dir, accepting(&asked))
 	out := generatedOut(t, dir)
 
 	res, text := call(t, session, "drift", map[string]any{"out": out, "roots": []string{"aws/*"}, "parallel": 2, "environments": []string{"prod", "dev"}})
@@ -123,9 +136,21 @@ func TestDrift(t *testing.T) {
 	if res.IsError || !strings.Contains(text, "3 changes in the cloud") || !strings.Contains(text, "2 kept") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"drift", "--format=json", "--detailed-exitcode", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
+	if len(asked) != 1 {
+		t.Fatalf("asked the user %q, want one confirmation", asked)
+	}
+	for _, want := range []string{fmt.Sprintf("roots in %q that match \"aws/*\" as the environments \"prod\", \"dev\"", out), "Terraform's init and plan", "credentials this server has", "only for roots you trust", "never applies"} {
+		if !strings.Contains(asked[0], want) {
+			t.Errorf("confirmation %q misses %q", asked[0], want)
+		}
+	}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+	// drift checks the roots are those the user confirmed.
+	if digest, err := driftpolicy.RootsDigest(out); err != nil || !slices.Equal(runner.rootsDigests, []string{digest}) {
+		t.Errorf("--roots-digest %v, want %s (%v)", runner.rootsDigests, digest, err)
 	}
 	r := structured(t, res)
 	if r.ExitCode != report.ExitDrift || !r.DriftFound || r.Totals.Changes != 3 || r.Totals.Kept != 2 || r.Totals.Absorbed != 1 || len(r.Changes) != 3 {
@@ -140,7 +165,8 @@ func TestDrift(t *testing.T) {
 func TestDriftCouldNotRun(t *testing.T) {
 	runner := &fakeRunner{driftExit: report.ExitCouldNotRun, driftStderr: "no generated roots in generated\n"}
 	dir := t.TempDir()
-	session := connect(t, runner, dir, nil)
+	var asked []string
+	session := connect(t, runner, dir, accepting(&asked))
 
 	res, text := call(t, session, "drift", map[string]any{"out": generatedOut(t, dir)})
 
@@ -149,25 +175,22 @@ func TestDriftCouldNotRun(t *testing.T) {
 	}
 }
 
-// Accepting asks the user first, with what a check without the rules
-// found, and only then writes into the code. The rules keep their order,
-// on the command line and in the counts the user sees: the last that
-// matches a change decides.
+// Accepting asks the user first, before Terraform runs at all, and only
+// then writes into the code. The rules keep their order, on the command
+// line and in the confirmation the user sees: the last that matches a
+// change decides.
 func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
 	for name, tc := range map[string]struct {
-		rules        []string
-		flags        []string
-		accept, keep string
+		rules []string
+		flags []string
 	}{
 		"keep last": {
 			[]string{"accept attribute=tags.*", "keep attribute=tags.Owner"},
 			[]string{"--accept=attribute=tags.*", "--keep=attribute=tags.Owner"},
-			"accept 1 of them", "keep 1",
 		},
 		"accept last": {
 			[]string{"keep attribute=tags.Owner", " attribute=tags.* "},
 			[]string{"--keep=attribute=tags.Owner", "--accept=attribute=tags.*"},
-			"accept 2 of them", "keep 0",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -175,6 +198,9 @@ func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
 			var asked string
 			dir := t.TempDir()
 			session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				if len(runner.runs) != 0 {
+					t.Errorf("Terraform ran before the user was asked: %v", runner.runs)
+				}
 				asked = req.Params.Message
 				return &mcp.ElicitResult{Action: "accept"}, nil
 			})
@@ -185,16 +211,12 @@ func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
 			if res.IsError || !strings.Contains(text, "1 accepted into the code") {
 				t.Errorf("result: %s", text)
 			}
-			for _, want := range []string{fmt.Sprintf("roots in %q?", out), "found 2 changes", "the rules " + quoteAll(tc.rules), tc.accept, tc.keep, "never written", "never applies"} {
+			for _, want := range []string{fmt.Sprintf("roots in %q for", out), "the rules " + quoteAll(tc.rules) + ", the last that matches a change deciding, accept into the roots' code?", "never written", "Terraform's init and plan", "never applies"} {
 				if !strings.Contains(asked, want) {
 					t.Errorf("confirmation %q misses %q", asked, want)
 				}
 			}
-			base := []string{"drift", "--format=json", "--detailed-exitcode"}
-			want := [][]string{
-				append(slices.Clone(base), "--", out),
-				append(append(slices.Clone(base), tc.flags...), "--", out),
-			}
+			want := [][]string{append(append([]string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots"}, tc.flags...), "--", out)}
 			if !slices.EqualFunc(runner.runs, want, slices.Equal) {
 				t.Errorf("runs: %v, want %v", runner.runs, want)
 			}
@@ -217,11 +239,9 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 	for name, tc := range map[string]struct {
 		elicit func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error)
 		want   string
-		// checks counts the runs: the check before asking.
-		checks int
 	}{
-		"declined":                {decline, "didn't confirm", 1},
-		"a client that can't ask": {nil, "infraharvest drift --format=json --detailed-exitcode --accept=all --", 0},
+		"declined":                {decline, "didn't confirm"},
+		"a client that can't ask": {nil, "infraharvest drift --format=json --detailed-exitcode --untrusted-roots --accept=all --"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -232,8 +252,8 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 			if !res.IsError || !strings.Contains(text, tc.want) {
 				t.Errorf("want an error result with %q, got %s", tc.want, text)
 			}
-			if len(runner.runs) != tc.checks || slices.ContainsFunc(runner.runs, func(args []string) bool { return slices.Contains(args, "--accept=all") }) {
-				t.Errorf("accepted without confirmation: %v", runner.runs)
+			if len(runner.runs) != 0 {
+				t.Errorf("ran without confirmation: %v", runner.runs)
 			}
 		})
 	}
@@ -276,22 +296,22 @@ func TestDriftAcceptDecisions(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("result: %s", text)
 	}
-	for _, want := range []string{fmt.Sprintf("the decisions file %q accept 2 of them", path), "keep 0", fmt.Sprintf("into the decisions file %q", path)} {
+	for _, want := range []string{fmt.Sprintf("the decisions file %q accept into the roots' code", path), fmt.Sprintf("into the decisions file %q", path)} {
 		if !strings.Contains(asked, want) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}
 	}
-	if len(runner.runs) != 2 || slices.ContainsFunc(runner.runs[0], func(a string) bool { return strings.HasPrefix(a, "--decisions=") || a == "--write-decisions" }) {
-		t.Fatalf("runs: %v, want a check without the decisions, then the run", runner.runs)
+	if len(runner.runs) != 1 {
+		t.Fatalf("runs: %v, want the run alone", runner.runs)
 	}
 	var copied string
-	for _, a := range runner.runs[1] {
+	for _, a := range runner.runs[0] {
 		if p, ok := strings.CutPrefix(a, "--decisions="); ok {
 			copied = p
 		}
 	}
-	if copied == "" || copied == path || !slices.Contains(runner.runs[1], "--write-decisions") {
-		t.Errorf("the run %v didn't read a private copy of %s", runner.runs[1], path)
+	if copied == "" || copied == path || !slices.Contains(runner.runs[0], "--write-decisions") {
+		t.Errorf("the run %v didn't read a private copy of %s", runner.runs[0], path)
 	}
 	if _, err := os.Stat(copied); err == nil {
 		t.Errorf("the copy %s is left behind", copied)
@@ -324,31 +344,39 @@ func TestDriftAcceptChecksTheConfirmedDecisions(t *testing.T) {
 	if !res.IsError || !strings.Contains(text, "didn't confirm") {
 		t.Errorf("want the run refused, got %s", text)
 	}
-	if len(runner.runs) != 1 || len(runner.decisions) != 0 {
+	if len(runner.runs) != 0 || len(runner.decisions) != 0 {
 		t.Errorf("applied decisions the user didn't confirm: %v", runner.runs)
 	}
 }
 
 // Writing the decisions file alone, or keeping changes, writes no code,
-// so nobody is asked.
+// but runs Terraform all the same, so the user is asked, told that no
+// code is written.
 func TestDriftAcceptWithoutCode(t *testing.T) {
 	dir := t.TempDir()
 	out := generatedOut(t, dir)
 	for name, tc := range map[string]struct {
 		args map[string]any
 		flag string
+		says string
 	}{
-		"write_decisions": {map[string]any{"out": out, "write_decisions": true}, "--write-decisions"},
-		"keep":            {map[string]any{"out": out, "rules": []string{"keep type=aws_iam_*"}}, "--keep=type=aws_iam_*"},
+		"write_decisions": {map[string]any{"out": out, "write_decisions": true}, "--write-decisions", "? No code is written. The run's changes are then written into the decisions file"},
+		"keep":            {map[string]any{"out": out, "rules": []string{"keep type=aws_iam_*"}}, "--keep=type=aws_iam_*", `keeping the changes the rules "keep type=aws_iam_*" match, which the next apply puts back? No code is written.`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			runner := &fakeRunner{}
-			session := connect(t, runner, dir, nil)
+			if res, text := call(t, connect(t, &fakeRunner{}, dir, nil), "drift_accept", tc.args); !res.IsError || !strings.Contains(text, "has to confirm running Terraform on the roots, and this client can't ask them") {
+				t.Errorf("a client that can't ask: %s", text)
+			}
 
-			res, text := call(t, session, "drift_accept", tc.args)
+			runner := &fakeRunner{}
+			var asked []string
+			res, text := call(t, connect(t, runner, dir, accepting(&asked)), "drift_accept", tc.args)
 
 			if res.IsError {
 				t.Fatalf("result: %s", text)
+			}
+			if len(asked) != 1 || !strings.Contains(asked[0], tc.says) {
+				t.Errorf("asked the user %q, want a confirmation that says %q", asked, tc.says)
 			}
 			if len(runner.runs) != 1 || !slices.Contains(runner.runs[0], tc.flag) {
 				t.Errorf("runs: %v, want one with %s", runner.runs, tc.flag)
@@ -475,7 +503,8 @@ func TestDriftResultBoundsTheChanges(t *testing.T) {
 func TestDriftCatalogue(t *testing.T) {
 	runner := &fakeRunner{}
 	dir := t.TempDir()
-	session := connect(t, runner, dir, nil)
+	var asked []string
+	session := connect(t, runner, dir, accepting(&asked))
 	out := generatedOut(t, dir)
 	catalogue := filepath.Join(dir, "catalogue")
 	if err := os.MkdirAll(catalogue, 0o755); err != nil {
@@ -485,7 +514,7 @@ func TestDriftCatalogue(t *testing.T) {
 	if res, text := call(t, session, "drift", map[string]any{"out": out, "catalogue": catalogue}); res.IsError {
 		t.Fatalf("result: %s", text)
 	}
-	want := []string{"drift", "--format=json", "--detailed-exitcode", "--catalogue=" + catalogue, "--", out}
+	want := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--catalogue=" + catalogue, "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -505,7 +534,8 @@ func TestDriftCatalogue(t *testing.T) {
 func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 	runner := &fakeRunner{}
 	dir := t.TempDir()
-	session := connect(t, runner, dir, nil)
+	var asked []string
+	session := connect(t, runner, dir, accepting(&asked))
 	out := generatedOut(t, dir)
 
 	if res, text := call(t, session, "drift", map[string]any{"out": out, "engine_timeout": "90m", "force_unlock": true}); res.IsError {
@@ -515,8 +545,8 @@ func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 		t.Fatalf("result: %s", text)
 	}
 	want := [][]string{
-		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=90m", "--force-unlock", "--", out},
-		{"drift", "--format=json", "--detailed-exitcode", "--engine-timeout=0", "--keep=all", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-timeout=90m", "--force-unlock", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-timeout=0", "--keep=all", "--", out},
 	}
 	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)

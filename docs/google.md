@@ -53,6 +53,8 @@ The last four list, each through its own API, what Cloud Asset Inventory doesn't
 
 `iam` lists only the IAM members, `dns` only the record sets and `cloudsql` only the databases. Service accounts, custom roles, DNS zones and Cloud SQL instances come from `cloud_asset`, so add `cloud_asset`, or use `*`, for those.
 
+An instance that can't list its databases, because it is stopped or busy with another operation, still has them: `cloudsql` logs it and leaves its databases out, and an incremental import doesn't report any `google_sql_database` of that region as no longer in the cloud, while it still compares the region's other types. An instance deleted since it was listed has no databases left, and is only logged. Any other failure to list an instance's databases, such as a permission denied, fails `cloudsql` in part.
+
 The default selection leaves out the grants Google Cloud makes itself: a service agent role (`roles/pubsub.serviceAgent`, `roles/compute.instanceGroupManagerServiceAgent`, ...), which it grants a service's agent when the service is enabled, and `roles/editor` for the Google APIs service agent (`<number>@cloudservices.gserviceaccount.com`) and the Compute Engine and App Engine default service accounts, `roles/cloudbuild.builds.builder` for the legacy Cloud Build service account (`<number>@cloudbuild.gserviceaccount.com`), and the `roles/iam.serviceAccountTokenCreator` older projects gave the Pub/Sub service agent. It also leaves out grants to deleted principals (`deleted:...`). The selection file can include them.
 
 ### Types that aren't listed

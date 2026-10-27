@@ -4,6 +4,7 @@
 package google
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"math/rand/v2"
@@ -11,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"google.golang.org/api/googleapi"
 )
 
 // retryAttempts is how many times a request is sent at most: the first
@@ -26,8 +29,9 @@ const retryMaxDelay = 30 * time.Second
 var retryDelay = 500 * time.Millisecond
 
 // retryTransport sends each request through base again when Google's API
-// answers that it is throttled (429) or failed for the time being (500,
-// 502, 503, 504), or the connection fails: the generated REST clients
+// answers that it is throttled (429, or a 403 whose reason says so, see
+// rateLimited) or failed for the time being (500, 502, 503, 504), or the
+// connection fails: the generated REST clients
 // send a request once, and a quota's 429 on any page would fail the
 // service's listing. Every call the listers make reads, the POST of
 // getIamPolicy among them, so each may be sent again. It waits between
@@ -81,8 +85,9 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 // retryable reports whether an attempt's answer, or its error, is one
-// that may pass: a status of 429 or 500, 502, 503 or 504, or a network
-// error, such as a connection reset.
+// that may pass: a status of 429 or 500, 502, 503 or 504, a 403 that says
+// the caller is throttled (see rateLimited), or a network error, such as
+// a connection reset.
 func retryable(resp *http.Response, err error) bool {
 	if err != nil {
 		var netErr net.Error
@@ -91,9 +96,60 @@ func retryable(resp *http.Response, err error) bool {
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
+	case http.StatusForbidden:
+		return rateLimited(resp)
 	default:
 		return false
 	}
+}
+
+// rateLimitReasons are the reasons of a 403 that says the caller is
+// throttled, rather than refused: Compute Engine, Cloud DNS, the SQL Admin
+// API and Cloud Resource Manager v1 throttle with a 403, not a 429, whose
+// error items give rateLimitExceeded or userRateLimitExceeded, or whose
+// google.rpc.ErrorInfo detail gives RATE_LIMIT_EXCEEDED. A quota spent for
+// the day, quotaExceeded, doesn't pass with a retry.
+var rateLimitReasons = map[string]bool{
+	"rateLimitExceeded":     true,
+	"userRateLimitExceeded": true,
+	"RATE_LIMIT_EXCEEDED":   true,
+}
+
+// rateLimitBodyLimit caps how much of a 403's body rateLimited reads to
+// find its reason: Google's error bodies are far shorter.
+const rateLimitBodyLimit = 1 << 16
+
+// rateLimited reports whether a 403 answer says the caller is throttled
+// (see rateLimitReasons), so that a permission denied still fails at
+// once. It reads the answer's body to find the reason, and puts back what
+// it read, so that the client still reads the whole error when the answer
+// isn't retried.
+func rateLimited(resp *http.Response) bool {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, rateLimitBodyLimit))
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), resp.Body), resp.Body}
+	if err != nil {
+		return false
+	}
+	var apiErr *googleapi.Error
+	if !errors.As(googleapi.CheckResponseWithBody(resp, body), &apiErr) {
+		return false
+	}
+	for _, item := range apiErr.Errors {
+		if rateLimitReasons[item.Reason] {
+			return true
+		}
+	}
+	for _, detail := range apiErr.Details {
+		if info, ok := detail.(map[string]interface{}); ok {
+			if reason, _ := info["reason"].(string); rateLimitReasons[reason] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // retryWait is how long to wait after attempt (1 for the first) before

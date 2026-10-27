@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // ErrLocked is the error of TryLock for a file whose lock another holder
@@ -30,9 +32,24 @@ type Lock struct {
 // lock without waiting. It fails with ErrLocked when another holder has
 // the lock: another process, or another TryLock of the same file in this
 // one.
+//
+// The file must be a regular one. A symbolic link in its place, such as
+// one a cloned repository commits, is refused: Record and Unlock would
+// truncate the file it leads to. So is one put there after the check,
+// which open doesn't follow.
 func TryLock(path string) (*Lock, error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err := fsutil.CheckFile(path); err != nil {
+		return nil, err
+	}
+	f, err := open(path)
 	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		if err == nil {
+			err = fmt.Errorf("%s isn't a regular file", path)
+		}
 		return nil, err
 	}
 	if err := lock(f); err != nil {

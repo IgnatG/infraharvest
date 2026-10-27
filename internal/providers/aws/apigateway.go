@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"cmp"
 	"maps"
 	"slices"
 	"strings"
@@ -71,9 +72,11 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client) error {
 				// The API's parts are left out with it.
 				continue
 			}
-			// AWS requires a name for every REST API, so Name is
-			// dereferenced as it is.
-			api := restAPIRef{id: aws.ToString(restAPI.Id), name: *restAPI.Name}
+			// AWS requires a name for every REST API, but an emulator
+			// may leave it out: the API, and its parts, are then named
+			// after its ID.
+			id := aws.ToString(restAPI.Id)
+			api := restAPIRef{id: id, name: cmp.Or(aws.ToString(restAPI.Name), id)}
 			g.Resources = append(g.Resources, harvest.RecordBare(api.id, api.name, "aws_api_gateway_rest_api", "aws"))
 
 			for _, list := range []func(*apigateway.Client, restAPIRef) error{
@@ -275,8 +278,13 @@ func (g *APIGatewayLister) listModels(svc *apigateway.Client, api restAPIRef) er
 			return err
 		}
 		for _, model := range page.Items {
-			// AWS requires a name for every model.
-			name := *model.Name
+			// AWS requires a name for every model, and Terraform imports
+			// it by its name: a model an emulator answers without one
+			// can't be imported, and is left out.
+			name := aws.ToString(model.Name)
+			if name == "" {
+				continue
+			}
 			g.Resources = append(g.Resources, harvest.Record(
 				api.id+"/"+name,
 				api.part(name),
@@ -363,11 +371,13 @@ func (g *APIGatewayLister) listAuthorizers(svc *apigateway.Client, api restAPIRe
 			return err
 		}
 		for _, authorizer := range output.Items {
-			// AWS requires a name for every authorizer.
-			name := *authorizer.Name
+			// AWS requires a name for every authorizer, but an emulator
+			// may leave it out: it is then named after its ID.
+			authorizerID := aws.ToString(authorizer.Id)
+			name := aws.ToString(authorizer.Name)
 			g.Resources = append(g.Resources, harvest.Record(
-				api.id+"/"+aws.ToString(authorizer.Id),
-				api.part(name),
+				api.id+"/"+authorizerID,
+				api.part(cmp.Or(name, authorizerID)),
 				"aws_api_gateway_authorizer",
 				"aws",
 				map[string]string{
@@ -393,7 +403,8 @@ func (g *APIGatewayLister) listVPCLinks(svc *apigateway.Client) error {
 			return err
 		}
 		for _, link := range page.Items {
-			g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(link.Id), *link.Name, "aws_api_gateway_vpc_link", "aws"))
+			id := aws.ToString(link.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(link.Name), id), "aws_api_gateway_vpc_link", "aws"))
 		}
 	}
 	return nil
@@ -409,7 +420,8 @@ func (g *APIGatewayLister) listUsagePlans(svc *apigateway.Client) error {
 			return err
 		}
 		for _, plan := range page.Items {
-			g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(plan.Id), *plan.Name, "aws_api_gateway_usage_plan", "aws"))
+			id := aws.ToString(plan.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(plan.Name), id), "aws_api_gateway_usage_plan", "aws"))
 		}
 	}
 	return nil
@@ -424,7 +436,8 @@ func (g *APIGatewayLister) listAPIKeys(svc *apigateway.Client) error {
 			return err
 		}
 		for _, key := range page.Items {
-			g.Resources = append(g.Resources, harvest.RecordBare(aws.ToString(key.Id), *key.Name, "aws_api_gateway_api_key", "aws"))
+			id := aws.ToString(key.Id)
+			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(aws.ToString(key.Name), id), "aws_api_gateway_api_key", "aws"))
 		}
 	}
 	return nil

@@ -63,22 +63,17 @@ func TestListAllWalksEveryPage(t *testing.T) {
 		{nil},
 		{to.Ptr("c")},
 	}
-	for name, list := range map[string]func(context.Context, *runtime.Pager[testPage], func(testPage) []*string) ([]*string, error){
-		"listAll":        listAll[testPage, string],
-		"listAllLenient": listAllLenient[testPage, string],
-	} {
-		got, err := list(t.Context(), pagerOf(pages, -1), pageItems)
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
-		if want := []string{"a", "b", "c"}; !reflect.DeepEqual(values(got), want) {
-			t.Errorf("%s: got %v, want %v", name, values(got), want)
-		}
+	got, err := listAll(t.Context(), pagerOf(pages, -1), pageItems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"a", "b", "c"}; !reflect.DeepEqual(values(got), want) {
+		t.Errorf("got %v, want %v", values(got), want)
+	}
 
-		got, err = list(t.Context(), pagerOf([][]*string{{}}, -1), pageItems)
-		if err != nil || len(got) != 0 {
-			t.Errorf("%s, one empty page: got %v, %v", name, values(got), err)
-		}
+	got, err = listAll(t.Context(), pagerOf([][]*string{{}}, -1), pageItems)
+	if err != nil || len(got) != 0 {
+		t.Errorf("one empty page: got %v, %v", values(got), err)
 	}
 }
 
@@ -95,24 +90,6 @@ func TestListAllStopsAtAFailingPage(t *testing.T) {
 	}
 
 	got, err = listAll(t.Context(), pagerOf(pages, 0), pageItems)
-	if !errors.Is(err, errPageFailed) || len(got) != 0 {
-		t.Errorf("first page failing: got %v, %v", values(got), err)
-	}
-}
-
-// listAllLenient keeps what it listed when a later page fails, but a
-// first page that fails is still an error.
-func TestListAllLenientKeepsEarlierPages(t *testing.T) {
-	pages := [][]*string{{to.Ptr("a")}, {to.Ptr("b")}, {to.Ptr("c")}}
-	got, err := listAllLenient(t.Context(), pagerOf(pages, 2), pageItems)
-	if err != nil {
-		t.Errorf("a later page failing: %v", err)
-	}
-	if want := []string{"a", "b"}; !reflect.DeepEqual(values(got), want) {
-		t.Errorf("got %v, want %v", values(got), want)
-	}
-
-	got, err = listAllLenient(t.Context(), pagerOf(pages, 0), pageItems)
 	if !errors.Is(err, errPageFailed) || len(got) != 0 {
 		t.Errorf("first page failing: got %v, %v", values(got), err)
 	}

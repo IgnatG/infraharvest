@@ -971,6 +971,13 @@
         "persistent": false
       },
       {
+        "name": "roots-digest",
+        "type": "string",
+        "default": "",
+        "persistent": false,
+        "hidden": true
+      },
+      {
         "name": "rules",
         "type": "file",
         "default": "",
@@ -980,6 +987,13 @@
         "name": "terraform-path",
         "type": "string",
         "default": "",
+        "persistent": false
+      },
+      {
+        "name": "untrusted-roots",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
         "persistent": false
       },
       {

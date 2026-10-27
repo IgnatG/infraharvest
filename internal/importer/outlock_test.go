@@ -82,3 +82,83 @@ func TestRunLocksTheOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A run refuses an output directory whose CheckpointDir holds a symbolic
+// link, such as one a repository it checks commits in place of the lock,
+// CheckpointDir itself or a staging directory, to a file or directory of
+// the user's, --force-unlock or not, and leaves what it leads to as it
+// is. Links terraform init makes in a staged root's .terraform pass.
+func TestLockOutputRefusesLinks(t *testing.T) {
+	t.Parallel()
+	outside := t.TempDir()
+	keys := filepath.Join(outside, "authorized_keys")
+	const content = "ssh-ed25519 key\n"
+	if err := os.WriteFile(keys, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(keys, filepath.Join(t.TempDir(), "probe")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		// link is where, given the output directory, the link goes, to
+		// keys or, with dir, to outside
+		link func(out string) string
+		dir  bool
+		// pass is whether the run takes the lock anyway
+		pass bool
+	}{
+		{name: "the lock", link: outputLockPath},
+		{name: "the checkpoint directory", link: func(out string) string { return filepath.Join(out, CheckpointDir) }, dir: true},
+		{name: "a checkpoint", link: func(out string) string { return checkpointPath(out, filepath.Join(out, "aws", "network")) }},
+		{name: "a drift staging directory", link: func(out string) string { return driftStagingDir(out, "aws/network") }, dir: true},
+		{name: "an incremental staging directory's parent", link: func(out string) string {
+			return filepath.Dir(stagingDir(out, filepath.Join(out, "aws", "network")))
+		}, dir: true},
+		{name: "a provider terraform init linked", link: func(out string) string {
+			return filepath.Join(driftStagingDir(out, "aws/network"), ".terraform", "providers", "aws")
+		}, dir: true, pass: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			out := t.TempDir()
+			link := tc.link(out)
+			if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			target := keys
+			if tc.dir {
+				target = outside
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			for _, force := range []bool{false, true} {
+				lock, err := lockOutput(out, force)
+				if tc.pass {
+					if err != nil || lock == nil {
+						t.Fatalf("force %v: got %v, %v; want the lock", force, lock, err)
+					}
+					if err := lock.Unlock(); err != nil {
+						t.Fatal(err)
+					}
+					continue
+				}
+				if lock != nil {
+					_ = lock.Record()
+					_ = lock.Unlock()
+				}
+				if err == nil || !strings.Contains(err.Error(), link+" is a symbolic link") {
+					t.Errorf("force %v: got %v, want %s refused", force, err, link)
+				}
+			}
+			if got, err := os.ReadFile(keys); err != nil || string(got) != content {
+				t.Errorf("the link's target changed: %q, %v", got, err)
+			}
+			if entries, err := os.ReadDir(outside); err != nil || len(entries) != 1 {
+				t.Errorf("written into the link's target: %v, %v", entries, err)
+			}
+		})
+	}
+}

@@ -4,15 +4,24 @@
 package azure
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"net/http"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // ManagedIdentityLister lists user-assigned identities, in the
 // subscription or in --resource-group, and their federated identity
-// credentials. An identity whose credentials can't be listed is logged
-// and listed without them.
+// credentials. An identity whose credentials can't be listed is listed
+// without them, or with those listed before the list failed, and the
+// listing fails in part (see harvest.Partial), so that the credentials it
+// left out aren't taken for deleted. An identity gone since it was listed
+// has no credentials to leave out.
 type ManagedIdentityLister struct {
 	Service
 }
@@ -43,6 +52,7 @@ func (az *ManagedIdentityLister) List() error {
 	if err != nil {
 		return err
 	}
+	var failures []error
 	for _, identity := range listed {
 		if identity.ID == nil || identity.Name == nil {
 			continue
@@ -53,22 +63,29 @@ func (az *ManagedIdentityLister) List() error {
 		// listed.
 		identityResourceGroup, err := resourceGroupOf(*identity.ID)
 		if err != nil {
-			log.Printf("azurerm: managed_identity: %s: %v", *identity.ID, err)
+			failures = append(failures, fmt.Errorf("azurerm: managed_identity: federated credentials of %s: %w", *identity.ID, err))
 			continue
 		}
 		federated, err := listAll(ctx, credentials.NewListPager(identityResourceGroup, *identity.Name, nil),
 			func(p armmsi.FederatedIdentityCredentialsClientListResponse) []*armmsi.FederatedIdentityCredential {
 				return p.Value
 			})
-		if err != nil {
-			log.Printf("azurerm: managed_identity: federated credentials of %s: %v", *identity.ID, err)
-			continue
-		}
 		for _, c := range federated {
 			if c.ID != nil && c.Name != nil {
 				az.recordBare(*c.ID, *identity.Name+"_"+*c.Name, "azurerm_federated_identity_credential")
 			}
 		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				log.Printf("azurerm: managed_identity: %s is gone: %v", *identity.ID, err)
+				continue
+			}
+			failures = append(failures, fmt.Errorf("azurerm: managed_identity: listing the federated credentials of %s: %w", *identity.ID, err))
+		}
 	}
-	return nil
+	return harvest.Partial(errors.Join(failures...))
 }

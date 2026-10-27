@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // outputLockPath is the file in the output directory out whose lock a run
@@ -26,8 +27,20 @@ func outputLockPath(out string) string {
 // killed, so the next one takes it over. With force, a lock that is taken,
 // or that the file system can't take, is logged and the run goes on
 // without it, returning a nil lock.
+//
+// Every run that writes under CheckpointDir takes the lock first, so it
+// checks there first, force or not, that nothing leads its writes
+// elsewhere: a repository it runs on, such as a drift check of a clone,
+// could commit a symbolic link in place of the lock, a checkpoint or a
+// staging directory, to a file of the user's that the run would
+// overwrite or remove. The .terraform directories of staged roots are
+// left out, where terraform init links providers from the plugin cache.
 func lockOutput(out string, force bool) (*filelock.Lock, error) {
-	if err := os.MkdirAll(filepath.Join(out, CheckpointDir), 0o755); err != nil {
+	dir := filepath.Join(out, CheckpointDir)
+	if err := fsutil.CheckTree(dir, ".terraform"); err != nil {
+		return nil, fmt.Errorf("%w: refusing to write under %s, where a repository could commit one to lead a run's writes to a file elsewhere; remove it", err, dir)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	path := outputLockPath(out)

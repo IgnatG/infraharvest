@@ -39,10 +39,11 @@ type driftModule struct {
 }
 
 // loadDriftModules reads the modules the root in dir calls, by their keys
-// in the modules.json of its last init, such as logs, or net.vpc for a
+// in the modules.json of its last init, whose working files are in
+// dataDir, or .terraform in dir for "", such as logs, or net.vpc for a
 // call inside a module: none if it calls none, or if they can't be read.
-func loadDriftModules(dir string) map[string]*driftModule {
-	installed, err := installedModules(dir)
+func loadDriftModules(dir, dataDir string) map[string]*driftModule {
+	installed, err := installedModulesIn(dir, dataDir)
 	if err != nil {
 		return nil
 	}

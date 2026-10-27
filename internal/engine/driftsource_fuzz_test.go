@@ -4,8 +4,11 @@
 package engine
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // Accepting a change to a credential, whatever key it goes by and whether
@@ -63,4 +66,92 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A value import takes for a secret by its format, or by a key that names
+// one, never shows in a drift report: not at the leaf, nor in a map, a
+// name/value pair or a JSON document the cloud changed whole, nor as a
+// map's key.
+func FuzzDriftReportsNoSecrets(f *testing.F) {
+	f.Add("DB_PASSWORD", "Summer2026!")
+	f.Add("api_key", "hunter22")
+	f.Add("LOG_LEVEL", "debug")
+	f.Add("SECRET_ARN", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db")
+	f.Add("kubernetes.io/"+"token", "RED"+"ACTED") // joined so a secret scanner sees no key/value literal
+	f.Add("ключ", "token")
+	f.Fuzz(func(t *testing.T, key, value string) {
+		quotedKey, err := json.Marshal(key)
+		if err != nil {
+			t.Skip()
+		}
+		for _, v := range []string{value, fuzzToken(value)} {
+			if credentialFormat(v) == "" && (!secretKeyName(key) || secretReason(key, v, true) == "") {
+				continue
+			}
+			quoted, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			escaped := string(quoted[1 : len(quoted)-1])
+			// What a report shows besides the value mustn't hold it.
+			if strings.Contains(key+string(quotedKey)+redacted+` #1 keyed {"name":"value":"pairs":[]}`, v) {
+				continue
+			}
+			pairs := []any{map[string]any{"name": key, "value": v}}
+			doc, err := json.Marshal(map[string]any{key: v, "pairs": pairs})
+			if err != nil {
+				continue
+			}
+			refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{{
+				Address: "aws_lambda_function.fuzz",
+				Mode:    tfjson.ManagedResourceMode,
+				Type:    "aws_lambda_function",
+				Change: &tfjson.Change{
+					Actions: tfjson.Actions{tfjson.ActionUpdate},
+					Before: map[string]any{
+						"environment": []any{map[string]any{"variables": map[string]any{}}},
+						"env":         []any{},
+						"settings":    "none",
+						"definition":  "{}",
+					},
+					After: map[string]any{
+						"environment": []any{map[string]any{"variables": map[string]any{key: v}}},
+						"env":         pairs,
+						"settings":    map[string]any{key: v, "keyed": map[string]any{fuzzToken(value): "x"}},
+						"definition":  string(doc),
+					},
+				},
+			}}}
+			for _, c := range classifyDrift(refresh, nil, nil, false) {
+				for _, s := range reportStrings(c.After) {
+					if strings.Contains(s, v) || strings.Contains(s, escaped) || strings.Contains(s, fuzzToken(value)) {
+						t.Errorf("%s shows the secret: %q", c.Attribute, s)
+					}
+				}
+			}
+		}
+	})
+}
+
+// reportStrings returns the strings of a value a report shows, its map
+// keys too.
+func reportStrings(v any) []string {
+	switch v := v.(type) {
+	case string:
+		return []string{v}
+	case map[string]any:
+		var out []string
+		for k, sub := range v {
+			out = append(out, k)
+			out = append(out, reportStrings(sub)...)
+		}
+		return out
+	case []any:
+		var out []string
+		for _, sub := range v {
+			out = append(out, reportStrings(sub)...)
+		}
+		return out
+	}
+	return nil
 }

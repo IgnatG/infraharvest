@@ -305,6 +305,8 @@ jobs:
         FuzzSecretsInJSONString ./internal/engine/
         FuzzSecretsInHCL ./internal/engine/
         FuzzLiteralSecrets ./internal/engine/
+        FuzzDriftNeverWritesSecrets ./internal/engine/
+        FuzzDriftReportsNoSecrets ./internal/engine/
         FuzzParse ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/

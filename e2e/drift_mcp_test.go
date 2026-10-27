@@ -32,10 +32,10 @@ const driftMCPProfile = "infraharvest-e2e-drift-mcp"
 // TestAWSDriftMCP imports testdata/aws-drift-queues, applies the root
 // into a local state, and changes a queue's tag out of band, then drives
 // the MCP server's drift tools, as an agent does, over a session with a
-// client that asks its user to confirm. drift reports the change, kept,
-// with exit code 4, and changes no code; drift_accept, with an accept
-// rule, asks the user, saying it would accept the change, and once they
-// confirm writes it into the code. drift then finds the change absorbed,
+// client that asks its user to confirm. drift asks the user, as it runs
+// Terraform on the roots, then reports the change, kept, with exit code
+// 4, and changes no code; drift_accept, with an accept rule, asks the
+// user, naming the rule, and once they confirm writes it into the code. drift then finds the change absorbed,
 // with exit code 0, and the code plans no change.
 func TestAWSDriftMCP(t *testing.T) {
 	endpoint := os.Getenv("AWS_ENDPOINT_URL")
@@ -94,14 +94,14 @@ func TestAWSDriftMCP(t *testing.T) {
 		t.Errorf("drift: report %s", r.Report)
 	}
 	checkCodeUnchanged(t, "drift", code, out)
-	if len(asked) != 0 {
-		t.Errorf("drift asked the user: %q", asked)
+	if len(asked) != 1 || !strings.Contains(asked[0], "Terraform's init and plan") {
+		t.Errorf("drift asked the user %q, want one confirmation of running Terraform on the roots", asked)
 	}
 
 	accept := map[string]any{"out": out, "engine": engineName, "rules": []string{"accept attribute=tags.team"}}
 	r = callDriftTool(ctx, t, session, "drift_accept", accept)
-	if len(asked) != 1 || !strings.Contains(asked[0], "accept 1 of them") || !strings.Contains(asked[0], `"accept attribute=tags.team"`) {
-		t.Errorf("drift_accept asked the user %q, want one confirmation of accepting the change", asked)
+	if len(asked) != 2 || !strings.Contains(asked[1], `the rules "accept attribute=tags.team", the last that matches a change deciding, accept into the roots' code?`) {
+		t.Errorf("drift_accept asked the user %q, want one confirmation of accepting the change", asked[1:])
 	}
 	if r.ExitCode != report.ExitOK || r.Totals.Written != 1 {
 		t.Errorf("drift_accept: %+v", r)
@@ -140,7 +140,8 @@ const driftMCPRulesProfile = "infraharvest-e2e-drift-mcp-rules"
 // the rules the other way round, it would accept the owner alone, keeping
 // the team: the user confirms, and the owner is written into the code.
 // drift_accept with write_decisions alone, which changes no code, asks
-// nobody and writes drift.yaml, with the team's change undecided. The
+// the user all the same, as it runs Terraform, saying no code is written,
+// and writes drift.yaml, with the team's change undecided. The
 // user accepts it there, and the owner tag changes again. drift_accept
 // with the decisions file and write_decisions asks the user, accepts the
 // team by its entry and keeps the new owner, and copies the merged
@@ -204,16 +205,16 @@ func TestAWSDriftMCPRules(t *testing.T) {
 	if text := callToolError(ctx, t, session, "drift_accept", accept(map[string]any{"rules": []string{"keep attribute=tags.team", "accept attribute=tags.*"}})); !strings.Contains(text, "didn't confirm") {
 		t.Errorf("drift_accept, declined: %s", text)
 	}
-	if len(asked) != 1 || !strings.Contains(asked[0], "found 2 changes") || !strings.Contains(asked[0], "accept 2 of them") || !strings.Contains(asked[0], "keep 0") {
-		t.Errorf("drift_accept asked the user %q, want a confirmation of accepting both changes", asked)
+	if len(asked) != 1 || !strings.Contains(asked[0], `the rules "keep attribute=tags.team", "accept attribute=tags.*", the last that matches a change deciding, accept`) {
+		t.Errorf("drift_accept asked the user %q, want a confirmation of the rules in their order", asked)
 	}
 	checkCodeUnchanged(t, "drift_accept, declined", code, out)
 
 	// Accept every tag, then keep the team: the owner alone is accepted.
 	answer = "accept"
 	r := callDriftTool(ctx, t, session, "drift_accept", accept(map[string]any{"rules": []string{"accept attribute=tags.*", "keep attribute=tags.team"}}))
-	if len(asked) != 2 || !strings.Contains(asked[1], "accept 1 of them") || !strings.Contains(asked[1], "keep 1") || !strings.Contains(asked[1], `"accept attribute=tags.*", "keep attribute=tags.team"`) {
-		t.Errorf("drift_accept asked the user %q, want a confirmation of accepting the owner and keeping the team", asked[1:])
+	if len(asked) != 2 || !strings.Contains(asked[1], `the rules "accept attribute=tags.*", "keep attribute=tags.team", the last that matches a change deciding, accept`) {
+		t.Errorf("drift_accept asked the user %q, want a confirmation of the rules in their order", asked[1:])
 	}
 	if r.ExitCode != report.ExitDrift || r.Totals.Written != 1 || r.Totals.Kept != 1 {
 		t.Errorf("drift_accept: %+v", r)
@@ -224,12 +225,12 @@ func TestAWSDriftMCPRules(t *testing.T) {
 		t.Errorf("drift_accept: the code doesn't have owner = \"data\" with team = \"web\"")
 	}
 
-	// write_decisions alone changes no code, so nobody is asked.
+	// write_decisions alone changes no code, and the user is told so.
 	code = codeFiles(t, out)
 	decisions := filepath.Join(out, driftpolicy.DefaultDecisionsFile)
 	r = callDriftTool(ctx, t, session, "drift_accept", accept(map[string]any{"write_decisions": true}))
-	if len(asked) != 2 {
-		t.Errorf("drift_accept with write_decisions asked the user %q", asked[2:])
+	if len(asked) != 3 || !strings.Contains(asked[2], "No code is written.") {
+		t.Errorf("drift_accept with write_decisions asked the user %q, want a confirmation that writes no code", asked[2:])
 	}
 	if r.Decisions != decisions || r.ExitCode != report.ExitDrift {
 		t.Errorf("drift_accept with write_decisions: %+v, want the decisions in %s", r, decisions)
@@ -241,9 +242,9 @@ func TestAWSDriftMCPRules(t *testing.T) {
 	setDecision(t, decisions, "tags.team", report.DriftAccept)
 	fixture.apply(ctx, t, account, tfexec.Var("team=ops"), tfexec.Var("owner=ml"))
 	r = callDriftTool(ctx, t, session, "drift_accept", accept(map[string]any{"decisions": decisions, "write_decisions": true}))
-	if len(asked) != 3 || !strings.Contains(asked[2], `the decisions file "`+decisions+`"`) || !strings.Contains(asked[2], "accept 1 of them") ||
-		!strings.Contains(asked[2], `written into the decisions file "`+decisions+`"`) {
-		t.Errorf("drift_accept with decisions asked the user %q, want a confirmation of accepting the team by the decisions file", asked[2:])
+	if len(asked) != 4 || !strings.Contains(asked[3], `the decisions file "`+decisions+`" accept into the roots' code`) ||
+		!strings.Contains(asked[3], `written into the decisions file "`+decisions+`"`) {
+		t.Errorf("drift_accept with decisions asked the user %q, want a confirmation of accepting by the decisions file", asked[3:])
 	}
 	if r.ExitCode != report.ExitDrift || r.Totals.Written != 1 || r.Decisions != decisions {
 		t.Errorf("drift_accept with decisions: %+v", r)

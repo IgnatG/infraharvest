@@ -5,7 +5,6 @@ package azure
 
 import (
 	"context"
-	"log"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -110,29 +109,14 @@ func (az *Service) recordTagged(id, name, resourceType string, tags map[string]*
 
 // listAll returns the non-nil items of every page of pager, in order, as
 // items picks them out of each page. On the first page that fails it stops
-// and returns the items of the pages before it with the error.
+// and returns the items of the pages before it with the error, so that a
+// lister that would rather keep part of a listing than none can record
+// them and return the error as partial (see harvest.Partial).
 func listAll[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T) ([]*T, error) {
-	return collectPages(ctx, pager, items, false)
-}
-
-// listAllLenient is listAll for listings where part of the result beats
-// none: a page after the first that fails is logged, and the items of the
-// pages before it are returned without an error. A first page that fails
-// is still an error.
-func listAllLenient[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T) ([]*T, error) {
-	return collectPages(ctx, pager, items, true)
-}
-
-// collectPages walks pager for listAll and, with lenient, listAllLenient.
-func collectPages[P any, T any](ctx context.Context, pager *runtime.Pager[P], items func(P) []*T, lenient bool) ([]*T, error) {
 	var collected []*T
-	for first := true; pager.More(); first = false {
+	for pager.More() {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			if lenient && !first {
-				log.Printf("azurerm: a page of a list failed, keeping the %d items listed before it: %v", len(collected), err)
-				return collected, nil
-			}
 			return collected, err
 		}
 		for _, item := range items(page) {
