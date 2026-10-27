@@ -909,3 +909,10 @@ resource "aws_s3_bucket_policy" "logs" {
 		t.Error("linked to an empty cluster")
 	}
 }
+
+func TestAddressType(t *testing.T) {
+	t.Parallel()
+	if got := AddressType(`module.logs.aws_s3_bucket.this[0]`); got != "aws_s3_bucket" {
+		t.Errorf("AddressType: %q", got)
+	}
+}

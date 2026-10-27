@@ -835,6 +835,13 @@ func importTargetsIn(f *hclFile) map[string]string {
 	return targets
 }
 
+// AddressType returns the resource type of an address, such as
+// aws_sqs_queue for aws_sqs_queue.this["orders"] or
+// module.logs.aws_s3_bucket.this[0].
+func AddressType(address string) string {
+	return addressType(address)
+}
+
 // addressType returns the resource type of an address such as
 // aws_s3_bucket.logs or module.logs.aws_s3_bucket.this[0].
 func addressType(address string) string {

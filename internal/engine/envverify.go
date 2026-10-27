@@ -57,10 +57,3 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		return check, sensitiveValues(p), nil
 	})
 }
-
-// AddressType returns the resource type of an address, such as
-// aws_sqs_queue for aws_sqs_queue.this["orders"] or
-// module.logs.aws_s3_bucket.this[0].
-func AddressType(address string) string {
-	return addressType(address)
-}

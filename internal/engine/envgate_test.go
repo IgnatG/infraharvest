@@ -736,13 +736,6 @@ func TestMergeStackIsolated(t *testing.T) {
 	}
 }
 
-func TestAddressType(t *testing.T) {
-	t.Parallel()
-	if got := AddressType(`module.logs.aws_s3_bucket.this[0]`); got != "aws_s3_bucket" {
-		t.Errorf("AddressType: %q", got)
-	}
-}
-
 // VerifyMerged plans a merged root as one environment, with its var
 // files, and expects its imports.
 func TestVerifyMerged(t *testing.T) {
