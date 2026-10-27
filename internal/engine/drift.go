@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -634,10 +635,12 @@ func hasDrift(p *tfjson.Plan) bool {
 }
 
 // valueLeaf is one attribute that differs between two values: its path,
-// as changedLeaves writes it, both values, whether the second is known
-// only after apply, and whether either is sensitive.
+// as changedLeaves writes it, the name its values go by (see entryKey),
+// both values, whether the second is known only after apply, and whether
+// either is sensitive.
 type valueLeaf struct {
 	path          string
+	key           string
 	before, after any
 	unknown       bool
 	sensitive     bool
@@ -648,15 +651,15 @@ type valueLeaf struct {
 // mark them sensitive, sorted by path.
 func valueLeaves(before, after, afterUnknown, beforeSensitive, afterSensitive any) []valueLeaf {
 	var leaves []valueLeaf
-	diffValues("", before, after, afterUnknown, beforeSensitive, afterSensitive, false, &leaves)
+	diffValues("", "", before, after, afterUnknown, beforeSensitive, afterSensitive, false, &leaves)
 	sort.Slice(leaves, func(i, j int) bool { return leaves[i].path < leaves[j].path })
 	return leaves
 }
 
-func diffValues(path string, before, after, unknown, bs, as any, sensitive bool, out *[]valueLeaf) {
+func diffValues(path, key string, before, after, unknown, bs, as any, sensitive bool, out *[]valueLeaf) {
 	sensitive = sensitive || marked(bs) || marked(as)
 	if u, ok := unknown.(bool); ok && u {
-		*out = append(*out, valueLeaf{path: path, before: before, unknown: true, sensitive: sensitive})
+		*out = append(*out, valueLeaf{path: path, key: key, before: before, unknown: true, sensitive: sensitive})
 		return
 	}
 	bm, bok := before.(map[string]any)
@@ -679,17 +682,23 @@ func diffValues(path string, before, after, unknown, bs, as any, sensitive bool,
 			if path != "" {
 				sub = path + "." + k
 			}
-			diffValues(sub, bm[k], am[k], um[k], maskKey(bs, k), maskKey(as, k), sensitive, out)
+			// The name the cloud's value goes by, or the state's where
+			// the cloud has none or the state's names a secret.
+			name := entryKey(am, k)
+			if b := entryKey(bm, k); !aok || secretKeyName(b) {
+				name = b
+			}
+			diffValues(sub, name, bm[k], am[k], um[k], maskKey(bs, k), maskKey(as, k), sensitive, out)
 		}
 	case (blok || before == nil) && (alok || after == nil) && (blok || alok || ulok):
 		for i := 0; i < max(len(bl), len(al), len(ul)); i++ {
-			diffValues(fmt.Sprintf("%s[%d]", path, i), at(bl, i), at(al, i), at(ul, i), maskIndex(bs, i), maskIndex(as, i), sensitive, out)
+			diffValues(fmt.Sprintf("%s[%d]", path, i), key, at(bl, i), at(al, i), at(ul, i), maskIndex(bs, i), maskIndex(as, i), sensitive, out)
 		}
 	}
 	// A JSON document, such as a policy, that only its formatting changed
 	// is the same value (see driftSameValue).
 	if len(*out) == n && !driftSameValue(before, after) {
-		*out = append(*out, valueLeaf{path: path, before: before, after: after, sensitive: sensitive})
+		*out = append(*out, valueLeaf{path: path, key: key, before: before, after: after, sensitive: sensitive})
 	}
 }
 
@@ -820,7 +829,7 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 		for _, l := range driftLeaves(rc.Type, leaves, stateOnly) {
 			c := base
 			c.Kind, c.Attribute = DriftChanged, l.path
-			c.Before, c.After = redactDriftValue(l.before, l.sensitive, forms), redactDriftValue(l.after, l.sensitive, forms)
+			c.Before, c.After = redactDriftValue(l.before, l.key, l.sensitive, forms), redactDriftValue(l.after, l.key, l.sensitive, forms)
 			c.value, c.sensitive = l.after, l.sensitive
 			c.Outcome = DriftAbsorbed
 			if p != nil {
@@ -896,34 +905,105 @@ func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 	return textForms(values)
 }
 
-// redactDriftValue returns v as a report may show it: "(sensitive value)"
-// if sensitive, else with every string that looks like a credential (see
-// credentialFormat) replaced, and every sensitive value of forms in the
-// others.
-func redactDriftValue(v any, sensitive bool, forms []string) any {
+// redactDriftValue returns v, which goes by key (see entryKey), as a
+// report may show it: "(sensitive value)" if sensitive, else with every
+// string that is a secret (see driftSecret) replaced, its own key or that
+// of the map or JSON document it is in deciding, map keys in a credential
+// format too, and every sensitive value of forms in the others.
+func redactDriftValue(v any, key string, sensitive bool, forms []string) any {
 	if sensitive {
 		return redacted
 	}
+	return redactNamed(v, key, true, forms)
+}
+
+// redactNamed is redactDriftValue for a value that isn't sensitive. named
+// says keys say what a value is: not below an IAM policy's Condition,
+// whose keys are AWS's condition keys, as secretsInJSONString has it.
+func redactNamed(v any, key string, named bool, forms []string) any {
 	switch v := v.(type) {
 	case string:
-		if credentialFormat(v) != "" {
+		if !named {
+			key = ""
+		}
+		if driftSecret(key, v) {
 			return redacted
+		}
+		// A JSON document, such as a container definition, is looked
+		// into as import looks into one, and written again only if a
+		// secret in it was replaced.
+		if doc, ok := decodeJSONDocument(v); ok {
+			if out := redactNamed(doc, key, named, forms); !reflect.DeepEqual(out, doc) {
+				if b, err := json.Marshal(out); err == nil {
+					return redactText(string(b), forms)
+				}
+				return redacted
+			}
 		}
 		return redactText(v, forms)
 	case map[string]any:
 		out := make(map[string]any, len(v))
-		for k, sub := range v {
-			out[redactText(k, forms)] = redactDriftValue(sub, false, forms)
+		// A key in a credential format, such as a map keyed by tokens,
+		// is a secret too: each becomes "(sensitive value) #n", n
+		// counting them in the order of the keys, so that they stay
+		// apart and a report is the same each time.
+		hidden := 0
+		for _, k := range sortedKeys(v) {
+			shown := redactText(k, forms)
+			if credentialFormat(k) != "" {
+				hidden++
+				shown = fmt.Sprintf("%s #%d", redacted, hidden)
+			}
+			out[shown] = redactNamed(v[k], entryKey(v, k), named && k != "Condition", forms)
 		}
 		return out
 	case []any:
 		out := make([]any, len(v))
 		for i, sub := range v {
-			out[i] = redactDriftValue(sub, false, forms)
+			out[i] = redactNamed(sub, key, named, forms)
 		}
 		return out
 	}
 	return v
+}
+
+// driftSecret reports whether value, which goes by key, is a secret a
+// report mustn't show: one in a credential format, or one whose key names
+// a secret and that holds one, as import decides for a map key (see
+// secretReason). Looking random alone, which import takes for a secret only
+// in a map, doesn't make it one here: a report can't tell a map key from a
+// provider's argument, whose IDs and digests look random.
+func driftSecret(key, value string) bool {
+	return secretReason(key, value, secretKeyName(key)) != ""
+}
+
+// entryKey returns the name the entry k of m goes by, as import has it
+// (see secretsInPolicy): k, but for the value of a name/value pair, such as
+// a container's environment variable, the pair's name, and "" if the
+// pair's type says the value names a secret kept elsewhere.
+func entryKey(m map[string]any, k string) string {
+	if k != "value" && k != "Value" {
+		return k
+	}
+	name := firstString(m, "name", "Name", "key", "Key")
+	switch {
+	case name == "":
+		return k
+	case isReferenceType(firstString(m, "type", "Type")):
+		return ""
+	}
+	return name
+}
+
+// firstString returns the first of keys whose value in m is a string
+// other than "", or "".
+func firstString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if s, ok := m[k].(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // maxSourceExpression is the longest expression a DriftSource quotes.
