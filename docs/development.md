@@ -19,6 +19,7 @@ Everything but `main.go` and `pkg/cfn` is under `internal/`: infraharvest has no
 | `internal/engine` | Runs Terraform or OpenTofu: import blocks, `plan -generate-config-out`, repairs, references, locals, modules, secrets, and the verification gate, for a root of its own (`Generate`) or added to one (`Add`), and the root environments share (`MergeRoots`). It never writes state and never applies. |
 | `internal/adapters` | Curated module adapters (module, exact version, mapping), the snapshots of module interfaces they are checked against, and `cmd/adaptercheck`, which the nightly `adapters` workflow runs. |
 | `internal/discovery` | Runs the listing: one discoverer per service and scope (account and region, subscription, project), each with its deadline, a bounded number at a time. |
+| `internal/driftpolicy` | What `infraharvest drift` does with each change it finds: the rules of `--accept`, `--keep` and `--rules`, the decisions file, the order they decide in (`Decider`), and the preview the MCP server asks the user to confirm. The importer applies what it decides. |
 | `internal/selection`, `report`, `managed`, `config` | The selection file and the default selection (`Sources`, which decides each listed resource and why), the report, the resources state already manages (S3, GCS, Azure Blob, HCP Terraform), and the configuration file. |
 | `pkg/cfn`, `internal/cfnhcl`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), what it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
@@ -55,7 +56,8 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/engine` | `internal/providers/*`, `harvest`, `importer`, `cli`, `mcpserver` | It runs Terraform on import blocks for any provider; the importer drives it. |
 | `internal/harvest` | `report`, `engine`, `importer`, `internal/providers/*`, `cli`, `mcpserver` | It is the API listers implement: it lists and never runs Terraform. |
 | `internal/providers/*` | `cli`, `mcpserver`, each other, and `importer` outside tests | Listers implement `harvest`; `internal/cli/providers` registers them, and each builds alone (`-tags minimal,aws`). |
-| `internal/mcpserver` | `internal/providers/*` | It reads the providers compiled in through `internal/cli/providers`. |
+| `internal/mcpserver` | `internal/providers/*`, `importer` | It reads the providers compiled in through `internal/cli/providers`, and runs the `infraharvest` binary for imports and drift, whose rules and decisions it reads through `internal/driftpolicy`. |
+| `internal/driftpolicy` | `importer`, `cli`, `mcpserver` | The importer, the commands and the MCP server use it; it reads changes as the report has them. |
 | `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
 | `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
