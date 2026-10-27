@@ -89,6 +89,20 @@ jobs:
               }
             }
 
+            // A name a commit gives its author, which whoever made the commit
+            // chose, as the comment and the log show it: in a code span, so
+            // that markdown, HTML and @mentions in it do nothing, without
+            // the backticks and line breaks that would end the span or the
+            // line, and cut short.
+            function quoted(name) {
+              const clean = String(name)
+                .replace(/[\u0000-\u001f\u007f`@<>[\]\\]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 100);
+              return '`' + (clean || 'no name') + '`';
+            }
+
             // The pull request's head commit and the authors of its commits:
             // GitHub users by login, and authors no GitHub user matches by
             // the name in the commit.
@@ -103,7 +117,7 @@ jobs:
                     users.set(c.author.login, c.author.id);
                   }
                 } else {
-                  unknown.add(c.commit.author ? c.commit.author.name : c.sha);
+                  unknown.add(quoted(c.commit.author ? c.commit.author.name : c.sha));
                 }
               }
               return { head: pr.head.sha, users, unknown };
