@@ -260,11 +260,14 @@ func TestCheckUnreadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	under := filepath.Join(file, "sub")
-	if err := CheckTree(under); err == nil {
-		t.Error("CheckTree under a file: want an error")
-	}
-	if err := CheckFile(under); err == nil {
-		t.Error("CheckFile under a file: want an error")
+	// Windows answers a path under a file as one that isn't there.
+	if runtime.GOOS != "windows" {
+		if err := CheckTree(under); err == nil {
+			t.Error("CheckTree under a file: want an error")
+		}
+		if err := CheckFile(under); err == nil {
+			t.Error("CheckFile under a file: want an error")
+		}
 	}
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		return

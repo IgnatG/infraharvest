@@ -42,7 +42,7 @@ func TestWriteBootstrap(t *testing.T) {
 		{name: "no configuration file", want: "config.yaml"},
 		{name: "configuration that doesn't load", config: "version: 2\n", want: "version 2 isn't supported"},
 		{name: "no backend", config: "version: 1\n", want: "has no backend to bootstrap"},
-		{name: "output directory is a file", config: s3, outIsFile: true, want: "not a directory"},
+		{name: "output directory is a file", config: s3, outIsFile: true, want: "mkdir "}, // "not a directory", or on Windows "cannot find the path",
 		{name: "message can't be written", config: s3, failWrite: true, want: errStub.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
