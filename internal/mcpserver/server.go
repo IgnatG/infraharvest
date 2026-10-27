@@ -47,6 +47,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
+	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
 // Runner runs infraharvest with args and returns its standard output, its
@@ -169,8 +170,9 @@ type tools struct {
 
 	mu sync.Mutex
 	// issued are the states of the runs the server asked the user to
-	// confirm, and hasn't run yet (see confirmationState).
-	issued map[string]bool
+	// confirm, and hasn't run yet (see confirmationState), the one asked
+	// about longest ago first: at most maxIssued.
+	issued []string
 }
 
 // within checks that path, which the agent chose, is under the root: an
@@ -664,18 +666,12 @@ func warnings(r *report.Report) []string {
 	return w
 }
 
-// Exit codes of a run a signal stopped, 128 and the signal's number, as
-// infraharvest exits on SIGINT and SIGTERM.
-const (
-	exitInterrupted = 130
-	exitTerminated  = 143
-)
-
 // stopped reports whether a run that exited with code was stopped by a
-// signal: one it caught, or one that killed it, for which the exit code is
+// signal: one it caught, with the exit code infraharvest exits with on
+// SIGINT or SIGTERM, or one that killed it, for which the exit code is
 // negative.
 func stopped(code int) bool {
-	return code < 0 || code == exitInterrupted || code == exitTerminated
+	return code < 0 || code == report.ExitInterrupted || code == report.ExitTerminated
 }
 
 // confirmation names the import tool's request for the user's confirmation.
@@ -746,15 +742,24 @@ func (t *tools) confirm(req *mcp.CallToolRequest, c userConfirmation) *mcp.CallT
 	return nil
 }
 
+// maxIssued is how many runs the server waits for the user's answer on at
+// once. A request the user never answers, or the client never calls back
+// about, would otherwise be kept as long as the server runs; once there
+// are more, the one asked longest ago is forgotten, and an answer to it
+// is refused as one to a request never made.
+const maxIssued = 64
+
 // issue records that the server asked the user to confirm the run state
-// identifies.
+// identifies, forgetting the run asked about longest ago once more than
+// maxIssued wait. A run asked about again counts from then.
 func (t *tools) issue(state string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.issued == nil {
-		t.issued = map[string]bool{}
+	t.issued = slices.DeleteFunc(t.issued, func(s string) bool { return s == state })
+	t.issued = append(t.issued, state)
+	if len(t.issued) > maxIssued {
+		t.issued = slices.Delete(t.issued, 0, len(t.issued)-maxIssued)
 	}
-	t.issued[state] = true
 }
 
 // redeem reports whether the server asked the user to confirm the run
@@ -762,10 +767,11 @@ func (t *tools) issue(state string) {
 func (t *tools) redeem(state string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if !t.issued[state] {
+	i := slices.Index(t.issued, state)
+	if i < 0 {
 		return false
 	}
-	delete(t.issued, state)
+	t.issued = slices.Delete(t.issued, i, i+1)
 	return true
 }
 
@@ -943,9 +949,9 @@ func scopeHelp(compiled Providers) string {
 				needed = append(needed, jsonName(field))
 			}
 		}
-		takes = append(takes, provider+" takes "+sentenceJoin(fields, "and"))
+		takes = append(takes, provider+" takes "+sentence.List(fields, "and"))
 		if len(needed) > 0 {
-			needs = append(needs, " The "+provider+" command needs "+sentenceJoin(needed, "or")+".")
+			needs = append(needs, " The "+provider+" command needs "+sentence.List(needed, "or")+".")
 		}
 	}
 	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + "." + strings.Join(needs, "")
@@ -968,15 +974,6 @@ func jsonName(field reflect.StructField) string {
 	return name
 }
 
-// sentenceJoin joins words as a sentence lists them, with conjunction
-// before the last: a, b and c.
-func sentenceJoin(words []string, conjunction string) string {
-	if len(words) < 2 {
-		return strings.Join(words, "")
-	}
-	return strings.Join(words[:len(words)-1], ", ") + " " + conjunction + " " + words[len(words)-1]
-}
-
 // scopeSchema returns the input schema of a tool whose input In embeds
 // Scope, as the SDK would infer it, with the provider commands compiled
 // in after the provider's description: the provider command: aws, azure
@@ -988,7 +985,7 @@ func scopeSchema[In any](names []string) *jsonschema.Schema {
 		panic(fmt.Sprintf("mcpserver: the input schema of %T: %v", *new(In), err))
 	}
 	provider := schema.Properties["provider"]
-	provider.Description += ": " + sentenceJoin(names, "or")
+	provider.Description += ": " + sentence.List(names, "or")
 	return schema
 }
 

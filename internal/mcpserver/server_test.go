@@ -876,6 +876,31 @@ func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
 	}
 }
 
+// The server forgets the runs it asked about longest ago once more than
+// maxIssued wait for an answer, so that requests never answered don't
+// pile up; a run asked about again counts from then.
+func TestIssueForgetsTheOldestUnanswered(t *testing.T) {
+	tools := newTools(&fakeRunner{}, t.TempDir())
+	for i := range maxIssued {
+		tools.issue(fmt.Sprint(i))
+	}
+	// Asked again, 0 is no longer the oldest: 1 is, which the next run
+	// asked about pushes out.
+	tools.issue("0")
+	tools.issue(fmt.Sprint(maxIssued))
+	if len(tools.issued) != maxIssued {
+		t.Errorf("waiting on %d runs, want %d", len(tools.issued), maxIssued)
+	}
+	if tools.redeem("1") {
+		t.Error("the run asked about longest ago was redeemed, want it forgotten")
+	}
+	for _, state := range []string{"0", "2", fmt.Sprint(maxIssued)} {
+		if !tools.redeem(state) {
+			t.Errorf("run %s wasn't redeemed", state)
+		}
+	}
+}
+
 // The command a user is told to run reads back as the same arguments, and
 // what the agent sends can't make the confirmation say something else.
 func TestValuesShownToTheUser(t *testing.T) {
@@ -1091,7 +1116,7 @@ func TestTailBoundsLines(t *testing.T) {
 // A discover a signal stopped may not have written the selection file:
 // one that is there may be an earlier run's, so it isn't read.
 func TestDiscoverStopped(t *testing.T) {
-	for _, code := range []int{exitInterrupted, exitTerminated, -1} {
+	for _, code := range []int{report.ExitInterrupted, report.ExitTerminated, -1} {
 		runner := &fakeRunner{discoverExit: code, discoverStderr: "interrupted\n"}
 		dir := t.TempDir()
 		session := connect(t, runner, dir, nil)
