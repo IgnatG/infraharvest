@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -545,6 +546,11 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	// The plan the configuration was generated with no longer holds once
 	// an edit above changed it (see replanReason).
 	if len(reasons) > 0 {
+		why := make([]string, len(reasons))
+		for i, reason := range reasons {
+			why[i] = string(reason)
+		}
+		log.Printf("%s: planning %s again: %s", dir, GeneratedFileName, strings.Join(why, ", "))
 		if err := replan(); err != nil {
 			return nil, err
 		}
