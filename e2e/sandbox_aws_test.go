@@ -574,7 +574,7 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 	coverage := readCoverage(t, out)
 	inRoot := 0
 	for _, e := range coverage.Excluded {
-		if e.Reason == report.ReasonInRoot {
+		if e.Owner == report.OwnerTerraformRoot {
 			inRoot++
 		}
 	}

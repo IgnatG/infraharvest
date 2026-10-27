@@ -55,7 +55,7 @@ func regenerating(out string, byDir map[string][]engine.Import) *listedCall {
 func excludedIDs(run *Run) []string {
 	var ids []string
 	for _, e := range run.report.Excluded {
-		if root, ok := strings.CutPrefix(e.Reason, report.ReasonInOtherRoot+", "); ok {
+		if root, ok := strings.CutPrefix(e.Reason, whyText(report.InOtherRoot(""))); ok {
 			ids = append(ids, e.ID+" "+root)
 		}
 	}
@@ -585,4 +585,12 @@ func TestListCallRegenerateWarnsWhenTheRootAResourceLeavesFails(t *testing.T) {
 	if len(got) != 1 || got[0].ID != "id-zeta" || got[0].FromRoot != "fake/all" || got[0].ToRoot != "fake/zeta" || got[0].FailedRoot != "fake/all" {
 		t.Errorf("incomplete handovers %+v", got)
 	}
+}
+
+// whyText is what the report says of a resource an import left out for
+// why.
+func whyText(why report.Why) string {
+	var r report.Report
+	r.Exclude("", "", "", why)
+	return r.Excluded[0].Reason
 }
