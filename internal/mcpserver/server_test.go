@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -1146,9 +1145,6 @@ func TestReportBoundsALongReport(t *testing.T) {
 // tool would otherwise read as the report, is refused, as any file the
 // agent names is.
 func TestReportRefusesAHardLinkedReport(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows' file info doesn't count hard links")
-	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "generated", report.Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

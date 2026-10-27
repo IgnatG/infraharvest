@@ -227,9 +227,44 @@ func checkWithin(what, root, path string) error {
 		if !under(resolvedRoot, resolved) {
 			return fmt.Errorf("%s %q must be under %s", what, path, root)
 		}
+		if err := noJunctionsBelow(resolvedRoot, resolved); err != nil {
+			return fmt.Errorf("%s %q: %w", what, path, err)
+		}
 	}
 	if !under(root, abs) {
 		return fmt.Errorf("%s %q must be under %s", what, path, root)
+	}
+	return nil
+}
+
+// noJunctionsBelow checks that no directory or file on the way from root
+// to path, which resolve returned and is under root, both of which are
+// absolute, is a link resolve doesn't follow (see unfollowedLink): a
+// junction on Windows, which Go reports as fs.ModeIrregular since 1.23,
+// not as a symbolic link, and filepath.EvalSymlinks leaves as it is, so
+// that path seems under the root where it leads out of it.
+func noJunctionsBelow(root, path string) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return err
+	}
+	current := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		linked, err := unfollowedLink(current, info)
+		if err != nil {
+			return err
+		}
+		if linked {
+			return fmt.Errorf("%s is a junction or another link that can't be followed", current)
+		}
 	}
 	return nil
 }
@@ -297,8 +332,7 @@ func (t *tools) readWithin(what, path string) (string, []byte, error) {
 // from. The file is opened once, and has to be the file path leads to
 // under the root once it is open, so a link swapped in between the check
 // and the open is refused; and the file may have no other name, as a
-// hard link to a file outside the root would give it, where the platform
-// counts them.
+// hard link to a file outside the root would give it.
 func (t *tools) openWithin(what, path string) (string, *os.File, error) {
 	path, err := t.within(what, path)
 	if err != nil {
@@ -320,8 +354,8 @@ func (t *tools) openWithin(what, path string) (string, *os.File, error) {
 }
 
 // checkOpened checks that f, opened at path, is a regular file, the file
-// path leads to under the root now that it is open, and has no other name,
-// where the platform counts them (see openWithin).
+// path leads to under the root now that it is open, and has no other name
+// (see openWithin).
 func (t *tools) checkOpened(what, path string, f *os.File) error {
 	opened, err := f.Stat()
 	if err != nil {
@@ -346,7 +380,11 @@ func (t *tools) checkOpened(what, path string, f *os.File) error {
 	if !os.SameFile(opened, current) {
 		return fmt.Errorf("%s %q changed while it was opened", what, path)
 	}
-	if hardLinked(opened) {
+	linked, err := hardLinked(f, opened)
+	if err != nil {
+		return err
+	}
+	if linked {
 		return fmt.Errorf("%s %q has another name, a hard link, which could be outside %s", what, path, t.root)
 	}
 	return nil
@@ -981,8 +1019,9 @@ func cutAt(b []byte, limit int) int {
 
 // linksStayUnder checks that no symbolic link under dir, which an import
 // writes into, leads out of the root, as one a cloned repository plants
-// could: the import would write there. Terraform's working directories
-// are skipped, where terraform init links providers from the plugin cache.
+// could: the import would write there; nor is any a junction. Terraform's
+// working directories are skipped, where terraform init links providers
+// from the plugin cache.
 func (t *tools) linksStayUnder(what, dir string) error {
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -991,7 +1030,9 @@ func (t *tools) linksStayUnder(what, dir string) error {
 		if d.IsDir() && d.Name() == ".terraform" {
 			return filepath.SkipDir
 		}
-		if d.Type()&fs.ModeSymlink != 0 {
+		// A junction on Windows is fs.ModeIrregular, which within
+		// refuses (see noJunctionsBelow).
+		if d.Type()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
 			_, err := t.within(what, path)
 			return err
 		}
