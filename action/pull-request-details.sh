@@ -60,14 +60,17 @@ if [[ "$DRIFT" != off && -n "${ENVIRONMENT-}" && "$ENVIRONMENT" != all ]]; then
   branch="$branch-${ENVIRONMENT//,/-}"
 fi
 if [[ -n "${BRANCH-}" ]]; then branch="$BRANCH"; fi
-# The body is the import's report, then the drift report, neither read
-# through a link the repository commits (see linked).
+# The body is the import's report, then the drift report, but not through
+# a symbolic link the repository commits (see unlinked in output.sh).
 body="$RUNNER_TEMP/infraharvest-pull-request.md"
 : > "$body"
 for file in "${IMPORT_REPORT-}" "${DRIFT_REPORT-}"; do
-  if [[ -n "$file" && -f "$file" ]] && ! linked "$file"; then
+  [[ -z "$file" ]] && continue
+  if unlinked "$file"; then
     if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
     cat "$file" >> "$body"
+  elif [[ -e "$file" || -L "$file" ]]; then
+    annotation warning "$file isn't a regular file that no symbolic link leads to: leaving it out of the pull request"
   fi
 done
 output title "$title"

@@ -20,7 +20,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
 
 fail() {
-  echo "::error::$1"
+  annotation error "$1"
   exit 1
 }
 
@@ -61,14 +61,25 @@ sha=$(git rev-parse HEAD)
 
 # The token goes in a header of this push only. An empty extraheader first
 # drops the one actions/checkout keeps, unless persist-credentials is
-# false, so that the push is the token's.
+# false, so that the push is the token's. Both are set in the
+# environment (GIT_CONFIG_COUNT, after any entries the job set there), in
+# a subshell, not with git -c, whose arguments any process on the runner
+# can read.
 server="${GITHUB_SERVER_URL:-https://github.com}"
 auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
 echo "::add-mask::$auth"
 log="$RUNNER_TEMP/infraharvest-push.log"
-if ! git -c "http.$server/.extraheader=" -c "http.$server/.extraheader=AUTHORIZATION: basic $auth" \
-  push --porcelain "$server/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch" > "$log" 2>&1; then
+if ! (
+  n=${GIT_CONFIG_COUNT:-0}
+  export "GIT_CONFIG_KEY_$n=http.$server/.extraheader" "GIT_CONFIG_VALUE_$n="
+  export "GIT_CONFIG_KEY_$((n + 1))=http.$server/.extraheader" "GIT_CONFIG_VALUE_$((n + 1))=AUTHORIZATION: basic $auth"
+  export GIT_CONFIG_COUNT=$((n + 2))
+  exec git push --porcelain "$server/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch"
+) > "$log" 2>&1; then
+  # What the remote said, with no workflow commands taken from it.
+  commands_off
   cat "$log"
+  commands_on
   if grep -q -e 'non-fast-forward' -e 'fetch first' -e '\[rejected\]' "$log"; then
     fail "commit: $branch has commits this checkout doesn't have, so the push was rejected (non-fast-forward); check out the head of $branch, or set commit-branch to another branch"
   fi
