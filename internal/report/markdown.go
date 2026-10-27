@@ -27,9 +27,10 @@ func prose(s string) string {
 	for i := 0; i < len(s); {
 		switch c := s[i]; c {
 		case '\\':
-			// An escaped backtick opens no code span.
-			if i+1 < len(s) && s[i+1] == '`' {
-				b.WriteString("\\`")
+			// An escaped backtick opens no code span, and an escaped
+			// backslash escapes nothing after it: the pair goes as it is.
+			if i+1 < len(s) && (s[i+1] == '`' || s[i+1] == '\\') {
+				b.WriteString(s[i : i+2])
 				i += 2
 				continue
 			}
@@ -73,7 +74,9 @@ func code(s string) string {
 		i += n
 	}
 	fence := strings.Repeat("`", longest+1)
-	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+	if s == "" || strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+		// Empty, the fences would be one run of backticks, which could
+		// pair with others around it.
 		// A space on each side keeps the fence apart from the text's own
 		// backticks; Markdown drops it.
 		s = " " + s + " "
