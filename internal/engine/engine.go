@@ -324,40 +324,18 @@ type Options struct {
 	RefineKey string `json:"-"`
 }
 
-// policy is what tells the two runs of the pipeline apart: Generate's, of a
-// root of its own (see generating), and Add's, of resources to add to a
-// root an earlier import generated (see adding). The passes and the gate
-// of the directory the run generates in read these settings from it, not
-// from Options, which stay as the caller gave them: Add checks the root it
-// adds to with the caller's own Options (see Add).
-type policy struct {
-	// config are the files to write besides imports.tf (see Options.Config).
-	config map[string][]byte
+// run is one run of the pipeline, Generate's, of a root of its own (see
+// generating), or Add's, of resources to add to a root an earlier import
+// generated (see adding): the Options it runs with, which for Add's
+// differ from the caller's, and what it finds on the way, which the
+// passes receive with it. The passes and the gate of the directory the
+// run generates in read its Options; Add checks the root it adds to with
+// the caller's own (see Add).
+type run struct {
+	opts Options
 	// taken are names the run leaves alone, such as those of the root an
 	// add adds to.
 	taken Names
-	// adapters map clusters of resources onto calls of curated modules
-	// (see Options.Adapters).
-	adapters []adapters.Adapter
-	// modulesDir, if set, is where local modules go (see
-	// Options.ModulesDir).
-	modulesDir string
-	// defaultTags, if set, lets the run move shared tags into local.tags
-	// (see Options.DefaultTags).
-	defaultTags *DefaultTags
-	// external are resources the configuration may refer to through data
-	// sources (see Options.External).
-	external []External
-	// splitFiles moves the configuration into the files the imports name
-	// (see Options.SplitFiles).
-	splitFiles bool
-}
-
-// run is one run of the pipeline: the caller's Options, the policy it runs
-// with, and what it finds on the way, which the passes receive with it.
-type run struct {
-	opts   Options
-	policy policy
 	// secrets gives the run's own plans the values of the secrets it found
 	// in the configuration (see literalSecretsToVariables), once it found
 	// any.
@@ -374,14 +352,7 @@ func generating(opts Options) *run {
 	if modules == nil {
 		modules = &ModuleRefs{}
 	}
-	return &run{opts: opts, modules: modules, policy: policy{
-		config:      opts.Config,
-		adapters:    opts.Adapters,
-		modulesDir:  opts.ModulesDir,
-		defaultTags: opts.DefaultTags,
-		external:    opts.External,
-		splitFiles:  opts.SplitFiles,
-	}}
+	return &run{opts: opts, modules: modules}
 }
 
 // replanReason names an edit of generated.tf that makes Generate plan it
@@ -414,9 +385,9 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 	return generate(ctx, tf, dir, imports, generating(opts))
 }
 
-// generate is Generate's pipeline, run as r's policy says.
+// generate is Generate's pipeline, run with r's options.
 func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r *run) (*Result, error) {
-	opts, p := r.opts, r.policy
+	opts := r.opts
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -440,7 +411,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	defer removeEmptyState()
 	redacting := &redactingTerraform{Terraform: withTimeout(tf, opts.CommandTimeout)}
 	tf = &schemaCache{Terraform: redacting}
-	imports = relabelled(imports, p.taken, opts.TidyLabels, opts.Previous)
+	imports = relabelled(imports, r.taken, opts.TidyLabels, opts.Previous)
 	importsHCL, err := ImportsFile(imports)
 	if err != nil {
 		return nil, err
@@ -458,7 +429,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}
-	for name, content := range p.config {
+	for name, content := range opts.Config {
 		files[name] = content
 	}
 	for name, content := range files {
@@ -466,7 +437,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 			return nil, err
 		}
 	}
-	if dt := p.defaultTags; dt != nil && dt.Applied != nil {
+	if dt := opts.DefaultTags; dt != nil && dt.Applied != nil {
 		if err := applyDefaultTags(dir, *dt); err != nil {
 			return nil, err
 		}
@@ -518,7 +489,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	// generated.tf, secrets among them: move those into variables before
 	// anything else reads the file. Generate's own plans read their values
 	// from outside the output (see secretValues).
-	literal, warnings, err := literalSecretsToVariables(generated, p.taken)
+	literal, warnings, err := literalSecretsToVariables(generated, r.taken)
 	if err != nil {
 		return nil, err
 	}
@@ -640,7 +611,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 			kept = append(kept, s)
 		}
 	}
-	if result.Secrets, err = useVariables(ctx, tf, dir, p.taken, kept, &result.Rejected, &rejected, r.secrets.options()); err != nil {
+	if result.Secrets, err = useVariables(ctx, tf, dir, r.taken, kept, &result.Rejected, &rejected, r.secrets.options()); err != nil {
 		return nil, err
 	}
 	if result.Secrets, err = publicSecretsToLiterals(ctx, tf, dir, result.Secrets, r.secrets); err != nil {
@@ -711,7 +682,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 			result.Imported = append(result.Imported, imp)
 		}
 	}
-	if p.splitFiles {
+	if opts.SplitFiles {
 		if result.Files, err = splitFiles(dir, result.Imported, result.Modules); err != nil {
 			return nil, err
 		}
@@ -745,9 +716,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	}
 	// The gate checks the modules the run may call, which for Add's are
 	// fewer than the caller's (see adding).
-	gateOpts := opts
-	gateOpts.Adapters = p.adapters
-	if err := gateRefined(ctx, tf, dir, result, gateOpts, r.secrets, unrefined, warned); err != nil {
+	if err := gateRefined(ctx, tf, dir, result, opts, r.secrets, unrefined, warned); err != nil {
 		return nil, err
 	}
 	// The README shows the gate's details, which come from plans that had

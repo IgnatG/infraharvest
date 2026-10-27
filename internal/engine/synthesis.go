@@ -74,7 +74,7 @@ func (t *trial) moduleAddress(member string) string {
 // each resource's planned change (see changeSignature), until the plan
 // matches; when the plan fails in a way it can't pin on a call, it plans
 // half of the calls at a time to find the calls that fail. A module may set the arguments opts.StateOnly names, which
-// import can't. Calls are named other than the modules r's policy takes.
+// import can't. Calls are named other than the names r takes.
 // values are the imported values, by address: references to what a call
 // takes and has no output for become the values again (see
 // trial.literals). It returns the clusters it didn't move, with why, and
@@ -86,7 +86,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 	if err != nil {
 		return nil, baseline, nil, err
 	}
-	trials, declined, err := mapClusters(dir, r.policy.adapters, r.policy.taken, values)
+	trials, declined, err := mapClusters(dir, opts.Adapters, r.taken, values)
 	if err != nil || len(trials) == 0 {
 		return declined, baseline, nil, err
 	}
@@ -97,7 +97,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 			}
 		}
 	}
-	if err := writeCalls(dir, trials, opts.ModuleProviders, r.policy.defaultTags); err != nil {
+	if err := writeCalls(dir, trials, opts.ModuleProviders, opts.DefaultTags); err != nil {
 		return nil, baseline, nil, errors.Join(err, backup.restore())
 	}
 	if err := initTerraform(ctx, tf); err != nil {
@@ -117,7 +117,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 			return err
 		}
 		written = ts
-		return writeCalls(dir, ts, opts.ModuleProviders, r.policy.defaultTags)
+		return writeCalls(dir, ts, opts.ModuleProviders, opts.DefaultTags)
 	}
 	// pending are the groups of calls still to plan with kept, in turn. A
 	// group whose failure the plan can't pin on one of its calls is halved

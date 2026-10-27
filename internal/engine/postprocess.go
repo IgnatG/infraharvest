@@ -55,7 +55,7 @@ func postProcess(ctx context.Context, tf Terraform, dir string, r *run, secrets 
 		return nil, err
 	}
 	if baseline == nil {
-		return nil, liftLiteralsValidated(ctx, tf, dir, r.policy.taken)
+		return nil, liftLiteralsValidated(ctx, tf, dir, r.taken)
 	}
 	t := &tidying{ctx: ctx, tf: tf, dir: dir, r: r, vars: vars, baseline: *baseline, values: values, changes: changes}
 	passes := t.passes()
@@ -150,7 +150,7 @@ type tidying struct {
 // the run doesn't make, such as the data sources of a run without external
 // resources, does nothing.
 func (t *tidying) passes() []tidyPass {
-	ctx, tf, dir, opts, p := t.ctx, t.tf, t.dir, t.r.opts, t.r.policy
+	ctx, tf, dir, opts, taken := t.ctx, t.tf, t.dir, t.r.opts, t.r.taken
 	return []tidyPass{
 		// Tags an import leaves out of the configuration first: they are
 		// what the passes below compare with, and the shared ones go to a
@@ -166,11 +166,11 @@ func (t *tidying) passes() []tidyPass {
 		// After the references: data sources are for what the root
 		// doesn't manage.
 		{name: passDataSources, after: []string{passReferences}, step: func() (*tidyStep, error) {
-			if len(p.external) == 0 {
+			if len(opts.External) == 0 {
 				return nil, nil
 			}
 			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addDataSourcesSkipping(dir, p.external, opts.DataSources, p.taken, skip)
+				return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
 			}}, nil
 		}},
 		// After the data sources: variables are for what they can't read.
@@ -179,20 +179,20 @@ func (t *tidying) passes() []tidyPass {
 				return nil, nil
 			}
 			return &tidyStep{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addRootVariables(dir, opts.OtherRoots, opts.ARNs, p.taken, skip)
+				return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
 			}}, nil
 		}},
 		// Lookups are for what nothing the import lists has.
 		{name: passLookups, after: []string{passReferences, passDataSources, passRootVariables}, step: func() (*tidyStep, error) {
 			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addLookups(dir, p.taken, skip)
+				return addLookups(dir, taken, skip)
 			}}, nil
 		}},
 		{name: passTagLift, after: []string{passEffectiveTags, passDefaults}, step: t.tagLift},
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
 		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, p.taken) }}, nil
+			return &tidyStep{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
 		}},
 		// After the steps above, as clusters reach the modules through the
 		// references.
@@ -207,7 +207,7 @@ func (t *tidying) passes() []tidyPass {
 			}}, nil
 		}},
 		{name: passProjects, after: []string{passCuratedModules}, step: func() (*tidyStep, error) {
-			if len(p.adapters) == 0 {
+			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
 			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referToProjects(dir) }}, nil
@@ -295,10 +295,10 @@ func (t *tidying) stripDefaults() error {
 // tagLift is the step that moves the tags every resource shares into
 // local.tags, with the run's default tags (see applyTagLift).
 func (t *tidying) tagLift() (*tidyStep, error) {
-	if t.r.policy.defaultTags == nil {
+	if t.r.opts.DefaultTags == nil {
 		return nil, nil
 	}
-	dt, dir := *t.r.policy.defaultTags, t.dir
+	dt, dir := *t.r.opts.DefaultTags, t.dir
 	// The schemas tell which resources the provider tags although they
 	// set no tags.
 	schemas, err := t.tf.ProvidersSchema(t.ctx)
@@ -320,7 +320,7 @@ func (t *tidying) tagLift() (*tidyStep, error) {
 // adapters (see synthesize). Module calls may update arguments import
 // can't set.
 func (t *tidying) synthesize() error {
-	if len(t.r.policy.adapters) == 0 {
+	if len(t.r.opts.Adapters) == 0 {
 		return nil
 	}
 	var err error
@@ -331,10 +331,10 @@ func (t *tidying) synthesize() error {
 // liftModules moves clusters that repeat with the same shape into local
 // modules, in the run's modules directory (see liftModules).
 func (t *tidying) liftModules() error {
-	if t.r.policy.modulesDir == "" {
+	if t.r.opts.ModulesDir == "" {
 		return nil
 	}
-	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.policy.modulesDir, t.r.modules, t.baseline, t.changes, t.vars)
+	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules, t.baseline, t.changes, t.vars)
 	return err
 }
 
