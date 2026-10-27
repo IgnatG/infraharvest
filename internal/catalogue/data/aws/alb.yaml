@@ -5,6 +5,9 @@ types:
   aws_lb:
     # What AWS gives a load balancer that doesn't set them: internet-facing.
     defaults: [enable_prefix_for_ipv6_source_nat=off, internal=false, ip_address_type=ipv4]
+    # subnet_mapping blocks that name every subnet of a module's output,
+    # and nothing else, become subnets, set to the output.
+    blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }
   aws_lb_listener:
     # Mutual TLS that is off.
     omit: [mutual_authentication when mutual_authentication.mode=off]

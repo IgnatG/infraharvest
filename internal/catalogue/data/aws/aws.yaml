@@ -6,3 +6,7 @@ types:
     # listed in; the provider computes tags_all from tags and default_tags,
     # also in nested blocks such as an instance's root_block_device.
     omit: [region, tags_all, "*.tags_all"]
+  # The provider's other name for aws_lb, which no service lists: what the
+  # engine knows of aws_lb holds for configuration that uses it.
+  aws_alb:
+    blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }

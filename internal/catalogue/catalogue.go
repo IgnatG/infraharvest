@@ -120,6 +120,9 @@ type Entry struct {
 	// sensitive argument that is a secret only where another argument
 	// says so.
 	SecretWhen *SecretWhen `yaml:"secret_when,omitempty"`
+	// BlocksAsList, of the fields the engine reads, is a nested block that
+	// only names an element of a list an argument takes instead.
+	BlocksAsList *BlocksAsList `yaml:"blocks_as_list,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

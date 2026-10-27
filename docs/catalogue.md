@@ -54,6 +54,7 @@ The comment on the first line lets editors with the YAML language server check f
 | `arn` | AWS only: the ARN's `service` and `resource_type`, for types whose IDs aren't ARNs, so tags can be matched to resources. |
 | `cloud_control` | AWS only: the CloudFormation `type` and the `identifier` property of a type listed through the Cloud Control API. The identifier is the import ID. |
 | `inventory` | The `type` a cloud's inventory API lists resources of the type as, and, when that type covers several Terraform types, the `name` pattern of this one's resources (see [Inventory types](#inventory-types)). |
+| `blocks_as_list` | Built-in only: a nested `block` that only sets `attribute` to an element of a list, which `argument` takes as the list instead, such as a load balancer's `subnet_mapping` blocks and its `subnets`. Blocks that name every element of a module's list output, and nothing else, become the argument, set to the output. |
 | `secret_when` | Built-in only: a sensitive argument that is a secret only where another argument, `when`, has one of the values `in`, such as an SSM parameter's `value`, which only a `SecureString`'s is. Elsewhere generated configuration has the value as it is, rather than in a variable. |
 
 What needs the cloud to decide, such as whether a VPC is the default one or a CloudFormation stack manages a resource, stays in the provider's code.

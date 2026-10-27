@@ -31,7 +31,8 @@ func ForType(typ string) *Catalogue {
 // built-in catalogue alone (see ForType), so one an overlay set would
 // change nothing.
 var builtinOnly = map[string]func(*Entry) bool{
-	"secret_when": func(e *Entry) bool { return e.SecretWhen != nil },
+	"blocks_as_list": func(e *Entry) bool { return e.BlocksAsList != nil },
+	"secret_when":    func(e *Entry) bool { return e.SecretWhen != nil },
 }
 
 // checkBuiltinOnly reports the fields an overlay's entry sets that only
@@ -73,11 +74,14 @@ func (c *Catalogue) SecretWhen(typ string) (SecretWhen, bool) {
 func checkGeneration(typ string, e *Entry) []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
-	if typ == AllTypes && e.SecretWhen != nil {
-		fail("the entry for every type takes no secret_when")
+	if typ == AllTypes && (e.SecretWhen != nil || e.BlocksAsList != nil) {
+		fail("the entry for every type takes no secret_when or blocks_as_list")
 	}
 	if s := e.SecretWhen; s != nil && (!identifier.MatchString(s.Argument) || !identifier.MatchString(s.When) || len(s.In) == 0) {
 		fail("secret_when: want an argument, the argument that decides, and the values of that one that make it secret")
+	}
+	if b := e.BlocksAsList; b != nil && (!identifier.MatchString(b.Block) || !identifier.MatchString(b.Attribute) || !identifier.MatchString(b.Argument)) {
+		fail("blocks_as_list: want a block, its attribute and the argument that takes the list")
 	}
 	return errs
 }
@@ -85,7 +89,29 @@ func checkGeneration(typ string, e *Entry) []error {
 // copyGeneration copies into copied, a copy of e, the fields of e the
 // engine reads, sharing nothing with e.
 func copyGeneration(copied, e *Entry) {
+	copied.BlocksAsList = clonePointer(e.BlocksAsList)
 	if e.SecretWhen != nil {
 		copied.SecretWhen = &SecretWhen{Argument: e.SecretWhen.Argument, When: e.SecretWhen.When, In: slices.Clone(e.SecretWhen.In)}
 	}
+}
+
+// BlocksAsList is a type's nested block that only names an element of a
+// list, which an argument of the type takes as the list instead, such as
+// a load balancer's subnet_mapping blocks, each with a subnet_id, and its
+// subnets: blocks that name every element of a module's list output, and
+// nothing else, become the argument, set to the output.
+type BlocksAsList struct {
+	Block     string `yaml:"block"`
+	Attribute string `yaml:"attribute"`
+	Argument  string `yaml:"argument"`
+}
+
+// BlocksAsList returns the type's blocks that only name an element of a
+// list, if it has them.
+func (c *Catalogue) BlocksAsList(typ string) (BlocksAsList, bool) {
+	e, ok := c.entries[typ]
+	if !ok || e.BlocksAsList == nil {
+		return BlocksAsList{}, false
+	}
+	return *e.BlocksAsList, true
 }

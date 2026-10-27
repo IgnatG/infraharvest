@@ -183,6 +183,17 @@
             "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" }
           }
         },
+        "blocks_as_list": {
+          "description": "Built-in files only: a nested block that only names an element of a list, which argument takes as the list instead, such as a load balancer's subnet_mapping blocks and subnets: blocks that name every element of a module's list output become argument, set to the output.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["block", "attribute", "argument"],
+          "properties": {
+            "block": { "$ref": "#/$defs/name" },
+            "attribute": { "$ref": "#/$defs/name" },
+            "argument": { "$ref": "#/$defs/name" }
+          }
+        },
         "secret_when": {
           "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
           "type": "object",
