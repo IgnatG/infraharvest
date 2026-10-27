@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	svchost "github.com/hashicorp/terraform-svchost"
+
 	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
@@ -40,19 +42,35 @@ type Store struct {
 
 // New opens the API of host with the token Terraform uses for it:
 // TF_TOKEN_<host> (dots as _, hyphens as __), or the one terraform login
-// saved in credentials.tfrc.json.
+// saved in credentials.tfrc.json. host must be a hostname, with an
+// optional port, as Terraform takes it; it is normalised as Terraform
+// does (lower case, Punycode, no :443), so that it gets the token
+// Terraform would send to it and no other.
 func New(_ context.Context, host string) (managed.ObjectStore, error) {
-	token, err := apiToken(host, os.Getenv)
+	hostname, err := svchost.ForComparison(host)
+	if err != nil {
+		return nil, fmt.Errorf("HCP Terraform host %q: %w", host, err)
+	}
+	token, err := apiToken(hostname, os.Environ(), os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{client: &http.Client{Timeout: time.Minute}, base: "https://" + host + "/api/v2", token: token}, nil
+	base := "https://" + string(hostname) + "/api/v2"
+	return &Store{client: &http.Client{Timeout: time.Minute, CheckRedirect: tokenOnlyTo(base)}, base: base, token: token}, nil
 }
 
-// apiToken returns the API token for host, as Terraform finds it.
-func apiToken(host string, getenv func(string) string) (string, error) {
-	name := "TF_TOKEN_" + strings.NewReplacer(".", "_", "-", "__").Replace(host)
-	if token := getenv(name); token != "" {
+// apiToken returns the API token for host, as Terraform finds it: from the
+// last TF_TOKEN_ variable of environ whose name decodes to host, or else
+// from the credentials file entry whose key normalises to host.
+func apiToken(host svchost.Hostname, environ []string, getenv func(string) string) (string, error) {
+	var token string
+	for _, kv := range environ {
+		name, value, _ := strings.Cut(kv, "=")
+		if h, ok := tokenHost(name); ok && h == host {
+			token = value
+		}
+	}
+	if token != "" {
 		return token, nil
 	}
 	path, err := credentialsFile(getenv)
@@ -72,11 +90,50 @@ func apiToken(host string, getenv func(string) string) (string, error) {
 		if err := json.Unmarshal(content, &file); err != nil {
 			return "", fmt.Errorf("%s: %w", path, err)
 		}
-		if token := file.Credentials[host].Token; token != "" {
-			return token, nil
+		for key, c := range file.Credentials {
+			if h, err := svchost.ForComparison(key); err == nil && h == host && c.Token != "" {
+				return c.Token, nil
+			}
 		}
 	}
+	name := "TF_TOKEN_" + strings.NewReplacer(".", "_", "-", "__").Replace(string(host))
 	return "", fmt.Errorf("no API token for %s: run terraform login %s, or set %s", host, host, name)
+}
+
+// tokenHost returns the host a TF_TOKEN_ variable's name holds the token
+// of, decoded as Terraform does: __ as a hyphen, then _ as a dot, then
+// normalised. ok is false for another variable, or one that names no
+// valid host.
+func tokenHost(name string) (host svchost.Hostname, ok bool) {
+	raw, ok := strings.CutPrefix(name, "TF_TOKEN_")
+	if !ok {
+		return "", false
+	}
+	raw = strings.ReplaceAll(strings.ReplaceAll(raw, "__", "-"), "_", ".")
+	host, err := svchost.ForComparison(svchost.ForDisplay(raw))
+	return host, err == nil
+}
+
+// tokenOnlyTo returns a redirect policy that keeps the token only on
+// redirects to base's host over https: Go would also send it to that
+// host over http, and to its subdomains.
+func tokenOnlyTo(base string) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		if !sendsToken(base, req.URL) {
+			req.Header.Del("Authorization")
+		}
+		return nil
+	}
+}
+
+// sendsToken reports whether a request to u may carry the token: only
+// one over https to the API's host.
+func sendsToken(base string, u *url.URL) bool {
+	api, err := url.Parse(base)
+	return err == nil && u.Scheme == "https" && u.Host == api.Host
 }
 
 // credentialsFile is where terraform login saves tokens.
@@ -194,15 +251,15 @@ func (h *Store) download(ctx context.Context, u, what string) ([]byte, error) {
 }
 
 // fetch returns the content at u, which errors name as what. Only the API's
-// host gets the token: state downloads are signed URLs, which can be on
-// another host, and which errors, logs and an MCP client must never see,
-// so no error quotes u unless what is u.
+// host gets the token, and over https: state downloads are signed URLs,
+// which can be on another host, and which errors, logs and an MCP client
+// must never see, so no error quotes u unless what is u.
 func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
-	if api, err := url.Parse(h.base); err == nil && req.URL.Host == api.Host {
+	if sendsToken(h.base, req.URL) {
 		req.Header.Set("Authorization", "Bearer "+h.token)
 	}
 	req.Header.Set("Accept", accept)
