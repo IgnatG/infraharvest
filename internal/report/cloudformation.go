@@ -446,13 +446,13 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		if s.Unreadable != "" {
 			status = "unreadable"
 		}
-		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, status)
+		fmt.Fprintf(b, "\n### %s (%s)\n\n%s, %s", code(s.Name), s.Region, code(s.ID), prose(status))
 		if s.Parent != "" {
-			fmt.Fprintf(b, ", nested in `%s`", s.Parent)
+			fmt.Fprintf(b, ", nested in %s", code(s.Parent))
 		}
 		b.WriteString(".\n\n")
 		for _, w := range s.Warnings {
-			fmt.Fprintf(b, "Warning: %s.\n\n", w)
+			fmt.Fprintf(b, "Warning: %s.\n\n", prose(w))
 		}
 		switch {
 		case s.Deleted:
@@ -462,7 +462,7 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 		default:
 			b.WriteString("**Not safe to delete yet**:\n\n")
 			for _, blocker := range s.Blockers {
-				fmt.Fprintf(b, "- %s\n", blocker)
+				fmt.Fprintf(b, "- %s\n", prose(blocker))
 			}
 			b.WriteString("\n")
 		}
@@ -499,14 +499,9 @@ func (r *Report) stacksMarkdown(b *strings.Builder) {
 			if len(res.Retain) > 0 {
 				retained = "no: " + strings.Join(res.Retain, "; ")
 			}
-			fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %s | %s | %s |\n", res.LogicalID, res.Type, res.PhysicalID, cell(outcome), strings.Join(addresses, ", "), cell(retained))
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", cell(code(res.LogicalID)), cell(code(res.Type)), cell(code(res.PhysicalID)), cell(prose(outcome)), cell(strings.Join(addresses, ", ")), cell(prose(retained)))
 		}
 	}
-}
-
-// cell escapes text for a Markdown table cell.
-func cell(text string) string {
-	return strings.ReplaceAll(text, "|", `\|`)
 }
 
 // templateBodyLimit is the largest template, in bytes, UpdateStack takes

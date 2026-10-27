@@ -225,3 +225,54 @@ func TestSubVariables(t *testing.T) {
 		t.Errorf("subVariables = %s", got)
 	}
 }
+
+// Template text with line breaks, in a condition, an export name and a
+// reason an output isn't written, stays in the comments: none of it
+// becomes configuration.
+func TestTemplateTextStaysInComments(t *testing.T) {
+	const payload = `\ndata \"external\" \"x\" {\n  program = [\"sh\", \"-c\", \"id\"]\n}\n#`
+	template := `{
+  "Conditions": {
+    "Cond` + payload + `": {"Fn::Equals": ["a", "b"]},
+    "Plain": "x` + payload + `"
+  },
+  "Resources": {
+    "Topic": {"Type": "AWS::SNS::Topic", "Properties": {"TopicName": "events"}}
+  },
+  "Outputs": {
+    "TopicArn": {
+      "Value": {"Ref": "Topic"},
+      "Export": {"Name": "arn` + payload + `"}
+    },
+    "Zone": {
+      "Value": {"Fn::Join": ["", [{"Ref": "Topic"}, {"Fn::Select": ["0", {"Fn::GetAZs": "eu-west-2` + payload + `"}]}]]}
+    }
+  }
+}`
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sns.tf"), []byte("resource \"aws_sns_topic\" \"events\" {\n  name = \"events\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stack := Stack{Name: "app", Template: template, Addresses: map[string][]string{"Topic": {"aws_sns_topic.events"}}}
+	if _, err := Apply(dir, []Stack{stack}, cfn.DefaultMapper()); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(filepath.Join(dir, FileName("app")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, diags := hclsyntax.ParseConfig(src, "out.tf", hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatalf("doesn't parse: %v\n%s", diags, src)
+	}
+	for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+		if b.Type != "output" {
+			t.Errorf("a %s block outside the comments:\n%s", b.Type, src)
+		}
+	}
+	for _, want := range []string{"#   Cond", "# CloudFormation exported this output as arn", "eu-west-2"} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("no %q in:\n%s", want, src)
+		}
+	}
+}
