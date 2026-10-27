@@ -17,7 +17,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -226,7 +226,7 @@ func TestAWSDriftMCPRules(t *testing.T) {
 
 	// write_decisions alone changes no code, so nobody is asked.
 	code = codeFiles(t, out)
-	decisions := filepath.Join(out, importer.DefaultDriftDecisionsFile)
+	decisions := filepath.Join(out, driftpolicy.DefaultDecisionsFile)
 	r = callDriftTool(ctx, t, session, "drift_accept", accept(map[string]any{"write_decisions": true}))
 	if len(asked) != 2 {
 		t.Errorf("drift_accept with write_decisions asked the user %q", asked[2:])
@@ -235,7 +235,7 @@ func TestAWSDriftMCPRules(t *testing.T) {
 		t.Errorf("drift_accept with write_decisions: %+v, want the decisions in %s", r, decisions)
 	}
 	checkCodeUnchanged(t, "drift_accept with write_decisions", code, out)
-	decisionEntry(t, decisions, "tags.team", importer.DriftUndecided)
+	decisionEntry(t, decisions, "tags.team", driftpolicy.Undecided)
 
 	// The user accepts the team's change, and the owner changes again.
 	setDecision(t, decisions, "tags.team", report.DriftAccept)
@@ -257,7 +257,7 @@ func TestAWSDriftMCPRules(t *testing.T) {
 	// back: the user's decision stays, and the owner's new change is
 	// added, undecided.
 	decisionEntry(t, decisions, "tags.team", report.DriftAccept)
-	decisionEntry(t, decisions, "tags.owner", importer.DriftUndecided)
+	decisionEntry(t, decisions, "tags.owner", driftpolicy.Undecided)
 }
 
 // mcpChange returns the change of a queue to attribute that r lists,

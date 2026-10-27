@@ -17,8 +17,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -50,7 +50,7 @@ type DriftInput struct {
 type DriftAcceptInput struct {
 	DriftInput
 	// Rules are accept and keep rules, in order, each as a line of drift's
-	// --rules file takes it (see importer.ParseDriftRuleLine): they become
+	// --rules file takes it (see driftpolicy.ParseRuleLine): they become
 	// --accept and --keep flags in that order, so that the last that
 	// matches a change decides, as on the command line.
 	Rules []string `json:"rules,omitempty" jsonschema:"rules of the changes to accept into the code, or to keep the code's values of, which the next apply puts back, in order, the last that matches a change deciding: each accept or keep, then all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as accept attribute=tags.* or keep type=aws_security_group; a rule alone is accepted"`
@@ -178,16 +178,16 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
 		return nil, nil, errors.New("set rules, decisions or write_decisions; to only check, call drift")
 	}
-	target := filepath.Join(in.Out, importer.DefaultDriftDecisionsFile)
+	target := filepath.Join(in.Out, driftpolicy.DefaultDecisionsFile)
 	var content []byte
-	var decisions *importer.DriftDecisions
+	var decisions *driftpolicy.Decisions
 	if in.Decisions != "" {
 		// Read once: the user confirms these bytes, as for an import's
 		// selection file.
 		if in.Decisions, content, err = t.readWithin("decisions", in.Decisions); err != nil {
 			return nil, nil, err
 		}
-		if decisions, err = importer.ParseDriftDecisions(in.Decisions, content); err != nil {
+		if decisions, err = driftpolicy.ParseDecisions(in.Decisions, content); err != nil {
 			return nil, nil, err
 		}
 		target = in.Decisions
@@ -197,7 +197,7 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 			return nil, nil, err
 		}
 	}
-	if !slices.ContainsFunc(rules, func(r importer.DriftRule) bool { return r.Accept }) && in.Decisions == "" {
+	if !slices.ContainsFunc(rules, func(r driftpolicy.Rule) bool { return r.Accept }) && in.Decisions == "" {
 		// Only keep rules, or only the decisions file to write: no code is
 		// written, so there is nothing for the user to confirm.
 		return t.finishDrift(ctx, config.run(append(args, "--", in.Out)), in, target, nil, nil)
@@ -220,7 +220,7 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 		if err != nil || failed != nil {
 			return failed, nil, err
 		}
-		message := driftConfirmationMessage(in, target, config, d, importer.PreviewDrift(decisions, rules, d.Changes))
+		message := driftConfirmationMessage(in, target, config, d, driftpolicy.Decider{Decisions: decisions, Rules: rules}.Preview(d.Changes))
 		t.issue(state)
 		return &mcp.CallToolResult{
 			InputRequests: mcp.InputRequestMap{driftConfirmation: &mcp.ElicitParams{
@@ -251,14 +251,14 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 // --keep flags that pass them on in that order. A rule with a control
 // character, such as a newline, which could make the confirmation the
 // user is shown say something else, is rejected.
-func parseDriftRules(rules []string) ([]importer.DriftRule, []string, error) {
-	parsed := make([]importer.DriftRule, 0, len(rules))
+func parseDriftRules(rules []string) ([]driftpolicy.Rule, []string, error) {
+	parsed := make([]driftpolicy.Rule, 0, len(rules))
 	flags := make([]string, 0, len(rules))
 	for _, s := range rules {
 		if strings.ContainsFunc(s, unicode.IsControl) {
 			return nil, nil, fmt.Errorf("rules %q has a control character", s)
 		}
-		r, err := importer.ParseDriftRuleLine(s)
+		r, err := driftpolicy.ParseRuleLine(s)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -276,7 +276,7 @@ func parseDriftRules(rules []string) ([]importer.DriftRule, []string, error) {
 // of the changes d, a run without the rules and the decisions file,
 // found that they would accept, as p counts them, and what config, the
 // configuration file, if any, sets.
-func driftConfirmationMessage(in DriftAcceptInput, target string, config *toolConfig, d *report.Drift, p importer.DriftPreview) string {
+func driftConfirmationMessage(in DriftAcceptInput, target string, config *toolConfig, d *report.Drift, p driftpolicy.Preview) string {
 	var by []string
 	if in.Decisions != "" {
 		by = append(by, fmt.Sprintf("the decisions file %q", in.Decisions))

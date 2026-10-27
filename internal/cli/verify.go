@@ -8,6 +8,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func newVerifyCmd() *cobra.Command {
@@ -16,7 +17,7 @@ func newVerifyCmd() *cobra.Command {
 		Use:   "verify [output-directory]",
 		Short: "Check generated roots again: format, validate, plan, standards, scanners, secrets, determinism",
 		Long: "Run the verification gate again on every root an import generated (default\n" +
-			"directory: " + importer.DefaultOut + "), for example after editing them. Roots are\n" +
+			"directory: " + report.DefaultOut + "), for example after editing them. Roots are\n" +
 			"initialised without their backend, so no access to the state is needed; the\n" +
 			"plan reads the cloud. Set secret variables first, with TF_VAR_ environment\n" +
 			"variables or a .auto.tfvars file. A root environments share is planned once\n" +
@@ -25,7 +26,7 @@ func newVerifyCmd() *cobra.Command {
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.Out = importer.DefaultOut
+			options.Out = report.DefaultOut
 			if len(args) == 1 {
 				options.Out = args[0]
 			}

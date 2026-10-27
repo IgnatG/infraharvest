@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // DocsURL is the address of the documentation site, which flag help points
@@ -208,7 +209,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 
 	// Where the output goes, and how it is generated.
 	flags.StringVar(&options.Layout, "layout", importer.DefaultLayout, "directories of the generated roots, one root each, from {out}, {provider} ("+commandList()+"), {account}, {region}, {service} and {env} (see --env-tags)")
-	flags.StringVarP(&options.Out, "out", "o", importer.DefaultOut, "directory to write the generated roots and the report to")
+	flags.StringVarP(&options.Out, "out", "o", report.DefaultOut, "directory to write the generated roots and the report to")
 	flags.StringVar(&options.Format, "format", importer.FormatText, "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)")
 	flags.StringSliceVar(&options.EnvTags, "env-tags", nil, "tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env)")
 	flags.StringVar(&options.DefaultEnv, "default-env", "", "environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/")

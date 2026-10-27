@@ -23,8 +23,6 @@ import (
 
 // Defaults of the flags every provider command shares.
 const (
-	// DefaultOut is the directory generated roots go into.
-	DefaultOut = "infraharvest-out"
 	// DefaultListTimeout is how long one service may list in one scope.
 	DefaultListTimeout = 30 * time.Minute
 	// DefaultListParallel is how many services of one scope list at once.

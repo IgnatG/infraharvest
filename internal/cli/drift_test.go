@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 )
 
 func TestDriftFlags(t *testing.T) {
@@ -88,7 +88,7 @@ func TestDriftWithoutRoots(t *testing.T) {
 // --accept and --keep add to one list of rules, in the order given.
 func TestDriftRuleFlagsKeepTheirOrder(t *testing.T) {
 	t.Parallel()
-	var rules []importer.DriftRule
+	var rules []driftpolicy.Rule
 	accept, keep := &driftRules{rules: &rules, accept: true}, &driftRules{rules: &rules}
 	for _, set := range []struct {
 		flag  *driftRules
@@ -121,7 +121,7 @@ func TestDriftRulesFileKeepsTheOrder(t *testing.T) {
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var rules []importer.DriftRule
+	var rules []driftpolicy.Rule
 	accept, keep, files := &driftRules{rules: &rules, accept: true}, &driftRules{rules: &rules}, &driftRuleFiles{rules: &rules}
 	for _, set := range []struct {
 		flag  interface{ Set(string) error }
