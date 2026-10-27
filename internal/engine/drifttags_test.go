@@ -632,3 +632,84 @@ func TestSharedTagSourcesWithModules(t *testing.T) {
 		t.Errorf("main.tf:\n%s", got)
 	}
 }
+
+// The rounds of verification are bounded by the edits, the members of a
+// change of shared tags counted: a plan that blames one edit a round,
+// first the shared tags', then each other but the last, still has the
+// last written.
+func TestDriftAcceptRoundsBlamingOneEditEach(t *testing.T) {
+	t.Parallel()
+	dir, staging := awsRoot(t)
+	// jobs is the queue's values with Env and its Name tag as given.
+	jobs := func(env, name string) map[string]any {
+		own := tagMap("Name", name)
+		if env != "prod" {
+			own = tagMap("Env", env, "Name", name)
+		}
+		return awsTags(own, tagMap("Env", env, "Name", name, "Team", "data"))
+	}
+	// The state of extra doesn't tell it gets the provider's tags.
+	extra := map[string]any{"bucket": "extra"}
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{
+		tagUpdate("aws_s3_bucket.logs", awsLogs("prod"), awsLogs("dev")),
+		tagUpdate("aws_sqs_queue.jobs", jobs("prod", "jobs"), jobs("dev", "work")),
+	}}
+	logsReverts := tagUpdate("aws_s3_bucket.logs", awsLogs("dev"), awsLogs("prod"))
+	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		logsReverts,
+		tagUpdate("aws_sqs_queue.jobs", jobs("dev", "work"), jobs("prod", "jobs")),
+		tagNoop("aws_s3_bucket.extra", extra),
+	}}
+	plans := []*tfjson.Plan{refresh, code,
+		// The edit of local.tags reaches extra.
+		{ResourceChanges: []*tfjson.ResourceChange{
+			tagUpdate("aws_s3_bucket.logs", awsLogs("dev"), awsTags(nil, tagMap("Env", "dev", "Team", "data"))),
+			tagUpdate("aws_sqs_queue.jobs", jobs("dev", "work"), awsTags(tagMap("Name", "work"), tagMap("Env", "dev", "Name", "work", "Team", "data"))),
+			tagUpdate("aws_s3_bucket.extra", extra, map[string]any{"bucket": "extra", "tags_all": tagMap("Env", "dev")}),
+		}},
+		// The edit of jobs' Name doesn't take.
+		{ResourceChanges: []*tfjson.ResourceChange{
+			tagNoop("aws_s3_bucket.logs", awsLogs("dev")),
+			tagUpdate("aws_sqs_queue.jobs", jobs("dev", "work"), jobs("dev", "jobs")),
+			tagNoop("aws_s3_bucket.extra", extra),
+		}},
+		// Nor does the edit of logs' Env.
+		{ResourceChanges: []*tfjson.ResourceChange{
+			logsReverts,
+			tagUpdate("aws_sqs_queue.jobs", jobs("dev", "work"), jobs("dev", "jobs")),
+			tagNoop("aws_s3_bucket.extra", extra),
+		}},
+		// The edit of jobs' Env, the last, does.
+		{ResourceChanges: []*tfjson.ResourceChange{
+			logsReverts,
+			tagUpdate("aws_sqs_queue.jobs", jobs("dev", "work"), jobs("dev", "jobs")),
+			tagNoop("aws_s3_bucket.extra", extra),
+		}},
+	}
+	result, copied, _, err := acceptAll(t, dir, staging, plans, DriftOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := outcomes(result)
+	for key, want := range map[string]string{
+		"aws_s3_bucket.logs tags.Env":  DriftRejectedByPlan,
+		"aws_sqs_queue.jobs tags.Name": DriftRejectedByPlan,
+		"aws_sqs_queue.jobs tags.Env":  DriftWritten,
+	} {
+		if c := got[key]; c.Outcome != want {
+			t.Errorf("%s: %s (%s), want %s", key, c.Outcome, c.Reason, want)
+		}
+	}
+	if len(result.Changes) != 3 {
+		t.Errorf("changes %+v, want each resource's", result.Changes)
+	}
+	if got := readFile(t, dir, "locals.tf"); got != awsLocals {
+		t.Errorf("locals.tf changed:\n%s", got)
+	}
+	if main := readFile(t, dir, "main.tf"); strings.Count(main, `"dev"`) != 1 || !strings.Contains(main, `Name = "jobs"`) {
+		t.Errorf("main.tf, want only jobs' Env edited:\n%s", main)
+	}
+	if len(copied.planOpts) != len(plans) {
+		t.Errorf("%d plans, want %d", len(copied.planOpts), len(plans))
+	}
+}
