@@ -177,7 +177,7 @@ func TestAWSMCPImport(t *testing.T) {
 	coverage := coverageOf(t, out)
 	checkCoverage(t, "the import with incremental", coverage, nil)
 	if !excludedIn(coverage, "aws_sqs_queue", f.Resources[orders].ID) {
-		t.Errorf("import with incremental: the orders queue isn't reported %s: %+v", report.ReasonInRoot, coverage.Excluded)
+		t.Errorf("import with incremental: the orders queue isn't reported as already in the root: %+v", coverage.Excluded)
 	}
 	checkAddedTo(t, out, dirs[0], "aws_sqs_queue", "infraharvest-e2e-drift-"+mcpImportAccount+"-jobs", before, outputFiles(t, out))
 	if blocks := importBlocks(); !strings.Contains(blocks, f.Resources[jobs].ID) {
