@@ -3,7 +3,13 @@
 
 package cfn
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // Severity says how much a diagnostic matters.
 type Severity int
@@ -55,10 +61,49 @@ type Diagnostic struct {
 	Message string
 }
 
-// String returns the diagnostic as "severity: path: message".
+// String returns the diagnostic as "severity: path: message". The path
+// and the message can hold the template's keys and strings: their control
+// characters are written as Go escapes (see printable), so that printing
+// a diagnostic can't send a terminal the escape sequences a template
+// carries.
 func (d Diagnostic) String() string {
 	if d.Path == "" {
-		return d.Severity.String() + ": " + d.Message
+		return d.Severity.String() + ": " + printable(d.Message)
 	}
-	return d.Severity.String() + ": " + d.Path + ": " + d.Message
+	return d.Severity.String() + ": " + printable(d.Path) + ": " + printable(d.Message)
 }
+
+// printable returns s with each control character, such as a newline or
+// the escape that starts a terminal's escape sequences, written as its Go
+// escape, such as \n or \x1b, and each byte that isn't UTF-8 as the
+// replacement character.
+func printable(s string) string {
+	if utf8Printable(s) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1])
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// utf8Printable reports whether s is valid UTF-8 without control
+// characters: printable leaves it as it is.
+func utf8Printable(s string) bool {
+	return utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl)
+}
+
+// printableError is an error of Parse, whose text can hold the template's
+// keys, with that text made printable (see printable); it unwraps to the
+// error itself.
+type printableError struct{ err error }
+
+func (e printableError) Error() string { return printable(e.err.Error()) }
+
+func (e printableError) Unwrap() error { return e.err }

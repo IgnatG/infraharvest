@@ -46,9 +46,13 @@ func Parse(r io.Reader) (*Template, error) {
 	}
 	root, err := parseDocument(src)
 	if err != nil {
-		return nil, err
+		return nil, printableError{err}
 	}
-	return build(root)
+	t, err := build(root)
+	if err != nil {
+		return nil, printableError{err}
+	}
+	return t, nil
 }
 
 // parseDocument parses src as JSON or YAML.
