@@ -19,6 +19,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -193,7 +194,7 @@ func checkImportsSelected(t *testing.T, f *selection.File, coverage report.Repor
 	got := map[string]bool{}
 	for _, d := range coverage.Directories {
 		for _, r := range d.Imported {
-			typ := report.ResourceType(r.Address)
+			typ := engine.AddressType(r.Address)
 			got[typ+" "+r.ID] = true
 		}
 	}

@@ -4,17 +4,9 @@
 package importer
 
 import (
-	"strings"
-
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
-
-// resourceTypeOf returns the type of a resource address.
-func resourceTypeOf(address string) string {
-	t, _, _ := strings.Cut(address, ".")
-	return t
-}
 
 // keptOwned returns, as "<type> <import ID>", the selected resources whose
 // listed tags say another tool manages them: the selection file or

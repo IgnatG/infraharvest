@@ -34,7 +34,7 @@ type DriftInput struct {
 	// Parallel is --parallel, 0 for its default.
 	Parallel int `json:"parallel,omitempty" flag:"parallel" jsonschema:"how many roots to check at once (default 1); each runs its own Terraform"`
 	// Environments are --environment names.
-	Environments []string `json:"environments,omitempty" flag:"environment" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with (default: every environment under its vars/)"`
+	Environments []string `json:"environments,omitempty" flag:"environment" jsonschema:"for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials the server runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it"`
 	// Catalogue is --catalogue.
 	Catalogue string `json:"catalogue,omitempty" jsonschema:"the directory of catalogue files the import used, which add to or override the built-in catalogue: the arguments it says are kept only in state aren't drift"`
 	// EngineTimeout is --engine-timeout, "" for its default.
@@ -404,8 +404,8 @@ func driftResult(d *report.Drift, code int, out string) *DriftResult {
 // driftText summarises result.
 func driftText(result *DriftResult) string {
 	t, code := result.Totals, result.ExitCode
-	text := fmt.Sprintf("Checked %d roots (%d couldn't be): %d changes in the cloud since they were applied; %d accepted into the code, %d kept, which the next apply reverts, %d need a hand edit, %d rejected by the plan, %d secrets, %d not assessable, and %d the code absorbs (exit code %d). The report is in %s.",
-		t.Roots-t.Failed, t.Failed, t.Changes, t.Written, t.Kept, t.Manual, t.RejectedByPlan, t.Secret, t.NotAssessable, t.Absorbed, code, result.Report)
+	text := fmt.Sprintf("Checked %d roots (%d couldn't be): %d changes in the cloud since they were applied; %d accepted into the code, %d kept, which the next apply reverts, %d need a hand edit, %d rejected by the plan, %d rejected by a check, %d secrets, %d not assessable, and %d the code absorbs (exit code %d). The report is in %s.",
+		t.Roots-t.Failed, t.Failed, t.Changes, t.Written, t.Kept, t.Manual, t.RejectedByPlan, t.RejectedByCheck, t.Secret, t.NotAssessable, t.Absorbed, code, result.Report)
 	if result.MoreChanges > 0 {
 		text += fmt.Sprintf(" The result lists the first %d changes and leaves out %d more: the report has them all.", maxDriftChanges, result.MoreChanges)
 	}

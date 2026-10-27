@@ -131,7 +131,7 @@ func TestSelectResourcesWithAll(t *testing.T) {
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
-	if want := []report.Excluded{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC"}}; !reflect.DeepEqual(run.report.Excluded, want) {
+	if want := []report.Excluded{{Type: "aws_vpc", ID: "vpc-default", Reason: "default VPC", Owner: report.OwnerCloud}}; !reflect.DeepEqual(run.report.Excluded, want) {
 		t.Errorf("excluded %+v, want %+v", run.report.Excluded, want)
 	}
 	if run.discovered["aws_vpc"] != 1 {
@@ -233,7 +233,7 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	if want := []string{"app-bucket", "kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
-	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "stack-bucket", Reason: stack}}; !reflect.DeepEqual(run.report.Excluded, want) {
+	if want := []report.Excluded{{Type: "aws_s3_bucket", ID: "stack-bucket", Reason: stack, Owner: report.OwnerCloudFormation}}; !reflect.DeepEqual(run.report.Excluded, want) {
 		t.Errorf("excluded %+v, want %+v", run.report.Excluded, want)
 	}
 
@@ -607,7 +607,17 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.HasIn(b, "aws_vpc", "vpc-2") {
+	// entry returns the entry of the resource of typ with id in scope, nil
+	// if the file doesn't list it.
+	entry := func(scope, typ, id string) *selection.Resource {
+		for i, r := range updated.Resources {
+			if r.Scope == scope && r.Type == typ && r.ID == id {
+				return &updated.Resources[i]
+			}
+		}
+		return nil
+	}
+	if entry(b, "aws_vpc", "vpc-2") != nil {
 		t.Errorf("region %s's VPC, no longer found, is still listed", b)
 	}
 	for _, kept := range []struct{ scope, typ, id string }{
@@ -615,12 +625,13 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 		{a, "aws_s3_bucket", "bucket-1"},
 		{b, "aws_s3_bucket", "bucket-2"},
 	} {
-		if !updated.HasIn(kept.scope, kept.typ, kept.id) {
+		e := entry(kept.scope, kept.typ, kept.id)
+		if e == nil {
 			t.Errorf("%s %s %s was dropped", kept.scope, kept.typ, kept.id)
 			continue
 		}
-		if d := updated.DecideIn(kept.scope, kept.typ, kept.id, "", nil); d.Include {
-			t.Errorf("%s %s %s lost its decision: %+v", kept.scope, kept.typ, kept.id, d)
+		if e.Include {
+			t.Errorf("%s %s %s lost its decision: %+v", kept.scope, kept.typ, kept.id, *e)
 		}
 	}
 

@@ -357,6 +357,7 @@ func TestDriftAcceptsByRule(t *testing.T) {
 		{"none accepted", report.DriftWritten, nil, report.ExitDrift},
 		{"all written", report.DriftWritten, []DriftRule{{Accept: true}}, report.ExitOK},
 		{"rejected", report.DriftRejectedByPlan, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
+		{"rejected by a check", report.DriftRejectedByCheck, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
 		{"a hand edit", report.DriftManual, []DriftRule{{Accept: true}}, report.ExitDrift},
 		{"in another root", report.DriftWritten, []DriftRule{{Accept: true, Field: "root", Pattern: "google/*"}}, report.ExitDrift},
 	} {
@@ -424,29 +425,11 @@ func TestDriftRulesMatchSharedTags(t *testing.T) {
 	}
 }
 
-// A module call's instance key may have dots, which aren't steps of the
-// address.
-func TestAddressType(t *testing.T) {
-	t.Parallel()
-	for address, want := range map[string]string{
-		"aws_s3_bucket.logs":                                 "aws_s3_bucket",
-		"aws_s3_bucket.logs[0]":                              "aws_s3_bucket",
-		"data.aws_iam_policy_document.p":                     "aws_iam_policy_document",
-		"module.logs.aws_s3_bucket.this[0]":                  "aws_s3_bucket",
-		`module.logs["a.b"].aws_s3_bucket.this`:              "aws_s3_bucket",
-		`module.x["a.b"].module.y[1].aws_sqs_queue.q["c.d"]`: "aws_sqs_queue",
-		`module.x["say \"a.b\" ]"].aws_iam_role.this`:        "aws_iam_role",
-	} {
-		if got := addressType(address); got != want {
-			t.Errorf("%s: got %s, want %s", address, got, want)
-		}
-	}
-}
-
 // TestDriftChecksEachEnvironment checks that a root environments share is
-// checked once per environment, as --environment names them, and that a
-// change of each goes into the report and the decisions file as that
-// environment's.
+// checked once per environment, as --environment names them, or every one
+// with --environment all, and that a change of each goes into the report
+// and the decisions file as that environment's. Without --environment,
+// the run fails, as the credentials it runs with are one environment's.
 func TestDriftChecksEachEnvironment(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/us-east-1", "aws/1/global")
@@ -487,7 +470,13 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 		return checked, err
 	}
 
-	got, err := run()
+	if _, err := run(); err == nil || !strings.Contains(err.Error(), "dev, prod") || !strings.Contains(err.Error(), "--environment") {
+		t.Fatalf("no --environment: %v, want an error naming the environments and the flag", err)
+	}
+	if _, err := run("all", "dev"); err == nil || !strings.Contains(err.Error(), "no other") {
+		t.Errorf("--environment all,dev: %v, want an error", err)
+	}
+	got, err := run("all")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,5 +567,40 @@ func TestDriftUsesTheCatalogueOverlay(t *testing.T) {
 	}
 	if len(stateOnly) != 0 {
 		t.Error("checked roots with a catalogue that doesn't load")
+	}
+}
+
+// TestDriftTargetsNeedAnEnvironmentForSeveral checks that roots of one
+// environment need no --environment, and that roots of several need it
+// even when each root has one of them, as one run's credentials are one
+// environment's.
+func TestDriftTargetsNeedAnEnvironmentForSeveral(t *testing.T) {
+	t.Parallel()
+	root := func(envs ...string) string {
+		dir := t.TempDir()
+		for _, env := range envs {
+			path := filepath.Join(dir, "vars", env, "terraform.tfvars")
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("env = \""+env+"\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return dir
+	}
+	plain, dev, prod := root(), root("dev"), root("prod")
+	targets, err := driftTargets([]string{plain, dev}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 2 || targets[1].env != "dev" {
+		t.Errorf("one environment: %+v", targets)
+	}
+	if _, err := driftTargets([]string{dev, prod}, nil); err == nil || !strings.Contains(err.Error(), "dev, prod") {
+		t.Errorf("roots of dev and prod: %v, want an error naming them", err)
+	}
+	if targets, err := driftTargets([]string{dev, prod}, []string{"all"}); err != nil || len(targets) != 2 {
+		t.Errorf("--environment all: %+v, %v", targets, err)
 	}
 }

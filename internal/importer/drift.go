@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -63,8 +65,9 @@ type DriftOptions struct {
 	ForceUnlock      bool // check even when another run holds the output directory's lock
 	// Environments are, for the roots environments share (see
 	// engine.MergedEnvironments), the environments to check each as, with
-	// its backend settings and var files; none checks every environment
-	// under its vars/.
+	// its backend settings and var files, or config.AllEnvironments for
+	// every one under its vars/. None checks the one environment the
+	// roots have, and fails on roots of more than one (see driftTargets).
 	Environments []string
 	// Provider and Names find each root's provider, for its catalogue
 	// (see rootProvider).
@@ -210,8 +213,8 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 		return &ExitError{Code: report.ExitCouldNotRun, Err: fmt.Errorf("%d roots couldn't be checked:\n%s", len(failed), strings.Join(failed, "\n"))}
 	}
 	where := filepath.Join(options.Out, report.Dir, report.DriftMarkdownFile)
-	if options.DetailedExitCode && d.Totals.RejectedByPlan > 0 {
-		return &ExitError{Code: report.ExitDriftRejected, Err: fmt.Errorf("%d accepted changes failed verification, so they weren't written (see %s)", d.Totals.RejectedByPlan, where)}
+	if rejected := d.Totals.RejectedByPlan + d.Totals.RejectedByCheck; options.DetailedExitCode && rejected > 0 {
+		return &ExitError{Code: report.ExitDriftRejected, Err: fmt.Errorf("%d accepted changes failed verification, so they weren't written (see %s)", rejected, where)}
 	}
 	if options.DetailedExitCode && d.DriftFound {
 		left := d.Totals.Kept + d.Totals.Manual + d.Totals.Secret
@@ -326,9 +329,16 @@ type driftTarget struct {
 
 // driftTargets returns what drift checks of roots: each root, but a root
 // environments share once per environment under its vars/ that envs
-// names, or every one without envs. An environment of envs that no
-// root has is an error.
+// names, or every one with envs config.AllEnvironments. Each environment
+// is checked with the credentials drift runs with, so without envs,
+// roots of more than one environment are an error: with the credentials
+// of one, the resources of the others would look deleted. An environment
+// of envs that no root has is an error too.
 func driftTargets(roots, envs []string) ([]driftTarget, error) {
+	all := slices.Contains(envs, config.AllEnvironments)
+	if all && len(envs) > 1 {
+		return nil, fmt.Errorf("--environment %s checks every environment, so it takes no other", config.AllEnvironments)
+	}
 	var targets []driftTarget
 	found := map[string]bool{}
 	for _, dir := range roots {
@@ -343,10 +353,17 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 		lock := &sync.Mutex{}
 		for _, env := range merged {
 			found[env] = true
-			if len(envs) == 0 || slices.Contains(envs, env) {
+			if all || len(envs) == 0 || slices.Contains(envs, env) {
 				targets = append(targets, driftTarget{dir: dir, env: env, lock: lock})
 			}
 		}
+	}
+	if len(envs) == 0 && len(found) > 1 {
+		names := slices.Sorted(maps.Keys(found))
+		return nil, fmt.Errorf("roots that the environments %s share are checked with the credentials drift runs with: set --environment to the one they are for, or to %s if they reach every one", strings.Join(names, ", "), config.AllEnvironments)
+	}
+	if all {
+		return targets, nil
 	}
 	for _, env := range envs {
 		if !found[env] {
@@ -446,6 +463,7 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 				{report.DriftWritten, "accepted into the code"},
 				{report.DriftKept, "reverted by the next apply"},
 				{report.DriftRejectedByPlan, "rejected by the plan"},
+				{report.DriftRejectedByCheck, "rejected by a check"},
 				{report.DriftManual, "need a hand edit"},
 				{report.DriftSecret, "secret"},
 				{report.DriftNotAssessable, "not assessable"},

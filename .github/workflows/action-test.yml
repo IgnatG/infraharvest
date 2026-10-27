@@ -5,29 +5,31 @@ name: Action test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against the Floci emulators of AWS, Azure and Google Cloud: no cloud account is
-# involved. It also runs when the CLI changes, since the action relies on
-# its flags, report path and exit codes. It imports with Terraform and
+# involved. It also runs when the Go code changes, since the action relies on
+# the binary's flags, report path and exit codes. It imports with Terraform and
 # OpenTofu, through a selection file, with environments that share roots,
 # and with managed-state; checks drift on the roots once they're applied,
 # per environment for roots environments share; and checks what the action
 # would open its pull request with. On main, once the repository lets
 # workflows open pull requests, it opens a real one too (see the
 # pull-request job), and commits to a branch (the commit job).
+#
+# Both triggers take every file but those no job here reads, as
+# .github/scripts/changes.sh tells them for the tests workflow: the action
+# runs a binary built from all of the Go code, so a change to any of it can
+# change what the action does. A later pattern decides over an earlier one.
 on:
   pull_request:
     paths:
-      - action/**
-      - internal/cli/**
-      - internal/engine/**
-      - internal/importer/**
-      - internal/report/**
-      - internal/selection/**
-      - main.go
-      - go.mod
-      - go.sum
-      - e2e/compose.yaml
-      - e2e/testdata/azure/**
-      - e2e/testdata/google/**
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!mkdocs.yml"
+      - "!LICENSE"
+      - "!LICENSES/**"
+      - "!REUSE.toml"
+      - "!permissions/**"
+      - "!.github/**"
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
@@ -36,8 +38,18 @@ on:
   push:
     branches: [main]
     paths:
-      - action/**
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!mkdocs.yml"
+      - "!LICENSE"
+      - "!LICENSES/**"
+      - "!REUSE.toml"
+      - "!permissions/**"
+      - "!.github/**"
       - .github/workflows/action-test.yml
+      - .github/scripts/free-disk-space.sh
+      - .github/actions/setup-engines/**
   workflow_dispatch:
 
 permissions:
@@ -383,6 +395,27 @@ jobs:
           test "$OUTCOME" = failure
           test -z "$EXIT_CODE"
           test ! -e "$RUNNER_TEMP/bare"
+      # A boolean input that is neither true nor false: the action refuses
+      # it before anything runs, rather than take it as false.
+      - name: Run the action with allow-partial yes
+        id: boolean
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: ${{ runner.temp }}/boolean
+          allow-partial: "yes"
+      - name: Check the action refused allow-partial yes
+        env:
+          OUTCOME: ${{ steps.boolean.outcome }}
+          EXIT_CODE: ${{ steps.boolean.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/boolean"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
@@ -392,7 +425,7 @@ jobs:
   # root they share, which each environment applies into its workspace, as
   # its README says. Drift then runs as a matrix job per environment would,
   # with environment and that environment's credentials; without
-  # environment, the action refuses the root.
+  # environment, drift refuses the root.
   environments:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -487,14 +520,14 @@ jobs:
           import: "false"
           out: ${{ runner.temp }}/out
           drift: report
-      - name: Check the action refused the root
+      - name: Check drift refused the root
         env:
           OUTCOME: ${{ steps.refused.outcome }}
           DRIFT_EXIT_CODE: ${{ steps.refused.outputs.drift-exit-code }}
         run: |
           test "$OUTCOME" = failure
-          # It refused before checking anything.
-          test -z "$DRIFT_EXIT_CODE"
+          # infraharvest refused it before checking anything.
+          test "$DRIFT_EXIT_CODE" = 2
           test ! -e "$RUNNER_TEMP/out/report/drift.json"
       - name: Check drift as dev
         id: dev
@@ -1062,6 +1095,19 @@ jobs:
           expect import body-path "$RUNNER_TEMP/import/infraharvest-pull-request.md"
           expect import add-paths infraharvest-out
           cmp "$RUNNER_TEMP/report.md" "$(output import body-path)"
+          # add-paths ends at a delimiter of random bytes, which no path can
+          # hold to end it early.
+          grep -Eq '^add-paths<<INFRAHARVEST_[0-9a-f]{32}$' "$RUNNER_TEMP/import.out"
+          # A branch with a line break would set another output: refused.
+          if details newline IMPORT=true DRIFT=off OUT=infraharvest-out BRANCH=$'infraharvest/x\nbody-path=/etc/passwd' \
+            DRIFT_DECISIONS= IMPORT_REPORT= DRIFT_REPORT=; then
+            echo "::error::a branch with a line break was written to the outputs"
+            exit 1
+          fi
+          if grep -q '^body-path=/etc/passwd' "$RUNNER_TEMP/newline.out"; then
+            echo "::error::a branch with a line break set body-path"
+            exit 1
+          fi
 
           # Drift accepted, then an import: both reports, and the decisions
           # file, wherever it is.
@@ -1111,8 +1157,8 @@ jobs:
           expect prod branch infraharvest/drift-prod
           expect prod add-paths "$(printf 'infraharvest-out\ndecisions/drift-prod.yaml')"
 
-          # Every environment at once, with one set of credentials: as
-          # without environment.
+          # Every environment at once, with one set of credentials:
+          # --environment all.
           details all IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
             ENVIRONMENT=all IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect all title "Import new resources, and record cloud changes (drift) for review"

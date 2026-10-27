@@ -55,5 +55,5 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		check := planCheck(p, diags, nil, opts.StateOnly, expected)
 		check.Details = append([]string{"environment " + env}, check.Details...)
 		return check, sensitiveValues(p), nil
-	})
+	}, nil)
 }

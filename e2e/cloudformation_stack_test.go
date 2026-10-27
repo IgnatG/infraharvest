@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
@@ -51,7 +52,7 @@ func TestAWSSelectionCloudFormation(t *testing.T) {
 	var imported []string
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			imported = append(imported, report.ResourceType(res.Address)+" "+res.ID)
+			imported = append(imported, engine.AddressType(res.Address)+" "+res.ID)
 		}
 	}
 	if !slices.Contains(imported, "aws_s3_bucket infraharvest-e2e-cfn-assets") {

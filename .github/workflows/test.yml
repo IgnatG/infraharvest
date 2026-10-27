@@ -114,8 +114,10 @@ jobs:
 
   # Accounts and projects import in parallel (--parallel), and listers,
   # discovery and the engine run concurrent work of their own: the state
-  # they share, under the race detector. Two providers keep the CLI's build
-  # small; the provider packages build on their own.
+  # they share, under the race detector. Two providers keep most builds
+  # small; the CLI and the MCP server, whose tests take every provider's
+  # command, build with all three in a run of their own, so that each
+  # command runs under it. The provider packages build on their own.
   race:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -144,8 +146,10 @@ jobs:
     - name: Race
       run: >-
         go test -race -tags minimal,aws,google
-        ./internal/cli/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
+        ./internal/config/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
+    - name: Race, with every provider's command
+      run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
       if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

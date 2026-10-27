@@ -37,10 +37,10 @@ type HCPTerraform struct {
 	ids sync.Map
 }
 
-// NewHCPTerraform opens the API of host with the token Terraform uses for
+// newHCPTerraform opens the API of host with the token Terraform uses for
 // it: TF_TOKEN_<host> (dots as _, hyphens as __), or the one terraform
 // login saved in credentials.tfrc.json.
-func NewHCPTerraform(_ context.Context, host string) (ObjectStore, error) {
+func newHCPTerraform(_ context.Context, host string) (ObjectStore, error) {
 	token, err := hcpTerraformToken(host, os.Getenv)
 	if err != nil {
 		return nil, err

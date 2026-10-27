@@ -259,38 +259,68 @@ func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
 		}
 	}
 	for _, settings := range []map[string]any{f.Settings, f.Providers[provider]} {
-		names := make([]string, 0, len(settings))
-		for name := range settings {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range slices.Sorted(maps.Keys(settings)) {
 			if slices.Contains(commandLineOnly, name) {
 				return fmt.Errorf("%q is for the command line, not a setting of the configuration file", name)
 			}
-			flag := flags.Lookup(name)
-			if flag == nil {
+			if flags.Lookup(name) == nil {
 				return fmt.Errorf("%q isn't a setting of infraharvest %s", name, provider)
 			}
-			if flag.Changed {
-				continue
-			}
-			if items, ok := settings[name].([]any); ok && flag.Value.Type() == "stringArray" {
-				// A flag given once per value, such as --id: each item is
-				// one, commas and all.
-				if err := setEach(flags, name, items); err != nil {
-					return fmt.Errorf("%s: %w", name, err)
-				}
-				continue
-			}
-			value, err := flagValue(settings[name])
-			if err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			if err := flags.Set(name, value); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
+			if err := applySetting(flags, name, settings[name]); err != nil {
+				return err
 			}
 		}
+	}
+	return nil
+}
+
+// ApplyShared sets the flags names lists, of a command that runs for no
+// one provider, such as drift, that the command line didn't, from the
+// file's settings: the settings it takes of those the provider commands
+// take, which mean the same for it. It leaves the file's other settings
+// to the provider commands. A provider's setting of one of names is an
+// error, as the command can't tell which provider's to take.
+func (f *File) ApplyShared(flags *pflag.FlagSet, command string, names []string) error {
+	for _, provider := range slices.Sorted(maps.Keys(f.Providers)) {
+		for _, name := range slices.Sorted(maps.Keys(f.Providers[provider])) {
+			if slices.Contains(names, name) {
+				return fmt.Errorf("providers: %s: %s: infraharvest %s takes it for every provider, so set it under settings", provider, name, command)
+			}
+		}
+	}
+	for _, name := range names {
+		value, ok := f.Settings[name]
+		if !ok {
+			continue
+		}
+		if err := applySetting(flags, name, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// applySetting sets the flag name to value, a setting of the file, unless
+// the command line set it.
+func applySetting(flags *pflag.FlagSet, name string, value any) error {
+	flag := flags.Lookup(name)
+	if flag.Changed {
+		return nil
+	}
+	if items, ok := value.([]any); ok && flag.Value.Type() == "stringArray" {
+		// A flag given once per value, such as --id: each item is one,
+		// commas and all.
+		if err := setEach(flags, name, items); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	}
+	s, err := flagValue(value)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := flags.Set(name, s); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
 }

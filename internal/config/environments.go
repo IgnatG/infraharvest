@@ -18,6 +18,11 @@ import (
 // take its name.
 const SharedEnvironment = "shared"
 
+// AllEnvironments stands for every environment where one is named, as in
+// drift --environment all, so no environment of the file may take its
+// name either.
+const AllEnvironments = "all"
+
 // Environments are the estate's environments, by name, such as dev and
 // prod: the name is the directory of the environment's roots.
 type Environments map[string]Environment
@@ -149,11 +154,12 @@ func sameScope(provider, a, b string) bool {
 
 // check returns why envs can't place every resource in one environment,
 // if they can't: a name that isn't a directory name or is
-// SharedEnvironment, an environment that names nothing to find it by, an
-// empty account, subscription, project, tag or token, an AWS account that
-// isn't one, a token two environments use, or an account, subscription
-// or project several environments name, or several environments that
-// name none, whose tags don't tell them apart (see apart).
+// SharedEnvironment or AllEnvironments, an environment that names nothing
+// to find it by, an empty account, subscription, project, tag or token,
+// an AWS account that isn't one, a token two environments use, or an
+// account, subscription or project several environments name, or several
+// environments that name none, whose tags don't tell them apart (see
+// apart).
 func (envs Environments) check() error {
 	tokens := map[string]string{}
 	for _, name := range slices.Sorted(maps.Keys(envs)) {
@@ -163,6 +169,8 @@ func (envs Environments) check() error {
 			return fmt.Errorf("%q: an environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores", name)
 		case name == SharedEnvironment:
 			return fmt.Errorf("%q: the name is taken by what no environment's tags place", name)
+		case name == AllEnvironments:
+			return fmt.Errorf("%q: the name stands for every environment, as in drift --environment %s", name, AllEnvironments)
 		case !e.hasScopes() && len(e.Tags) == 0:
 			return fmt.Errorf("%s: name its aws accounts, azure subscriptions or google projects, or its tags", name)
 		}

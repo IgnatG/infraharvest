@@ -22,6 +22,16 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
+// The capabilities Provider has, checked when it builds: one whose method
+// no longer matches its interface would otherwise be dropped in silence,
+// as the importer asserts them at run time.
+var (
+	_ harvest.ProviderWithModuleProviders = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
+	_ harvest.ProviderWithScope           = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
+)
+
 // providerName is the Terraform provider's name, google, which a provider
 // type such as beta extends to google-beta.
 const providerName = "google"

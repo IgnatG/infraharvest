@@ -52,8 +52,8 @@ var filters = map[string]func(value, arg string) string{
 	"trim_suffix": strings.TrimSuffix,
 }
 
-// ParseTemplate parses an import ID template.
-func ParseTemplate(source string) (Template, error) {
+// parseTemplate parses an import ID template.
+func parseTemplate(source string) (Template, error) {
 	t := Template{source: source}
 	rest := source
 	for rest != "" {
@@ -152,7 +152,7 @@ func (t *Template) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&source); err != nil {
 		return err
 	}
-	parsed, err := ParseTemplate(source)
+	parsed, err := parseTemplate(source)
 	if err != nil {
 		return fmt.Errorf("line %d: %w", node.Line, err)
 	}

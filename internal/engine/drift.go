@@ -22,6 +22,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // DriftTerraform is a Terraform that can also read a root's state and
@@ -68,6 +70,10 @@ const (
 	// of the edited code didn't take it as it should, so the edit wasn't
 	// written.
 	DriftRejectedByPlan = "rejected_by_plan"
+	// DriftRejectedByCheck: the cloud's value was accepted, and the plan
+	// of the edited code took it, but the edit fails a check of the
+	// verification gate, such as format or secrets, so it wasn't written.
+	DriftRejectedByCheck = "rejected_by_check"
 	// DriftManual: the cloud's value was accepted, but where the code
 	// sets it takes a hand edit, as Reason says.
 	DriftManual = "manual"
@@ -112,6 +118,11 @@ type DriftOptions struct {
 	// (see Options.Omit), which the standards check of the edited code
 	// looks for.
 	Omit map[string][]string
+	// Adapters are the adapters of the organisation's own modules (see
+	// Options.Adapters): the standards check of the edited code leaves
+	// the modules in their directories to their owners, as the
+	// verification gate does.
+	Adapters []adapters.Adapter
 	// Environment is, for a root environments share (see
 	// MergedEnvironments), the environment to check it as: with its
 	// backend settings, vars/<env>/backend.hcl, or, for a root without a
@@ -179,7 +190,8 @@ type DriftChange struct {
 	Decision string
 	// Outcome is DriftAbsorbed or DriftNotAssessable, or, for a change the
 	// next apply would revert, DriftKept, DriftWritten,
-	// DriftRejectedByPlan, DriftManual or DriftSecret.
+	// DriftRejectedByPlan, DriftRejectedByCheck, DriftManual or
+	// DriftSecret.
 	Outcome string
 	Reason  string
 	// ForcesReplacement says the next apply would replace the resource
@@ -244,7 +256,7 @@ func (e *UnsupportedBackendError) Error() string {
 // don't lock it, as a lock needs write access.
 //
 // The changes the next apply would put back that opts.Accept accepts are
-// taken into the root's code, where it can be told how (see Source):
+// taken into the root's code, where it can be told how (see codeSource):
 // edited in the copy, planned again without refreshing, and written into
 // the root only once the plan and the checks of the verification gate
 // say the edits take them and change nothing else (see acceptDrift); the
@@ -1009,12 +1021,12 @@ const maxSourceExpression = 120
 // addDriftSources sets, as best it can, where the root's code, contents
 // by file name, sets each change's attribute (see driftEditor.resolve),
 // and returns the sources it found, by change.
-func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]Source, error) {
+func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]codeSource, error) {
 	cfg, err := parseDriftConfig(contents)
 	if err != nil {
 		return nil, err
 	}
-	sources := make([]Source, len(changes))
+	sources := make([]codeSource, len(changes))
 	for i := range changes {
 		sources[i] = editor.resolve(cfg, &changes[i])
 		changes[i].Source = reportSource(cfg, sources[i], editor.forms)

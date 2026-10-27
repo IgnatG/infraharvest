@@ -106,7 +106,7 @@ type Stores struct {
 }
 
 // DefaultStores read with each cloud's default credentials.
-var DefaultStores = Stores{S3: NewS3, GCS: NewGCS, AzureBlob: NewAzureBlob, HCPTerraform: NewHCPTerraform}
+var DefaultStores = Stores{S3: newS3, GCS: newGCS, AzureBlob: newAzureBlob, HCPTerraform: newHCPTerraform}
 
 // Load reads the state in sources: state files, directories with state
 // files (*.tfstate, outside .terraform), s3://bucket/prefix (?region=

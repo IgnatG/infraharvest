@@ -19,10 +19,10 @@ type GCS struct {
 	service *storage.Service
 }
 
-// NewGCS opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
+// newGCS opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
 // from that emulator, without credentials, as Cloud Storage's own client
 // libraries do; a host without a scheme is taken as http.
-func NewGCS(ctx context.Context) (ObjectStore, error) {
+func newGCS(ctx context.Context) (ObjectStore, error) {
 	opts := []option.ClientOption{option.WithScopes(storage.DevstorageReadOnlyScope)}
 	if host := os.Getenv("STORAGE_EMULATOR_HOST"); host != "" {
 		endpoint, err := emulatorEndpoint(host)

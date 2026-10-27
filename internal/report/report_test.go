@@ -73,7 +73,7 @@ func TestFinishComplete(t *testing.T) {
 
 	r.Finish(map[string]int{"aws_vpc": 1, "aws_main_route_table_association": 1}, nil, false)
 
-	if r.ExitCode != ExitOK || r.Incomplete() {
+	if r.ExitCode != ExitOK || r.incomplete() {
 		t.Errorf("want a complete import, got exit code %d", r.ExitCode)
 	}
 }
@@ -191,21 +191,26 @@ func TestManagedCounts(t *testing.T) {
 	}
 }
 
-// What another tool manages, and every count by account and region.
-func TestResourceType(t *testing.T) {
+// What an incremental import leaves out as a root of the output has it
+// counts as Terraform's, by the owner the import gave it, whatever its
+// reason says; an exclusion without one, as in an older report, counts by
+// its reason.
+func TestManagedCountsWhatTheOutputsRootsHave(t *testing.T) {
 	t.Parallel()
-	for address, want := range map[string]string{
-		"aws_iam_role.app":                                  "aws_iam_role",
-		"aws_iam_role.app[0]":                               "aws_iam_role",
-		"module.app.aws_iam_role.this":                      "aws_iam_role",
-		"module.app[0].aws_iam_role.this[0]":                "aws_iam_role",
-		`module.app["a.b"].aws_iam_role.this`:               "aws_iam_role",
-		`module.app["a]\".b"].module.inner.aws_s3_bucket.x`: "aws_s3_bucket",
-		"module.app":                                        "module.app",
-	} {
-		if got := ResourceType(address); got != want {
-			t.Errorf("ResourceType(%q) = %q, want %q", address, got, want)
-		}
+	r := &Report{}
+	r.Excluded = []Excluded{
+		{Type: "aws_iam_role", ID: "app", Reason: "already in the root", Owner: OwnerTerraformRoot},
+		{Type: "aws_iam_role", ID: "ci", Reason: "already in another root of the output, aws/eu-west-2", Owner: OwnerTerraformRoot},
+		{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC, which AWS creates in every region"},
+	}
+	r.Finish(map[string]int{"aws_iam_role": 2, "aws_vpc": 1}, nil, false)
+
+	if r.Totals.Managed != 2 || r.Totals.Cloud != 1 || r.Totals.Excluded != 3 {
+		t.Errorf("totals: %+v", r.Totals)
+	}
+	var read struct{ Excluded []Excluded }
+	if err := json.Unmarshal([]byte(`{"excluded": [{"type": "aws_vpc", "id": "vpc-1", "reason": "default VPC"}]}`), &read); err != nil || len(read.Excluded) != 1 || read.Excluded[0].ManagedBy() != OwnerCloud {
+		t.Errorf("an exclusion of an older report: %+v, %v", read.Excluded, err)
 	}
 }
 
@@ -224,6 +229,7 @@ func TestFinishCountsResourcesInModuleCalls(t *testing.T) {
 	}
 }
 
+// What another tool manages, and every count by account and region.
 func TestScopeCounts(t *testing.T) {
 	t.Parallel()
 	const prod, dev = "aws/111111111111/eu-west-2", "aws/222222222222/eu-west-2"
@@ -359,7 +365,7 @@ func TestSkippedChecks(t *testing.T) {
 	if got, want := r.SkippedChecks(), []string{"aws: G5 scanners: no scanner installed (tflint, trivy, checkov)"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("skipped checks: %v, want %v", got, want)
 	}
-	if len(r.FailedChecks()) != 0 || r.Incomplete() {
+	if len(r.FailedChecks()) != 0 || r.incomplete() {
 		t.Errorf("a skipped check counts as failed: %v", r.FailedChecks())
 	}
 	if md := r.Markdown(); !strings.Contains(md, "## Skipped checks") || !strings.Contains(md, "- aws: G5 scanners: no scanner installed") || strings.Contains(md, "## Failed checks") {

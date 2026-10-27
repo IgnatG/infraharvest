@@ -5,17 +5,26 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
+// driftSettings are the settings of a configuration file drift takes, of
+// those the import takes, as they mean the same for it: how Terraform runs,
+// and the catalogue the import used. It leaves the import's others, such
+// as the services and the selection, to the import.
+var driftSettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue"}
+
 func newDriftCmd() *cobra.Command {
 	options := importer.DriftOptions{Provider: providers.New, Names: providers.Names()}
+	var configFile string
 	cmd := &cobra.Command{
 		Use:   "drift [output-directory]",
 		Short: "Find what changed in the cloud since the generated roots were applied",
@@ -27,7 +36,8 @@ func newDriftCmd() *cobra.Command {
 			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
 			"backends and local state are supported; HCP Terraform and other remote\n" +
 			"backends are refused. A root environments share is checked once per\n" +
-			"environment (--environment names which), with its backend settings,\n" +
+			"environment --environment names, or every one with --environment all, which\n" +
+			"roots of more than one environment need, with its backend settings,\n" +
 			"vars/<env>/backend.hcl, or without a backend its workspace's local state, and\n" +
 			"its var files; as they share its code, an accepted change is written into\n" +
 			"vars/<env>/terraform.tfvars where a variable sets the value, else needs a\n" +
@@ -37,6 +47,9 @@ func newDriftCmd() *cobra.Command {
 			"plan of the edited copy, without refreshing again, shows each accepted\n" +
 			"resource taking them and nothing else changing; the others are kept, and the\n" +
 			"next apply puts them back. Secrets are never written.\n\n" +
+			"--config takes the import's configuration file: its settings drift has, engine,\n" +
+			"terraform-path, engine-timeout and catalogue, apply where the command line\n" +
+			"doesn't give them, and the rest are left to the import.\n\n" +
 			"--write-decisions writes a decisions file, drift.yaml in the output directory,\n" +
 			"the --decisions file, or the file --write-decisions=<file> names, with an entry\n" +
 			"per change to accept or keep; edit it, and apply it with --decisions. A file\n" +
@@ -49,6 +62,15 @@ func newDriftCmd() *cobra.Command {
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if configFile != "" {
+				f, err := config.Load(configFile)
+				if err != nil {
+					return err
+				}
+				if err := f.ApplyShared(cmd.Flags(), cmd.Name(), driftSettings); err != nil {
+					return fmt.Errorf("%s: %w", configFile, err)
+				}
+			}
 			options.Out = importer.DefaultOut
 			if len(args) == 1 {
 				options.Out = args[0]
@@ -58,6 +80,7 @@ func newDriftCmd() *cobra.Command {
 			return importer.Interrupted(ctx, importer.Drift(ctx, options, cmd.OutOrStdout()))
 		},
 	}
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line")
 	cmd.Flags().StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu")
 	cmd.Flags().StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH, else installed as for import)")
 	cmd.Flags().DurationVar(&options.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the refresh of one root, may run (0: no limit)")
@@ -71,7 +94,7 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+importer.DefaultDriftDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().Lookup("write-decisions").NoOptDefVal = "true"
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
-	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with (default: every environment under its vars/)")
+	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

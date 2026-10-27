@@ -72,8 +72,8 @@ func TestValuesAt(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// DeepEqual tells an empty result from a nil one.
-			if got := ValuesAt(tc.path, tc.data); !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("ValuesAt(%q): got %#v, want %#v", tc.path, got, tc.want)
+			if got := valuesAt(tc.path, tc.data); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("valuesAt(%q): got %#v, want %#v", tc.path, got, tc.want)
 			}
 		})
 	}
@@ -89,8 +89,8 @@ func TestHasPath(t *testing.T) {
 		{"empty map", map[string]interface{}{}, false},
 		{"present", map[string]interface{}{"attr1": "value"}, true},
 	} {
-		if got := HasPath("attr1", tc.data); got != tc.want {
-			t.Errorf("%s: HasPath(attr1) = %v, want %v", tc.name, got, tc.want)
+		if got := hasPath("attr1", tc.data); got != tc.want {
+			t.Errorf("%s: hasPath(attr1) = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

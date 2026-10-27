@@ -405,7 +405,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]engine.Import, st
 		var kept []engine.Import
 		for _, imp := range imports {
 			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope})
+				r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: imp.Type, ID: imp.ID, Reason: InOtherRootReason + ", " + root, Scope: scope, Owner: report.OwnerTerraformRoot})
 				continue
 			}
 			kept = append(kept, imp)
@@ -609,7 +609,7 @@ func (r *Run) recordMoves(path string, result *engine.Result) {
 	for _, m := range result.Moves {
 		had, ok := types[m.To]
 		if !ok {
-			had = engine.Managed{Type: resourceTypeOf(m.To)}
+			had = engine.Managed{Type: engine.AddressType(m.To)}
 		}
 		r.report.Moved = append(r.report.Moved, report.Move{Type: had.Type, ID: had.ID, FromRoot: path, From: m.From, ToRoot: path, To: m.To})
 	}

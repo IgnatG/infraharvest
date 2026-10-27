@@ -62,7 +62,7 @@ func TestGoldenDriftPromotedLiterals(t *testing.T) {
 			if !ok {
 				t.Fatalf("no edit: %s", failed[change].Reason)
 			}
-			if src.File != "main.tf" || src.Kind != SourceModule {
+			if src.File != "main.tf" || src.Kind != sourceModule {
 				t.Errorf("source %+v", src)
 			}
 			edited := map[string][]byte{}

@@ -49,7 +49,7 @@ resources:
 			return
 		}
 		for _, r := range file.Resources {
-			_ = file.DecideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
+			_ = file.decideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
 		}
 		_ = file.Decide("aws_vpc", "vpc-1", "main")
 		_ = file.Has("aws_vpc", "vpc-1")

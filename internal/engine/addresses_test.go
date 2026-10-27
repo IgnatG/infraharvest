@@ -153,3 +153,31 @@ func TestResultWithAddresses(t *testing.T) {
 		t.Errorf("added to a root that imports nothing: %+v", got)
 	}
 }
+
+// The type of a resource is found past its module calls, whose instance
+// keys may hold dots, brackets and quotes, and a data source's after
+// data; a module call alone has none.
+func TestAddressType(t *testing.T) {
+	t.Parallel()
+	for address, want := range map[string]string{
+		"aws_s3_bucket.logs":                                 "aws_s3_bucket",
+		"aws_s3_bucket.logs[0]":                              "aws_s3_bucket",
+		`aws_sqs_queue.this["orders.dlq"]`:                   "aws_sqs_queue",
+		"data.aws_iam_policy_document.p":                     "aws_iam_policy_document",
+		"module.logs.aws_s3_bucket.this[0]":                  "aws_s3_bucket",
+		"module.logs.data.aws_iam_policy_document.p":         "aws_iam_policy_document",
+		`module.logs["a.b"].aws_s3_bucket.this`:              "aws_s3_bucket",
+		`module.x["a.b"].module.y[1].aws_sqs_queue.q["c.d"]`: "aws_sqs_queue",
+		`module.x["say \"a.b\" ]"].aws_iam_role.this`:        "aws_iam_role",
+		`module.app["a]\".b"].module.inner.aws_s3_bucket.x`:  "aws_s3_bucket",
+		`module.app["a[b"].aws_iam_role.this`:                "aws_iam_role",
+		"module.app":                                         "",
+		`module.app["a.b"]`:                                  "",
+		"module.app.module.inner":                            "",
+		"":                                                   "",
+	} {
+		if got := AddressType(address); got != want {
+			t.Errorf("AddressType(%q) = %q, want %q", address, got, want)
+		}
+	}
+}

@@ -5,21 +5,23 @@ package adapters
 
 import "sort"
 
-// byProvider has each provider's adapters, in the order the engine tries
-// them.
+// byProvider has each provider command's adapters, in the order the engine
+// tries them: by the command, not the Terraform provider, so that google
+// --beta, whose provider is google-beta, gets google's.
 var byProvider = map[string][]Adapter{
-	"aws":     {S3Bucket, IAMRole, VPC},
-	"azurerm": {AzureUserAssignedIdentity},
-	"google":  {GoogleNetwork, GoogleStorageBucket, GoogleServiceAccount, GoogleProjectIAM, GoogleKMS},
+	"aws":    {S3Bucket, IAMRole, VPC},
+	"azure":  {AzureUserAssignedIdentity},
+	"google": {GoogleNetwork, GoogleStorageBucket, GoogleServiceAccount, GoogleProjectIAM, GoogleKMS},
 }
 
-// For returns the adapters for a provider's resources, in the order the
-// engine tries them.
-func For(provider string) []Adapter {
-	return byProvider[provider]
+// For returns the adapters for the resources of a provider command, such
+// as azure (see harvest.Profile.Command), in the order the engine tries
+// them.
+func For(command string) []Adapter {
+	return byProvider[command]
 }
 
-// Providers returns the providers with adapters, sorted.
+// Providers returns the provider commands with adapters, sorted.
 func Providers() []string {
 	names := make([]string, 0, len(byProvider))
 	for name := range byProvider {

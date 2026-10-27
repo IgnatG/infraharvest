@@ -110,6 +110,9 @@ func TestLoadRejectsEnvironmentMistakes(t *testing.T) {
 		"the shared name": {
 			"  shared: { aws: { accounts: [\"111111111111\"] } }\n", "taken",
 		},
+		"the all name": {
+			"  all: { aws: { accounts: [\"111111111111\"] } }\n", "every environment",
+		},
 		"nothing to find it by": {
 			"  dev: { tokens: [dev] }\n", "name its aws accounts",
 		},
