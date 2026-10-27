@@ -152,6 +152,10 @@ type shared struct {
 	// host, made with --rate-limit on first use (see rateLimiter).
 	limiterMu sync.Mutex
 	limiter   *ratelimit.Limiter
+
+	// modules counts the roots of the command that call each generated
+	// module, which they share (see engine.Options.Modules).
+	modules engine.ModuleRefs
 }
 
 // rateLimiter returns the command's limiter, of perSecond requests a

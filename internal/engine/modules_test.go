@@ -85,7 +85,7 @@ func TestModularize(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
-	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -164,7 +164,7 @@ resource "aws_s3_bucket_versioning" "logs" {
 }
 `)
 
-	if _, changed, err := modularize(dir, modulesDir, bucketSchemas); err != nil || changed {
+	if _, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 }
@@ -177,7 +177,7 @@ func TestModularizeDeclines(t *testing.T) {
 		"bucket = aws_s3_bucket.logs.bucket", `bucket = "${aws_s3_bucket.logs.bucket}-a"`, 1),
 		"bucket = aws_s3_bucket.state.bucket", `bucket = "${aws_s3_bucket.state.bucket}-b"`, 1))
 
-	if _, changed, err := modularize(dir, modulesDir, bucketSchemas); err != nil || changed {
+	if _, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 }
@@ -187,7 +187,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: changeSummary{Change: 1}}}}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, nil, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -205,7 +205,7 @@ func TestLiftModulesKeeps(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, nil, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, nil, nil)
 	if err != nil || !kept {
 		t.Fatalf("want the modules kept, got kept=%v err=%v", kept, err)
 	}
@@ -251,7 +251,7 @@ func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
 		"bucket = \"logs\"\n", "bucket = \"logs\"\n  key    = var.aws_s3_bucket_logs_key\n", 1),
 		"bucket = \"state\"\n", "bucket = \"state\"\n  key    = var.aws_s3_bucket_state_key\n", 1))
 
-	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -294,26 +294,27 @@ func TestLowerBound(t *testing.T) {
 
 // Roots imported in parallel share the modules directory: one root's undo
 // leaves a module another calls, and the last user's undo removes it.
-func TestReleaseModulesKeepsSharedModules(t *testing.T) {
+func TestModuleRefsKeepSharedModules(t *testing.T) {
 	t.Parallel()
 	modulesDir := t.TempDir()
 	path := filepath.Join(modulesDir, "bucket_1a2b3c4d")
 	write := func(at string) error { return os.WriteFile(filepath.Join(at, "main.tf"), []byte("# module\n"), 0o644) }
 	a, b := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
+	var refs ModuleRefs
 
-	if wrote, err := holdModule(a, path, write); err != nil || !wrote {
+	if wrote, err := refs.hold(a, path, write); err != nil || !wrote {
 		t.Fatalf("a: wrote %v, %v", wrote, err)
 	}
-	if wrote, err := holdModule(b, path, write); err != nil || wrote {
+	if wrote, err := refs.hold(b, path, write); err != nil || wrote {
 		t.Fatalf("b: wrote %v, %v; want it reused", wrote, err)
 	}
-	if err := releaseModules(a); err != nil {
+	if err := refs.Release(a); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(path, "main.tf")); err != nil {
 		t.Fatalf("a's undo removed the module b calls: %v", err)
 	}
-	if err := releaseModules(b); err != nil {
+	if err := refs.Release(b); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -325,7 +326,7 @@ func TestReleaseModulesKeepsSharedModules(t *testing.T) {
 func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
-	created, _, err := modularize(dir, modulesDir, bucketSchemas)
+	created, _, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || len(created) != 1 {
 		t.Fatalf("got created=%v err=%v", created, err)
 	}
@@ -337,7 +338,7 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 		}},
 	}}
 	other, otherModules := moduleRoot(t, twoBuckets)
-	createdLess, _, err := modularize(other, otherModules, less)
+	createdLess, _, err := modularize(other, otherModules, &ModuleRefs{}, less)
 	if err != nil || len(createdLess) != 1 {
 		t.Fatalf("got created=%v err=%v", createdLess, err)
 	}
@@ -357,7 +358,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
 	changes := map[string]string{"aws_iam_policy.read": changeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, changeSummary{}, changes, nil)
+	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, changeSummary{}, changes, nil)
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -374,7 +375,7 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	modulesDir := filepath.Join(dir, ModulesDirName)
 
-	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -404,7 +405,7 @@ func TestModularizeLaysOutTheModule(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
-	created, changed, err := modularize(dir, modulesDir, bucketSchemas)
+	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}

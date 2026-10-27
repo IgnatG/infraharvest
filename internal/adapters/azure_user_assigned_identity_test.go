@@ -28,11 +28,11 @@ resource "azurerm_federated_identity_credential" "ci_github" {
 
 func TestAzureUserAssignedIdentityMaps(t *testing.T) {
 	t.Parallel()
-	call, err := AzureUserAssignedIdentity.Map(cluster(t, identityCluster))
+	call, err := azureUserAssignedIdentity.Map(cluster(t, identityCluster))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, AzureUserAssignedIdentity, call)
+	got := render(t, azureUserAssignedIdentity, call)
 	for _, want := range []string{
 		`name = "ci"`,
 		`location = "westeurope"`,
@@ -72,7 +72,7 @@ func TestAzureUserAssignedIdentityDeclines(t *testing.T) {
 		if src == identityCluster {
 			t.Fatalf("%s: the replacement doesn't apply", name)
 		}
-		if _, err := AzureUserAssignedIdentity.Map(cluster(t, src)); !IsDecline(err) {
+		if _, err := azureUserAssignedIdentity.Map(cluster(t, src)); !IsDecline(err) {
 			t.Errorf("%s: got %v, want a decline", name, err)
 		}
 	}
@@ -86,7 +86,7 @@ func TestAzureUserAssignedIdentityMapsTheNewParent(t *testing.T) {
 	if src == identityCluster {
 		t.Fatal("the replacement doesn't apply")
 	}
-	call, err := AzureUserAssignedIdentity.Map(cluster(t, src))
+	call, err := azureUserAssignedIdentity.Map(cluster(t, src))
 	if err != nil {
 		t.Fatal(err)
 	}

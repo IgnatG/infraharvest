@@ -13,14 +13,14 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// GoogleProjectIAM maps the IAM grants in a project (google_project_iam_member)
+// googleProjectIAM maps the IAM grants in a project (google_project_iam_member)
 // onto the projects_iam module of terraform-google-modules/iam/google, in
 // its additive mode: one call per project, with the members of each role
 // and the conditional grants. Grants to a service account the root has
-// stay with the account (see GoogleServiceAccount, which is tried first),
+// stay with the account (see googleServiceAccount, which is tried first),
 // and grants with a role or member that isn't literal, such as a
 // reference, stay in the root: the module's keys spell them out.
-var GoogleProjectIAM = Adapter{
+var googleProjectIAM = Adapter{
 	Source:    "terraform-google-modules/iam/google//modules/projects_iam",
 	Version:   "8.3.0",
 	Anchor:    "google_project_iam_member",

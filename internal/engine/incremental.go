@@ -257,10 +257,10 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, err
 	}
 	added, err := merge(staging, root, existing, opts.DataSources, fileOf)
-	if err == nil && r.policy.defaultTags != nil {
+	if err == nil && r.opts.DefaultTags != nil {
 		// The added resources without the root's default tags use the
 		// configuration without them, which root may not have yet.
-		_, err = addRootAlias(staging, root, *r.policy.defaultTags)
+		_, err = addRootAlias(staging, root, *r.opts.DefaultTags)
 	}
 	undo := func() error {
 		for _, name := range added {
@@ -303,7 +303,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 
 // adding is Add's run with opts, of resources to add to a root whose
 // configuration files are root, and which has the resources existing (see
-// Existing). Its policy differs from Generate's (see generating): with
+// Existing). Its options differ from the caller's (see generating): with
 // lock, the lock file staging generates with, the providers opts.Config
 // requires are pinned to its releases (see pinnedToLock); it names
 // nothing as root does; it makes no local modules, and calls of curated
@@ -312,43 +312,44 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 // root; it lifts the tags root's provider applies, if any; the resources
 // root has are external; and it writes the configuration into
 // generated.tf, whose resources merge then puts after the blocks of the
-// file of their type, or into a file of their own.
+// file of their type, or into a file of their own. The caller's opts stay
+// as they are.
 func adding(opts Options, lock []byte, root []*hclFile, existing map[External]string) (*run, error) {
 	r := generating(opts)
-	p := &r.policy
+	o := &r.opts
 	if versions, ok := opts.Config[VersionsFileName]; ok && lock != nil {
 		pinned, err := pinnedToLock(versions, lock)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
 		}
-		p.config = maps.Clone(opts.Config)
-		p.config[VersionsFileName] = pinned
+		o.Config = maps.Clone(opts.Config)
+		o.Config[VersionsFileName] = pinned
 	}
-	p.taken = rootNames(root)
-	p.modulesDir = ""
-	p.adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
+	r.taken = rootNames(root)
+	o.ModulesDir = ""
+	o.Adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags
 		if applied, ok := appliedTags(root, dt); ok {
 			dt.Applied = applied
-			p.defaultTags = &dt
+			o.DefaultTags = &dt
 		} else {
 			// Lifting tags would change root's provider, or the tags its
 			// resources refer to.
-			p.defaultTags = nil
+			o.DefaultTags = nil
 		}
 	}
 	external := map[External]bool{}
 	for _, e := range opts.External {
 		external[ResourceKey(e.Type, e.ID)] = true
 	}
-	p.external = slices.Clone(opts.External)
+	o.External = slices.Clone(opts.External)
 	for _, e := range sortedExternal(existing) {
 		if !external[ResourceKey(e.Type, e.ID)] {
-			p.external = append(p.external, e)
+			o.External = append(o.External, e)
 		}
 	}
-	p.splitFiles = false
+	o.SplitFiles = false
 	return r, nil
 }
 

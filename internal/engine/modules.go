@@ -97,10 +97,10 @@ type moduleGroup struct {
 // same shape into a generated local module under modulesDir, one call per
 // cluster. Values the clusters share stay in the module; values that differ,
 // or refer to anything outside the cluster, become variables. It returns
-// the module directories it wrote, and holds the ones it calls (see
-// holdModule); it changes nothing when no shape repeats, or when moving
+// the module directories it wrote, and holds the ones it calls in refs
+// (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
-func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
+func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, false, err
@@ -132,7 +132,7 @@ func modularize(dir, modulesDir string, schemas *tfjson.ProviderSchemas) ([]stri
 	var created []string
 	for _, g := range groups {
 		path := filepath.Join(modulesDir, g.name)
-		wrote, err := holdModule(dir, path, func(at string) error { return writeModule(at, g, versions) })
+		wrote, err := refs.hold(dir, path, func(at string) error { return writeModule(at, g, versions) })
 		if err != nil {
 			return created, false, err
 		}
@@ -656,7 +656,7 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 	for _, o := range g.outputs {
 		fmt.Fprintf(&readme, "- `%s`\n", o)
 	}
-	// Laid out here, before holdModule moves it into place, where other
+	// Laid out here, before ModuleRefs.hold moves it into place, where other
 	// roots may be reading or removing modules (see layoutDir).
 	main := g.main
 	if out, ok := layout(main); ok {
@@ -755,11 +755,11 @@ func rewriteRoot(dir string, generated *hclFile, groups []*moduleGroup, modulesD
 }
 
 // liftModules is post-processing's module step: it moves repeated clusters
-// into generated modules under modulesDir, installs them, and keeps the
-// change only if the plan, with vars, still has the baseline's totals and
-// each resource left in the root plans the change it had (see
-// sameChanges), as verify checks an edit.
-func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
+// into generated modules under modulesDir, whose users refs counts,
+// installs them, and keeps the change only if the plan, with vars, still
+// has the baseline's totals and each resource left in the root plans the
+// change it had (see sameChanges), as verify checks an edit.
+func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, refs *ModuleRefs, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
@@ -768,10 +768,10 @@ func liftModules(ctx context.Context, tf Terraform, dir, modulesDir string, base
 	if err != nil {
 		return false, err
 	}
-	_, changed, err := modularize(dir, modulesDir, schemas)
+	_, changed, err := modularize(dir, modulesDir, refs, schemas)
 	undo := func() error {
-		// What another root calls stays (see moduleRefs).
-		return errors.Join(releaseModules(dir), backup.restore())
+		// What another root calls stays (see ModuleRefs).
+		return errors.Join(refs.Release(dir), backup.restore())
 	}
 	if err != nil {
 		return false, errors.Join(err, undo())

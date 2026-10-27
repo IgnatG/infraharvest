@@ -11,7 +11,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// GoogleNetwork maps a VPC network, its subnetworks and its firewall rules
+// googleNetwork maps a VPC network, its subnetworks and its firewall rules
 // onto terraform-google-modules/network/google. The module creates the
 // network through the google-beta provider, keys subnetworks by region
 // and name and firewall rules by name, and passes its project to all of
@@ -22,7 +22,7 @@ import (
 // generated may have them in its regions' roots), and firewall rules that
 // set both source and destination ranges. Routes stay in the root,
 // referring to the module's outputs.
-var GoogleNetwork = Adapter{
+var googleNetwork = Adapter{
 	Source:   "terraform-google-modules/network/google",
 	Version:  "18.3.1",
 	Anchor:   "google_compute_network",

@@ -43,11 +43,11 @@ resource "aws_iam_role_policy_attachment" "ci_readonly" {
   role       = aws_iam_role.ci.name
 }
 `)
-	call, err := IAMRole.Map(c)
+	call, err := awsIAMRole.Map(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, IAMRole, call)
+	got := called(t, awsIAMRole, call)
 	for _, want := range []string{
 		`name = "ci"`,
 		"use_name_prefix = false",
@@ -89,11 +89,11 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
   name               = "app"
 }
 `)
-	call, err := IAMRole.Map(c)
+	call, err := awsIAMRole.Map(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, IAMRole, call)
+	got := called(t, awsIAMRole, call)
 	for _, unwanted := range []string{"create_inline_policy", "create_instance_profile", "policies"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s:\n%s", unwanted, got)
@@ -113,7 +113,7 @@ func TestIAMRoleWithoutMembers(t *testing.T) {
 // was declined for another path than the role's.
 func TestIAMRoleRootPathIsNoPath(t *testing.T) {
 	t.Parallel()
-	_, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "ci" {
+	_, err := awsIAMRole.Map(cluster(t, `resource "aws_iam_role" "ci" {
   assume_role_policy = "{}"
   name               = "ci"
 }
@@ -132,7 +132,7 @@ resource "aws_iam_instance_profile" "ci" {
 // module's defaults.
 func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
 	t.Parallel()
-	call, err := IAMRole.Map(cluster(t, `resource "aws_iam_role" "app" {
+	call, err := awsIAMRole.Map(cluster(t, `resource "aws_iam_role" "app" {
   assume_role_policy   = "{}"
   max_session_duration = 3600
   name                 = "app"
@@ -142,7 +142,7 @@ func TestIAMRoleLeavesModuleDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, IAMRole, call)
+	got := called(t, awsIAMRole, call)
 	for _, unwanted := range []string{"path", "max_session_duration"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("call sets %s at the module's default:\n%s", unwanted, got)
@@ -183,7 +183,7 @@ func TestIAMRoleDeclines(t *testing.T) {
 `, "can't set aws_iam_role.app.unknown_setting"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := IAMRole.Map(cluster(t, tc.src))
+			_, err := awsIAMRole.Map(cluster(t, tc.src))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("want a decline about %q, got %v", tc.reason, err)
 			}

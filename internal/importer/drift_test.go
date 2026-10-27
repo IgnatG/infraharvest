@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
@@ -355,14 +356,34 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var checked, staged []string
-	// The lock each check holds while it initialises the root's directory.
-	locks := map[string]*sync.Mutex{}
+	// The checks that initialise the root's directory holding a lock, and
+	// how many hold it at once, by root.
+	locked := map[string]bool{}
+	inside := map[string]int{}
+	var overlapped []string
 	check := func(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+		name := report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()
 		mu.Lock()
-		checked = append(checked, report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name())
+		checked = append(checked, name)
 		staged = append(staged, staging)
-		locks[report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()] = opts.RootLock
+		locked[name] = opts.WithRootLock != nil
 		mu.Unlock()
+		if opts.WithRootLock != nil {
+			if err := opts.WithRootLock(func() error {
+				mu.Lock()
+				if inside[dir]++; inside[dir] > 1 {
+					overlapped = append(overlapped, name)
+				}
+				mu.Unlock()
+				time.Sleep(50 * time.Millisecond)
+				mu.Lock()
+				inside[dir]--
+				mu.Unlock()
+				return nil
+			}); err != nil {
+				return nil, err
+			}
+		}
 		// Each environment is checked with its var files.
 		if _, err := os.Stat(filepath.Join(dir, "vars", opts.Environment, "terraform.tfvars")); opts.Environment != "" && err != nil {
 			return nil, err
@@ -399,10 +420,10 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	// The environments of the shared root initialise its directory one at
 	// a time; the other root locks nothing.
-	if dev, prod := locks["aws/us-east-1 (dev)"], locks["aws/us-east-1 (prod)"]; dev == nil || dev != prod {
-		t.Errorf("the environments of aws/us-east-1 hold locks %p and %p, want one they share", dev, prod)
+	if !locked["aws/us-east-1 (dev)"] || !locked["aws/us-east-1 (prod)"] || len(overlapped) > 0 {
+		t.Errorf("the environments of aws/us-east-1: locked %v, at once %v; want them to share one lock", locked, overlapped)
 	}
-	if locks["aws/1/global"] != nil {
+	if locked["aws/1/global"] {
 		t.Errorf("aws/1/global holds a lock")
 	}
 	d := readDrift(t, out)
@@ -519,8 +540,10 @@ func TestDriftTargetsNeedAnEnvironmentForSeveral(t *testing.T) {
 // The checks of an accepted change's edited code leave the
 // organisation's own modules in directories to their owners, as the
 // import's do: each root gets the adapters of its provider's, from the
-// configuration file's modules. Modules drift would have to fetch aren't.
-func TestDriftPassesTheOrganisationsModules(t *testing.T) {
+// configuration file's modules, then those of its provider's curated
+// modules, which trace changes into their calls. Modules drift would have
+// to fetch aren't.
+func TestDriftPassesTheRootsModules(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-2")
 	module := func(content string) string {
@@ -544,7 +567,7 @@ func TestDriftPassesTheOrganisationsModules(t *testing.T) {
 		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1,
 		Provider: func(name string) harvest.Provider {
 			if name == "aws" {
-				return &catalogueProvider{}
+				return &curatedProvider{}
 			}
 			return nil
 		},
@@ -555,10 +578,22 @@ func TestDriftPassesTheOrganisationsModules(t *testing.T) {
 	if err := Drift(t.Context(), options, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || len(got[0]) != 1 || got[0][0].Source != bucket {
-		t.Errorf("adapters %+v, want the bucket module's alone", got)
+	curated := adapters.For("aws")
+	if len(got) != 1 || len(got[0]) != 1+len(curated) || got[0][0].Source != bucket {
+		t.Fatalf("adapters %+v, want the bucket module's, then the curated ones", got)
+	}
+	for i, a := range curated {
+		if got[0][1+i].Source != a.Source || got[0][1+i].Version != a.Version {
+			t.Errorf("adapter %d: %s %s, want %s %s", 1+i, got[0][1+i].Source, got[0][1+i].Version, a.Source, a.Version)
+		}
 	}
 }
+
+// curatedProvider is a catalogueProvider whose profile names the curated
+// modules of aws.
+type curatedProvider struct{ catalogueProvider }
+
+func (*curatedProvider) Profile() harvest.Profile { return harvest.Profile{Modules: "aws"} }
 
 // Terraform runs on roots that may come from someone else with a CLI
 // configuration of the run's own, which installs providers from their

@@ -990,9 +990,9 @@ removed {
 	}
 }
 
-// An add's policy pins the providers to staging's lock, if it has one,
-// calls only the curated modules staging can call by the same source,
-// makes no local modules and keeps generated.tf, and takes the root's
+// An add's options pin the providers to staging's lock, if it has one,
+// call only the curated modules staging can call by the same source,
+// make no local modules and keep generated.tf, and take the root's
 // resources as external, once each; the caller's Options stay as they
 // were.
 func TestAdding(t *testing.T) {
@@ -1031,24 +1031,21 @@ func TestAdding(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			p := r.policy
-			if got := string(p.config[VersionsFileName]); got != string(tc.versions) {
+			o := r.opts
+			if got := string(o.Config[VersionsFileName]); got != string(tc.versions) {
 				t.Errorf("versions.tf: got\n%s\nwant\n%s", got, tc.versions)
 			}
-			if !reflect.DeepEqual(p.adapters, []adapters.Adapter{local}) {
-				t.Errorf("adapters: got %+v, want only %+v", p.adapters, local)
+			if !reflect.DeepEqual(o.Adapters, []adapters.Adapter{local}) {
+				t.Errorf("adapters: got %+v, want only %+v", o.Adapters, local)
 			}
-			if p.modulesDir != "" || p.splitFiles {
-				t.Errorf("modulesDir %q, splitFiles %v: want neither", p.modulesDir, p.splitFiles)
+			if o.ModulesDir != "" || o.SplitFiles {
+				t.Errorf("modulesDir %q, splitFiles %v: want neither", o.ModulesDir, o.SplitFiles)
 			}
-			if want := []External{vpc, subnet}; !reflect.DeepEqual(p.external, want) {
-				t.Errorf("external: got %+v, want %+v", p.external, want)
+			if want := []External{vpc, subnet}; !reflect.DeepEqual(o.External, want) {
+				t.Errorf("external: got %+v, want %+v", o.External, want)
 			}
-			if string(opts.Config[VersionsFileName]) != string(versions) || !reflect.DeepEqual(opts.Adapters, []adapters.Adapter{local, absolute}) || !reflect.DeepEqual(opts.External, []External{vpc}) {
+			if string(opts.Config[VersionsFileName]) != string(versions) || !reflect.DeepEqual(opts.Adapters, []adapters.Adapter{local, absolute}) || !reflect.DeepEqual(opts.External, []External{vpc}) || opts.ModulesDir != "modules" || !opts.SplitFiles {
 				t.Errorf("the caller's options changed: %+v", opts)
-			}
-			if !reflect.DeepEqual(r.opts, opts) {
-				t.Errorf("the run's options: got %+v, want the caller's", r.opts)
 			}
 		})
 	}

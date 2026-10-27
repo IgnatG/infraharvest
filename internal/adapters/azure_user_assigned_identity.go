@@ -18,7 +18,7 @@ import (
 // and of body properties the modules set to null, so no adapter maps onto
 // them.
 
-// AzureUserAssignedIdentity maps a user-assigned identity and its
+// azureUserAssignedIdentity maps a user-assigned identity and its
 // federated identity credentials onto Azure Verified Modules' managed
 // identity module, which keys the credentials by name. Release 0.5.3,
 // the newest, accepts azurerm below 5 only: an import doesn't call a
@@ -30,7 +30,7 @@ import (
 // azapi_resource, as AVM's network and storage modules do, keeps the
 // variables and outputs but not the resources the adapter maps onto
 // (Targets): the adaptercheck report says it doesn't fit.
-var AzureUserAssignedIdentity = Adapter{
+var azureUserAssignedIdentity = Adapter{
 	Source:   "Azure/avm-res-managedidentity-userassignedidentity/azurerm",
 	Version:  "0.5.3",
 	Anchor:   "azurerm_user_assigned_identity",

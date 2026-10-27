@@ -16,7 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// VPC maps a VPC, its subnets, internet gateway and route tables, the
+// awsVPC maps a VPC, its subnets, internet gateway and route tables, the
 // tables' subnet associations, and its NAT gateways with their Elastic IPs
 // onto terraform-aws-modules/vpc/aws. It takes the shapes the module
 // builds: public subnets sharing one route table whose only route is the
@@ -31,7 +31,7 @@ import (
 // resources of their own, which the call imports. The module leaves the
 // VPC's default security group, network ACL and main route table alone:
 // route tables without subnets stay in the root.
-var VPC = Adapter{
+var awsVPC = Adapter{
 	Source:  "terraform-aws-modules/vpc/aws",
 	Version: "6.7.3",
 	Anchor:  "aws_vpc",
