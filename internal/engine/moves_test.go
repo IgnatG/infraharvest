@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -462,7 +463,7 @@ func TestRootWritesReplaceSymlinks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !info.Mode().IsRegular() || info.Mode().Perm() != 0o644 {
+			if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o644) {
 				t.Errorf("%s is %v, want a regular 0644 file in place of the link", tt.name, info.Mode())
 			}
 		})
