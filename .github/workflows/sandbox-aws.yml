@@ -11,17 +11,19 @@
 # cost more, so it runs only when asked for; so does data
 # (TestSandboxAWSData): an EC2 instance, a Lambda function, an RDS
 # database, a Redshift cluster and an S3 bucket, destroyed straight after;
-# and cfn (TestSandboxAWSCloudFormation): two CloudFormation stacks, which
-# the test moves to Terraform with --cfn-stack, deleting them as it goes.
+# cfn (TestSandboxAWSCloudFormation): two CloudFormation stacks, which
+# the test moves to Terraform with --cfn-stack, deleting them as it goes;
+# and environments (TestSandboxAWSEnvironments): two small estates, dev
+# and prd, told apart by tag, which the import merges into one root.
 name: Sandbox (AWS)
 
 on:
   workflow_dispatch:
     inputs:
       estate:
-        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer; cfn is two CloudFormation stacks, moved to Terraform with --cfn-stack)
+        description: Estate to create and import (clusters is RDS, ElastiCache and EKS; data is EC2, Lambda, RDS, Redshift and S3; both slower and dearer; cfn is two CloudFormation stacks, moved to Terraform with --cfn-stack; environments is dev and prd queues, buckets and parameters, merged into one root)
         type: choice
-        options: [main, clusters, data, cfn]
+        options: [main, clusters, data, cfn, environments]
         default: main
       engine:
         description: Engine to import with
@@ -138,6 +140,7 @@ jobs:
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
           data) test=TestSandboxAWSData timeout=90m ;;
           cfn) test=TestSandboxAWSCloudFormation timeout=160m ;;
+          environments) test=TestSandboxAWSEnvironments timeout=70m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/

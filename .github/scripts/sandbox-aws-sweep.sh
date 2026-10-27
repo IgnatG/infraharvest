@@ -10,7 +10,9 @@
 # Kinesis streams, Lambda functions and S3 buckets, and the CloudFormation
 # stacks, SQS queues and SNS topics the CloudFormation estate leaves when
 # its test stops part way, with the log group and role of its custom
-# resource handler, by their ih-sbx- names), without final snapshots, and
+# resource handler, by their ih-sbx- names, and the SSM parameters named
+# /ih-sbx-..., which would fail the next run's create), without final
+# snapshots, and
 # warns about whatever is still tagged. It sweeps what earlier runs left
 # with their own run tag the same way: runs never overlap
 # (the workflow's concurrency group), so another run's tag only remains on
@@ -151,6 +153,13 @@ for region in "${regions[@]}"; do
         sns:*)
           echo "deleting SNS topic $resource"
           try aws sns delete-topic --region "$region" --topic-arn "$arn"
+          ;;
+        # Free, but one left behind fails the next run's create. The
+        # estates name their parameters /ih-sbx-..., which the ARN writes
+        # without the leading slash.
+        ssm:parameter/ih-sbx-*)
+          echo "deleting SSM parameter /${resource#parameter/}"
+          try aws ssm delete-parameter --region "$region" --name "/${resource#parameter/}"
           ;;
         lambda:function:*)
           name=${resource#function:}
