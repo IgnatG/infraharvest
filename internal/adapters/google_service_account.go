@@ -17,15 +17,16 @@ import (
 // so each keeps its own display name and description. It declines
 // conditional grants, which the module can't make.
 var GoogleServiceAccount = Adapter{
-	Source:   "terraform-google-modules/service-accounts/google//modules/simple-sa",
-	Version:  "5.1.0",
-	Anchor:   "google_service_account",
-	Members:  []string{"google_project_iam_member"},
-	Repeated: []string{"google_project_iam_member"},
-	Inputs:   []string{"description", "display_name", "name", "project_id", "project_roles"},
-	Outputs:  []string{"email", "iam_email", "id"},
-	Targets:  []string{"google_project_iam_member.roles", "google_service_account.sa"},
-	Map:      mapGoogleServiceAccount,
+	Source:    "terraform-google-modules/service-accounts/google//modules/simple-sa",
+	Version:   "5.1.0",
+	Anchor:    "google_service_account",
+	Members:   []string{"google_project_iam_member"},
+	Repeated:  []string{"google_project_iam_member"},
+	Inputs:    []string{"description", "display_name", "name", "project_id", "project_roles"},
+	Outputs:   []string{"email", "iam_email", "id"},
+	Providers: []string{"google"},
+	Targets:   []string{"google_project_iam_member.roles", "google_service_account.sa"},
+	Map:       mapGoogleServiceAccount,
 	// The module sets these from the inputs as they are
 	// (modules/simple-sa/main.tf).
 	Inverse: map[string]string{

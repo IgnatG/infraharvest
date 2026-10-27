@@ -147,16 +147,22 @@ func TestInitStopsWithItsContext(t *testing.T) {
 	}
 }
 
-// google-beta, which modules use, targets the import's project and region.
+// The counterpart of the root's provider, which modules use besides it,
+// targets the import's project and region: google-beta for google, and
+// google for google-beta.
 func TestModuleProviders(t *testing.T) {
+	ga := &Provider{projectName: "acme-prod"}
+	ga.region.Name = "europe-west1"
+	if got := ga.ModuleProviders(); len(got) != 1 || got["google-beta"].Source != "hashicorp/google-beta" || got["google-beta"].Config["project"] != "acme-prod" || got["google-beta"].Config["region"] != "europe-west1" {
+		t.Errorf("module providers of google: %+v", got)
+	}
 	p := &Provider{projectName: "acme-prod", providerType: "beta"}
 	p.region.Name = "europe-west1"
 	if _, ok := p.ProviderBlock()["provider"].(map[string]interface{})["google-beta"]; !ok {
 		t.Errorf("provider data: %v", p.ProviderBlock())
 	}
-	beta, ok := p.ModuleProviders()["google-beta"]
-	if !ok || beta.Source != "hashicorp/google-beta" || beta.Config["project"] != "acme-prod" || beta.Config["region"] != "europe-west1" {
-		t.Errorf("module providers: %+v", p.ModuleProviders())
+	if got := p.ModuleProviders(); len(got) != 1 || got["google"].Source != "hashicorp/google" || got["google"].Config["project"] != "acme-prod" || got["google"].Config["region"] != "europe-west1" {
+		t.Errorf("module providers of google-beta: %+v", got)
 	}
 	profile := p.Profile()
 	if got, want := profile.DefaultTags, (&harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"}); !reflect.DeepEqual(got, want) {

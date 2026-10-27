@@ -102,7 +102,8 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 
 // An azapi_resource of an Azure import names no provider: the root
 // requires azapi, which Terraform infers from the type. Its other
-// resources, and google-beta's, name the provider as they would without.
+// resources, and google-beta's, name the provider as they would without,
+// although google --beta's roots configure google for modules.
 func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 	const rg = "/subscriptions/s/resourceGroups/rg"
 	resources := map[string][]harvest.Resource{
@@ -121,7 +122,7 @@ func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 	}
 
 	network := map[string][]harvest.Resource{"cloud_asset": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")}}
-	beta := map[string]engine.Provider{"google-beta": {Name: "google-beta"}}
+	beta := map[string]engine.Provider{"google": {Name: "google", Source: "hashicorp/google"}}
 	got, _ := importsByDir(importBlocks{provider: "google-beta", configured: beta, importID: listerID, nameOf: rawName, fileOf: noFile}, network, layoutDirs(options.Layout, options.Out, "google", noEnv))
 	if imports := got[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
 		t.Errorf("google-beta: got %+v", got)

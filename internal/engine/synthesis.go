@@ -97,7 +97,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 			}
 		}
 	}
-	if err := writeCalls(dir, trials, opts.ModuleProviders); err != nil {
+	if err := writeCalls(dir, trials, opts.ModuleProviders, r.policy.defaultTags); err != nil {
 		return nil, baseline, nil, errors.Join(err, backup.restore())
 	}
 	if err := initTerraform(ctx, tf); err != nil {
@@ -117,7 +117,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 			return err
 		}
 		written = ts
-		return writeCalls(dir, ts, opts.ModuleProviders)
+		return writeCalls(dir, ts, opts.ModuleProviders, r.policy.defaultTags)
 	}
 	// pending are the groups of calls still to plan with kept, in turn. A
 	// group whose failure the plan can't pin on one of its calls is halved
@@ -658,8 +658,8 @@ func unfollowable(t *trial, refs clusterReferences, values map[string]map[string
 // writeCalls replaces the trials' resources in generated.tf with their
 // module calls, makes references to them use the modules' outputs,
 // imports into the modules, and configures the other providers the
-// modules use, of moduleProviders.
-func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider) error {
+// modules use, of moduleProviders, with the root's tags of tags.
+func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider, tags *DefaultTags) error {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return err
@@ -724,7 +724,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 	if err := generated.save(); err != nil {
 		return err
 	}
-	if err := writeModuleProviders(dir, trials, moduleProviders); err != nil {
+	if err := writeModuleProviders(dir, trials, moduleProviders, tags); err != nil {
 		return err
 	}
 	var added []moduleImport
@@ -1029,8 +1029,11 @@ func spells(tokens hclwrite.Tokens, steps []string) bool {
 // writeModuleProviders adds to providers.tf the blocks, and to
 // versions.tf the sources, of the providers of configured that the
 // trials' modules use (see adapters.Adapter.Providers), unless the root
-// has them. Its version is left to the modules' constraints.
-func writeModuleProviders(dir string, trials []*trial, configured map[string]Provider) error {
+// has them. Its version is left to the modules' constraints. The one the
+// root's resource types are named after, such as google for a root of
+// google-beta, also applies the root's default tags, tags (see
+// shareDefaultTags).
+func writeModuleProviders(dir string, trials []*trial, configured map[string]Provider, tags *DefaultTags) error {
 	var names []string
 	for _, t := range trials {
 		for _, name := range t.adapter.Providers {
@@ -1039,7 +1042,60 @@ func writeModuleProviders(dir string, trials []*trial, configured map[string]Pro
 			}
 		}
 	}
-	return requireProviders(dir, names, configured)
+	if err := requireProviders(dir, names, configured); err != nil {
+		return err
+	}
+	return shareDefaultTags(dir, names, tags)
+}
+
+// shareDefaultTags makes the provider of names that tags.Provider's
+// resource types are named after, such as google for google-beta, apply
+// the tags the root's provider block applies through tags.Block too: a
+// module creates with it the resources of those types that name no
+// provider, which the tag lift left without the tags it moved into the
+// provider (see applyTagLift). Another provider of names, such as
+// google-beta for a root of google, applies none: modules create with it
+// only resources that name it, such as the network module's network,
+// which takes no labels.
+func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
+	if tags == nil || tags.Block == "" {
+		return nil
+	}
+	implied, _, _ := strings.Cut(tags.Provider, "-")
+	if implied == tags.Provider || !slices.Contains(names, implied) {
+		return nil
+	}
+	providers, root, err := loadProvider(dir, tags.Provider)
+	if err != nil || root == nil {
+		return err
+	}
+	var module *hclwrite.Body
+	for _, b := range providers.edit().Body().Blocks() {
+		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == implied && b.Body().GetAttribute("alias") == nil {
+			module = b.Body()
+		}
+	}
+	if module == nil {
+		return nil
+	}
+	if tags.Argument {
+		applied := root.GetAttribute(tags.Block)
+		if applied == nil || module.GetAttribute(tags.Block) != nil {
+			return nil
+		}
+		module.SetAttributeRaw(tags.Block, applied.Expr().BuildTokens(nil))
+		return providers.save()
+	}
+	applied := root.FirstMatchingBlock(tags.Block, nil)
+	if applied == nil || module.FirstMatchingBlock(tags.Block, nil) != nil {
+		return nil
+	}
+	copied, err := copyBlock(applied)
+	if err != nil {
+		return fmt.Errorf("provider %s: %w", implied, err)
+	}
+	module.AppendBlock(copied)
+	return providers.save()
 }
 
 // requireProviders adds to providers.tf the blocks, and to versions.tf
