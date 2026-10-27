@@ -10,9 +10,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 )
 
 // generatedRoot is a root as an import generates it: the aws provider,
@@ -129,7 +131,7 @@ func TestCheckDriftRoots(t *testing.T) {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			err := checkDriftRoots(out)
+			_, err := checkDriftRoots(out)
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -144,7 +146,7 @@ func TestCheckDriftRoots(t *testing.T) {
 // An output directory that isn't there has nothing to check: drift says
 // it has no roots.
 func TestCheckDriftRootsOfNoOutput(t *testing.T) {
-	if err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
+	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
 		t.Errorf("got %v, want nothing to check", err)
 	}
 }
@@ -158,7 +160,7 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 
-	if err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
+	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }
@@ -246,5 +248,90 @@ func TestDriftToolsRefuseOtherProviders(t *testing.T) {
 				t.Errorf("asked %v, ran %v: want neither", asked, runner.runs)
 			}
 		})
+	}
+}
+
+// The check returns the digest of the files it read, the one drift
+// checks the roots against, and refuses a file whose link leads out of
+// the output directory, which the digest wouldn't cover as it is there.
+func TestCheckDriftRootsDigest(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, generatedRoot)
+
+	digest, err := checkDriftRoots(out)
+
+	if want, werr := driftpolicy.RootsDigest(out); err != nil || werr != nil || digest != want {
+		t.Errorf("got %q (%v), want drift's digest %q (%v)", digest, err, want, werr)
+	}
+
+	elsewhere := t.TempDir()
+	writeTree(t, elsewhere, map[string]string{"x.tf": "data \"external\" \"x\" {}\n"})
+	if err := os.Symlink(filepath.Join(elsewhere, "x.tf"), filepath.Join(out, "aws", "1", "eu-west-2", "x.tf")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws/1/eu-west-2/x.tf is a symbolic link out of the output directory") {
+		t.Errorf("got %v, want the link refused", err)
+	}
+}
+
+// A module call that names a directory the walk read otherwise, such as
+// through "..", or in another case where the file system ignores it, is
+// that directory, which the walk checked; one the walk didn't read is
+// refused, as its files would go unchecked and out of the digest.
+func TestCheckDriftRootsModuleDirectories(t *testing.T) {
+	const root = "aws/1/eu-west-2/"
+	for name, tc := range map[string]struct {
+		source string
+		// want is in the error, "" for roots that pass.
+		want string
+	}{
+		"a directory read": {"../../../mods/x", ""},
+		"through ..":       {"../../../mods/../mods/x", ""},
+		"not there":        {"../../../mods/y", "the module directory mods/y can't be checked"},
+		"in another case":  {"../../../MODS/X", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := t.TempDir()
+			writeTree(t, out, generatedRoot)
+			writeTree(t, out, map[string]string{
+				"mods/x/main.tf": "resource \"aws_sqs_queue\" \"this\" {\n  name = \"jobs\"\n}\n",
+				root + "x.tf":    "module \"m\" {\n  source = \"" + tc.source + "\"\n}\n",
+			})
+			want := tc.want
+			if _, err := os.Stat(filepath.Join(out, "MODS", "X")); err != nil && name == "in another case" {
+				// The file system tells case apart: there is no such
+				// directory.
+				want = "the module directory MODS/X can't be checked"
+			}
+
+			_, err := checkDriftRoots(out)
+
+			switch {
+			case want == "" && err != nil:
+				t.Errorf("got %v, want the roots to pass", err)
+			case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+				t.Errorf("got %v, want an error with %q", err, want)
+			}
+		})
+	}
+}
+
+// walkedDir finds the directory the walk read by the file it is, whatever
+// the path names it, and refuses one with configuration files the walk
+// didn't read.
+func TestWalkedDir(t *testing.T) {
+	out := t.TempDir()
+	writeTree(t, out, map[string]string{"mods/x/main.tf": "# read\n", "mods/y/main.tf": "# not read\n", "mods/z/README.md": "# no configuration\n"})
+	walked := filepath.Join(out, "mods", "x")
+	files := map[string][]*hcl.File{walked: nil}
+
+	if got, err := walkedDir(out, walked+string(filepath.Separator)+".", files); err != nil || got != walked {
+		t.Errorf("got %q, %v, want %s", got, err, walked)
+	}
+	if _, err := walkedDir(out, filepath.Join(out, "mods", "y"), files); err == nil || !strings.Contains(err.Error(), "mods/y has configuration files the check didn't read") {
+		t.Errorf("got %v, want the directory refused", err)
+	}
+	if got, err := walkedDir(out, filepath.Join(out, "mods", "z"), files); err != nil || got != filepath.Join(out, "mods", "z") {
+		t.Errorf("got %q, %v, want a directory with nothing to check", got, err)
 	}
 }
