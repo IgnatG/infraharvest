@@ -4,7 +4,6 @@
 package mcpserver
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -96,13 +95,8 @@ func moduleAddress(source string) string {
 // providers from their registries alone. A terraform.d directory, a
 // filesystem mirror Terraform would install providers from, is refused
 // all the same, as is a module call into either.
-//
-// It returns a digest of the files Terraform reads under out (see
-// driftDigest), for the user's confirmation to cover exactly the roots
-// checked.
-func checkDriftRoots(out string) (string, error) {
+func checkDriftRoots(out string) error {
 	var dirs []string
-	digest := driftDigest{}
 	err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -125,14 +119,14 @@ func checkDriftRoots(out string) (string, error) {
 		if configFile(d.Name()) && !slices.Contains(dirs, filepath.Dir(path)) {
 			dirs = append(dirs, filepath.Dir(path))
 		}
-		return digest.add(out, path)
+		return nil
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		// No roots: drift says so.
-		return digest.sum(), nil
+		return nil
 	}
 	if err != nil {
-		return "", err
+		return err
 	}
 	checked := map[string]bool{}
 	for len(dirs) > 0 {
@@ -144,11 +138,11 @@ func checkDriftRoots(out string) (string, error) {
 		checked[dir] = true
 		modules, err := checkModuleDir(out, dir)
 		if err != nil {
-			return "", err
+			return err
 		}
 		dirs = append(dirs, modules...)
 	}
-	return digest.sum(), nil
+	return nil
 }
 
 // configFile reports whether name is a file Terraform or OpenTofu reads
@@ -160,34 +154,6 @@ func configFile(name string) bool {
 		}
 	}
 	return false
-}
-
-// driftDigest hashes the files Terraform reads under an output directory,
-// each by its path and a hash of its content: the configuration files,
-// the var files, the backend settings and the dependency lock files.
-type driftDigest []string
-
-// add adds the file at path, under out, if it is one Terraform reads.
-func (d *driftDigest) add(out, path string) error {
-	name := filepath.Base(path)
-	read := configFile(name)
-	for _, ext := range []string{".tfvars", ".tfvars.json", ".hcl", ".tfbackend"} {
-		read = read || strings.HasSuffix(name, ext)
-	}
-	if !read {
-		return nil
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	*d = append(*d, fmt.Sprintf("%q %x", relativeTo(out, path), sha256.Sum256(content)))
-	return nil
-}
-
-// sum returns the digest of the files added, in the walk's order.
-func (d driftDigest) sum() string {
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(d, "\n"))))
 }
 
 // moduleUses is what the configuration files of one module directory,

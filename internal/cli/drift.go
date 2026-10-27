@@ -103,6 +103,8 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
 	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it")
 	cmd.Flags().BoolVar(&options.UntrustedRoots, "untrusted-roots", false, "Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first")
+	cmd.Flags().StringVar(&options.RootsDigest, "roots-digest", "", "run only if the files Terraform reads under the output directory still have this digest, as the MCP server checked them")
+	_ = cmd.Flags().MarkHidden("roots-digest")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

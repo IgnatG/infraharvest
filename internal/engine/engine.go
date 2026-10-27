@@ -978,9 +978,12 @@ func sameFiles(dir string, files map[string][]byte) (bool, error) {
 }
 
 // mergeEnv returns the environment base with over on top, for Terraform.
-// Without TF_DATA_DIR: Terraform then keeps its working data in each
-// root's .terraform, where the engine reads it, such as the modules init
-// installed, and roots generating in parallel don't share one. Where
+// Without base's TF_DATA_DIR, the process's: Terraform then keeps its
+// working data in each root's .terraform, where the engine reads it, such
+// as the modules init installed, and roots generating in parallel don't
+// share one. over's, a directory of one Terraform's own, such as drift's
+// for roots that may come from someone else (see
+// DriftOptions.DataDir), is kept. Where
 // variable names are case-insensitive (foldCase), as on Windows, a
 // variable of over replaces base's of any case, so that Terraform doesn't
 // get both, and the names of TF_ variables but input variables are upper
@@ -1001,13 +1004,12 @@ func mergeEnv(base, over map[string]string, foldCase bool) map[string]string {
 		all[name] = value
 	}
 	for name, value := range base {
-		set(name, value)
+		if key(name) != key("TF_DATA_DIR") {
+			set(name, value)
+		}
 	}
 	for name, value := range over {
 		set(name, value)
-	}
-	if name, ok := names[key("TF_DATA_DIR")]; ok {
-		delete(all, name)
 	}
 	if foldCase {
 		for name, value := range maps.Clone(all) {

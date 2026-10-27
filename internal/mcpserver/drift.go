@@ -117,10 +117,15 @@ func (t *tools) driftArgs(tool string, in *DriftInput) ([]string, *toolConfig, [
 	}
 	// Checked on each call, so again on the call with the user's answer,
 	// just before Terraform runs: a confirmation covers the files checked
-	// when the user was asked, and roots changed since aren't run.
-	digest, err := checkDriftRoots(in.Out)
-	if err != nil {
+	// when the user was asked, by their digest, and roots changed since
+	// aren't run. drift checks the digest again once it has locked the
+	// output directory (see withRootsDigest).
+	if err := checkDriftRoots(in.Out); err != nil {
 		return nil, nil, nil, fmt.Errorf("drift runs Terraform on the roots in %s, which runs their providers and modules with this server's credentials, so it checks only roots that use what infraharvest generates them with: %w. If you trust the roots, run infraharvest drift on them yourself from a terminal", in.Out, err)
+	}
+	digest, err := driftpolicy.RootsDigest(in.Out)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	// Terraform ignores the roots' .terraform directories, which the check
 	// doesn't read, and installs providers from their registries alone.
@@ -165,7 +170,7 @@ func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInp
 	}); asked != nil {
 		return asked, nil, nil
 	}
-	d, code, failed, err := t.runDrift(ctx, config.run(args), "drift")
+	d, code, failed, err := t.runDrift(ctx, withRootsDigest(config.run(args), roots), "drift")
 	if err != nil || failed != nil {
 		return failed, nil, err
 	}
@@ -236,14 +241,23 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 		return asked, nil, nil
 	}
 	if in.Decisions == "" {
-		return t.finishDrift(ctx, config.run(shown), in, target, nil, nil)
+		return t.finishDrift(ctx, withRootsDigest(config.run(shown), roots), in, target, nil, nil)
 	}
 	snapshot, err := newSnapshot(filepath.Base(in.Decisions), content)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer snapshot.remove()
-	return t.finishDrift(ctx, config.run(append(args, "--decisions="+snapshot.path, "--", in.Out)), in, target, snapshot, content)
+	return t.finishDrift(ctx, withRootsDigest(config.run(append(args, "--decisions="+snapshot.path, "--", in.Out)), roots), in, target, snapshot, content)
+}
+
+// withRootsDigest returns args, a drift run's ending in -- and the output
+// directory, with --roots-digest set to digest, which the user confirmed:
+// drift refuses roots that no longer have it once it has locked the
+// output directory, before Terraform runs. It isn't in the command a user
+// is given to run, who runs the roots as they are.
+func withRootsDigest(args []string, digest []byte) []string {
+	return slices.Insert(args, len(args)-2, "--roots-digest="+string(digest))
 }
 
 // parseDriftRules parses rules, accept and keep rules in order, with the

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -969,6 +970,43 @@ func TestMergeEnv(t *testing.T) {
 	}
 	if _, ok := base["TF_DATA_DIR"]; !ok {
 		t.Error("base changed")
+	}
+
+	// A data directory of the runner's own wins; the process's never
+	// reaches Terraform.
+	for _, foldCase := range []bool{true, false} {
+		if got := mergeEnv(base, map[string]string{"TF_DATA_DIR": "/private"}, foldCase); got["TF_DATA_DIR"] != "/private" {
+			t.Errorf("foldCase %v: TF_DATA_DIR %q, want the runner's own", foldCase, got["TF_DATA_DIR"])
+		}
+	}
+}
+
+// The data directory a runner is given reaches the Terraform it runs, in
+// place of the process's.
+func TestNewTerraformDataDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Terraform is a shell script")
+	}
+	t.Setenv("TF_DATA_DIR", "/shared")
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "env")
+	fake := filepath.Join(dir, "terraform")
+	script := "#!/bin/sh\nenv > " + dump + "\nif [ \"$1\" = version ]; then echo '{\"terraform_version\":\"1.9.0\"}'; fi\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := NewTerraform(filepath.Join(dir, "root"), fake, filepath.Join(dir, "plugins"), map[string]string{"TF_DATA_DIR": "/private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tf.Init(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	env, err := os.ReadFile(dump)
+	if err != nil || !slices.Contains(strings.Split(string(env), "\n"), "TF_DATA_DIR=/private") {
+		t.Errorf("Terraform ran with:\n%s\n(%v), want TF_DATA_DIR=/private", env, err)
 	}
 }
 

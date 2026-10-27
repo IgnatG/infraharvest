@@ -50,6 +50,9 @@ type fakeRunner struct {
 	// configs are the contents of the configuration files each run and
 	// check read.
 	configs []string
+	// rootsDigests are the --roots-digest of each drift run, which runs
+	// records without it.
+	rootsDigests []string
 }
 
 func (f *fakeRunner) check(_ context.Context, args []string) error {
@@ -66,6 +69,13 @@ func newTools(runner *fakeRunner, root string) *tools {
 
 func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
 	f.readConfig(args)
+	args = slices.DeleteFunc(slices.Clone(args), func(a string) bool {
+		digest, ok := strings.CutPrefix(a, "--roots-digest=")
+		if ok {
+			f.rootsDigests = append(f.rootsDigests, digest)
+		}
+		return ok
+	})
 	f.runs = append(f.runs, args)
 	switch args[0] {
 	case "discover":

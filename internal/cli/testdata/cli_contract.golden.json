@@ -971,6 +971,13 @@
         "persistent": false
       },
       {
+        "name": "roots-digest",
+        "type": "string",
+        "default": "",
+        "persistent": false,
+        "hidden": true
+      },
+      {
         "name": "rules",
         "type": "file",
         "default": "",

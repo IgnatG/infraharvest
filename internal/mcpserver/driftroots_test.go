@@ -129,7 +129,7 @@ func TestCheckDriftRoots(t *testing.T) {
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
 
-			_, err := checkDriftRoots(out)
+			err := checkDriftRoots(out)
 
 			switch {
 			case tc.want == "" && err != nil:
@@ -141,38 +141,10 @@ func TestCheckDriftRoots(t *testing.T) {
 	}
 }
 
-// The digest changes with any file Terraform reads under the output
-// directory, and with nothing else.
-func TestCheckDriftRootsDigest(t *testing.T) {
-	out := t.TempDir()
-	writeTree(t, out, generatedRoot)
-	digest := func() string {
-		t.Helper()
-		d, err := checkDriftRoots(out)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return d
-	}
-	before := digest()
-	writeTree(t, out, map[string]string{"report/drift.md": "# Drift\n", "aws/1/eu-west-2/terraform.tfstate": "{}"})
-	if digest() != before {
-		t.Errorf("the digest changed with files Terraform doesn't read as configuration")
-	}
-	for _, name := range []string{"aws/1/eu-west-2/s3.tf", "aws/1/eu-west-2/vars/prod/terraform.tfvars", "aws/1/eu-west-2/.terraform.lock.hcl", "aws/1/eu-west-2/vars/prod/backend.hcl", "modules/queue_a1b2c3/main.tf"} {
-		writeTree(t, out, map[string]string{name: "# changed\n"})
-		if after := digest(); after == before {
-			t.Errorf("the digest didn't change with %s", name)
-		} else {
-			before = after
-		}
-	}
-}
-
 // An output directory that isn't there has nothing to check: drift says
 // it has no roots.
 func TestCheckDriftRootsOfNoOutput(t *testing.T) {
-	if _, err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
+	if err := checkDriftRoots(filepath.Join(t.TempDir(), "generated")); err != nil {
 		t.Errorf("got %v, want nothing to check", err)
 	}
 }
@@ -186,7 +158,7 @@ func TestCheckDriftRootsRefusesLinkedDirectories(t *testing.T) {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 
-	if _, err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
+	if err := checkDriftRoots(out); err == nil || !strings.Contains(err.Error(), "aws is a symbolic link to a directory") {
 		t.Errorf("got %v, want the link refused", err)
 	}
 }

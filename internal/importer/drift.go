@@ -86,6 +86,10 @@ type DriftOptions struct {
 	// directories they have and any filesystem mirror, and installs
 	// providers from their registries alone (see untrustedTerraform).
 	UntrustedRoots bool
+	// RootsDigest, if set, is the driftpolicy.RootsDigest of Out the
+	// roots must still have once the output directory is locked, before
+	// Terraform runs: the MCP server's, for the roots the user confirmed.
+	RootsDigest string
 
 	// check checks one root, in place of the engine, for tests.
 	check driftCheck
@@ -165,6 +169,15 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	}
 	if lock != nil {
 		defer func() { _ = lock.Unlock() }()
+	}
+	if options.RootsDigest != "" {
+		digest, err := driftpolicy.RootsDigest(options.Out)
+		if err != nil {
+			return err
+		}
+		if digest != options.RootsDigest {
+			return fmt.Errorf("the roots in %s changed since they were checked: a file Terraform reads under it isn't as it was", options.Out)
+		}
 	}
 	check := options.check
 	if check == nil {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -146,6 +147,10 @@ func TestDrift(t *testing.T) {
 	want := []string{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--root=aws/*", "--parallel=2", "--environment=prod,dev", "--", out}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+	// drift checks the roots are those the user confirmed.
+	if digest, err := driftpolicy.RootsDigest(out); err != nil || !slices.Equal(runner.rootsDigests, []string{digest}) {
+		t.Errorf("--roots-digest %v, want %s (%v)", runner.rootsDigests, digest, err)
 	}
 	r := structured(t, res)
 	if r.ExitCode != report.ExitDrift || !r.DriftFound || r.Totals.Changes != 3 || r.Totals.Kept != 2 || r.Totals.Absorbed != 1 || len(r.Changes) != 3 {

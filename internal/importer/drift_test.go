@@ -578,3 +578,33 @@ func TestUntrustedTerraform(t *testing.T) {
 		t.Errorf("TF_CLI_CONFIG_FILE %s has %q (%v), want direct installation alone, in %s", config, content, err, private)
 	}
 }
+
+// With RootsDigest, drift checks no root unless the roots still have it
+// once the output directory is locked.
+func TestDriftChecksTheRootsDigest(t *testing.T) {
+	out := driftOutput(t, "aws/1/eu-west-2")
+	digest, err := driftpolicy.RootsDigest(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeDriftCheck{out: out}
+	options := driftOptions(out, f)
+	options.RootsDigest = digest
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil || len(f.checked) != 1 {
+		t.Fatalf("the roots checked: %v, checked %v", err, f.checked)
+	}
+
+	if err := os.WriteFile(filepath.Join(out, "aws", "1", "eu-west-2", "x.tf"), []byte("data \"external\" \"x\" {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f = &fakeDriftCheck{out: out}
+	options = driftOptions(out, f)
+	options.RootsDigest = digest
+	err = Drift(context.Background(), options, &bytes.Buffer{})
+	if ExitCode(err) != report.ExitCouldNotRun || err == nil || !strings.Contains(err.Error(), "changed since they were checked") {
+		t.Errorf("got %v, want the roots refused", err)
+	}
+	if len(f.checked) != 0 {
+		t.Errorf("checked %v, roots that changed", f.checked)
+	}
+}
