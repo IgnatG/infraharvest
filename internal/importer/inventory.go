@@ -227,7 +227,7 @@ func listResources(ctx context.Context, provider harvest.Provider, options Optio
 		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(options.Services, ","))
 	}
 	// Services list at the same time only where the provider says they can.
-	if c, ok := provider.(harvest.ProviderWithConcurrentListing); !ok || !c.ConcurrentListing() {
+	if !provider.Profile().ConcurrentListing {
 		options.ListParallel = 1
 	}
 	registry := harvest.NewRegistry(provider)

@@ -66,7 +66,7 @@ func TestImportScope(t *testing.T) {
 		t.Errorf("stacks %+v", got)
 	}
 	f := &selection.File{Version: selection.Version, Rules: []selection.Rule{{Include: &selection.Match{Type: selection.Patterns{"*"}}}}}
-	selected, _ := run.selectResources(listed, defaults, f, scope, importIDForSelection)
+	selected, _ := run.selectResources(listed, defaults, f, scope, "", importIDForSelection)
 	if got := selectedIDs(selected); !reflect.DeepEqual(got, []string{"app-assets"}) {
 		t.Errorf("selected %v", got)
 	}

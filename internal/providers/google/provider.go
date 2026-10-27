@@ -163,12 +163,6 @@ func (p *Provider) Name() string {
 	return providerName
 }
 
-// Directory returns google, the name of the provider's command, which its
-// roots go under with --beta too.
-func (*Provider) Directory() string {
-	return providerName
-}
-
 // Services returns a new lister for every service: cloud_asset, and those
 // that list through an API of their own what Cloud Asset Inventory
 // doesn't find.
@@ -233,42 +227,46 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.projectName, p.region.Name, nil
 }
 
-// DefaultTags describes Google's labels: the labels argument of each
-// resource, which the provider's default_labels argument applies to all.
-// Labels starting with goog- are Google's own.
-func (*Provider) DefaultTags() (attribute, block, reservedPrefix string) {
-	return "labels", "default_labels", "goog-"
-}
-
-// EffectiveTags describes Google's labels since the provider's version
-// 5.0: labels holds only those of the configuration, which an import
-// leaves empty, and effective_labels every label the resource has. Those
-// starting with goog- are Google's own, such as goog-terraform-provisioned,
-// which the provider adds unless add_terraform_attribution_label is false:
-// they stay on the resource, outside the configuration.
-func (*Provider) EffectiveTags() (attribute, effective, reservedPrefix string) {
-	return "labels", "effective_labels", "goog-"
-}
-
-// InheritedArguments are the provider block's arguments a resource takes
-// as its own when it doesn't set them: the project and the region (and a
-// zone, though the provider block sets none), which the provider block
-// sets to the import's.
-func (*Provider) InheritedArguments() []string {
-	return []string{"project", "region", "zone"}
-}
-
-// DefaultTagsArgument says default_labels is an argument of the provider
-// block, not a block.
-func (*Provider) DefaultTagsArgument() bool {
-	return true
-}
-
-// ConcurrentListing says the services may list at once: each has its own
-// lister and API clients, and they share only the rate limiter, which
-// is safe for concurrent use.
-func (*Provider) ConcurrentListing() bool {
-	return true
+// Profile describes Google Cloud: roots go under <out>/google/, with
+// --beta too; the services may list at once, as each has its own lister
+// and API clients, and they share only the rate limiter, which is safe
+// for concurrent use; resources take labels, which the provider's
+// default_labels argument applies to all, and labels starting with goog-
+// are Google's own, such as goog-terraform-provisioned, which the
+// provider adds unless add_terraform_attribution_label is false: they
+// stay on the resource, outside the configuration. Since the provider's
+// version 5.0, labels holds only those of the configuration, which an
+// import leaves empty, and effective_labels every label the resource has.
+// A resource takes the provider block's project and region (and a zone,
+// though the block sets none) as its own when it doesn't set them. Cloud
+// Asset Inventory's types go in files by their family, and a root that
+// environments share reads the project from the provider.
+func (*Provider) Profile() harvest.Profile {
+	return harvest.Profile{
+		Command:            providerName,
+		ConcurrentListing:  true,
+		DefaultTags:        &harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"},
+		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},
+		InheritedArguments: []string{"project", "region", "zone"},
+		Layout: harvest.Layout{
+			NetworkTypes: []string{
+				"address", "firewall", "global_address", "ha_vpn_gateway", "interconnect_attachment", "network",
+				"route", "router", "subnetwork", "vpn_gateway", "vpn_tunnel",
+			},
+			TypeFamilies: map[string]string{
+				"bigquery": "bigquery", "cloud_run": "cloud_run", "cloudfunctions": "cloudfunctions", "cloudfunctions2": "cloudfunctions",
+				"container": "container", "dns": "dns", "kms": "kms", "logging": "logging", "monitoring": "monitoring",
+				"project": "project", "project_iam": "iam", "pubsub": "pubsub", "secret_manager": "secret_manager",
+				"service_account": "iam", "sql": "cloudsql", "storage": "gcs",
+			},
+		},
+		Merge: harvest.Merge{
+			ScopeTitle: "Project",
+			ScopeData:  "google_client_config.current",
+			ScopeLocal: "project_id",
+			ScopeExpr:  "data.google_client_config.current.project",
+		},
+	}
 }
 
 // ModuleProviders configures google-beta, which some curated modules

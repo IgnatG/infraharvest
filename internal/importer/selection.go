@@ -87,8 +87,9 @@ func (r *Run) selectionFile(options Options) (*selection.File, error) {
 // selectResources keeps the listed resources to import and records the
 // others as excluded, as defaults decide them with the selection file f,
 // nil for --all, in scope (see discoveryScope and selection.Sources.Decide).
-// It also returns the resources it leaves out.
-func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *selection.File, scope string, importID func(harvest.Resource) (string, bool)) (map[string][]harvest.Resource, []engine.External) {
+// It also returns the resources it leaves out, named by the provider's
+// nameTag (see resourceName).
+func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *selection.File, scope, nameTag string, importID func(harvest.Resource) (string, bool)) (map[string][]harvest.Resource, []engine.External) {
 	selected := make(map[string][]harvest.Resource, len(listed.resources))
 	var leftOut []engine.External
 	for service, resources := range listed.resources {
@@ -109,7 +110,7 @@ func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *se
 			}
 			r.discovered[typ]++
 			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope})
-			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(res.Provider, res, tags)})
+			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(nameTag, res, tags)})
 		}
 	}
 	// In a stable order: listed is a map, and the order names data sources.

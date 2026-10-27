@@ -125,7 +125,7 @@ func selectedIDs(selected map[string][]harvest.Resource) []string {
 func TestSelectResourcesWithAll(t *testing.T) {
 	run := NewRun()
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), nil, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), nil, "", "", importIDForSelection)
 
 	// Unimportable resources go on, for importsByDir to count.
 	if want := []string{"old-archive", "rtbassoc-1", "vpc-0abc1234"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -147,7 +147,7 @@ func TestSelectResourcesWithFile(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "old-archive", Include: false, Note: "to be deleted"},
 	}}
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", "", importIDForSelection)
 
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
@@ -170,13 +170,13 @@ func TestSelectResourcesByScope(t *testing.T) {
 	}}
 
 	run := NewRun()
-	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, a, importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, a, "", importIDForSelection)
 	if !reflect.DeepEqual(selectedIDs(selected), []string{"admin"}) {
 		t.Errorf("account %s: selected %v, want the role", a, selectedIDs(selected))
 	}
 
 	run = NewRun()
-	selected, leftOut := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, b, importIDForSelection)
+	selected, leftOut := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), f, b, "", importIDForSelection)
 	if len(selectedIDs(selected)) != 0 || len(leftOut) != 1 {
 		t.Errorf("account %s: selected %v, left out %v; want the role excluded", b, selectedIDs(selected), leftOut)
 	}
@@ -195,7 +195,7 @@ func TestSelectResourcesRulesBeforeDefaults(t *testing.T) {
 		},
 	}
 
-	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), f, "", "", importIDForSelection)
 
 	// The default VPC is included by the rule; the bucket excluded by one.
 	if want := []string{"rtbassoc-1", "vpc-0abc1234", "vpc-default"}; !reflect.DeepEqual(selectedIDs(selected), want) {
@@ -229,7 +229,7 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	exclude := selection.Rule{Exclude: &selection.Match{Type: selection.Patterns{"aws_s3_bucket"}}}
 
 	run := NewRun()
-	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, false), "", importIDForSelection)
+	selected, _ := run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, false), "", "", importIDForSelection)
 	if want := []string{"app-bucket", "kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("selected %v, want %v", selectedIDs(selected), want)
 	}
@@ -238,13 +238,13 @@ func TestSelectResourcesRulesKeepOwnedOut(t *testing.T) {
 	}
 
 	run = NewRun()
-	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, true), "", importIDForSelection)
+	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(include, true), "", "", importIDForSelection)
 	if want := []string{"app-bucket", "kept-bucket", "stack-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("with --include-owned: selected %v, want %v", selectedIDs(selected), want)
 	}
 
 	run = NewRun()
-	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(exclude, false), "", importIDForSelection)
+	selected, _ = run.selectResources(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, defaults), file(exclude, false), "", "", importIDForSelection)
 	if want := []string{"kept-bucket"}; !reflect.DeepEqual(selectedIDs(selected), want) {
 		t.Errorf("with an exclude rule: selected %v, want %v", selectedIDs(selected), want)
 	}

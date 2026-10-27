@@ -29,6 +29,7 @@ type rootsProvider struct {
 
 func (p *rootsProvider) Init(context.Context, []string) error  { return nil }
 func (p *rootsProvider) Name() string                          { return "fake" }
+func (p *rootsProvider) Profile() harvest.Profile              { return harvest.Profile{} }
 func (p *rootsProvider) Selected() harvest.Lister              { return p.service }
 func (p *rootsProvider) ProviderBlock() map[string]interface{} { return map[string]interface{}{} }
 func (p *rootsProvider) Select(name string, _ bool) error {

@@ -202,7 +202,9 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		return
 	}
 	region := c.region
-	if r, ok := c.root.provider.Config["region"].(string); ok && r != "" && c.provider.Name() == "aws" {
+	// The region the provider block sets, where the provider has one (see
+	// harvest.Merge.RegionArgument).
+	if r, ok := c.root.provider.Config[c.provider.Profile().Merge.RegionArgument].(string); ok && r != "" {
 		region = r
 	}
 	c.run.members = append(c.run.members, mergeMember{

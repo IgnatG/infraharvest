@@ -166,7 +166,7 @@ func TestInventoryKeepsTags(t *testing.T) {
 		t.Errorf("selection entries: %+v", run.listed)
 	}
 	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Rules: []selection.Rule{{Exclude: &selection.Match{Tags: map[string]selection.Patterns{"env": {"dev"}}}}}}
-	selected, _ := run.selectResources(listed, sourcesOf(t, listed, nil), f, "fake/1/eu-west-2", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
+	selected, _ := run.selectResources(listed, sourcesOf(t, listed, nil), f, "fake/1/eu-west-2", "", func(r harvest.Resource) (string, bool) { return r.Observed.ID, true })
 	if len(selected["good"]) != 0 {
 		t.Errorf("selected %v, want the dev resource left out", selected)
 	}

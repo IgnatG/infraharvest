@@ -45,6 +45,7 @@ func (p *registryProvider) Select(serviceName string, _ bool) error {
 }
 
 func (*registryProvider) Name() string                          { return "registry" }
+func (*registryProvider) Profile() Profile                      { return Profile{} }
 func (*registryProvider) Services() map[string]Lister           { return nil }
 func (*registryProvider) ProviderBlock() map[string]interface{} { return nil }
 

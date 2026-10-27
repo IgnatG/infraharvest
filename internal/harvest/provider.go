@@ -6,9 +6,10 @@ package harvest
 import "context"
 
 // Provider is a cloud provider that infraharvest can list resources from:
-// AWS, Azure or Google Cloud. The importer drives it through these methods;
-// optional extras are the ProviderWith* interfaces, which callers detect
-// with a type assertion.
+// AWS, Azure or Google Cloud. The importer drives it through these methods
+// and reads what sets it apart from the others in its Profile; optional
+// extras are the ProviderWith* interfaces, which callers detect with a
+// type assertion.
 //
 // Registry makes new providers of an implementation's dynamic type with
 // reflect.New, so implementations are pointer types whose zero value is
@@ -22,8 +23,12 @@ type Provider interface {
 	// Select makes the service called serviceName the provider's current
 	// one, which Selected then returns, and passes verbose on to it.
 	Select(serviceName string, verbose bool) error
-	// Name is the provider's short name, such as aws, azurerm or google.
+	// Name is the provider's short name, such as aws, azurerm or google:
+	// its Terraform provider's.
 	Name() string
+	// Profile returns the facts that set the provider apart from the
+	// others (see Profile).
+	Profile() Profile
 	// Selected returns the current service's lister, set by Select.
 	Selected() Lister
 	// Services maps the name of every service the provider can list to a

@@ -13,12 +13,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// DefaultTags describes the provider's default_tags: tags it applies to
-// every resource. Keys starting with aws: are AWS's own.
-func (Provider) DefaultTags() (attribute, block, reservedPrefix string) {
-	return "tags", "default_tags", "aws:"
-}
-
 // Scope names the account and region this import covers, for the output
 // layout: global for global services such as IAM. It remembers the
 // account, and the region the SDK resolved for ProfileRegion, for the

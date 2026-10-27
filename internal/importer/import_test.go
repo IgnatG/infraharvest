@@ -153,6 +153,7 @@ type fakeProvider struct {
 
 func (p *fakeProvider) Init(context.Context, []string) error { return nil }
 func (p *fakeProvider) Name() string                         { return "fake" }
+func (p *fakeProvider) Profile() harvest.Profile             { return harvest.Profile{} }
 func (p *fakeProvider) Selected() harvest.Lister {
 	return p.service
 }

@@ -318,7 +318,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if err != nil {
 		return nil, err
 	}
-	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, importID)
+	selected, leftOut := run.selectResources(listed, defaults, chosen, scope, provider.Profile().NameTag, importID)
 	// The configuration file's environments of the scope, if any; none
 	// keeps the layout as without them.
 	envNames := run.environments.For(providerDir(provider), scopeAccount(scope))
@@ -414,9 +414,10 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 		dirOf = kept.dirs(dirOf, unsplit, envOf)
 	}
-	nameOf := resourceNames(provider.Name(), listed, resourcesByService)
+	profile := provider.Profile()
+	nameOf := resourceNames(profile.NameTag, listed, resourcesByService)
 	fileOf := func(service string, r harvest.Resource) string {
-		return configFile(provider.Name(), service, r.Address.Type, cat)
+		return configFile(profile.Layout, service, r.Address.Type, cat)
 	}
 	byDir, skipped := importsByDir(provider.Name(), resourcesByService, importID, dirOf, nameOf, fileOf)
 	withImpliedProviders(byDir, opts.ModuleProviders)
@@ -731,20 +732,14 @@ func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *ro
 			opts.Lifecycles[typ] = engine.Lifecycle{CreateBeforeDestroy: l.CreateBeforeDestroy, Reason: l.Reason}
 		}
 	}
-	if withDefaultTags, ok := provider.(harvest.ProviderWithDefaultTags); ok {
-		attribute, block, reserved := withDefaultTags.DefaultTags()
-		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: attribute, Block: block, ReservedPrefix: reserved}
-		if a, ok := provider.(harvest.ProviderWithDefaultTagsArgument); ok {
-			opts.DefaultTags.Argument = a.DefaultTagsArgument()
-		}
+	profile := provider.Profile()
+	if t := profile.DefaultTags; t != nil {
+		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: t.Attribute, Block: t.Block, Argument: t.Argument, ReservedPrefix: t.ReservedPrefix}
 	}
-	if withEffectiveTags, ok := provider.(harvest.ProviderWithEffectiveTags); ok {
-		attribute, effective, reserved := withEffectiveTags.EffectiveTags()
-		opts.EffectiveTags = &engine.EffectiveTags{Attribute: attribute, Effective: effective, ReservedPrefix: reserved}
+	if t := profile.EffectiveTags; t != nil {
+		opts.EffectiveTags = (*engine.EffectiveTags)(t)
 	}
-	if withInherited, ok := provider.(harvest.ProviderWithInheritedArguments); ok {
-		opts.Inherited = withInherited.InheritedArguments()
-	}
+	opts.Inherited = profile.InheritedArguments
 	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
 		opts.ModuleProviders = map[string]engine.Provider{}
 		for name, p := range withModuleProviders.ModuleProviders() {
@@ -1298,10 +1293,10 @@ func withImpliedProviders(byDir map[string][]engine.Import, configured map[strin
 
 // providerDir returns the directory provider's roots go into, the
 // {provider} of --layout: the name of its command (see
-// harvest.ProviderWithDirectory), else its Terraform provider's name.
+// harvest.Profile.Command), else its Terraform provider's name.
 func providerDir(provider harvest.Provider) string {
-	if withDir, ok := provider.(harvest.ProviderWithDirectory); ok {
-		return withDir.Directory()
+	if command := provider.Profile().Command; command != "" {
+		return command
 	}
 	return provider.Name()
 }
@@ -1309,9 +1304,9 @@ func providerDir(provider harvest.Provider) string {
 // engineProvider describes the provider for the generated configuration.
 func engineProvider(provider harvest.Provider) engine.Provider {
 	name := provider.Name()
-	source := "hashicorp/" + name
-	if withSource, ok := provider.(harvest.ProviderWithRegistrySource); ok {
-		source = withSource.RegistrySource()
+	source := provider.Profile().Source
+	if source == "" {
+		source = "hashicorp/" + name
 	}
 	var config map[string]interface{}
 	if providers, ok := provider.ProviderBlock()["provider"].(map[string]interface{}); ok {
@@ -1397,7 +1392,7 @@ func withChildImports(ctx context.Context, provider harvest.Provider, resourcesB
 // children at once: as many as services list at once (--list-parallel),
 // where the provider lets them, else one.
 func childParallel(provider harvest.Provider, options Options) int {
-	if c, ok := provider.(harvest.ProviderWithConcurrentListing); !ok || !c.ConcurrentListing() {
+	if !provider.Profile().ConcurrentListing {
 		return 1
 	}
 	return max(options.ListParallel, 1)
@@ -1460,11 +1455,12 @@ func rootDir(pattern string, r rootValues) string {
 }
 
 // resourceName is what a resource's block label is made from (see
-// engine.Label): on AWS, its Name tag, which people read it by, such as
-// shop-private-eu-west-2a for a subnet the lister names by its ID; else
-// the name the lister gave it.
-func resourceName(providerName string, r harvest.Resource, tags map[string]string) string {
-	if name := strings.TrimSpace(tags["Name"]); providerName == "aws" && name != "" {
+// engine.Label): the value of the provider's name tag (see
+// harvest.Profile.NameTag), which people read it by, such as AWS's Name
+// tag shop-private-eu-west-2a for a subnet the lister names by its ID;
+// else the name the lister gave it.
+func resourceName(nameTag string, r harvest.Resource, tags map[string]string) string {
+	if name := strings.TrimSpace(tags[nameTag]); nameTag != "" && name != "" {
 		return name
 	}
 	return r.RawName
@@ -1480,8 +1476,8 @@ func resourceName(providerName string, r harvest.Resource, tags map[string]strin
 // resources have the ID, such as a bucket and its versioning, the name
 // comes from the one of the first type in alphabetical order, among those
 // whose name isn't their ID.
-func resourceNames(providerName string, listed listing, resourcesByService map[string][]harvest.Resource) func(harvest.Resource) string {
-	nameOf := func(r harvest.Resource) string { return resourceName(providerName, r, listed.tagsOf(r)) }
+func resourceNames(nameTag string, listed listing, resourcesByService map[string][]harvest.Resource) func(harvest.Resource) string {
+	nameOf := func(r harvest.Resource) string { return resourceName(nameTag, r, listed.tagsOf(r)) }
 	type named struct{ resourceType, name string }
 	byID := map[string]named{}
 	add := func(resources map[string][]harvest.Resource) {
