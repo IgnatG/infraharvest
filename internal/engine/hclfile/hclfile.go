@@ -95,7 +95,7 @@ func ReadVarFile(path string) (*File, error) {
 	return f, nil
 }
 
-// Values returns the Values the file's arguments set, by name, of those
+// Values returns the values the file's arguments set, by name, of those
 // that are literals, as a var file's are.
 func (f *File) Values() map[string]cty.Value {
 	values := map[string]cty.Value{}
@@ -129,7 +129,7 @@ func ParseExpr(src string) hclwrite.Tokens {
 	return valueOfX([]byte("x = " + src + "\n"))
 }
 
-// FormatExpr is parseExpr of src formatted as the value of an argument.
+// FormatExpr is ParseExpr of src formatted as the value of an argument.
 func FormatExpr(src []byte) hclwrite.Tokens {
 	return valueOfX(hclwrite.Format(slices.Concat([]byte("x = "), src, []byte("\n"))))
 }
