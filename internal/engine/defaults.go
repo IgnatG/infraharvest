@@ -454,7 +454,7 @@ func noWorse(now, before string) bool {
 func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) []defaultCandidate {
 	var removed []defaultCandidate
 	for _, r := range f.resources() {
-		typ := resourceTypeOf(r.address)
+		typ := AddressType(r.address)
 		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags, hints: rules.hints, verifiedOnly: rules.verifiedOnly}, keep)...)
 	}
 	return removed

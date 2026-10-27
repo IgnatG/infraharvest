@@ -215,7 +215,7 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 				x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: block + "[0]." + key})
 			}
 		}
-		if derive, ok := derivedIdentities[resourceTypeOf(address)]; ok {
+		if derive, ok := derivedIdentities[AddressType(address)]; ok {
 			if v, parts, ok := derive(address, attrs); ok {
 				x.byValue[v] = append(x.byValue[v], identity{address: address, named: true, parts: parts})
 			}
@@ -378,7 +378,7 @@ func (x *identities) embeddable(address, value string) (referenceTarget, bool) {
 	byAddress := map[string]identity{}
 	var addresses []string
 	for _, id := range x.byValue[value] {
-		if id.address == address || id.named || id.parts != nil || containerTypes[resourceTypeOf(id.address)] {
+		if id.address == address || id.named || id.parts != nil || containerTypes[AddressType(id.address)] {
 			continue
 		}
 		if _, seen := byAddress[id.address]; !seen {
@@ -439,7 +439,7 @@ var idSuffixes = []string{"_ids", "_id", "_arns", "_arn", "_names", "_name"}
 // aws_cloudwatch_log_group, or it ends with the type's last word, as
 // target_key_id names aws_kms_key.
 func namesType(argument, address string) bool {
-	words := strings.Split(resourceTypeOf(address), "_")
+	words := strings.Split(AddressType(address), "_")
 	if len(words) < 2 || argument == "" {
 		return false
 	}

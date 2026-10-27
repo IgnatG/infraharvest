@@ -362,11 +362,11 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 	var missing []string
 	read := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		body, ok := parseBody(name, string(files[name]))
-		if !ok {
+		f, err := parseHCL(name, files[name])
+		if err != nil {
 			return fmt.Errorf("%s doesn't parse", name)
 		}
-		_ = hclsyntax.VisitAll(body, func(n hclsyntax.Node) hcl.Diagnostics {
+		_ = hclsyntax.VisitAll(f.syntax, func(n hclsyntax.Node) hcl.Diagnostics {
 			expr, ok := n.(hclsyntax.Expression)
 			if !ok {
 				return nil
@@ -397,7 +397,7 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 			if root.variables == nil {
 				continue
 			}
-			for _, b := range root.variables.file.Body().Blocks() {
+			for _, b := range root.variables.edit().Body().Blocks() {
 				if b.Type() == "variable" && len(b.Labels()) == 1 && b.Labels()[0] == name {
 					declaring[e] = b
 					break
@@ -945,7 +945,7 @@ func (w *rootWriter) rootBackend(env int) (string, []string, map[string]hclwrite
 	if err != nil {
 		return "", nil, nil
 	}
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	for i, b := range f.syntax.Blocks {
 		if b.Type != "terraform" || i >= len(blocks) {
 			continue
@@ -1091,7 +1091,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 			}
 			block.AppendNewline()
 			validation := block.AppendNewBlock("validation", nil).Body()
-			validation.SetAttributeRaw("condition", exprTokens(fmt.Sprintf("contains(%s, var.%s)", string(hclwrite.TokensForValue(cty.TupleVal(values)).Bytes()), envVariableName)))
+			validation.SetAttributeRaw("condition", parseExpr(fmt.Sprintf("contains(%s, var.%s)", string(hclwrite.TokensForValue(cty.TupleVal(values)).Bytes()), envVariableName)))
 			validation.SetAttributeValue("error_message", cty.StringVal(fmt.Sprintf("%s must be one of %s.", envVariableName, strings.Join(tokens, ", "))))
 		}
 	}
@@ -1102,7 +1102,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 	body.AppendNewline()
 	imports := body.AppendNewBlock("variable", []string{importIDsVariableName}).Body()
 	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
-	imports.SetAttributeRaw("type", exprTokens("map(string)"))
+	imports.SetAttributeRaw("type", parseExpr("map(string)"))
 	imports.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
 	return formatHCL(string(f.Bytes())), nil
 }

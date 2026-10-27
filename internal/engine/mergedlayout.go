@@ -13,8 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -177,33 +175,12 @@ func varFileOptions(dir string, names []string) ([]tfexec.PlanOption, []string, 
 func mergedValues(dir, env string) (map[string]cty.Value, error) {
 	values := map[string]cty.Value{}
 	for _, name := range varFiles(env, false) {
-		set, err := varFileValues(filepath.Join(dir, filepath.FromSlash(name)))
+		f, err := readVarFile(filepath.Join(dir, filepath.FromSlash(name)))
 		if err != nil {
 			return nil, err
 		}
-		maps.Copy(values, set)
-	}
-	return values, nil
-}
-
-// varFileValues returns the values the var file at path sets, by name, of
-// those that are literals; none where there is no file.
-func varFileValues(path string) (map[string]cty.Value, error) {
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
-	}
-	values := map[string]cty.Value{}
-	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
-		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
-			values[name] = v
+		if f != nil {
+			maps.Copy(values, f.values())
 		}
 	}
 	return values, nil
@@ -253,18 +230,11 @@ func MergedEnvironments(dir string) ([]string, error) {
 // addresses in the root; none once it is deleted, after the first apply.
 func MergedImportIDs(dir, env string) (map[string]string, error) {
 	path := filepath.Join(dir, filepath.FromSlash(importVarsPath(env)))
-	src, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
+	f, err := readVarFile(path)
+	if f == nil {
 		return nil, err
 	}
-	f, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
-	}
-	attr, ok := f.Body.(*hclsyntax.Body).Attributes[importIDsVariableName]
+	attr, ok := f.syntax.Attributes[importIDsVariableName]
 	if !ok {
 		return nil, nil
 	}
@@ -293,20 +263,16 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 func MergedStateLocations(dir, env string) ([]string, error) {
 	locations := []string{workspaceStateFile(dir, env)}
 	path := filepath.Join(dir, filepath.FromSlash(backendConfigPath(env)))
-	src, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return locations, nil
-	}
+	f, err := readVarFile(path)
 	if err != nil {
 		return nil, err
 	}
-	f, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
+	if f == nil {
+		return locations, nil
 	}
 	settings := map[string]string{}
-	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
-		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
+	for name, v := range f.values() {
+		if v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
 			settings[name] = v.AsString()
 		}
 	}

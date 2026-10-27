@@ -9,7 +9,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -57,11 +56,11 @@ func TestWithoutNullAttributes(t *testing.T) {
 		{`{ k = { a = null } }`, cty.ObjectVal(map[string]cty.Value{"k": cty.EmptyObjectVal})},
 		{`["x"]`, cty.TupleVal([]cty.Value{cty.StringVal("x")})},
 	} {
-		f, diags := hclwrite.ParseConfig([]byte("x = "+tc.in+"\n"), "", hcl.InitialPos)
-		if diags.HasErrors() {
-			t.Fatal(diags)
+		tokens := parseExpr(tc.in)
+		if tokens == nil {
+			t.Fatalf("%s doesn't parse", tc.in)
 		}
-		out := withoutNullAttributes(f.Body().GetAttribute("x").Expr().BuildTokens(nil)).Bytes()
+		out := withoutNullAttributes(tokens).Bytes()
 		if strings.Contains(string(out), "null") {
 			t.Errorf("%s: still has nulls: %s", tc.in, out)
 		}

@@ -5,9 +5,12 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -19,14 +22,35 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// hclFile is a configuration file parsed twice: as an editable tree, and as
-// a syntax tree with source positions. Both list blocks in the same order.
-// The syntax tree describes the file as loaded, not later edits.
+// hclFile is a configuration file: a syntax tree with source positions,
+// and an editable tree, parsed from the file the first time it is edited,
+// since most readers only read. Both list blocks in the same order. The
+// syntax tree describes the file as loaded, not later edits.
 type hclFile struct {
 	path   string
-	file   *hclwrite.File
-	syntax *hclsyntax.Body
 	src    []byte // the file as loaded, which syntax ranges point into
+	syntax *hclsyntax.Body
+	write  *hclwrite.File // nil until edit
+}
+
+// parseFile parses src, the content of the file at path, or returns the
+// diagnostics of why it doesn't parse, each naming the file and position;
+// parseHCL and readVarFile wrap them in an error.
+func parseFile(path string, src []byte) (*hclFile, hcl.Diagnostics) {
+	syntax, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	return &hclFile{path: path, src: src, syntax: syntax.Body.(*hclsyntax.Body)}, nil
+}
+
+// parseHCL parses src, the content of the file at path.
+func parseHCL(path string, src []byte) (*hclFile, error) {
+	f, diags := parseFile(path, src)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parse %s: %w", path, diags)
+	}
+	return f, nil
 }
 
 func loadHCL(path string) (*hclFile, error) {
@@ -37,23 +61,89 @@ func loadHCL(path string) (*hclFile, error) {
 	return parseHCL(path, src)
 }
 
-// parseHCL parses src, the content of the file at path.
-func parseHCL(path string, src []byte) (*hclFile, error) {
-	f, diags := hclwrite.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("parse %s: %w", path, diags)
+// loadOptionalHCL loads the file at path, or returns nil if there is none.
+func loadOptionalHCL(path string) (*hclFile, error) {
+	f, err := loadHCL(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	syntax, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("parse %s: %w", path, diags)
+	return f, err
+}
+
+// newHCL is an empty file at path, to fill and save.
+func newHCL(path string) *hclFile {
+	return &hclFile{path: path, syntax: &hclsyntax.Body{}, write: hclwrite.NewEmptyFile()}
+}
+
+// readVarFile reads the var file at path, such as a .tfvars file or a
+// backend's settings; nil where there is none.
+func readVarFile(path string) (*hclFile, error) {
+	src, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	return &hclFile{path: path, file: f, syntax: syntax.Body.(*hclsyntax.Body), src: src}, nil
+	if err != nil {
+		return nil, err
+	}
+	f, diags := parseFile(path, src)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%s: %w", path, diags)
+	}
+	return f, nil
+}
+
+// values returns the values the file's arguments set, by name, of those
+// that are literals, as a var file's are.
+func (f *hclFile) values() map[string]cty.Value {
+	values := map[string]cty.Value{}
+	for name, attr := range f.syntax.Attributes {
+		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
+			values[name] = v
+		}
+	}
+	return values
+}
+
+// edit returns the editable tree of the file.
+func (f *hclFile) edit() *hclwrite.File {
+	if f.write == nil {
+		// hclwrite parses src into a syntax tree first, as parseFile
+		// did without errors: it can't fail.
+		f.write, _ = hclwrite.ParseConfig(f.src, f.path, hcl.InitialPos)
+	}
+	return f.write
 }
 
 // save writes the edited file back, formatted. Removing the first block
 // leaves the blank line that separated it from the next; save drops it.
 func (f *hclFile) save() error {
-	return fsutil.WriteFile(f.path, bytes.TrimLeft(hclwrite.Format(f.file.Bytes()), "\n"), 0o644)
+	return fsutil.WriteFile(f.path, bytes.TrimLeft(hclwrite.Format(f.edit().Bytes()), "\n"), 0o644)
+}
+
+// parseExpr parses src, an expression, into the tokens of an editable
+// tree; nil if it doesn't parse.
+func parseExpr(src string) hclwrite.Tokens {
+	return valueOfX([]byte("x = " + src + "\n"))
+}
+
+// formatExpr is parseExpr of src formatted as the value of an argument.
+func formatExpr(src []byte) hclwrite.Tokens {
+	return valueOfX(hclwrite.Format(slices.Concat([]byte("x = "), src, []byte("\n"))))
+}
+
+// valueOfX returns the value of the argument x that src, a file, sets:
+// the parser reads files, not expressions on their own. It returns nil if
+// src doesn't parse.
+func valueOfX(src []byte) hclwrite.Tokens {
+	f, diags := hclwrite.ParseConfig(src, "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil
+	}
+	attr := f.Body().GetAttribute("x")
+	if attr == nil {
+		return nil
+	}
+	return attr.Expr().BuildTokens(nil)
 }
 
 // resourceBlock is a top-level resource block in both trees.
@@ -66,7 +156,7 @@ type resourceBlock struct {
 // resources lists the resource blocks of the file.
 func (f *hclFile) resources() []resourceBlock {
 	var resources []resourceBlock
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	for i, b := range f.syntax.Blocks {
 		if b.Type == "resource" && len(b.Labels) == 2 && i < len(blocks) {
 			resources = append(resources, resourceBlock{address: b.Labels[0] + "." + b.Labels[1], write: blocks[i], syntax: b})
@@ -96,7 +186,7 @@ type importBlock struct {
 // imports lists the import blocks of the file.
 func (f *hclFile) imports() []importBlock {
 	var imports []importBlock
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	for i, b := range f.syntax.Blocks {
 		if b.Type != "import" || i >= len(blocks) {
 			continue
@@ -173,7 +263,7 @@ func sortResources(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	blocks := f.file.Body().Blocks()
+	blocks := f.edit().Body().Blocks()
 	if len(blocks) == 0 {
 		return false, nil
 	}
@@ -181,13 +271,13 @@ func sortResources(path string) (bool, error) {
 	sort.SliceStable(blocks, func(i, j int) bool { return key(blocks[i]) < key(blocks[j]) })
 	sorted := hclwrite.NewEmptyFile()
 	for i, b := range blocks {
-		f.file.Body().RemoveBlock(b)
+		f.write.Body().RemoveBlock(b)
 		if i > 0 {
 			sorted.Body().AppendNewline()
 		}
 		sorted.Body().AppendBlock(b)
 	}
-	f.file = sorted
+	f.write = sorted
 	if bytes.Equal(before, hclwrite.Format(sorted.Bytes())) {
 		return false, nil
 	}

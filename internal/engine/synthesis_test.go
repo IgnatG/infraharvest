@@ -495,7 +495,7 @@ func TestSpliceTraversal(t *testing.T) {
 	for _, r := range f.resources() {
 		replaceReferences(r.write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
 	}
-	got := string(hclwrite.Format(f.file.Bytes()))
+	got := string(hclwrite.Format(f.edit().Bytes()))
 	for _, want := range []string{
 		`subnetwork = module.net.subnets["us-central1/app"].self_link`,
 		`link = "${module.net.subnets["us-central1/app"].self_link}/x"`,

@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -161,11 +160,11 @@ func parseWritable(path string) (*hclwrite.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, diags := hclwrite.ParseConfig(src, path, hcl.InitialPos)
+	f, diags := parseFile(path, src)
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	return f, nil
+	return f.edit(), nil
 }
 
 // vacatedMergedReadme describes a merged root of envs, its environments,

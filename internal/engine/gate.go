@@ -627,9 +627,16 @@ func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": looks like it contains an AWS access key ID with its secret access key")
 	}
-	// Parsed once for the checks below: parsing is most of what a scan
-	// costs.
-	parsed := &parsedFile{rel: rel, content: content}
+	// Parsed once for the checks below, and only a file they read:
+	// parsing is most of what a scan costs. A file that doesn't parse
+	// has nothing to scan, since validate (G2) reports it.
+	if !readsLiteralSecrets(rel) {
+		return
+	}
+	parsed, err := parseHCL(rel, []byte(content))
+	if err != nil {
+		return
+	}
 	for _, name := range providerCredentials(parsed) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": provider block sets "+name+", which belongs in the provider's environment")
@@ -667,16 +674,12 @@ func checkReadme(dir string, result *Result, values []string) error {
 
 // providerCredentials returns the credential arguments the provider blocks
 // of a .tf file set to constants, sorted, as "provider.argument".
-func providerCredentials(f *parsedFile) []string {
-	if !strings.HasSuffix(f.rel, ".tf") {
-		return nil
-	}
-	body, ok := f.body()
-	if !ok {
+func providerCredentials(f *hclFile) []string {
+	if !strings.HasSuffix(f.path, ".tf") {
 		return nil
 	}
 	var names []string
-	for _, b := range body.Blocks {
+	for _, b := range f.syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 {
 			continue
 		}
@@ -691,34 +694,6 @@ func providerCredentials(f *parsedFile) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// parsedFile is a file of the output, rel, parsed the first time a check
-// asks for its body (see parseBody).
-type parsedFile struct {
-	rel, content string
-	parsed       bool
-	syntax       *hclsyntax.Body
-	ok           bool
-}
-
-func (f *parsedFile) body() (*hclsyntax.Body, bool) {
-	if !f.parsed {
-		f.parsed = true
-		f.syntax, f.ok = parseBody(f.rel, f.content)
-	}
-	return f.syntax, f.ok
-}
-
-// parseBody parses a .tf file's content; a file that doesn't parse has
-// nothing to scan, since validate (G2) reports it.
-func parseBody(rel, content string) (*hclsyntax.Body, bool) {
-	f, diags := hclsyntax.ParseConfig([]byte(content), rel, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, false
-	}
-	body, ok := f.Body.(*hclsyntax.Body)
-	return body, ok
 }
 
 // nondeterministic are functions whose results differ between runs.
@@ -746,12 +721,14 @@ func nondeterministicCalls(rel, content string) []string {
 	if !strings.HasSuffix(rel, ".tf") {
 		return nil
 	}
-	body, ok := parseBody(rel, content)
-	if !ok {
+	// A file that doesn't parse has nothing to scan, since validate (G2)
+	// reports it.
+	f, err := parseHCL(rel, []byte(content))
+	if err != nil {
 		return nil
 	}
 	calls := map[string]bool{}
-	_ = hclsyntax.VisitAll(body, func(node hclsyntax.Node) hcl.Diagnostics {
+	_ = hclsyntax.VisitAll(f.syntax, func(node hclsyntax.Node) hcl.Diagnostics {
 		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok && nondeterministic[call.Name] {
 			calls[call.Name] = true
 		}
@@ -833,11 +810,11 @@ func calledModules(dir string) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			body, ok := parseBody(path, string(content))
-			if !ok {
+			f, err := parseHCL(path, content)
+			if err != nil {
 				continue
 			}
-			for _, b := range body.Blocks {
+			for _, b := range f.syntax.Blocks {
 				m := localModuleDir(d, b)
 				if m == "" || seen[m] {
 					continue
