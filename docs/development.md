@@ -165,7 +165,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 ## Build tags
 
 - Provider code that the command tree compiles in carries `//go:build !minimal || <provider>`, and registers itself from `init()` (`internal/cli/providers/provider_cmd_aws.go`). Its tests carry the same constraint (`aws_accounts_test.go`).
-- `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
+- `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both, and that a build links no SDK of a cloud it leaves out (`go list -deps -tags minimal,aws .`): what links a cloud's SDK, such as the store `--managed-state` reads that cloud's state with (`internal/managed/stores/*`), is set by the provider's own file. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
 - Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand). golangci-lint compiles all three with every provider (`run.build-tags` in `.golangci.json`), the one build that holds every file: under `minimal,<provider>`, the e2e helpers only the other providers' tests call read as unused. `make lint TAGS=...` replaces those tags with yours.
 
 ## Tests
