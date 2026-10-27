@@ -95,69 +95,20 @@ func TestTransportAndClient(t *testing.T) {
 	}
 }
 
-// Default is one Limiter, at DefaultRate until SetDefault changes it; Like
-// copies a Limiter's rate into a Limiter of its own.
+// Default is one Limiter, at DefaultRate; Like copies a Limiter's rate
+// into a Limiter of its own.
 func TestDefaultAndLike(t *testing.T) {
-	t.Cleanup(func() { SetDefault(DefaultRate) })
 	if first := Default(); Default() != first {
 		t.Fatal("Default returns another Limiter each time")
 	}
 	if got := Default().Rate(); got != DefaultRate {
 		t.Errorf("default rate %v, want %v", got, DefaultRate)
 	}
-	SetDefault(5)
-	if got := Default().Rate(); got != 5 {
-		t.Errorf("rate after SetDefault(5) %v", got)
+	l := New(5)
+	like := Like(l)
+	if like == l || like.Rate() != 5 {
+		t.Errorf("Like: %p (of %p), rate %v; want a Limiter of its own at 5", like, l, like.Rate())
 	}
-	like := Like(Default())
-	if like == Default() || like.Rate() != 5 {
-		t.Errorf("Like: %p (default %p), rate %v; want a Limiter of its own at 5", like, Default(), like.Rate())
-	}
-	// It doesn't follow the one it was made like.
-	SetDefault(7)
-	if like.Rate() != 5 {
-		t.Errorf("Like's rate followed the default's: %v", like.Rate())
-	}
-}
-
-// A new rate applies to every host from the next request, with a burst of
-// its own; setting the rate it has keeps the hosts' waits.
-func TestSetRate(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const host = "compute.googleapis.com"
-		l := New(1)
-		if err := l.Wait(t.Context(), host); err != nil {
-			t.Fatal(err)
-		}
-		// The same rate: the host has used its burst, so waits a second.
-		l.SetRate(1)
-		start := time.Now()
-		if err := l.Wait(t.Context(), host); err != nil || time.Since(start) != time.Second {
-			t.Errorf("same rate: waited %s (%v), want 1s", time.Since(start), err)
-		}
-		// Another rate: a fresh burst of 10, then a tenth of a second each.
-		l.SetRate(10)
-		start = time.Now()
-		for range 11 {
-			if err := l.Wait(t.Context(), host); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if elapsed := time.Since(start); elapsed != 100*time.Millisecond {
-			t.Errorf("11 requests at 10 a second took %s, want 100ms", elapsed)
-		}
-		// No rate: nothing waits.
-		l.SetRate(0)
-		start = time.Now()
-		for range 50 {
-			if err := l.Wait(t.Context(), host); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if time.Since(start) != 0 || l.Rate() != 0 {
-			t.Errorf("no rate: waited %s, rate %v", time.Since(start), l.Rate())
-		}
-	})
 }
 
 // A rate below one a second still lets one request go at once, then
@@ -177,8 +128,8 @@ func TestFractionalRate(t *testing.T) {
 	})
 }
 
-// Requests from many goroutines, to several hosts, while the rate
-// changes, share each host's limit without racing: run with -race.
+// Requests from many goroutines, to several hosts, share each host's
+// limit without racing: run with -race.
 func TestConcurrentWaits(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		l := New(10)
@@ -194,10 +145,6 @@ func TestConcurrentWaits(t *testing.T) {
 				sent.Add(1)
 			})
 		}
-		wg.Go(func() {
-			l.SetRate(10)
-			_ = l.Rate()
-		})
 		wg.Wait()
 		if sent.Load() != 30 {
 			t.Errorf("%d requests went, want 30", sent.Load())
