@@ -23,7 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // ObjectStore reads state from a bucket.
@@ -64,14 +64,14 @@ func (r Resources) Find(typ string, ids ...string) (Resource, bool) {
 }
 
 // key is how Resources keys a resource of typ with id: by the type its
-// other names share (see engine.CanonicalType), so that a load balancer
+// other names share (see tftypes.Canonical), so that a load balancer
 // managed as aws_alb is the aws_lb listed, and an Azure resource ID in
 // lower case, since Azure doesn't keep one case for them:
 // resourceGroups/App in Resource Graph can be resourcegroups/app in
 // state. ARNs and Google self-links keep their case, which matters for
 // them.
 func key(typ, id string) string {
-	typ = engine.CanonicalType(typ)
+	typ = tftypes.Canonical(typ)
 	if isAzureID(id) {
 		id = strings.ToLower(id)
 	}

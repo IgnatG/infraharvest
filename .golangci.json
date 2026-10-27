@@ -255,7 +255,8 @@
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
               "**/internal/catalogue/schemameta/*.go",
-              "**/internal/cfnhcl/*.go"
+              "**/internal/cfnhcl/*.go",
+              "**/internal/tftypes/*.go"
             ],
             "deny": [
               {

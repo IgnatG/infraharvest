@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -290,7 +291,7 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 // its path, unless a removed block of result hands them over (see
 // planHandovers), and resources of imports it leaves out, such as those
 // its plan rejected; each by its type or another name of it (see
-// engine.AliasTypes), which result forgets and imports again (see
+// tftypes.Aliases), which result forgets and imports again (see
 // engine.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
@@ -319,7 +320,7 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []e
 		}
 		var kept, left bool
 		root := ""
-		for _, typ := range append([]string{p.Type}, engine.AliasTypes(p.Type)...) {
+		for _, typ := range append([]string{p.Type}, tftypes.Aliases(p.Type)...) {
 			key := engine.External{Type: typ, ID: p.ID}
 			kept = kept || now[key]
 			left = left || asked[key]

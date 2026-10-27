@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // MovesFileName holds the moved blocks of a root generated again: a plan
@@ -49,7 +50,7 @@ type Removal struct {
 }
 
 // Retype is a resource of a root generated again that is of another type
-// now, another name of the one it was (see AliasTypes), with the same
+// now, another name of the one it was (see tftypes.Aliases), with the same
 // import ID, such as an aws_alb that is an aws_lb: Type and From are the
 // type and address the root had it at, and To where it imports it now.
 // No moved block can follow it, as the providers don't move state from
@@ -82,7 +83,7 @@ type Arrival struct {
 	Type, ID       string
 	Root, From, To string
 	// FromType, if set, is the type Root has the resource as, another
-	// name of Type (see AliasTypes): its removed block forgets it as
+	// name of Type (see tftypes.Aliases): its removed block forgets it as
 	// that, and this root imports it as Type.
 	FromType string `json:",omitempty"`
 }
@@ -311,7 +312,7 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]Move
 
 // retypes returns the resources of previous that now, where the root's
 // resources are, has as another name of their type with the same import
-// ID (see AliasTypes), with the removed block that forgets each (see
+// ID (see tftypes.Aliases), with the removed block that forgets each (see
 // Retype.Removed), sorted by where the root had them. It leaves out,
 // with why, those it can't forget: in a call that a module from the
 // registry the root calls makes, by sources, which a moved block can't
@@ -346,7 +347,7 @@ func retypes(previous *Previous, now []Managed, sources map[string]string) ([]Re
 		if _, ok := at[ResourceKey(p.Type, p.ID)]; ok {
 			continue
 		}
-		for _, typ := range AliasTypes(p.Type) {
+		for _, typ := range tftypes.Aliases(p.Type) {
 			to, ok := at[External{Type: typ, ID: p.ID}]
 			if !ok {
 				continue
