@@ -31,8 +31,7 @@ type Call struct {
 }
 
 // ImportCalls makes the Import calls that cover one scope, an account,
-// subscription or project, into run, the command's, or a run of their own
-// they finish where it is nil: it lists every call
+// subscription or project, into run, the command's: it lists every call
 // first, then generates each call's roots, so that each root refers to the
 // roots of every other call of the scope (see scopeRoots), as a regional
 // root of an AWS account to its global root's IAM roles, and the global
@@ -75,17 +74,7 @@ func ImportCalls(ctx context.Context, run *Run, calls []Call) error {
 			return c.generate(ctx, roots)
 		},
 	}
-	// As importWithEngine does: a command's calls share its run, and calls
-	// on their own finish their own.
-	if run == nil {
-		run = NewRun()
-		ctx, stop := InterruptContext(ctx)
-		defer stop()
-		if err := run.lockOut(options); err != nil {
-			return run.finish(err)
-		}
-		return run.finish(Interrupted(ctx, importCalls(ctx, run, calls, steps)))
-	}
+	// As importWithEngine does: a command's calls share its run.
 	if err := run.lockOut(options); err != nil {
 		return err
 	}
