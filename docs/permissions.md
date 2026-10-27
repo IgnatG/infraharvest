@@ -72,6 +72,10 @@ The subject is matched exactly, so add a credential for each branch or GitHub en
 
 Grants **`roles/viewer`** (resource configuration), **`roles/iam.securityReviewer`** (IAM policies on resources) and **`roles/cloudasset.viewer`** (the Cloud Asset Inventory search most of a project is listed through) on a project. The search also needs the Cloud Asset API enabled in the project your credentials' quota goes to: `gcloud services enable cloudasset.googleapis.com --project=<project>`.
 
+`roles/viewer` also reads data, directly or through the project's convenience values: BigQuery datasets give `projectReaders` their table data, and fine-grained Cloud Storage buckets give `projectViewers` their objects. As `deny-data-reads.json` does on AWS, the template attaches an [IAM deny policy](https://cloud.google.com/iam/docs/deny-overview) to the project, `infraharvest-deny-data-reads`, that denies the member those reads whatever grants them, ACLs included. That covers Cloud Logging entries (`logging.googleapis.com/logEntries.list`), BigQuery table and model data (`tables.getData`, `models.getData`), Cloud Storage objects and their listings (`objects.get`, `objects.list`), Spanner reads and queries, Bigtable rows, Datastore and Firestore entities, Artifact Registry downloads, Cloud Functions source, Cloud Trace traces, and Cloud Healthcare FHIR resources, DICOM instances and HL7v2 messages. infraharvest lists through Cloud Asset Inventory and the services' configuration APIs, and the generated roots import no data, so none of them needs these. The `denied_permissions` output lists them all.
+
+Managing deny policies takes the **Deny Admin** role (`roles/iam.denyAdmin`), which is granted on the organization. In a project outside an organization, or when whoever applies the template can't have that role, apply it with `-var deny_data_reads=false`. The member can then read that data, as with `roles/viewer` alone.
+
 ```sh
 cd permissions/google
 terraform init
@@ -89,11 +93,10 @@ terraform apply -var project_id=<project> \
 
 or grant them to a service account (`member=serviceAccount:<email>`) that those identities may impersonate (`roles/iam.workloadIdentityUser`). The workflow signs in with `google-github-actions/auth`, which writes the credentials file Application Default Credentials read (see [Google Cloud](google.md)).
 
-Known gap: `roles/viewer` can also read some data, for example object listings. A custom role limited to metadata will replace it once the exact permissions are confirmed.
 
 ## Drift: reading the state
 
-`infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and `roles/viewer` doesn't read objects. The drift templates grant it on the state alone, with the read-only access above. Drift never takes the state's lock, so none of them grants write access for it. Applying the saved refresh plan to drift's private copy configures the provider again: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission, and with Azure and Google Cloud signs in again, so the credentials must still be valid after the refresh (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).
+`infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and the Google Cloud member is denied `storage.objects.get`. The drift templates grant it on the state alone, with the read-only access above. Drift never takes the state's lock, so none of them grants write access for it. Applying the saved refresh plan to drift's private copy configures the provider again: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission, and with Azure and Google Cloud signs in again, so the credentials must still be valid after the refresh (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).
 
 ### AWS: `permissions/aws-drift`
 
@@ -135,10 +138,13 @@ terraform apply -var subscription_id=<subscription-guid> -var principal_id=<obje
 
 Grants the three roles `permissions/google` grants on the project, and **Storage Object Viewer** on the state's bucket only: `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, and `storage.objects.list`, which the backend uses to find the workspaces.
 
+It attaches a deny policy of its own, `infraharvest-drift-deny-data-reads`, which denies the member the data reads `permissions/google` denies, all but the Cloud Storage objects. A deny policy can't spare one bucket, as its conditions match resource tags alone, so denying objects would deny the state too. Leave it out with `-var deny_data_reads=false`, as for `permissions/google`. If the member also has the read-only roles from `permissions/google`, that template's deny policy denies it the state: give drift a member of its own, or apply `permissions/google` with `-var deny_data_reads=false` and let this deny policy cover the member.
+
 ```sh
 cd permissions/google-drift
 terraform init
 terraform apply -var project_id=<project> -var member=serviceAccount:<email> -var state_bucket=acme-terraform-state
-# when permissions/google grants the member the read-only roles already:
+# when permissions/google grants the member the read-only roles already,
+# applied with -var deny_data_reads=false:
 #   -var grant_read_only=false
 ```
