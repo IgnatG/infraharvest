@@ -226,9 +226,10 @@ func stateOnly(resourceType string, changed map[string]string) bool {
 	provider, _, _ := strings.Cut(resourceType, "_")
 	arguments := append(slices.Clone(stateOnlyArguments[provider][catalogue.AllTypes]), stateOnlyArguments[provider][resourceType]...)
 	for name := range changed {
-		if !slices.Contains(arguments, name) && !(onEmulator && slices.Contains(emulatorGaps[resourceType], name)) {
-			return false
+		if slices.Contains(arguments, name) || onEmulator && slices.Contains(emulatorGaps[resourceType], name) {
+			continue
 		}
+		return false
 	}
 	return true
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
+	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
 func init() {
@@ -80,10 +81,7 @@ func unsetNeeds(flags *pflag.FlagSet, needs []string) string {
 	for i, name := range needs {
 		names[i] = "--" + name
 	}
-	if len(names) == 1 {
-		return names[0]
-	}
-	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+	return sentence.List(names, "or")
 }
 
 // flagSet reports whether flags has the flag name with a value: a list

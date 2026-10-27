@@ -84,7 +84,11 @@ func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error
 	own := map[string]mergedState{}
 	for _, dir := range dirs {
 		if unrecorded {
-			if c, _ := readMergeCheckpoint(out, dir); c != nil {
+			c, err := readMergeCheckpoint(out, dir)
+			if err != nil {
+				return nil, err
+			}
+			if c != nil {
 				continue
 			}
 		}

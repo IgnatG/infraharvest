@@ -150,8 +150,8 @@ func checkEnvironmentsDrift(ctx context.Context, t *testing.T, fixture *appliedF
 	if e := decisionEntry(t, decisions, "delay_seconds", driftpolicy.Undecided); e.Environment != "prod" || e.Root != "aws/us-east-1" {
 		t.Errorf("%s: the delay's entry is of %s (%s), want aws/us-east-1 (prod)", decisions, e.Root, e.Environment)
 	}
-	setDecision(t, decisions, "message_retention_seconds", report.DriftAccept)
-	setDecision(t, decisions, "delay_seconds", report.DriftAccept)
+	acceptDrift(t, decisions, "message_retention_seconds")
+	acceptDrift(t, decisions, "delay_seconds")
 
 	// Accepted, dev's change goes into the email key of dev's map, alone.
 	credentials("dev")
@@ -246,7 +246,7 @@ func varFileMaps(t *testing.T, dir, env string) map[string]cty.Value {
 	maps := map[string]cty.Value{}
 	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
 		v, diags := attr.Expr.Value(nil)
-		if diags.HasErrors() || v.IsNull() || !(v.Type().IsObjectType() || v.Type().IsMapType()) {
+		if diags.HasErrors() || v.IsNull() || !v.Type().IsObjectType() && !v.Type().IsMapType() {
 			continue
 		}
 		maps[name] = v

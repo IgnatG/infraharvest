@@ -67,10 +67,11 @@ func (az *NetworkSecurityGroupLister) List() error {
 // Resource Manager list returns in full. Only when group came back without
 // them are they listed with rulesClient, under the group's own resource
 // group, which is not --resource-group when the whole subscription is
-// listed. An empty list is asked again too, as some emulators answer it:
-// a group without rules costs a request, but a rule is never missed.
+// listed. In a custom cloud an empty list is asked again too, as some
+// emulators answer one; Azure's own clouds list every rule with its group,
+// so there a group without rules costs no request.
 func (az *NetworkSecurityGroupLister) rulesOf(rulesClient *armnetwork.SecurityRulesClient, group *armnetwork.SecurityGroup) ([]*armnetwork.SecurityRule, error) {
-	if group.Properties != nil && len(group.Properties.SecurityRules) > 0 {
+	if group.Properties != nil && listedInFull(group.Properties.SecurityRules, az.customCloud()) {
 		return group.Properties.SecurityRules, nil
 	}
 	groupResourceGroup, err := resourceGroupOf(*group.ID)

@@ -17,6 +17,13 @@ var awsDataSources = map[string]DataSource{
 	"aws_vpc":            {Type: "aws_vpc", Argument: "id"},
 }
 
+// addDataSources is addDataSourcesSkipping for every resource: it
+// reports whether it changed anything.
+func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
+	edited, err := addDataSourcesSkipping(dir, external, sources, taken, nil)
+	return len(edited) > 0, err
+}
+
 func TestAddDataSources(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

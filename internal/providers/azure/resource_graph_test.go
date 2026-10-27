@@ -6,6 +6,9 @@ package azure
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
@@ -718,5 +722,79 @@ func TestListerOption(t *testing.T) {
 	opt := listerOption("00000000-0000-0000-0000-000000000001", nil, arm.ClientOptions{})
 	if opt.Parallelism != childListParallel || !opt.Recursive || !opt.IncludeManaged || opt.SubscriptionId != "00000000-0000-0000-0000-000000000001" {
 		t.Errorf("option %+v", opt)
+	}
+}
+
+// pagedTransport answers the requests it gets with pages, one each in
+// order, and records the body of each request.
+type pagedTransport struct {
+	pages []string
+	sent  []string
+}
+
+func (f *pagedTransport) Do(r *http.Request) (*http.Response, error) {
+	sent, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, err
+	}
+	f.sent = append(f.sent, string(sent))
+	if len(f.sent) > len(f.pages) {
+		return nil, fmt.Errorf("request %d, but only %d pages", len(f.sent), len(f.pages))
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(f.pages[len(f.sent)-1])),
+		Request:    r,
+	}, nil
+}
+
+// Every Resource Graph query asks for graphPageSize rows a page, where
+// Resource Graph would send 100, and follows the skip token to the last
+// page. A row that isn't an object is left out.
+func TestGraphQueryPages(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		query func(options *arm.ClientOptions) (int, error)
+	}{
+		{"resource groups", func(options *arm.ClientOptions) (int, error) {
+			groups, err := graphResourceGroups(t.Context(), fakeCredential{}, options, "sub", "subscriptionId =~ 'sub'")
+			return len(groups), err
+		}},
+		{"role assignments", func(options *arm.ClientOptions) (int, error) {
+			rows, err := authorizationRows(t.Context(), fakeCredential{}, options, "sub")
+			return len(rows), err
+		}},
+		{"subscriptions", func(options *arm.ClientOptions) (int, error) {
+			subscriptions, err := subscriptionsIn(t.Context(), fakeCredential{}, options, "platform")
+			return len(subscriptions), err
+		}},
+	} {
+		row := func(n string) string {
+			return `{"id":"/subscriptions/sub-` + n + `/resourceGroups/rg-` + n + `","subscriptionId":"sub-` + n + `","type":"microsoft.authorization/roleassignments"}`
+		}
+		transport := &pagedTransport{pages: []string{
+			`{"$skipToken":"next","data":[` + row("1") + `,"not an object"]}`,
+			`{"data":[` + row("2") + `]}`,
+		}}
+		got, err := tc.query(&arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}})
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if got != 2 {
+			t.Errorf("%s: %d rows, want 2", tc.name, got)
+		}
+		if len(transport.sent) != 2 {
+			t.Fatalf("%s: %d requests, want 2", tc.name, len(transport.sent))
+		}
+		for i, sent := range transport.sent {
+			if !strings.Contains(sent, `"$top":1000`) {
+				t.Errorf("%s: request %d doesn't ask for 1000 rows: %s", tc.name, i, sent)
+			}
+		}
+		if strings.Contains(transport.sent[0], "$skipToken") || !strings.Contains(transport.sent[1], `"$skipToken":"next"`) {
+			t.Errorf("%s: skip tokens sent: %v", tc.name, transport.sent)
+		}
 	}
 }

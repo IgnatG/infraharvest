@@ -60,9 +60,12 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/driftpolicy` | `importer`, `cli`, `mcpserver` | The importer, the commands and the MCP server use it; it reads changes as the report has them. |
 | `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
+| `internal/discovery` | anything of infraharvest's but `harvest` | It reads listed resources through `harvest`; the importer drives it. |
+| `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta`, `cfnhcl` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
+| `internal/filelock` | anything of infraharvest's but `fsutil` | The lock checks its file with the leaf `fsutil`, as the output's other files are checked. |
 | `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
 
-Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files the default build compiles, test files included; a tagged file outside it isn't checked. To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
+Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files golangci-lint compiles: the default build's, test files included, and the `integration`, `e2e` and `sandbox` ones (see [Build tags](#build-tags)). To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
 
 ## Licence headers
 
@@ -81,9 +84,9 @@ package providers
 ```
 <!-- REUSE-IgnoreEnd -->
 
-Contributors put their own name and the year the file was created. `scripts/check-headers.sh` fails when a tracked Go file lacks the `SPDX-License-Identifier` line: the `repository` job of the `tests` workflow runs it on every pull request, and the pre-commit hook on the staged files, where it also checks that a new file starts with both lines. `make fast-headers` runs it on every file.
+Contributors put their own name and the year the file was created. `scripts/check-headers.sh` fails when a tracked Go file, shell script (`*.sh`) or workflow (`.github/workflows/*.yml`) lacks the `SPDX-License-Identifier` line: the `repository` job of the `tests` workflow runs it on every pull request, and the pre-commit hook on the staged Go files, where it also checks that a new one starts with both lines. `make fast-headers` runs it on every file.
 
-New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script (`scripts/fast-checks.sh`, `Makefile`). Some existing ones have none, such as most workflows, `install.sh`, `.goreleaser.yaml` and the `Dockerfile`; add it when you next change one. Markdown, JSON and data files carry none. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence (the one exception is the schema metadata read out of the providers' code, which `REUSE.toml` marks MPL-2.0: see [Licences](catalogue.md#licences)), and the `repository` job of the `tests` workflow (`.github/workflows/test.yml`) runs [`reuse lint`](https://github.com/fsfe/reuse-tool) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
+New shell scripts, workflows, YAML files and Makefiles carry the same two lines as comments, after the `#!` line in a script, or any other line that must come first, such as a `Dockerfile`'s `# syntax=` (`scripts/fast-checks.sh`, `Makefile`, `Dockerfile`). Markdown, JSON and data files carry none. A file without a header is covered by `REUSE.toml`, which gives it the same copyright and licence (the one exception is the schema metadata read out of the providers' code, which `REUSE.toml` marks MPL-2.0: see [Licences](catalogue.md#licences)), and the `repository` job of the `tests` workflow (`.github/workflows/test.yml`) runs [`reuse lint`](https://github.com/fsfe/reuse-tool) on every pull request. Text that quotes a licence line without being one, such as the header examples on this page, goes between `REUSE-IgnoreStart` and `REUSE-IgnoreEnd` comments.
 
 ## Names
 
@@ -164,7 +167,7 @@ Every list call pages until the API says it is done, and a page that doesn't adv
 
 - Provider code that the command tree compiles in carries `//go:build !minimal || <provider>`, and registers itself from `init()` (`internal/cli/providers/provider_cmd_aws.go`). Its tests carry the same constraint (`aws_accounts_test.go`).
 - `-tags minimal` builds no provider; `-tags minimal,aws` builds AWS only. The `build-tags` job of the `tests` workflow checks both. Locally, `make test PKG=./internal/cli/... TAGS=minimal,aws` compiles one SDK instead of three.
-- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand).
+- Tests that need more than the Go toolchain have their own tag: `integration` (the engine against real Terraform), `e2e` (emulators, combined with a provider: `e2e && (!minimal || azure)`), and `sandbox` (a real AWS account, Azure subscription or Google Cloud project, run only by hand). golangci-lint compiles all three with every provider (`run.build-tags` in `.golangci.json`), the one build that holds every file: under `minimal,<provider>`, the e2e helpers only the other providers' tests call read as unused. `make lint TAGS=...` replaces those tags with yours.
 
 ## Tests
 
@@ -181,8 +184,8 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 ## Formatting and lint
 
 - `gofmt -s`, and imports in three groups: the standard library, third-party modules, then this module's packages (`internal/engine/engine.go`). The pre-commit hook checks the grouping with `goimports -local github.com/IgnatG/infraharvest`. CI doesn't check the third group yet: `.golangci.json` gives the `goimports` formatter no `local-prefixes`.
-- golangci-lint runs with `.golangci.json` (`depguard`, which holds the [dependency directions](#dependency-directions), `gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
-- [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary. `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
+- golangci-lint runs with `.golangci.json` (`depguard`, which holds the [dependency directions](#dependency-directions), `gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request and after each merge to `main`, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
+- [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary (only the summary after a merge). `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
 - Fix findings rather than silencing them. New code has no `//nolint`; the few there are mark legacy types due to be rewritten.
 
 ## Dependencies
@@ -190,7 +193,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 - Every new module adds to a build that is already heavy: prefer the standard library and the SDKs already in `go.mod`, and say in the pull request why a new one is worth it.
 - After changing imports or `go.mod`, run `go mod tidy` on GitHub: `make ci-tidy`, or push a branch named `tidy/<anything>`, then `make ci-download RUN=<id> NAME=go-mod` and commit `go.mod` and `go.sum`. The `tests` workflow fails when they aren't tidy.
 - GitHub Actions are pinned to a full commit SHA with the version in a trailing comment, and tools downloaded in workflows to a version and a SHA-256 digest. Dependabot proposes updates weekly.
-- `govulncheck` runs on the built binary on each pull request, and in the `govulncheck` workflow after each merge to `main` and weekly; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
+- `govulncheck` runs on the built binary on each pull request, and on each merge to `main`, and weekly in the `govulncheck` workflow; a finding fails unless `.github/govulncheck-allowlist.txt` covers it, with the reason.
 
 ## Markdown
 
@@ -230,7 +233,7 @@ The `release` workflow publishes a release from `main`: it runs the tests in a j
 | Markdown | pre-commit hook (markdownlint-cli2) | `megalinter` (markdownlint, lychee on links within the repository), `links` (external links, not required), `docs` (strict MkDocs build) |
 | YAML, JSON, Dockerfile, Terraform, secrets, vulnerable dependencies | none | `megalinter` |
 | Commit message | `commit-msg` hook | the pull request title, at review |
-| golangci-lint | `make lint` (compiles) | `megalinter` on every pull request; `make ci-lint` on a branch |
+| golangci-lint | `make lint` (compiles) | `megalinter` on every pull request and merge to `main`; `make ci-lint` on a branch |
 | `go vet`, `go test` | `make vet`, `make test` (compile) | `tests` on every pull request; `make ci-check PKG=...` on a branch |
 | Golden files | `make golden` (compiles) | `make ci-golden PKG=...` |
 | `go mod tidy` | none | `make ci-tidy`; `tests` checks it |

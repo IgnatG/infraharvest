@@ -163,3 +163,31 @@ func TestExcludedByDefaultGlobalTableReplicas(t *testing.T) {
 		t.Errorf("got %v, want %v", excluded, want)
 	}
 }
+
+// The tables are described several at once, and recorded in the listed
+// order.
+func TestRecordDynamoDbDescribesTablesInParallel(t *testing.T) {
+	at := newOverlap(3)
+	useFakeAPI(t, func(call apiCall) string {
+		switch call.Op {
+		case "ListTables":
+			return `{"TableNames":["a","b","c"]}`
+		case "DescribeTable":
+			at.wait()
+			return recordDynamoDbTable(call)
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &DynamoDbLister{}
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	at.check(t)
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_dynamodb_table", "a", "a", nil},
+		recordedResource{"aws_dynamodb_table", "b", "b", nil},
+		recordedResource{"aws_dynamodb_table", "c", "c", nil},
+	)
+}

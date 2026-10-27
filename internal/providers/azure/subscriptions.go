@@ -16,9 +16,11 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph"
 )
 
-// subscriptionsQuery lists subscriptions with their state.
+// subscriptionsQuery lists subscriptions with their state. It projects id,
+// which nothing reads, since Resource Graph sends the next page's skip
+// token only to a query that does.
 const subscriptionsQuery = "resourcecontainers | where type =~ 'microsoft.resources/subscriptions'" +
-	" | project subscriptionId, state = tostring(properties.state)"
+	" | project id, subscriptionId, state = tostring(properties.state) | order by id asc"
 
 // Subscriptions returns the IDs of the subscriptions under the management
 // group (its ID), in its child management groups too, that aren't disabled
@@ -41,37 +43,23 @@ func subscriptionsIn(ctx context.Context, credential azcore.TokenCredential, opt
 	if !resourceGroupName.MatchString(managementGroup) {
 		return nil, fmt.Errorf("management group ID %q has characters Azure doesn't allow", managementGroup)
 	}
-	client, err := armresourcegraph.NewClient(credential, options)
-	if err != nil {
-		return nil, err
-	}
-	request := armresourcegraph.QueryRequest{
+	rows, err := graphQuery(ctx, credential, options, armresourcegraph.QueryRequest{
 		Query:            to.Ptr(subscriptionsQuery),
 		ManagementGroups: []*string{to.Ptr(managementGroup)},
-		Options:          &armresourcegraph.QueryRequestOptions{ResultFormat: to.Ptr(armresourcegraph.ResultFormatObjectArray)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("subscriptions of management group %s: %w", managementGroup, err)
 	}
 	var subscriptions []string
-	for {
-		resp, err := client.Resources(ctx, request, nil)
-		if err != nil {
-			return nil, fmt.Errorf("subscriptions of management group %s: %w", managementGroup, err)
+	for _, m := range rows {
+		id, _ := m["subscriptionId"].(string)
+		state, _ := m["state"].(string)
+		if id == "" || strings.EqualFold(state, "Disabled") || strings.EqualFold(state, "Deleted") {
+			continue
 		}
-		rows, _ := resp.Data.([]interface{})
-		for _, row := range rows {
-			m, _ := row.(map[string]interface{})
-			id, _ := m["subscriptionId"].(string)
-			state, _ := m["state"].(string)
-			if id == "" || strings.EqualFold(state, "Disabled") || strings.EqualFold(state, "Deleted") {
-				continue
-			}
-			if !slices.Contains(subscriptions, id) {
-				subscriptions = append(subscriptions, id)
-			}
+		if !slices.Contains(subscriptions, id) {
+			subscriptions = append(subscriptions, id)
 		}
-		if resp.SkipToken == nil || *resp.SkipToken == "" {
-			break
-		}
-		request.Options.SkipToken = resp.SkipToken
 	}
 	slices.Sort(subscriptions)
 	return subscriptions, nil

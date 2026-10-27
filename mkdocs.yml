@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # The documentation site, built from docs/ (see .github/workflows/docs.yml).
 site_name: infraharvest
 site_description: Terraform configuration for the infrastructure you already have, checked to plan with no changes.

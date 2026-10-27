@@ -20,6 +20,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // LocalsFileName holds the values lifted out of the generated
@@ -662,7 +664,7 @@ func writeLocals(dir string, locals map[string]cty.Value) error {
 	for _, name := range names {
 		body.SetAttributeValue(name, locals[name])
 	}
-	return os.WriteFile(filepath.Join(dir, LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return fsutil.WriteFile(filepath.Join(dir, LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
 }
 
 // fileBackup holds files' contents to restore; nil for files that didn't
@@ -697,7 +699,7 @@ func (b *fileBackup) restore() error {
 			}
 			continue
 		}
-		if err := os.WriteFile(path, content, 0o644); err != nil {
+		if err := fsutil.WriteFile(path, content, 0o644); err != nil {
 			return err
 		}
 	}

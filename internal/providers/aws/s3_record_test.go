@@ -173,3 +173,44 @@ func TestRecordS3ReturnsListBucketsError(t *testing.T) {
 
 	assertRecordedError(t, g.List(), "AccessDenied")
 }
+
+// The buckets' locations and policies are read several buckets at once,
+// and recorded in the listed order.
+func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
+	locations, policies := newOverlap(3), newOverlap(3)
+	useFakeAPI(t, func(apiCall) string { return "" })
+	testConfig.HTTPClient = &recordS3API{handle: func(bucket string, call apiCall) string {
+		switch {
+		case bucket == "":
+			return `<ListAllMyBucketsResult ` + recordS3NS + `><Buckets>` +
+				`<Bucket><Name>a</Name></Bucket><Bucket><Name>b</Name></Bucket><Bucket><Name>c</Name></Bucket>` +
+				`</Buckets></ListAllMyBucketsResult>`
+		case call.Query.Has("location"):
+			locations.wait()
+			return `<LocationConstraint ` + recordS3NS + `>eu-west-1</LocationConstraint>`
+		case call.Query.Has("policy"):
+			policies.wait()
+			if bucket == "b" {
+				return recordS3Policy
+			}
+			return `<Error><Code>NoSuchBucketPolicy</Code></Error>`
+		}
+		return recordUnexpected(t, call)
+	}}
+	g := &S3Lister{}
+	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	locations.check(t)
+	policies.check(t)
+	bucketAttrs := map[string]string{"force_destroy": "false", "acl": "private"}
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_s3_bucket", "a", "a", bucketAttrs},
+		recordedResource{"aws_s3_bucket_policy", "b", "b", nil},
+		recordedResource{"aws_s3_bucket", "b", "b", map[string]string{"force_destroy": "false", "acl": "private", "policy": recordS3Policy}},
+		recordedResource{"aws_s3_bucket", "c", "c", bucketAttrs},
+	)
+}

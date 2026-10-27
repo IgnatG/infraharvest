@@ -4,7 +4,8 @@
 name: MegaLinter
 
 # Every linter CI runs, in one place: MegaLinter (https://megalinter.io),
-# Go flavour, over the whole repository on every pull request.
+# Go flavour, over the whole repository on every pull request and after
+# each merge to main.
 # .mega-linter.yml lists the linters, with their configuration, and says why
 # the others are off. MegaLinter reports in one comment on the pull request,
 # which it updates on each run, and in the run's summary; the report folder
@@ -16,11 +17,15 @@ name: MegaLinter
 # or locally, with Docker: npx mega-linter-runner --flavor go
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push makes a pull request's run moot; every merge to main
+  # gets a result of its own.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -48,6 +53,9 @@ jobs:
           # For the pull request comment only; MegaLinter hides it from the
           # linters.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # After a merge there is no open pull request to comment on; the
+          # run's summary holds the report.
+          GITHUB_COMMENT_REPORTER: ${{ github.event_name == 'pull_request' }}
           # The image's Go is older than go.mod asks for; let it switch to
           # the toolchain go.mod names, as setup-go would install, for
           # golangci-lint and osv-scanner's govulncheck.

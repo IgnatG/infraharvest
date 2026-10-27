@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # The release image: infraharvest, pinned Terraform and OpenTofu binaries,
 # and git, which Terraform needs to fetch registry modules hosted on GitHub.
 # GoReleaser builds infraharvest and puts it in the build context under

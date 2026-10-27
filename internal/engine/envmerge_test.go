@@ -15,6 +15,11 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// mergeStack is mergeStackWith without controls, as a stack first merges.
+func mergeStack(provider string, profile MergeProfile, roots []envRoot, schemas *tfjson.ProviderSchemas) *stackMerge {
+	return mergeStackWith(provider, profile, roots, schemas, nil)
+}
+
 // mergeProfiles are the merge profiles of the providers whose roots the
 // tests merge, as the importer fills them from the providers' profiles.
 var mergeProfiles = map[string]MergeProfile{
@@ -710,6 +715,19 @@ resource "aws_sqs_queue" "refunds" {
 		}
 		if ids := m.imports(1); ids[`aws_sqs_queue.this["refunds"]`] == "" || ids[`aws_sqs_queue.this["orders"]`] == "" {
 			t.Errorf("prod imports = %v", ids)
+		}
+
+		// Keys that no longer merge, as one has a block the other
+		// lacks, dissolve the group, rather than leave it without a body.
+		g.keys[1].members[1].block.write.Body().AppendNewBlock("redrive_allow_policy", nil)
+		m.forEachBodies()
+		if len(m.forEach) != 0 {
+			t.Fatalf("%d for_each groups, want the group dissolved", len(m.forEach))
+		}
+		for _, k := range g.keys {
+			if k.forEach != nil || k.address() != "aws_sqs_queue."+k.label {
+				t.Errorf("key %s: still in the group, at %s", k.label, k.address())
+			}
 		}
 	})
 }

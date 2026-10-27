@@ -29,8 +29,9 @@ func (c *Catalogue) check() error {
 	if !identifier.MatchString(c.Provider) {
 		errs = append(errs, fmt.Errorf("provider %q: want a provider's local name, such as aws", c.Provider))
 	}
-	for typ, e := range c.entries {
-		for _, err := range c.checkEntry(typ, e) {
+	// Sorted, so that the errors come in the same order every run.
+	for _, typ := range slices.Sorted(maps.Keys(c.entries)) {
+		for _, err := range c.checkEntry(typ, c.entries[typ]) {
 			errs = append(errs, fmt.Errorf("%s: %s: %w", c.sources[typ], typ, err))
 		}
 	}
@@ -153,12 +154,14 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 				fail("skip[%d]: empty ID prefix", i)
 			}
 		}
-		for k, prefixes := range rule.AttributePrefixes {
+		for _, k := range slices.Sorted(maps.Keys(rule.AttributePrefixes)) {
+			prefixes := rule.AttributePrefixes[k]
 			if len(prefixes) == 0 || slices.Contains(prefixes, "") {
 				fail("skip[%d]: attribute_prefixes: %s: want prefixes, none empty", i, k)
 			}
 		}
-		for k, suffixes := range rule.AttributeSuffixes {
+		for _, k := range slices.Sorted(maps.Keys(rule.AttributeSuffixes)) {
+			suffixes := rule.AttributeSuffixes[k]
 			if len(suffixes) == 0 || slices.Contains(suffixes, "") {
 				fail("skip[%d]: attribute_suffixes: %s: want suffixes, none empty", i, k)
 			}
@@ -212,7 +215,8 @@ func (c *Catalogue) checkInventory() []error {
 		}
 	}
 	var errs []error
-	for _, types := range byType {
+	for _, key := range slices.Sorted(maps.Keys(byType)) {
+		types := byType[key]
 		sort.Strings(types)
 		for i, a := range types {
 			for _, b := range types[i+1:] {

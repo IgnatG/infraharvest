@@ -31,7 +31,7 @@ const ModulesDirName = "modules"
 
 // moduleOutputs are the attributes a generated module outputs for each of
 // its resources, where the resource has them: the ones references between
-// resources use (see addReferences).
+// resources use (see addReferencesSkipping).
 var moduleOutputs = []string{"id", "arn", "name", "bucket"}
 
 // cluster is a resource and its child resources: resources whose type

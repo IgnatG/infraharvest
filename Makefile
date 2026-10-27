@@ -14,7 +14,8 @@ SHELL := bash
 
 # Go packages to lint, vet or test, here or on GitHub.
 PKG ?= ./...
-# Build tags, such as minimal,aws to compile only the AWS provider.
+# Build tags, such as minimal,aws to compile only the AWS provider. For lint,
+# they replace the e2e, sandbox and integration tags .golangci.json sets.
 TAGS ?=
 # The branch the ci-* targets run on: the current one. Push it first.
 REF ?= $(shell git rev-parse --abbrev-ref HEAD)

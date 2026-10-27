@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"google.golang.org/api/compute/v1"
-	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -95,7 +93,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	name, err := lookUpRegion(ctx, project, region)
 	switch {
 	case err == nil:
-	case computeDisabled(err) && regionName.MatchString(region):
+	case isServiceDisabled(err) && regionName.MatchString(region):
 		log.Printf("google: region %s of project %s can't be checked, as the project hasn't enabled the Compute Engine API; importing it as given", region, project)
 		name = region
 	default:
@@ -108,22 +106,6 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 // regionName matches the name of a region, such as us-central1, and not
 // a zone's or a multi-region's.
 var regionName = regexp.MustCompile(`^[a-z]+-[a-z]+[0-9]+$`)
-
-// computeDisabled reports whether err says the project hasn't enabled the
-// Compute Engine API: a 403 whose reason is accessNotConfigured, or whose
-// details say SERVICE_DISABLED.
-func computeDisabled(err error) bool {
-	var apiErr *googleapi.Error
-	if !errors.As(err, &apiErr) || apiErr.Code != http.StatusForbidden {
-		return false
-	}
-	for _, item := range apiErr.Errors {
-		if item.Reason == "accessNotConfigured" {
-			return true
-		}
-	}
-	return strings.Contains(fmt.Sprint(apiErr.Details...), "SERVICE_DISABLED")
-}
 
 // regionNames holds the regions lookUpRegion found, by project and region:
 // every service of an Import call initialises a provider of its own, and

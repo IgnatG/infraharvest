@@ -8,6 +8,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -91,6 +92,34 @@ type Service struct {
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
 	s := settingsOf(az.Settings())
 	return s.subscriptionID, s.resourceGroup, s.credential, s.clientOptions
+}
+
+// customCloud reports whether the service's clients reach a cloud other
+// than Azure's own (public, US Government and China), such as Azure Stack
+// or an emulator that ARM_ENVIRONMENT=stack describes.
+func (az *Service) customCloud() bool {
+	_, _, _, options := az.clientSettings()
+	if options == nil {
+		return false
+	}
+	endpoint := options.Cloud.Services[cloud.ResourceManager].Endpoint
+	if endpoint == "" {
+		return false
+	}
+	for _, own := range []cloud.Configuration{cloud.AzurePublic, cloud.AzureGovernment, cloud.AzureChina} {
+		if own.Services[cloud.ResourceManager].Endpoint == endpoint {
+			return false
+		}
+	}
+	return true
+}
+
+// listedInFull reports whether a parent's list response carried all of its
+// children: a field the response left out (nil) never did, and in a custom
+// cloud nor did an empty one, as some emulators leave out children created
+// on their own.
+func listedInFull[T any](children []*T, custom bool) bool {
+	return len(children) > 0 || children != nil && !custom
 }
 
 // recordBare adds a resource of resourceType, imported by id and

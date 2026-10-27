@@ -8,8 +8,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 // What manages a resource the selection leaves out (see Excluded.Owner and
@@ -58,7 +56,7 @@ func OwnerOf(reason string) string {
 	switch {
 	case reason == "":
 		return ""
-	case strings.HasPrefix(reason, managed.Reason):
+	case strings.HasPrefix(reason, TerraformPrefix):
 		if ByTag(reason) {
 			return OwnerTerraformTag
 		}

@@ -8,6 +8,11 @@ import (
 	"testing"
 )
 
+// labelled is relabelled for a root generated for the first time.
+func labelled(imports []Import, taken Names, tidy bool) []Import {
+	return relabelled(imports, taken, tidy, nil)
+}
+
 func TestLabel(t *testing.T) {
 	t.Parallel()
 	for name, want := range map[string]string{

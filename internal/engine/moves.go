@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // MovesFileName holds the moved blocks of a root generated again: a plan
@@ -622,7 +624,7 @@ func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) e
 	if _, diags := parseFile(path, content); diags.HasErrors() {
 		return fmt.Errorf("%s: %w", MovesFileName, diags)
 	}
-	return os.WriteFile(path, content, 0o644)
+	return fsutil.WriteFile(path, content, 0o644)
 }
 
 // ReadMoves returns the moved blocks of dir's moves.tf; none if dir has
@@ -706,7 +708,7 @@ func Vacate(dir string, opts Options) (*Result, error) {
 		return nil, err
 	}
 	for name, content := range opts.Config {
-		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
 			return nil, err
 		}
 	}

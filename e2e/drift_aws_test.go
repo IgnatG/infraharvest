@@ -156,7 +156,7 @@ func TestAWSDrift(t *testing.T) {
 			t.Errorf("%s has an entry for the absorbed tag: %+v", decisions, e)
 		}
 	}
-	setDecision(t, decisions, "message_retention_seconds", report.DriftAccept)
+	acceptDrift(t, decisions, "message_retention_seconds")
 	// Changed again in the cloud, the entry holds for other values.
 	change(map[string]string{"retention": "259200"})
 	d = drift.mustExit(t, report.ExitDrift, "--decisions", decisions, "--write-decisions", "--detailed-exitcode")
@@ -172,7 +172,7 @@ func TestAWSDrift(t *testing.T) {
 	if again := decisionEntry(t, decisions, "message_retention_seconds", driftpolicy.Undecided); again.Fingerprint == entry.Fingerprint {
 		t.Errorf("--write-decisions kept the fingerprint %s of the values decided before", entry.Fingerprint)
 	}
-	setDecision(t, decisions, "message_retention_seconds", report.DriftAccept)
+	acceptDrift(t, decisions, "message_retention_seconds")
 	d = drift.mustExit(t, report.ExitOK, "--decisions", decisions)
 	decided := driftChange(t, "--decisions", d, "aws_sqs_queue", "message_retention_seconds")
 	checkDriftChange(t, "--decisions", decided, "86400", "259200", report.DriftAccept, report.DriftDecidedByEntry, report.DriftWritten)
@@ -301,14 +301,14 @@ func decisionEntry(t *testing.T, path, attribute, decision string) driftpolicy.E
 	return driftpolicy.Entry{}
 }
 
-// setDecision sets the decision of the entries of the decisions file at
-// path for changes to attribute, as a person reviewing it does.
-func setDecision(t *testing.T, path, attribute, decision string) {
+// acceptDrift accepts the entries of the decisions file at path for
+// changes to attribute, as a person reviewing it does.
+func acceptDrift(t *testing.T, path, attribute string) {
 	t.Helper()
 	f := loadDecisions(t, path)
 	for i := range f.Changes {
 		if f.Changes[i].Attribute == attribute {
-			f.Changes[i].Decision = decision
+			f.Changes[i].Decision = report.DriftAccept
 		}
 	}
 	if err := f.Save(path); err != nil {

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/cloudresourcemanager/v3"
 )
 
@@ -53,18 +53,18 @@ func projectsUnder(ctx context.Context, svc *cloudresourcemanager.Service, organ
 		ids := make([][]string, len(level))
 		subfolders := make([][]string, len(level))
 		errs := make([]error, len(level))
-		var wg sync.WaitGroup
-		slots := make(chan struct{}, folderParallel)
+		// Every parent of the level is listed, whatever the others answer:
+		// each failure is kept in errs, and the group's own error is
+		// always nil.
+		var lists errgroup.Group
+		lists.SetLimit(folderParallel)
 		for i, parent := range level {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				slots <- struct{}{}
-				defer func() { <-slots }()
+			lists.Go(func() error {
 				ids[i], subfolders[i], errs[i] = listParent(ctx, svc, parent)
-			}()
+				return nil
+			})
 		}
-		wg.Wait()
+		_ = lists.Wait()
 		if err := errors.Join(errs...); err != nil {
 			return nil, err
 		}

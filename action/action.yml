@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 name: infraharvest
 description: Generate Terraform configuration that plans with no changes for existing cloud resources, find what changed in the cloud since it was applied, and summarise both.
 author: Gabriel Ignat
@@ -178,7 +181,9 @@ runs:
           if [[ "$DRIFT" == off ]]; then
             fail "environment takes effect with drift set to report or accept"
           fi
-          if [[ ! "$ENVIRONMENT" =~ ^[a-z0-9._-]+(,[a-z0-9._-]+)*$ ]]; then
+          # Each name as the configuration file takes it (environmentName in
+          # internal/config/environments.go).
+          if [[ ! "$ENVIRONMENT" =~ ^[a-z0-9][a-z0-9._-]*(,[a-z0-9][a-z0-9._-]*)*$ ]]; then
             fail "environment must be all, or environment names separated by commas, got '$ENVIRONMENT'"
           fi
           # A job per environment has that environment's credentials only;

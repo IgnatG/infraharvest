@@ -18,7 +18,7 @@ const (
 	headersScript = "scripts/check-headers.sh"
 	namesScript   = "scripts/check-names.sh"
 	licensedFile  = "// Copyright 2026 Example\n// SPDX-License-Identifier: AGPL-3.0-only\n\npackage fixture\n"
-	headersPass   = "every Go file carries"
+	headersPass   = "every Go file, shell script and workflow carries"
 	namesPass     = "no tracked file uses"
 )
 
@@ -47,6 +47,40 @@ func TestCheckHeadersClassification(t *testing.T) {
 				repo.runScript(headersScript, 0, headersPass)
 			} else {
 				repo.runScript(headersScript, 1, "::error file=internal/example.go::internal/example.go lacks the licence header")
+			}
+		})
+	}
+}
+
+// REUSE-IgnoreStart
+
+func TestCheckHeadersShellScriptsAndWorkflows(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		path    string
+		content string
+		ok      bool
+	}{
+		{"script", "scripts/example.sh", "#!/usr/bin/env bash\n# Copyright 2026 Example\n# SPDX-License-Identifier: AGPL-3.0-only\n", true},
+		{"script with no header", "scripts/example.sh", "#!/usr/bin/env bash\necho hi\n", false},
+		{"script with a Go comment", "scripts/example.sh", "// SPDX-License-Identifier: AGPL-3.0-only\n", false},
+		{"workflow", ".github/workflows/example.yml", "# Copyright 2026 Example\n# SPDX-License-Identifier: AGPL-3.0-only\n\nname: Example\n", true},
+		{"workflow with no header", ".github/workflows/example.yml", "name: Example\n", false},
+	} {
+		// REUSE-IgnoreEnd
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newRepositoryFixture(t)
+			repo.install(headersScript)
+			repo.track(tt.path, tt.content)
+			// Other YAML files need no header.
+			repo.track(".github/dependabot.yml", "version: 2\n")
+			if tt.ok {
+				repo.runScript(headersScript, 0, headersPass)
+				repo.runScript(headersScript, 0, headersPass, tt.path)
+			} else {
+				want := "::error file=" + tt.path + "::" + tt.path + " lacks the licence header. It starts with \"# Copyright"
+				repo.runScript(headersScript, 1, want)
+				repo.runScript(headersScript, 1, want, tt.path)
 			}
 		})
 	}
@@ -81,7 +115,7 @@ func TestCheckHeadersCachedAndFiles(t *testing.T) {
 	repo.runScript(headersScript, 0, headersPass, "--cached", "example.go")
 	repo.runScript(headersScript, 0, headersPass, "--cached", "--", "example.go")
 	repo.runScript(headersScript, 1, "::error file=other.go::", "--cached")
-	repo.runScript(headersScript, 0, "no Go files to check", "--cached", "notes.md")
+	repo.runScript(headersScript, 0, "no Go files, shell scripts or workflows to check", "--cached", "notes.md")
 }
 
 // The names are built from pieces, as the script builds them, so that this

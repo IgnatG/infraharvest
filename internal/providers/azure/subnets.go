@@ -77,13 +77,14 @@ func (az *SubnetLister) List() error {
 // subnetsOf returns the subnets network carries in its properties, which a
 // Resource Manager list returns in full, with the IDs of the route table,
 // security group and NAT gateway each one is linked to. Only when network
-// came back without them, or with an empty list, as some emulators answer,
-// are they listed with subnetsClient, under the network's own resource
-// group, which is not --resource-group when the whole subscription is
-// listed: a network without subnets costs a request, but a subnet is never
-// missed.
+// came back without them are they listed with subnetsClient, under the
+// network's own resource group, which is not --resource-group when the
+// whole subscription is listed. In a custom cloud an empty list is asked
+// again too, as floci-az answers one for subnets created on their own;
+// Azure's own clouds list every subnet with its network, so there a
+// network without subnets costs no request.
 func (az *SubnetLister) subnetsOf(subnetsClient *armnetwork.SubnetsClient, network *armnetwork.VirtualNetwork) ([]*armnetwork.Subnet, error) {
-	if network.Properties != nil && len(network.Properties.Subnets) > 0 {
+	if network.Properties != nil && listedInFull(network.Properties.Subnets, az.customCloud()) {
 		return network.Properties.Subnets, nil
 	}
 	networkResourceGroup, err := resourceGroupOf(*network.ID)

@@ -25,12 +25,10 @@ import (
 
 // useAssetSearch sends the listers' requests to a stand-in for Cloud
 // Asset Inventory that finds the resources of state (see assetSearch),
-// for the rest of the test, and returns it.
-func useAssetSearch(t *testing.T, e googleEstate, state []*tfjson.StateResource) *httptest.Server {
+// for the rest of the test.
+func useAssetSearch(t *testing.T, e googleEstate, state []*tfjson.StateResource) {
 	t.Helper()
-	search := assetSearch(t, e.endpoint, state)
-	t.Setenv(google.EndpointEnv, search.URL)
-	return search
+	t.Setenv(google.EndpointEnv, assetSearch(t, e.endpoint, state).URL)
 }
 
 // TestGoogleSelection checks discover google and an import through the

@@ -23,7 +23,7 @@ import (
 var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 
 // VacateMerged writes the merged root in dir, which environments share
-// (see writeMergedRoot), all of whose resources, in every environment, go
+// (see mergedRootFiles), all of whose resources, in every environment, go
 // to other roots now (see Removal), as Vacate does a root of its own. Of
 // files, the files its merge wrote, by path in dir with forward slashes,
 // it keeps what each environment plans it with: providers.tf, .gitignore

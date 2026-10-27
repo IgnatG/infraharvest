@@ -769,23 +769,64 @@ func addStrings(value any, out map[string]bool) {
 	}
 }
 
-// secretPatterns are formats of credentials that never belong in
-// configuration.
+// credentialPatterns are formats of credentials that never belong in
+// configuration, sorted by name, so that findings come in the same order
+// every run. scanFile looks for them in every file the gate reads, a
+// README as much as a .tf file, and credentialFormat in every single value.
 // An AWS access key ID on its own isn't a credential (see awsKeyPair).
-var secretPatterns = map[string]*regexp.Regexp{
-	"private key":       regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`),
-	"GitHub token":      regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}\b`),
-	"Slack token":       regexp.MustCompile(`\bxox[abprs]-[A-Za-z0-9-]{10,}\b`),
-	"Google API key":    regexp.MustCompile(`\bAIza[0-9A-Za-z_-]{35}\b`),
-	"Azure storage key": regexp.MustCompile(`AccountKey=[A-Za-z0-9+/=]{40,}`),
-	"Stripe secret key": regexp.MustCompile(`\bsk_live_[0-9A-Za-z]{20,}\b`),
-	"JSON Web Token":    regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`),
-	"password in a URL": regexp.MustCompile(`[a-z][a-z0-9+.-]*://[^/\s:@"]+:[^/\s@"]+@`),
+var credentialPatterns = []credentialPattern{
+	credential("API key", `\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}\b`),
+	credential("Azure SAS token", `[?&]sig=[A-Za-z0-9%+/=]{20,}`),
+	credential("Azure shared access key", `SharedAccessKey=[A-Za-z0-9+/=]{20,}`),
+	credential("Azure storage key", `AccountKey=[A-Za-z0-9+/=]{40,}`),
+	wholeValueCredential("Discord webhook", `https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]{20,}`),
+	credential("GitHub fine-grained token", `\bgithub_pat_[A-Za-z0-9_]{40,}\b`),
+	credential("GitHub token", `\bgh[pousr]_[A-Za-z0-9]{36,}\b`),
+	credential("GitLab token", `\bglpat-[A-Za-z0-9_-]{20,}\b`),
+	credential("Google API key", `\bAIza[0-9A-Za-z_-]{35}\b`),
+	credential("JSON Web Token", `\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`),
+	wholeValueCredential("Microsoft Teams webhook", `https://([A-Za-z0-9-]+\.webhook|outlook)\.office(365)?\.com/webhook(b2)?/\S{20,}`),
+	credential("SendGrid key", `\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b`),
+	credential("Slack token", `\bxox[abprs]-[A-Za-z0-9-]{10,}\b`),
+	wholeValueCredential("Slack webhook", `https://hooks\.slack\.com/services/[A-Za-z0-9/]{20,}`),
+	credential("Stripe restricted key", `\brk_live_[0-9A-Za-z]{20,}\b`),
+	credential("Stripe secret key", `\bsk_live_[0-9A-Za-z]{20,}\b`),
+	wholeValueCredential("Zapier webhook", `https://hooks\.zapier\.com/hooks/catch/[0-9]+/[A-Za-z0-9]+`),
+	credential("npm token", `\bnpm_[A-Za-z0-9]{36}\b`),
+	credential("password in a URL", `[a-z][a-z0-9+.-]*://[^/\s:@"]+:[^/\s@"]+@`),
+	valueCredential("password in a connection string", `(?im)(^|;)\s*(password|pwd)\s*=\s*[^;\s]+`),
+	credential("private key", `-----BEGIN [A-Z ]*PRIVATE KEY-----`),
 }
 
-// secretPatternNames are the names of secretPatterns, sorted, so that
-// findings come in the same order every run.
-var secretPatternNames = sortedKeys(secretPatterns)
+// credentialPattern is a format of credential in credentialPatterns.
+type credentialPattern struct {
+	name string
+	// inFile matches the credential anywhere in a file; nil for a format
+	// that only a single value tells (see valueCredential).
+	inFile *regexp.Regexp
+	// inValue matches it in a single value.
+	inValue *regexp.Regexp
+}
+
+// credential is a format found the same way anywhere in a file or a value.
+func credential(name, pattern string) credentialPattern {
+	re := regexp.MustCompile(pattern)
+	return credentialPattern{name: name, inFile: re, inValue: re}
+}
+
+// wholeValueCredential is a format, such as a webhook URL, that is the
+// whole of a value that holds it, so a value must start with it; a file
+// can hold it anywhere.
+func wholeValueCredential(name, pattern string) credentialPattern {
+	return credentialPattern{name: name, inFile: regexp.MustCompile(pattern), inValue: regexp.MustCompile("^" + pattern)}
+}
+
+// valueCredential is a format that only a single value tells: a password
+// in a connection string, which in a file would match every password
+// argument, such as one set from a variable.
+func valueCredential(name, pattern string) credentialPattern {
+	return credentialPattern{name: name, inValue: regexp.MustCompile(pattern)}
+}
 
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
@@ -873,10 +914,10 @@ func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
 		check.Passed = false
 		check.Details = append(check.Details, rel+": contains a value the provider marks sensitive")
 	}
-	for _, name := range secretPatternNames {
-		if secretPatterns[name].MatchString(content) {
+	for _, p := range credentialPatterns {
+		if p.inFile != nil && p.inFile.MatchString(content) {
 			check.Passed = false
-			check.Details = append(check.Details, rel+": looks like it contains a "+name)
+			check.Details = append(check.Details, rel+": looks like it contains a "+p.name)
 		}
 	}
 	if awsKeyPair(content) {

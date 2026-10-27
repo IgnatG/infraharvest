@@ -95,17 +95,12 @@ func (n Names) hasType(resourceType string) bool {
 	return false
 }
 
-// labelled returns imports with Name turned into a label (see Label),
+// relabelled returns imports with Name turned into a label (see Label),
 // tidied if tidy is set (see tidyLabels), and made unique per resource
 // type with _2, _3, ... in import ID order, so the labels don't depend on
 // the order resources were listed in. Labels in taken are left to the
-// resources that have them.
-func labelled(imports []Import, taken Names, tidy bool) []Import {
-	return relabelled(imports, taken, tidy, nil)
-}
-
-// relabelled is labelled for a root generated again, which previous, if
-// set, says an earlier import generated: a resource keeps the label it
+// resources that have them. For a root generated again, previous, if set,
+// says what an earlier import generated: a resource keeps the label it
 // had where its name still gives it (see keepsLabel), so that adding or
 // removing others doesn't move it, and no other resource takes an address
 // previous reserves (see Previous.reserved), which another resource had

@@ -28,6 +28,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // Files the engine writes into each output directory.
@@ -265,7 +266,7 @@ type Options struct {
 	ModuleProviders map[string]Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in
-	// DataSources, by resource type (see addDataSources).
+	// DataSources, by resource type (see addDataSourcesSkipping).
 	External    []External
 	DataSources map[string]DataSource
 	// OtherRoots are the resources the import's other roots manage: what
@@ -449,7 +450,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 		files[name] = content
 	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
 			return nil, err
 		}
 	}
@@ -686,7 +687,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 		}
 	}
 	if rejected.Len() > 0 {
-		if err := os.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(rejected.Bytes(), literal), 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(rejected.Bytes(), literal), 0o644); err != nil {
 			return nil, err
 		}
 	}
@@ -903,7 +904,7 @@ func writeVariables(dir string, secrets []Secret, schemas *tfjson.ProviderSchema
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, content, 0o644)
+	return fsutil.WriteFile(path, content, 0o644)
 }
 
 // schemaCache is a Terraform that reads the providers' schemas once, until

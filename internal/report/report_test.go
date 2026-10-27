@@ -12,8 +12,6 @@ import (
 	"sort"
 	"strings"
 	"testing"
-
-	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 func sample() *Report {
@@ -179,7 +177,7 @@ func TestManagedCounts(t *testing.T) {
 	r := &Report{}
 	r.Excluded = []Excluded{
 		{Type: "aws_vpc", ID: "vpc-1", Reason: "default VPC, which AWS creates in every region"},
-		{Type: "aws_s3_bucket", ID: "logs", Reason: managed.Reason + " (s3://acme-state/imported/aws/terraform.tfstate)"},
+		{Type: "aws_s3_bucket", ID: "logs", Reason: TerraformPrefix + " (s3://acme-state/imported/aws/terraform.tfstate)"},
 	}
 	r.Finish(map[string]int{"aws_vpc": 1, "aws_s3_bucket": 2}, nil, false)
 
@@ -239,7 +237,7 @@ func TestScopeCounts(t *testing.T) {
 	r.AddDiscovered(prod, 1)
 	r.Excluded = []Excluded{
 		{Type: "aws_s3_bucket", ID: "cdk-assets", Reason: OtherToolPrefix + "CloudFormation stack CDKToolkit", Scope: prod},
-		{Type: "aws_s3_bucket", ID: "state", Reason: managed.Reason + " (backend)", Scope: prod},
+		{Type: "aws_s3_bucket", ID: "state", Reason: TerraformPrefix + " (backend)", Scope: prod},
 	}
 	r.Directories = []Directory{
 		{Path: prod, Scope: prod, Imported: []Resource{{Address: "aws_s3_bucket.logs", ID: "logs"}, {Address: "aws_sqs_queue.jobs", ID: "jobs"}}},
@@ -275,7 +273,7 @@ func TestCountsByTag(t *testing.T) {
 			LeftOut:  []LeftOut{{Address: "aws_lb.web", ID: "arn:lb"}},
 		}},
 		Excluded: []Excluded{
-			{Type: "aws_s3_bucket", ID: "state", Reason: managed.Reason + " (s3://state)", Scope: scope},
+			{Type: "aws_s3_bucket", ID: "state", Reason: TerraformPrefix + " (s3://state)", Scope: scope},
 			{Type: "aws_s3_bucket", ID: "stack", Reason: OtherToolPrefix + "CloudFormation stack app", Scope: scope},
 			{Type: "aws_vpc", ID: "vpc-1", Reason: "excluded in the selection file", Scope: scope},
 		},

@@ -5,8 +5,10 @@ package engine
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -423,6 +425,48 @@ moved {
 	}
 	if err := writeMoves(dir, nil, nil, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
 		t.Errorf("without moves: %v, want moves.tf removed", err)
+	}
+}
+
+// A root that already exists may hold a file that is a symlink, such as a
+// committed moves.tf or README.md link: writing it replaces the link with
+// the file, and never writes through it to its target.
+func TestRootWritesReplaceSymlinks(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		name  string
+		write func(dir string) error
+	}{
+		"moves": {MovesFileName, func(dir string) error {
+			return writeMoves(dir, []Move{{From: "aws_subnet.a", To: "aws_subnet.b"}}, nil, nil)
+		}},
+		"readme": {ReadmeFileName, func(dir string) error { return WriteReadme(dir, &Result{}) }},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir, outside := t.TempDir(), t.TempDir()
+			target := filepath.Join(outside, "target")
+			if err := os.WriteFile(target, []byte("outside the root\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(dir, tt.name)); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			if err := tt.write(dir); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := os.ReadFile(target); string(got) != "outside the root\n" {
+				t.Errorf("wrote through the link to its target: %q", got)
+			}
+			info, err := os.Lstat(filepath.Join(dir, tt.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o644) {
+				t.Errorf("%s is %v, want a regular 0644 file in place of the link", tt.name, info.Mode())
+			}
+		})
 	}
 }
 

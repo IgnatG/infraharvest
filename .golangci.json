@@ -1,6 +1,11 @@
 {
   "version": "2",
   "run": {
+    "build-tags": [
+      "e2e",
+      "sandbox",
+      "integration"
+    ],
     "concurrency": 8,
     "issues-exit-code": 1,
     "modules-download-mode": "readonly"
@@ -239,6 +244,52 @@
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
                 "desc": "the selection and the report know nothing of the MCP server"
+              }
+            ]
+          },
+          "leaf": {
+            "files": [
+              "**/internal/fsutil/*.go",
+              "**/internal/ratelimit/*.go",
+              "**/internal/logging/*.go",
+              "**/internal/version/*.go",
+              "**/internal/catalogue/schemameta/*.go",
+              "**/internal/cfnhcl/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "a leaf helper imports nothing of infraharvest's, so that anything can use it without a cycle"
+              }
+            ]
+          },
+          "filelock": {
+            "files": [
+              "**/internal/filelock/*.go"
+            ],
+            "list-mode": "lax",
+            "allow": [
+              "github.com/IgnatG/infraharvest/internal/fsutil"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "the lock imports only the leaf fsutil of infraharvest's, to check its file the way the output's other files are"
+              }
+            ]
+          },
+          "discovery": {
+            "files": [
+              "**/internal/discovery/*.go"
+            ],
+            "list-mode": "lax",
+            "allow": [
+              "github.com/IgnatG/infraharvest/internal/harvest"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "discovery reads listed resources through harvest and nothing else of infraharvest's; the importer drives it"
               }
             ]
           }

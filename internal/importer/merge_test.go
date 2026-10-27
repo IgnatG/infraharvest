@@ -64,6 +64,16 @@ func TestMergeRefusal(t *testing.T) {
 	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false); reason != "" {
 		t.Errorf("a merged root an earlier merge wrote: %q", reason)
 	}
+	// A checkpoint that can't be read isn't taken for none, even for a
+	// merged root told from its files.
+	if err := os.WriteFile(mergeCheckpointPath(out, stack), []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, adopted := range []bool{false, true} {
+		if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, adopted); !strings.Contains(reason, "merge checkpoint can't be read") || !strings.Contains(reason, mergeCheckpointPath(out, stack)) {
+			t.Errorf("a corrupt checkpoint, adopted %v: %q", adopted, reason)
+		}
+	}
 }
 
 // A root with local state isn't merged: merging would set it aside, and

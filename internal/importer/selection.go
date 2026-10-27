@@ -289,6 +289,33 @@ func tagLines(d *report.Discovery) []string {
 // the configured backend.
 const backendState = "backend"
 
+// backendStateSource returns the --managed-state source that stands for
+// the state of backend, the configuration file's: every state under its
+// key prefix, escaped, as a prefix may hold characters a URL doesn't
+// take as they are. Blob Storage is in the cloud ARM_ENVIRONMENT, read
+// with getenv, names, as it is to the azurerm backend, whose
+// configuration names none (see managed.AzureBlobSuffix).
+func backendStateSource(backend *config.Backend, getenv func(string) string) (string, error) {
+	switch {
+	case backend != nil && backend.S3 != nil:
+		s3 := backend.S3
+		u := url.URL{Scheme: "s3", Host: s3.Bucket, Path: "/" + s3.KeyPrefix, RawQuery: url.Values{"region": {s3.Region}}.Encode()}
+		return u.String(), nil
+	case backend != nil && backend.GCS != nil:
+		u := url.URL{Scheme: "gs", Host: backend.GCS.Bucket, Path: "/" + backend.GCS.Prefix}
+		return u.String(), nil
+	case backend != nil && backend.AzureRM != nil:
+		az := backend.AzureRM
+		suffix, err := managed.AzureBlobSuffix(getenv("ARM_ENVIRONMENT"))
+		if err != nil {
+			return "", fmt.Errorf("--managed-state=backend: %w", err)
+		}
+		u := url.URL{Scheme: "https", Host: az.StorageAccountName + "." + suffix, Path: "/" + az.ContainerName + "/" + az.KeyPrefix}
+		return u.String(), nil
+	}
+	return "", errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
+}
+
 // excludeManaged records in defaults the listed resources Terraform
 // already manages, according to the state in --managed-state (see
 // managed.Load), so that an import leaves them out unless a selection file
@@ -304,18 +331,11 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 			resolved = append(resolved, withProfile(s, options.Profile))
 			continue
 		}
-		switch {
-		case run.backend != nil && run.backend.S3 != nil:
-			s3 := run.backend.S3
-			resolved = append(resolved, withProfile(fmt.Sprintf("s3://%s/%s?region=%s", s3.Bucket, s3.KeyPrefix, s3.Region), options.Profile))
-		case run.backend != nil && run.backend.GCS != nil:
-			resolved = append(resolved, fmt.Sprintf("gs://%s/%s", run.backend.GCS.Bucket, run.backend.GCS.Prefix))
-		case run.backend != nil && run.backend.AzureRM != nil:
-			az := run.backend.AzureRM
-			resolved = append(resolved, fmt.Sprintf("https://%s.blob.core.windows.net/%s/%s", az.StorageAccountName, az.ContainerName, az.KeyPrefix))
-		default:
-			return errors.New("--managed-state=backend needs an S3, GCS or azurerm backend in the configuration file")
+		source, err := backendStateSource(run.backend, os.Getenv)
+		if err != nil {
+			return err
 		}
+		resolved = append(resolved, withProfile(source, options.Profile))
 	}
 	// Every account and region of the command reads the same state.
 	state, err := run.shared.managedState(ctx, resolved, managed.DefaultStores)

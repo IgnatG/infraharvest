@@ -1,4 +1,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Release build (see .github/workflows/release.yml): binaries for Linux,
 # macOS and Windows on amd64 and arm64, a checksum file signed with cosign
 # (keyless, from GitHub Actions), SBOMs, and a container image.

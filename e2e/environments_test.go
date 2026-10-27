@@ -227,15 +227,15 @@ func checkPlannedNothing(t *testing.T, what string, plan *tfjson.Plan) {
 }
 
 // applyWorkspace applies the merged root in dir as environment env, in
-// its workspace, with its var files and opts.
-func applyWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string, opts ...tfexec.ApplyOption) {
+// its workspace, with its var files.
+func applyWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) {
 	t.Helper()
 	tf := workspace(ctx, t, dir, execPath, plugins, env)
 	apply := []tfexec.ApplyOption{tfexec.Lock(false)}
 	for _, f := range mergedVarFiles(dir, env) {
 		apply = append(apply, tfexec.VarFile(f))
 	}
-	if err := tf.Apply(ctx, append(apply, opts...)...); err != nil {
+	if err := tf.Apply(ctx, apply...); err != nil {
 		t.Fatalf("%s: terraform apply in its workspace: %v", env, err)
 	}
 }

@@ -10,11 +10,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/magodo/armid"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -98,16 +98,17 @@ func (az *DiagnosticSettingLister) List() error {
 	ctx := az.Context()
 	found := make([][]harvest.Resource, len(targets))
 	failed := make([]error, len(targets))
-	slots := make(chan struct{}, diagnosticListParallel)
-	var wg sync.WaitGroup
+	// Every target is asked, whatever the others answer: each failure is
+	// kept in failed, and the group's own error is always nil.
+	var lists errgroup.Group
+	lists.SetLimit(diagnosticListParallel)
 	for i, target := range targets {
-		slots <- struct{}{}
-		wg.Go(func() {
-			defer func() { <-slots }()
+		lists.Go(func() error {
 			found[i], failed[i] = listDiagnosticSettings(ctx, client, target, az.Provider())
+			return nil
 		})
 	}
-	wg.Wait()
+	_ = lists.Wait()
 	if err := ctx.Err(); err != nil {
 		return err
 	}

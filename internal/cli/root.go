@@ -15,6 +15,13 @@ import (
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
+// awsCommands make the root's commands only a build with AWS has, such
+// as cfn: each file that makes one carries the build constraint
+// `!minimal || aws`, as the AWS provider command does (see package
+// providers), and adds its constructor from init(), so that a build
+// without AWS has no such command.
+var awsCommands []func() *cobra.Command
+
 // NewCmdRoot returns a new tree of infraharvest's commands.
 func NewCmdRoot() *cobra.Command {
 	cmd := &cobra.Command{
@@ -40,9 +47,11 @@ func NewCmdRoot() *cobra.Command {
 		newDriftCmd(),
 		newReportCmd(),
 		newBootstrapCmd(),
-		newCfnCmd(),
 		newVersionCmd(),
 	)
+	for _, newCmd := range awsCommands {
+		cmd.AddCommand(newCmd())
+	}
 	return cmd
 }
 

@@ -26,6 +26,13 @@ var importedValues = map[string]map[string]any{
 	"aws_sfn_state_machine.flow":    {"id": "arn:aws:states:us-east-1:1:stateMachine:flow", "arn": "arn:aws:states:us-east-1:1:stateMachine:flow"},
 }
 
+// addReferences is addReferencesSkipping for every resource: it reports
+// whether it changed anything.
+func addReferences(dir string, values map[string]map[string]any) (bool, error) {
+	edited, err := addReferencesSkipping(dir, values, nil)
+	return len(edited) > 0, err
+}
+
 func TestReferenceIndex(t *testing.T) {
 	t.Parallel()
 	index := referenceIndex(importedValues)

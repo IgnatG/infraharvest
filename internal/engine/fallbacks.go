@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // generatedBeforeRetry holds, while retryFallbacks has Terraform generate
@@ -109,7 +111,7 @@ func retryFallbacks(ctx context.Context, tf Terraform, dir string, imports []Imp
 	if len(again) > 0 {
 		kept = append(append(kept, '\n'), again...)
 	}
-	if err := os.WriteFile(generatedPath, kept, 0o644); err != nil {
+	if err := fsutil.WriteFile(generatedPath, kept, 0o644); err != nil {
 		return nil, err
 	}
 	return diags, os.Remove(before)
