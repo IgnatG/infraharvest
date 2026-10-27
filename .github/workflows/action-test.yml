@@ -5,29 +5,31 @@ name: Action test
 
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against the Floci emulators of AWS, Azure and Google Cloud: no cloud account is
-# involved. It also runs when the CLI changes, since the action relies on
-# its flags, report path and exit codes. It imports with Terraform and
+# involved. It also runs when the Go code changes, since the action relies on
+# the binary's flags, report path and exit codes. It imports with Terraform and
 # OpenTofu, through a selection file, with environments that share roots,
 # and with managed-state; checks drift on the roots once they're applied,
 # per environment for roots environments share; and checks what the action
 # would open its pull request with. On main, once the repository lets
 # workflows open pull requests, it opens a real one too (see the
 # pull-request job), and commits to a branch (the commit job).
+#
+# Both triggers take every file but those no job here reads, as
+# .github/scripts/changes.sh tells them for the tests workflow: the action
+# runs a binary built from all of the Go code, so a change to any of it can
+# change what the action does. A later pattern decides over an earlier one.
 on:
   pull_request:
     paths:
-      - action/**
-      - internal/cli/**
-      - internal/engine/**
-      - internal/importer/**
-      - internal/report/**
-      - internal/selection/**
-      - main.go
-      - go.mod
-      - go.sum
-      - e2e/compose.yaml
-      - e2e/testdata/azure/**
-      - e2e/testdata/google/**
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!mkdocs.yml"
+      - "!LICENSE"
+      - "!LICENSES/**"
+      - "!REUSE.toml"
+      - "!permissions/**"
+      - "!.github/**"
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
@@ -36,8 +38,18 @@ on:
   push:
     branches: [main]
     paths:
-      - action/**
+      - "**"
+      - "!**.md"
+      - "!docs/**"
+      - "!mkdocs.yml"
+      - "!LICENSE"
+      - "!LICENSES/**"
+      - "!REUSE.toml"
+      - "!permissions/**"
+      - "!.github/**"
       - .github/workflows/action-test.yml
+      - .github/scripts/free-disk-space.sh
+      - .github/actions/setup-engines/**
   workflow_dispatch:
 
 permissions:
