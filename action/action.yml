@@ -117,8 +117,6 @@ runs:
         VERSION: ${{ inputs.version }}
         BINARY: ${{ inputs.binary }}
         IMPORT: ${{ inputs.import }}
-        PROVIDER: ${{ inputs.provider }}
-        SERVICES: ${{ inputs.services }}
         INCREMENTAL: ${{ inputs.incremental }}
         DRIFT: ${{ inputs.drift }}
         DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
@@ -127,6 +125,10 @@ runs:
         PULL_REQUEST: ${{ inputs.pull-request }}
         COMMIT: ${{ inputs.commit }}
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
+      # Only what must be checked before infraharvest is installed, or what
+      # the action itself makes of its inputs: infraharvest checks the
+      # provider (see Check the provider) and the import's flags, such as
+      # --services, itself.
       run: |
         fail() {
           echo "::error::$1"
@@ -149,15 +151,10 @@ runs:
         if [[ "$IMPORT" == false && "$DRIFT" == off ]]; then
           fail "nothing to do: set import to true, or drift to report or accept"
         fi
-        if [[ "$IMPORT" == true ]]; then
-          if [[ -z "$PROVIDER" || -z "$SERVICES" ]]; then
-            fail "importing needs provider and services (set import to false to only check drift)"
-          fi
-          # Drift runs on the roots the repository has; the import then has
-          # to add to them rather than fail on them.
-          if [[ "$DRIFT" != off && "$INCREMENTAL" != true ]]; then
-            fail "drift with an import needs incremental to be true"
-          fi
+        # Drift runs on the roots the repository has; the import then has
+        # to add to them rather than fail on them.
+        if [[ "$IMPORT" == true && "$DRIFT" != off && "$INCREMENTAL" != true ]]; then
+          fail "drift with an import needs incremental to be true"
         fi
         if [[ "$DRIFT" == off && -n "$DRIFT_DECISIONS" ]]; then
           fail "drift-decisions takes effect with drift set to report or accept"
@@ -231,6 +228,21 @@ runs:
         if command -v sha256sum > /dev/null; then sha256sum --check --ignore-missing "$sums"; else shasum -a 256 --check --ignore-missing "$sums"; fi
         if [[ "$ext" == zip ]]; then unzip -q -o "$archive"; else tar -xzf "$archive"; fi
         echo "$dir" >> "$GITHUB_PATH"
+    # Before drift, which can take long: the provider is the import's one
+    # argument that isn't a flag, so one infraharvest doesn't have would be
+    # taken for something else. infraharvest services checks it as the
+    # import would.
+    - name: Check the provider
+      if: inputs.import == 'true'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        PROVIDER: ${{ inputs.provider }}
+      run: |
+        if ! err=$("${BINARY:-infraharvest}" services -- "$PROVIDER" 2>&1 > /dev/null); then
+          echo "::error::provider: $err (set import to false to only check drift)"
+          exit 1
+        fi
     # Drift first, on the code the repository has, so that what the import
     # adds next isn't taken for drift: one pull request then carries both.
     - name: Drift
@@ -335,10 +347,6 @@ runs:
         ARGS: ${{ inputs.args }}
         MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
-        if [[ ! "$PROVIDER" =~ ^[a-z][a-z0-9_]*$ ]]; then
-          echo "::error::unknown provider '$PROVIDER'"
-          exit 1
-        fi
         bin="${BINARY:-infraharvest}"
         args=(import "$PROVIDER" "--engine=$ENGINE" "--services=$SERVICES" "--out=$OUT" --format=json)
         [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
