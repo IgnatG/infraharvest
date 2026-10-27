@@ -37,13 +37,13 @@ inputs:
     description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all).
     required: false
   engine:
-    description: terraform or tofu. Unset, the import uses what the configuration file sets, or terraform, and drift uses terraform.
+    description: terraform or tofu. Unset, the import and drift use what the configuration file sets, or terraform.
     default: ""
   out:
     description: Directory to write the configuration and the report to.
     default: infraharvest-out
   config:
-    description: infraharvest configuration file (--config), for example with the state backend.
+    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout and catalogue.
     required: false
   incremental:
     description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
@@ -118,6 +118,7 @@ runs:
         BINARY: ${{ inputs.binary }}
         IMPORT: ${{ inputs.import }}
         INCREMENTAL: ${{ inputs.incremental }}
+        ALLOW_PARTIAL: ${{ inputs.allow-partial }}
         DRIFT: ${{ inputs.drift }}
         DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
         DRIFT_ACCEPT: ${{ inputs.drift-accept }}
@@ -140,10 +141,14 @@ runs:
         if [[ -n "$VERSION" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
           fail "version must look like v1.2.3, got '$VERSION'"
         fi
-        case "$IMPORT" in
-          true | false) ;;
-          *) fail "import must be true or false, got '$IMPORT'" ;;
-        esac
+        # Every boolean input, as name=value: one that is neither true nor
+        # false would otherwise be taken as false.
+        for input in "import=$IMPORT" "incremental=$INCREMENTAL" "allow-partial=$ALLOW_PARTIAL" "pull-request=$PULL_REQUEST" "commit=$COMMIT"; do
+          case "${input#*=}" in
+            true | false) ;;
+            *) fail "${input%%=*} must be true or false, got '${input#*=}'" ;;
+          esac
+        done
         case "$DRIFT" in
           off | report | accept) ;;
           *) fail "drift must be off, report or accept, got '$DRIFT'" ;;
@@ -183,10 +188,6 @@ runs:
             fail "environment checks drift as one environment, with its credentials; import in a job of its own, whose credentials reach every environment, and set import to false here"
           fi
         fi
-        case "$COMMIT" in
-          true | false) ;;
-          *) fail "commit must be true or false, got '$COMMIT'" ;;
-        esac
         if [[ "$COMMIT" == true && "$PULL_REQUEST" == true ]]; then
           fail "commit and pull-request don't go together: commit pushes the output to a branch without a pull request; set one of them"
         fi
@@ -299,11 +300,13 @@ runs:
         BINARY: ${{ inputs.binary }}
         ENGINE: ${{ inputs.engine }}
         OUT: ${{ inputs.out }}
+        CONFIG: ${{ inputs.config }}
         DRIFT: ${{ inputs.drift }}
         DRIFT_DECISIONS: ${{ inputs.drift-decisions }}
         DRIFT_ACCEPT: ${{ inputs.drift-accept }}
         ENVIRONMENT: ${{ inputs.environment }}
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         trim() {
           local s="$1"
           s="${s#"${s%%[![:space:]]*}"}"
@@ -311,34 +314,28 @@ runs:
         }
         if [[ ! -d "$OUT" ]]; then
           echo "::notice::$OUT doesn't exist yet: there are no roots to check for drift"
-          echo "drift-found=false" >> "$GITHUB_OUTPUT"
+          output drift-found false
           exit 0
         fi
         bin="${BINARY:-infraharvest}"
-        # A root environments share is checked once per environment under
-        # its vars/, each with the credentials of this job: with more than
-        # one, those of all but one would be the wrong account's, and its
-        # resources would look deleted. environment says which this job's
-        # credentials are for, or all that they reach every one.
-        if [[ -z "$ENVIRONMENT" ]]; then
-          envs=$(find "$OUT" \( -name .infraharvest -o -name .terraform \) -prune -o -type f -name terraform.tfvars -print |
-            awk -F/ '$(NF-2) == "vars" { print $(NF-1) }' | sort -u | paste -sd, -)
-          if [[ "$envs" == *,* ]]; then
-            echo "::error::$OUT has roots that the environments $envs share: set environment to the one this job's credentials are for, in a job per environment (a matrix), or to all if they reach every one"
-            exit 1
-          fi
-        fi
         # Without --decisions, --write-decisions writes drift-decisions, or
         # drift.yaml in the out directory, without applying it, so drift
         # report never edits the code.
         args=(drift "$OUT" --format=json --detailed-exitcode)
         if [[ -n "$ENGINE" ]]; then args+=("--engine=$ENGINE"); fi
+        # The settings drift has, such as the engine and the catalogue, as
+        # the import takes them.
+        if [[ -n "$CONFIG" ]]; then args+=("--config=$CONFIG"); fi
         if [[ "$DRIFT" == report && -n "$DRIFT_DECISIONS" ]]; then
           args+=("--write-decisions=$DRIFT_DECISIONS")
         else
           args+=(--write-decisions)
         fi
-        if [[ -n "$ENVIRONMENT" && "$ENVIRONMENT" != all ]]; then args+=("--environment=$ENVIRONMENT"); fi
+        # A root environments share is checked once per environment, each with
+        # the credentials of this job: infraharvest refuses roots of more than
+        # one without --environment, as with those of one environment the
+        # others' resources would look deleted. all is --environment all.
+        if [[ -n "$ENVIRONMENT" ]]; then args+=("--environment=$ENVIRONMENT"); fi
         if [[ "$DRIFT" == accept ]]; then
           if [[ -n "$DRIFT_DECISIONS" ]]; then args+=("--decisions=$DRIFT_DECISIONS"); fi
           while IFS= read -r line; do
@@ -363,11 +360,9 @@ runs:
         if command -v jq > /dev/null && [[ -s "$json" ]] && [[ "$(jq -r '.drift_found' "$json" 2> /dev/null)" == true ]]; then
           found=true
         fi
-        {
-          echo "exit-code=$code"
-          echo "drift-found=$found"
-          if [[ -f "$report" ]]; then echo "drift-report=$report"; fi
-        } >> "$GITHUB_OUTPUT"
+        output exit-code "$code"
+        output drift-found "$found"
+        if [[ -f "$report" ]]; then output drift-report "$report"; fi
         if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
         # 4 says drift is left, which the report and drift-found tell; it
         # doesn't fail the step. 1 (an accepted change failed verification),
@@ -385,6 +380,7 @@ runs:
         OUT: ${{ inputs.out }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         bin="${BINARY:-infraharvest}"
         # The arguments Check the import checked.
         args=()
@@ -392,8 +388,8 @@ runs:
         code=0
         "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
         report="$OUT/report/report.md"
-        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
-        echo "report=$report" >> "$GITHUB_OUTPUT"
+        output exit-code "$code"
+        output report "$report"
         if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
         if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
           echo "::error::infraharvest exited with $code; see the job summary"

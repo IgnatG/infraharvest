@@ -25,6 +25,18 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
+// The capabilities Provider has, checked when it builds: one whose method
+// no longer matches its interface would otherwise be dropped in silence,
+// as the importer asserts them at run time.
+var (
+	_ harvest.ProviderWithDependentServices = (*Provider)(nil)
+	_ harvest.ProviderWithModuleProviders   = (*Provider)(nil)
+	_ harvest.ProviderWithOptInServices     = (*Provider)(nil)
+	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
+	_ harvest.ProviderWithScope             = (*Provider)(nil)
+	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
+)
+
 // providerName is the Terraform provider the generated configuration uses,
 // and the provider of every listed resource.
 const providerName = "azurerm"

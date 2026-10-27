@@ -6,6 +6,8 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ func TestDriftFlags(t *testing.T) {
 	t.Parallel()
 	cmd := newDriftCmd()
 	for name, def := range map[string]string{
+		"config":            "",
 		"engine":            "terraform",
 		"terraform-path":    "",
 		"engine-timeout":    "1h0m0s",
@@ -135,5 +138,38 @@ func TestWriteDecisionsFlag(t *testing.T) {
 	}
 	if err := newDriftCmd().Flags().Parse([]string{"--write-decisions="}); err == nil {
 		t.Error("--write-decisions= with no file: want an error")
+	}
+}
+
+// --config applies the configuration file's settings drift has, as the
+// import does, and leaves the import's others, such as services, to it.
+func TestDriftConfig(t *testing.T) {
+	dir := t.TempDir()
+	write := func(content string) string {
+		path := filepath.Join(dir, "infraharvest.yaml")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for name, tc := range map[string]struct{ config, want string }{
+		"the engine applies":       {"version: 1\nsettings: { engine: pulumi, services: [vpc] }\n", `unknown --engine "pulumi"`},
+		"the catalogue applies":    {"version: 1\nsettings: { catalogue: no-such-catalogue }\n", "--catalogue"},
+		"a provider's engine":      {"version: 1\nproviders: { aws: { engine: tofu } }\n", "under settings"},
+		"the command line decides": {"version: 1\nsettings: { engine: pulumi }\n", "no generated roots"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := newDriftCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			args := []string{t.TempDir(), "--config", write(tc.config)}
+			if name == "the command line decides" {
+				args = append(args, "--engine=terraform")
+			}
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want %s", err, tc.want)
+			}
+		})
 	}
 }

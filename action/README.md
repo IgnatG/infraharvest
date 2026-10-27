@@ -189,7 +189,7 @@ Set the roots' secret variables as `TF_VAR_<name>` in the job's `env`, from your
 
 ### Roots environments share
 
-With `environments:` in the configuration file (`config`), the roots of each stack's environments [merge into one root](../docs/configuration.md#merging-environments), with what differs in `vars/<env>/`. Drift checks such a root once per environment, each time with the job's credentials, so the environments that aren't in the job's account, subscription or project would look deleted. Run a job per environment, with that environment's credentials, and `environment` naming it (`--environment`): a matrix does it. The action fails, before checking anything, when `out` has roots more than one environment shares and `environment` isn't set; set it to `all` when the job's credentials reach every environment, as when one account holds them all, split by tags.
+With `environments:` in the configuration file (`config`), the roots of each stack's environments [merge into one root](../docs/configuration.md#merging-environments), with what differs in `vars/<env>/`. Drift checks such a root once per environment, each time with the job's credentials, so the environments that aren't in the job's account, subscription or project would look deleted. Run a job per environment, with that environment's credentials, and `environment` naming it (`--environment`): a matrix does it. Drift fails, before checking anything, when `out` has roots of more than one environment and `environment` isn't set; set it to `all` (`--environment all`) when the job's credentials reach every environment, as when one account holds them all, split by tags.
 
 Each job opens its own pull request, on `infraharvest/drift-<env>`, titled with the environment, such as "Accept cloud changes (drift) in prod". Give each environment a decisions file of its own, so that the pull requests don't change the same file:
 
@@ -313,9 +313,9 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
-| `engine` | | `terraform` or `tofu`. Unset, the import uses what the configuration file sets, or `terraform`, and drift uses `terraform` |
+| `engine` | | `terraform` or `tofu`. Unset, the import and drift use what the configuration file sets, or `terraform` |
 | `out` | `infraharvest-out` | Directory for the configuration and the report |
-| `config` | | An infraharvest configuration file, for example with the state backend |
+| `config` | | An infraharvest configuration file, for example with the state backend; drift takes its settings `engine`, `terraform-path`, `engine-timeout` and `catalogue` (`--config`) |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
 | `args` | | More flags for the import, one a line, each starting with `--` (a bare `--` is refused): for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |

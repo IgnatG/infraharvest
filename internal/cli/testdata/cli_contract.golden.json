@@ -903,6 +903,12 @@
         "persistent": false
       },
       {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "decisions",
         "type": "string",
         "default": "",

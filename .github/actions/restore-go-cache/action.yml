@@ -37,11 +37,14 @@ runs:
       # key, which restores the newest older cache to start from.
       run: |
         sum=$(git hash-object go.sum)
+        # The paths end at a delimiter of random bytes, which no path can
+        # hold to end them early.
+        delimiter="EOF_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
         {
-          echo "paths<<EOF"
+          echo "paths<<$delimiter"
           go env GOMODCACHE
           go env GOCACHE
-          echo "EOF"
+          echo "$delimiter"
           echo "prefix=go-$NAME-$RUNNER_OS-$(go env GOVERSION)-"
           echo "key=go-$NAME-$RUNNER_OS-$(go env GOVERSION)-$sum"
         } >> "$GITHUB_OUTPUT"

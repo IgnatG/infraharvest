@@ -353,7 +353,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		if options.Modules == ModulesLatestUntested {
 			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
 		}
-		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Name()), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
+		moduleAdapters, newerModules, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(providerDir(provider)), selected), engineProvider(provider).Source, options.Modules == ModulesLatestUntested)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(run.shared.ownAdapters(ctx, execPath, filepath.Join(cacheDir, "modules"), provider.Name(), run.modules), provider.Name()), selected)
 		moduleAdapters = append(own, moduleAdapters...)

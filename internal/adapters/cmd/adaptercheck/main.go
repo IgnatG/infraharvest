@@ -65,13 +65,13 @@ func run(write bool, notesFile string) error {
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
 	var failed []string
-	for _, provider := range adapters.Providers() {
-		for _, a := range adapters.For(provider) {
+	for _, command := range adapters.Providers() {
+		for _, a := range adapters.For(command) {
 			var err error
 			if write {
 				err = writeSnapshot(ctx, client, a)
 			} else {
-				err = check(ctx, client, provider, a, notes)
+				err = check(ctx, client, a, notes)
 			}
 			// One module's registry or GitHub error mustn't hide what
 			// the others found: report it and go on.
@@ -93,15 +93,15 @@ func run(write bool, notesFile string) error {
 // check prints a line when the module an adapter pins has a newer
 // release, saying whether the adapter fits that release's interface and
 // resources, and whether the release accepts the newest major release of
-// the providers the adapter uses: provider, the root's, and the adapter's
-// Providers. When the adapter pins the newest release, it writes a line
+// the providers the adapter uses: the root's (see moduleProvider), and the
+// adapter's Providers. When the adapter pins the newest release, it writes a line
 // to notes instead if that release doesn't.
-func check(ctx context.Context, client *moduleinterface.Client, provider string, a adapters.Adapter, notes io.Writer) error {
+func check(ctx context.Context, client *moduleinterface.Client, a adapters.Adapter, notes io.Writer) error {
 	latest, err := client.Latest(ctx, a.Source)
 	if err != nil {
 		return err
 	}
-	providers := append([]string{provider}, a.Providers...)
+	providers := append([]string{moduleProvider(a)}, a.Providers...)
 	if latest == a.Version {
 		return checkPinned(ctx, client, a, providers, notes)
 	}
@@ -171,17 +171,24 @@ func newestRelease(ctx context.Context, client *http.Client) moduleinterface.New
 	}
 }
 
+// moduleProvider returns the Terraform provider a registry module's source
+// ends in, such as azurerm: that of the roots that call it.
+func moduleProvider(a adapters.Adapter) string {
+	module, _ := moduleinterface.SplitSource(a.Source)
+	parts := strings.Split(module, "/")
+	return parts[len(parts)-1]
+}
+
 // snapshotPath is where the interface of the version an adapter pins is
 // kept: internal/adapters/testdata/interfaces/<provider>/<module name>.json,
 // or <submodule name>.json.
 func snapshotPath(a adapters.Adapter) string {
 	module, subdir := moduleinterface.SplitSource(a.Source)
-	parts := strings.Split(module, "/")
-	name := parts[1]
+	name := strings.Split(module, "/")[1]
 	if subdir != "" {
 		name = path.Base(subdir)
 	}
-	return filepath.Join("internal", "adapters", "testdata", "interfaces", parts[len(parts)-1], name+".json")
+	return filepath.Join("internal", "adapters", "testdata", "interfaces", moduleProvider(a), name+".json")
 }
 
 // readSnapshot reads the interface snapshot of the version an adapter pins.
