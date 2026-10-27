@@ -134,8 +134,9 @@ runs:
       # provider and the import's flags (see Check the import), such as
       # --services, itself.
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         fail() {
-          echo "::error::$1"
+          annotation error "$1"
           exit 1
         }
         if [[ -z "$VERSION" && -z "$BINARY" ]]; then
@@ -258,9 +259,12 @@ runs:
         ARGS: ${{ inputs.args }}
         MANAGED_STATE: ${{ inputs.managed-state }}
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         bin="${BINARY:-infraharvest}"
+        # What infraharvest says goes in an annotation, escaped: it can
+        # quote the configuration or selection file.
         if ! err=$("$bin" services -- "$PROVIDER" 2>&1 > /dev/null); then
-          echo "::error::provider: $err (set import to false to only check drift)"
+          annotation error "provider: $err (set import to false to only check drift)"
           exit 1
         fi
         args=(import "$PROVIDER" "--out=$OUT" --format=json)
@@ -283,7 +287,7 @@ runs:
             exit 1
           fi
           if [[ "$line" != --* ]]; then
-            echo "::error::args: '$line' isn't a flag; give one --flag a line"
+            annotation error "args: '$line' isn't a flag; give one --flag a line"
             exit 1
           fi
           args+=("$line")
@@ -291,7 +295,7 @@ runs:
         # --check right after the provider, where no flag after it can
         # make it an argument.
         if ! err=$("$bin" "${args[@]:0:2}" --check "${args[@]:2}" 2>&1 > /dev/null); then
-          echo "::error::import: $err"
+          annotation error "import: $err"
           exit 1
         fi
         printf '%s\0' "${args[@]}" > "$RUNNER_TEMP/infraharvest-import-args"
@@ -313,7 +317,7 @@ runs:
       run: |
         source "$GITHUB_ACTION_PATH/output.sh"
         if [[ ! -d "$OUT" ]]; then
-          echo "::notice::$OUT doesn't exist yet: there are no roots to check for drift"
+          annotation notice "$OUT doesn't exist yet: there are no roots to check for drift"
           output drift-found false
           exit 0
         fi
@@ -349,7 +353,13 @@ runs:
         # drift.json goes to a file, not the log: its values are redacted,
         # but the job summary gets drift.md, which is written for people.
         json="$RUNNER_TEMP/infraharvest-drift.json"
-        "$bin" "${args[@]}" > "$json" || code=$?
+        # What drift logs comes from the cloud and the roots, which a
+        # repository's content can set: the runner takes no commands from
+        # it (commands_off in output.sh). Its stderr goes to stdout, after
+        # commands_off on the same stream.
+        commands_off
+        "$bin" "${args[@]}" 2>&1 > "$json" || code=$?
+        commands_on
         report="$OUT/report/drift.md"
         found=false
         if [[ "$code" == 4 ]]; then found=true; fi
@@ -365,7 +375,7 @@ runs:
         if unlinked "$report"; then
           cat "$report" >> "$GITHUB_STEP_SUMMARY"
         elif [[ -e "$report" || -L "$report" ]]; then
-          echo "::warning::$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
+          annotation warning "$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
         fi
         # 4 says drift is left, which the report and drift-found tell; it
         # doesn't fail the step. 1 (an accepted change failed verification),
@@ -389,14 +399,17 @@ runs:
         args=()
         while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-import-args"
         code=0
-        "$bin" "${args[@]}" > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
+        # As drift's: no commands from what the import logs.
+        commands_off
+        "$bin" "${args[@]}" 2>&1 > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
+        commands_on
         report="$OUT/report/report.md"
         output exit-code "$code"
         output report "$report"
         if unlinked "$report"; then
           cat "$report" >> "$GITHUB_STEP_SUMMARY"
         elif [[ -e "$report" || -L "$report" ]]; then
-          echo "::warning::$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
+          annotation warning "$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
         fi
         if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
           echo "::error::infraharvest exited with $code; see the job summary"

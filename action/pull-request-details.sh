@@ -70,7 +70,7 @@ for file in "${IMPORT_REPORT-}" "${DRIFT_REPORT-}"; do
     if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
     cat "$file" >> "$body"
   elif [[ -e "$file" || -L "$file" ]]; then
-    echo "::warning::$file isn't a regular file that no symbolic link leads to: leaving it out of the pull request"
+    annotation warning "$file isn't a regular file that no symbolic link leads to: leaving it out of the pull request"
   fi
 done
 output title "$title"

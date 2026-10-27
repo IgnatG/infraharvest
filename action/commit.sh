@@ -20,7 +20,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
 
 fail() {
-  echo "::error::$1"
+  annotation error "$1"
   exit 1
 }
 
@@ -68,7 +68,10 @@ echo "::add-mask::$auth"
 log="$RUNNER_TEMP/infraharvest-push.log"
 if ! git -c "http.$server/.extraheader=" -c "http.$server/.extraheader=AUTHORIZATION: basic $auth" \
   push --porcelain "$server/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$branch" > "$log" 2>&1; then
+  # What the remote said, with no workflow commands taken from it.
+  commands_off
   cat "$log"
+  commands_on
   if grep -q -e 'non-fast-forward' -e 'fetch first' -e '\[rejected\]' "$log"; then
     fail "commit: $branch has commits this checkout doesn't have, so the push was rejected (non-fast-forward); check out the head of $branch, or set commit-branch to another branch"
   fi
