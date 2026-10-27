@@ -4,7 +4,8 @@
 // Package ratelimit limits the requests a run sends to each API host, such
 // as ec2.eu-west-1.amazonaws.com or compute.googleapis.com: the clouds
 // throttle by API, and a run lists many services, regions and accounts at
-// once. The clients of the listers send their requests through Default.
+// once. The clients of the listers send their requests through their
+// run's Limiter (see FromContext).
 package ratelimit
 
 import (
@@ -16,17 +17,26 @@ import (
 )
 
 // DefaultRate is how many requests a second each API host gets, unless
-// SetDefault says otherwise: below the read limits the clouds document,
+// --rate-limit says otherwise: below the read limits the clouds document,
 // such as EC2's 20 a second refill for describe calls.
 const DefaultRate = 20
 
 // Limiter limits the requests to each host to a rate, with bursts of up
 // to that many requests. A nil Limiter, or one with no rate, limits
-// nothing.
+// nothing. Its rate is fixed: a run with another rate has a Limiter of
+// its own.
 type Limiter struct {
+	rate float64
+
+	// mu guards hosts.
 	mu    sync.Mutex
-	rate  float64
 	hosts map[string]*rate.Limiter
+
+	// keptMu guards kept, apart from mu, so that making a value never
+	// holds up a request.
+	keptMu sync.Mutex
+	// kept are the values kept with the Limiter, by key (see Kept).
+	kept map[any]any
 }
 
 // New returns a Limiter of perSecond requests a second to each host; 0 or
@@ -37,8 +47,10 @@ func New(perSecond float64) *Limiter {
 
 var std = New(DefaultRate)
 
-// Default is the Limiter of the listers' clients, or the rate of those
-// that limit each account on its own (see Like).
+// Default is the Limiter, at DefaultRate, of the calls whose context
+// carries no run's (see FromContext), such as those a command makes before
+// its runs, to find the accounts it imports. It is a fixed fallback: a run
+// limits its own calls with a Limiter of its own (see NewContext).
 func Default() *Limiter {
 	return std
 }
@@ -46,11 +58,6 @@ func Default() *Limiter {
 // Like returns a new Limiter with l's rate.
 func Like(l *Limiter) *Limiter {
 	return New(l.Rate())
-}
-
-// SetDefault sets Default's rate, such as from --rate-limit.
-func SetDefault(perSecond float64) {
-	std.SetRate(perSecond)
 }
 
 // contextKey is the key of the Limiter NewContext puts in a context.
@@ -72,34 +79,41 @@ func FromContext(ctx context.Context) *Limiter {
 	return std
 }
 
-// Rate is the requests a second each host gets; 0 or below: no limit.
-func (l *Limiter) Rate() float64 {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.rate
+// Kept returns the value kept with l for key, which build makes the first
+// time it is asked for. A run's Limiter is the one thing every listing of
+// the run shares (see NewContext), so the providers keep with it what
+// the run builds once for all of them, such as the clients it limits: it
+// lasts as long as the run, and no other run sees it. build runs with l's
+// values locked, so it must be quick and must not ask l for another. A
+// nil Limiter keeps nothing: each call makes the value again.
+func Kept[T any](l *Limiter, key any, build func() T) T {
+	if l == nil {
+		return build()
+	}
+	l.keptMu.Lock()
+	defer l.keptMu.Unlock()
+	if value, ok := l.kept[key]; ok {
+		return value.(T)
+	}
+	value := build()
+	if l.kept == nil {
+		l.kept = map[any]any{}
+	}
+	l.kept[key] = value
+	return value
 }
 
-// SetRate sets the rate of every host, for the requests from then on.
-func (l *Limiter) SetRate(perSecond float64) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if perSecond == l.rate {
-		return
-	}
-	l.rate = perSecond
-	l.hosts = map[string]*rate.Limiter{}
+// Rate is the requests a second each host gets; 0 or below: no limit.
+func (l *Limiter) Rate() float64 {
+	return l.rate
 }
 
 // Wait blocks until a request to host may go, or ctx is done.
 func (l *Limiter) Wait(ctx context.Context, host string) error {
-	if l == nil {
+	if l == nil || l.rate <= 0 {
 		return nil
 	}
 	l.mu.Lock()
-	if l.rate <= 0 {
-		l.mu.Unlock()
-		return nil
-	}
 	limiter, ok := l.hosts[host]
 	if !ok {
 		limiter = rate.NewLimiter(rate.Limit(l.rate), max(int(l.rate), 1))

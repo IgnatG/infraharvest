@@ -77,8 +77,8 @@ func computeAndAssets(t *testing.T, search *fakeAssetSearch, instances *fakeInst
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
 	forgetSearches(t)
-	instanceLists.forget()
-	t.Cleanup(instanceLists.forget)
+	testCaches().instances.forget()
+	t.Cleanup(testCaches().instances.forget)
 }
 
 const computeURL = "https://www.googleapis.com/compute/v1/"
@@ -338,8 +338,8 @@ func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
-	instanceLists.forget()
-	t.Cleanup(instanceLists.forget)
+	testCaches().instances.forget()
+	t.Cleanup(testCaches().instances.forget)
 
 	list, err := instancesOnce(t.Context(), "123456789012")
 	if err != nil {

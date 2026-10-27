@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,19 +17,24 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 // resetSDKConfigs forgets the configurations, credentials, failures and
-// accounts built so far, now and when the test ends.
+// accounts built so far, now and when the test ends: the configurations
+// of the tests' services, whose contexts carry no limiter, are Default's.
 func resetSDKConfigs(t *testing.T) {
 	t.Helper()
 	reset := func() {
-		configMu.Lock()
-		configs = map[configKey]aws.Config{}
-		baseProviders = map[configKey]aws.CredentialsProvider{}
+		run := configsOf(ratelimit.Default())
+		run.mu.Lock()
+		run.configs = map[configKey]aws.Config{}
+		run.baseProviders = map[configKey]aws.CredentialsProvider{}
+		run.buildFailures = map[configKey]buildFailure{}
+		run.mu.Unlock()
+		credentialsMu.Lock()
 		resolvedCredentials = map[credentialsKey]sharedCredentials{}
-		buildFailures = map[configKey]buildFailure{}
-		configMu.Unlock()
+		credentialsMu.Unlock()
 		accountsMu.Lock()
 		callerAccounts = map[*aws.CredentialsCache]string{}
 		accountsMu.Unlock()
@@ -201,11 +207,12 @@ func TestSDKConfigRemembersFailures(t *testing.T) {
 		t.Errorf("got %v, want the remembered %v", err, first)
 	}
 
-	configMu.Lock()
-	failed := buildFailures[s.cacheKey()]
+	run := s.configs()
+	run.mu.Lock()
+	failed := run.buildFailures[s.cacheKey()]
 	failed.at = time.Now().Add(-2 * failureMemory)
-	buildFailures[s.cacheKey()] = failed
-	configMu.Unlock()
+	run.buildFailures[s.cacheKey()] = failed
+	run.mu.Unlock()
 	if _, err := s.sdkConfig(); err != nil {
 		t.Errorf("once the failure is old, want the configuration built again, got %v", err)
 	}
@@ -270,6 +277,97 @@ func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 	if built[0].HTTPClient == built[2].HTTPClient {
 		t.Error("two keys share one configuration")
 	}
+}
+
+// Two runs in one process, at once, each build the configuration of an
+// account and region with their own run's rate: neither takes the other's
+// configuration, or its limit, while both share the credentials. The
+// slow run's second request waits past its deadline; the fast run's
+// doesn't wait. Run with -race.
+func TestSDKConfigIsTheRunsOwn(t *testing.T) {
+	useEnvironmentCredentials(t, "test")
+	resetSDKConfigs(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+
+	runs := []*ratelimit.Limiter{ratelimit.New(1), ratelimit.New(1000)}
+	built := make([]aws.Config, len(runs))
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		wg.Go(func() {
+			s := serviceIn("eu-west-1")
+			s.SetContext(ratelimit.NewContext(t.Context(), run))
+			cfg, err := s.sdkConfig()
+			if err != nil {
+				t.Error(err)
+			}
+			built[i] = cfg
+		})
+	}
+	wg.Wait()
+	if t.Failed() {
+		return
+	}
+	if built[0].HTTPClient == built[1].HTTPClient {
+		t.Fatal("the runs share one configuration")
+	}
+	if built[0].Credentials != built[1].Credentials {
+		t.Error("each run resolved credentials of its own")
+	}
+	// waited sends two requests through cfg, the second with a deadline
+	// shorter than a second, and reports whether it waited past it.
+	waited := func(cfg aws.Config) bool {
+		for i := range 2 {
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+			resp, err := cfg.HTTPClient.Do(req)
+			cancel()
+			if err != nil {
+				return i == 1
+			}
+			resp.Body.Close()
+		}
+		return false
+	}
+	if !waited(built[0]) {
+		t.Error("the run of 1 a second sent two requests at once")
+	}
+	if waited(built[1]) {
+		t.Error("the run of 1000 a second waited: it has the other run's rate")
+	}
+}
+
+// The provider's own calls use the configuration of the run Init was
+// given, even with a context that carries no limiter, as Terraform's
+// credentials are asked for.
+func TestProviderCallsUseTheRunsConfig(t *testing.T) {
+	useEnvironmentCredentials(t, "test")
+	resetSDKConfigs(t)
+	ctx := ratelimit.NewContext(t.Context(), ratelimit.New(5))
+	p := &Provider{}
+	if err := p.Init(ctx, []string{"eu-west-1", ""}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := serviceWithContext(ctx, p).sdkConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := p.service(context.Background()).sdkConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if own.HTTPClient != listed.HTTPClient {
+		t.Error("a call without the run's limiter built another configuration")
+	}
+}
+
+// serviceWithContext returns a service of p's settings, listing with ctx,
+// as the importer gives each service its listing's context.
+func serviceWithContext(ctx context.Context, p *Provider) *Service {
+	s := &Service{}
+	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	s.SetContext(ctx)
+	return s
 }
 
 // callerAccount asks STS once for the credentials of a configuration, and

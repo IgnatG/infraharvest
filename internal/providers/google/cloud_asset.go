@@ -10,11 +10,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"unicode"
 
 	"google.golang.org/api/cloudasset/v1"
@@ -121,48 +119,33 @@ func inventoryTypes(cat *catalogue.Catalogue, types []string) []string {
 	return assetTypes
 }
 
-// searches are the searches the process has made, by searchKey: one
-// command imports a project region by region, each import taking from the
-// same project-wide search what is in its region, so the search runs once
-// for all of them rather than once for each.
-var searches projectLists[[]*cloudasset.ResourceSearchResult]
-
 // searchOnce returns what searchAll finds in the project for assetTypes,
-// which are sorted, searching only the first time the process asks (see
-// projectLists): the imports of a project's regions and of global share
-// the search, which they only read. A search that fails is kept too, so
-// that the other imports don't make it again; only one whose context ended
+// which are sorted, searching only the first time ctx's run asks (see
+// runCaches.searches): one command imports a project region by region,
+// each import taking from the same project-wide search what is in its
+// region, so the search runs once for all of them rather than once for
+// each, and they only read it. A search that fails is kept too, so that
+// the other imports don't make it again; only one whose context ended
 // isn't, so the next import searches again.
 func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
-	return searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
+	return cachesOf(ctx).searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
 		return searchAll(ctx, svc, project, assetTypes)
 	})
 }
 
-// rejectedTypes are the asset types the search has rejected in the
-// process, by where it went (an emulator, or Google) and the type: the
-// searches of other projects leave them out rather than find them again.
-var rejectedTypes = struct {
-	sync.Mutex
-	byKey map[string]bool
-}{byKey: map[string]bool{}}
-
-// rejectedKey names an asset type the search rejected, where it went.
-func rejectedKey(assetType string) string {
-	return os.Getenv(EndpointEnv) + "\x00" + assetType
-}
-
 // searchAll searches the project for resources of assetTypes, but for
-// those the search has rejected before (see rejectedTypes). If the search
+// those the search has rejected before in ctx's run (see
+// runCaches.rejectedTypes). If the search
 // rejects them, as it does when one can't be searched, it searches each
 // half on its own, and so on, so that a few types it rejects cost a few
 // searches each, not one search per type; it logs and remembers those it
 // rejects. If it rejects every type, the rejection isn't about a type,
 // and it fails.
 func searchAll(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
-	rejectedTypes.Lock()
-	searchable := slices.DeleteFunc(slices.Clone(assetTypes), func(t string) bool { return rejectedTypes.byKey[rejectedKey(t)] })
-	rejectedTypes.Unlock()
+	caches := cachesOf(ctx)
+	caches.mu.Lock()
+	searchable := slices.DeleteFunc(slices.Clone(assetTypes), func(t string) bool { return caches.rejectedTypes[t] })
+	caches.mu.Unlock()
 	if len(searchable) == 0 {
 		return nil, nil
 	}
@@ -184,11 +167,11 @@ func searchAll(ctx context.Context, svc *cloudasset.Service, project string, ass
 	if len(rejected) == len(searchable) {
 		return nil, fmt.Errorf("searching project %s: the search rejects every asset type, each on its own too", project)
 	}
-	rejectedTypes.Lock()
+	caches.mu.Lock()
 	for _, t := range rejected {
-		rejectedTypes.byKey[rejectedKey(t)] = true
+		caches.rejectedTypes[t] = true
 	}
-	rejectedTypes.Unlock()
+	caches.mu.Unlock()
 	return append(first, second...), nil
 }
 
@@ -328,27 +311,26 @@ func rootLocation(r *cloudasset.ResourceSearchResult) string {
 // PartialTypes names the types the import of the provider's region lists
 // in part, through the catalogue's inventory entries: in a region, those
 // of withNetworkTypes, which the import of global takes wherever they
-// are; and those of the asset types the search rejected (see
-// rejectedTypes), which it didn't look for. It names google_sql_database
-// too when cloudsql left out the databases of an instance that couldn't
-// list them, such as one that is stopped (see unlistedSQLDatabases).
+// are; and those of the asset types the run's search rejected (see
+// runCaches.rejectedTypes), which it didn't look for. It names
+// google_sql_database too when cloudsql left out the databases of an
+// instance that couldn't list them, such as one that is stopped (see
+// runCaches.unlistedSQLDatabases).
 func (p *Provider) PartialTypes() []string {
+	caches := p.runCaches()
 	var types []string
-	if sqlDatabasesUnlisted(p.projectName, p.region.Name) {
+	if caches.sqlDatabasesUnlisted(p.projectName, p.region.Name) {
 		types = append(types, sqlDatabaseType)
 	}
 	var assetTypes []string
 	if p.region.Name != "" {
 		assetTypes = append(assetTypes, withNetworkTypes...)
 	}
-	endpoint := rejectedKey("")
-	rejectedTypes.Lock()
-	for key := range rejectedTypes.byKey {
-		if assetType, ok := strings.CutPrefix(key, endpoint); ok {
-			assetTypes = append(assetTypes, assetType)
-		}
+	caches.mu.Lock()
+	for assetType := range caches.rejectedTypes {
+		assetTypes = append(assetTypes, assetType)
 	}
-	rejectedTypes.Unlock()
+	caches.mu.Unlock()
 	if len(assetTypes) == 0 || p.catalogue == nil {
 		return types
 	}

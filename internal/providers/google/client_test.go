@@ -7,9 +7,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/api/compute/v1"
+
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 // With an emulator set, Google API calls go there, keeping their paths.
@@ -43,6 +47,53 @@ func TestClientOptionsWithoutAnEmulator(t *testing.T) {
 	t.Setenv(EndpointEnv, "")
 	if clientOptions(t.Context()) != nil {
 		t.Error("want Google's endpoints and credentials")
+	}
+}
+
+// Two runs in one process, at once, each limit the credentials' client
+// at their own run's rate: every call of a run shares one client, and the
+// requests of one run never wait for the other's. Run with -race.
+func TestLimitedClientIsTheRunsOwn(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	defer server.Close()
+	base := server.Client()
+	runs := []*ratelimit.Limiter{ratelimit.New(1), ratelimit.New(1000)}
+	clients := make([]*http.Client, len(runs))
+	var wg sync.WaitGroup
+	for i, run := range runs {
+		wg.Go(func() { clients[i] = limitedBy(run, base) })
+	}
+	wg.Wait()
+	if clients[0] == clients[1] {
+		t.Fatal("the runs share a client")
+	}
+	if limitedBy(runs[0], base) != clients[0] {
+		t.Error("a run's calls got another client")
+	}
+	if limitedBy(runs[0], nil) != nil {
+		t.Error("a client without credentials")
+	}
+	// waited sends two requests through client, the second with a
+	// deadline shorter than a second, and reports whether it waited past
+	// it.
+	waited := func(client *http.Client) bool {
+		for i := range 2 {
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+			resp, err := client.Do(req)
+			cancel()
+			if err != nil {
+				return i == 1
+			}
+			resp.Body.Close()
+		}
+		return false
+	}
+	if !waited(clients[0]) {
+		t.Error("the run of 1 a second sent two requests at once")
+	}
+	if waited(clients[1]) {
+		t.Error("the run of 1000 a second waited: it has the other run's rate")
 	}
 }
 

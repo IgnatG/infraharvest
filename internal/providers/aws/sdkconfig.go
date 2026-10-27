@@ -124,7 +124,7 @@ type configKey struct {
 	region, profile, roleARN string
 }
 
-// flightKey is the key as configFlight takes it.
+// flightKey is the key as runConfigs.flight takes it.
 func (k configKey) flightKey() string {
 	return k.region + "\x00" + k.profile + "\x00" + k.roleARN
 }
@@ -159,33 +159,60 @@ type buildFailure struct {
 // that outlives the import to try again once the credentials are fixed.
 const failureMemory = time.Minute
 
+// runConfigs are the configurations of one run, which every service of
+// the run shares: each holds the run's limits (see Service.buildConfig),
+// so another run, with a rate of its own, builds its own (see
+// configsOf).
+type runConfigs struct {
+	// mu guards configs, baseProviders and buildFailures. It isn't held
+	// while a configuration is built, so that the configurations of
+	// different accounts and regions build at once.
+	mu sync.Mutex
+	// flight builds each configuration once at a time: the first service
+	// to need one builds it, and the others of its key wait for it and
+	// share the answer.
+	flight singleflight.Group
+	// configs are the configurations built so far.
+	configs map[configKey]aws.Config
+	// baseProviders are the credentials of each configuration before any
+	// role is assumed, which Terraform gets (see baseCredentials).
+	baseProviders map[configKey]aws.CredentialsProvider
+	// buildFailures are the configurations that failed to build lately (see
+	// failureMemory).
+	buildFailures map[configKey]buildFailure
+}
+
+// runConfigsKey is the key of the run's configurations kept with its
+// limiter.
+type runConfigsKey struct{}
+
+// configsOf returns the configurations of the run whose limiter is l,
+// made the first time it is asked for: they are kept with the limiter, so
+// they last as long as the run.
+func configsOf(l *ratelimit.Limiter) *runConfigs {
+	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
+		return &runConfigs{
+			configs:       map[configKey]aws.Config{},
+			baseProviders: map[configKey]aws.CredentialsProvider{},
+			buildFailures: map[configKey]buildFailure{},
+		}
+	})
+}
+
 var (
-	// configMu guards configs, baseProviders, resolvedCredentials and
-	// buildFailures. It isn't held while a configuration is built, so that
-	// the configurations of different accounts and regions build at once.
-	configMu sync.Mutex
-	// configFlight builds each configuration once at a time: the first
-	// service to need one builds it, and the others of its key wait for
-	// it and share the answer.
-	configFlight singleflight.Group
+	// credentialsMu guards resolvedCredentials.
+	credentialsMu sync.Mutex
 	// credentialsFlight resolves the credentials of each profile and role
 	// once at a time, as resolving them may prompt for an MFA code: the
 	// first region to need them resolves them, and the others wait for
 	// them and share the answer.
 	credentialsFlight singleflight.Group
-	// configs are the configurations built so far.
-	configs = map[configKey]aws.Config{}
-	// baseProviders are the credentials of each configuration before any
-	// role is assumed, which Terraform gets (see baseCredentials).
-	baseProviders = map[configKey]aws.CredentialsProvider{}
 	// resolvedCredentials are the credentials resolved so far, by profile
 	// and role, which the configuration of every region of them shares: a
 	// profile's role that needs MFA asks for the code once, not once per
-	// region, and a role is assumed once.
+	// region, and a role is assumed once. They are the process's, not a
+	// run's, so that a server's next run doesn't ask for the code again.
 	resolvedCredentials = map[credentialsKey]sharedCredentials{}
-	// buildFailures are the configurations that failed to build lately (see
-	// failureMemory).
-	buildFailures = map[configKey]buildFailure{}
 	// accountsMu guards callerAccounts.
 	accountsMu sync.Mutex
 	// callerAccounts are the account IDs callerAccount found, by the
@@ -202,8 +229,15 @@ func (s *Service) cacheKey() configKey {
 	return configKey(settingsOf(s.Settings()))
 }
 
+// configs returns the configurations of the service's run: those kept
+// with the limiter of its context (see ratelimit.FromContext).
+func (s *Service) configs() *runConfigs {
+	return configsOf(ratelimit.FromContext(s.Context()))
+}
+
 // sdkConfig returns the SDK configuration of the service's account
-// and region, built the first time it is asked for and shared after that:
+// and region, built the first time its run asks for it and shared by the
+// run after that (see runConfigs):
 // the services that ask while it is built wait for it, while those of
 // other accounts and regions build their own at the same time.
 // The credentials are resolved, and the role assumed, while it is built,
@@ -214,25 +248,25 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 	if testConfig != nil {
 		return *testConfig, nil
 	}
-	key := s.cacheKey()
-	if cfg, ok, err := cachedConfig(key); ok {
+	key, run := s.cacheKey(), s.configs()
+	if cfg, ok, err := run.cached(key); ok {
 		return cfg, err
 	}
-	built, err, _ := configFlight.Do(key.flightKey(), func() (any, error) {
+	built, err, _ := run.flight.Do(key.flightKey(), func() (any, error) {
 		// Another flight of key may have ended since the cache was read.
-		if cfg, ok, err := cachedConfig(key); ok {
+		if cfg, ok, err := run.cached(key); ok {
 			return cfg, err
 		}
 		cfg, base, err := s.buildConfig(key)
-		configMu.Lock()
-		defer configMu.Unlock()
+		run.mu.Lock()
+		defer run.mu.Unlock()
 		if err != nil {
-			buildFailures[key] = buildFailure{err: err, at: time.Now()}
+			run.buildFailures[key] = buildFailure{err: err, at: time.Now()}
 			return aws.Config{}, err
 		}
-		delete(buildFailures, key)
-		configs[key] = cfg
-		baseProviders[key] = base
+		delete(run.buildFailures, key)
+		run.configs[key] = cfg
+		run.baseProviders[key] = base
 		return cfg, nil
 	})
 	if err != nil {
@@ -241,16 +275,16 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 	return built.(aws.Config), nil
 }
 
-// cachedConfig returns the configuration of key built already, or the
-// error it failed to build with lately (see failureMemory), and whether
-// there was either.
-func cachedConfig(key configKey) (aws.Config, bool, error) {
-	configMu.Lock()
-	defer configMu.Unlock()
-	if cfg, ok := configs[key]; ok {
+// cached returns the configuration of key built already, or the error it
+// failed to build with lately (see failureMemory), and whether there was
+// either.
+func (r *runConfigs) cached(key configKey) (aws.Config, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cfg, ok := r.configs[key]; ok {
 		return cfg, true, nil
 	}
-	if failed, ok := buildFailures[key]; ok && time.Since(failed.at) < failureMemory {
+	if failed, ok := r.buildFailures[key]; ok && time.Since(failed.at) < failureMemory {
 		return aws.Config{}, true, failed.err
 	}
 	return aws.Config{}, false, nil
@@ -270,12 +304,12 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 	}
 
 	// Each configuration, so each account and region, gets its own limit
-	// on the requests to each API host.
+	// on the requests to each API host, at the rate of the run's limiter.
 	base := cfg.HTTPClient
 	if base == nil {
 		base = awshttp.NewBuildableClient()
 	}
-	cfg.HTTPClient = ratelimit.Like(ratelimit.Default()).Client(base)
+	cfg.HTTPClient = ratelimit.Like(ratelimit.FromContext(ctx)).Client(base)
 
 	resolved, err := resolveCredentials(ctx, credentialsKey{profile: key.profile, roleARN: key.roleARN}, cfg)
 	if err != nil {
@@ -302,9 +336,9 @@ func resolveCredentials(ctx context.Context, shared credentialsKey, cfg aws.Conf
 		if err != nil {
 			return nil, err
 		}
-		configMu.Lock()
+		credentialsMu.Lock()
 		resolvedCredentials[shared] = resolved
-		configMu.Unlock()
+		credentialsMu.Unlock()
 		return resolved, nil
 	})
 	if err != nil {
@@ -316,8 +350,8 @@ func resolveCredentials(ctx context.Context, shared credentialsKey, cfg aws.Conf
 // keptCredentials returns the credentials of shared resolved already, and
 // whether there are any.
 func keptCredentials(shared credentialsKey) (sharedCredentials, bool) {
-	configMu.Lock()
-	defer configMu.Unlock()
+	credentialsMu.Lock()
+	defer credentialsMu.Unlock()
 	resolved, ok := resolvedCredentials[shared]
 	return resolved, ok
 }
@@ -433,9 +467,10 @@ func (s *Service) baseCredentials() (aws.Credentials, error) {
 	if _, err := s.sdkConfig(); err != nil {
 		return aws.Credentials{}, err
 	}
-	configMu.Lock()
-	provider := baseProviders[s.cacheKey()]
-	configMu.Unlock()
+	run := s.configs()
+	run.mu.Lock()
+	provider := run.baseProviders[s.cacheKey()]
+	run.mu.Unlock()
 	if provider == nil {
 		return aws.Credentials{}, errors.New("no AWS credentials found")
 	}

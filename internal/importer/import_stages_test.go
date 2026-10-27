@@ -33,7 +33,8 @@ func (p *limiterProvider) Init(ctx context.Context, _ []string) error {
 
 // Each run lists with a limiter of its own, of its --rate-limit, which its
 // children share: another run in the process, at once or after it, never
-// changes its rate.
+// changes its rate, and none changes the fallback's (see
+// ratelimit.Default).
 func TestListCallLimitsWithTheRunsLimiter(t *testing.T) {
 	call := func(run *Run, rate float64) *ratelimit.Limiter {
 		t.Helper()
@@ -54,6 +55,9 @@ func TestListCallLimitsWithTheRunsLimiter(t *testing.T) {
 	}
 	if slow.Rate() != 5 || fast.Rate() != 50 {
 		t.Errorf("rates %v and %v, want 5 and 50", slow.Rate(), fast.Rate())
+	}
+	if got := ratelimit.Default().Rate(); got != ratelimit.DefaultRate {
+		t.Errorf("the runs set the fallback's rate to %v, want %v", got, ratelimit.DefaultRate)
 	}
 	if child := call(first.child(), 5); child != slow {
 		t.Errorf("a child lists with %p, its run with %p", child, slow)

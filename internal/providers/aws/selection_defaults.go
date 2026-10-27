@@ -231,10 +231,7 @@ type defaultNetwork struct {
 
 // config returns the AWS configuration the provider's services list with.
 func (p *Provider) config(ctx context.Context) (aws.Config, error) {
-	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
-	service.SetContext(ctx)
-	return service.sdkConfig()
+	return p.service(ctx).sdkConfig()
 }
 
 // defaultNetwork finds which of resources are part of the default network.

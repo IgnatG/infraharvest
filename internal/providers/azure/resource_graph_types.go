@@ -28,7 +28,7 @@ import (
 )
 
 // lookupParallel is how many resources resource_graph maps through aztft
-// at once. The subscription's limiter (see subscriptionLimiter) paces the
+// at once. The subscription's limiter (see runLimiters) paces the
 // requests that still reach Resource Manager, well below its read limits;
 // this bounds how many lookups wait on it, and the goroutines they hold.
 const lookupParallel = 8

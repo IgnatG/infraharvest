@@ -155,10 +155,6 @@ type callContext struct {
 // types the selection file leaves out, the services, and the scope, which
 // r counts what it records by from now on.
 func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, args []string) (*callContext, error) {
-	// Before the provider signs in: its clients take the rate. The
-	// providers' clients still read the process's Default, not the run's
-	// limiter in ctx, so --rate-limit sets that too.
-	ratelimit.SetDefault(options.RateLimit)
 	if err := provider.Init(ctx, args); err != nil {
 		return nil, err
 	}
