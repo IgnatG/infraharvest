@@ -116,10 +116,12 @@ type DriftOptions struct {
 	// (see Options.Omit), which the standards check of the edited code
 	// looks for.
 	Omit map[string][]string
-	// Adapters are the adapters of the organisation's own modules (see
-	// Options.Adapters): the standards check of the edited code leaves
-	// the modules in their directories to their owners, as the
-	// verification gate does.
+	// Adapters are the adapters of the modules the root may call, as
+	// generation had them (see Options.Adapters): a change of a resource
+	// in a call of a curated module is traced to the call through its
+	// adapter (see curatedAdapter), and the standards check of the edited
+	// code leaves the organisation's modules in their directories to
+	// their owners, as the verification gate does.
 	Adapters []adapters.Adapter
 	// Environment is, for a root environments share (see
 	// MergedEnvironments), the environment to check it as: with its

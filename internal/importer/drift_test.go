@@ -519,8 +519,10 @@ func TestDriftTargetsNeedAnEnvironmentForSeveral(t *testing.T) {
 // The checks of an accepted change's edited code leave the
 // organisation's own modules in directories to their owners, as the
 // import's do: each root gets the adapters of its provider's, from the
-// configuration file's modules. Modules drift would have to fetch aren't.
-func TestDriftPassesTheOrganisationsModules(t *testing.T) {
+// configuration file's modules, then those of its provider's curated
+// modules, which trace changes into their calls. Modules drift would have
+// to fetch aren't.
+func TestDriftPassesTheRootsModules(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-2")
 	module := func(content string) string {
@@ -544,7 +546,7 @@ func TestDriftPassesTheOrganisationsModules(t *testing.T) {
 		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1,
 		Provider: func(name string) harvest.Provider {
 			if name == "aws" {
-				return &catalogueProvider{}
+				return &curatedProvider{}
 			}
 			return nil
 		},
@@ -555,10 +557,22 @@ func TestDriftPassesTheOrganisationsModules(t *testing.T) {
 	if err := Drift(t.Context(), options, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || len(got[0]) != 1 || got[0][0].Source != bucket {
-		t.Errorf("adapters %+v, want the bucket module's alone", got)
+	curated := adapters.For("aws")
+	if len(got) != 1 || len(got[0]) != 1+len(curated) || got[0][0].Source != bucket {
+		t.Fatalf("adapters %+v, want the bucket module's, then the curated ones", got)
+	}
+	for i, a := range curated {
+		if got[0][1+i].Source != a.Source || got[0][1+i].Version != a.Version {
+			t.Errorf("adapter %d: %s %s, want %s %s", 1+i, got[0][1+i].Source, got[0][1+i].Version, a.Source, a.Version)
+		}
 	}
 }
+
+// curatedProvider is a catalogueProvider whose profile names the curated
+// modules of aws.
+type curatedProvider struct{ catalogueProvider }
+
+func (*curatedProvider) Profile() harvest.Profile { return harvest.Profile{Modules: "aws"} }
 
 // Terraform runs on roots that may come from someone else with a CLI
 // configuration of the run's own, which installs providers from their

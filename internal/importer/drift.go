@@ -452,8 +452,9 @@ func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adap
 
 // checkDriftRoot checks the root of target, staged under the output
 // directory's checkpoints, which .gitignore excludes, with own, the
-// adapters of the organisation's modules, and returns it and its changes
-// as the report has them.
+// adapters of the organisation's modules, and those of the curated
+// modules of the root's provider, and returns it and its changes as the
+// report has them.
 func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, target driftTarget) (report.DriftRoot, []report.DriftChange) {
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
@@ -466,9 +467,10 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 			return root, nil
 		}
 		opts = catalogueDriftOptions(cat, lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
-		// As the import passes its provider's modules alone (see
-		// Run.toolchain).
-		own = catalogueAdapters(own, provider.Name())
+		// As the import passes its provider's modules alone, its own
+		// first, then the curated ones of its family (see Run.toolchain),
+		// whose adapters trace changes into their calls.
+		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
 	opts.CommandTimeout, opts.Environment, opts.RootLock, opts.Adapters = options.EngineTimeout, env, target.lock, own
 	// The decisions taken, by change, for the report to say where each

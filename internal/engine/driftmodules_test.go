@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
@@ -544,6 +546,14 @@ module "teams" {
 			want:   strings.Replace(defaultsCall, "retention = 60", "retention = null", 1),
 		},
 		{
+			name:   "a curated module at a newer release than the tested one",
+			file:   strings.Replace(iamRoleCall, adapters.IAMRole.Version, "99.0.0", 1),
+			after:  map[string]any{"tags": map[string]any{"Env": "dev"}},
+			change: moduleDrift("module.deploy.aws_iam_role.this[0]", "aws_iam_role", "tags.Env", "dev"),
+			want:   strings.Replace(strings.Replace(iamRoleCall, adapters.IAMRole.Version, "99.0.0", 1), `Env = "prod"`, `Env = "dev"`, 1),
+			module: adapters.IAMRole.Source + " " + adapters.IAMRole.Version + ": aws_iam_role.this.tags from var.tags",
+		},
+		{
 			name:   "a curated module's attribute without an Inverse entry",
 			file:   iamRoleCall,
 			after:  map[string]any{"name": "other"},
@@ -555,7 +565,7 @@ module "teams" {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			e := testEditor(map[string]map[string]any{tc.change.Address: tc.after})
-			e.modules = modules(t)
+			e.modules, e.adapters = modules(t), adapters.For("aws")
 			if tc.env != "" {
 				e.env, e.envVars = tc.env, envVarsPath(tc.env)
 			}
@@ -745,6 +755,56 @@ func TestDriftModuleCallEditLeaks(t *testing.T) {
 	}
 	if len(copied.planOpts) != 3 {
 		t.Errorf("%d plans, want 3", len(copied.planOpts))
+	}
+}
+
+// curatedAdapter picks, of the run's adapters, the one whose module a
+// call calls as generation writes it, and returns a copy of it.
+func TestCuratedAdapter(t *testing.T) {
+	t.Parallel()
+	role := adapters.IAMRole
+	own := adapters.Adapter{Source: "git::https://example.com/modules.git//role", Anchor: "aws_iam_role"}
+	run := []adapters.Adapter{own, role}
+	call := func(source, version string) *hclsyntax.Block {
+		src := "module \"m\" {\n  source = \"" + source + "\"\n"
+		if version != "" {
+			src += "  version = \"" + version + "\"\n"
+		}
+		file, diags := hclsyntax.ParseConfig([]byte(src+"}\n"), "main.tf", hcl.InitialPos)
+		if diags.HasErrors() {
+			t.Fatal(diags)
+		}
+		return file.Body.(*hclsyntax.Body).Blocks[0]
+	}
+	for _, tc := range []struct {
+		name            string
+		source, version string
+		list            []adapters.Adapter
+		want            bool
+	}{
+		{name: "the tested release", source: role.Source, version: role.Version, list: run, want: true},
+		{name: "a newer release, as --modules latest-untested calls", source: role.Source, version: "99.0.0", list: run, want: true},
+		{name: "an older release", source: role.Source, version: "1.0.0", list: run},
+		{name: "a version constraint", source: role.Source, version: "~> 6.0", list: run},
+		{name: "a module the run has no adapter of", source: role.Source, version: role.Version},
+		{name: "another module", source: "terraform-aws-modules/s3-bucket/aws", version: role.Version, list: run},
+		{name: "an own module, whose adapter has no Inverse", source: own.Source, list: run},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := curatedAdapter(call(tc.source, tc.version), tc.list)
+			if (got != nil) != tc.want {
+				t.Fatalf("got %+v, want an adapter: %v", got, tc.want)
+			}
+			if got != nil && got.Source != tc.source {
+				t.Errorf("got %s, want %s", got.Source, tc.source)
+			}
+		})
+	}
+	got := curatedAdapter(call(role.Source, role.Version), run)
+	got.Version = "0.0.1"
+	if run[1].Version != role.Version {
+		t.Error("the adapter returned is the run's own, not a copy")
 	}
 }
 
