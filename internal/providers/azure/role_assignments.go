@@ -36,11 +36,6 @@ const authorizationQuery = "authorizationresources" +
 	" | project id, type, scope, roleDefinitionId, principalType, roleName, roleType, assignableScopes" +
 	" | order by id asc"
 
-// graphPageSize is how many rows a Resource Graph page has, the most it
-// allows, so that the hundreds of built-in role definitions take a page
-// at most.
-const graphPageSize = 1000
-
 // The import IDs' segments of a role assignment and a role definition, as
 // azurerm parses them, whatever case Resource Graph returns them in.
 const (
@@ -185,51 +180,35 @@ func (az *RoleAssignmentLister) List() error {
 // authorizationRows returns the rows of authorizationQuery for the
 // subscription, every page of them. A row without an ID is left out.
 func authorizationRows(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, subscriptionID string) ([]authorizationRow, error) {
-	client, err := armresourcegraph.NewClient(credential, options)
-	if err != nil {
-		return nil, err
-	}
-	request := armresourcegraph.QueryRequest{
+	data, err := graphQuery(ctx, credential, options, armresourcegraph.QueryRequest{
 		Query:         to.Ptr(authorizationQuery),
 		Subscriptions: []*string{to.Ptr(subscriptionID)},
-		Options: &armresourcegraph.QueryRequestOptions{
-			ResultFormat: to.Ptr(armresourcegraph.ResultFormatObjectArray),
-			Top:          to.Ptr[int32](graphPageSize),
-		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("role assignments from Resource Graph: %w", err)
 	}
 	var rows []authorizationRow
-	for {
-		resp, err := client.Resources(ctx, request, nil)
-		if err != nil {
-			return nil, fmt.Errorf("role assignments from Resource Graph: %w", err)
+	for _, m := range data {
+		row := authorizationRow{
+			id:               stringOf(m, "id"),
+			typ:              stringOf(m, "type"),
+			scope:            stringOf(m, "scope"),
+			roleDefinitionID: stringOf(m, "roleDefinitionId"),
+			principalType:    stringOf(m, "principalType"),
+			roleName:         stringOf(m, "roleName"),
+			roleType:         stringOf(m, "roleType"),
 		}
-		data, _ := resp.Data.([]interface{})
-		for _, item := range data {
-			m, _ := item.(map[string]interface{})
-			row := authorizationRow{
-				id:               stringOf(m, "id"),
-				typ:              stringOf(m, "type"),
-				scope:            stringOf(m, "scope"),
-				roleDefinitionID: stringOf(m, "roleDefinitionId"),
-				principalType:    stringOf(m, "principalType"),
-				roleName:         stringOf(m, "roleName"),
-				roleType:         stringOf(m, "roleType"),
-			}
-			scopes, _ := m["assignableScopes"].([]interface{})
-			for _, s := range scopes {
-				if s, ok := s.(string); ok && s != "" {
-					row.assignableScopes = append(row.assignableScopes, s)
-				}
-			}
-			if row.id != "" {
-				rows = append(rows, row)
+		scopes, _ := m["assignableScopes"].([]interface{})
+		for _, s := range scopes {
+			if s, ok := s.(string); ok && s != "" {
+				row.assignableScopes = append(row.assignableScopes, s)
 			}
 		}
-		if resp.SkipToken == nil || *resp.SkipToken == "" {
-			return rows, nil
+		if row.id != "" {
+			rows = append(rows, row)
 		}
-		request.Options.SkipToken = resp.SkipToken
 	}
+	return rows, nil
 }
 
 // stringOf returns the string at key in m, or "".

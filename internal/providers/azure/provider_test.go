@@ -315,3 +315,50 @@ func TestDefaultTagsAndConcurrency(t *testing.T) {
 		t.Error("services list one at a time")
 	}
 }
+
+// recordingDoer records that a request reached it.
+type recordingDoer struct{ got []string }
+
+func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
+	d.got = append(d.got, req.URL.Path)
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
+}
+
+// Resource Graph queries share one limiter across subscriptions, as Azure
+// throttles them per user; every other request keeps its subscription's.
+func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
+	a := limitedClient("sub-graph-a", nil).(*limitedDoer)
+	b := limitedClient("sub-graph-b", nil).(*limitedDoer)
+	if graph := graphLimiter(); graph == nil || graphLimiter() != graph {
+		t.Fatal("Resource Graph queries got more than one limiter")
+	}
+	if graphLimiter() == subscriptionLimiter("sub-graph-a") || subscriptionLimiter("sub-graph-a") == subscriptionLimiter("sub-graph-b") {
+		t.Error("Resource Manager requests don't keep their subscription's limiter")
+	}
+	if a == b {
+		t.Fatal("two subscriptions share a client")
+	}
+
+	resourceManager, graph := &recordingDoer{}, &recordingDoer{}
+	a.resourceManager, a.graph = resourceManager, graph
+	for _, path := range []string{
+		"/providers/Microsoft.ResourceGraph/resources",
+		"/subscriptions/sub-graph-a/resourceGroups",
+		"/providers/microsoft.resourcegraph/resources",
+		"/subscriptions/sub-graph-a/providers/Microsoft.Network/virtualNetworks",
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://management.azure.com"+path, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := a.Do(req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if want := []string{"/providers/Microsoft.ResourceGraph/resources", "/providers/microsoft.resourcegraph/resources"}; !slices.Equal(graph.got, want) {
+		t.Errorf("through the Resource Graph limiter: %v, want %v", graph.got, want)
+	}
+	if want := []string{"/subscriptions/sub-graph-a/resourceGroups", "/subscriptions/sub-graph-a/providers/Microsoft.Network/virtualNetworks"}; !slices.Equal(resourceManager.got, want) {
+		t.Errorf("through the subscription's limiter: %v, want %v", resourceManager.got, want)
+	}
+}
