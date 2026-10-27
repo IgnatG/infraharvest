@@ -333,8 +333,8 @@ func TestImportCallsShareParallelWithAccounts(t *testing.T) {
 		return nil
 	}
 	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
-	err := run.ImportEach(options, "account", []string{"111", "222", "333"}, func(o Options, account string) error {
-		return importCalls(t.Context(), o.run, fakeCalls(o, account+"-global", account+"-eu-west-1", account+"-eu-west-2"), f.steps())
+	err := run.ImportEach(options, "account", []string{"111", "222", "333"}, func(scopeRun *Run, o Options, account string) error {
+		return importCalls(t.Context(), scopeRun, fakeCalls(o, account+"-global", account+"-eu-west-1", account+"-eu-west-2"), f.steps())
 	})
 	if err != nil {
 		t.Fatal(err)

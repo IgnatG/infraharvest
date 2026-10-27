@@ -77,9 +77,6 @@ func ImportCalls(ctx context.Context, run *Run, calls []Call) error {
 	}
 	// As importWithEngine does: a command's calls share its run, and calls
 	// on their own finish their own.
-	if options.run != nil {
-		run = options.run
-	}
 	if run == nil {
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)
@@ -243,7 +240,7 @@ func eachCall(ctx context.Context, slots chan struct{}, n, lead, parallel int, n
 			return
 		}
 		defer func() { <-slots }()
-		err := importSafely(func(Options, string) error { return do(callCtx, i) }, Options{}, name(i))
+		err := importSafely(func(*Run, Options, string) error { return do(callCtx, i) }, nil, Options{}, name(i))
 		if err != nil {
 			fail(fmt.Errorf("%s: %w", name(i), err))
 		}

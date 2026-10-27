@@ -172,10 +172,6 @@ type Options struct {
 	// ImportCalls).
 	Parallel int
 
-	// run is the run this call records into, when it isn't the command's
-	// own: one of several scopes imported at once has a run of its own
-	// (see Run.ImportEach).
-	run *Run
 	// cat is the catalogue of the import, the built-in one with the
 	// --catalogue overlay merged in, once importInto has loaded it; the
 	// provider of each service listed is given it (see listServices).

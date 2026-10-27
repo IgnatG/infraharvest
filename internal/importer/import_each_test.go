@@ -17,12 +17,12 @@ import (
 )
 
 // recordScope does what importInto does with a scope's run, in short.
-func recordScope(o Options, scope string) {
-	o.run.used = true
-	o.run.options = o
-	o.run.discovered["aws_vpc"]++
-	o.run.report.AddDiscovered("aws/"+scope+"/eu-west-2", 1)
-	o.run.report.Directories = append(o.run.report.Directories, report.Directory{Path: "aws/" + scope + "/eu-west-2", Scope: "aws/" + scope + "/eu-west-2"})
+func recordScope(run *Run, o Options, scope string) {
+	run.used = true
+	run.options = o
+	run.discovered["aws_vpc"]++
+	run.report.AddDiscovered("aws/"+scope+"/eu-west-2", 1)
+	run.report.Directories = append(run.report.Directories, report.Directory{Path: "aws/" + scope + "/eu-west-2", Scope: "aws/" + scope + "/eu-west-2"})
 }
 
 func TestImportEachInParallel(t *testing.T) {
@@ -36,7 +36,7 @@ func TestImportEachInParallel(t *testing.T) {
 	// rather than passes if they run one at a time.
 	var started sync.WaitGroup
 	started.Add(3)
-	importOne := func(o Options, scope string) error {
+	importOne := func(scopeRun *Run, o Options, scope string) error {
 		n := running.Add(1)
 		defer running.Add(-1)
 		for {
@@ -45,10 +45,10 @@ func TestImportEachInParallel(t *testing.T) {
 				break
 			}
 		}
-		if o.run == nil || o.run == run {
+		if scopeRun == nil || scopeRun == run {
 			t.Errorf("%s: imported into the command's run", scope)
 		}
-		if o.run.selection != run.selection {
+		if scopeRun.selection != run.selection {
 			t.Errorf("%s: doesn't share the selection file", scope)
 		}
 		switch scope {
@@ -56,10 +56,10 @@ func TestImportEachInParallel(t *testing.T) {
 			if n != 1 {
 				t.Errorf("the first scope runs alone, with %d", n)
 			}
-			o.run.lock = []byte("lock")
+			scopeRun.lock = []byte("lock")
 		case scopes[1], scopes[2], scopes[3]:
-			if string(o.run.lock) != "lock" {
-				t.Errorf("%s: lock %q, want the first scope's", scope, o.run.lock)
+			if string(scopeRun.lock) != "lock" {
+				t.Errorf("%s: lock %q, want the first scope's", scope, scopeRun.lock)
 			}
 			started.Done()
 			waitOrFail(t, &started)
@@ -67,7 +67,7 @@ func TestImportEachInParallel(t *testing.T) {
 		if scope == scopes[2] {
 			return errors.New("AccessDenied: can't assume the role")
 		}
-		recordScope(o, scope)
+		recordScope(scopeRun, o, scope)
 		return nil
 	}
 
@@ -106,7 +106,7 @@ func TestImportEachInterrupted(t *testing.T) {
 	options := Options{Out: t.TempDir(), Parallel: 2}
 
 	var calls atomic.Int32
-	err := run.ImportEach(options, "project", []string{"a", "b", "c"}, func(Options, string) error {
+	err := run.ImportEach(options, "project", []string{"a", "b", "c"}, func(*Run, Options, string) error {
 		calls.Add(1)
 		return context.Canceled
 	})
@@ -115,11 +115,11 @@ func TestImportEachInterrupted(t *testing.T) {
 	}
 
 	run = NewRun()
-	err = run.ImportEach(options, "project", []string{"a", "b"}, func(o Options, scope string) error {
+	err = run.ImportEach(options, "project", []string{"a", "b"}, func(scopeRun *Run, o Options, scope string) error {
 		if scope == "b" {
 			return context.Canceled
 		}
-		recordScope(o, scope)
+		recordScope(scopeRun, o, scope)
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -151,14 +151,11 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 	for _, parallel := range []int{1, 2} {
 		run := NewRun()
 		options := Options{Out: t.TempDir(), Parallel: parallel}
-		err := run.ImportEach(options, "account", []string{"a", "b", "c"}, func(o Options, scope string) error {
+		err := run.ImportEach(options, "account", []string{"a", "b", "c"}, func(scopeRun *Run, o Options, scope string) error {
 			if scope == "b" {
 				panic("unexpected response")
 			}
-			if o.run == nil {
-				o.run = run
-			}
-			recordScope(o, scope)
+			recordScope(scopeRun, o, scope)
 			return nil
 		})
 		if err != nil {

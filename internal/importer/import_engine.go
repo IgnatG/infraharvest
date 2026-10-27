@@ -116,9 +116,6 @@ func importWithEngine(ctx context.Context, run *Run, provider harvest.Provider, 
 	// Commands share one run across their Import calls (see Run.Do),
 	// and an account imported alongside others has its own (see
 	// Run.ImportEach); a call on its own finishes its own.
-	if options.run != nil {
-		run = options.run
-	}
 	if run == nil {
 		run = NewRun()
 		ctx, stop := InterruptContext(ctx)

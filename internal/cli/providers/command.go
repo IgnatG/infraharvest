@@ -109,17 +109,17 @@ func (p plan) run(ctx context.Context, run *importer.Run, options importer.Optio
 	if p.newProvider != nil {
 		newProvider = p.newProvider
 	}
-	importScope := func(scopeOptions importer.Options, scope string) error {
+	importScope := func(scopeRun *importer.Run, scopeOptions importer.Options, scope string) error {
 		planned := p.calls(scopeOptions, scope)
 		calls := make([]importer.Call, len(planned))
 		for i, c := range planned {
 			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
 		}
-		return importCalls(ctx, run, calls)
+		return importCalls(ctx, scopeRun, calls)
 	}
 	var err error
 	if p.scopes == nil {
-		err = importScope(options, "")
+		err = importScope(run, options, "")
 	} else {
 		err = run.ImportEach(options, p.kind, p.scopes, importScope)
 	}
