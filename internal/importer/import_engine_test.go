@@ -538,21 +538,6 @@ func TestModulesMode(t *testing.T) {
 	}
 }
 
-// The command's context ends with its parent's, and stop releases it.
-func TestInterruptContext(t *testing.T) {
-	parent, cancel := context.WithCancel(t.Context())
-	ctx, stop := InterruptContext(parent)
-	defer stop()
-	cancel()
-	<-ctx.Done()
-
-	ctx, stop = InterruptContext(t.Context())
-	stop()
-	if ctx.Err() == nil {
-		t.Error("stop left the context running")
-	}
-}
-
 // A lock file seeds a root only if its provider release meets the root's
 // constraint.
 func TestLockMeets(t *testing.T) {

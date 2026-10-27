@@ -48,7 +48,7 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 				parent = context.Background()
 			}
 			var stop context.CancelFunc
-			ctx, stop = importer.InterruptContext(parent)
+			ctx, stop = interruptContext(parent)
 			defer stop()
 			c.SetContext(ctx)
 		}
