@@ -60,11 +60,12 @@ if [[ "$DRIFT" != off && -n "${ENVIRONMENT-}" && "$ENVIRONMENT" != all ]]; then
   branch="$branch-${ENVIRONMENT//,/-}"
 fi
 if [[ -n "${BRANCH-}" ]]; then branch="$BRANCH"; fi
-# The body is the import's report, then the drift report.
+# The body is the import's report, then the drift report, neither read
+# through a link the repository commits (see linked).
 body="$RUNNER_TEMP/infraharvest-pull-request.md"
 : > "$body"
 for file in "${IMPORT_REPORT-}" "${DRIFT_REPORT-}"; do
-  if [[ -n "$file" && -f "$file" ]]; then
+  if [[ -n "$file" && -f "$file" ]] && ! linked "$file"; then
     if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
     cat "$file" >> "$body"
   fi

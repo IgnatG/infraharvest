@@ -1169,6 +1169,18 @@ jobs:
           expect drift add-paths infraharvest-out
           test ! -s "$(output drift body-path)"
 
+          # A report the repository commits as a link, which a run that
+          # failed before writing its report leaves there, isn't read
+          # through it into the body, nor is one in a linked directory.
+          mkdir -p linked-out/report
+          printf 'secret\n' > "$RUNNER_TEMP/secret"
+          ln -s "$RUNNER_TEMP/secret" linked-out/report/report.md
+          ln -s "$RUNNER_TEMP" linked-report
+          printf '# Drift report\n' > "$RUNNER_TEMP/drift.md"
+          details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$GITHUB_WORKSPACE/linked-report/drift.md"
+          test ! -s "$(output linked body-path)"
+
           # Drift accepted as one environment, in a matrix job of its own:
           # that environment's pull request, on a branch of its own.
           details prod IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift-prod.yaml \

@@ -129,11 +129,13 @@ runs:
         PULL_REQUEST: ${{ inputs.pull-request }}
         COMMIT: ${{ inputs.commit }}
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
+        OUT: ${{ inputs.out }}
       # Only what must be checked before infraharvest is installed, or what
       # the action itself makes of its inputs: infraharvest checks the
       # provider and the import's flags (see Check the import), such as
       # --services, itself.
       run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
         fail() {
           echo "::error::$1"
           exit 1
@@ -198,6 +200,15 @@ runs:
         fi
         if [[ "$COMMIT" != true && -n "$COMMIT_BRANCH" ]]; then
           fail "commit-branch takes effect with commit set to true"
+        fi
+        # infraharvest checks what is in out (see linked), and refuses a link
+        # there that leads out of it; out, and the directories it is in, are
+        # the action's to check.
+        if linked "$OUT"; then
+          fail "out: $OUT, or a directory it is in, is a symbolic link, which could lead what infraharvest writes, and what a commit or pull request carries, out of the repository; remove it"
+        fi
+        if [[ -n "$DRIFT_DECISIONS" ]] && linked "$DRIFT_DECISIONS"; then
+          fail "drift-decisions: $DRIFT_DECISIONS, or a directory it is in, is a symbolic link; remove it"
         fi
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -359,8 +370,12 @@ runs:
         fi
         output exit-code "$code"
         output drift-found "$found"
-        if [[ -f "$report" ]]; then output drift-report "$report"; fi
-        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        # Not through a link, which a run that failed before writing the
+        # report would leave as the repository has it (see linked).
+        if [[ -f "$report" ]] && ! linked "$report"; then
+          output drift-report "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        fi
         # 4 says drift is left, which the report and drift-found tell; it
         # doesn't fail the step. 1 (an accepted change failed verification),
         # 2 (a root couldn't be checked) and any other code do.
@@ -387,7 +402,8 @@ runs:
         report="$OUT/report/report.md"
         output exit-code "$code"
         output report "$report"
-        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        # Not through a link (see the drift step).
+        if [[ -f "$report" ]] && ! linked "$report"; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
         if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"
