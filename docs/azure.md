@@ -101,7 +101,7 @@ Wherever the output names types, in the selection file, the report and the READM
 infraharvest discover azure --services=resource_group,virtual_network,subnet,network_security_group
 ```
 
-`subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one that comes back without them or with none, as some emulators answer, are they listed on their own.
+`subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one whose list leaves the field out, as floci-az does for subnets created on their own, are they listed on their own. A network or group listed with none costs no request.
 
 ## Diagnostic settings
 

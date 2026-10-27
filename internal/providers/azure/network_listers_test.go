@@ -437,25 +437,32 @@ func TestResourceManagerListersRecordTags(t *testing.T) {
 }
 
 // Rules and subnets that come inline in the parent's list are used as they
-// are: no list is asked for per security group or per network. Only a parent
-// without them, or with an empty list, as some emulators answer, is asked.
+// are, an empty list too: no list is asked for per security group or per
+// network. Only a parent whose list lacks the field, as floci-az answers, is
+// asked.
 func TestNetworkListersUseInlineChildren(t *testing.T) {
 	const (
-		rg      = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
-		web     = rg + "networkSecurityGroups/web"
-		empty   = rg + "networkSecurityGroups/empty"
-		bare    = rg + "networkSecurityGroups/bare"
-		network = rg + "virtualNetworks/net1"
-		app     = network + "/subnets/app"
-		nsg     = rg + "networkSecurityGroups/web"
+		rg         = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
+		web        = rg + "networkSecurityGroups/web"
+		empty      = rg + "networkSecurityGroups/empty"
+		unset      = rg + "networkSecurityGroups/unset"
+		bare       = rg + "networkSecurityGroups/bare"
+		network    = rg + "virtualNetworks/net1"
+		app        = network + "/subnets/app"
+		nsg        = rg + "networkSecurityGroups/web"
+		noSubnets  = rg + "virtualNetworks/none"
+		unlisted   = rg + "virtualNetworks/unlisted"
+		bareNet    = rg + "virtualNetworks/bare"
+		standalone = unlisted + "/subnets/db"
 	)
 	groups := &routedTransport{bodies: map[string]string{
 		rg + "networkSecurityGroups": armList(
 			armItem(web, "web", `{"securityRules":[`+armItem(web+"/securityRules/https", "https", `{"priority":100}`)+`],"defaultSecurityRules":[`+armItem(web+"/defaultSecurityRules/AllowVnetInBound", "AllowVnetInBound", "")+`]}`),
 			armItem(empty, "empty", `{"securityRules":[]}`),
+			armItem(unset, "unset", `{"provisioningState":"Succeeded"}`),
 			armItem(bare, "bare", ""),
 		),
-		empty + "/securityRules": armList(),
+		unset + "/securityRules": armList(),
 		bare + "/securityRules":  armList(armItem(bare+"/securityRules/ssh", "ssh", "")),
 	}}
 	g := &NetworkSecurityGroupLister{}
@@ -463,13 +470,14 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	if err := g.List(); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "networkSecurityGroups", empty + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
+	if want := []string{rg + "networkSecurityGroups", unset + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
 		t.Errorf("security groups: requested %v, want %v", groups.paths, want)
 	}
 	wantGroups := []listedResource{
 		{Type: "azurerm_network_security_group", ID: web, Name: "web"},
 		{Type: "azurerm_network_security_rule", ID: web + "/securityRules/https", Name: "web_https"},
 		{Type: "azurerm_network_security_group", ID: empty, Name: "empty"},
+		{Type: "azurerm_network_security_group", ID: unset, Name: "unset"},
 		{Type: "azurerm_network_security_group", ID: bare, Name: "bare"},
 		{Type: "azurerm_network_security_rule", ID: bare + "/securityRules/ssh", Name: "bare_ssh"},
 	}
@@ -478,8 +486,14 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	}
 
 	networks := &routedTransport{bodies: map[string]string{
-		rg + "virtualNetworks": armList(armItem(network, "net1",
-			`{"subnets":[`+armItem(app, "app", `{"networkSecurityGroup":{"id":"`+nsg+`"}}`)+`]}`)),
+		rg + "virtualNetworks": armList(
+			armItem(network, "net1", `{"subnets":[`+armItem(app, "app", `{"networkSecurityGroup":{"id":"`+nsg+`"}}`)+`]}`),
+			armItem(noSubnets, "none", `{"subnets":[]}`),
+			armItem(unlisted, "unlisted", `{"addressSpace":{"addressPrefixes":["10.1.0.0/16"]}}`),
+			armItem(bareNet, "bare", ""),
+		),
+		unlisted + "/subnets":          armList(armItem(standalone, "db", "")),
+		bareNet + "/subnets":           armList(),
 		rg + "serviceEndpointPolicies": armList(),
 	}}
 	s := &SubnetLister{}
@@ -487,7 +501,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	if err := s.List(); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "virtualNetworks", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
+	if want := []string{rg + "virtualNetworks", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
 		t.Errorf("subnets: requested %v, want %v", networks.paths, want)
 	}
 	wantSubnets := []listedResource{
@@ -496,6 +510,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 			Type: "azurerm_subnet_network_security_group_association", ID: app, Name: "app_network_security_group_association",
 			Attributes: map[string]string{"subnet_id": app, "network_security_group_id": nsg},
 		},
+		{Type: "azurerm_subnet", ID: standalone, Name: "db"},
 	}
 	if got := listedResources(s.Resources); !reflect.DeepEqual(got, wantSubnets) {
 		t.Errorf("subnets: got %+v\nwant %+v", got, wantSubnets)
