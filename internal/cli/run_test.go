@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -106,6 +107,50 @@ func TestRegenerate(t *testing.T) {
 			}
 			if got.Regenerate != tc.regenerate || got.Resume != tc.resume {
 				t.Errorf("regenerate=%v resume=%v, want %v and %v", got.Regenerate, got.Resume, tc.regenerate, tc.resume)
+			}
+		})
+	}
+}
+
+// The picker opens on the selection file discover wrote only with --pick,
+// in a terminal, and even after a listing that failed in part; its own
+// failure is the command's.
+func TestPickSelection(t *testing.T) {
+	partial := errors.New("partial")
+	broken := errors.New("no terminal")
+	tests := []struct {
+		name       string
+		path       string
+		openPicker bool
+		terminal   bool
+		pickErr    error
+		err        error
+		opened     bool
+		want       error
+	}{
+		{name: "opens", path: "selection.yaml", openPicker: true, terminal: true, opened: true},
+		{name: "after a partial listing", path: "selection.yaml", openPicker: true, terminal: true, err: partial, opened: true, want: partial},
+		{name: "picker fails", path: "selection.yaml", openPicker: true, terminal: true, err: partial, pickErr: broken, opened: true, want: broken},
+		{name: "nothing to pick", openPicker: true, terminal: true, err: partial, want: partial},
+		{name: "--pick=false", path: "selection.yaml", terminal: true},
+		{name: "no terminal", path: "selection.yaml", openPicker: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opened := false
+			open := func(path string) error {
+				opened = true
+				if path != tt.path {
+					t.Errorf("opened %q, want %q", path, tt.path)
+				}
+				return tt.pickErr
+			}
+			err := pickSelection(tt.path, tt.openPicker, tt.terminal, open, tt.err)
+			if opened != tt.opened {
+				t.Errorf("opened: %v, want %v", opened, tt.opened)
+			}
+			if !errors.Is(err, tt.want) || (tt.want == nil && err != nil) {
+				t.Errorf("err: %v, want %v", err, tt.want)
 			}
 		})
 	}

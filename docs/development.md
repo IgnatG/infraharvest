@@ -111,7 +111,7 @@ The code is read more than written, so comments carry the reasoning. Write them 
 
 - **Return errors; never mistake a failure for an empty result.** A lister that can't list returns the error, so a run with missing resources fails or is reported as partial instead of silently generating less (`internal/providers/aws/guarded_lister.go`, `List`). The exceptions are deliberate and logged: a service AWS doesn't offer in the region, or one Resource Explorer shows is empty.
 - **Wrap with what was being done**: `fmt.Errorf("terraform init: %w", err)`, `fmt.Errorf("import into %s: %w", dir, err)`. Messages are lower case, with no trailing full stop and no "failed to" or "error:": the wrapping already says it failed (`revive` enforces the case).
-- **Say what to do** where the user can act: `errors.New("the picker needs a terminal: edit the selection file instead")` (`internal/importer/pick.go`).
+- **Say what to do** where the user can act: `errors.New("the picker needs a terminal: edit the selection file instead")` (`internal/cli/pick.go`).
 - **Report everything at once** where there can be several problems, with `errors.Join`: the catalogue's checks (`internal/catalogue/check.go`), Terraform's diagnostics (`internal/engine/diagnostics.go`).
 - **Match errors by type, not by text**: `errors.As` with `smithy.APIError`, `*net.DNSError` (`unavailableInRegion` in `guarded_lister.go`). Match on a message only where the API gives nothing else, and say so in a comment.
 - **Exit codes** come from the error: commands return an `*importer.ExitError` with one of the `report.Exit*` codes, and `main` maps it through `importer.ExitCode`.

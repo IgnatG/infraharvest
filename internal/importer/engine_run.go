@@ -71,9 +71,9 @@ type Run struct {
 	// tools are what the run's Import calls, and its merge phase, reach
 	// outside the process through; nil uses the real ones (see callTools).
 	tools *callTools
-	// OpenPicker opens the picker on the selection file discover writes,
-	// when run in a terminal (see pick).
-	OpenPicker bool
+	// toPick is the selection file discover wrote for the command to open
+	// in the picker, if it wants to (see SelectionToPick).
+	toPick string
 	// scope is where the provider call being imported lists (see
 	// discoveryScope); the report counts by it.
 	scope string
@@ -216,10 +216,8 @@ func (r *Run) finish(err error) error {
 			if writeErr := r.summary().WriteJSON(r.stdout()); writeErr != nil {
 				return couldNotRun(nil, writeErr)
 			}
-		} else if r.OpenPicker && Interactive() {
-			if err := Pick(r.selectionPath()); err != nil {
-				return err
-			}
+		} else {
+			r.toPick = r.selectionPath()
 		}
 		return checkFailures(r.failures, r.options.AllowPartial)
 	}
@@ -335,6 +333,16 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, pro
 // and the exit code in the error.
 func (r *Run) Do(fn func() error) error {
 	return r.finish(fn())
+}
+
+// SelectionToPick returns the selection file a discover run that Do
+// finished wrote, for the command to open in the picker, or "" when there
+// is none to open: the run wasn't discover, the listing failed, or
+// --format json printed the summary where the picker would draw. It is
+// set even when what failed in part makes Do return an error, so that
+// what did list can still be picked.
+func (r *Run) SelectionToPick() string {
+	return r.toPick
 }
 
 // CheckMergeEnvironments rejects --merge-environments, or its setting in

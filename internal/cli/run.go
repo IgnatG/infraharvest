@@ -24,6 +24,7 @@ import (
 func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error {
 	return func(c *cobra.Command, args []string) error {
 		run := importer.NewRun()
+		openPicker := false
 		// Without a command, nothing catches signals.
 		ctx := context.Background()
 		if c != nil {
@@ -39,7 +40,7 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 				return runE(c, args, run)
 			}
 			if f := c.Flag("pick"); f != nil {
-				run.OpenPicker = f.Value.String() == "true"
+				openPicker = f.Value.String() == "true"
 			}
 			// Signals are caught once for the command, not per Import call.
 			parent := c.Context()
@@ -52,8 +53,24 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 			c.SetContext(ctx)
 		}
 		// An interrupted run exits with the signal's code, in the report too.
-		return run.Do(func() error { return importer.Interrupted(ctx, runE(c, args, run)) })
+		err := run.Do(func() error { return importer.Interrupted(ctx, runE(c, args, run)) })
+		return pickSelection(run.SelectionToPick(), openPicker, interactive(), pick, err)
 	}
+}
+
+// pickSelection opens the picker, through open, on the selection file
+// path discover wrote, when --pick is set and infraharvest runs in a
+// terminal, and returns the run's err, or the picker's if it failed. The
+// picker opens even when what failed in part makes err an error, on what
+// did list.
+func pickSelection(path string, openPicker, terminal bool, open func(string) error, err error) error {
+	if path == "" || !openPicker || !terminal {
+		return err
+	}
+	if pickErr := open(path); pickErr != nil {
+		return pickErr
+	}
+	return err
 }
 
 // CheckRun checks the run of the provider command args name, such as
