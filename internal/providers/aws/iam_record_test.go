@@ -287,7 +287,7 @@ func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	p := &Provider{}
-	p.SetUnwantedTypes([]string{"aws_iam_access_key"})
+	p.SetUnwantedTypes(func(typ string) bool { return typ == "aws_iam_access_key" })
 	g := p.withUnwanted(&IamLister{}).(*IamLister)
 
 	if err := g.List(); err != nil {

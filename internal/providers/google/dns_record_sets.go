@@ -45,6 +45,10 @@ func (g *DNSRecordSetsLister) List() error {
 	if err != nil {
 		return err
 	}
+	// The record sets take a call per zone, and the zones one more.
+	if !wants(g.Settings(), dnsRecordSetType) {
+		return nil
+	}
 	ctx := g.Context()
 	svc, err := dns.NewService(ctx, clientOptions(ctx)...)
 	if err != nil {

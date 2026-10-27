@@ -79,15 +79,23 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client) error {
 			api := restAPIRef{id: id, name: cmp.Or(aws.ToString(restAPI.Name), id)}
 			g.Resources = append(g.Resources, harvest.RecordBare(api.id, api.name, "aws_api_gateway_rest_api", "aws"))
 
-			for _, list := range []func(*apigateway.Client, restAPIRef) error{
-				g.listStages,
-				g.listResources,
-				g.listModels,
-				g.listResponses,
-				g.listDocumentationParts,
-				g.listAuthorizers,
+			// Each part takes a call or more per API, so those of types
+			// the import doesn't keep are skipped.
+			for _, part := range []struct {
+				list  func(*apigateway.Client, restAPIRef) error
+				types []string
+			}{
+				{g.listStages, []string{"aws_api_gateway_stage", "aws_api_gateway_deployment"}},
+				{g.listResources, []string{"aws_api_gateway_resource", "aws_api_gateway_method", "aws_api_gateway_integration", "aws_api_gateway_integration_response", "aws_api_gateway_method_response"}},
+				{g.listModels, []string{"aws_api_gateway_model"}},
+				{g.listResponses, []string{"aws_api_gateway_gateway_response"}},
+				{g.listDocumentationParts, []string{"aws_api_gateway_documentation_part"}},
+				{g.listAuthorizers, []string{"aws_api_gateway_authorizer"}},
 			} {
-				if err := list(svc, api); err != nil {
+				if !g.wantsAny(part.types...) {
+					continue
+				}
+				if err := part.list(svc, api); err != nil {
 					return err
 				}
 			}

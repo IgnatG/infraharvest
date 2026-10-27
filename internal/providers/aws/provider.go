@@ -51,9 +51,9 @@ type Provider struct {
 	account, resolvedRegion string
 	// cat is the catalogue of the import, nil until SetCatalogue sets it.
 	cat *catalogue.Catalogue
-	// unwanted are the types the import leaves out whatever is listed (see
-	// SetUnwantedTypes).
-	unwanted map[string]bool
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 	// stackScope, when set, scopes the import to the resources of
 	// CloudFormation stacks (see SetStackScope).
 	stackScope *StackScope
@@ -248,21 +248,18 @@ func (p *Provider) serviceArgs() map[string]interface{} {
 	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}.args()
 }
 
-// SetUnwantedTypes takes the types the import leaves out whatever is
-// listed, such as aws_iam_access_key unless the selection file includes
-// some: the listers it makes after that skip the calls that list only
-// those (see Service.wants).
-func (p *Provider) SetUnwantedTypes(types []string) {
-	p.unwanted = map[string]bool{}
-	for _, typ := range types {
-		p.unwanted[typ] = true
-	}
+// SetUnwantedTypes takes what reports the types the import leaves out
+// whatever is listed, such as aws_iam_access_key unless the selection
+// file includes some: the listers it makes after that skip the calls that
+// list only those (see Service.wants).
+func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
+	p.unwanted = unwanted
 }
 
 // withUnwanted gives lister the types the import leaves out, if it takes
 // them, and returns it.
 func (p *Provider) withUnwanted(lister harvest.Lister) harvest.Lister {
-	if l, ok := lister.(interface{ setUnwanted(map[string]bool) }); ok {
+	if l, ok := lister.(interface{ setUnwanted(func(typ string) bool) }); ok {
 		l.setUnwanted(p.unwanted)
 	}
 	return lister

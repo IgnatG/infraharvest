@@ -436,7 +436,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && c.cat != nil {
 			p.SetCatalogue(c.cat)
 		}
-		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(c.unwanted) > 0 {
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && c.unwanted != nil {
 			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)

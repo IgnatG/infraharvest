@@ -99,10 +99,13 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 		}
 		grants := make([][]harvest.Resource, len(listable))
 		grantErrs := make([]error, len(listable))
-		inParallel(len(listable), resourceParallel, func(i int) {
-			id := listable[i]
-			grants[i], grantErrs[i] = l.grants(id, cmp.Or(names[id], id))
-		})
+		// One call per key, for grants the import may not keep.
+		if l.g.wants("aws_kms_grant") {
+			inParallel(len(listable), resourceParallel, func(i int) {
+				id := listable[i]
+				grants[i], grantErrs[i] = l.grants(id, cmp.Or(names[id], id))
+			})
+		}
 		for i, id := range listable {
 			name := cmp.Or(names[id], id)
 			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(l.keys[id]), "aws",

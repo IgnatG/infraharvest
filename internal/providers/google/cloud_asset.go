@@ -78,9 +78,14 @@ func (g *CloudAssetLister) List() error {
 	}
 	region := regionSetting(g.Settings())
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
+	// Marking takes a list of the instances or the clusters, which those
+	// of types the import leaves out alone don't need.
+	wanted := slices.DeleteFunc(slices.Clone(resources), func(r harvest.Resource) bool {
+		return !wants(g.Settings(), r.Address.Type)
+	})
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
-		if err := mark(ctx, project, results, resources); err != nil {
+		if err := mark(ctx, project, results, wanted); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
@@ -125,8 +130,9 @@ var searches projectLists[[]*cloudasset.ResourceSearchResult]
 // searchOnce returns what searchAll finds in the project for assetTypes,
 // which are sorted, searching only the first time the process asks (see
 // projectLists): the imports of a project's regions and of global share
-// the search, which they only read. A search that fails isn't kept, so
-// the next import searches again.
+// the search, which they only read. A search that fails is kept too, so
+// that the other imports don't make it again; only one whose context ended
+// isn't, so the next import searches again.
 func searchOnce(ctx context.Context, svc *cloudasset.Service, project string, assetTypes []string) ([]*cloudasset.ResourceSearchResult, error) {
 	return searches.once(project+"\x00"+strings.Join(assetTypes, ","), func() ([]*cloudasset.ResourceSearchResult, error) {
 		return searchAll(ctx, svc, project, assetTypes)

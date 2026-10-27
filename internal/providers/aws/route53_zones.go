@@ -63,7 +63,11 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, lis
 				"name":          domain,
 				"force_destroy": "false",
 			}))
-			errs = append(errs, g.listRecords(client, zoneID, domain))
+			// A call or more per zone, for records the import may not
+			// keep.
+			if g.wants("aws_route53_record") {
+				errs = append(errs, g.listRecords(client, zoneID, domain))
+			}
 		}
 	}
 	return errors.Join(errs...), nil

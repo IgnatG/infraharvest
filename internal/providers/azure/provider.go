@@ -36,6 +36,7 @@ var (
 	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
+	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider the generated configuration uses,
@@ -100,6 +101,9 @@ type Provider struct {
 	// azapi is --azapi (Init's args[2]): resource_graph imports what
 	// azurerm has no type for as azapi_resource (see azapiCandidates).
 	azapi bool
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 }
 
 // Init takes the resource group (args[0], "" for the whole subscription),
@@ -342,6 +346,7 @@ func (p *Provider) Select(name string, verbose bool) error {
 			catalogue:      p.catalogue,
 			listed:         p.listed,
 			azapi:          p.azapi,
+			unwanted:       p.unwanted,
 		}.args(),
 	})
 	return nil
@@ -432,6 +437,13 @@ func describeScope(flags map[string][]string) string {
 		text += ", what azurerm has no type for through azapi"
 	}
 	return text
+}
+
+// SetUnwantedTypes takes what reports the types the import leaves out
+// whatever is listed, which the services get: they skip the calls that
+// list only those (see Service.wants).
+func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
+	p.unwanted = unwanted
 }
 
 // SetCatalogue sets the import's catalogue, which the services get.

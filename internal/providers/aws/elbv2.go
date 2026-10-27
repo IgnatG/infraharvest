@@ -80,7 +80,11 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 			lb, out := page.LoadBalancers[i], &reads[i]
 			arn := aws.ToString(lb.LoadBalancerArn)
 			out.resources = append(out.resources, harvest.RecordBare(arn, aws.ToString(lb.LoadBalancerName), "aws_lb", "aws"))
-			g.listListeners(client, arn, out)
+			// A call or more per load balancer, for listeners and their
+			// parts the import may not keep.
+			if g.wantsAny("aws_lb_listener", "aws_lb_listener_rule", "aws_lb_listener_certificate") {
+				g.listListeners(client, arn, out)
+			}
 		})
 		g.record(reads)
 	}
@@ -105,10 +109,10 @@ func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN s
 		for _, listener := range page.Listeners {
 			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
 			out.resources = append(out.resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
-			if listenerHasRules(listener) {
+			if listenerHasRules(listener) && g.wants("aws_lb_listener_rule") {
 				g.listListenerRules(client, arn, name, out)
 			}
-			if listenerHasCertificates(listener) {
+			if listenerHasCertificates(listener) && g.wants("aws_lb_listener_certificate") {
 				g.listListenerCertificates(client, listener, name, out)
 			}
 		}
@@ -214,7 +218,11 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 			group, out := page.TargetGroups[i], &reads[i]
 			arn, name := aws.ToString(group.TargetGroupArn), aws.ToString(group.TargetGroupName)
 			out.resources = append(out.resources, harvest.RecordBare(arn, name, "aws_lb_target_group", "aws"))
-			g.listTargetGroupAttachments(client, arn, name, out)
+			// A call per target group, for targets the import may not
+			// keep.
+			if g.wants("aws_lb_target_group_attachment") {
+				g.listTargetGroupAttachments(client, arn, name, out)
+			}
 		})
 		g.record(reads)
 	}

@@ -99,8 +99,9 @@ func (g *Wafv2Lister) listWebACLs(svc *wafv2.Client) error {
 				},
 			))
 			// A CloudFront distribution names its web ACL itself, so
-			// only regional web ACLs have associations.
-			if g.scope == types.ScopeRegional {
+			// only regional web ACLs have associations: a call per
+			// resource type, for associations the import may not keep.
+			if g.scope == types.ScopeRegional && g.wants("aws_wafv2_web_acl_association") {
 				if err := g.listWebACLAssociations(svc, acl); err != nil {
 					return nil, err
 				}

@@ -28,6 +28,7 @@ var (
 	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
+	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider's name, google, which a provider
@@ -60,6 +61,9 @@ type Provider struct {
 	// catalogue is the catalogue of the import (see SetCatalogue), nil
 	// until it is set.
 	catalogue *catalogue.Catalogue
+	// unwanted reports the types the import leaves out whatever is listed
+	// (see SetUnwantedTypes); nil wants every type.
+	unwanted func(typ string) bool
 }
 
 // Init takes the region (args[0]: global, the default, or a region's
@@ -181,9 +185,16 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: p.Name(),
 		Verbose:  verbose,
-		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue}.args(),
+		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted}.args(),
 	})
 	return nil
+}
+
+// SetUnwantedTypes takes what reports the types the import leaves out
+// whatever is listed, which the listers get: they skip the calls that
+// list only those (see wants).
+func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
+	p.unwanted = unwanted
 }
 
 // ProviderBlock returns the provider block, for the project and, but
