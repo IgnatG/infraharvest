@@ -252,6 +252,11 @@ type Options struct {
 	// ModulesDir, if set, is where Generate puts local modules for clusters
 	// of resources that repeat with the same shape (see modularize).
 	ModulesDir string
+	// Modules counts the roots that call each module of ModulesDir (see
+	// ModuleRefs): roots that share ModulesDir, such as those of one
+	// import, share it, so that one's undo leaves the modules the others
+	// call. nil gives the run one of its own.
+	Modules *ModuleRefs `json:"-"`
 	// Adapters map clusters of resources onto calls of curated modules,
 	// tried before generated local modules (see synthesize).
 	Adapters []adapters.Adapter
@@ -357,12 +362,19 @@ type run struct {
 	// in the configuration (see literalSecretsToVariables), once it found
 	// any.
 	secrets *secretValues
+	// modules counts the users of the generated modules the run takes up
+	// (see Options.Modules).
+	modules *ModuleRefs
 }
 
 // generating is Generate's run with opts: a root of its own, with the
 // settings opts gives.
 func generating(opts Options) *run {
-	return &run{opts: opts, policy: policy{
+	modules := opts.Modules
+	if modules == nil {
+		modules = &ModuleRefs{}
+	}
+	return &run{opts: opts, modules: modules, policy: policy{
 		config:      opts.Config,
 		adapters:    opts.Adapters,
 		modulesDir:  opts.ModulesDir,

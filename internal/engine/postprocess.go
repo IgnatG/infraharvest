@@ -334,7 +334,7 @@ func (t *tidying) liftModules() error {
 	if t.r.policy.modulesDir == "" {
 		return nil
 	}
-	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.policy.modulesDir, t.baseline, t.changes, t.vars)
+	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.policy.modulesDir, t.r.modules, t.baseline, t.changes, t.vars)
 	return err
 }
 

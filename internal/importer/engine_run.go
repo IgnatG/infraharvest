@@ -118,6 +118,10 @@ type shared struct {
 	// at once, over every account and region (see callSlots).
 	callsMu sync.Mutex
 	calls   chan struct{}
+
+	// modules counts the roots of the command that call each generated
+	// module, which they share (see engine.Options.Modules).
+	modules engine.ModuleRefs
 }
 
 // callSlots returns the slots the Import calls of the command take while

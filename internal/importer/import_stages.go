@@ -103,6 +103,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		}
 	}
 	opts := engineOptions(provider, c, listed, tools)
+	opts.Modules = &run.shared.modules
 	placed, err := run.place(ctx, provider, c, layout, listed.listed, resources, opts.ModuleProviders)
 	if err != nil {
 		return nil, err
