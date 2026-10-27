@@ -137,6 +137,10 @@ type Entry struct {
 	// back in other resources, such as {family}:{revision}; it shares its
 	// parsed form, which nothing changes, with copies.
 	DerivedIdentity *Template `yaml:"derived_identity,omitempty"`
+	// UnstableIDSuffix, of the fields the engine reads, starts the part of
+	// the type's import IDs that changes while the resource stays the
+	// same, such as azapi's ?api-version=.
+	UnstableIDSuffix string `yaml:"unstable_id_suffix,omitempty"`
 }
 
 // removable are the fields an overlay's remove clears, by name.

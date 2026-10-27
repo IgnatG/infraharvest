@@ -29,12 +29,13 @@ func TestForType(t *testing.T) {
 func TestOverlaysCantSetBuiltinOnlyFields(t *testing.T) {
 	t.Parallel()
 	for field, entry := range map[string]string{
-		"secret_when":       "secret_when: { argument: value, when: type, in: [SecureString] }",
-		"blocks_as_list":    "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
-		"principal":         "principal: { argument: principal_id, directory: Entra ID, note: n }",
-		"module_references": "module_references: { attribute: project_id, arguments: [project_id] }",
-		"container":         "container: { location: true }",
-		"derived_identity":  "derived_identity: \"{family}:{revision}\"",
+		"secret_when":        "secret_when: { argument: value, when: type, in: [SecureString] }",
+		"blocks_as_list":     "blocks_as_list: { block: subnet_mapping, attribute: subnet_id, argument: subnets }",
+		"principal":          "principal: { argument: principal_id, directory: Entra ID, note: n }",
+		"module_references":  "module_references: { attribute: project_id, arguments: [project_id] }",
+		"container":          "container: { location: true }",
+		"derived_identity":   "derived_identity: \"{family}:{revision}\"",
+		"unstable_id_suffix": "unstable_id_suffix: \"?api-version=\"",
 	} {
 		for _, typ := range []string{"aws_ssm_parameter", "aws_widget"} {
 			dir := t.TempDir()
@@ -159,5 +160,16 @@ func TestDerivedIdentity(t *testing.T) {
 	want := []IdentityPart{{Attribute: "family"}, {Text: ":"}, {Attribute: "revision"}}
 	if !ok || !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, %v, want %+v", got, ok, want)
+	}
+}
+
+// An azapi resource's ID is the same resource whatever its API version;
+// the other providers' IDs have no part that changes.
+func TestUnstableIDSuffix(t *testing.T) {
+	t.Parallel()
+	for typ, want := range map[string]string{"azapi_resource": "?api-version=", "azapi_update_resource": "?api-version=", "azurerm_resource_group": "", "aws_s3_bucket": ""} {
+		if got := ForType(typ).UnstableIDSuffix(typ); got != want {
+			t.Errorf("%s: got %q, want %q", typ, got, want)
+		}
 	}
 }

@@ -231,6 +231,11 @@
             "note": { "type": "string", "minLength": 1 }
           }
         },
+        "unstable_id_suffix": {
+          "description": "Built-in files only: the text that starts the part of the type's import IDs that changes while the resource stays the same, such as an azapi resource's ?api-version=: resources are told apart from one run to the next by their IDs without it. Under the type \"*\", for every type.",
+          "type": "string",
+          "minLength": 1
+        },
         "secret_when": {
           "description": "Built-in files only: a sensitive argument that is a secret only where the argument when is one of in, such as an SSM parameter's value, a SecureString's; elsewhere it is written as it is.",
           "type": "object",

@@ -31,17 +31,18 @@ func ForType(typ string) *Catalogue {
 // built-in catalogue alone (see ForType), so one an overlay set would
 // change nothing.
 var builtinOnly = map[string]func(*Entry) bool{
-	"blocks_as_list":    func(e *Entry) bool { return e.BlocksAsList != nil },
-	"container":         func(e *Entry) bool { return e.Container != nil },
-	"derived_identity":  func(e *Entry) bool { return e.DerivedIdentity != nil },
-	"module_references": func(e *Entry) bool { return e.ModuleReferences != nil },
-	"principal":         func(e *Entry) bool { return e.Principal != nil },
-	"secret_when":       func(e *Entry) bool { return e.SecretWhen != nil },
+	"blocks_as_list":     func(e *Entry) bool { return e.BlocksAsList != nil },
+	"container":          func(e *Entry) bool { return e.Container != nil },
+	"derived_identity":   func(e *Entry) bool { return e.DerivedIdentity != nil },
+	"module_references":  func(e *Entry) bool { return e.ModuleReferences != nil },
+	"principal":          func(e *Entry) bool { return e.Principal != nil },
+	"secret_when":        func(e *Entry) bool { return e.SecretWhen != nil },
+	"unstable_id_suffix": func(e *Entry) bool { return e.UnstableIDSuffix != "" },
 }
 
 // everyType are the fields of builtinOnly that the entry for every type
 // takes too, for each of the provider's types.
-var everyType = map[string]bool{}
+var everyType = map[string]bool{"unstable_id_suffix": true}
 
 // checkBuiltinOnly reports the fields an overlay's entry sets that only
 // the built-in catalogue takes.
@@ -242,4 +243,18 @@ func (c *Catalogue) DerivedIdentity(typ string) ([]IdentityPart, bool) {
 		parts[i] = IdentityPart{Text: p.text, Attribute: p.field}
 	}
 	return parts, true
+}
+
+// UnstableIDSuffix returns the text that starts the part of the import
+// IDs of typ's resources that changes while the resource stays the same,
+// such as the ?api-version= of an azapi resource's ID, which names the
+// newest stable API version of its type when it was imported: the
+// type's own, else that of the entry for every type, "" for none.
+func (c *Catalogue) UnstableIDSuffix(typ string) string {
+	for _, t := range []string{typ, AllTypes} {
+		if e, ok := c.entries[t]; ok && e.UnstableIDSuffix != "" {
+			return e.UnstableIDSuffix
+		}
+	}
+	return ""
 }
