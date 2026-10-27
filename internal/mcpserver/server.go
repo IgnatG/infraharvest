@@ -28,7 +28,6 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -336,32 +335,18 @@ func summarize(path string) (*SelectionSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	summary := &SelectionSummary{Selection: path}
-	byType := map[string]*TypeCount{}
-	for _, r := range f.Resources {
-		c, ok := byType[r.Type]
-		if !ok {
-			c = &TypeCount{Type: r.Type}
-			byType[r.Type] = c
-		}
-		d := f.DecideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
-		if d.Include {
-			c.Included++
-			summary.Included++
-			continue
-		}
-		c.Excluded++
-		summary.Excluded++
+	s := f.Summary()
+	summary := &SelectionSummary{Selection: path, Included: s.Included, Excluded: s.Excluded}
+	for _, c := range s.Types {
+		summary.Types = append(summary.Types, TypeCount(c))
+	}
+	for _, e := range s.Exclusions {
 		if len(summary.Exclusions) == maxExclusions {
 			summary.MoreExclusions++
 			continue
 		}
-		summary.Exclusions = append(summary.Exclusions, fmt.Sprintf("%s %s: %s", r.Type, r.ID, d.Reason))
+		summary.Exclusions = append(summary.Exclusions, fmt.Sprintf("%s %s: %s", e.Type, e.ID, e.Reason))
 	}
-	for _, c := range byType {
-		summary.Types = append(summary.Types, *c)
-	}
-	sort.Slice(summary.Types, func(i, j int) bool { return summary.Types[i].Type < summary.Types[j].Type })
 	return summary, nil
 }
 
