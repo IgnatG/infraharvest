@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -221,104 +219,6 @@ func rootStateValues(state *tfjson.State) map[string]map[string]any {
 		}
 	}
 	return values
-}
-
-// driftConfig is a root's configuration files, parsed, as resolve reads
-// them.
-type driftConfig struct {
-	files     map[string]*hclFile // by name, relative to the root
-	blocks    map[string]driftBlock
-	locals    map[string]driftLocal
-	uses      map[string]int // how often each local is referred to
-	varUses   map[string]int // and each variable, outside variables and outputs
-	variables map[string]*hclsyntax.Block
-	calls     map[string]driftBlock // module calls, by name
-}
-
-type driftBlock struct {
-	file string
-	f    *hclFile
-	b    *hclsyntax.Block
-}
-
-type driftLocal struct {
-	file string
-	f    *hclFile
-	attr *hclsyntax.Attribute
-}
-
-// tfContents returns the contents of the .tf files of dir, by name,
-// without override files.
-func tfContents(dir string) (map[string][]byte, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
-	if err != nil {
-		return nil, err
-	}
-	contents := map[string][]byte{}
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
-			continue
-		}
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
-		contents[name] = content
-	}
-	return contents, nil
-}
-
-// parseDriftConfig parses the root's files of contents, without the files
-// of the modules it calls it may hold (see isModuleFile).
-func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
-	cfg := &driftConfig{files: map[string]*hclFile{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
-	for _, name := range sortedKeys(contents) {
-		if isModuleFile(name) {
-			continue
-		}
-		f, err := parseHCL(name, contents[name])
-		if err != nil {
-			return nil, err
-		}
-		cfg.files[name] = f
-		for _, b := range f.syntax.Blocks {
-			switch {
-			case b.Type == "resource" && len(b.Labels) == 2:
-				cfg.blocks[b.Labels[0]+"."+b.Labels[1]] = driftBlock{file: name, f: f, b: b}
-			case b.Type == "locals":
-				for n, attr := range b.Body.Attributes {
-					cfg.locals[n] = driftLocal{file: name, f: f, attr: attr}
-				}
-			case b.Type == "variable" && len(b.Labels) == 1:
-				cfg.variables[b.Labels[0]] = b
-			case b.Type == "module" && len(b.Labels) == 1:
-				cfg.calls[b.Labels[0]] = driftBlock{file: name, f: f, b: b}
-			}
-		}
-		for _, t := range allTraversals(f.syntax) {
-			if t.RootName() != "local" || len(t) < 2 {
-				continue
-			}
-			if step, ok := t[1].(hcl.TraverseAttr); ok {
-				cfg.uses[step.Name]++
-			}
-		}
-		for _, b := range f.syntax.Blocks {
-			if b.Type == "variable" || b.Type == "output" {
-				continue
-			}
-			for _, t := range allTraversals(b.Body) {
-				if t.RootName() != "var" || len(t) < 2 {
-					continue
-				}
-				if step, ok := t[1].(hcl.TraverseAttr); ok {
-					cfg.varUses[step.Name]++
-				}
-			}
-		}
-	}
-	return cfg, nil
 }
 
 // pathStep is a step of an attribute's path: a name, of an argument, a
@@ -1219,10 +1119,12 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 	edited := map[string]bool{}
 	applied := map[*DriftChange]codeSource{}
 	failed := map[*DriftChange]codeSource{}
+	var cfg *driftConfig
 	for _, c := range changes {
+		// Only the files the change before edited are parsed again.
 		e.syncModules(contents)
-		cfg, err := parseDriftConfig(contents)
-		if err != nil {
+		var err error
+		if cfg, err = cfg.reparse(contents); err != nil {
 			return nil, nil, nil, err
 		}
 		src := e.resolve(cfg, c)

@@ -268,24 +268,6 @@ func importUses(cfg *driftConfig, root, name, address string) int {
 	return n
 }
 
-// namedFile is a file of a driftConfig, with its name.
-type namedFile struct {
-	name string
-	f    *hclFile
-}
-
-// variableFile returns the file that declares v, or nil.
-func (cfg *driftConfig) variableFile(v *hclsyntax.Block) *namedFile {
-	for name, f := range cfg.files {
-		for _, b := range f.syntax.Blocks {
-			if b == v {
-				return &namedFile{name: name, f: f}
-			}
-		}
-	}
-	return nil
-}
-
 // ownBlock reports whether src's edits, of a root environments share,
 // are all in the block of c's resource, where only the environment
 // checked has it: its count is a bool variable's, count = var.<name> ? 1

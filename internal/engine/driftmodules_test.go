@@ -234,10 +234,11 @@ var iamRoleCall = `module "deploy" {
 // loadDriftModules reads it.
 func testModule(t *testing.T, dir string, calls int, files map[string]string) *driftModule {
 	t.Helper()
-	m, err := newDriftModule(byteFiles(files))
+	cfg, err := parseDriftConfig(byteFiles(files))
 	if err != nil {
 		t.Fatal(err)
 	}
+	m := newDriftModule(cfg)
 	m.dir, m.calls = dir, calls
 	return m
 }
