@@ -142,6 +142,47 @@ func TestTagsAsksForTheListedServices(t *testing.T) {
 	}
 }
 
+// Tags reads every tagged resource only when the API refuses the
+// filters; any other error, such as AccessDenied or throttling, would fail
+// that read too, so it is returned after one call.
+func TestTagsFallBackOnlyWhenTheFiltersAreRefused(t *testing.T) {
+	for _, test := range []struct {
+		code     string
+		fallBack bool
+	}{
+		{"InvalidParameterException", true},
+		{"ValidationException", true},
+		{"AccessDeniedException", false},
+		{"ThrottledException", false},
+		{"InternalServiceException", false},
+	} {
+		calls := 0
+		useFakeAPI(t, func(call apiCall) string {
+			if call.Op != "GetResources" {
+				return recordUnexpected(t, call)
+			}
+			calls++
+			if strings.Contains(call.Body, "ResourceTypeFilters") {
+				return recordJSONError(test.code)
+			}
+			return `{"ResourceTagMappingList":[{"ResourceARN":"arn:aws:ec2:eu-west-2:123456789012:vpc/vpc-1","Tags":[{"Key":"env","Value":"prod"}]}]}`
+		})
+		p := &Provider{region: "eu-west-2"}
+
+		tags, err := p.Tags(t.Context(), []harvest.Resource{harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")})
+
+		if test.fallBack {
+			if err != nil || tags["aws_vpc vpc-1"]["env"] != "prod" || calls != 2 {
+				t.Errorf("%s: tags %v, error %v after %d calls, want the unfiltered read's tags after 2", test.code, tags, err, calls)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), test.code) || calls != 1 {
+			t.Errorf("%s: error %v after %d calls, want the error after 1", test.code, err, calls)
+		}
+	}
+}
+
 // The provider reads the catalogue of the import, the --catalogue overlay
 // merged in, once SetCatalogue gives it: an overlay's arn entry finds a
 // type's tags, and its import ID is what the provider matches on.

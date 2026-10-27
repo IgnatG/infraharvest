@@ -151,8 +151,10 @@ func tagServices(cat *catalogue.Catalogue, resources []harvest.Resource) []strin
 // services, where it lists CloudFront distributions and Route 53 zones.
 // It asks only for the services of the listed resources whose tags it can
 // find (see tagServices), at most tagFilterLimit to a call, and not at all
-// when there are none; should that fail, as when the API refuses a filter,
-// it asks for every tagged resource instead. It returns them by "type id".
+// when there are none; should the API refuse a filter (see
+// tagFilterRefused), it asks for every tagged resource instead. Any other
+// error, such as AccessDenied or throttling, would fail that read too, so
+// it is returned. It returns the tags by "type id".
 func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[string]map[string]string, error) {
 	cat := p.catalogue()
 	services := tagServices(cat, resources)
@@ -175,10 +177,8 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 			break
 		}
 	}
-	if readErr != nil {
-		// An API, or an emulator, that refuses a filter answers with an
-		// error of its own choosing, so any error is worth one more try.
-		log.Printf("aws: tags in %s: reading by service filters failed, so every tagged resource is read: %v", config.Region, readErr)
+	if tagFilterRefused(readErr) {
+		log.Printf("aws: tags in %s: the service filters were refused, so every tagged resource is read: %v", config.Region, readErr)
 		index = newTagIndex(cat)
 		readErr = readTagPages(ctx, client, nil, index)
 	}
@@ -194,6 +194,20 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 	}
 	log.Printf("aws: tags in %s: the Tagging API lists %d tagged resources, %d of the %d listed matched", config.Region, len(index.byARN), len(found), len(resources))
 	return found, nil
+}
+
+// tagFilterRefusedCodes are the error codes of an API that refuses a
+// resource type filter: AWS answers InvalidParameterException for a
+// service it doesn't know, and an emulator may answer ValidationException.
+var tagFilterRefusedCodes = map[string]bool{
+	"InvalidParameterException": true,
+	"ValidationException":       true,
+}
+
+// tagFilterRefused reports whether err says the API refused the resource
+// type filters, so that reading without them is worth a try.
+func tagFilterRefused(err error) bool {
+	return tagFilterRefusedCodes[apiErrorCode(err)]
 }
 
 // readTagPages adds to index the tagged resources of the services in
