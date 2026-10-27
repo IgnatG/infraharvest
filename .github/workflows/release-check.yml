@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 name: Release check
 
 # Builds a snapshot release, as the release workflow would but without

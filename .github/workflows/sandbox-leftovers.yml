@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Lists what the sandbox runs may have left in each cloud: resources still
 # carrying a sandbox tag or name, and in AWS the kinds that cost the most
 # while they exist (running instances, NAT gateways, Elastic IPs, load

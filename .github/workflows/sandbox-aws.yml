@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Imports a small estate from the AWS sandbox account and checks it plans
 # with no changes. Runs only when started by hand, and only after a
 # reviewer of the sandbox environment approves it. The estate is created as

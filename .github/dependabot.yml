@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 version: 2
 # A cooldown holds back a version update until the release is a few days
 # old, as malicious or yanked releases of a module, an action or an image

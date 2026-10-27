@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Installs infraharvest from a GitHub release, for example in a cloud shell:
 #
 #   curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh

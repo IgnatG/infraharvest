@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 name: Release
 
 # Publishes a release from main with GoReleaser (see .goreleaser.yaml):

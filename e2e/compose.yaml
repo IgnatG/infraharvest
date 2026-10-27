@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # The Floci emulators of AWS (floci), Google Cloud (floci-gcp) and Azure
 # (floci-az), for the end-to-end tests. See README.md.
 services:

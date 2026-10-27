@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 # Fails when the binary contains a vulnerable symbol that is not covered by
 # .github/govulncheck-allowlist.txt (by OSV ID or module path).
 # Usage: govulncheck-gate.sh <binary>

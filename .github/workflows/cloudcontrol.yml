@@ -1,3 +1,6 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
 name: Cloud Control types
 
 # The Cloud Control lister takes each resource's identifier as its Terraform

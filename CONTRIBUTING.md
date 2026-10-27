@@ -155,3 +155,5 @@ Every Go file starts with a two-line licence header, which the pre-commit hook a
 // SPDX-License-Identifier: AGPL-3.0-only
 ```
 <!-- REUSE-IgnoreEnd -->
+
+Shell scripts and workflows carry the same two lines as `#` comments, after any `#!` line, and CI checks them too ([Licence headers](docs/development.md#licence-headers)).
