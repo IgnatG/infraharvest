@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -201,8 +202,9 @@ func TestVerifyStepsWithoutChanges(t *testing.T) {
 	}
 }
 
-// postProcess runs every pass after the passes it names, and every pass it
-// names is one of postProcess's.
+// postProcess runs its passes in this order, every one after the passes it
+// names, each of which is one of postProcess's. A run pass plans on its
+// own; a step pass's edits are verified with those of the steps next to it.
 func TestTidyPassesRunAfterTheirPrerequisites(t *testing.T) {
 	t.Parallel()
 	passes := (&tidying{r: generating(Options{})}).passes()
@@ -210,15 +212,34 @@ func TestTidyPassesRunAfterTheirPrerequisites(t *testing.T) {
 	if err := checkPassOrder(passes); err != nil {
 		t.Error(err)
 	}
-	names := map[string]bool{}
+	want := []string{
+		"run " + passEffectiveTags,
+		"run " + passDefaults,
+		"step " + passReferences,
+		"step " + passDataSources,
+		"step " + passRootVariables,
+		"step " + passLookups,
+		"step " + passTagLift,
+		"step " + passLiterals,
+		"run " + passCuratedModules,
+		"step " + passOutputLists,
+		"step " + passProjects,
+		"step " + passInherited,
+		"run " + passLocalModules,
+	}
+	var got []string
 	for _, p := range passes {
-		if names[p.name] {
-			t.Errorf("two passes are named %s", p.name)
-		}
-		names[p.name] = true
-		if (p.run == nil) == (p.step == nil) {
+		switch {
+		case p.run != nil && p.step == nil:
+			got = append(got, "run "+p.name)
+		case p.run == nil && p.step != nil:
+			got = append(got, "step "+p.name)
+		default:
 			t.Errorf("the %s pass needs either run or step", p.name)
 		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("passes:\ngot  %q\nwant %q", got, want)
 	}
 }
 
