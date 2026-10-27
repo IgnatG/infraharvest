@@ -367,19 +367,11 @@ func fillMerge(merge *report.Merge, result *engine.MergeResult) {
 // recordMerge records merge, the outcome of the stack of members, in the
 // report: each member's directory names the merged root, once merged.
 func (r *Run) recordMerge(merge report.Merge, members []mergeMember) {
-	r.report.Merges = append(r.report.Merges, merge)
-	if !merge.Merged {
-		return
+	roots := make([]string, len(members))
+	for i, m := range members {
+		roots[i] = relativePath(r.options.Out, m.dir)
 	}
-	paths := map[string]bool{}
-	for _, m := range members {
-		paths[relativePath(r.options.Out, m.dir)] = true
-	}
-	for i, d := range r.report.Directories {
-		if paths[d.Path] {
-			r.report.Directories[i].MergedInto = merge.Path
-		}
-	}
+	r.report.AddMerge(merge, roots)
 }
 
 // premergeDirName holds, under the output's checkpoints, the roots of

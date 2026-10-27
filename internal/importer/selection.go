@@ -109,7 +109,7 @@ func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *se
 				continue
 			}
 			r.discovered[typ]++
-			r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: typ, ID: id, Reason: d.Reason, Scope: scope, Owner: report.OwnerOf(d.Reason)})
+			r.report.Exclude(scope, typ, id, report.Decided(d.Reason))
 			leftOut = append(leftOut, engine.External{Type: typ, ID: id, Name: resourceName(nameTag, res, tags)})
 		}
 	}

@@ -164,9 +164,6 @@ func (r *Run) recordNotInCloud(dir string, gone []engine.Import) {
 	if len(gone) == 0 {
 		return
 	}
-	path := relativePath(r.options.Out, dir)
-	for _, g := range gone {
-		r.report.NotInCloud = append(r.report.NotInCloud, report.NotInCloud{Path: path, Address: g.Type + "." + g.Name, ID: g.ID, Scope: r.scope})
-	}
+	r.report.AddNotInCloud(relativePath(r.options.Out, dir), r.scope, gone)
 	log.Printf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(r.options.Out, report.Dir, "report.md"))
 }

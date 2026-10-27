@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // rootsProvider lists, for each service, one fake_thing named after the
@@ -520,7 +521,7 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	}
 	var excluded []string
 	for _, e := range run.report.Excluded {
-		if strings.HasPrefix(e.Reason, InOtherRootReason) {
+		if strings.HasPrefix(e.Reason, report.ReasonInOtherRoot) {
 			excluded = append(excluded, e.ID)
 		}
 	}

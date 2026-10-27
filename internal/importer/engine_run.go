@@ -180,7 +180,7 @@ func (r *Run) recordFailure(options Options, err error) {
 		r.options = options
 	}
 	r.failures = append(r.failures, err)
-	r.report.Failures = append(r.report.Failures, err.Error())
+	r.report.AddFailure(err)
 }
 
 // finish writes the run's report, prints it for --format json, and returns
@@ -220,16 +220,16 @@ func (r *Run) finish(err error) error {
 		return checkFailures(r.failures, r.options.AllowPartial)
 	}
 	for typ, n := range r.skipped {
-		r.report.Skipped = append(r.report.Skipped, report.Skipped{Type: typ, Count: n, Reason: "Terraform can't import this resource type"})
+		r.report.AddSkipped(typ, n)
 	}
 	if err != nil {
 		// What ended the run, such as an interrupt, is a failure too.
-		r.report.Failures = append(r.report.Failures, err.Error())
+		r.report.AddFailure(err)
 	}
 	r.report.Finish(r.discovered, r.failed, r.options.AllowPartial)
 	if err != nil {
 		// The report says what the process exits with.
-		r.report.ExitCode = ExitCode(err)
+		r.report.SetExitCode(ExitCode(err))
 	}
 	if writeErr := r.report.WriteFiles(r.options.Out); writeErr != nil {
 		return couldNotRun(err, writeErr)

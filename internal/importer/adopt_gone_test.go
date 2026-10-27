@@ -76,7 +76,7 @@ func checkKeptGone(t *testing.T, run *Run, out string, m mergeMember, label, id,
 	if got := run.goneFrom(m.dir); !reflect.DeepEqual(got, []string{"aws_sqs_queue." + label}) {
 		t.Errorf("%s: gone %v", m.env, got)
 	}
-	if !slices.ContainsFunc(resultResources(m.result), func(r engine.Managed) bool { return r.ID == id && r.Address == "aws_sqs_queue."+label }) {
+	if !slices.ContainsFunc(m.result.Blocks(), func(r engine.Managed) bool { return r.ID == id && r.Address == "aws_sqs_queue."+label }) {
 		t.Errorf("%s's result: %+v", m.env, m.result)
 	}
 	if g := run.report.NotInCloud; len(g) != 1 || g[0].Path != relativePath(out, m.dir) || g[0].ID != id || g[0].Scope != m.scope {

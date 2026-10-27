@@ -6,6 +6,8 @@ package importer
 import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // keptOwned returns, as "<type> <import ID>", the selected resources whose
@@ -28,4 +30,10 @@ func keptOwned(selected map[string][]harvest.Resource, listed listing, importID 
 		}
 	}
 	return kept
+}
+
+// ownedByTags is why an import leaves out a resource whose tags say o
+// manages it, as the selection says it (see selection.OwnedReason).
+func ownedByTags(o engine.Owner) report.Why {
+	return report.Owned(selection.OwnedReason(o), selection.OwnedBy(o))
 }

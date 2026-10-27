@@ -434,9 +434,9 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 
 	run.used = true
 	run.options = options
-	run.report.TagKeys = options.ReportTags
+	run.report.CountByTags(options.ReportTags)
 	if kept != nil {
-		run.report.KeptRoots = append(run.report.KeptRoots, kept.report(scope)...)
+		run.report.AddKeptRoots(kept.report(scope))
 	}
 	// Each call adds what it selected: another region's may hold the
 	// provider back, or find other modules.
@@ -448,7 +448,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		Unused:   unusedModules,
 	})
 	for _, f := range failures {
-		run.report.Failures = append(run.report.Failures, f.Error())
+		run.report.AddFailure(f)
 	}
 	run.failures = append(run.failures, failures...)
 	for typ, n := range skipped {
@@ -516,7 +516,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 			return err
 		}
 	}
-	run.report.Provider.Version = engine.LockedVersion(run.lock, run.report.Provider.Source)
+	run.report.LockProvider(run.lock)
 	return nil
 }
 
@@ -753,51 +753,26 @@ func engineOptions(provider harvest.Provider, cat *catalogue.Catalogue, root *ro
 
 // addDirectory records what Generate did in dir, or err if it failed.
 func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.Result, err error) {
-	reported := report.Directory{Path: relativePath(r.options.Out, dir), Scope: r.scope}
+	path := relativePath(r.options.Out, dir)
 	if err != nil {
 		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
-		reported.Error = err.Error()
 		for _, imp := range imports {
 			r.failed[imp.Type]++
 		}
-		r.report.Directories = append(r.report.Directories, reported)
+		r.report.AddFailedDirectory(path, r.scope, err)
 		return
 	}
-	// Each resource at its address in the root, in the module call
-	// Generate moved it into if any (see engine.Result.Addresses); a
-	// result without addresses, as in a checkpoint an older release
-	// wrote, has only the labels Generate gave them.
-	at := map[engine.External]string{}
-	for _, m := range result.Addresses {
-		at[engine.ResourceKey(m.Type, m.ID)] = m.Address
-	}
-	reported.Imported = make([]report.Resource, 0, len(result.Imported))
-	for _, imp := range result.Imported {
-		address, ok := at[engine.ResourceKey(imp.Type, imp.ID)]
-		if !ok {
-			address = imp.Type + "." + imp.Name
-		}
-		reported.Imported = append(reported.Imported, report.Resource{Address: address, ID: imp.ID})
-	}
+	r.report.AddDirectory(path, r.scope, result)
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))
-		reported.LeftOut = append(reported.LeftOut, report.LeftOut{Address: rej.Address, ID: rej.ID, Errors: rej.Errors})
 	}
-	for _, m := range result.Modules {
-		reported.Modules = append(reported.Modules, report.Module{Name: m.Name, Source: m.Source, Version: m.Version, Resources: m.Resources, Declined: m.Declined})
-	}
-	for _, s := range result.Secrets {
-		reported.Secrets = append(reported.Secrets, report.Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
-	}
-	reported.Warnings = result.Warnings
 	for _, o := range result.Owned {
-		r.report.Excluded = append(r.report.Excluded, report.Excluded{Type: engine.AddressType(o.Address), ID: o.ID, Reason: selection.OwnedReason(o.Owner), Scope: r.scope, Owner: selection.OwnedBy(o.Owner)})
+		r.report.Exclude(r.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
 	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)
 	}
 	for _, c := range result.Gate {
-		reported.Checks = append(reported.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 		if !c.Passed {
 			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
 		}
@@ -817,8 +792,6 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	if len(result.Arrived) > 0 {
 		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
 	}
-	r.recordMoves(reported.Path, result)
-	r.report.Directories = append(r.report.Directories, reported)
 }
 
 // discoveredByType counts the listed resources by type.

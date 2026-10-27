@@ -384,33 +384,7 @@ func (r *Run) warnMergedIncomplete(stack string, members []mergeMember, why stri
 				continue
 			}
 			i := report.IncompleteHandover{Move: report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root}, FailedRoot: path, Warning: fmt.Sprintf("%s imports it, but the merged root stays as it was, and each environment's state there still has it (%s): generate both again with --regenerate before applying either root", d.Root, why)}
-			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
-			r.report.IncompleteHandovers = append(r.report.IncompleteHandovers, i)
-		}
-	}
-}
-
-// recordMergedMoves records, for the merged root at path, relative to the
-// output directory, merged again, what has another address now, where
-// before and now are the import IDs of each environment's resources in
-// it by address, and what removed, its removed blocks, hand over to
-// other roots (see report.Move).
-func (r *Run) recordMergedMoves(path string, before, now map[string]map[string]string, removed []engine.Removal) {
-	for _, env := range slices.Sorted(maps.Keys(before)) {
-		at := map[string]string{}
-		for address, id := range now[env] {
-			at[id] = address
-		}
-		for _, address := range slices.Sorted(maps.Keys(before[env])) {
-			id := before[env][address]
-			if to, ok := at[id]; ok && to != address {
-				r.report.Moved = append(r.report.Moved, report.Move{Type: engine.AddressType(to), ID: id, FromRoot: path, From: address, ToRoot: path, To: to})
-			}
-		}
-	}
-	for _, removal := range removed {
-		for _, d := range removal.Resources {
-			r.report.Departed = append(r.report.Departed, report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root})
+			r.recordIncomplete(i)
 		}
 	}
 }
@@ -544,8 +518,7 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 				continue
 			}
 			i := report.IncompleteHandover{Move: report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root}, FailedRoot: path, Warning: fmt.Sprintf("%s imports it, but the merged root stays as it was, and each environment's state there still has it (%s): generate both again with --regenerate before applying either root", d.Root, why)}
-			log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
-			r.report.IncompleteHandovers = append(r.report.IncompleteHandovers, i)
+			r.recordIncomplete(i)
 		}
 		err := fmt.Errorf("%s: every resource it has goes to other roots, but it can't hand them over, so it stays as it was: %s", path, why)
 		log.Print(err)
@@ -553,7 +526,7 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 		return nil
 	}
 	log.Printf("%s: every resource it has goes to other roots, so it keeps only the removed blocks that hand them over: apply it as each environment before the roots they go to (--regenerate)", path)
-	r.recordMergedMoves(path, nil, nil, removals)
+	r.report.AddMergedMoves(path, nil, nil, removals)
 	return nil
 }
 
