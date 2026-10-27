@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -73,6 +74,11 @@ type DriftOptions struct {
 	// (see rootProvider).
 	Provider func(name string) harvest.Provider
 	Names    []string
+	// Modules are the organisation's own modules, as the import's
+	// configuration file lists them: the checks of an accepted change's
+	// edited code leave those in directories to their owners, as the
+	// import's verification gate does (see engine.DriftOptions.Adapters).
+	Modules []config.Module
 
 	// check checks one root, in place of the engine, for tests.
 	check driftCheck
@@ -159,6 +165,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 			return err
 		}
 	}
+	own := driftAdapters(ctx, options.Modules)
 
 	results := make([]report.DriftRoot, len(targets))
 	changes := make([][]report.DriftChange, len(targets))
@@ -175,7 +182,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 				return
 			}
 			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, target)
+			results[i], changes[i] = checkDriftRoot(ctx, options, decider, check, own, target)
 		}()
 	}
 	wg.Wait()
@@ -373,14 +380,33 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 	return targets, nil
 }
 
+// driftAdapters returns the adapters of those of modules, the
+// organisation's own, that are directories (see fetchAdapters): the
+// checks of the edited code leave only those to their owners (see
+// engine.DriftOptions.Adapters), so drift doesn't fetch the others, from
+// git or a registry, as the import does.
+func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adapter {
+	var local []config.Module
+	for _, m := range modules {
+		if config.IsLocalModule(m.Source) {
+			local = append(local, m)
+		}
+	}
+	// A directory is no other provider's (see forOtherProvider): the
+	// adapters of each root's provider are picked from these by their
+	// resources (see catalogueAdapters).
+	return fetchAdapters(ctx, "", "", "", local)
+}
+
 // checkDriftRoot checks the root of target, staged under the output
-// directory's checkpoints, which .gitignore excludes, and returns it and
-// its changes as the report has them.
-func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, target driftTarget) (report.DriftRoot, []report.DriftChange) {
+// directory's checkpoints, which .gitignore excludes, with own, the
+// adapters of the organisation's modules, and returns it and its changes
+// as the report has them.
+func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDecider, check driftCheck, own []adapters.Adapter, target driftTarget) (report.DriftRoot, []report.DriftChange) {
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel, Environment: env}
-	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env, RootLock: target.lock}
+	opts := engine.DriftOptions{CommandTimeout: options.EngineTimeout, Environment: env, RootLock: target.lock, Adapters: own}
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()
@@ -399,6 +425,9 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftDeci
 		}
 		v := lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider)
 		opts.StateOnly, opts.Defaults, opts.Omit = cat.StateOnlyFor(v), cat.DefaultsFor(v), cat.OmitFor(v)
+		// As the import passes its provider's modules alone (see
+		// Run.toolchain).
+		opts.Adapters = catalogueAdapters(own, provider.Name())
 	}
 	result, err := check(ctx, dir, driftStagingDir(options.Out, root.Name()), opts)
 	if err != nil {
