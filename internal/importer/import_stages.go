@@ -306,7 +306,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		return nil, err
 	}
 	mode := modulesMode(options)
-	if len(options.CloudFormationStacks) > 0 && mode != ModulesNone {
+	if options.stackScoped() && mode != ModulesNone {
 		log.Printf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", mode)
 	}
 	var resolved []adapters.Adapter

@@ -153,7 +153,7 @@ func TestGooglePlan(t *testing.T) {
 			if err := flags.Parse(tc.flags); err != nil {
 				t.Fatal(err)
 			}
-			options.Layout, options.Projects = tc.layout, tc.projects
+			options.Layout, options.ProviderScope.(*googleScopes).projects = tc.layout, tc.projects
 			p, err := planner(context.Background(), options)
 			if tc.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.err) {

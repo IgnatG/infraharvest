@@ -45,7 +45,7 @@ func checkSelectionOptions(options Options) error {
 		return nil
 	case options.Selection != "" && options.All:
 		return errors.New("use either --selection or --all")
-	case options.Selection == "" && !options.All && len(options.CloudFormationStacks) == 0:
+	case options.Selection == "" && !options.All && !options.stackScoped():
 		return selection.ErrNoSelection
 	}
 	return nil
@@ -319,8 +319,9 @@ func backendStateSource(backend *config.Backend, getenv func(string) string) (st
 // excludeManaged records in defaults the listed resources Terraform
 // already manages, according to the state in --managed-state (see
 // managed.Load), so that an import leaves them out unless a selection file
-// says otherwise. S3 state is read with --profile unless its source names a
-// profile.
+// says otherwise. Each source is read with the settings of the provider's
+// scope, such as AWS's --profile for state in S3 (see
+// harvest.ManagedStateScope).
 func excludeManaged(ctx context.Context, run *Run, options Options, listed map[string][]harvest.Resource, defaults *selection.Sources, importID func(harvest.Resource) (string, bool)) error {
 	if len(options.ManagedState) == 0 {
 		return nil
@@ -328,14 +329,14 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	resolved := make([]string, 0, len(options.ManagedState))
 	for _, s := range options.ManagedState {
 		if s != backendState {
-			resolved = append(resolved, withProfile(s, options.Profile))
+			resolved = append(resolved, options.managedStateSource(s))
 			continue
 		}
 		source, err := backendStateSource(run.backend, os.Getenv)
 		if err != nil {
 			return err
 		}
-		resolved = append(resolved, withProfile(source, options.Profile))
+		resolved = append(resolved, options.managedStateSource(source))
 	}
 	// Every account and region of the command reads the same state.
 	state, err := run.shared.managedState(ctx, resolved, options.ManagedStores)
@@ -466,26 +467,6 @@ func stateLocation(where string) string {
 		return abs
 	}
 	return filepath.Clean(where)
-}
-
-// withProfile adds profile, the import's --profile, to an s3:// source that
-// names none, which would otherwise read with the default credential chain:
-// the profile the import was told to use. Other sources stay as they are.
-func withProfile(source, profile string) string {
-	if !strings.HasPrefix(source, "s3://") || profile == "" || profile == "default" {
-		return source
-	}
-	u, err := url.Parse(source)
-	if err != nil {
-		return source // managed.Load reports it.
-	}
-	query := u.Query()
-	if query.Get("profile") != "" {
-		return source
-	}
-	query.Set("profile", profile)
-	u.RawQuery = query.Encode()
-	return u.String()
 }
 
 // discoveryScope names where provider lists, as the roots are laid out:

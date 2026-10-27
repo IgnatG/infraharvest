@@ -52,7 +52,7 @@ func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapter
 // which a module call would hide: no parameter would become a variable,
 // and no output be written.
 func modulesMode(options Options) string {
-	if len(options.CloudFormationStacks) > 0 && !options.ModulesChosen {
+	if options.stackScoped() && !options.ModulesChosen {
 		return ModulesNone
 	}
 	return options.Modules

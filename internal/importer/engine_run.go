@@ -288,7 +288,7 @@ func (r *Run) finish(err error) error {
 		return couldNotRun(err, writeErr)
 	}
 	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
-	logStacks(r.report.CloudFormationStacks)
+	r.report.CloudFormationStacks.Log()
 	if r.options.Format == FormatJSON {
 		if writeErr := r.report.WriteJSON(r.stdout()); writeErr != nil {
 			return couldNotRun(err, writeErr)

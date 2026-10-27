@@ -41,12 +41,14 @@ func init() {
 	})
 }
 
-// googleScopes are the Google command's flags that aren't options: what
-// widens the import to the projects of an organization or folders, and
-// whether to generate for google-beta; and the command's flags, of which
-// check reads those the profile says it needs one of.
+// googleScopes are the Google command's own flags besides --regions, its
+// harvest scope (see importer.Options.ProviderScope): the projects to
+// import, what widens the import to the projects of an organization or
+// folders, and whether to generate for google-beta; and the command's
+// flags, of which check reads those the profile says it needs one of.
 type googleScopes struct {
 	flags        *pflag.FlagSet
+	projects     []string
 	organization string
 	folders      []string
 	beta         bool
@@ -55,8 +57,9 @@ type googleScopes struct {
 // googleFlags adds the Google command's own flags.
 func googleFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
 	scopes := &googleScopes{flags: flags}
+	options.ProviderScope = scopes
 	flags.StringSliceVar(&options.Regions, "regions", []string{"global"}, "regions to import, each into roots of its own, such as global,europe-west1; global holds the resources that belong to no region")
-	flags.StringSliceVar(&options.Projects, "projects", nil, "projects to import")
+	flags.StringSliceVar(&scopes.projects, "projects", nil, "projects to import")
 	flags.StringVar(&scopes.organization, "organization", "", "import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants)")
 	flags.StringSliceVar(&scopes.folders, "folders", nil, "import every active project of these folder IDs, in their subfolders too")
 	flags.BoolVar(&scopes.beta, "beta", false, "generate configuration for the google-beta provider instead of google, for resources and arguments only it has")
@@ -70,7 +73,7 @@ func (s *googleScopes) check(options importer.Options) error {
 	if missing := unsetNeeds(s.flags, (&google.Provider{}).Profile().Scope.Needs); missing != "" {
 		return errors.New("say which projects to import: " + missing)
 	}
-	return checkProjectsApart(options.Layout, options.Projects)
+	return checkProjectsApart(options.Layout, s.projects)
 }
 
 // unsetNeeds returns, as "--a, --b or --c", the flags of needs if flags
@@ -113,7 +116,7 @@ func checkProjectsApart(pattern string, projects []string) error {
 // plan imports each project of --projects, --organization and --folders,
 // region by region.
 func (s *googleScopes) plan(ctx context.Context, options importer.Options) (plan, error) {
-	projects := options.Projects
+	projects := s.projects
 	if s.organization != "" || len(s.folders) > 0 {
 		found, err := google.Projects(ctx, s.organization, s.folders)
 		if err != nil {

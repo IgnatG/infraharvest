@@ -28,6 +28,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 // cfnStackWait is how long the test waits for a stack to update or be
@@ -128,10 +129,10 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 		t.Errorf("app before Retain: safe %v, blockers %v", app.SafeToDelete, app.Blockers)
 	}
 	// Acknowledged, the custom resource still needs Retain.
-	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) == 0 || !strings.Contains(strings.Join(app.Blockers, "\n"), "Seed (Custom::Seed) isn't retained") {
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != cfn.StackAcknowledged || len(seed.Retain) == 0 || !strings.Contains(strings.Join(app.Blockers, "\n"), "Seed (Custom::Seed) isn't retained") {
 		t.Errorf("Seed before Retain: %+v, blockers %v", seed, app.Blockers)
 	}
-	if !old.Deleted || len(old.Resources) != 1 || old.Resources[0].Outcome != report.StackImported {
+	if !old.Deleted || len(old.Resources) != 1 || old.Resources[0].Outcome != cfn.StackImported {
 		t.Errorf("old: %+v", old)
 	}
 	checkCFNOutcomes(t, coverage, names.app)
@@ -165,7 +166,7 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if !app.SafeToDelete {
 		t.Errorf("app after Retain isn't safe to delete: %v", app.Blockers)
 	}
-	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) > 0 {
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != cfn.StackAcknowledged || len(seed.Retain) > 0 {
 		t.Errorf("Seed after Retain: %+v", seed)
 	}
 	checkCFNOutcomes(t, coverage, names.app)
@@ -241,7 +242,7 @@ func checkSeedNotDeleted(ctx context.Context, t *testing.T, config aws.Config, f
 }
 
 // cfnResource returns the resource logicalID of stack.
-func cfnResource(t *testing.T, stack report.CloudFormationStack, logicalID string) report.CloudFormationResource {
+func cfnResource(t *testing.T, stack cfn.Stack, logicalID string) cfn.Resource {
 	t.Helper()
 	for _, r := range stack.Resources {
 		if r.LogicalID == logicalID {
@@ -249,7 +250,7 @@ func cfnResource(t *testing.T, stack report.CloudFormationStack, logicalID strin
 		}
 	}
 	t.Fatalf("stack %s has no resource %s", stack.Name, logicalID)
-	return report.CloudFormationResource{}
+	return cfn.Resource{}
 }
 
 // cfnSandboxNames are the names testdata/sandbox/aws-cfn gives what it
@@ -276,7 +277,7 @@ func cfnSandboxNamesFor(suffix, account string) cfnSandboxNames {
 
 // cfnStack returns the stack of coverage whose name is name, or starts
 // with it where it ends with a dash, as a nested stack's does.
-func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFormationStack {
+func cfnStack(t *testing.T, coverage report.Report, name string) cfn.Stack {
 	t.Helper()
 	for _, s := range coverage.CloudFormationStacks {
 		if s.Name == name || (strings.HasSuffix(name, "-") && strings.HasPrefix(s.Name, name)) {
@@ -284,7 +285,7 @@ func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFor
 		}
 	}
 	t.Fatalf("no stack %s in the report: %+v", name, coverage.CloudFormationStacks)
-	return report.CloudFormationStack{}
+	return cfn.Stack{}
 }
 
 // checkCFNOutcomes checks what became of the resources of app and of its
@@ -293,9 +294,9 @@ func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFor
 func checkCFNOutcomes(t *testing.T, coverage report.Report, app string) {
 	t.Helper()
 	want := map[string]string{
-		"Assets": report.StackImported, "Jobs": report.StackImported, "JobsPolicy": report.StackImported,
-		"Role": report.StackImported, "SeedFunction": report.StackImported, "Alerts": report.StackImported,
-		"Network": report.StackNested,
+		"Assets": cfn.StackImported, "Jobs": cfn.StackImported, "JobsPolicy": cfn.StackImported,
+		"Role": cfn.StackImported, "SeedFunction": cfn.StackImported, "Alerts": cfn.StackImported,
+		"Network": cfn.StackNested,
 	}
 	for _, s := range coverage.CloudFormationStacks {
 		if s.Name != app && s.Parent == "" {
