@@ -26,7 +26,7 @@ import (
 var driftSettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue"}
 
 func newDriftCmd() *cobra.Command {
-	options := importer.DriftOptions{Provider: providers.New, Names: providers.Names()}
+	options := importer.DriftOptions{Provider: providers.New, Names: providers.Names(), Backends: providers.Backends()}
 	var configFile string
 	cmd := &cobra.Command{
 		Use:   "drift [output-directory]",

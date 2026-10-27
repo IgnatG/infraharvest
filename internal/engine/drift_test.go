@@ -228,7 +228,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	result, err := Drift(context.Background(), root, dir, staging, func(d string) (DriftTerraform, error) {
 		stagedDir = d
 		return copied, nil
-	}, DriftOptions{StateOnly: map[string][]string{"aws_s3_bucket": {"force_destroy"}}})
+	}, DriftOptions{StateOnly: map[string][]string{"aws_s3_bucket": {"force_destroy"}}, Backends: cloudBackends})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,6 +435,10 @@ func TestDriftHoldsTheRootLock(t *testing.T) {
 	}
 }
 
+// cloudBackends are the backends the clouds of the providers infraharvest
+// is built with keep state in, as the drift command gives them.
+var cloudBackends = []string{"s3", "gcs", "azurerm"}
+
 func TestDriftRefusesRemoteBackends(t *testing.T) {
 	t.Parallel()
 	for name, backend := range map[string]string{
@@ -447,7 +451,7 @@ func TestDriftRefusesRemoteBackends(t *testing.T) {
 			dir, staging := driftRoot(t, map[string]string{"backend.tf": backend})
 			var calls []string
 			root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
-			_, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return root, nil }, DriftOptions{})
+			_, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return root, nil }, DriftOptions{Backends: cloudBackends})
 			var unsupported *UnsupportedBackendError
 			if !errors.As(err, &unsupported) || unsupported.Backend != name {
 				t.Fatalf("got %v, want the %s backend refused", err, name)
@@ -459,6 +463,44 @@ func TestDriftRefusesRemoteBackends(t *testing.T) {
 				t.Errorf("Terraform ran: %v", calls)
 			}
 		})
+	}
+}
+
+// The backends Drift reads state from are those its options name, and
+// local state: the s3 backend of a build without it is refused, and the
+// error says what is supported.
+func TestDriftReadsTheBackendsItIsGiven(t *testing.T) {
+	t.Parallel()
+	s3 := "terraform {\n  backend \"s3\" {\n    bucket = \"state\"\n  }\n}\n"
+	for _, c := range []struct {
+		backend  string
+		backends []string
+		want     string // the backend, or the end of the error that refuses it
+	}{
+		{s3, []string{"s3"}, "s3"},
+		{"", nil, "local"},
+		{s3, []string{"gcs"}, "drift supports the gcs backend and local state"},
+		{s3, nil, "drift supports local state"},
+	} {
+		files := map[string]string{}
+		if c.backend != "" {
+			files["backend.tf"] = c.backend
+		}
+		dir, _ := driftRoot(t, files)
+		parsed, err := configFiles(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := rootBackend(parsed, c.backends)
+		var unsupported *UnsupportedBackendError
+		if errors.As(err, &unsupported) {
+			got = err.Error()
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasSuffix(got, c.want) {
+			t.Errorf("%q with %v: got %q, want %q", c.backend, c.backends, got, c.want)
+		}
 	}
 }
 

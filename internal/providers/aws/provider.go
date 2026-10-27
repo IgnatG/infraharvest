@@ -99,9 +99,10 @@ func (*Provider) Name() string {
 // services of a region may list at once, as each has its own lister and
 // they share only the SDK configuration, which is safe to share;
 // default_tags applies tags to every resource, and keys starting with
-// aws: are AWS's own; the network's services share network.tf; and a
-// root that environments share reads the account and the region from the
-// provider, which plans each environment in its own.
+// aws: are AWS's own; the network's services share network.tf; a root
+// that environments share reads the account and the region from the
+// provider, which plans each environment in its own; and the s3 backend
+// keeps state in AWS.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: providerName,
@@ -136,6 +137,7 @@ func (*Provider) Profile() harvest.Profile {
 			RegionExpr:      "data.aws_region.current.region",
 			EnvironmentData: environmentData,
 		},
+		Backend: &harvest.Backend{Type: "s3", Settings: []string{"bucket", "encrypt", "key", "kms_key_id", "region", "use_lockfile"}},
 	}
 }
 

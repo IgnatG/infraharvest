@@ -502,17 +502,26 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 			return checkSettings(body, providerSettings[providerAddress(source)], "the provider "+p.Name)
 		})
 	}
-	for _, b := range []config.Backend{
-		{S3: &config.S3{Bucket: "b", Region: "eu-west-2", KeyPrefix: "p", KMSKeyID: "k"}},
-		{AzureRM: &config.AzureRM{ResourceGroupName: "g", StorageAccountName: "a", ContainerName: "c", KeyPrefix: "p"}},
-		{GCS: &config.GCS{Bucket: "b", Prefix: "p"}},
+	// The backend of each cloud whose provider is built in.
+	backends := newDriftAllowed(compiled).backends
+	for provider, b := range map[string]config.Backend{
+		"aws":    {S3: &config.S3{Bucket: "b", Region: "eu-west-2", KeyPrefix: "p", KMSKeyID: "k"}},
+		"azure":  {AzureRM: &config.AzureRM{ResourceGroupName: "g", StorageAccountName: "a", ContainerName: "c", KeyPrefix: "p"}},
+		"google": {GCS: &config.GCS{Bucket: "b", Prefix: "p"}},
 	} {
+		if !builtIn(provider) {
+			continue
+		}
 		checkGenerated(t, b.File("aws/1/eu-west-2"), "terraform", nil, func(body hcl.Body) error {
 			content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "backend", LabelNames: []string{"type"}}}})
 			if diags.HasErrors() || len(content.Blocks) != 1 {
 				return fmt.Errorf("no backend: %v", diags)
 			}
-			return checkSettings(content.Blocks[0].Body, backendSettings[content.Blocks[0].Labels[0]], "the backend")
+			s, ok := backends[content.Blocks[0].Labels[0]]
+			if !ok {
+				return fmt.Errorf("%s's backend %s isn't allowed", provider, content.Blocks[0].Labels[0])
+			}
+			return checkSettings(content.Blocks[0].Body, s, "the backend")
 		})
 	}
 }

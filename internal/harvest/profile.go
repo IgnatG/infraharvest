@@ -69,6 +69,21 @@ type Profile struct {
 	// Merge is what the root the environments of a stack share reads of
 	// each environment's account and region.
 	Merge Merge
+	// Backend is the Terraform backend that keeps state in the provider's
+	// cloud, which roots infraharvest generates may have (see
+	// config.Backend), such as AWS's s3; nil for none. Drift reads the
+	// state of the backends of the providers infraharvest is built with.
+	Backend *Backend
+}
+
+// Backend is a Terraform backend that keeps state in a cloud.
+type Backend struct {
+	// Type is the backend's type, such as s3.
+	Type string
+	// Settings are the settings infraharvest configures it with, in its
+	// block and in an environment's backend settings, such as bucket and
+	// key: what the MCP server's drift tools run it with.
+	Settings []string
 }
 
 // Scope is what one import of a provider covers, which the user names it

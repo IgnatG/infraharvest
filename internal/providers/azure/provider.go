@@ -402,8 +402,9 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 // subscription's limiter, is safe to share; azurerm resources take their
 // tags in the tags attribute, with no provider block to apply them to
 // all, and Azure reserves the hidden- prefix for its own; Resource
-// Graph's types go in files by their family; and a root that
-// environments share reads the subscription from the provider.
+// Graph's types go in files by their family; a root that environments
+// share reads the subscription from the provider; and the azurerm backend
+// keeps state in Azure.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: commandName,
@@ -446,6 +447,7 @@ func (*Provider) Profile() harvest.Profile {
 				return data
 			},
 		},
+		Backend: &harvest.Backend{Type: "azurerm", Settings: []string{"container_name", "key", "resource_group_name", "storage_account_name"}},
 	}
 }
 
