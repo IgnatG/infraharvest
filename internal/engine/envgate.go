@@ -733,7 +733,7 @@ func WriteMergedMoves(dir string, moved []Move, removed []Removal) (Check, error
 // their addresses in the merged root (see notInCloudSection).
 func WriteMergedNotInCloud(dir string, gone map[string][]Import) error {
 	var b strings.Builder
-	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `vars/<env>/imports.tfvars` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
+	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `" + importVarsPath("<env>") + "` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
 	for _, env := range slices.Sorted(maps.Keys(gone)) {
 		for _, g := range gone[env] {
 			fmt.Fprintf(&b, "- `%s.%s` (`%s`), of %s\n", g.Type, g.Name, g.ID, env)
