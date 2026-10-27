@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // outputIndex matches an output with an index into it: public_subnets[0].
@@ -56,27 +58,13 @@ func outputLists(trials []*trial) map[string]int {
 	return lists
 }
 
-// subnetMapping is a block of a resource type that only names subnets,
-// which an argument of the type takes as a list instead.
-type subnetMapping struct {
-	block, attribute, argument string
-}
-
-// subnetMappings are, by resource type, the blocks that become the
-// argument when they name every subnet of a module's output, as a load
-// balancer's subnet_mapping blocks become subnets.
-var subnetMappings = map[string]subnetMapping{
-	"aws_lb":  {"subnet_mapping", "subnet_id", "subnets"},
-	"aws_alb": {"subnet_mapping", "subnet_id", "subnets"},
-}
-
 // collapseOutputLists replaces, in generated.tf, each list of every
 // element of a list output of lists (see outputLists), such as
 // [module.vpc.public_subnets[1], module.vpc.public_subnets[0]], with the
 // output: module.vpc.public_subnets. A list in another order is replaced
 // only where the argument is a set, as the schemas, which it gets once it
 // needs them, say. Blocks that only name the output's subnets (see
-// subnetMappings) become the argument that takes them. It reports
+// catalogue.BlocksAsList) become the argument that takes them. It reports
 // whether it changed anything.
 func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
@@ -109,7 +97,7 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 		if err != nil {
 			return false, err
 		}
-		if m, ok := subnetMappings[resourceType]; ok && collapseMappings(b.Body, blocks[i].Body(), m, lists) {
+		if m, ok := catalogue.ForType(resourceType).BlocksAsList(resourceType); ok && collapseMappings(b.Body, blocks[i].Body(), m, lists) {
 			c = true
 		}
 		changed = changed || c
@@ -174,18 +162,18 @@ func collapseIn(syntax *hclsyntax.Body, body *hclwrite.Body, resourceType string
 // collapseMappings replaces body's blocks of m, if each only sets m's
 // attribute to an element of one list output and together they name all
 // of it, with m's argument set to the output.
-func collapseMappings(syntax *hclsyntax.Body, body *hclwrite.Body, m subnetMapping, lists map[string]int) bool {
-	if _, ok := syntax.Attributes[m.argument]; ok {
+func collapseMappings(syntax *hclsyntax.Body, body *hclwrite.Body, m catalogue.BlocksAsList, lists map[string]int) bool {
+	if _, ok := syntax.Attributes[m.Argument]; ok {
 		return false
 	}
 	var elems []hcl.Traversal
 	var mappings []*hclwrite.Block
 	blocks := body.Blocks()
 	for i, b := range syntax.Blocks {
-		if b.Type != m.block {
+		if b.Type != m.Block {
 			continue
 		}
-		attr, ok := b.Body.Attributes[m.attribute]
+		attr, ok := b.Body.Attributes[m.Attribute]
 		if !ok || len(b.Body.Attributes) != 1 || len(b.Body.Blocks) != 0 || i >= len(blocks) {
 			return false
 		}
@@ -203,7 +191,7 @@ func collapseMappings(syntax *hclsyntax.Body, body *hclwrite.Body, m subnetMappi
 	for _, b := range mappings {
 		body.RemoveBlock(b)
 	}
-	body.SetAttributeTraversal(m.argument, output)
+	body.SetAttributeTraversal(m.Argument, output)
 	return true
 }
 

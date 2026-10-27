@@ -7,6 +7,13 @@
 provider: azapi
 service: resource_graph
 types:
+  "*":
+    # An azapi resource's ID ends with ?api-version= and the newest stable
+    # API version of its type when it was imported, or none (see
+    # retryFallbacks in internal/engine), which changes as Azure releases
+    # new ones: the resource stays the same, so it keeps its root and its
+    # label, isn't added again by --incremental, and needs no moved block.
+    unstable_id_suffix: "?api-version="
   azapi_resource:
     # The API version is the newest stable one of the type, which
     # resource_graph records as api_version from Resource Manager's
