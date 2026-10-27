@@ -645,7 +645,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	}
 	return &rootFiles{
 		files: map[string][]byte{
-			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engine.MinimumVersion), p),
+			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engine.MinimumVersion()), p),
 			engine.ProvidersFileName: providers,
 		},
 		engineVersion: engineVersion.String(),

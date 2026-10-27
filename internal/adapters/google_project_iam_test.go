@@ -32,11 +32,11 @@ resource "google_project_iam_member" "viewer_ops" {
 
 func TestGoogleProjectIAMMapsTheGrants(t *testing.T) {
 	t.Parallel()
-	call, err := GoogleProjectIAM.Map(cluster(t, googleProjectIAMCluster))
+	call, err := googleProjectIAM.Map(cluster(t, googleProjectIAMCluster))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleProjectIAM, call)
+	got := render(t, googleProjectIAM, call)
 	for _, want := range []string{
 		`projects = ["acme"]`,
 		`bindings = { "roles/viewer" = ["group:ops@example.com", "user:alice@example.com"] }`,
@@ -91,7 +91,7 @@ resource "google_project_iam_member" "auditor_alice"`,
 			if src == googleProjectIAMCluster {
 				t.Fatal("the test doesn't change the source")
 			}
-			_, err := GoogleProjectIAM.Map(cluster(t, src))
+			_, err := googleProjectIAM.Map(cluster(t, src))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("got %v, want a decline with %q", err, tc.reason)
 			}
@@ -128,7 +128,7 @@ resource "google_project_iam_member" "c" {
 		{c.Members[0], "", false},
 		{c.Members[1], "local.project", true},
 	} {
-		if key, ok := GoogleProjectIAM.Group(tc.r); key != tc.key || ok != tc.want {
+		if key, ok := googleProjectIAM.Group(tc.r); key != tc.key || ok != tc.want {
 			t.Errorf("%s: got %q, %v", tc.r.Address(), key, ok)
 		}
 	}

@@ -345,10 +345,10 @@ func TestAWSOptionsLayout(t *testing.T) {
 				continue
 			}
 			switch {
-			case m.Source == adapters.S3Bucket.Source:
+			case m.Source == adapters.S3Bucket().Source:
 				buckets++
-				if d.Path != regional+"s3" || m.Version != adapters.S3Bucket.Version {
-					t.Errorf("%s calls %s %s, want it called at %s from %ss3", d.Path, m.Source, m.Version, adapters.S3Bucket.Version, regional)
+				if d.Path != regional+"s3" || m.Version != adapters.S3Bucket().Version {
+					t.Errorf("%s calls %s %s, want it called at %s from %ss3", d.Path, m.Source, m.Version, adapters.S3Bucket().Version, regional)
 				}
 			case strings.HasPrefix(path.Join(d.Path, m.Source), engine.ModulesDirName+"/iam_role_"):
 				roles++
@@ -360,18 +360,18 @@ func TestAWSOptionsLayout(t *testing.T) {
 		}
 	}
 	if buckets != 2 || roles != 2 {
-		t.Errorf("%d calls of %s and %d of a generated IAM role module, want 2 of each", buckets, adapters.S3Bucket.Source, roles)
+		t.Errorf("%d calls of %s and %d of a generated IAM role module, want 2 of each", buckets, adapters.S3Bucket().Source, roles)
 	}
 	if modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "iam_role_*", "main.tf")); err != nil || len(modules) != 1 {
 		t.Errorf("generated IAM role modules: %v (%v), want one", modules, err)
 	}
 	// The report names a newer release of the module than the one called.
-	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket.Source)
+	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
 	if err != nil {
-		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket.Source, err)
+		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket().Source, err)
 	}
-	if newest := releases[0].Version.Original(); newest != adapters.S3Bucket.Version {
-		newer := report.ModuleVersion{Source: adapters.S3Bucket.Source, Version: adapters.S3Bucket.Version, Latest: newest}
+	if newest := releases[0].Version.Original(); newest != adapters.S3Bucket().Version {
+		newer := report.ModuleVersion{Source: adapters.S3Bucket().Source, Version: adapters.S3Bucket().Version, Latest: newest}
 		if !slices.Contains(r.Modules, newer) {
 			t.Errorf("the report's modules %+v don't name %s %s, newer than %s", r.Modules, newer.Source, newest, newer.Version)
 		}
@@ -441,9 +441,9 @@ func TestAWSOptionsModules(t *testing.T) {
 		t.Errorf("--modules=local: the roots import %v, want the roles and the buckets", imported)
 	}
 
-	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket.Source)
+	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
 	if err != nil {
-		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket.Source, err)
+		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket().Source, err)
 	}
 	newest := releases[0].Version.Original()
 	latest, _, logged := e.importAWS(t, report.ExitOK, "--services=s3", "--modules=latest-untested")
@@ -458,7 +458,7 @@ func TestAWSOptionsModules(t *testing.T) {
 	clusters := 0
 	for _, d := range r.Directories {
 		for _, m := range d.Modules {
-			if m.Source != adapters.S3Bucket.Source {
+			if m.Source != adapters.S3Bucket().Source {
 				continue
 			}
 			clusters++
@@ -474,10 +474,10 @@ func TestAWSOptionsModules(t *testing.T) {
 		}
 	}
 	if clusters != 2 {
-		t.Errorf("--modules=latest-untested: %d buckets tried as calls of %s, want 2", clusters, adapters.S3Bucket.Source)
+		t.Errorf("--modules=latest-untested: %d buckets tried as calls of %s, want 2", clusters, adapters.S3Bucket().Source)
 	}
 	for _, m := range r.Modules {
-		if m.Source == adapters.S3Bucket.Source {
+		if m.Source == adapters.S3Bucket().Source {
 			t.Errorf("--modules=latest-untested: the report names %s %s, newer than the release called", m.Source, m.Latest)
 		}
 	}

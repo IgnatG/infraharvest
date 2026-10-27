@@ -60,14 +60,14 @@ func TestGoogleRoundTrip(t *testing.T) {
 	// The network, its subnetwork and its firewall rule in one call of the
 	// network module, in global's root.
 	checkGoogleModules(t, coverage, map[string][]string{
-		adapters.GoogleServiceAccount.Source: {"google_service_account", "google_project_iam_member"},
-		adapters.GoogleProjectIAM.Source:     {"google_project_iam_member"},
-		adapters.GoogleNetwork.Source:        {"google_compute_network", "google_compute_subnetwork", "google_compute_firewall"},
+		adapters.GoogleServiceAccount().Source: {"google_service_account", "google_project_iam_member"},
+		adapters.GoogleProjectIAM().Source:     {"google_project_iam_member"},
+		adapters.GoogleNetwork().Source:        {"google_compute_network", "google_compute_subnetwork", "google_compute_firewall"},
 	})
 	// The grants to people and the group in one call; the service
 	// account's stays with the account.
-	if got := moduleResources(coverage, adapters.GoogleProjectIAM.Source); len(got) != 3 {
-		t.Errorf("%s: %v, want the 3 grants to people and the group", adapters.GoogleProjectIAM.Source, got)
+	if got := moduleResources(coverage, adapters.GoogleProjectIAM().Source); len(got) != 3 {
+		t.Errorf("%s: %v, want the 3 grants to people and the group", adapters.GoogleProjectIAM().Source, got)
 	}
 	for _, id := range []string{"projects/" + googleProject + "/global/networks/default", "projects/" + googleProject + "/global/firewalls/default-allow-ssh"} {
 		if !slices.ContainsFunc(coverage.Excluded, func(e report.Excluded) bool { return e.ID == id && e.Reason != "" }) {
@@ -231,7 +231,7 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 
 	// Only a root with a call of the network module, which creates the
 	// network through google-beta, requires google-beta.
-	beta := len(moduleResources(coverage, adapters.GoogleNetwork.Source)) > 0
+	beta := len(moduleResources(coverage, adapters.GoogleNetwork().Source)) > 0
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, out) {
 		if !beta && strings.Contains(readFile(t, filepath.Join(dir, "versions.tf")), "google-beta") {
@@ -393,8 +393,8 @@ func checkGoogleModules(t *testing.T, coverage report.Report, want map[string][]
 			}
 		}
 	}
-	want[adapters.GoogleStorageBucket.Source] = []string{"google_storage_bucket"}
-	want[adapters.GoogleKMS.Source] = []string{"google_kms_key_ring", "google_kms_crypto_key"}
+	want[adapters.GoogleStorageBucket().Source] = []string{"google_storage_bucket"}
+	want[adapters.GoogleKMS().Source] = []string{"google_kms_key_ring", "google_kms_crypto_key"}
 	for _, source := range slices.Sorted(maps.Keys(want)) {
 		for _, typ := range want[source] {
 			if !slices.ContainsFunc(members[source], func(address string) bool { return strings.HasPrefix(address, typ+".") }) {

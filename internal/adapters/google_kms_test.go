@@ -40,11 +40,11 @@ resource "google_kms_crypto_key" "data" {
 
 func TestGoogleKMSMapsTheRingsKeys(t *testing.T) {
 	t.Parallel()
-	call, err := GoogleKMS.Map(cluster(t, googleKMSCluster))
+	call, err := googleKMS.Map(cluster(t, googleKMSCluster))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleKMS, call)
+	got := render(t, googleKMS, call)
 	for _, want := range []string{
 		`keyring = "app"`,
 		`project_id = "acme"`,
@@ -72,11 +72,11 @@ func TestGoogleKMSMapsTheRingsKeys(t *testing.T) {
 func TestGoogleKMSKeepsKeysUnrotated(t *testing.T) {
 	t.Parallel()
 	src := strings.ReplaceAll(googleKMSCluster, `  rotation_period = "2592000s"`+"\n", "")
-	call, err := GoogleKMS.Map(cluster(t, src))
+	call, err := googleKMS.Map(cluster(t, src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := render(t, GoogleKMS, call); !strings.Contains(got, "key_rotation_period = null") {
+	if got := render(t, googleKMS, call); !strings.Contains(got, "key_rotation_period = null") {
 		t.Errorf("call:\n%s", got)
 	}
 }
@@ -84,7 +84,7 @@ func TestGoogleKMSKeepsKeysUnrotated(t *testing.T) {
 func TestGoogleKMSDeclinesKeysThatDiffer(t *testing.T) {
 	t.Parallel()
 	src := strings.Replace(googleKMSCluster, `rotation_period = "2592000s"`, `rotation_period = "86400s"`, 1)
-	_, err := GoogleKMS.Map(cluster(t, src))
+	_, err := googleKMS.Map(cluster(t, src))
 	if !IsDecline(err) || !strings.Contains(err.Error(), "have different settings") {
 		t.Errorf("got %v", err)
 	}

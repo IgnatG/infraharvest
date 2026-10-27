@@ -19,10 +19,17 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// MinimumVersion is the oldest Terraform release generated configuration
+// minimumVersion is the oldest Terraform release generated configuration
 // works with: import blocks came with 1.5. OpenTofu has had them from its
 // first release, 1.6.
-var MinimumVersion = version.Must(version.NewVersion("1.5.0"))
+const minimumVersion = "1.5.0"
+
+// MinimumVersion returns the oldest Terraform release generated
+// configuration works with (see minimumVersion), a value of the caller's
+// own.
+func MinimumVersion() *version.Version {
+	return version.Must(version.NewVersion(minimumVersion))
+}
 
 // features are the Terraform releases that brought what configuration may
 // use beyond MinimumVersion, each with how it shows in a file's blocks,
@@ -132,7 +139,7 @@ func requireMinimumVersion(dir string) error {
 // MinimumVersion, or the release that brought a feature they use, or
 // OpenTofu's where later (see features).
 func featuresNeed(files []*hclFile) *version.Version {
-	need := MinimumVersion
+	need := MinimumVersion()
 	for _, f := range files {
 		for _, b := range f.syntax.Blocks {
 			for _, feature := range features {

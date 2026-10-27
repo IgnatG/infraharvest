@@ -149,11 +149,11 @@ resource "aws_s3_bucket_versioning" "artifacts" {
   }
 }
 `)
-	call, err := S3Bucket.Map(c)
+	call, err := awsS3Bucket.Map(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, S3Bucket, call)
+	got := called(t, awsS3Bucket, call)
 	for _, want := range []string{
 		`bucket              = "artifacts"`,
 		"tags                = local.tags",
@@ -195,7 +195,7 @@ resource "aws_s3_bucket_versioning" "artifacts" {
 // allowed, another object ownership, MFA delete on.
 func TestS3BucketPassesOtherThanModuleDefaults(t *testing.T) {
 	t.Parallel()
-	call, err := S3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "site" {
+	call, err := awsS3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "site" {
   bucket              = "site"
   force_destroy       = true
   object_lock_enabled = true
@@ -222,7 +222,7 @@ resource "aws_s3_bucket_versioning" "site" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := called(t, S3Bucket, call)
+	got := called(t, awsS3Bucket, call)
 	for _, want := range []string{"force_destroy = true", "object_lock_enabled = true", `object_ownership = "ObjectWriter"`, "block_public_policy = false", "ignore_public_acls = false", "restrict_public_buckets = false", `mfa_delete = "Enabled"`} {
 		if !strings.Contains(squash(got), want) {
 			t.Errorf("call misses %q:\n%s", want, got)
@@ -236,14 +236,14 @@ resource "aws_s3_bucket_versioning" "site" {
 // Without a public access block, the module must not create one.
 func TestS3BucketTurnsOffThePublicAccessBlock(t *testing.T) {
 	t.Parallel()
-	call, err := S3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "logs" {
+	call, err := awsS3Bucket.Map(cluster(t, `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
 }
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := called(t, S3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
+	if got := called(t, awsS3Bucket, call); !strings.Contains(got, "attach_public_policy = false") {
 		t.Errorf("public access block not turned off:\n%s", got)
 	}
 }
@@ -303,7 +303,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "b" {
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := S3Bucket.Map(cluster(t, src))
+			_, err := awsS3Bucket.Map(cluster(t, src))
 			if !IsDecline(err) {
 				t.Errorf("want a decline, got %v", err)
 			}

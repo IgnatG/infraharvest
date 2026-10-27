@@ -222,7 +222,7 @@ func TestCheckResources(t *testing.T) {
 		},
 		{
 			name:    "type changed",
-			targets: adapters.AzureUserAssignedIdentity.Targets,
+			targets: adapters.AzureUserAssignedIdentity().Targets,
 			iface:   azapi,
 			want: []string{
 				"no resource azurerm_federated_identity_credential.this, which the adapter maps onto (the module has azapi_resource.this)",

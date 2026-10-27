@@ -218,8 +218,8 @@ const queueCall = `module "jobs" {
 `
 
 var iamRoleCall = `module "deploy" {
-  source  = "` + adapters.IAMRole.Source + `"
-  version = "` + adapters.IAMRole.Version + `"
+  source  = "` + adapters.IAMRole().Source + `"
+  version = "` + adapters.IAMRole().Version + `"
 
   max_session_duration = 7200
   name                 = "deploy"
@@ -499,7 +499,7 @@ module "teams" {
 			change: moduleDrift("module.deploy.aws_iam_role.this[0]", "aws_iam_role", "tags.Env", "dev"),
 			want:   strings.Replace(iamRoleCall, `Env = "prod"`, `Env = "dev"`, 1),
 			source: "main.tf",
-			module: adapters.IAMRole.Source + " " + adapters.IAMRole.Version + ": aws_iam_role.this.tags from var.tags",
+			module: adapters.IAMRole().Source + " " + adapters.IAMRole().Version + ": aws_iam_role.this.tags from var.tags",
 		},
 		{
 			name:     "a curated module's for_each over an input",
@@ -547,11 +547,11 @@ module "teams" {
 		},
 		{
 			name:   "a curated module at a newer release than the tested one",
-			file:   strings.Replace(iamRoleCall, adapters.IAMRole.Version, "99.0.0", 1),
+			file:   strings.Replace(iamRoleCall, adapters.IAMRole().Version, "99.0.0", 1),
 			after:  map[string]any{"tags": map[string]any{"Env": "dev"}},
 			change: moduleDrift("module.deploy.aws_iam_role.this[0]", "aws_iam_role", "tags.Env", "dev"),
-			want:   strings.Replace(strings.Replace(iamRoleCall, adapters.IAMRole.Version, "99.0.0", 1), `Env = "prod"`, `Env = "dev"`, 1),
-			module: adapters.IAMRole.Source + " " + adapters.IAMRole.Version + ": aws_iam_role.this.tags from var.tags",
+			want:   strings.Replace(strings.Replace(iamRoleCall, adapters.IAMRole().Version, "99.0.0", 1), `Env = "prod"`, `Env = "dev"`, 1),
+			module: adapters.IAMRole().Source + " " + adapters.IAMRole().Version + ": aws_iam_role.this.tags from var.tags",
 		},
 		{
 			name:   "a curated module's attribute without an Inverse entry",
@@ -762,7 +762,7 @@ func TestDriftModuleCallEditLeaks(t *testing.T) {
 // call calls as generation writes it, and returns a copy of it.
 func TestCuratedAdapter(t *testing.T) {
 	t.Parallel()
-	role := adapters.IAMRole
+	role := adapters.IAMRole()
 	own := adapters.Adapter{Source: "git::https://example.com/modules.git//role", Anchor: "aws_iam_role"}
 	run := []adapters.Adapter{own, role}
 	call := func(source, version string) *hclsyntax.Block {

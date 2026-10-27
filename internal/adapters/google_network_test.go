@@ -70,11 +70,11 @@ resource "google_compute_firewall" "egress" {
 func TestGoogleNetworkMapsEveryMember(t *testing.T) {
 	t.Parallel()
 	c := cluster(t, googleNetworkCluster)
-	call, err := GoogleNetwork.Map(c)
+	call, err := googleNetwork.Map(c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleNetwork, call)
+	got := render(t, googleNetwork, call)
 	for _, want := range []string{
 		`project_id = "acme"`,
 		`network_name = "main"`,
@@ -124,7 +124,7 @@ func TestGoogleNetworkDeclines(t *testing.T) {
 		if src == googleNetworkCluster {
 			t.Fatalf("%s: the replacement doesn't apply", name)
 		}
-		if _, err := GoogleNetwork.Map(cluster(t, src)); !IsDecline(err) {
+		if _, err := googleNetwork.Map(cluster(t, src)); !IsDecline(err) {
 			t.Errorf("%s: got %v, want a decline", name, err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestGoogleNetworkDeclinesWithoutSubnetworks(t *testing.T) {
 	start := strings.Index(googleNetworkCluster, `resource "google_compute_subnetwork" "app"`)
 	end := strings.Index(googleNetworkCluster, `resource "google_compute_firewall" "https"`)
 	src := googleNetworkCluster[:start] + googleNetworkCluster[end:]
-	_, err := GoogleNetwork.Map(cluster(t, src))
+	_, err := googleNetwork.Map(cluster(t, src))
 	if !IsDecline(err) || !strings.Contains(err.Error(), "no subnetworks") {
 		t.Errorf("got %v, want a decline for the missing subnetworks", err)
 	}
@@ -158,11 +158,11 @@ func TestGoogleNetworkMapsSubnetworksOfEveryRegion(t *testing.T) {
   region        = "europe-west2"
 }
 `
-	call, err := GoogleNetwork.Map(cluster(t, src))
+	call, err := googleNetwork.Map(cluster(t, src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleNetwork, call)
+	got := render(t, googleNetwork, call)
 	if want := squash(`{ subnet_name = "app" subnet_region = "europe-west2" subnet_ip = "10.30.0.0/24" }`); !strings.Contains(got, want) {
 		t.Errorf("call misses %q:\n%s", want, got)
 	}

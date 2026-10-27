@@ -10,7 +10,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// GoogleStorageBucket maps a Cloud Storage bucket onto the simple_bucket
+// googleStorageBucket maps a Cloud Storage bucket onto the simple_bucket
 // module of terraform-google-modules/cloud-storage/google. The module's
 // defaults turn versioning and uniform bucket-level access on, so the
 // adapter always passes what the bucket has. It declines buckets with
@@ -20,7 +20,7 @@ import (
 // access prevention: a bucket whose versioning was never set, which
 // Google reports without it, plans a change in the module, and the plan
 // check keeps the bucket in the root.
-var GoogleStorageBucket = Adapter{
+var googleStorageBucket = Adapter{
 	Source:  "terraform-google-modules/cloud-storage/google//modules/simple_bucket",
 	Version: "12.4.1",
 	Anchor:  "google_storage_bucket",

@@ -248,7 +248,7 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	if err := g.copyLock(); err != nil {
 		return nil, err
 	}
-	required := RequiredVersion(MinimumVersion)
+	required := RequiredVersion(MinimumVersion())
 	if envRoots[g.newest].requiredVersion != "" {
 		required = envRoots[g.newest].requiredVersion
 	}

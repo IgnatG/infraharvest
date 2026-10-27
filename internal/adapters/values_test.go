@@ -34,7 +34,7 @@ func TestIsDefault(t *testing.T) {
 		{"routing_mode", hclwrite.TokensForValue(cty.StringVal("REGIONAL")), false},
 		{"network_name", hclwrite.TokensForValue(cty.StringVal("main")), false},
 	} {
-		if got := GoogleNetwork.IsDefault(tt.input, tt.value); got != tt.want {
+		if got := googleNetwork.IsDefault(tt.input, tt.value); got != tt.want {
 			t.Errorf("IsDefault(%s, %s): got %v, want %v", tt.input, tt.value.Bytes(), got, tt.want)
 		}
 	}
@@ -65,16 +65,16 @@ func TestAWSModuleDefaults(t *testing.T) {
 		value   cty.Value
 		want    bool
 	}{
-		{&VPC, "enable_dns_hostnames", cty.True, true},
-		{&VPC, "enable_dns_hostnames", cty.False, false},
-		{&VPC, "public_subnet_suffix", cty.StringVal("public"), true},
-		{&VPC, "private_subnet_suffix", cty.StringVal("app"), false},
-		{&S3Bucket, "block_public_acls", cty.True, true},
-		{&S3Bucket, "block_public_acls", cty.False, false},
-		{&S3Bucket, "object_ownership", cty.StringVal("BucketOwnerEnforced"), true},
-		{&IAMRole, "path", cty.StringVal("/"), true},
-		{&IAMRole, "max_session_duration", cty.NumberIntVal(3600), true},
-		{&IAMRole, "max_session_duration", cty.NumberIntVal(7200), false},
+		{&awsVPC, "enable_dns_hostnames", cty.True, true},
+		{&awsVPC, "enable_dns_hostnames", cty.False, false},
+		{&awsVPC, "public_subnet_suffix", cty.StringVal("public"), true},
+		{&awsVPC, "private_subnet_suffix", cty.StringVal("app"), false},
+		{&awsS3Bucket, "block_public_acls", cty.True, true},
+		{&awsS3Bucket, "block_public_acls", cty.False, false},
+		{&awsS3Bucket, "object_ownership", cty.StringVal("BucketOwnerEnforced"), true},
+		{&awsIAMRole, "path", cty.StringVal("/"), true},
+		{&awsIAMRole, "max_session_duration", cty.NumberIntVal(3600), true},
+		{&awsIAMRole, "max_session_duration", cty.NumberIntVal(7200), false},
 	} {
 		if got := tt.adapter.IsDefault(tt.input, hclwrite.TokensForValue(tt.value)); got != tt.want {
 			t.Errorf("%s: IsDefault(%s, %#v): got %v, want %v", tt.adapter.Source, tt.input, tt.value, got, tt.want)

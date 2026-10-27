@@ -232,7 +232,7 @@ func TestAWSRoundTrip(t *testing.T) {
 			calls[m.Source]++
 		}
 	}
-	for source, want := range map[string]int{adapters.S3Bucket.Source: 3, adapters.IAMRole.Source: 1, adapters.VPC.Source: 1, queueModule(t): 1} {
+	for source, want := range map[string]int{adapters.S3Bucket().Source: 3, adapters.IAMRole().Source: 1, adapters.VPC().Source: 1, queueModule(t): 1} {
 		if calls[source] < want {
 			t.Errorf("%d calls of %s, want %d or more; modules:", calls[source], source, want)
 			for _, d := range coverage.Directories {

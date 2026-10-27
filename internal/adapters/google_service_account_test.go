@@ -30,11 +30,11 @@ resource "google_project_iam_member" "ci_viewer" {
 
 func TestGoogleServiceAccountMapsItsRoles(t *testing.T) {
 	t.Parallel()
-	call, err := GoogleServiceAccount.Map(cluster(t, googleServiceAccountCluster))
+	call, err := googleServiceAccount.Map(cluster(t, googleServiceAccountCluster))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := render(t, GoogleServiceAccount, call)
+	got := render(t, googleServiceAccount, call)
 	for _, want := range []string{
 		`project_id = "acme"`,
 		`name = "ci"`,
@@ -83,7 +83,7 @@ func TestGoogleServiceAccountDeclines(t *testing.T) {
 			if src == googleServiceAccountCluster {
 				t.Fatal("the test doesn't change the source")
 			}
-			_, err := GoogleServiceAccount.Map(cluster(t, src))
+			_, err := googleServiceAccount.Map(cluster(t, src))
 			if !IsDecline(err) || !strings.Contains(err.Error(), tc.reason) {
 				t.Errorf("got %v, want a decline with %q", err, tc.reason)
 			}

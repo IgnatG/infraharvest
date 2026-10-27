@@ -455,16 +455,16 @@ func checkModuleCalls(t *testing.T, coverage report.Report) {
 					nats++
 				}
 			}
-			perZone = perZone || (m.Source == adapters.VPC.Source && nats > 1)
+			perZone = perZone || (m.Source == adapters.VPC().Source && nats > 1)
 		}
 	}
-	for source, want := range map[string]int{adapters.VPC.Source: 2, adapters.S3Bucket.Source: 1} {
+	for source, want := range map[string]int{adapters.VPC().Source: 2, adapters.S3Bucket().Source: 1} {
 		if calls[source] < want {
 			t.Errorf("%d calls of %s, want %d or more", calls[source], source, want)
 		}
 	}
 	if !perZone {
-		t.Errorf("no call of %s with a NAT gateway in each zone", adapters.VPC.Source)
+		t.Errorf("no call of %s with a NAT gateway in each zone", adapters.VPC().Source)
 	}
 }
 
