@@ -176,7 +176,8 @@ jobs:
   # Windows runners are slow to compile all providers, so test the packages
   # with OS-specific behaviour (file modes, paths, home directory lookup,
   # output, selection, decisions and drift report files, the MCP server's
-  # path checks). The CLI builds with two providers, as in the race job.
+  # path checks). The CLI and the MCP server build with two providers, as
+  # in the race job.
   test-windows:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -203,10 +204,10 @@ jobs:
       run: >-
         go test
         ./internal/engine/... ./internal/harvest/... ./internal/fsutil/... ./internal/managed/... ./internal/providers/aws/... ./internal/providers/azure/...
-        ./internal/importer/... ./internal/config/... ./internal/selection/... ./internal/mcpserver/...
+        ./internal/importer/... ./internal/config/... ./internal/selection/...
         ./internal/driftpolicy/... ./internal/report/...
-    - name: Test the CLI
-      run: go test -tags minimal,aws,google ./internal/cli/...
+    - name: Test the CLI and the MCP server
+      run: go test -tags minimal,aws,google ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
       if: github.event_name == 'push' && steps.cache.outputs.hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

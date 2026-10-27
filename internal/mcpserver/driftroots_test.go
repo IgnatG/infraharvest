@@ -67,6 +67,7 @@ func writeTree(t *testing.T, dir string, files map[string]string) {
 // output directory or curated: anything else could run code of an
 // agent's choosing with the server's credentials.
 func TestCheckDriftRoots(t *testing.T) {
+	needProviders(t, "aws")
 	const root = "aws/1/eu-west-2/"
 	for name, tc := range map[string]struct {
 		files map[string]string
@@ -197,7 +198,8 @@ func TestDriftAllowed(t *testing.T) {
 	if sources[refusedProvider] {
 		t.Errorf("%s is allowed", refusedProvider)
 	}
-	if !modules["terraform-aws-modules/vpc/aws"] || modules["terraform-aws-modules/iam/aws//modules/iam-role"] {
+	// aws's curated modules, where it is built in.
+	if builtIn("aws") && (!modules["terraform-aws-modules/vpc/aws"] || modules["terraform-aws-modules/iam/aws//modules/iam-role"]) {
 		t.Errorf("modules: %v, want each curated module by its address", modules)
 	}
 }
@@ -205,6 +207,7 @@ func TestDriftAllowed(t *testing.T) {
 // The drift tools take the providers and curated modules of the
 // providers the server is passed alone, those of the binary it runs.
 func TestDriftAllowedOfTheProvidersPassed(t *testing.T) {
+	needProviders(t, "aws")
 	aws, err := compiled.profile("aws")
 	if err != nil {
 		t.Fatal(err)
@@ -224,6 +227,7 @@ func TestDriftAllowedOfTheProvidersPassed(t *testing.T) {
 // after the user was asked aren't run, nor checked again only, for both
 // tools.
 func TestDriftToolsRunTheConfirmedRoots(t *testing.T) {
+	needProviders(t, "aws")
 	for tool, args := range map[string]map[string]any{
 		"drift":        {"out": "generated"},
 		"drift_accept": {"out": "generated", "rules": []string{"accept all"}},
@@ -288,6 +292,7 @@ func TestDriftToolsRefuseOtherProviders(t *testing.T) {
 // checks the roots against, and refuses a file whose link leads out of
 // the output directory, which the digest wouldn't cover as it is there.
 func TestCheckDriftRootsDigest(t *testing.T) {
+	needProviders(t, "aws")
 	out := t.TempDir()
 	writeTree(t, out, generatedRoot)
 
@@ -312,6 +317,7 @@ func TestCheckDriftRootsDigest(t *testing.T) {
 // that directory, which the walk checked; one the walk didn't read is
 // refused, as its files would go unchecked and out of the digest.
 func TestCheckDriftRootsModuleDirectories(t *testing.T) {
+	needProviders(t, "aws")
 	const root = "aws/1/eu-west-2/"
 	for name, tc := range map[string]struct {
 		source string
@@ -375,6 +381,7 @@ func TestWalkedDir(t *testing.T) {
 // or backend run a program or send its requests, with the credentials,
 // elsewhere.
 func TestCheckDriftRootsSettings(t *testing.T) {
+	needProviders(t, "aws")
 	const root = "aws/1/eu-west-2/"
 	const google = "terraform {\n  required_providers {\n    google = { source = \"hashicorp/google\" }\n  }\n}\n"
 	const azure = "terraform {\n  required_providers {\n    azurerm = { source = \"hashicorp/azurerm\" }\n    azapi = { source = \"Azure/azapi\" }\n  }\n}\n"
@@ -435,6 +442,15 @@ provider "aws" {
 		}, `merged/vars/prod/backend.hcl:2: the s3 backend sets`},
 	} {
 		t.Run(name, func(t *testing.T) {
+			// A root that declares another provider takes it built in.
+			for _, content := range tc.files {
+				if strings.HasPrefix(content, google) {
+					needProviders(t, "google")
+				}
+				if strings.HasPrefix(content, azure) {
+					needProviders(t, "azure")
+				}
+			}
 			out := t.TempDir()
 			writeTree(t, out, generatedRoot)
 			writeTree(t, out, tc.files)
@@ -524,6 +540,7 @@ func checkGenerated(t *testing.T, content []byte, typ string, labels []string, c
 // file: plan would show its content, such as credentials, to the agent
 // as drift.
 func TestCheckDriftRootsFileFunctions(t *testing.T) {
+	needProviders(t, "aws")
 	const root = "aws/1/eu-west-2/"
 	for name, tc := range map[string]struct {
 		files map[string]string

@@ -21,6 +21,10 @@ import (
 // leaves the previous file whole, never a truncated one: a selection file
 // someone edited, a checkpoint a resumed import reads, a root's
 // configuration.
+//
+// On Windows, where a rename over a file another rename or program has
+// in use at that moment is refused, the rename is retried briefly (see
+// rename), so writers of one file at once each succeed.
 func WriteFile(path string, data []byte, perm fs.FileMode) (err error) {
 	// CreateTemp makes the file private (0600) until perm is set, once
 	// the data is complete.
@@ -47,7 +51,7 @@ func WriteFile(path string, data []byte, perm fs.FileMode) (err error) {
 	if err = os.Chmod(f.Name(), perm); err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), path)
+	return rename(f.Name(), path)
 }
 
 // CheckTree checks that root, if it exists, is a directory, and that
