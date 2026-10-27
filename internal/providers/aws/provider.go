@@ -106,6 +106,7 @@ func (*Provider) Profile() harvest.Profile {
 			Describe: describeScope,
 		},
 		Modules:           providerName,
+		ModulesName:       "terraform-aws-modules",
 		OptInServices:     []string{"media_store", "waf", "waf_regional"},
 		NameTag:           "Name",
 		ConcurrentListing: true,

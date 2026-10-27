@@ -343,6 +343,7 @@ func (*Provider) Profile() harvest.Profile {
 			Describe: describeScope,
 		},
 		Modules:           commandName,
+		ModulesName:       "Azure Verified Modules",
 		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService),
 		DependentServices: []string{diagnosticSettingService},
 		ConcurrentListing: true,

@@ -789,20 +789,31 @@ func (t *tools) linksStayUnder(what, dir string) error {
 }
 
 // scopeHelp says which provider takes which of Scope's fields, for the
-// tools' descriptions, from their providers tags.
+// tools' descriptions, from their providers tags, and which of them a
+// provider's command needs one of, from its profile (see
+// harvest.Scope.Needs).
 var scopeHelp = func() string {
 	scope := reflect.TypeFor[Scope]()
-	var takes []string
+	var takes, needs []string
 	for _, provider := range providers.Names() {
-		var fields []string
+		var fields, needed []string
+		required := providers.New(provider).Profile().Scope.Needs
 		for i := range scope.NumField() {
-			if slices.Contains(scopeProviders(scope.Field(i)), provider) {
-				fields = append(fields, jsonName(scope.Field(i)))
+			field := scope.Field(i)
+			if !slices.Contains(scopeProviders(field), provider) {
+				continue
+			}
+			fields = append(fields, jsonName(field))
+			if flag, _, _ := strings.Cut(field.Tag.Get("flag"), ","); slices.Contains(required, flag) {
+				needed = append(needed, jsonName(field))
 			}
 		}
 		takes = append(takes, provider+" takes "+sentenceJoin(fields, "and"))
+		if len(needed) > 0 {
+			needs = append(needs, " The "+provider+" command needs "+sentenceJoin(needed, "or")+".")
+		}
 	}
-	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + ". The google command needs projects, organization or folders."
+	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + "." + strings.Join(needs, "")
 }()
 
 // scopeProviders returns the providers that field, one of Scope's, is

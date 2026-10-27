@@ -23,6 +23,9 @@ type Profile struct {
 	// resources can move into (see adapters.For), such as google, whose
 	// modules google-beta's resources move into too; none without.
 	Modules string
+	// ModulesName is what people call that family, such as
+	// terraform-aws-modules, for the help.
+	ModulesName string
 	// OptInServices are the services that the wildcard --services=*
 	// leaves out, because they list another way what other services
 	// already list, as Azure's do, or because the cloud's service has
@@ -85,6 +88,11 @@ type Scope struct {
 	// FoldCase says two IDs that differ only in case are the same scope,
 	// as Azure's subscription IDs, which are GUIDs, are.
 	FoldCase bool
+	// Needs are the command's flags of which it needs one to know what to
+	// import, such as google's projects, organization and folders; none
+	// for a command that has a default, such as the account of aws's
+	// credentials.
+	Needs []string
 	// Describe says what the provider's command reads, in the provider's
 	// own terms, for the user to confirm an import before it runs, such
 	// as "the aws accounts 111111111111, 222222222222 in eu-west-2". flags

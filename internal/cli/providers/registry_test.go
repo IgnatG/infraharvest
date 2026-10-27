@@ -109,7 +109,8 @@ func TestEveryProviderHasARegistrySource(t *testing.T) {
 // how the user's confirmation of an import describes them, the key of
 // their IDs in the configuration file's environments, which the file's
 // format has under the provider's command, and its curated modules, if
-// any. Every family of curated modules is a provider's.
+// any, with the name people call them by. Every family of curated
+// modules is a provider's. The flags a command needs one of are its own.
 func TestEveryProfileDescribesItsScope(t *testing.T) {
 	var families []string
 	for _, p := range Profiles() {
@@ -127,6 +128,15 @@ func TestEveryProfileDescribesItsScope(t *testing.T) {
 		}
 		if p.Modules != "" && len(adapters.For(p.Modules)) == 0 {
 			t.Errorf("%s: no curated modules of family %q", name, p.Modules)
+		}
+		if (p.Modules == "") != (p.ModulesName == "") {
+			t.Errorf("%s: curated modules of family %q, called %q: name both or neither", name, p.Modules, p.ModulesName)
+		}
+		cmd, _ := Command(name, importer.Options{})
+		for _, flag := range p.Scope.Needs {
+			if cmd.Flag(flag) == nil {
+				t.Errorf("%s: the command needs --%s, which it doesn't have", name, flag)
+			}
 		}
 		const id = "111111111111"
 		path := filepath.Join(t.TempDir(), "infraharvest.yaml")

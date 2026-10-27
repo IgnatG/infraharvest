@@ -258,9 +258,11 @@ func (*Provider) Profile() harvest.Profile {
 		Scope: harvest.Scope{
 			Noun:     "project",
 			Field:    "projects",
+			Needs:    []string{"projects", "organization", "folders"},
 			Describe: describeScope,
 		},
 		Modules:            providerName,
+		ModulesName:        "terraform-google-modules",
 		ConcurrentListing:  true,
 		DefaultTags:        &harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"},
 		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},

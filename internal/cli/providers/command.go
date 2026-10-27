@@ -214,7 +214,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVar(&options.DefaultEnv, "default-env", "", "environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/")
 	flags.BoolVar(&options.MergeEnvironments, "merge-environments", true, "with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see "+DocsURL+"configuration/#environments)")
 	flags.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary)")
-	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules (terraform-aws-modules, terraform-google-modules and Azure Verified Modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
+	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules"+moduleFamilies()+", at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	flags.StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: import IDs, arguments to leave out, default skips, data sources (see "+DocsURL+"catalogue/)")
 	flags.StringVar(&options.Engine, "engine", importer.EngineTerraform, "terraform or tofu: generate configuration with Terraform or OpenTofu from import blocks")
 	flags.StringVar(&options.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
@@ -241,6 +241,26 @@ func commandList() string {
 		return strings.Join(names, "")
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+// moduleFamilies names the families of curated public modules of the
+// providers compiled in, as their profiles call them, in parentheses:
+// (terraform-aws-modules, Azure Verified Modules and
+// terraform-google-modules); nothing when none has any.
+func moduleFamilies() string {
+	var names []string
+	for _, p := range Profiles() {
+		if p.ModulesName != "" {
+			names = append(names, p.ModulesName)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return " (" + names[0] + ")"
+	}
+	return " (" + strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1] + ")"
 }
 
 // ParallelFlag adds --parallel to cmd, bound to options.Parallel: how many
