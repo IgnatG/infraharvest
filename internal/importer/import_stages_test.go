@@ -126,8 +126,8 @@ func TestToolchainFollowsTheModulesMode(t *testing.T) {
 		{"none", Options{Modules: ModulesNone}, ""},
 		{"local", Options{Modules: ModulesLocal}, local},
 		{"registry", Options{Modules: ModulesRegistry}, local},
-		{"registry with --cfn-stack", Options{Modules: ModulesRegistry, CloudFormationStacks: []string{"app"}}, ""},
-		{"registry chosen with --cfn-stack", Options{Modules: ModulesRegistry, ModulesChosen: true, CloudFormationStacks: []string{"app"}}, local},
+		{"registry with --cfn-stack", Options{Modules: ModulesRegistry, ProviderScope: fakeScope{stacks: true}}, ""},
+		{"registry chosen with --cfn-stack", Options{Modules: ModulesRegistry, ModulesChosen: true, ProviderScope: fakeScope{stacks: true}}, local},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.options.Out = out

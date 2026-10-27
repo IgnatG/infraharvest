@@ -81,6 +81,10 @@ func configFixture(t *testing.T, content string) (string, map[string]map[string]
 	}
 }
 
+// fixtureNeeds are the providers the arguments configFixture returns for
+// each tool take: discover and import read an aws account.
+var fixtureNeeds = map[string][]string{"discover": {"aws"}, "import": {"aws"}}
+
 // A configuration file under the root, relative to it, is read once and
 // checked; the check before the user is asked and the run read a private
 // copy of what was checked, and the user is told all that it sets that
@@ -94,13 +98,17 @@ func TestConfig(t *testing.T) {
 		// asked is what the confirmation says it sets, "" for a tool that
 		// doesn't ask.
 		asked string
+		// needs are the providers the tool's arguments and the file's
+		// sections take.
+		needs []string
 	}{
-		"discover":     {sampleConfig, 1, ""},
-		"import":       {sampleConfig, 3, `settings {"engine": "tofu"}; providers {"aws": {"regions": ["eu-west-2"]}}; backend {s3: {bucket: "states", region: "eu-west-2"}}; environments {"prod": {aws: {accounts: ["111111111111"]}}}.`},
-		"drift":        {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`},
-		"drift_accept": {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`},
+		"discover":     {sampleConfig, 1, "", []string{"aws", "google"}},
+		"import":       {sampleConfig, 3, `settings {"engine": "tofu"}; providers {"aws": {"regions": ["eu-west-2"]}}; backend {s3: {bucket: "states", region: "eu-west-2"}}; environments {"prod": {aws: {accounts: ["111111111111"]}}}.`, []string{"aws", "google"}},
+		"drift":        {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`, nil},
+		"drift_accept": {sampleDriftConfig, 1, `settings {"engine": "tofu", "engine-timeout": "30m"}.`, nil},
 	} {
 		t.Run(tool, func(t *testing.T) {
+			needProviders(t, want.needs...)
 			dir, tools := configFixture(t, want.content)
 			config := filepath.Join(dir, "infraharvest.yaml")
 			runner := &fakeRunner{}
@@ -186,6 +194,9 @@ func TestConfigRefused(t *testing.T) {
 				}
 			}
 			for tool, args := range tools {
+				if !builtIn(fixtureNeeds[tool]...) {
+					continue
+				}
 				runner := &fakeRunner{}
 				session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 					return &mcp.ElicitResult{Action: "accept"}, nil
@@ -214,23 +225,29 @@ func TestConfigSettingsByTool(t *testing.T) {
 		content string
 		refused []string
 		want    string
+		// needs are the providers the file's sections take.
+		needs []string
 	}{
-		"engine":                {"version: 1\nsettings:\n  engine: tofu\n", nil, ""},
-		"engine-timeout":        {"version: 1\nsettings:\n  engine-timeout: 30m\n", importing, "settings: engine-timeout isn't a setting the"},
-		"the import's scope":    {"version: 1\nproviders:\n  aws:\n    regions: [eu-west-2]\n", drifting, "providers: aws: regions isn't a setting the drift"},
-		"a provider's engine":   {"version: 1\nproviders:\n  aws:\n    engine: tofu\n", drifting, "it takes none there"},
-		"drift's settings list": {"version: 1\nsettings:\n  services: [vpc]\n", drifting, "which are engine, engine-timeout;"},
-		"the backend":           {"version: 1\nbackend:\n  s3: { bucket: states, region: eu-west-2 }\n", drifting, "backend: the drift"},
-		"the environments":      {"version: 1\nenvironments:\n  prod: { aws: { accounts: [\"111111111111\"] } }\n", drifting, "environments: the drift"},
-		"root":                  {"version: 1\nsettings:\n  root: [aws/*]\n", all, "settings: root isn't a setting the"},
-		"environment":           {"version: 1\nsettings:\n  environment: [prod]\n", all, "settings: environment isn't a setting the"},
-		"parallel":              {"version: 1\nsettings:\n  parallel: 2\n", all, "settings: parallel isn't a setting the"},
-		"another provider's":    {"version: 1\nsettings:\n  projects: [p1]\n", all, "settings: projects isn't a setting the"},
-		"its own section":       {"version: 1\nproviders:\n  google:\n    projects: [p1]\n", drifting, "providers: google: projects isn't a setting the drift"},
+		"engine":                {"version: 1\nsettings:\n  engine: tofu\n", nil, "", nil},
+		"engine-timeout":        {"version: 1\nsettings:\n  engine-timeout: 30m\n", importing, "settings: engine-timeout isn't a setting the", nil},
+		"the import's scope":    {"version: 1\nproviders:\n  aws:\n    regions: [eu-west-2]\n", drifting, "providers: aws: regions isn't a setting the drift", nil},
+		"a provider's engine":   {"version: 1\nproviders:\n  aws:\n    engine: tofu\n", drifting, "it takes none there", nil},
+		"drift's settings list": {"version: 1\nsettings:\n  services: [vpc]\n", drifting, "which are engine, engine-timeout;", nil},
+		"the backend":           {"version: 1\nbackend:\n  s3: { bucket: states, region: eu-west-2 }\n", drifting, "backend: the drift", nil},
+		"the environments":      {"version: 1\nenvironments:\n  prod: { aws: { accounts: [\"111111111111\"] } }\n", drifting, "environments: the drift", nil},
+		"root":                  {"version: 1\nsettings:\n  root: [aws/*]\n", all, "settings: root isn't a setting the", nil},
+		"environment":           {"version: 1\nsettings:\n  environment: [prod]\n", all, "settings: environment isn't a setting the", nil},
+		"parallel":              {"version: 1\nsettings:\n  parallel: 2\n", all, "settings: parallel isn't a setting the", nil},
+		"another provider's":    {"version: 1\nsettings:\n  projects: [p1]\n", all, "settings: projects isn't a setting the", nil},
+		"its own section":       {"version: 1\nproviders:\n  google:\n    projects: [p1]\n", drifting, "providers: google: projects isn't a setting the drift", []string{"google"}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			needProviders(t, tc.needs...)
 			dir, tools := configFixture(t, tc.content)
 			for _, tool := range all {
+				if !builtIn(fixtureNeeds[tool]...) {
+					continue
+				}
 				session := connect(t, &fakeRunner{}, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
 					return &mcp.ElicitResult{Action: "accept"}, nil
 				})
@@ -290,6 +307,7 @@ func TestConfigScopeInConfirmation(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			needProviders(t, tc.input["provider"].(string))
 			dir, tools := configFixture(t, tc.content)
 			input := map[string]any{"selection": tools["import"]["selection"], "out": tools["import"]["out"], "config": "infraharvest.yaml"}
 			maps.Copy(input, tc.input)
@@ -317,6 +335,7 @@ func TestConfigScopeChecked(t *testing.T) {
 		"an account": "version: 1\nsettings:\n  accounts: [\"\"]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
+			needProviders(t, "aws")
 			dir, tools := configFixture(t, content)
 			args := maps.Clone(tools["import"])
 			delete(args, "regions")
@@ -339,6 +358,10 @@ func TestConfigScopeChecked(t *testing.T) {
 func TestConfigEditedAfterConfirmation(t *testing.T) {
 	for _, tool := range []string{"import", "drift", "drift_accept"} {
 		t.Run(tool, func(t *testing.T) {
+			// sampleConfig has a section of google's too.
+			if tool == "import" {
+				needProviders(t, "aws", "google")
+			}
 			content := map[string]string{"import": sampleConfig, "drift": sampleDriftConfig, "drift_accept": sampleDriftConfig}[tool]
 			dir, tools := configFixture(t, content)
 			edited := strings.Replace(content, "tofu", "terraform", 1)
@@ -407,6 +430,7 @@ func TestHardLinkedFilesRefused(t *testing.T) {
 		tool, param string
 	}{{"import", "selection"}, {"drift_accept", "decisions"}, {"import", "config"}, {"drift", "config"}} {
 		t.Run(tc.tool+" "+tc.param, func(t *testing.T) {
+			needProviders(t, fixtureNeeds[tc.tool]...)
 			dir, tools := configFixture(t, sampleDriftConfig)
 			if err := os.Link(outside, filepath.Join(dir, "linked.yaml")); err != nil {
 				t.Skipf("can't make a hard link: %v", err)

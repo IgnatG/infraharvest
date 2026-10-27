@@ -15,28 +15,31 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func TestAWSAccounts(t *testing.T) {
 	ctx := context.Background()
-	accounts, err := awsAccounts(ctx, importer.Options{Accounts: []string{"111122223333", "444455556666"}, AssumeRole: DefaultAssumeRole})
+	accounts, err := (&awsScope{accounts: []string{"111122223333", "444455556666"}, assumeRole: DefaultAssumeRole}).accountsToImport(ctx)
 	if err != nil || !reflect.DeepEqual(accounts, []string{"111122223333", "444455556666"}) {
 		t.Errorf("accounts: %v, %v", accounts, err)
 	}
-	if accounts, err := awsAccounts(ctx, importer.Options{AssumeRole: DefaultAssumeRole}); err != nil || accounts != nil {
+	if accounts, err := (&awsScope{assumeRole: DefaultAssumeRole}).accountsToImport(ctx); err != nil || accounts != nil {
 		t.Errorf("one account: %v, %v", accounts, err)
 	}
-	if err := checkAWS(importer.Options{Accounts: []string{"111122223333"}, Organization: true, AssumeRole: DefaultAssumeRole}); err == nil {
+	if err := (&awsScope{accounts: []string{"111122223333"}, organization: true, assumeRole: DefaultAssumeRole}).check(importer.Options{}); err == nil {
 		t.Error("both: want an error")
 	}
-	for name, options := range map[string]importer.Options{
-		"a role for one account":                     {Accounts: []string{"111122223333"}, AssumeRole: "arn:aws:iam::111122223333:role/x"},
-		"a role for one account of the organization": {Organization: true, AssumeRole: "arn:aws:iam::111122223333:role/x"},
+	for name, scope := range map[string]*awsScope{
+		"a role for one account":                     {accounts: []string{"111122223333"}, assumeRole: "arn:aws:iam::111122223333:role/x"},
+		"a role for one account of the organization": {organization: true, assumeRole: "arn:aws:iam::111122223333:role/x"},
 	} {
-		if err := checkAWS(options); err == nil || !strings.Contains(err.Error(), "{account}") {
+		if err := scope.check(importer.Options{}); err == nil || !strings.Contains(err.Error(), "{account}") {
 			t.Errorf("%s: want an error about {account}, got %v", name, err)
 		}
 	}
@@ -46,11 +49,11 @@ func TestAWSAccounts(t *testing.T) {
 // the next; an interrupt stops it.
 func TestImportAWSAccountsGoesOn(t *testing.T) {
 	ctx := context.Background()
-	options := importer.Options{AssumeRole: DefaultAssumeRole, Out: t.TempDir()}
+	options := importer.Options{Out: t.TempDir()}
 	var roles []string
-	importAccount := func(_ context.Context, o importer.Options) error {
-		roles = append(roles, o.RoleARN)
-		if strings.Contains(o.RoleARN, "111122223333") {
+	importAccount := func(_ context.Context, role string) error {
+		roles = append(roles, role)
+		if strings.Contains(role, "111122223333") {
 			return errors.New("AccessDenied: can't assume the role")
 		}
 		return nil
@@ -75,7 +78,7 @@ func TestImportAWSAccountsGoesOn(t *testing.T) {
 	roles = nil
 	run = importer.NewRun()
 	err = run.Do(func() error {
-		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, func(context.Context, importer.Options) error { return context.Canceled })
+		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, func(context.Context, string) error { return context.Canceled })
 	})
 	if !errors.Is(err, context.Canceled) || len(roles) != 0 {
 		t.Errorf("interrupted: %v", err)
@@ -108,12 +111,11 @@ func TestGroupAWSResources(t *testing.T) {
 	}
 }
 
-// importAWSAccounts imports accounts as the aws command plans them, with
-// importAccount in place of each Import call, in order, stopping at the
-// first that fails.
-func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.Options, accounts []string, importAccount func(context.Context, importer.Options) error) error {
-	options.Accounts = accounts
-	p, err := planAWS(ctx, options)
+// importAWSAccounts imports accounts as the aws command plans them, through
+// the default role, with importAccount, given the call's role, in place of
+// each Import call, in order, stopping at the first that fails.
+func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.Options, accounts []string, importAccount func(context.Context, string) error) error {
+	p, err := (&awsScope{accounts: accounts, assumeRole: DefaultAssumeRole}).plan(ctx, options)
 	if err != nil {
 		return err
 	}
@@ -122,7 +124,7 @@ func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.
 			if c.Provider == nil {
 				return errors.New("a call without a provider")
 			}
-			if err := importAccount(ctx, c.Options); err != nil {
+			if err := importAccount(ctx, c.Args[2]); err != nil {
 				return err
 			}
 		}
@@ -153,22 +155,23 @@ func TestAWSCalls(t *testing.T) {
 	}
 
 	byAccount := "{out}/{provider}/{account}/"
-	options := importer.Options{Profile: "prod", RoleARN: "arn:aws:iam::111122223333:role/x", Layout: byAccount, Services: []string{"vpc", "iam", "wafv2_cloudfront"}}
-	check("no regions", awsCalls(options), []want{
-		{[]string{"", "prod", options.RoleARN}, options.Services, nil, byAccount},
+	scope, role := &awsScope{profile: "prod"}, "arn:aws:iam::111122223333:role/x"
+	options := importer.Options{Layout: byAccount, Services: []string{"vpc", "iam", "wafv2_cloudfront"}}
+	check("no regions", scope.calls(options, role), []want{
+		{[]string{"", "prod", role}, options.Services, nil, byAccount},
 	})
 
 	options.Regions = []string{"eu-west-1", "eu-west-2"}
-	check("regions", awsCalls(options), []want{
-		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
-		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
-		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
-		{[]string{"eu-west-2", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-2/"},
+	check("regions", scope.calls(options, role), []want{
+		{[]string{"aws-global", "prod", role}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", role}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
+		{[]string{"eu-west-1", "prod", role}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
+		{[]string{"eu-west-2", "prod", role}, []string{"vpc"}, options.Regions, byAccount + "eu-west-2/"},
 	})
 	// The global and us-east-1-only calls go first, one at a time; the
 	// regions' then run at once.
 	var first []bool
-	for _, c := range awsCalls(options) {
+	for _, c := range scope.calls(options, role) {
 		first = append(first, c.first)
 	}
 	if want := []bool{true, true, false, false}; !slices.Equal(first, want) {
@@ -178,31 +181,31 @@ func TestAWSCalls(t *testing.T) {
 	// Global services, and those only in us-east-1, have a root of their
 	// own beside a single region's.
 	options.Regions = []string{"eu-west-1"}
-	check("one region and global services", awsCalls(options), []want{
-		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
-		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
-		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
+	check("one region and global services", scope.calls(options, role), []want{
+		{[]string{"aws-global", "prod", role}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", role}, []string{"wafv2_cloudfront"}, []string{"us-east-1"}, byAccount + "us-east-1/"},
+		{[]string{"eu-west-1", "prod", role}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
 	})
 
 	// In us-east-1, those only there are imported with the regional ones.
 	options.Regions = []string{"us-east-1", "eu-west-1"}
-	check("us-east-1 among the regions", awsCalls(options), []want{
-		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
-		{[]string{"us-east-1", "prod", options.RoleARN}, []string{"vpc", "wafv2_cloudfront"}, options.Regions, byAccount + "us-east-1/"},
-		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
+	check("us-east-1 among the regions", scope.calls(options, role), []want{
+		{[]string{"aws-global", "prod", role}, []string{"iam"}, []string{"aws-global"}, byAccount + "global/"},
+		{[]string{"us-east-1", "prod", role}, []string{"vpc", "wafv2_cloudfront"}, options.Regions, byAccount + "us-east-1/"},
+		{[]string{"eu-west-1", "prod", role}, []string{"vpc"}, options.Regions, byAccount + "eu-west-1/"},
 	})
 
 	options.Regions = []string{"eu-west-1"}
 	options.Services = []string{"vpc"}
-	check("one region, no global services", awsCalls(options), []want{
-		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, byAccount},
+	check("one region, no global services", scope.calls(options, role), []want{
+		{[]string{"eu-west-1", "prod", role}, []string{"vpc"}, options.Regions, byAccount},
 	})
 
 	options.Services = []string{"vpc", "iam"}
 	options.Layout = importer.DefaultLayout
-	check("a pattern with {region}", awsCalls(options), []want{
-		{[]string{"aws-global", "prod", options.RoleARN}, []string{"iam"}, []string{"aws-global"}, importer.DefaultLayout},
-		{[]string{"eu-west-1", "prod", options.RoleARN}, []string{"vpc"}, options.Regions, importer.DefaultLayout},
+	check("a pattern with {region}", scope.calls(options, role), []want{
+		{[]string{"aws-global", "prod", role}, []string{"iam"}, []string{"aws-global"}, importer.DefaultLayout},
+		{[]string{"eu-west-1", "prod", role}, []string{"vpc"}, options.Regions, importer.DefaultLayout},
 	})
 }
 
@@ -214,15 +217,15 @@ func TestAWSSingleAccountRole(t *testing.T) {
 		DefaultAssumeRole:                  "",
 		"arn:aws:iam::111122223333:role/x": "arn:aws:iam::111122223333:role/x",
 	} {
-		p, err := planAWS(ctx, importer.Options{AssumeRole: role})
+		p, err := (&awsScope{assumeRole: role}).plan(ctx, importer.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if p.scopes != nil {
 			t.Errorf("%s: scopes %v, want none", role, p.scopes)
 		}
-		calls := p.calls(importer.Options{AssumeRole: role}, "")
-		if len(calls) != 1 || calls[0].options.RoleARN != want || calls[0].args[2] != want {
+		calls := p.calls(importer.Options{}, "")
+		if len(calls) != 1 || calls[0].args[2] != want {
 			t.Errorf("%s: calls %+v, want one with role %q", role, calls, want)
 		}
 	}
@@ -233,13 +236,14 @@ func TestAWSSingleAccountRole(t *testing.T) {
 // read.
 func TestCheckAWSStacksRefuses(t *testing.T) {
 	for name, c := range map[string]struct {
+		scope   *awsScope
 		options importer.Options
 		want    string
 	}{
-		"with --accounts":           {importer.Options{CloudFormationStacks: []string{"app"}, Accounts: []string{"111122223333"}, AssumeRole: DefaultAssumeRole}, "without --accounts or --organization"},
-		"a name in several regions": {importer.Options{CloudFormationStacks: []string{"app"}, Regions: []string{"eu-west-1", "eu-west-2"}, AssumeRole: DefaultAssumeRole}, "--cfn-stack app: a stack name is looked for in one region"},
+		"with --accounts":           {&awsScope{stacks: []string{"app"}, accounts: []string{"111122223333"}, assumeRole: DefaultAssumeRole}, importer.Options{}, "without --accounts or --organization"},
+		"a name in several regions": {&awsScope{stacks: []string{"app"}, assumeRole: DefaultAssumeRole}, importer.Options{Regions: []string{"eu-west-1", "eu-west-2"}}, "--cfn-stack app: a stack name is looked for in one region"},
 	} {
-		if err := checkAWS(c.options); err == nil || !strings.Contains(err.Error(), c.want) {
+		if err := c.scope.check(c.options); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: got %v, want an error with %q", name, err, c.want)
 		}
 	}
@@ -270,7 +274,7 @@ func TestCloudFormationFlagsFromConfig(t *testing.T) {
 // --cfn-ignore acknowledges resources of the stacks --cfn-stack names, so
 // it needs it.
 func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
-	err := checkAWS(importer.Options{CloudFormationIgnore: []string{"Seed"}, AssumeRole: DefaultAssumeRole})
+	err := (&awsScope{ignore: []string{"Seed"}, assumeRole: DefaultAssumeRole}).check(importer.Options{})
 	if err == nil || !strings.Contains(err.Error(), "give --cfn-stack too") {
 		t.Errorf("got %v", err)
 	}
@@ -279,12 +283,55 @@ func TestCloudFormationIgnoreNeedsStacks(t *testing.T) {
 // A --catalogue that can't be read stops a --cfn-stack plan before any
 // stack is read.
 func TestPlanAWSStacksBadCatalogue(t *testing.T) {
-	_, err := planAWS(context.Background(), importer.Options{
-		CloudFormationStacks: []string{"app"},
-		AssumeRole:           DefaultAssumeRole,
-		Catalogue:            filepath.Join(t.TempDir(), "missing.yaml"),
+	_, err := (&awsScope{stacks: []string{"app"}, assumeRole: DefaultAssumeRole}).plan(context.Background(), importer.Options{
+		Catalogue: filepath.Join(t.TempDir(), "missing.yaml"),
 	})
 	if err == nil || !strings.HasPrefix(err.Error(), "--catalogue: ") {
 		t.Errorf("got %v, want a --catalogue error", err)
+	}
+}
+
+// The AWS command's flags go into the scope the importer is handed, which
+// says what the importer asks of it: whether --cfn-stack scopes the
+// import, why --resource-explorer lists in part, and --profile on the
+// state in S3 that --managed-state names.
+func TestAWSScope(t *testing.T) {
+	flags := pflag.NewFlagSet("aws", pflag.ContinueOnError)
+	options := importer.Options{}
+	awsFlags(flags, &options)
+	if s := options.ProviderScope.(harvest.StackScoped); s.StackScoped() {
+		t.Error("scoped to stacks without --cfn-stack")
+	}
+	if why := options.ProviderScope.(harvest.PartialListingScope).ListsInPart(); why != "" {
+		t.Errorf("lists in part without --resource-explorer: %q", why)
+	}
+	if err := flags.Parse([]string{"--cfn-stack=app", "--resource-explorer", "--profile=prod"}); err != nil {
+		t.Fatal(err)
+	}
+	if !options.ProviderScope.(harvest.StackScoped).StackScoped() {
+		t.Error("--cfn-stack: not scoped to stacks")
+	}
+	if why := options.ProviderScope.(harvest.PartialListingScope).ListsInPart(); !strings.Contains(why, "--resource-explorer") {
+		t.Errorf("--resource-explorer: lists in part because %q", why)
+	}
+	if got := options.ProviderScope.(harvest.ManagedStateScope).ManagedStateSource("s3://state/roots/"); got != "s3://state/roots/?profile=prod" {
+		t.Errorf("--profile: managed state read from %q", got)
+	}
+}
+
+// --profile reads the state in S3 --managed-state names, unless the source
+// names a profile of its own; other sources stay as they are.
+func TestAWSManagedStateSource(t *testing.T) {
+	for _, tc := range []struct{ source, profile, want string }{
+		{"s3://state/roots/?region=eu-west-2", "prod", "s3://state/roots/?profile=prod&region=eu-west-2"},
+		{"s3://state/roots/?profile=state", "prod", "s3://state/roots/?profile=state"},
+		{"s3://state/roots/", "default", "s3://state/roots/"},
+		{"s3://state/roots/", "", "s3://state/roots/"},
+		{"gs://state/roots/", "prod", "gs://state/roots/"},
+		{"terraform.tfstate", "prod", "terraform.tfstate"},
+	} {
+		if got := (&awsScope{profile: tc.profile}).ManagedStateSource(tc.source); got != tc.want {
+			t.Errorf("ManagedStateSource(%q) with profile %q = %q, want %q", tc.source, tc.profile, got, tc.want)
+		}
 	}
 }

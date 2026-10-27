@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/report/mdtext"
 )
 
 // The files infraharvest drift writes into the report directory, apart
@@ -336,7 +337,7 @@ func (d *Drift) Markdown() string {
 	var failed, notApplied, placeholders []string
 	for _, r := range d.Roots {
 		if r.Error != "" {
-			failed = append(failed, fmt.Sprintf("- `%s`: %s", r.Name(), prose(oneLine(r.Error))))
+			failed = append(failed, fmt.Sprintf("- `%s`: %s", r.Name(), mdtext.Prose(oneLine(r.Error))))
 		}
 		for _, a := range r.NotApplied {
 			notApplied = append(notApplied, fmt.Sprintf("- `%s` in `%s`", a, r.Name()))
@@ -364,7 +365,7 @@ func driftLine(c DriftChange) string {
 	if c.Kind == DriftDeleted {
 		b.WriteString(": deleted in the cloud")
 	} else {
-		fmt.Fprintf(&b, ", %s: %s → %s", code(c.Attribute), driftValue(c.Before), driftValue(c.After))
+		fmt.Fprintf(&b, ", %s: %s → %s", mdtext.Code(c.Attribute), driftValue(c.Before), driftValue(c.After))
 	}
 	if len(c.Covers) > 0 {
 		fmt.Fprintf(&b, ", on every resource that gets it from there: `%s`", strings.Join(c.Covers, "`, `"))
@@ -376,7 +377,7 @@ func driftLine(c DriftChange) string {
 		fmt.Fprintf(&b, " (`%s:%d`)", c.Source.File, c.Source.Line)
 	}
 	if c.Reason != "" {
-		fmt.Fprintf(&b, "; %s", prose(c.Reason))
+		fmt.Fprintf(&b, "; %s", mdtext.Prose(c.Reason))
 	}
 	if c.DecisionStale {
 		b.WriteString("; it changed again since its entry in the decisions file was decided, so that decision wasn't applied: decide it again")

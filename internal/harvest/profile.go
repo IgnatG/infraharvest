@@ -140,6 +140,19 @@ type EffectiveTags struct {
 // the service that lists it: the network's resources share network.tf,
 // and those an inventory API lists go by their type.
 type Layout struct {
+	// InventoryServices are the services that list every type through the
+	// cloud's inventory API, such as Google's cloud_asset and Azure's
+	// resource_graph, so that their name says nothing of a resource: what
+	// they list goes in a file named after its type (see NetworkTypes and
+	// TypeFamilies), and the types they map one resource at a time, rather
+	// than by an inventory entry of the catalogue, aren't known to be
+	// listed in full.
+	InventoryServices []string
+	// TypeNameTrim starts the names of types an inventory service lists,
+	// after their prefix, without saying what they are, such as Google's
+	// compute_: the file of google_compute_subnetwork is named after
+	// subnetwork.
+	TypeNameTrim string
 	// NetworkServices are the services whose resources make up the
 	// network: a VPC is read with its subnets, route tables and gateways.
 	NetworkServices []string

@@ -114,7 +114,7 @@ func TestMarkMerging(t *testing.T) {
 	stack := filepath.Join(out, "aws", "eu-west-2")
 	devDir := filepath.Join(out, "envs", "dev", "aws", "eu-west-2")
 	prodDir := filepath.Join(out, "envs", "prod", "aws", "eu-west-2")
-	options := Options{Out: out, MergeEnvironments: true, CloudFormationStacks: []string{"app"}}
+	options := Options{Out: out, MergeEnvironments: true, ProviderScope: fakeScope{stacks: true}}
 	calls := func(envs ...string) []*listedCall {
 		c := &listedCall{places: map[string]memberPlace{}}
 		for _, env := range envs {
@@ -142,7 +142,7 @@ func TestMarkMerging(t *testing.T) {
 	}
 
 	// Without --cfn-stack, or --merge-environments, nothing asks.
-	for _, o := range []Options{{Out: out, MergeEnvironments: true}, {Out: out, CloudFormationStacks: []string{"app"}}} {
+	for _, o := range []Options{{Out: out, MergeEnvironments: true}, {Out: out, ProviderScope: fakeScope{stacks: true}}} {
 		cs := calls("dev", "prod")
 		if err := markMerging(o, cs); err != nil {
 			t.Fatal(err)

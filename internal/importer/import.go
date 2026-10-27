@@ -138,42 +138,58 @@ type Options struct {
 	// the lock can't be taken (see lockOutput).
 	ForceUnlock bool
 
-	// Where the provider lists: read by the provider commands only.
+	// Where the provider lists: read by the provider commands.
 
-	// Profile is the AWS profile; the managed state in S3 is read with it
-	// too.
-	Profile string
 	// Regions are the AWS or Google Cloud regions to import.
 	Regions []string
-	// Projects are the Google Cloud projects to import.
-	Projects []string
-	// ResourceGroup is the Azure resource group to import.
-	ResourceGroup string
-	// Accounts are the AWS accounts to import, each through AssumeRole.
-	Accounts []string
-	// Organization imports every active account of the AWS organization.
-	Organization bool
-	// AssumeRole is the role to assume, where {account} stands for each
-	// account's ID.
-	AssumeRole string
-	// RoleARN is the role the AWS provider assumes for one call.
-	RoleARN string
-	// ResourceExplorer skips the AWS services Resource Explorer shows are
-	// empty in a region.
-	ResourceExplorer bool
-	// CloudFormationStacks are the AWS CloudFormation stacks, by name or
-	// stack ID, whose resources, and their nested stacks', are all the
-	// import takes.
-	CloudFormationStacks []string
-	// CloudFormationIgnore are the resources of those stacks, by logical
-	// ID or as <stack>/<logical ID>, that Terraform can't import, such as
-	// custom resources, which the stacks may be deleted without.
-	CloudFormationIgnore []string
+	// ProviderScope is what the provider command's own flags say of where
+	// to list and what to import, such as AWS's --profile, --accounts and
+	// --cfn-stack, or Azure's --resource-group. The command builds it and
+	// reads it, with its provider, through each call's args; the importer
+	// asks of it only the capabilities harvest declares for a scope (see
+	// harvest.StackScoped), and does without those it lacks.
+	ProviderScope any
 	// Parallel is how many accounts, subscriptions or projects import at
 	// once (see Run.ImportEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see
 	// ImportCalls).
 	Parallel int
+}
+
+// stackScoped reports whether the import takes only the resources of
+// stacks the user names (see harvest.StackScoped).
+func (o Options) stackScoped() bool {
+	s, ok := o.ProviderScope.(harvest.StackScoped)
+	return ok && s.StackScoped()
+}
+
+// managedStateSource returns source, a --managed-state source, with the
+// settings the provider's scope reads managed state with, if it has any
+// (see harvest.ManagedStateScope).
+func (o Options) managedStateSource(source string) string {
+	if s, ok := o.ProviderScope.(harvest.ManagedStateScope); ok {
+		return s.ManagedStateSource(source)
+	}
+	return source
+}
+
+// listsInPart says why the provider's scope may leave out of the listing
+// what the cloud still has, "" when it lists in full (see
+// harvest.PartialListingScope).
+func (o Options) listsInPart() string {
+	if s, ok := o.ProviderScope.(harvest.PartialListingScope); ok {
+		return s.ListsInPart()
+	}
+	return ""
+}
+
+// scopeGroup names the group of its account, subscription or project the
+// import takes, "" for all of it (see harvest.GroupScope).
+func (o Options) scopeGroup() string {
+	if s, ok := o.ProviderScope.(harvest.GroupScope); ok {
+		return s.ScopeGroup()
+	}
+	return ""
 }
 
 // checkEngine rejects an --engine other than EngineTerraform or
@@ -205,7 +221,7 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 	// Checked first, once the configuration file has had its chance to set
 	// --services. A command scoped to CloudFormation stacks needs none: the
 	// types of the stacks' resources say which services to list.
-	if len(options.Services) == 0 && len(options.CloudFormationStacks) == 0 {
+	if len(options.Services) == 0 && !options.stackScoped() {
 		return errNoServices
 	}
 	if err := checkEngine(options.Engine); err != nil {

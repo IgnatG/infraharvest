@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package catalogue
+package catalogue_test
 
 import (
 	"bytes"
@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
@@ -61,12 +62,12 @@ var alwaysGolden = []string{
 // <type>.generated.tf, as -generate-config-out wrote it, goes through the
 // arguments the catalogue omits too.
 func TestGolden(t *testing.T) {
-	providers, err := Providers()
+	providers, err := catalogue.Providers()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, provider := range providers {
-		c := MustBuiltin(provider)
+		c := catalogue.MustBuiltin(provider)
 		for _, typ := range c.Types() {
 			input := filepath.Join("testdata", provider, typ+".json")
 			if _, err := os.Stat(input); err != nil {
@@ -105,7 +106,7 @@ func TestGoldenInputsHaveEntries(t *testing.T) {
 	for _, input := range inputs {
 		provider := filepath.Base(filepath.Dir(input))
 		typ := strings.TrimSuffix(filepath.Base(input), ".json")
-		if _, ok := MustBuiltin(provider).Entry(typ); !ok {
+		if _, ok := catalogue.MustBuiltin(provider).Entry(typ); !ok {
 			t.Errorf("%s: %s isn't in the %s catalogue", input, typ, provider)
 		}
 	}
@@ -113,13 +114,13 @@ func TestGoldenInputsHaveEntries(t *testing.T) {
 
 // needsGolden reports whether an entry changes what an import does, or its
 // type is one of alwaysGolden.
-func needsGolden(c *Catalogue, typ string) bool {
+func needsGolden(c *catalogue.Catalogue, typ string) bool {
 	e, _ := c.Entry(typ)
 	return len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Skip) > 0 || len(e.Children) > 0 ||
 		e.DataSource != nil || len(e.Omit) > 0 || len(e.Defaults) > 0 || len(e.StateOnly) > 0 || len(e.ProviderVersions) > 0 || len(e.KeepEmpty) > 0 || e.Placeholder != nil || e.Lifecycle != nil || slices.Contains(alwaysGolden, typ)
 }
 
-func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
+func renderGolden(t *testing.T, c *catalogue.Catalogue, typ, input string) []byte {
 	t.Helper()
 	content, err := os.ReadFile(input)
 	if err != nil {
@@ -194,7 +195,7 @@ func renderGolden(t *testing.T, c *Catalogue, typ, input string) []byte {
 			fmt.Fprintf(&out, "#   %s\n", child)
 		}
 	}
-	omit := append(append([]string(nil), c.Omit(nil)[AllTypes]...), e.Omit...)
+	omit := append(append([]string(nil), c.Omit(nil)[catalogue.AllTypes]...), e.Omit...)
 	if len(e.Omit) > 0 {
 		fmt.Fprintf(&out, "\n# Left out of generated configuration: %s\n", strings.Join(omit, ", "))
 	}

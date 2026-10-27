@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 // nestedStackType is the CloudFormation type of a nested stack, whose
@@ -75,7 +76,7 @@ type scopedStack struct {
 // scopedResource is a resource of a scopedStack.
 type scopedResource struct {
 	logicalID, cfnType, physicalID, status string
-	// outcome is report.StackNested or report.StackOnlyInCloudFormation
+	// outcome is cfn.StackNested or cfn.StackOnlyInCloudFormation
 	// for what is never imported but doesn't keep the stack from being
 	// deleted, and notImportable why Terraform can't import it, if it
 	// can't.
@@ -244,7 +245,7 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 			gone := summary.ResourceStatus == cftypes.ResourceStatusDeleteComplete
 			switch {
 			case r.cfnType == nestedStackType:
-				r.outcome = report.StackNested
+				r.outcome = cfn.StackNested
 				r.notImportable = "a nested stack, whose resources are listed with it"
 				// A live stack lists the nested stacks it deleted, as one that
 				// rolled back does: those have nothing left. A deleted one
@@ -255,7 +256,7 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 				}
 				continue
 			case cloudFormationOnlyTypes[r.cfnType] != "":
-				r.outcome = report.StackOnlyInCloudFormation
+				r.outcome = cfn.StackOnlyInCloudFormation
 				r.notImportable = cloudFormationOnlyTypes[r.cfnType]
 				continue
 			case isCustomResource(r.cfnType) && types[r.cfnType] == nil:
@@ -396,7 +397,7 @@ func (s *StackScope) names() []string {
 // logical ID of its parent's resource that creates it, and that
 // resource's TemplateURL where it is a string rather than a function's
 // value, as the report needs them to update it through its root (see
-// report.CloudFormationStack.Root); "" for what the scope doesn't know,
+// cfn.Stack.Root); "" for what the scope doesn't know,
 // as of a parent --cfn-stack doesn't reach. It makes no call.
 func (s *StackScope) nesting(stack *scopedStack) (root, logicalID, templateURL string) {
 	byID := func(id string) *scopedStack {
@@ -527,13 +528,13 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 		matches = append(matches, *best)
 	}
 	reassignShared(matches, types)
-	byResource := map[*scopedResource][]report.CloudFormationMatch{}
+	byResource := map[*scopedResource][]cfn.Match{}
 	for _, m := range matches {
 		id, ok := importID(cat, m.resource)
 		if !ok {
 			id = m.resource.Observed.ID
 		}
-		byResource[m.of] = append(byResource[m.of], report.CloudFormationMatch{Type: m.resource.Address.Type, ID: id})
+		byResource[m.of] = append(byResource[m.of], cfn.Match{Type: m.resource.Address.Type, ID: id})
 	}
 	for _, stack := range p.stackScope.stacks {
 		stack.holdIn(byResource)
@@ -550,7 +551,7 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 // CloudFormationStacks returns the stacks the import is scoped to, for
 // the report, each resource with the listed resources it is, as
 // ImportScope matched them; nil before ImportScope.
-func (p *Provider) CloudFormationStacks() []report.CloudFormationStack {
+func (p *Provider) CloudFormationStacks() []cfn.Stack {
 	return p.scopedStacks
 }
 
@@ -584,12 +585,12 @@ func reassignShared(matches []stackMatch, types map[string][]string) {
 
 // report returns the stack as the report has it, each resource with the
 // listed resources byResource says it is.
-func (s *scopedStack) report(byResource map[*scopedResource][]report.CloudFormationMatch) report.CloudFormationStack {
-	stack := report.CloudFormationStack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Unreadable: s.unreadable, Warnings: s.warnings}
+func (s *scopedStack) report(byResource map[*scopedResource][]cfn.Match) cfn.Stack {
+	stack := cfn.Stack{Name: s.name, ID: s.id, Region: s.region, Status: s.status, Parent: s.parent, Deleted: s.deleted, Unreadable: s.unreadable, Warnings: s.warnings}
 	stack.SetParameters(s.parameters, s.resolved)
 	var unretained []string
 	for _, r := range s.resources {
-		stack.Resources = append(stack.Resources, report.CloudFormationResource{
+		stack.Resources = append(stack.Resources, cfn.Resource{
 			LogicalID:     r.logicalID,
 			Type:          r.cfnType,
 			PhysicalID:    r.physicalID,
@@ -635,7 +636,7 @@ var heldTypes = map[string]struct{ terraform, property string }{
 // heldTypes), and that matched nothing listed itself, the matches of the
 // resources it names that are of the holding type: it is imported where
 // they are.
-func (s *scopedStack) holdIn(byResource map[*scopedResource][]report.CloudFormationMatch) {
+func (s *scopedStack) holdIn(byResource map[*scopedResource][]cfn.Match) {
 	for _, r := range s.resources {
 		held, ok := heldTypes[r.cfnType]
 		if !ok || len(byResource[r]) > 0 {

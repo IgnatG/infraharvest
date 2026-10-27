@@ -8,39 +8,34 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
-// principalKinds name, by an azurerm role assignment's principal_type,
-// what its principal_id is in Entra ID.
-var principalKinds = map[string]string{
-	"User":             "user",
-	"Group":            "group",
-	"ForeignGroup":     "foreign group",
-	"ServicePrincipal": "service principal",
-	"Device":           "device",
-}
-
-// entraNote marks the principals notePrincipals has noted, so that a
-// principal is noted once.
-const entraNote = "# Entra ID "
-
-// notePrincipals notes, after the principal_id of each azurerm role
-// assignment in the file at path that is still a literal, that it is an
-// Entra ID object: what the role is assigned to wasn't imported, as no
-// resource of the root has that principal (see nestedIdentities), and
-// users, groups and applications belong to the azuread provider, which an
-// import doesn't use. The note says what kind of object it is, by the
-// assignment's principal_type, where the assignment sets one. A comment
-// doesn't change the plan. It reports whether it noted any.
+// notePrincipals notes, after each argument in the file at path that the
+// catalogue says names an object of the cloud's directory (see
+// catalogue.Principal) and that is still a literal, which kind of object
+// it is, such as an Entra ID group for an azurerm role assignment's
+// principal_id: what the role is assigned to wasn't imported, as no
+// resource of the root is that object (see nestedIdentities), and the
+// directory's objects belong to another provider, which an import doesn't
+// use. The kind is the catalogue's for the value of the resource's
+// argument that says it, where the resource sets one, and object
+// otherwise. A comment doesn't change the plan. It reports whether it
+// noted any.
 func notePrincipals(path string) (bool, error) {
 	return rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
 		changed := false
 		blocks := f.Body().Blocks()
 		for i, b := range syntax.Blocks {
-			if b.Type != "resource" || len(b.Labels) != 2 || b.Labels[0] != "azurerm_role_assignment" || i >= len(blocks) {
+			if b.Type != "resource" || len(b.Labels) != 2 || i >= len(blocks) {
 				continue
 			}
-			attr, ok := b.Body.Attributes["principal_id"]
+			p, ok := catalogue.ForType(b.Labels[0]).Principal(b.Labels[0])
+			if !ok {
+				continue
+			}
+			attr, ok := b.Body.Attributes[p.Argument]
 			if !ok {
 				continue
 			}
@@ -51,16 +46,18 @@ func notePrincipals(path string) (bool, error) {
 			if _, ok := literalString(tmpl); !ok {
 				continue
 			}
+			// The mark of a note, so that an argument is noted once.
+			mark := "# " + p.Directory + " "
 			body := blocks[i].Body()
-			written := body.GetAttribute("principal_id")
-			if written == nil || strings.Contains(string(written.BuildTokens(nil).Bytes()), entraNote) {
+			written := body.GetAttribute(p.Argument)
+			if written == nil || strings.Contains(string(written.BuildTokens(nil).Bytes()), mark) {
 				continue
 			}
 			kind := "object"
-			if t, ok := b.Body.Attributes["principal_type"]; ok {
+			if t, ok := b.Body.Attributes[p.KindArgument]; ok && p.KindArgument != "" {
 				if tmpl, ok := t.Expr.(*hclsyntax.TemplateExpr); ok {
-					if v, ok := literalString(tmpl); ok && principalKinds[v] != "" {
-						kind = principalKinds[v]
+					if v, ok := literalString(tmpl); ok && p.Kinds[v] != "" {
+						kind = p.Kinds[v]
 					}
 				}
 			}
@@ -68,9 +65,9 @@ func notePrincipals(path string) (bool, error) {
 			// which saving runs, reads it as the attribute's line comment.
 			tokens := append(written.Expr().BuildTokens(nil), &hclwrite.Token{
 				Type:  hclsyntax.TokenComment,
-				Bytes: []byte(entraNote + kind + ": users, groups and applications belong to the azuread provider"),
+				Bytes: []byte(mark + kind + ": " + p.Note),
 			})
-			body.SetAttributeRaw("principal_id", tokens)
+			body.SetAttributeRaw(p.Argument, tokens)
 			changed = true
 		}
 		return changed

@@ -45,7 +45,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
 			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
-			fail("the entry for every type only takes omit, state_only, provider_versions and skip")
+			fail("the entry for every type only takes omit, state_only, provider_versions, skip and unstable_id_suffix")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.provider+"_") {
 		fail("not a %s resource type", c.provider)
@@ -117,6 +117,7 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 	if p := e.Placeholder; p != nil {
 		errs = append(errs, checkPlaceholder(p)...)
 	}
+	errs = append(errs, checkGeneration(typ, e)...)
 	if len(e.Remove) > 0 {
 		fail("remove: only an overlay of a built-in entry takes remove")
 	}

@@ -10,3 +10,9 @@ types:
     # What AWS gives a parameter that doesn't set them: text, in the
     # standard tier, a SecureString encrypted with the AWS managed key.
     defaults: [data_type=text, key_id=alias/aws/ssm, tier=Standard]
+    # The provider always marks a parameter's value sensitive, but only a
+    # SecureString's is secret: a String or StringList parameter's is
+    # written as it is. Its insecure_value would plan an update after
+    # import, as the provider reads an imported parameter's value into
+    # value.
+    secret_when: { argument: value, when: type, in: [SecureString] }

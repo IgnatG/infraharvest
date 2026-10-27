@@ -4,55 +4,61 @@
 package engine
 
 import (
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
-// projectArguments are the module arguments that name a Google project,
-// alone or in a list: the curated modules' project_id and projects.
-var projectArguments = []string{"project", "project_id", "projects"}
+// moduleTarget is a type whose resources module calls name by an
+// attribute (see catalogue.ModuleReferences), with the labels of those
+// generated.tf has, by the attribute's value.
+type moduleTarget struct {
+	refs    catalogue.ModuleReferences
+	byValue map[string][]string
+}
 
-// referToProjects makes the module calls in generated.tf that name a
-// project the root manages as google_project refer to it, as a resource
-// would: project_id = google_project.main.project_id, not the project's
-// ID again. A call takes its arguments from the resources it replaces,
-// which name the project by its ID; addReferencesSkipping doesn't refer
-// them to it, as a resource's project usually goes to the provider block
-// instead (see omitInherited). Only projectArguments count: another argument
-// with the same value, such as a bucket's name, isn't the project. It
-// reports whether it changed generated.tf.
-func referToProjects(dir string) (bool, error) {
+// referModulesToResources makes the module calls in generated.tf that name a
+// resource the root manages by one of its attributes refer to it, as a
+// resource would, where the catalogue says which arguments of a call name
+// which (see catalogue.ModuleReferences): project_id =
+// google_project.main.project_id, not the project's ID again. A call
+// takes its arguments from the resources it replaces, which name the
+// project by its ID; addReferencesSkipping doesn't refer them to it, as a
+// resource's project usually goes to the provider block instead (see
+// omitInherited). Only those arguments count: another argument with the
+// same value, such as a bucket's name, isn't the project. It reports
+// whether it changed generated.tf.
+func referModulesToResources(dir string) (bool, error) {
 	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
-	// The google_project resources, by their project ID.
-	projects := map[string][]string{}
+	// The resources module calls name, by type.
+	targets := map[string]*moduleTarget{}
 	for _, r := range generated.resources() {
-		if AddressType(r.address) != "google_project" {
+		typ := AddressType(r.address)
+		refs, ok := catalogue.ForType(typ).ModuleReferences(typ)
+		if !ok {
 			continue
 		}
-		if attr, ok := r.syntax.Body.Attributes["project_id"]; ok {
-			if id, ok := constantString(attr.Expr); ok && id != "" {
-				projects[id] = append(projects[id], r.syntax.Labels[1])
+		if attr, ok := r.syntax.Body.Attributes[refs.Attribute]; ok {
+			if value, ok := constantString(attr.Expr); ok && value != "" {
+				if targets[typ] == nil {
+					targets[typ] = &moduleTarget{refs: refs, byValue: map[string][]string{}}
+				}
+				targets[typ].byValue[value] = append(targets[typ].byValue[value], r.syntax.Labels[1])
 			}
 		}
 	}
-	if len(projects) == 0 {
+	if len(targets) == 0 {
 		return false, nil
-	}
-	// reference returns the traversal that replaces id, if one project
-	// has it.
-	reference := func(id string) (hcl.Traversal, bool) {
-		names := projects[id]
-		if len(names) != 1 {
-			return nil, false
-		}
-		return hcl.Traversal{hcl.TraverseRoot{Name: "google_project"}, hcl.TraverseAttr{Name: names[0]}, hcl.TraverseAttr{Name: "project_id"}}, true
 	}
 	changed := false
 	blocks := generated.edit().Body().Blocks()
@@ -61,23 +67,35 @@ func referToProjects(dir string) (bool, error) {
 			continue
 		}
 		body := blocks[i].Body()
-		for _, name := range projectArguments {
-			attr, ok := b.Body.Attributes[name]
-			if !ok {
-				continue
+		for _, typ := range slices.Sorted(maps.Keys(targets)) {
+			target := targets[typ]
+			// reference returns the traversal that replaces value, if one
+			// resource has it.
+			reference := func(value string) (hcl.Traversal, bool) {
+				names := target.byValue[value]
+				if len(names) != 1 {
+					return nil, false
+				}
+				return hcl.Traversal{hcl.TraverseRoot{Name: typ}, hcl.TraverseAttr{Name: names[0]}, hcl.TraverseAttr{Name: target.refs.Attribute}}, true
 			}
-			switch expr := attr.Expr.(type) {
-			case *hclsyntax.TemplateExpr:
-				if id, ok := literalString(expr); ok {
-					if t, ok := reference(id); ok {
-						body.SetAttributeTraversal(name, t)
+			for _, name := range target.refs.Arguments {
+				attr, ok := b.Body.Attributes[name]
+				if !ok {
+					continue
+				}
+				switch expr := attr.Expr.(type) {
+				case *hclsyntax.TemplateExpr:
+					if value, ok := literalString(expr); ok {
+						if t, ok := reference(value); ok {
+							body.SetAttributeTraversal(name, t)
+							changed = true
+						}
+					}
+				case *hclsyntax.TupleConsExpr:
+					if tokens, ok := referInTuple(expr, reference); ok {
+						body.SetAttributeRaw(name, tokens)
 						changed = true
 					}
-				}
-			case *hclsyntax.TupleConsExpr:
-				if tokens, ok := referInTuple(expr, reference); ok {
-					body.SetAttributeRaw(name, tokens)
-					changed = true
 				}
 			}
 		}

@@ -12,10 +12,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// inventoryServices list every type through a cloud's inventory API, so
-// their name says nothing about a resource.
-var inventoryServices = []string{"cloud_asset", "resource_graph"}
-
 // camelWord is where a camelCase service name, such as schedulerJobs,
 // starts a word.
 var camelWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
@@ -23,12 +19,12 @@ var camelWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 // configFile names the file of a root that a resource listed by service
 // goes in (see engine.Import.File): network.tf for the network, else the
 // service's, such as s3.tf or scheduler_jobs.tf. For a service that
-// lists through an inventory API, the catalogue's service for the type
-// counts, or else the type's family (see harvest.Layout), such as
-// storage.tf for every azurerm_storage_* type, or else the type itself,
-// such as backend_service.tf.
+// lists through an inventory API (see harvest.Layout.InventoryServices),
+// the catalogue's service for the type counts, or else the type's family,
+// such as storage.tf for every azurerm_storage_* type, or else the type
+// itself, such as backend_service.tf.
 func configFile(layout harvest.Layout, service, typ string, cat *catalogue.Catalogue) string {
-	if slices.Contains(inventoryServices, service) {
+	if slices.Contains(layout.InventoryServices, service) {
 		inventory := service
 		service = ""
 		if cat != nil {
@@ -39,7 +35,9 @@ func configFile(layout harvest.Layout, service, typ string, cat *catalogue.Catal
 		if service == "" {
 			// google_compute_subnetwork: subnetwork.
 			_, name, _ := strings.Cut(typ, "_")
-			name = strings.TrimPrefix(name, "compute_")
+			if layout.TypeNameTrim != "" {
+				name = strings.TrimPrefix(name, layout.TypeNameTrim)
+			}
 			if slices.ContainsFunc(layout.NetworkTypes, func(n string) bool { return namedAfter(name, n) }) {
 				return "network.tf"
 			}

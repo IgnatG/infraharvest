@@ -22,6 +22,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
+	"github.com/IgnatG/infraharvest/internal/report/mdtext"
 )
 
 // SchemaVersion is the version of the JSON documents. It changes only
@@ -198,7 +200,7 @@ type Coverage struct {
 	// CloudFormationStacks are the CloudFormation stacks the import is
 	// scoped to, and those nested in them, with what became of their
 	// resources and whether each is safe to delete (AWS --cfn-stack).
-	CloudFormationStacks []CloudFormationStack `json:"cloudformation_stacks,omitempty"`
+	CloudFormationStacks cfn.Stacks `json:"cloudformation_stacks,omitempty"`
 }
 
 // TagCount counts the resources with one value of a tag key.
@@ -542,7 +544,7 @@ func (r *Report) Merge(other *Report) {
 	r.IncompleteHandovers = append(r.IncompleteHandovers, other.IncompleteHandovers...)
 	r.KeptRoots = append(r.KeptRoots, other.KeptRoots...)
 	r.Merges = append(r.Merges, other.Merges...)
-	r.AddCloudFormationStacks(other.CloudFormationStacks)
+	r.CloudFormationStacks.Add(other.CloudFormationStacks)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.Warnings = append(r.Warnings, other.Warnings...)
@@ -668,7 +670,9 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	}
 	sort.Slice(r.Scopes, func(i, j int) bool { return r.Scopes[i].Scope < r.Scopes[j].Scope })
 	r.Tags = r.countByTag()
-	r.finishStacks()
+	if len(r.CloudFormationStacks) > 0 {
+		r.CloudFormationStacks.Finish(r.results())
+	}
 
 	switch {
 	case !r.incomplete():
@@ -802,7 +806,7 @@ func (r *Report) SkippedChecks() []string {
 
 // WriteFiles writes coverage.json, manifest.json and report.md into the
 // report directory under outputDir, and the templates of the CloudFormation
-// stacks the import is scoped to under TemplatesDir.
+// stacks the import is scoped to under cfn.TemplatesDir.
 func (r *Report) WriteFiles(outputDir string) error {
 	dir := filepath.Join(outputDir, Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -832,7 +836,7 @@ func (r *Report) WriteFiles(outputDir string) error {
 			return err
 		}
 	}
-	return r.writeTemplates(outputDir)
+	return r.CloudFormationStacks.WriteTemplates(outputDir)
 }
 
 // WriteJSON writes the whole report as one JSON document.
@@ -888,7 +892,7 @@ func (r *Report) Markdown() string {
 		if len(r.Scopes) > 1 {
 			b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
 			for _, s := range r.Scopes {
-				fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d |\n", cell(code(s.Scope)), s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
+				fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d |\n", mdtext.Cell(mdtext.Code(s.Scope)), s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
 			}
 			b.WriteString("\n")
 		}
@@ -903,11 +907,11 @@ func (r *Report) Markdown() string {
 		for _, c := range r.Tags {
 			if c.Key != key {
 				key = c.Key
-				fmt.Fprintf(&b, "\n| %s | Discovered | Imported | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |\n|---|---|---|---|---|---|---|\n", cell(code(key)))
+				fmt.Fprintf(&b, "\n| %s | Discovered | Imported | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |\n|---|---|---|---|---|---|---|\n", mdtext.Cell(mdtext.Code(key)))
 			}
 			value := "(not tagged)"
 			if c.Value != "" {
-				value = cell(code(c.Value))
+				value = mdtext.Cell(mdtext.Code(c.Value))
 			}
 			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
 		}
@@ -915,29 +919,29 @@ func (r *Report) Markdown() string {
 
 	var leftOut, secrets, warnings, modules, declined, dirErrors []string
 	for _, w := range r.Warnings {
-		warnings = append(warnings, "- "+prose(w)+".")
+		warnings = append(warnings, "- "+mdtext.Prose(w)+".")
 	}
 	for _, d := range r.Directories {
 		for _, m := range d.Modules {
 			resources := "`" + strings.Join(m.Resources, "`, `") + "`"
 			source := strings.TrimSpace("`" + m.Source + "` " + m.Version)
 			if m.Declined != "" {
-				declined = append(declined, fmt.Sprintf("- %s in `%s` (%s): %s", resources, d.Path, source, prose(m.Declined)))
+				declined = append(declined, fmt.Sprintf("- %s in `%s` (%s): %s", resources, d.Path, source, mdtext.Prose(m.Declined)))
 			} else {
 				modules = append(modules, fmt.Sprintf("- `module.%s` in `%s`: %s, for %s", m.Name, d.Path, source, resources))
 			}
 		}
 		for _, l := range d.LeftOut {
-			leftOut = append(leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, d.Path, prose(strings.Join(l.Errors, "; "))))
+			leftOut = append(leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, d.Path, mdtext.Prose(strings.Join(l.Errors, "; "))))
 		}
 		for _, s := range d.Secrets {
 			secrets = append(secrets, fmt.Sprintf("- `%s` in `%s`: %s of `%s`", s.Variable, d.Path, s.Attribute, s.Address))
 		}
 		for _, w := range d.Warnings {
-			warnings = append(warnings, fmt.Sprintf("- `%s`: %s.", d.Path, prose(w)))
+			warnings = append(warnings, fmt.Sprintf("- `%s`: %s.", d.Path, mdtext.Prose(w)))
 		}
 		if d.Error != "" {
-			dirErrors = append(dirErrors, fmt.Sprintf("- `%s`: %s", d.Path, prose(d.Error)))
+			dirErrors = append(dirErrors, fmt.Sprintf("- `%s`: %s", d.Path, mdtext.Prose(d.Error)))
 		}
 	}
 	section := func(title, intro string, lines []string) {
@@ -951,7 +955,7 @@ func (r *Report) Markdown() string {
 	section("Warnings", "Look at these before using the configuration.", warnings)
 	var gone []string
 	for _, g := range r.NotInCloud {
-		line := fmt.Sprintf("- `%s` %s in `%s`", g.Address, code(g.ID), g.Path)
+		line := fmt.Sprintf("- `%s` %s in `%s`", g.Address, mdtext.Code(g.ID), g.Path)
 		if g.Environment != "" {
 			line += ", of " + g.Environment
 		}
@@ -973,7 +977,7 @@ func (r *Report) Markdown() string {
 	section("Handed over", "These resources go to other roots now. The removed blocks in `moves.tf` of the roots they were in make those roots' states forget them, without destroying them, and the roots they go to import them. Apply the root each was in first, then the root it goes to.", departedLines)
 	var incompleteLines []string
 	for _, h := range r.IncompleteHandovers {
-		incompleteLines = append(incompleteLines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, prose(h.Warning)))
+		incompleteLines = append(incompleteLines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, mdtext.Prose(h.Warning)))
 	}
 	var keptLines []string
 	for _, k := range r.KeptRoots {
@@ -987,7 +991,7 @@ func (r *Report) Markdown() string {
 			roots[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
 		}
 		if !m.Merged {
-			apartLines = append(apartLines, fmt.Sprintf("- %s: %s", strings.Join(roots, ", "), prose(m.Reason)))
+			apartLines = append(apartLines, fmt.Sprintf("- %s: %s", strings.Join(roots, ", "), mdtext.Prose(m.Reason)))
 			continue
 		}
 		line := fmt.Sprintf("- `%s`, of %s: %d resources shared", m.Path, strings.Join(roots, ", "), m.Shared)
@@ -1002,17 +1006,17 @@ func (r *Report) Markdown() string {
 			for i, root := range m.Apart {
 				apart[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
 			}
-			line += fmt.Sprintf("; %s, new to it, kept a root of its own: %s", strings.Join(apart, ", "), prose(m.ApartReason))
+			line += fmt.Sprintf("; %s, new to it, kept a root of its own: %s", strings.Join(apart, ", "), mdtext.Prose(m.ApartReason))
 		}
 		mergedLines = append(mergedLines, line)
 		for _, res := range m.Residue {
-			mergedLines = append(mergedLines, fmt.Sprintf("  - `%s` of %s, as `%s`: %s", res.Address, res.Env, res.MergedAddress, prose(res.Reason)))
+			mergedLines = append(mergedLines, fmt.Sprintf("  - `%s` of %s, as `%s`: %s", res.Address, res.Env, res.MergedAddress, mdtext.Prose(res.Reason)))
 		}
 	}
 	section("Environments merged", "The environments of each of these stacks share one root, with their own values in `vars/<env>/`: each environment's plan of it, with its own credentials, imports what its own root did and changes nothing else. The roots they had are kept under `.infraharvest/premerge/`. Each merged root's README says how to plan and apply an environment.", mergedLines)
 	section("Environments kept apart", "The environments of each of these stacks keep a root each, as they were generated: merging them into one root wouldn't have planned the same.", apartLines)
 	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
-	r.stacksMarkdown(&b)
+	r.CloudFormationStacks.Markdown(&b)
 	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
 	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
 	var skipped []string
@@ -1022,21 +1026,21 @@ func (r *Report) Markdown() string {
 	section("Not importable", "infraharvest doesn't import these resource types.", skipped)
 	var excluded []string
 	for _, e := range r.Excluded {
-		excluded = append(excluded, fmt.Sprintf("- `%s` %s: %s", e.Type, code(e.ID), prose(e.Reason)))
+		excluded = append(excluded, fmt.Sprintf("- `%s` %s: %s", e.Type, mdtext.Code(e.ID), mdtext.Prose(e.Reason)))
 	}
 	section("Excluded", "The selection left these resources out.", excluded)
 	var failures []string
 	for _, f := range r.Failures {
-		failures = append(failures, "- "+prose(f))
+		failures = append(failures, "- "+mdtext.Prose(f))
 	}
 	var checks []string
 	for _, f := range r.FailedChecks() {
-		checks = append(checks, "- "+prose(f))
+		checks = append(checks, "- "+mdtext.Prose(f))
 	}
 	section("Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", checks)
 	var skippedChecks []string
 	for _, s := range r.SkippedChecks() {
-		skippedChecks = append(skippedChecks, "- "+prose(s))
+		skippedChecks = append(skippedChecks, "- "+mdtext.Prose(s))
 	}
 	section("Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", skippedChecks)
 	section("Failed directories", "Nothing in these directories was imported.", dirErrors)

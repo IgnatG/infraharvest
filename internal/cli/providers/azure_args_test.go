@@ -46,7 +46,7 @@ func TestAzureArgs(t *testing.T) {
 			flags := pflag.NewFlagSet("azure", pflag.ContinueOnError)
 			options := importer.Options{}
 			_, planner := azureFlags(flags, &options)
-			if err := flags.Parse(tc.args); err != nil {
+			if err := flags.Parse(append([]string{"--resource-group=rg"}, tc.args...)); err != nil {
 				t.Fatal(err)
 			}
 			if tc.file != nil {
@@ -54,7 +54,7 @@ func TestAzureArgs(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			p, err := planner(context.Background(), importer.Options{ResourceGroup: "rg"})
+			p, err := planner(context.Background(), importer.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +67,7 @@ func TestAzureArgs(t *testing.T) {
 			}
 			var got [][]string
 			for _, scope := range scopes {
-				for _, c := range p.calls(importer.Options{ResourceGroup: "rg"}, scope) {
+				for _, c := range p.calls(importer.Options{}, scope) {
 					got = append(got, c.args)
 				}
 			}
@@ -98,7 +98,7 @@ func TestAzureSubscriptionsApart(t *testing.T) {
 			flags := pflag.NewFlagSet("azure", pflag.ContinueOnError)
 			options := importer.Options{}
 			check, planner := azureFlags(flags, &options)
-			if err := flags.Parse(tc.args); err != nil {
+			if err := flags.Parse(append([]string{"--resource-group=rg"}, tc.args...)); err != nil {
 				t.Fatal(err)
 			}
 			options.Layout = tc.layout

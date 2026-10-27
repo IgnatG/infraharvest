@@ -8,21 +8,24 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 const stackScope = "aws/123456789012/eu-west-2"
 
 // scopedStack is a stack whose resources were all imported, but its
 // bucket, whose DeletionPolicy isn't Retain.
-func scopedStack(retain []string) CloudFormationStack {
-	s := CloudFormationStack{
+func scopedStack(retain []string) cfn.Stack {
+	s := cfn.Stack{
 		Name: "app", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/1", Region: "eu-west-2", Status: "UPDATE_COMPLETE",
-		Resources: []CloudFormationResource{
+		Resources: []cfn.Resource{
 			{LogicalID: "Assets", Type: "AWS::S3::Bucket", PhysicalID: "app-assets", Status: "CREATE_COMPLETE", Retain: retain,
-				Matches: []CloudFormationMatch{{Scope: stackScope, Type: "aws_s3_bucket", ID: "app-assets"}}},
-			{LogicalID: "CDKMetadata", Type: "AWS::CDK::Metadata", PhysicalID: "meta", Status: "CREATE_COMPLETE", Outcome: StackOnlyInCloudFormation, NotImportable: "the CDK's metadata"},
+				Matches: []cfn.Match{{Scope: stackScope, Type: "aws_s3_bucket", ID: "app-assets"}}},
+			{LogicalID: "CDKMetadata", Type: "AWS::CDK::Metadata", PhysicalID: "meta", Status: "CREATE_COMPLETE", Outcome: cfn.StackOnlyInCloudFormation, NotImportable: "the CDK's metadata"},
 		},
 	}
 	s.SetTemplates("Resources: {}\n", "Resources: {Assets: {DeletionPolicy: Retain}}\n", "yaml")
@@ -39,7 +42,7 @@ func imports(checks ...Check) Directory {
 // went.
 func TestStackSafeToDelete(t *testing.T) {
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack(nil)})
+	r.CloudFormationStacks.Add([]cfn.Stack{scopedStack(nil)})
 	r.Directories = []Directory{imports(Check{Name: "G3 plan", Passed: true})}
 
 	r.Finish(nil, nil, false)
@@ -48,11 +51,11 @@ func TestStackSafeToDelete(t *testing.T) {
 	if !s.SafeToDelete || s.Blockers != nil {
 		t.Fatalf("not safe: %v", s.Blockers)
 	}
-	want := CloudFormationMatch{Scope: stackScope, Type: "aws_s3_bucket", ID: "app-assets", Path: "aws/123456789012/eu-west-2", Address: "module.s3.aws_s3_bucket.this"}
-	if s.Resources[0].Outcome != StackImported || !reflect.DeepEqual(s.Resources[0].Matches, []CloudFormationMatch{want}) {
+	want := cfn.Match{Scope: stackScope, Type: "aws_s3_bucket", ID: "app-assets", Path: "aws/123456789012/eu-west-2", Address: "module.s3.aws_s3_bucket.this"}
+	if s.Resources[0].Outcome != cfn.StackImported || !reflect.DeepEqual(s.Resources[0].Matches, []cfn.Match{want}) {
 		t.Errorf("Assets: %+v", s.Resources[0])
 	}
-	if s.Resources[1].Outcome != StackOnlyInCloudFormation {
+	if s.Resources[1].Outcome != cfn.StackOnlyInCloudFormation {
 		t.Errorf("CDKMetadata: %+v", s.Resources[1])
 	}
 	if !strings.Contains(r.Markdown(), "**Safe to delete**") {
@@ -67,13 +70,13 @@ func TestStackSafeToDelete(t *testing.T) {
 func TestStackBlockers(t *testing.T) {
 	s := scopedStack([]string{"DeletionPolicy is Delete, the default"})
 	s.Resources = append(s.Resources,
-		CloudFormationResource{LogicalID: "Queue", Type: "AWS::SQS::Queue", PhysicalID: "q", Status: "CREATE_COMPLETE", Matches: []CloudFormationMatch{{Scope: stackScope, Type: "aws_sqs_queue", ID: "q"}}},
-		CloudFormationResource{LogicalID: "Topic", Type: "AWS::SNS::Topic", PhysicalID: "t", Status: "CREATE_COMPLETE", Matches: []CloudFormationMatch{{Scope: stackScope, Type: "aws_sns_topic", ID: "t"}}},
-		CloudFormationResource{LogicalID: "Method", Type: "AWS::ApiGateway::Method", PhysicalID: "m-1", Status: "CREATE_COMPLETE"},
-		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource"},
+		cfn.Resource{LogicalID: "Queue", Type: "AWS::SQS::Queue", PhysicalID: "q", Status: "CREATE_COMPLETE", Matches: []cfn.Match{{Scope: stackScope, Type: "aws_sqs_queue", ID: "q"}}},
+		cfn.Resource{LogicalID: "Topic", Type: "AWS::SNS::Topic", PhysicalID: "t", Status: "CREATE_COMPLETE", Matches: []cfn.Match{{Scope: stackScope, Type: "aws_sns_topic", ID: "t"}}},
+		cfn.Resource{LogicalID: "Method", Type: "AWS::ApiGateway::Method", PhysicalID: "m-1", Status: "CREATE_COMPLETE"},
+		cfn.Resource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource"},
 	)
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.CloudFormationStacks.Add([]cfn.Stack{s})
 	r.Directories = []Directory{imports(Check{Name: "G3 plan", Passed: false, Details: []string{"aws_s3_bucket.this updates tags"}})}
 	r.Excluded = []Excluded{
 		{Type: "aws_sqs_queue", ID: "q", Reason: ReasonSelectionEntry, Scope: stackScope},
@@ -111,7 +114,7 @@ func TestStackBlockers(t *testing.T) {
 	deleted := scopedStack([]string{"DeletionPolicy is Delete, the default"})
 	deleted.Deleted = true
 	r = &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{deleted})
+	r.CloudFormationStacks.Add([]cfn.Stack{deleted})
 	r.Finish(nil, nil, false)
 	if got := r.CloudFormationStacks[0]; got.SafeToDelete || got.Blockers != nil {
 		t.Errorf("deleted stack: %+v", got)
@@ -124,11 +127,11 @@ func TestStackBlockers(t *testing.T) {
 func TestStacksMergeAndWrite(t *testing.T) {
 	regional := scopedStack(nil)
 	global := scopedStack(nil)
-	global.Resources[0].Matches = []CloudFormationMatch{{Scope: "aws/123456789012/aws-global", Type: "aws_s3_bucket_policy", ID: "app-assets"}}
+	global.Resources[0].Matches = []cfn.Match{{Scope: "aws/123456789012/aws-global", Type: "aws_s3_bucket_policy", ID: "app-assets"}}
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{regional})
+	r.CloudFormationStacks.Add([]cfn.Stack{regional})
 	other := &Report{}
-	other.AddCloudFormationStacks([]CloudFormationStack{global})
+	other.CloudFormationStacks.Add([]cfn.Stack{global})
 	r.Merge(other)
 
 	if n := len(r.CloudFormationStacks); n != 1 {
@@ -164,7 +167,7 @@ func TestStacksOfOneName(t *testing.T) {
 	deleted.ID, deleted.Deleted, deleted.Status = "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/0", true, "DELETE_COMPLETE"
 	deleted.SetTemplates("Resources: {Old: {}}\n", "", "yaml")
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack(nil), deleted})
+	r.CloudFormationStacks.Add([]cfn.Stack{scopedStack(nil), deleted})
 	r.Finish(nil, nil, false)
 	out := t.TempDir()
 	if err := r.WriteFiles(out); err != nil {
@@ -193,20 +196,20 @@ func TestStacksOfOneName(t *testing.T) {
 func TestStackCustomResources(t *testing.T) {
 	s := scopedStack(nil)
 	s.Resources = append(s.Resources,
-		CloudFormationResource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true},
+		cfn.Resource{LogicalID: "Seed", Type: "Custom::Seed", PhysicalID: "seed", Status: "CREATE_COMPLETE", NotImportable: "a custom resource", Acknowledged: true},
 	)
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.CloudFormationStacks.Add([]cfn.Stack{s})
 	r.Directories = []Directory{imports()}
 	r.Finish(nil, nil, false)
 	got := r.CloudFormationStacks[0]
-	if !got.SafeToDelete || got.Resources[2].Outcome != StackAcknowledged {
+	if !got.SafeToDelete || got.Resources[2].Outcome != cfn.StackAcknowledged {
 		t.Errorf("acknowledged: %+v", got)
 	}
 
-	s.Resources = append(s.Resources, CloudFormationResource{LogicalID: "AutoDelete", Type: "Custom::S3AutoDeleteObjects", PhysicalID: "ad", Status: "CREATE_COMPLETE", NotImportable: "the CDK's autoDeleteObjects", MustRemove: true})
+	s.Resources = append(s.Resources, cfn.Resource{LogicalID: "AutoDelete", Type: "Custom::S3AutoDeleteObjects", PhysicalID: "ad", Status: "CREATE_COMPLETE", NotImportable: "the CDK's autoDeleteObjects", MustRemove: true})
 	r = &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.CloudFormationStacks.Add([]cfn.Stack{s})
 	r.Directories = []Directory{imports()}
 	r.Finish(nil, nil, false)
 	got = r.CloudFormationStacks[0]
@@ -219,11 +222,11 @@ func TestStackCustomResources(t *testing.T) {
 // those from being safe to delete keeps the stack it is nested in too.
 func TestStackNestedBlockers(t *testing.T) {
 	parent := scopedStack(nil)
-	nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "stack/app-Network-1ABC", Region: "eu-west-2", Parent: parent.ID, Resources: []CloudFormationResource{
-		{LogicalID: "Alerts", Type: "AWS::SNS::Topic", PhysicalID: "alerts", Status: "CREATE_COMPLETE", Retain: []string{"DeletionPolicy is Delete, the default"}, Matches: []CloudFormationMatch{{Scope: stackScope, Type: "aws_sns_topic", ID: "alerts"}}},
+	nested := cfn.Stack{Name: "app-Network-1ABC", ID: "stack/app-Network-1ABC", Region: "eu-west-2", Parent: parent.ID, Resources: []cfn.Resource{
+		{LogicalID: "Alerts", Type: "AWS::SNS::Topic", PhysicalID: "alerts", Status: "CREATE_COMPLETE", Retain: []string{"DeletionPolicy is Delete, the default"}, Matches: []cfn.Match{{Scope: stackScope, Type: "aws_sns_topic", ID: "alerts"}}},
 	}}
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{parent, nested})
+	r.CloudFormationStacks.Add([]cfn.Stack{parent, nested})
 	r.Directories = []Directory{imports()}
 	r.Directories[0].Imported = append(r.Directories[0].Imported, Resource{Address: "aws_sns_topic.alerts", ID: "alerts"})
 
@@ -243,11 +246,12 @@ func TestStackNestedBlockers(t *testing.T) {
 // to be uploaded to S3, and the stack updated from there; the report read
 // back, which has no templates, says the same.
 func TestStackUpdateCommand(t *testing.T) {
-	for size, want := range map[int]string{100: "--template-body file://", templateBodyLimit + 1: "--template-url https://<bucket>.s3.eu-west-2.amazonaws.com/app.retain.template.yaml"} {
+	// 51200 bytes is the largest template UpdateStack takes in its request.
+	for size, want := range map[int]string{100: "--template-body file://", 51200 + 1: "--template-url https://<bucket>.s3.eu-west-2.amazonaws.com/app.retain.template.yaml"} {
 		s := scopedStack([]string{"DeletionPolicy is Delete, the default"})
 		s.SetTemplates("Resources: {}\n", strings.Repeat("#", size), "yaml")
 		r := &Report{}
-		r.AddCloudFormationStacks([]CloudFormationStack{s})
+		r.CloudFormationStacks.Add([]cfn.Stack{s})
 		r.Finish(nil, nil, false)
 		if md := r.Markdown(); !strings.Contains(md, want) {
 			t.Errorf("%d bytes: the report lacks %q", size, want)
@@ -274,14 +278,14 @@ func TestStackUpdateCommand(t *testing.T) {
 func TestStackNestedUpdate(t *testing.T) {
 	root := scopedStack(nil)
 	root.SetTemplates("Resources: {}\n", "", "yaml")
-	nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+	nested := cfn.Stack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
 		Root: root.ID, NestedAs: "Network", TemplateURL: "https://cdk-assets.s3.eu-west-2.amazonaws.com/network.json"}
 	nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
 	copied := "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://cdk-assets/network.json"
 	previous := "`aws cloudformation update-stack --stack-name app --use-previous-template"
 
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+	r.CloudFormationStacks.Add([]cfn.Stack{root, nested})
 	r.Finish(nil, nil, false)
 	md := r.Markdown()
 	for _, want := range []string{copied, "its parent's `Network`", previous} {
@@ -300,7 +304,11 @@ func TestStackNestedUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := read.stack(nested.ID); got == nil || got.Root != root.ID || got.NestedAs != "Network" || got.TemplateURL != nested.TemplateURL {
+	i := slices.IndexFunc(read.CloudFormationStacks, func(s cfn.Stack) bool { return s.ID == nested.ID })
+	if i < 0 {
+		t.Fatalf("read back without %s", nested.ID)
+	}
+	if got := read.CloudFormationStacks[i]; got.Root != root.ID || got.NestedAs != "Network" || got.TemplateURL != nested.TemplateURL {
 		t.Errorf("read back: %+v", got)
 	}
 	if md := read.Markdown(); !strings.Contains(md, copied) || !strings.Contains(md, previous) {
@@ -308,7 +316,7 @@ func TestStackNestedUpdate(t *testing.T) {
 	}
 
 	r = &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{scopedStack([]string{"DeletionPolicy is Delete, the default"}), nested})
+	r.CloudFormationStacks.Add([]cfn.Stack{scopedStack([]string{"DeletionPolicy is Delete, the default"}), nested})
 	r.Finish(nil, nil, false)
 	md = r.Markdown()
 	for _, want := range []string{"update the root stack `app` with its own copy", "--template-body file://.infraharvest/cloudformation/eu-west-2/app.retain.template.yaml", "once the copies of the stacks nested in it are uploaded"} {
@@ -323,37 +331,10 @@ func TestStackNestedUpdate(t *testing.T) {
 	gone := scopedStack(nil)
 	gone.Deleted = true
 	r = &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{gone, nested})
+	r.CloudFormationStacks.Add([]cfn.Stack{gone, nested})
 	r.Finish(nil, nil, false)
 	if md := r.Markdown(); !strings.Contains(md, "update-stack --stack-name app-Network-1ABC --template-body") || strings.Contains(md, "root stack `app`") {
 		t.Errorf("retained by a deleted parent:\n%s", md)
-	}
-}
-
-// An S3 URL becomes the S3 URI the upload takes only where its bucket and
-// key are safe in a shell command as they are: the URL is a template's.
-func TestS3Object(t *testing.T) {
-	for in, want := range map[string]string{
-		"https://bkt.s3.eu-west-2.amazonaws.com/k/t.json":   "s3://bkt/k/t.json",
-		"https://bkt.s3.amazonaws.com/t.json":               "s3://bkt/t.json",
-		"https://my.s3.bucket.s3-eu-west-1.amazonaws.com/t": "s3://my.s3.bucket/t",
-		"https://s3.eu-west-2.amazonaws.com/bkt/k/t.json":   "s3://bkt/k/t.json",
-		"https://s3.amazonaws.com/bkt/t.json":               "s3://bkt/t.json",
-		"https://s3.amazonaws.com/bkt":                      "",
-		"https://example.com/t.json":                        "",
-		"https://bkt.s3.amazonaws.com.evil.com/t.json":      "",
-		"https://bkt.s3.amazonaws.com/t.json?x=1":           "",
-		"https://bkt.s3.amazonaws.com/t%20$(id).json":       "",
-		"https://bkt.s3.amazonaws.com/t;rm -rf ~":           "",
-		"https://bkt.s3.amazonaws.com/a`id`":                "",
-		"https://bkt.s3.amazonaws.com/a%0Aid":               "",
-		"https://bkt.s3.amazonaws.com/a!id.json":            "",
-		"https://BKT_1.s3.amazonaws.com/t.json":             "",
-		"":                                                  "",
-	} {
-		if got := s3Object(in); got != want {
-			t.Errorf("s3Object(%q) = %q, want %q", in, got, want)
-		}
 	}
 }
 
@@ -370,11 +351,11 @@ func TestStackNestedUpdateHostile(t *testing.T) {
 		"https://bkt.s3.amazonaws.com/t.json\ntouch x",
 		"`touch x`",
 	} {
-		nested := CloudFormationStack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
+		nested := cfn.Stack{Name: "app-Network-1ABC", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app-Network-1ABC/2", Region: "eu-west-2", Parent: root.ID,
 			Root: root.ID, NestedAs: "Net`touch x`", TemplateURL: hostile}
 		nested.SetTemplates("Resources: {}\n", "Resources: {Alerts: {DeletionPolicy: Retain}}\n", "yaml")
 		r := &Report{}
-		r.AddCloudFormationStacks([]CloudFormationStack{root, nested})
+		r.CloudFormationStacks.Add([]cfn.Stack{root, nested})
 		r.Finish(nil, nil, false)
 		md := r.Markdown()
 		if strings.Contains(md, "touch x") {
@@ -382,19 +363,6 @@ func TestStackNestedUpdateHostile(t *testing.T) {
 		}
 		if !strings.Contains(md, "aws s3 cp .infraharvest/cloudformation/eu-west-2/app-Network-1ABC.retain.template.yaml s3://<bucket>/<key>") {
 			t.Errorf("%q: the upload lacks the placeholder:\n%s", hostile, md)
-		}
-	}
-}
-
-func TestShellArg(t *testing.T) {
-	for in, want := range map[string]string{
-		"app-1":                  "app-1",
-		"file://.infraharvest/a": "file://.infraharvest/a",
-		"it's":                   `'it'\''s'`,
-		"a`b`\n$(c)":             "'ab$(c)'",
-	} {
-		if got := shellArg(in); got != want {
-			t.Errorf("shellArg(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -425,12 +393,12 @@ func TestStackTemplateAndParameters(t *testing.T) {
 	}
 
 	r := &Report{}
-	r.AddCloudFormationStacks([]CloudFormationStack{s})
+	r.CloudFormationStacks.Add([]cfn.Stack{s})
 	// Another call's record of the stack adds its matches, and leaves the
 	// first's template and parameters as they were.
 	again := scopedStack(nil)
 	again.SetTemplates("Resources: {Other: {}}\n", "", "yaml")
-	r.AddCloudFormationStacks([]CloudFormationStack{again})
+	r.CloudFormationStacks.Add([]cfn.Stack{again})
 	r.Directories = []Directory{imports(Check{Name: "G3 plan", Passed: true})}
 	r.Finish(nil, nil, false)
 	got := &r.CloudFormationStacks[0]

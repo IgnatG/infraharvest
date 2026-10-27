@@ -1,7 +1,8 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package report
+// Package mdtext writes text infraharvest doesn't control into Markdown.
+package mdtext
 
 import (
 	"strings"
@@ -12,16 +13,16 @@ import (
 // hold text infraharvest doesn't control: tag keys and values, IDs, stack
 // names, Terraform's and the clouds' errors. Such text could end a list
 // item or a table row with a line break, hide what follows in an HTML
-// comment, or mention people. Text from outside goes through prose, or,
-// where it is a name or an ID, code.
+// comment, or mention people. Text from outside goes through Prose, or,
+// where it is a name or an ID, Code.
 
-// prose returns text for a line of Markdown. Line breaks and other
+// Prose returns text for a line of Markdown. Line breaks and other
 // control characters are spaces. Outside the code spans the text has,
 // which render as they are, < and > are entities, so that no HTML,
 // comments included, comes through, and @ is followed by an empty HTML
 // comment, which GitHub shows as nothing but which keeps @name from
 // mentioning anyone.
-func prose(s string) string {
+func Prose(s string) string {
 	s = flatten(s)
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -58,10 +59,10 @@ func prose(s string) string {
 	return b.String()
 }
 
-// code returns s as a Markdown code span, whatever backticks it holds: its
+// Code returns s as a Markdown code span, whatever backticks it holds: its
 // fence is longer than any run of them. Line breaks and other control
-// characters are spaces. Inside a table, it still needs cell.
-func code(s string) string {
+// characters are spaces. Inside a table, it still needs Cell.
+func Code(s string) string {
 	s = flatten(s)
 	longest := 0
 	for i := 0; i < len(s); {
@@ -84,8 +85,8 @@ func code(s string) string {
 	return fence + s + fence
 }
 
-// cell escapes text for a Markdown table cell, code spans included.
-func cell(text string) string {
+// Cell escapes text for a Markdown table cell, code spans included.
+func Cell(text string) string {
 	return strings.ReplaceAll(text, "|", `\|`)
 }
 
