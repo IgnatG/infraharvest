@@ -293,6 +293,8 @@ func TestCheckFlag(t *testing.T) {
 		{[]string{"import", "aws", "--services=vpc", "--all", "--out=" + out}, ""},
 		{[]string{"discover", "google", "--services=iam", "--projects=p", "--out=" + out}, ""},
 		{[]string{"import", "aws", "--all", "--out=" + out}, "--services is required"},
+		// Before the other checks, as the command line always said it.
+		{[]string{"import", "aws", "--engine=pulumi", "--out=" + out}, "--services is required"},
 		{[]string{"import", "aws", "--services=vpc", "--out=" + out}, "selection"},
 		{[]string{"import", "google", "--services=iam", "--all", "--out=" + out}, "say which projects"},
 		{[]string{"import", "google", "--services=iam", "--all", "--projects=one,two", "--layout={out}/{region}", "--out=" + out}, "needs {account} to keep several projects apart"},
