@@ -80,7 +80,7 @@ type plan struct {
 	newProvider func() harvest.Provider
 }
 
-// call is one importer.Import call.
+// call is one Import call (see importer.Call).
 type call struct {
 	options importer.Options
 	// args are what the provider's Init reads. They also name the call's

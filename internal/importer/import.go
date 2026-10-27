@@ -189,16 +189,6 @@ type Options struct {
 	tools *callTools
 }
 
-// Import lists the resources of provider's services in options.Services,
-// for the scope args name (provider.Init reads them), and generates their
-// Terraform configuration with the engine options.Engine names.
-func Import(ctx context.Context, provider harvest.Provider, options Options, args []string) error {
-	if err := checkEngine(options.Engine); err != nil {
-		return err
-	}
-	return importWithEngine(ctx, options.run, provider, options, args)
-}
-
 // checkEngine rejects an --engine other than EngineTerraform or
 // EngineTofu; "" stands for EngineTerraform. import, drift and verify all
 // check it here, so that each says the same.

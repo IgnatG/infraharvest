@@ -16,7 +16,7 @@ import (
 )
 
 // Call is one of the Import calls that cover a scope (see ImportCalls):
-// what Import is passed, with what the log says about it.
+// the provider, options and args of one, with what the log says about it.
 type Call struct {
 	Provider harvest.Provider
 	Options  Options

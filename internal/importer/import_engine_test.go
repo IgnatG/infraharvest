@@ -301,7 +301,7 @@ func TestCheckImportOptions(t *testing.T) {
 }
 
 func TestImportRejectsUnknownEngine(t *testing.T) {
-	err := Import(context.Background(), &fakeProvider{}, Options{Engine: "tofu-ish"}, nil)
+	err := ImportCalls(context.Background(), nil, []Call{{Provider: &fakeProvider{}, Options: Options{Engine: "tofu-ish"}}})
 	if err == nil || !strings.Contains(err.Error(), `unknown --engine "tofu-ish"`) {
 		t.Errorf("want an unknown engine error, got %v", err)
 	}
