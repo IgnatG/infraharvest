@@ -127,6 +127,9 @@ func (f *fakeEngine) tools() *callTools {
 				if err := os.WriteFile(filepath.Join(dir, "fake_thing.tf"), []byte("# fake\n"), 0o644); err != nil {
 					return nil, err
 				}
+				if err := os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), []byte("# fake\n"), 0o644); err != nil {
+					return nil, err
+				}
 				result.Files = []string{"fake_thing.tf"}
 				result.Gate = engine.Gate{{Name: engine.CheckSecrets, Details: []string{"fake_thing.tf: fake_thing.leak holds a secret value"}}}
 			}
@@ -542,6 +545,9 @@ func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "NOTES.txt"), notes, 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), notes, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f := &fakeEngine{fail: "gamma", leak: "delta"}
 	run := importPath(t, pathOptions(out, f, "beta", "gamma", "delta"))
@@ -557,6 +563,10 @@ func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
 		}
 		if got, err := os.ReadFile(filepath.Join(dir, "NOTES.txt")); err != nil || !slices.Equal(got, notes) {
 			t.Errorf("%s's NOTES.txt: %q, %v, want it kept", service, got, err)
+		}
+		// The README it had, which the engine writes too, is put back.
+		if got, err := os.ReadFile(filepath.Join(dir, engine.ReadmeFileName)); err != nil || !slices.Equal(got, notes) {
+			t.Errorf("%s's README: %q, %v, want it as it was", service, got, err)
 		}
 		if unfinished, err := unfinishedRoot(out, dir); err != nil || !unfinished {
 			t.Errorf("%s: unfinished %v, %v, want its checkpoint to say so", service, unfinished, err)

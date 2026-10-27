@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -86,9 +87,9 @@ type claim struct {
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
 	backup *rootBackup
-	// kept are the names of the files a root without backup had once it
-	// was claimed, which no import wrote, and which discard keeps.
-	kept map[string]bool
+	// kept are the files a root without backup had once it was claimed,
+	// which no import wrote, and which discard puts back as they were.
+	kept map[string]savedFile
 	// modules counts the users of the generated modules the root takes
 	// up, which putting it back releases; nil counts none.
 	modules *engine.ModuleRefs
@@ -121,7 +122,7 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 	}
 	if d.mode == rootFresh {
 		var err error
-		if claimed.kept, err = rootFileNames(dir); err != nil {
+		if claimed.kept, err = keptFiles(dir); err != nil {
 			return nil, err
 		}
 		return claimed, saveCheckpoint(out, dir, fp, nil)
@@ -167,28 +168,21 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 		return nil, err
 	}
 	if claimed.backup == nil {
-		if claimed.kept, err = rootFileNames(dir); err != nil {
+		if claimed.kept, err = keptFiles(dir); err != nil {
 			return nil, err
 		}
 	}
 	return claimed, nil
 }
 
-// rootFileNames returns the names of the files directly in dir, none if
+// keptFiles returns the files directly in dir, but local state, none if
 // it doesn't exist.
-func rootFileNames(dir string) (map[string]bool, error) {
-	entries, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return map[string]bool{}, nil
-	}
+func keptFiles(dir string) (map[string]savedFile, error) {
+	b, err := backupRoot(dir, "", nil)
 	if err != nil {
 		return nil, err
 	}
-	names := map[string]bool{}
-	for _, e := range entries {
-		names[e.Name()] = true
-	}
-	return names, nil
+	return b.files, nil
 }
 
 // readRemoved returns the removed blocks of dir's moves.tf, with what
@@ -397,12 +391,12 @@ func (c *claim) putBack(dir string) error {
 
 // discard undoes generating the claimed root in dir, which failed: a root
 // with a backup is put back as it was (see putBack); from any other, every
-// file it didn't have when it was claimed is removed, but local state:
-// Terraform writes into generated.tf, in the clear, the secrets Generate
-// moves out of it only later, and the files it splits it into may still
+// file it didn't have when it was claimed is removed, but local state, and
+// those it had are written back as they were: Terraform writes into
+// generated.tf, in the clear, the secrets Generate moves out of it only
+// later, and the files it splits it into, whatever their names, may still
 // hold one the secrets check found. Its checkpoint stays, recording that
-// its generation didn't finish (see unfinishedRoot), and so do the files
-// no import wrote.
+// its generation didn't finish (see unfinishedRoot).
 func (c *claim) discard(out, dir string) error {
 	err := c.putBack(dir)
 	if c.backup != nil {
@@ -416,11 +410,26 @@ func (c *claim) discard(out, dir string) error {
 		return errors.Join(err, readErr)
 	}
 	for _, e := range entries {
-		if c.kept[e.Name()] || !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
-		if rmErr := os.Remove(filepath.Join(dir, e.Name())); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+		path := filepath.Join(dir, e.Name())
+		if saved, ok := c.kept[e.Name()]; ok {
+			if content, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(content, saved.content) {
+				continue
+			}
+		}
+		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 			err = errors.Join(err, rmErr)
+		}
+	}
+	for name, saved := range c.kept {
+		path := filepath.Join(dir, name)
+		if _, statErr := os.Lstat(path); statErr == nil {
+			continue
+		}
+		if writeErr := fsutil.WriteFile(path, saved.content, saved.mode); writeErr != nil {
+			err = errors.Join(err, writeErr)
 		}
 	}
 	return err
