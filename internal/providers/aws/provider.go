@@ -10,6 +10,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // providerName is the provider's name, in the generated configuration and
@@ -39,6 +40,9 @@ type Provider struct {
 	// stackScope, when set, scopes the import to the resources of
 	// CloudFormation stacks (see SetStackScope).
 	stackScope *StackScope
+	// scopedStacks are the stacks of stackScope as ImportScope last
+	// matched them with what is listed (see CloudFormationStacks).
+	scopedStacks []report.CloudFormationStack
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,

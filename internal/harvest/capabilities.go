@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // The interfaces in this file are capabilities a Provider may have
@@ -195,11 +194,8 @@ type ProviderWithImportScope interface {
 // keyed "<type> <id>": Inside are those the scope names, which the import
 // takes whatever the default selection says of another tool managing them,
 // as the scope is that tool's; Outside are the others, with the reason,
-// which the import leaves out whatever a selection file says. Stacks are
-// the CloudFormation stacks of the scope, for the report, each resource
-// with the listed resources it is.
+// which the import leaves out whatever a selection file says.
 type ImportScope struct {
 	Inside  map[string]bool
 	Outside map[string]string
-	Stacks  []report.CloudFormationStack
 }
