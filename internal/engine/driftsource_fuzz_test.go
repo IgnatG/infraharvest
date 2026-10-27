@@ -70,7 +70,8 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
 
 // A value import takes for a secret by its format, or by a key that names
 // one, never shows in a drift report: not at the leaf, nor in a map, a
-// name/value pair or a JSON document the cloud changed whole.
+// name/value pair or a JSON document the cloud changed whole, nor as a
+// map's key.
 func FuzzDriftReportsNoSecrets(f *testing.F) {
 	f.Add("DB_PASSWORD", "Summer2026!")
 	f.Add("api_key", "hunter22")
@@ -93,7 +94,7 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 			}
 			escaped := string(quoted[1 : len(quoted)-1])
 			// What a report shows besides the value mustn't hold it.
-			if strings.Contains(key+string(quotedKey)+redacted+`{"name":"value":"pairs":[]}`, v) {
+			if strings.Contains(key+string(quotedKey)+redacted+` #1 keyed {"name":"value":"pairs":[]}`, v) {
 				continue
 			}
 			pairs := []any{map[string]any{"name": key, "value": v}}
@@ -116,14 +117,14 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 					After: map[string]any{
 						"environment": []any{map[string]any{"variables": map[string]any{key: v}}},
 						"env":         pairs,
-						"settings":    map[string]any{key: v},
+						"settings":    map[string]any{key: v, "keyed": map[string]any{fuzzToken(value): "x"}},
 						"definition":  string(doc),
 					},
 				},
 			}}}
 			for _, c := range classifyDrift(refresh, nil, nil, false) {
 				for _, s := range reportStrings(c.After) {
-					if strings.Contains(s, v) || strings.Contains(s, escaped) {
+					if strings.Contains(s, v) || strings.Contains(s, escaped) || strings.Contains(s, fuzzToken(value)) {
 						t.Errorf("%s shows the secret: %q", c.Attribute, s)
 					}
 				}
@@ -132,15 +133,16 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 	})
 }
 
-// reportStrings returns the strings of a value a report shows, but its
-// map keys.
+// reportStrings returns the strings of a value a report shows, its map
+// keys too.
 func reportStrings(v any) []string {
 	switch v := v.(type) {
 	case string:
 		return []string{v}
 	case map[string]any:
 		var out []string
-		for _, sub := range v {
+		for k, sub := range v {
+			out = append(out, k)
 			out = append(out, reportStrings(sub)...)
 		}
 		return out

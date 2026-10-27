@@ -908,8 +908,8 @@ func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 // redactDriftValue returns v, which goes by key (see entryKey), as a
 // report may show it: "(sensitive value)" if sensitive, else with every
 // string that is a secret (see driftSecret) replaced, its own key or that
-// of the map or JSON document it is in deciding, and every sensitive value
-// of forms in the others.
+// of the map or JSON document it is in deciding, map keys in a credential
+// format too, and every sensitive value of forms in the others.
 func redactDriftValue(v any, key string, sensitive bool, forms []string) any {
 	if sensitive {
 		return redacted
@@ -943,8 +943,18 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 		return redactText(v, forms)
 	case map[string]any:
 		out := make(map[string]any, len(v))
-		for k, sub := range v {
-			out[redactText(k, forms)] = redactNamed(sub, entryKey(v, k), named && k != "Condition", forms)
+		// A key in a credential format, such as a map keyed by tokens,
+		// is a secret too: each becomes "(sensitive value) #n", n
+		// counting them in the order of the keys, so that they stay
+		// apart and a report is the same each time.
+		hidden := 0
+		for _, k := range sortedKeys(v) {
+			shown := redactText(k, forms)
+			if credentialFormat(k) != "" {
+				hidden++
+				shown = fmt.Sprintf("%s #%d", redacted, hidden)
+			}
+			out[shown] = redactNamed(v[k], entryKey(v, k), named && k != "Condition", forms)
 		}
 		return out
 	case []any:

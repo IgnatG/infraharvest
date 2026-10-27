@@ -576,6 +576,8 @@ func TestRedactDriftValue(t *testing.T) {
 		{"a random-looking value", "a1b2c3d4e5f6a7b8c9d0", "etag", "a1b2c3d4e5f6a7b8c9d0"},
 		{"entries of a map, nested", map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": "Summer2026!", "hosts": []any{"a", "b"}}}, "variables",
 			map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": redacted, "hosts": []any{"a", "b"}}}},
+		{"map keys in a credential format", map[string]any{token: "a", "ghp_" + strings.Repeat("z9Y8", 9): "b", "Env": "prod"}, "tags",
+			map[string]any{redacted + " #1": "a", redacted + " #2": "b", "Env": "prod"}},
 		{"a list under a key that names a secret", []any{"Summer2026!", "Winter2026!"}, "passwords", []any{redacted, redacted}},
 		{"the value of a name/value pair", []any{map[string]any{"name": "DB_PASSWORD", "value": "Summer2026!"}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}, "env",
 			[]any{map[string]any{"name": "DB_PASSWORD", "value": redacted}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}},
