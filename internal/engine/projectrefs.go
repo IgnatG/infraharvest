@@ -33,7 +33,7 @@ func referToProjects(dir string) (bool, error) {
 	// The google_project resources, by their project ID.
 	projects := map[string][]string{}
 	for _, r := range generated.resources() {
-		if resourceTypeOf(r.address) != "google_project" {
+		if AddressType(r.address) != "google_project" {
 			continue
 		}
 		if attr, ok := r.syntax.Body.Attributes["project_id"]; ok {

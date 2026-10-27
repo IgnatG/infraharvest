@@ -424,7 +424,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 		a := &list[ai]
 		grouped := map[string]bool{}
 		for _, anchor := range resources {
-			if clustered[anchor.address] || resourceTypeOf(anchor.address) != a.Anchor {
+			if clustered[anchor.address] || AddressType(anchor.address) != a.Anchor {
 				continue
 			}
 			c := adapters.Cluster{Anchor: resourceOf(anchor)}
@@ -443,7 +443,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				// resources don't anchor it again.
 				grouped[key] = true
 				refers = func(r resourceBlock) bool {
-					if resourceTypeOf(r.address) != a.Anchor {
+					if AddressType(r.address) != a.Anchor {
 						return refs.refers[r.address][anchor.address]
 					}
 					k, ok := a.Group(resourceOf(r))
@@ -455,7 +455,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			// join adds r to the cluster if it is of one of kinds, linked to
 			// it, and in no cluster yet.
 			join := func(r resourceBlock, kinds []string, linked func(resourceBlock) bool) bool {
-				typ := resourceTypeOf(r.address)
+				typ := AddressType(r.address)
 				if clustered[r.address] || slices.ContainsFunc(in, func(b resourceBlock) bool { return b.address == r.address }) ||
 					(types[typ] && !slices.Contains(a.Repeated, typ)) || !slices.Contains(kinds, typ) || !linked(r) {
 					return false

@@ -283,7 +283,7 @@ func taggedResources(f *hclFile, dt DefaultTags, schemas *tfjson.ProviderSchemas
 		}
 		attr, ok := r.syntax.Body.Attributes[dt.Attribute]
 		if !ok {
-			if dt.Block != "" && receivesTags(schemas, resourceTypeOf(r.address), dt.Attribute) {
+			if dt.Block != "" && receivesTags(schemas, AddressType(r.address), dt.Attribute) {
 				list = append(list, taggedResource{address: r.address, tags: map[string]string{}})
 			}
 			continue

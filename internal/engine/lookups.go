@@ -197,7 +197,7 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 		if skip[r.address] > 0 {
 			continue
 		}
-		typ := resourceTypeOf(r.address)
+		typ := AddressType(r.address)
 		replace := func(argument, _, value string) (hclwrite.Tokens, bool) {
 			l, ok := lookupFor(typ, argument, value)
 			if !ok {

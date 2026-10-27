@@ -207,10 +207,10 @@ func parentOf(addresses []string) string {
 	}
 	sort.Strings(addresses)
 	for _, candidate := range addresses {
-		parentType := resourceTypeOf(candidate)
+		parentType := AddressType(candidate)
 		isParent := true
 		for _, other := range addresses {
-			if other != candidate && !strings.HasPrefix(resourceTypeOf(other), parentType+"_") {
+			if other != candidate && !strings.HasPrefix(AddressType(other), parentType+"_") {
 				isParent = false
 				break
 			}
@@ -220,11 +220,6 @@ func parentOf(addresses []string) string {
 		}
 	}
 	return ""
-}
-
-func resourceTypeOf(address string) string {
-	typ, _, _ := strings.Cut(address, ".")
-	return typ
 }
 
 // referenceable reports whether a value identifies a resource on its own:
@@ -239,7 +234,7 @@ func referenceable(value string) bool {
 // referenced resource's type: bucket for aws_s3_bucket, role for
 // aws_iam_role, rule for aws_cloudwatch_event_rule.
 func namedAfter(argument, address string) bool {
-	typ := resourceTypeOf(address)
+	typ := AddressType(address)
 	return argument == typ[strings.LastIndex(typ, "_")+1:]
 }
 
@@ -555,7 +550,7 @@ func parentIndex(values map[string]map[string]any) parentNames {
 		if name, _ := attrs["name"].(string); name != "" {
 			p.byName[name] = append(p.byName[name], namedResource{address: address, id: id})
 		}
-		if location, _ := attrs["location"].(string); location != "" && resourceTypeOf(address) == "azurerm_resource_group" {
+		if location, _ := attrs["location"].(string); location != "" && AddressType(address) == "azurerm_resource_group" {
 			p.groups = append(p.groups, namedResource{address: address, id: id, location: location})
 		}
 	}
@@ -594,7 +589,7 @@ func (p parentNames) parent(address, argument, value string) (referenceTarget, b
 	}
 	var found []namedResource
 	for _, r := range p.byName[value] {
-		if r.address != address && strings.HasSuffix(resourceTypeOf(r.address), "_"+kind) && strings.HasPrefix(own, strings.ToLower(r.id)+"/") {
+		if r.address != address && strings.HasSuffix(AddressType(r.address), "_"+kind) && strings.HasPrefix(own, strings.ToLower(r.id)+"/") {
 			found = append(found, r)
 		}
 	}
