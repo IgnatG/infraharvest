@@ -4,10 +4,12 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,7 +51,16 @@ func assertNotWritten(t *testing.T, dir string, values ...string) {
 
 // The sandbox run wrote two Lambda environment secrets verbatim: the
 // provider doesn't mark map values sensitive, so Terraform generated them.
+// Moving them changes generated.tf, so Generate says it plans again.
 func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
+	var logged bytes.Buffer
+	writer, flags := log.Writer(), log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
 	dir := t.TempDir()
 	// The engine writes the secrets' var file under the temporary
 	// directory, which the fake then reads it from.
@@ -83,6 +94,9 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("secrets: got %+v, want %+v", got, want)
+	}
+	if wantLog := dir + ": planning generated.tf again: " + string(replanSecrets) + "\n"; logged.String() != wantLog {
+		t.Errorf("log: got %q, want %q", logged.String(), wantLog)
 	}
 	generated := readFile(t, dir, GeneratedFileName)
 	for _, line := range []string{"WEBHOOK_SECRET = var.aws_lambda_function_api_webhook_secret", `LOG_LEVEL      = "debug"`, `TABLE_ARN      = "arn:aws:dynamodb:`} {

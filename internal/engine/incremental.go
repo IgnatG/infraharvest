@@ -223,49 +223,16 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		if err := os.WriteFile(filepath.Join(staging, LockFileName), lock, 0o644); err != nil {
 			return nil, err
 		}
-		if versions, ok := opts.Config[VersionsFileName]; ok {
-			pinned, err := pinnedToLock(versions, lock)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
-			}
-			opts.Config = maps.Clone(opts.Config)
-			opts.Config[VersionsFileName] = pinned
-		}
 	}
 	files, err := configFiles(root)
 	if err != nil {
 		return nil, err
 	}
-	opts.Taken = rootNames(files)
-	opts.ModulesDir = ""
-	// A directory's module is called by its path relative to the root it is
-	// in, and staging isn't root.
-	opts.Adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
-	if opts.DefaultTags != nil {
-		dt := *opts.DefaultTags
-		if applied, ok := appliedTags(files, dt); ok {
-			dt.Applied = applied
-			opts.DefaultTags = &dt
-		} else {
-			// Lifting tags would change root's provider, or the tags its
-			// resources refer to.
-			opts.DefaultTags = nil
-		}
+	r, err := adding(opts, lock, files, existing)
+	if err != nil {
+		return nil, err
 	}
-	external := map[External]bool{}
-	for _, e := range opts.External {
-		external[ResourceKey(e.Type, e.ID)] = true
-	}
-	opts.External = slices.Clone(opts.External)
-	for _, e := range sortedExternal(existing) {
-		if !external[ResourceKey(e.Type, e.ID)] {
-			opts.External = append(opts.External, e)
-		}
-	}
-	// The added resources go after the blocks of the file of their type, or
-	// into a file of their own (see merge).
-	opts.SplitFiles = false
-	result, err := Generate(ctx, tf, staging, imports, opts)
+	result, err := generate(ctx, tf, staging, imports, r)
 	if err != nil {
 		return nil, err
 	}
@@ -290,10 +257,10 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, err
 	}
 	added, err := merge(staging, root, existing, opts.DataSources, fileOf)
-	if err == nil && opts.DefaultTags != nil {
+	if err == nil && r.policy.defaultTags != nil {
 		// The added resources without the root's default tags use the
 		// configuration without them, which root may not have yet.
-		_, err = addRootAlias(staging, root, *opts.DefaultTags)
+		_, err = addRootAlias(staging, root, *r.policy.defaultTags)
 	}
 	undo := func() error {
 		for _, name := range added {
@@ -315,6 +282,8 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate
+	// The root's gate knows the organisation's own modules root calls, as
+	// Verify's does, although staging calls none of them.
 	gate, err := gateWith(ctx, rootTF, root, opts, func() (Check, []string, error) {
 		return staged.check(CheckPlan), nil, nil
 	})
@@ -335,6 +304,57 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		return nil, err
 	}
 	return result, nil
+}
+
+// adding is Add's run with opts, of resources to add to a root whose
+// configuration files are root, and which has the resources existing (see
+// Existing). Its policy differs from Generate's (see generating): with
+// lock, the lock file staging generates with, the providers opts.Config
+// requires are pinned to its releases (see pinnedToLock); it names
+// nothing as root does; it makes no local modules, and calls of curated
+// modules only where it can by the same source, as a directory's module
+// is called by its path relative to the root it is in, and staging isn't
+// root; it lifts the tags root's provider applies, if any; the resources
+// root has are external; and it writes the configuration into
+// generated.tf, whose resources merge then puts after the blocks of the
+// file of their type, or into a file of their own.
+func adding(opts Options, lock []byte, root []*hclFile, existing map[External]string) (*run, error) {
+	r := generating(opts)
+	p := &r.policy
+	if versions, ok := opts.Config[VersionsFileName]; ok && lock != nil {
+		pinned, err := pinnedToLock(versions, lock)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
+		}
+		p.config = maps.Clone(opts.Config)
+		p.config[VersionsFileName] = pinned
+	}
+	p.taken = rootNames(root)
+	p.modulesDir = ""
+	p.adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
+	if opts.DefaultTags != nil {
+		dt := *opts.DefaultTags
+		if applied, ok := appliedTags(root, dt); ok {
+			dt.Applied = applied
+			p.defaultTags = &dt
+		} else {
+			// Lifting tags would change root's provider, or the tags its
+			// resources refer to.
+			p.defaultTags = nil
+		}
+	}
+	external := map[External]bool{}
+	for _, e := range opts.External {
+		external[ResourceKey(e.Type, e.ID)] = true
+	}
+	p.external = slices.Clone(opts.External)
+	for _, e := range sortedExternal(existing) {
+		if !external[ResourceKey(e.Type, e.ID)] {
+			p.external = append(p.external, e)
+		}
+	}
+	p.splitFiles = false
+	return r, nil
 }
 
 func sortedExternal(m map[External]string) []External {

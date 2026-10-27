@@ -393,8 +393,9 @@ func (rule publicRule) isPublic(when string) bool {
 // secrets publicSensitive says aren't secret, as the plan shows them, and
 // returns the other secrets. Values that look like secrets all the same
 // (see secretReason) stay in their variables. It plans only if a secret
-// may be public.
-func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) ([]Secret, error) {
+// may be public, with the values of known, if set, for the secrets Generate
+// found (see secretValues).
+func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	generated, err := loadHCL(path)
 	if err != nil {
@@ -421,7 +422,7 @@ func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secr
 	if !possible {
 		return secrets, nil
 	}
-	p, _, _, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), opts.secretValues.options()...))
+	p, _, _, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
 	if err != nil || p == nil {
 		return secrets, err
 	}

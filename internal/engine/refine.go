@@ -63,8 +63,10 @@ func refine(ctx context.Context, tf Terraform, dir string, result *Result, opts 
 // enhancement never fails a root that would pass. When it fails without
 // them too, the edits aren't what fails it: they are put back, and the
 // root goes on with the gate that failed with them, and Refine's warnings.
-func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, opts Options, before map[string][]byte, refineWarnings int) error {
-	gate, err := runGate(ctx, tf, dir, result.Secrets, opts)
+// known, if set, has the values of the secrets Generate found (see
+// secretValues).
+func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, opts Options, known *secretValues, before map[string][]byte, refineWarnings int) error {
+	gate, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,7 @@ func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, 
 	if err := restoreRoot(dir, before); err != nil {
 		return err
 	}
-	without, err := runGate(ctx, tf, dir, result.Secrets, opts)
+	without, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err
 	}

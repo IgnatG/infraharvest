@@ -531,7 +531,7 @@ func TestMergedRootFiles(t *testing.T) {
 				t.Errorf("%s doesn't hold %s:\n%s", tc.file, tc.want, files[tc.file])
 			}
 		}
-		if _, ok := files["vars/dev/"+backendConfigFileName]; ok {
+		if _, ok := files[backendConfigPath("dev")]; ok {
 			t.Error("a backend.hcl for roots without a backend")
 		}
 		if strings.Contains(string(files[ProvidersFileName]), "backend") {

@@ -84,14 +84,15 @@ func (g Gate) check(name string) Check {
 // output differ between runs. Secret variables Terraform doesn't show get
 // placeholder values in the plan, so the arguments they set may change;
 // so may the arguments opts.StateOnly names per type, which providers keep
-// only in state and import can't set.
-func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options) (Gate, error) {
+// only in state and import can't set. known, if set, has the values of the
+// secrets Generate found (see secretValues).
+func runGate(ctx context.Context, tf Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
 	expected, err := countImportBlocks(dir)
 	if err != nil {
 		return nil, err
 	}
 	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), opts.secretValues.options()...))
+		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
 		if err != nil {
 			return Check{}, nil, err
 		}
@@ -534,7 +535,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // local modules it calls (see walkOutputAndModules), for the plan's
 // sensitive values and the secret values Generate found, for credential
 // formats, for provider blocks that set a credential argument to a
-// constant (see IsCredentialArgument), and for any secret value written in
+// constant (see isCredential), and for any secret value written in
 // the configuration (see literalSecrets).
 func scanSecrets(dir string, sensitive []string) (Check, error) {
 	check := Check{Name: CheckSecrets, Passed: true}
@@ -671,7 +672,7 @@ func providerCredentials(f *parsedFile) []string {
 			continue
 		}
 		for name, attr := range b.Body.Attributes {
-			if !IsCredentialArgument(name) {
+			if !isCredential(name) {
 				continue
 			}
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.IsWhollyKnown() {
@@ -925,7 +926,7 @@ func Verify(ctx context.Context, newTF NewRunner, dir string, opts Options) (Gat
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	return runGate(ctx, tf, copied, nil, opts)
+	return runGate(ctx, tf, copied, nil, opts, nil)
 }
 
 // awsAccessKeyID and awsSecretCandidate find the two halves of an AWS

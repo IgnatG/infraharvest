@@ -66,7 +66,7 @@ func verifyCopy(dir string) (string, func(), error) {
 			}
 			return os.MkdirAll(filepath.Join(copied, rel), 0o700)
 		}
-		if !d.Type().IsRegular() || strings.HasPrefix(name, stagedStateFile) || name == ".terraform.tfstate.lock.info" {
+		if !d.Type().IsRegular() || strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info" {
 			return nil
 		}
 		content, err := os.ReadFile(path)

@@ -4,11 +4,7 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -334,9 +330,9 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src Source) boo
 // envOnlyFlags returns the bool variables, declared in files, of the root
 // environments share in dir that environment env alone sets true, such as
 // the deploy_ variables of the features, and residue, only it has: as the
-// var files, vars/common.tfvars then each environment's
-// vars/<env>/terraform.tfvars, set them, over their defaults. A variable
-// whose value can't be told for an environment isn't one.
+// var files of each environment's values set them (see mergedValues),
+// over their defaults. A variable whose value can't be told for an
+// environment isn't one.
 func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 	envs, err := MergedEnvironments(dir)
 	if err != nil {
@@ -363,22 +359,15 @@ func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 			defaults[b.Labels[0]] = value
 		}
 	}
-	common, err := varFileValues(filepath.Join(dir, varsDirName, commonVarsFileName))
-	if err != nil {
-		return nil, err
-	}
 	values := func(e string) (map[string]cty.Value, error) {
-		own, err := varFileValues(filepath.Join(dir, varsDirName, e, envVarsFileName))
+		set, err := mergedValues(dir, e)
 		if err != nil {
 			return nil, err
 		}
 		out := map[string]cty.Value{}
 		for name, def := range defaults {
 			out[name] = def
-			if v, ok := common[name]; ok {
-				out[name] = v
-			}
-			if v, ok := own[name]; ok {
+			if v, ok := set[name]; ok {
 				out[name] = v
 			}
 		}
@@ -415,29 +404,6 @@ func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
 		}
 	}
 	return flags, nil
-}
-
-// varFileValues returns the values the var file at path sets, by name, of
-// those that are literals; none where there is no file.
-func varFileValues(path string) (map[string]cty.Value, error) {
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	f, diags := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("%s: %w", path, diags)
-	}
-	values := map[string]cty.Value{}
-	for name, attr := range f.Body.(*hclsyntax.Body).Attributes {
-		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
-			values[name] = v
-		}
-	}
-	return values, nil
 }
 
 // variableUses returns why var.name, which other arguments use too,

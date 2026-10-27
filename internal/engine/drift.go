@@ -92,9 +92,6 @@ var driftBackends = []string{"s3", "gcs", "azurerm", "local"}
 // backend; the staged copy leaves it out.
 const backendFileName = "backend.tf"
 
-// stagedStateFile is the state the staged copy plans with.
-const stagedStateFile = "terraform.tfstate"
-
 // DriftOptions configure Drift.
 type DriftOptions struct {
 	// StateOnly names, per resource type, arguments the provider keeps
@@ -320,7 +317,7 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 	if err := initTerraform(ctx, stf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	shown, err := stf.ShowStateFile(ctx, filepath.Join(staging, stagedStateFile))
+	shown, err := stf.ShowStateFile(ctx, filepath.Join(staging, localStateFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform show: %w", err)
 	}
@@ -459,7 +456,7 @@ func stageDrift(dir, staging string, state []byte) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, stagedStateFile) || name == ".terraform.tfstate.lock.info" {
+		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info" {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -476,7 +473,7 @@ func stageDrift(dir, staging string, state []byte) error {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(staging, stagedStateFile), state, 0o600)
+	return os.WriteFile(filepath.Join(staging, localStateFileName), state, 0o600)
 }
 
 // stagedConfig returns content, the configuration file at path of the
