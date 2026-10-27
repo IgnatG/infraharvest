@@ -392,7 +392,7 @@ jobs:
   # root they share, which each environment applies into its workspace, as
   # its README says. Drift then runs as a matrix job per environment would,
   # with environment and that environment's credentials; without
-  # environment, the action refuses the root.
+  # environment, drift refuses the root.
   environments:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -487,14 +487,14 @@ jobs:
           import: "false"
           out: ${{ runner.temp }}/out
           drift: report
-      - name: Check the action refused the root
+      - name: Check drift refused the root
         env:
           OUTCOME: ${{ steps.refused.outcome }}
           DRIFT_EXIT_CODE: ${{ steps.refused.outputs.drift-exit-code }}
         run: |
           test "$OUTCOME" = failure
-          # It refused before checking anything.
-          test -z "$DRIFT_EXIT_CODE"
+          # infraharvest refused it before checking anything.
+          test "$DRIFT_EXIT_CODE" = 2
           test ! -e "$RUNNER_TEMP/out/report/drift.json"
       - name: Check drift as dev
         id: dev
@@ -1111,8 +1111,8 @@ jobs:
           expect prod branch infraharvest/drift-prod
           expect prod add-paths "$(printf 'infraharvest-out\ndecisions/drift-prod.yaml')"
 
-          # Every environment at once, with one set of credentials: as
-          # without environment.
+          # Every environment at once, with one set of credentials:
+          # --environment all.
           details all IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
             ENVIRONMENT=all IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect all title "Import new resources, and record cloud changes (drift) for review"

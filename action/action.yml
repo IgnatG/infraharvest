@@ -315,19 +315,6 @@ runs:
           exit 0
         fi
         bin="${BINARY:-infraharvest}"
-        # A root environments share is checked once per environment under
-        # its vars/, each with the credentials of this job: with more than
-        # one, those of all but one would be the wrong account's, and its
-        # resources would look deleted. environment says which this job's
-        # credentials are for, or all that they reach every one.
-        if [[ -z "$ENVIRONMENT" ]]; then
-          envs=$(find "$OUT" \( -name .infraharvest -o -name .terraform \) -prune -o -type f -name terraform.tfvars -print |
-            awk -F/ '$(NF-2) == "vars" { print $(NF-1) }' | sort -u | paste -sd, -)
-          if [[ "$envs" == *,* ]]; then
-            echo "::error::$OUT has roots that the environments $envs share: set environment to the one this job's credentials are for, in a job per environment (a matrix), or to all if they reach every one"
-            exit 1
-          fi
-        fi
         # Without --decisions, --write-decisions writes drift-decisions, or
         # drift.yaml in the out directory, without applying it, so drift
         # report never edits the code.
@@ -338,7 +325,11 @@ runs:
         else
           args+=(--write-decisions)
         fi
-        if [[ -n "$ENVIRONMENT" && "$ENVIRONMENT" != all ]]; then args+=("--environment=$ENVIRONMENT"); fi
+        # A root environments share is checked once per environment, each with
+        # the credentials of this job: infraharvest refuses roots of more than
+        # one without --environment, as with those of one environment the
+        # others' resources would look deleted. all is --environment all.
+        if [[ -n "$ENVIRONMENT" ]]; then args+=("--environment=$ENVIRONMENT"); fi
         if [[ "$DRIFT" == accept ]]; then
           if [[ -n "$DRIFT_DECISIONS" ]]; then args+=("--decisions=$DRIFT_DECISIONS"); fi
           while IFS= read -r line; do

@@ -27,7 +27,8 @@ func newDriftCmd() *cobra.Command {
 			"plans don't lock it, so read access to it is enough. S3, GCS and azurerm\n" +
 			"backends and local state are supported; HCP Terraform and other remote\n" +
 			"backends are refused. A root environments share is checked once per\n" +
-			"environment (--environment names which), with its backend settings,\n" +
+			"environment --environment names, or every one with --environment all, which\n" +
+			"roots of more than one environment need, with its backend settings,\n" +
 			"vars/<env>/backend.hcl, or without a backend its workspace's local state, and\n" +
 			"its var files; as they share its code, an accepted change is written into\n" +
 			"vars/<env>/terraform.tfvars where a variable sets the value, else needs a\n" +
@@ -71,7 +72,7 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+importer.DefaultDriftDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().Lookup("write-decisions").NoOptDefVal = "true"
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
-	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with (default: every environment under its vars/)")
+	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it")
 	cmd.Flags().BoolVar(&options.ForceUnlock, "force-unlock", false, "check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock")
 	return cmd
 }

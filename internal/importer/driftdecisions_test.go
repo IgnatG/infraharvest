@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -515,6 +516,7 @@ func TestDriftDecidesEachEnvironmentOfAMergedRoot(t *testing.T) {
 	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/us-east-1": reverting}, accepted: report.DriftWritten}
 	options := driftOptions(out, f)
 	options.Decisions, options.WriteDecisions = decisions, true
+	options.Environments = []string{config.AllEnvironments}
 	var stdout bytes.Buffer
 	if err := Drift(context.Background(), options, &stdout); err != nil {
 		t.Fatal(err)
