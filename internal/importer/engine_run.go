@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -118,6 +119,24 @@ type shared struct {
 	// at once, over every account and region (see callSlots).
 	callsMu sync.Mutex
 	calls   chan struct{}
+
+	// limiter limits the requests of the command's listings to each API
+	// host, made with --rate-limit on first use (see rateLimiter).
+	limiterMu sync.Mutex
+	limiter   *ratelimit.Limiter
+}
+
+// rateLimiter returns the command's limiter, of perSecond requests a
+// second, made on first use: every Import call of the command, in every
+// account and region, gives its listing the same one (see listCall), and
+// no other run in the process changes its rate.
+func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
+	s.limiterMu.Lock()
+	defer s.limiterMu.Unlock()
+	if s.limiter == nil {
+		s.limiter = ratelimit.New(perSecond)
+	}
+	return s.limiter
 }
 
 // callSlots returns the slots the Import calls of the command take while

@@ -90,3 +90,15 @@ func TestTransportAndClient(t *testing.T) {
 		cancel()
 	}
 }
+
+// A context carries the Limiter it was given, and one without falls back
+// to Default.
+func TestFromContext(t *testing.T) {
+	l := New(5)
+	if got := FromContext(NewContext(t.Context(), l)); got != l {
+		t.Errorf("FromContext = %p, want %p", got, l)
+	}
+	if got := FromContext(t.Context()); got != Default() {
+		t.Errorf("FromContext without one = %p, want Default %p", got, Default())
+	}
+}
