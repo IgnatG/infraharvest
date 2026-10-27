@@ -252,7 +252,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		// of what the import wrote, which may hold secrets in the
 		// clear, but its checkpoint.
 		result = nil
-		err = errors.Join(err, claimed.discard(options.Out, dir, dirOpts.Config))
+		err = errors.Join(err, claimed.discard(options.Out, dir))
 	}
 	if err == nil && dirOpts.Previous != nil {
 		err = claimed.refuseReaddressed(dir, result, imports, inOtherRoots(options.Out, roots, dir))

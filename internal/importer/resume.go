@@ -86,6 +86,9 @@ type claim struct {
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
 	backup *rootBackup
+	// kept are the names of the files a root without backup had once it
+	// was claimed, which no import wrote, and which discard keeps.
+	kept map[string]bool
 	// modules counts the users of the generated modules the root takes
 	// up, which putting it back releases; nil counts none.
 	modules *engine.ModuleRefs
@@ -117,6 +120,10 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 		claimed.modules = &s.modules
 	}
 	if d.mode == rootFresh {
+		var err error
+		if claimed.kept, err = rootFileNames(dir); err != nil {
+			return nil, err
+		}
 		return claimed, saveCheckpoint(out, dir, fp, nil)
 	}
 	onDisk := d.onDisk
@@ -156,7 +163,32 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 	if err := writeCheckpoint(out, dir, started); err != nil {
 		return nil, err
 	}
-	return claimed, clearGenerated(out, dir)
+	if err := clearGenerated(out, dir); err != nil {
+		return nil, err
+	}
+	if claimed.backup == nil {
+		if claimed.kept, err = rootFileNames(dir); err != nil {
+			return nil, err
+		}
+	}
+	return claimed, nil
+}
+
+// rootFileNames returns the names of the files directly in dir, none if
+// it doesn't exist.
+func rootFileNames(dir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[string]bool{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]bool{}
+	for _, e := range entries {
+		names[e.Name()] = true
+	}
+	return names, nil
 }
 
 // readRemoved returns the removed blocks of dir's moves.tf, with what
@@ -364,13 +396,14 @@ func (c *claim) putBack(dir string) error {
 }
 
 // discard undoes generating the claimed root in dir, which failed: a root
-// with a backup is put back as it was (see putBack); from any other, what
-// the import wrote is removed (see clearGenerated), with the root files
-// config wrote and the lock file, as Terraform writes into generated.tf,
-// in the clear, the secrets Generate moves out of it only later. Its
-// checkpoint stays, recording that its generation didn't finish (see
-// unfinishedRoot), and so do the files no import wrote.
-func (c *claim) discard(out, dir string, config map[string][]byte) error {
+// with a backup is put back as it was (see putBack); from any other, every
+// file it didn't have when it was claimed is removed, but local state:
+// Terraform writes into generated.tf, in the clear, the secrets Generate
+// moves out of it only later, and the files it splits it into may still
+// hold one the secrets check found. Its checkpoint stays, recording that
+// its generation didn't finish (see unfinishedRoot), and so do the files
+// no import wrote.
+func (c *claim) discard(out, dir string) error {
 	err := c.putBack(dir)
 	if c.backup != nil {
 		return err
@@ -378,15 +411,15 @@ func (c *claim) discard(out, dir string, config map[string][]byte) error {
 	if clearErr := clearGenerated(out, dir); clearErr != nil {
 		return errors.Join(err, clearErr)
 	}
-	names := []string{engine.LockFileName}
-	for name := range config {
-		names = append(names, name)
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		return errors.Join(err, readErr)
 	}
-	for _, name := range names {
-		if filepath.Base(name) != name {
+	for _, e := range entries {
+		if c.kept[e.Name()] || !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
 			continue
 		}
-		if rmErr := os.Remove(filepath.Join(dir, name)); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+		if rmErr := os.Remove(filepath.Join(dir, e.Name())); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
 			err = errors.Join(err, rmErr)
 		}
 	}

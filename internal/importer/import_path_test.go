@@ -122,7 +122,13 @@ func (f *fakeEngine) tools() *callTools {
 			}
 			result := &engine.Result{Imported: imports}
 			if f.leak != "" && filepath.Base(dir) == f.leak {
-				result.Gate = engine.Gate{{Name: engine.CheckSecrets, Details: []string{"generated.tf: fake_thing.leak holds a secret value"}}}
+				// As the engine does, the configuration is split into files
+				// of their own by then.
+				if err := os.WriteFile(filepath.Join(dir, "fake_thing.tf"), []byte("# fake\n"), 0o644); err != nil {
+					return nil, err
+				}
+				result.Files = []string{"fake_thing.tf"}
+				result.Gate = engine.Gate{{Name: engine.CheckSecrets, Details: []string{"fake_thing.tf: fake_thing.leak holds a secret value"}}}
 			}
 			for _, imp := range imports {
 				label := imp.Name
