@@ -401,10 +401,10 @@ func TestDriftOfARootNeverAppliedPlansNothing(t *testing.T) {
 	}
 }
 
-// TestDriftHoldsTheRootLock checks that RootLock is held while the root's
-// own directory is initialised, and released before the staged copy is,
-// so that the checks of other environments of the root wait only for
-// what they share.
+// TestDriftHoldsTheRootLock checks that the root's own directory is
+// initialised in WithRootLock, holding its lock, which is released before
+// the staged copy is, so that the checks of other environments of the
+// root wait only for what they share.
 func TestDriftHoldsTheRootLock(t *testing.T) {
 	t.Parallel()
 	dir, staging := driftRoot(t, map[string]string{})
@@ -423,7 +423,11 @@ func TestDriftHoldsTheRootLock(t *testing.T) {
 		}
 		lock.Unlock()
 	}}
-	if _, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{RootLock: &lock}); err != nil {
+	if _, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{WithRootLock: func(f func() error) error {
+		lock.Lock()
+		defer lock.Unlock()
+		return f()
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if !lock.TryLock() {

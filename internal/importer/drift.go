@@ -380,10 +380,17 @@ func untrustedTerraform(private string) (map[string]string, error) {
 
 // driftTarget is a root drift checks, and, for a root environments
 // share, the environment it checks it as, and the lock the checks of its
-// environments share (see engine.DriftOptions.RootLock).
+// environments share (see engine.DriftOptions.WithRootLock).
 type driftTarget struct {
 	dir, env string
 	lock     *sync.Mutex
+}
+
+// withRootLock runs f holding the lock of t's root.
+func (t driftTarget) withRootLock(f func() error) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+	return f()
 }
 
 // driftTargets returns what drift checks of roots: each root, but a root
@@ -472,7 +479,10 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 		// whose adapters trace changes into their calls.
 		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
-	opts.CommandTimeout, opts.Environment, opts.RootLock, opts.Adapters = options.EngineTimeout, env, target.lock, own
+	opts.CommandTimeout, opts.Environment, opts.Adapters = options.EngineTimeout, env, own
+	if target.lock != nil {
+		opts.WithRootLock = target.withRootLock
+	}
 	// The decisions taken, by change, for the report to say where each
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()

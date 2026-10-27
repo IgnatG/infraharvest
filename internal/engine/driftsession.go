@@ -68,12 +68,22 @@ func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, er
 // var files, which the plans read from the copy, where an accepted change
 // is edited first. It reports whether the state has resources: without,
 // there is nothing to check, and no copy. Checks of the root's other
-// environments, which share opts.RootLock, wait until it is done.
+// environments wait until it is done (see DriftOptions.WithRootLock).
 func (s *driftSession) stage(ctx context.Context, tf DriftTerraform) (bool, error) {
-	if lock := s.opts.RootLock; lock != nil {
-		lock.Lock()
-		defer lock.Unlock()
+	locked := s.opts.WithRootLock
+	if locked == nil {
+		locked = func(f func() error) error { return f() }
 	}
+	var staged bool
+	err := locked(func() (err error) {
+		staged, err = s.pullAndStage(ctx, tf)
+		return err
+	})
+	return staged, err
+}
+
+// pullAndStage is stage, with the root's lock held.
+func (s *driftSession) pullAndStage(ctx context.Context, tf DriftTerraform) (bool, error) {
 	state, err := pullDriftState(ctx, tf, s.dir, s.backend, s.env)
 	if err != nil || !stateHasResources(state) {
 		return false, err

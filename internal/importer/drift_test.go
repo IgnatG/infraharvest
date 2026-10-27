@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
@@ -355,14 +356,34 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var checked, staged []string
-	// The lock each check holds while it initialises the root's directory.
-	locks := map[string]*sync.Mutex{}
+	// The checks that initialise the root's directory holding a lock, and
+	// how many hold it at once, by root.
+	locked := map[string]bool{}
+	inside := map[string]int{}
+	var overlapped []string
 	check := func(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+		name := report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()
 		mu.Lock()
-		checked = append(checked, report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name())
+		checked = append(checked, name)
 		staged = append(staged, staging)
-		locks[report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()] = opts.RootLock
+		locked[name] = opts.WithRootLock != nil
 		mu.Unlock()
+		if opts.WithRootLock != nil {
+			if err := opts.WithRootLock(func() error {
+				mu.Lock()
+				if inside[dir]++; inside[dir] > 1 {
+					overlapped = append(overlapped, name)
+				}
+				mu.Unlock()
+				time.Sleep(50 * time.Millisecond)
+				mu.Lock()
+				inside[dir]--
+				mu.Unlock()
+				return nil
+			}); err != nil {
+				return nil, err
+			}
+		}
 		// Each environment is checked with its var files.
 		if _, err := os.Stat(filepath.Join(dir, "vars", opts.Environment, "terraform.tfvars")); opts.Environment != "" && err != nil {
 			return nil, err
@@ -399,10 +420,10 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	}
 	// The environments of the shared root initialise its directory one at
 	// a time; the other root locks nothing.
-	if dev, prod := locks["aws/us-east-1 (dev)"], locks["aws/us-east-1 (prod)"]; dev == nil || dev != prod {
-		t.Errorf("the environments of aws/us-east-1 hold locks %p and %p, want one they share", dev, prod)
+	if !locked["aws/us-east-1 (dev)"] || !locked["aws/us-east-1 (prod)"] || len(overlapped) > 0 {
+		t.Errorf("the environments of aws/us-east-1: locked %v, at once %v; want them to share one lock", locked, overlapped)
 	}
-	if locks["aws/1/global"] != nil {
+	if locked["aws/1/global"] {
 		t.Errorf("aws/1/global holds a lock")
 	}
 	d := readDrift(t, out)
