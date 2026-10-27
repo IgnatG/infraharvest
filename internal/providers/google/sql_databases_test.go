@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -300,23 +301,31 @@ func TestCloudSQLInstanceListFails(t *testing.T) {
 	}
 }
 
-// An instance that can't serve the database list, as one stopped, being
-// created or deleted since it was listed, is left out, and the listing is whole. Any other failure to
-// list an instance's databases fails the listing in part, keeping the
-// other instances' databases: before, it was logged, and the databases
-// missing read as deleted.
+// An instance deleted since it was listed is left out, and the listing is
+// whole. One that can't serve the database list, as one stopped or being
+// created, is left out too, but makes google_sql_database a type the
+// provider lists in part, so that an incremental import doesn't take its
+// databases for deleted. Any other failure to list an instance's
+// databases fails the listing in part, keeping the other instances'
+// databases: before, it was logged, and the databases missing read as
+// deleted.
 func TestCloudSQLDatabaseListFails(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		status  int
 		body    string
 		partial bool
+		// partialType is whether google_sql_database is among the
+		// provider's partial types after the listing.
+		partialType bool
 	}{
-		{"stopped", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request: Invalid request since instance is not running.", "errors": [{"reason": "invalid", "message": "Invalid request: Invalid request since instance is not running."}]}}`, false},
-		{"being created", http.StatusConflict, `{"error": {"code": 409, "message": "The instance or operation is not in an appropriate state to handle the request.", "errors": [{"reason": "invalidState"}]}}`, false},
-		{"permission denied", http.StatusForbidden, `{"error": {"code": 403, "message": "The client is not authorized to make this request.", "errors": [{"reason": "notAuthorized"}]}}`, true},
-		{"other bad request", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request.", "errors": [{"reason": "invalid"}]}}`, true},
-		{"deleted since listed", http.StatusNotFound, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist.", "errors": [{"reason": "instanceDoesNotExist"}]}}`, false},
+		{"stopped", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request: Invalid request since instance is not running.", "errors": [{"reason": "invalid", "message": "Invalid request: Invalid request since instance is not running."}]}}`, false, true},
+		{"being created", http.StatusConflict, `{"error": {"code": 409, "message": "The instance or operation is not in an appropriate state to handle the request.", "errors": [{"reason": "invalidState"}]}}`, false, true},
+		{"operation in progress", http.StatusConflict, `{"error": {"code": 409, "message": "Operation failed because another operation was already in progress.", "errors": [{"reason": "operationInProgress"}]}}`, false, true},
+		{"permission denied", http.StatusForbidden, `{"error": {"code": 403, "message": "The client is not authorized to make this request.", "errors": [{"reason": "notAuthorized"}]}}`, true, false},
+		{"other bad request", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request.", "errors": [{"reason": "invalid"}]}}`, true, false},
+		{"deleted since listed", http.StatusNotFound, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist.", "errors": [{"reason": "instanceDoesNotExist"}]}}`, false, false},
+		{"listed", http.StatusOK, `{"items": []}`, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -336,6 +345,10 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			}))
 			defer server.Close()
 			t.Setenv(EndpointEnv, server.URL)
+			// An earlier listing of the import that found otherwise
+			// doesn't count: this one's outcome replaces it.
+			setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
+			t.Cleanup(func() { setSQLDatabasesUnlisted("acme", "us-central1", false) })
 
 			g := newCloudSQL(t, "us-central1")
 			err := g.List()
@@ -352,6 +365,14 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			}
 			if len(g.Resources) != 1 || g.Resources[0].Observed.ID != "projects/acme/instances/orders/databases/app" {
 				t.Errorf("resources %v, want the database of orders", g.Resources)
+			}
+			p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}}
+			if got := slices.Contains(p.PartialTypes(), sqlDatabaseType); got != tt.partialType {
+				t.Errorf("partial types %v, want %s among them: %v", p.PartialTypes(), sqlDatabaseType, tt.partialType)
+			}
+			other := &Provider{projectName: "acme", region: compute.Region{Name: "europe-west1"}}
+			if got := other.PartialTypes(); slices.Contains(got, sqlDatabaseType) {
+				t.Errorf("another region's partial types %v, want no %s", got, sqlDatabaseType)
 			}
 		})
 	}

@@ -323,8 +323,14 @@ func rootLocation(r *cloudasset.ResourceSearchResult) string {
 // in part, through the catalogue's inventory entries: in a region, those
 // of withNetworkTypes, which the import of global takes wherever they
 // are; and those of the asset types the search rejected (see
-// rejectedTypes), which it didn't look for.
+// rejectedTypes), which it didn't look for. It names google_sql_database
+// too when cloudsql left out the databases of an instance that couldn't
+// list them, such as one that is stopped (see unlistedSQLDatabases).
 func (p *Provider) PartialTypes() []string {
+	var types []string
+	if sqlDatabasesUnlisted(p.projectName, p.region.Name) {
+		types = append(types, sqlDatabaseType)
+	}
 	var assetTypes []string
 	if p.region.Name != "" {
 		assetTypes = append(assetTypes, withNetworkTypes...)
@@ -338,9 +344,8 @@ func (p *Provider) PartialTypes() []string {
 	}
 	rejectedTypes.Unlock()
 	if len(assetTypes) == 0 || p.catalogue == nil {
-		return nil
+		return types
 	}
-	var types []string
 	for _, typ := range p.catalogue.Types() {
 		e, ok := p.catalogue.Entry(typ)
 		if ok && e.Inventory != nil && slices.ContainsFunc(assetTypes, func(t string) bool { return strings.EqualFold(t, e.Inventory.Type) }) {
