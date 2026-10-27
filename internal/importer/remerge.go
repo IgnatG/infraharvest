@@ -446,7 +446,10 @@ func (s *stackMerge) handOver() error {
 		if result.Reason == "" {
 			var err error
 			if result.Reason, err = s.run.moveMerged(s.stack, result, prev.Imports, s.imports, s.kept, append(s.removed, stillRemoved(s.keptRemoved, s.imports, s.removed)...)); err != nil {
-				return err
+				// What the merge wrote goes, as where it can't merge
+				// again, so that only what the merged root had comes
+				// back (see mergeStack).
+				return errors.Join(err, clearMerged(s.stack, result.Files))
 			}
 		}
 	}

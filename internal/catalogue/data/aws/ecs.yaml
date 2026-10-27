@@ -22,3 +22,7 @@ types:
   aws_ecs_task_definition:
     # What AWS gives a task definition that doesn't set them.
     defaults: [enable_fault_injection=false, network_mode=bridge]
+    # An ECS service's task_definition reads back as family:revision,
+    # unless it is set to the ARN: a reference to the ARN would plan an
+    # update.
+    derived_identity: "{family}:{revision}"

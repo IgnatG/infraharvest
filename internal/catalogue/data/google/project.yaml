@@ -15,3 +15,9 @@ types:
     # A project's deletion_policy defaults to PREVENT instead.
     omit: [deletion_policy=PREVENT]
     defaults: [auto_create_network=true]
+    # What is in a project has an ID that starts with the project's.
+    container: {}
+    # The curated modules name a project by its ID, alone or in a list: a
+    # call takes its arguments from the resources it replaces, so it
+    # refers to the project the root manages as they would.
+    module_references: { attribute: project_id, arguments: [project, project_id, projects] }

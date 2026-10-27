@@ -38,10 +38,12 @@ func init() {
 	})
 }
 
-// azureScopes are the Azure command's flags that aren't options: what
+// azureScopes are the Azure command's own flags, its harvest scope (see
+// importer.Options.ProviderScope): the resource group to import, what
 // widens the import to several subscriptions, and whether what azurerm
 // has no type for comes through azapi.
 type azureScopes struct {
+	resourceGroup   string
 	subscriptions   []string
 	managementGroup string
 	azapi           bool
@@ -50,11 +52,18 @@ type azureScopes struct {
 // azureFlags adds the Azure command's own flags.
 func azureFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner) {
 	scopes := &azureScopes{}
-	flags.StringVarP(&options.ResourceGroup, "resource-group", "g", "", "resource group to import (default: the whole subscription)")
+	options.ProviderScope = scopes
+	flags.StringVarP(&scopes.resourceGroup, "resource-group", "g", "", "resource group to import (default: the whole subscription)")
 	flags.StringSliceVar(&scopes.subscriptions, "subscriptions", nil, "subscription IDs to import, each into roots of its own (default ARM_SUBSCRIPTION_ID)")
 	flags.StringVar(&scopes.managementGroup, "management-group", "", "import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group)")
 	flags.BoolVar(&scopes.azapi, "azapi", false, "import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out")
 	return scopes.check, scopes.plan
+}
+
+// ScopeGroup names the resource group --resource-group imports, "" for the
+// whole subscription (see harvest.GroupScope).
+func (s *azureScopes) ScopeGroup() string {
+	return s.resourceGroup
 }
 
 // check rejects several subscriptions of --subscriptions into a layout
@@ -86,7 +95,7 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 	if len(subscriptions) == 0 {
 		// The provider takes the subscription from ARM_SUBSCRIPTION_ID.
 		return plan{calls: func(scopeOptions importer.Options, _ string) []call {
-			return []call{{options: scopeOptions, args: s.args(scopeOptions.ResourceGroup, "")}}
+			return []call{{options: scopeOptions, args: s.args("")}}
 		}}, nil
 	}
 	if len(subscriptions) > 1 {
@@ -95,7 +104,7 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 		}
 	}
 	return plan{kind: "subscription", scopes: subscriptions, calls: func(scopeOptions importer.Options, subscription string) []call {
-		return []call{{options: scopeOptions, args: s.args(scopeOptions.ResourceGroup, subscription)}}
+		return []call{{options: scopeOptions, args: s.args(subscription)}}
 	}}, nil
 }
 
@@ -103,8 +112,8 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 // ("" for the whole subscription), the subscription ("" for
 // ARM_SUBSCRIPTION_ID's) and, with --azapi only, the provider type, so that
 // the args, which name the call's inventory, are as they were without it.
-func (s *azureScopes) args(resourceGroup, subscription string) []string {
-	args := []string{resourceGroup}
+func (s *azureScopes) args(subscription string) []string {
+	args := []string{s.resourceGroup}
 	if subscription != "" || s.azapi {
 		args = append(args, subscription)
 	}

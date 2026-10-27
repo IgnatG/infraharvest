@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // referenceTarget is a resource attribute a literal can refer to instead.
@@ -521,7 +523,9 @@ type parentNames struct {
 	byName map[string][]namedResource
 	// ids has every resource's ID, by address.
 	ids map[string]string
-	// groups are the Azure resource groups, with their locations.
+	// groups are the containers whose location what is in them shares,
+	// such as Azure resource groups, with their locations (see
+	// catalogue.Container).
 	groups []namedResource
 }
 
@@ -543,7 +547,7 @@ func parentIndex(values map[string]map[string]any) parentNames {
 		if name, _ := attrs["name"].(string); name != "" {
 			p.byName[name] = append(p.byName[name], namedResource{address: address, id: id})
 		}
-		if location, _ := attrs["location"].(string); location != "" && AddressType(address) == "azurerm_resource_group" {
+		if location, _ := attrs["location"].(string); location != "" && sharesLocation(AddressType(address)) {
 			p.groups = append(p.groups, namedResource{address: address, id: id, location: location})
 		}
 	}
@@ -590,4 +594,12 @@ func (p parentNames) parent(address, argument, value string) (referenceTarget, b
 		return referenceTarget{}, false
 	}
 	return referenceTarget{address: found[0].address, attribute: "name"}, true
+}
+
+// sharesLocation reports whether resources of typ hold others that share
+// their location unless they set their own, as the catalogue says (see
+// catalogue.Container), such as Azure resource groups.
+func sharesLocation(typ string) bool {
+	c, ok := catalogue.ForType(typ).Container(typ)
+	return ok && c.Location
 }

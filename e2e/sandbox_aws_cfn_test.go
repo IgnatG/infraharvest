@@ -28,6 +28,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 // cfnStackWait is how long the test waits for a stack to update or be
@@ -87,11 +88,11 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 			templates, _ = r.AttributeValues["id"].(string)
 		}
 	}
-	cfn := cloudformation.NewFromConfig(fixture)
-	if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["old"])}); err != nil {
+	stacks := cloudformation.NewFromConfig(fixture)
+	if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["old"])}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["old"])}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["old"])}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,10 +129,10 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 		t.Errorf("app before Retain: safe %v, blockers %v", app.SafeToDelete, app.Blockers)
 	}
 	// Acknowledged, the custom resource still needs Retain.
-	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) == 0 || !strings.Contains(strings.Join(app.Blockers, "\n"), "Seed (Custom::Seed) isn't retained") {
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != cfn.StackAcknowledged || len(seed.Retain) == 0 || !strings.Contains(strings.Join(app.Blockers, "\n"), "Seed (Custom::Seed) isn't retained") {
 		t.Errorf("Seed before Retain: %+v, blockers %v", seed, app.Blockers)
 	}
-	if !old.Deleted || len(old.Resources) != 1 || old.Resources[0].Outcome != report.StackImported {
+	if !old.Deleted || len(old.Resources) != 1 || old.Resources[0].Outcome != cfn.StackImported {
 		t.Errorf("old: %+v", old)
 	}
 	checkCFNOutcomes(t, coverage, names.app)
@@ -146,14 +147,14 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if _, err := s3.NewFromConfig(fixture).PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(templates), Key: aws.String("network.yaml"), Body: strings.NewReader(nestedBody)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cfn.UpdateStack(ctx, &cloudformation.UpdateStackInput{
+	if _, err := stacks.UpdateStack(ctx, &cloudformation.UpdateStackInput{
 		StackName:    aws.String(names.app),
 		TemplateBody: aws.String(readFile(t, filepath.Join(first, filepath.FromSlash(app.RetainTemplate)))),
 		Capabilities: []cftypes.Capability{cftypes.CapabilityCapabilityNamedIam},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackUpdateCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(names.app)}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackUpdateCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(names.app)}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,16 +166,16 @@ func TestSandboxAWSCloudFormation(t *testing.T) {
 	if !app.SafeToDelete {
 		t.Errorf("app after Retain isn't safe to delete: %v", app.Blockers)
 	}
-	if seed := cfnResource(t, app, "Seed"); seed.Outcome != report.StackAcknowledged || len(seed.Retain) > 0 {
+	if seed := cfnResource(t, app, "Seed"); seed.Outcome != cfn.StackAcknowledged || len(seed.Retain) > 0 {
 		t.Errorf("Seed after Retain: %+v", seed)
 	}
 	checkCFNOutcomes(t, coverage, names.app)
 
 	// 4. Every resource outlives the stack.
-	if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["app"])}); err != nil {
+	if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stackIDs["app"])}); err != nil {
 		t.Fatal(err)
 	}
-	if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["app"])}, cfnStackWait); err != nil {
+	if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stackIDs["app"])}, cfnStackWait); err != nil {
 		t.Fatal(err)
 	}
 	checkSeedNotDeleted(ctx, t, fixture, names.function)
@@ -241,7 +242,7 @@ func checkSeedNotDeleted(ctx context.Context, t *testing.T, config aws.Config, f
 }
 
 // cfnResource returns the resource logicalID of stack.
-func cfnResource(t *testing.T, stack report.CloudFormationStack, logicalID string) report.CloudFormationResource {
+func cfnResource(t *testing.T, stack cfn.Stack, logicalID string) cfn.Resource {
 	t.Helper()
 	for _, r := range stack.Resources {
 		if r.LogicalID == logicalID {
@@ -249,7 +250,7 @@ func cfnResource(t *testing.T, stack report.CloudFormationStack, logicalID strin
 		}
 	}
 	t.Fatalf("stack %s has no resource %s", stack.Name, logicalID)
-	return report.CloudFormationResource{}
+	return cfn.Resource{}
 }
 
 // cfnSandboxNames are the names testdata/sandbox/aws-cfn gives what it
@@ -276,7 +277,7 @@ func cfnSandboxNamesFor(suffix, account string) cfnSandboxNames {
 
 // cfnStack returns the stack of coverage whose name is name, or starts
 // with it where it ends with a dash, as a nested stack's does.
-func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFormationStack {
+func cfnStack(t *testing.T, coverage report.Report, name string) cfn.Stack {
 	t.Helper()
 	for _, s := range coverage.CloudFormationStacks {
 		if s.Name == name || (strings.HasSuffix(name, "-") && strings.HasPrefix(s.Name, name)) {
@@ -284,7 +285,7 @@ func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFor
 		}
 	}
 	t.Fatalf("no stack %s in the report: %+v", name, coverage.CloudFormationStacks)
-	return report.CloudFormationStack{}
+	return cfn.Stack{}
 }
 
 // checkCFNOutcomes checks what became of the resources of app and of its
@@ -293,9 +294,9 @@ func cfnStack(t *testing.T, coverage report.Report, name string) report.CloudFor
 func checkCFNOutcomes(t *testing.T, coverage report.Report, app string) {
 	t.Helper()
 	want := map[string]string{
-		"Assets": report.StackImported, "Jobs": report.StackImported, "JobsPolicy": report.StackImported,
-		"Role": report.StackImported, "SeedFunction": report.StackImported, "Alerts": report.StackImported,
-		"Network": report.StackNested,
+		"Assets": cfn.StackImported, "Jobs": cfn.StackImported, "JobsPolicy": cfn.StackImported,
+		"Role": cfn.StackImported, "SeedFunction": cfn.StackImported, "Alerts": cfn.StackImported,
+		"Network": cfn.StackNested,
 	}
 	for _, s := range coverage.CloudFormationStacks {
 		if s.Name != app && s.Parent == "" {
@@ -315,13 +316,13 @@ func checkCFNOutcomes(t *testing.T, coverage report.Report, app string) {
 func deleteCFNSandbox(t *testing.T, config aws.Config, names cfnSandboxNames) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	cfn := cloudformation.NewFromConfig(config)
+	stacks := cloudformation.NewFromConfig(config)
 	for _, stack := range []string{names.app, names.old} {
-		if _, err := cfn.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stack)}); err != nil {
+		if _, err := stacks.DeleteStack(ctx, &cloudformation.DeleteStackInput{StackName: aws.String(stack)}); err != nil {
 			t.Logf("delete stack %s: %v", stack, err)
 			continue
 		}
-		if err := cloudformation.NewStackDeleteCompleteWaiter(cfn).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack)}, cfnStackWait); err != nil && !strings.Contains(err.Error(), "does not exist") {
+		if err := cloudformation.NewStackDeleteCompleteWaiter(stacks).Wait(ctx, &cloudformation.DescribeStacksInput{StackName: aws.String(stack)}, cfnStackWait); err != nil && !strings.Contains(err.Error(), "does not exist") {
 			t.Errorf("delete stack %s: %v", stack, err)
 		}
 	}

@@ -65,6 +65,27 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 // them to the server.
 var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
 
+// builtIn reports whether the tests are built with each of names: a
+// build with -tags minimal has only some providers, and its tests leave
+// out what takes the others, as internal/cli's do.
+func builtIn(names ...string) bool {
+	for _, name := range names {
+		if !slices.Contains(providers.Names(), name) {
+			return false
+		}
+	}
+	return true
+}
+
+// needProviders skips t unless the tests are built with each of names
+// (see builtIn).
+func needProviders(t *testing.T, names ...string) {
+	t.Helper()
+	if !builtIn(names...) {
+		t.Skipf("built without %s (-tags minimal)", strings.Join(names, " or "))
+	}
+}
+
 // newTools returns the tools, whose files stay under root, running and
 // checking with runner.
 func newTools(runner *fakeRunner, root string) *tools {
@@ -153,6 +174,7 @@ func call(t *testing.T, session *mcp.ClientSession, tool string, args map[string
 }
 
 func TestDiscover(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	dir := t.TempDir()
 	session := connect(t, runner, dir, nil)
@@ -176,6 +198,7 @@ func TestDiscover(t *testing.T) {
 // When discover couldn't run, nothing was written: a selection file from
 // an earlier run must not pass for its result.
 func TestDiscoverCouldNotRun(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "aws: no credentials found\n"}
 	dir := t.TempDir()
 	session := connect(t, runner, dir, nil)
@@ -196,6 +219,7 @@ func importArgs(selectionPath, output string) map[string]any {
 }
 
 func TestImportAfterTheUserConfirms(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	var asked string
 	dir := t.TempDir()
@@ -250,6 +274,7 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 // An import the command's checks refuse fails before the user is asked,
 // with the command's error, and runs nothing.
 func TestImportChecksBeforeAsking(t *testing.T) {
+	needProviders(t, "google")
 	runner := &fakeRunner{checkErr: errors.New("say which projects to import: --projects, --organization or --folders")}
 	asked := false
 	dir := t.TempDir()
@@ -280,6 +305,7 @@ func TestImportChecksBeforeAsking(t *testing.T) {
 // An incremental import adds to the roots the output directory has, and
 // the user is told so.
 func TestImportIncremental(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	var asked string
 	dir := t.TempDir()
@@ -308,6 +334,7 @@ func TestImportIncremental(t *testing.T) {
 // An import with regenerate writes the roots the output directory has
 // again, and the user is told so.
 func TestImportRegenerate(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	var asked string
 	dir := t.TempDir()
@@ -334,6 +361,7 @@ func TestImportRegenerate(t *testing.T) {
 }
 
 func TestImportNeedsTheUser(t *testing.T) {
+	needProviders(t, "aws")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
 	if err := writeSelection(path); err != nil {
@@ -382,6 +410,9 @@ func TestCommandArgsKeepValuesOutOfFlags(t *testing.T) {
 		{Scope{Provider: "google", Services: []string{"iam"}, Organization: "--folders=1"}, []string{"import", "google", "--services=iam", "--organization=--folders=1"}},
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, ResourceGroup: "-g x"}, []string{"import", "azure", "--services=resource_graph", "--resource-group=-g x"}},
 	} {
+		if !builtIn(tc.scope.Provider) {
+			continue
+		}
 		args, err := compiled.commandArgs("import", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
 			t.Errorf("commandArgs(%+v): got %v, %v, want %v", tc.scope, args, err, tc.want)
@@ -428,6 +459,9 @@ func TestCommandArgsByProvider(t *testing.T) {
 			[]string{"discover", "azure", "--services=resource_graph", "--azapi"},
 		},
 	} {
+		if !builtIn(tc.scope.Provider) {
+			continue
+		}
 		args, err := compiled.commandArgs("discover", tc.scope, tc.scope)
 		if err != nil || !slices.Equal(args, tc.want) {
 			t.Errorf("%s: commandArgs: got %v, %v, want %v", name, args, err, tc.want)
@@ -442,14 +476,17 @@ func TestFieldsForOtherProvidersAreRejected(t *testing.T) {
 	for name, tc := range map[string]struct {
 		args map[string]any
 		want string
+		// needs are the providers the case and its error name.
+		needs []string
 	}{
-		"aws with an organization": {map[string]any{"provider": "aws", "services": []string{"vpc"}, "organization": "true"}, "aws doesn't take organization, which is for google only"},
-		"azure with regions":       {map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions, which is for aws and google only"},
-		"google with accounts":     {map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"one"}, "accounts": []string{"111"}}, "google doesn't take accounts, which is for aws only"},
-		"aws with azapi":           {map[string]any{"provider": "aws", "services": []string{"vpc"}, "azapi": true}, "aws doesn't take azapi, which is for azure only"},
+		"aws with an organization": {map[string]any{"provider": "aws", "services": []string{"vpc"}, "organization": "true"}, "aws doesn't take organization, which is for google only", []string{"aws", "google"}},
+		"azure with regions":       {map[string]any{"provider": "azure", "services": []string{"resource_graph"}, "regions": []string{"westeurope"}}, "azure doesn't take regions, which is for aws and google only", []string{"aws", "azure", "google"}},
+		"google with accounts":     {map[string]any{"provider": "google", "services": []string{"iam"}, "projects": []string{"one"}, "accounts": []string{"111"}}, "google doesn't take accounts, which is for aws only", []string{"aws", "google"}},
+		"aws with azapi":           {map[string]any{"provider": "aws", "services": []string{"vpc"}, "azapi": true}, "aws doesn't take azapi, which is for azure only", []string{"aws", "azure"}},
 	} {
 		for _, tool := range []string{"discover", "import"} {
 			t.Run(name+" "+tool, func(t *testing.T) {
+				needProviders(t, tc.needs...)
 				dir := t.TempDir()
 				path := filepath.Join(dir, "selection.yaml")
 				if err := writeSelection(path); err != nil {
@@ -481,6 +518,7 @@ func TestFieldsForOtherProvidersAreRejected(t *testing.T) {
 // A run the command rejects, such as a Google scope without a project,
 // returns the command's error.
 func TestDiscoverReturnsTheCommandsError(t *testing.T) {
+	needProviders(t, "google")
 	runner := &fakeRunner{discoverExit: report.ExitCouldNotRun, discoverStderr: "google needs --projects, --organization or --folders\n"}
 	dir := t.TempDir()
 	session := connect(t, runner, dir, nil)
@@ -509,6 +547,9 @@ func TestScopeText(t *testing.T) {
 		{Scope{Provider: "azure", Services: []string{"resource_graph"}, Subscriptions: []string{"sub-1"}, ManagementGroup: "mg", ResourceGroup: "rg"}, "resource group rg of the azure subscriptions sub-1 and every enabled subscription under management group mg (resource_graph)"},
 		{Scope{Provider: "aws", CloudFormationStacks: []string{"app"}}, "the aws account, only the resources of CloudFormation stacks app (the services of the stacks' resources)"},
 	} {
+		if !builtIn(tc.scope.Provider) {
+			continue
+		}
 		if got, err := scopeText(tc.scope, providers.New(tc.scope.Provider).Profile()); err != nil || got != tc.want {
 			t.Errorf("scopeText(%+v): got %q, %v, want %q", tc.scope, got, err, tc.want)
 		}
@@ -571,6 +612,7 @@ func TestScopeTextSaysEveryField(t *testing.T) {
 // Through the tools: a Google scope reaches the google command with its
 // projects.
 func TestDiscoverScopes(t *testing.T) {
+	needProviders(t, "google")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
 	runner := &fakeRunner{}
@@ -587,6 +629,7 @@ func TestDiscoverScopes(t *testing.T) {
 
 // A confirmation only counts for the import the user was asked about.
 func TestImportChecksWhatWasConfirmed(t *testing.T) {
+	needProviders(t, "aws")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
 	if err := writeSelection(path); err != nil {
@@ -613,6 +656,7 @@ func TestImportChecksWhatWasConfirmed(t *testing.T) {
 // A selection file changed after the user was asked isn't imported, even
 // when it includes and excludes as many resources as before.
 func TestImportChecksTheConfirmedSelection(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
@@ -642,6 +686,7 @@ func TestImportChecksTheConfirmedSelection(t *testing.T) {
 // write a selection file or configuration, or read a report, anywhere
 // else on the machine.
 func TestFilesStayUnderRoot(t *testing.T) {
+	needProviders(t, "aws")
 	root := filepath.Join(t.TempDir(), "work")
 	outside := filepath.Join(t.TempDir(), "elsewhere")
 	for _, dir := range []string{root, outside} {
@@ -744,6 +789,7 @@ func TestToolAnnotations(t *testing.T) {
 // The tools describe the providers the server is passed, which are those
 // of the binary it runs, and no others.
 func TestToolsDescribeTheProvidersPassed(t *testing.T) {
+	needProviders(t, "aws")
 	aws, err := compiled.profile("aws")
 	if err != nil {
 		t.Fatal(err)
@@ -801,6 +847,7 @@ func TestToolsDescribeTheProvidersPassed(t *testing.T) {
 // A symbolic link a cloned repository plants under the output directory
 // doesn't take the report tool, or an import, out of the root.
 func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
+	needProviders(t, "aws")
 	root := filepath.Join(t.TempDir(), "work")
 	outside := filepath.Join(t.TempDir(), "elsewhere")
 	for _, dir := range []string{filepath.Join(root, "linked-report", report.Dir), filepath.Join(root, "generated"), outside} {
@@ -850,6 +897,7 @@ func TestLinksUnderTheOutputStayUnderRoot(t *testing.T) {
 // only once: a client can't skip asking by computing the state, nor run
 // one confirmed import twice.
 func TestImportRedeemsEachConfirmationOnce(t *testing.T) {
+	needProviders(t, "aws")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "selection.yaml")
 	if err := writeSelection(path); err != nil {
@@ -956,6 +1004,7 @@ func TestValuesShownToTheUser(t *testing.T) {
 
 // The confirmation quotes the paths the agent chose.
 func TestConfirmationQuotesPaths(t *testing.T) {
+	needProviders(t, "aws")
 	runner := &fakeRunner{}
 	var asked string
 	dir := t.TempDir()
@@ -1002,6 +1051,7 @@ func TestCheckDefaultRoot(t *testing.T) {
 // A relative path is relative to the root, wherever the server runs: the
 // child gets it, and the report is read from it, joined onto the root.
 func TestRelativePathsAreUnderRoot(t *testing.T) {
+	needProviders(t, "aws")
 	root := t.TempDir()
 	t.Chdir(t.TempDir())
 	runner := &fakeRunner{}
@@ -1134,6 +1184,7 @@ func TestTailBoundsLines(t *testing.T) {
 // A discover a signal stopped may not have written the selection file:
 // one that is there may be an earlier run's, so it isn't read.
 func TestDiscoverStopped(t *testing.T) {
+	needProviders(t, "aws")
 	for _, code := range []int{report.ExitInterrupted, report.ExitTerminated, -1} {
 		runner := &fakeRunner{discoverExit: code, discoverStderr: "interrupted\n"}
 		dir := t.TempDir()
@@ -1155,6 +1206,7 @@ func TestDiscoverStopped(t *testing.T) {
 // the configuration file's environments would lay them out under envs/ now,
 // are in the result, and its text says what to do.
 func TestImportReportsKeptRoots(t *testing.T) {
+	needProviders(t, "aws")
 	kept := []report.KeptRoot{{Path: "aws/123456789012/eu-west-2/vpc", Environments: []string{"dev", "prod"}, Scope: "aws/123456789012"}}
 	r := report.Report{Coverage: report.Coverage{Totals: report.CoverageTotal{Discovered: 2, Imported: 2}, KeptRoots: kept}}
 	runner := &fakeRunner{importReport: &r}
@@ -1190,6 +1242,7 @@ func TestImportReportsKeptRoots(t *testing.T) {
 // The warnings about the run, and those about a directory's configuration
 // after its path, are in the result, and its text points to them.
 func TestImportReportsWarnings(t *testing.T) {
+	needProviders(t, "aws")
 	r := report.Report{Coverage: report.Coverage{
 		Totals:      report.CoverageTotal{Discovered: 1, Imported: 1},
 		Warnings:    []string{"aws can't tell which environment account 123456789012 is"},

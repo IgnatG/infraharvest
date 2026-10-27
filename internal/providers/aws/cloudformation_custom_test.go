@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 const (
@@ -159,7 +160,7 @@ func TestAcknowledge(t *testing.T) {
 		t.Errorf("summary leaves out what is acknowledged as lacking Retain:\n%s", summary)
 	}
 	r := &report.Report{}
-	r.AddCloudFormationStacks([]report.CloudFormationStack{scope.stacks[0].report(nil)})
+	r.CloudFormationStacks.Add([]cfn.Stack{scope.stacks[0].report(nil)})
 	r.Finish(nil, nil, false)
 	out := t.TempDir()
 	if err := r.WriteFiles(out); err != nil {

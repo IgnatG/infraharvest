@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // part is a piece of what a literal becomes: text, or a reference.
@@ -128,24 +130,36 @@ var sharedAttributes = []string{"region", "location", "project", "account_id", "
 // us-central1-a, which some region-wide settings have as their ID.
 var regionLike = regexp.MustCompile(`^[a-z]{2,}(-[a-z]+)+-?[0-9]+[a-z]?$`)
 
-// derivedIdentities make, by resource type, an identity of several
-// attributes, as Terraform reads it back in other resources.
-var derivedIdentities = map[string]func(address string, attrs map[string]any) (string, replacement, bool){
-	// An ECS service's task_definition reads back as family:revision,
-	// unless it is set to the ARN: a reference to the ARN would plan an
-	// update.
-	"aws_ecs_task_definition": func(address string, attrs map[string]any) (string, replacement, bool) {
-		family, _ := attrs["family"].(string)
-		revision, ok := numberString(attrs["revision"])
-		if family == "" || !ok {
-			return "", nil, false
+// derivedIdentity returns the identity the resource at address, of
+// attrs, has of several attributes, as Terraform reads it back in other
+// resources, where the catalogue says its type has one (see
+// catalogue.IdentityPart), such as an ECS task definition's
+// family:revision, with the replacement that refers to them. Each
+// attribute must be a string that isn't empty, or a whole number.
+func derivedIdentity(address string, attrs map[string]any) (string, replacement, bool) {
+	typ := AddressType(address)
+	parts, ok := catalogue.ForType(typ).DerivedIdentity(typ)
+	if !ok {
+		return "", nil, false
+	}
+	var value strings.Builder
+	var rp replacement
+	for _, p := range parts {
+		if p.Attribute == "" {
+			value.WriteString(p.Text)
+			rp = append(rp, part{text: p.Text})
+			continue
 		}
-		return family + ":" + revision, replacement{
-			{ref: &referenceTarget{address: address, attribute: "family"}},
-			{text: ":"},
-			{ref: &referenceTarget{address: address, attribute: "revision"}},
-		}, true
-	},
+		v, _ := attrs[p.Attribute].(string)
+		if v == "" {
+			if v, ok = numberString(attrs[p.Attribute]); !ok {
+				return "", nil, false
+			}
+		}
+		value.WriteString(v)
+		rp = append(rp, part{ref: &referenceTarget{address: address, attribute: p.Attribute}})
+	}
+	return value.String(), rp, true
 }
 
 // numberString formats a whole number of a plan's JSON.
@@ -172,8 +186,9 @@ func numberString(v any) (string, bool) {
 //     for a KMS key's key_id), or its ID is distinctive and the argument
 //     takes IDs (an API's root resource as a parent_id);
 //   - the other attributes that identify a resource (see
-//     computedIdentities and nestedIdentities), and an ECS task
-//     definition's family:revision;
+//     computedIdentities and nestedIdentities), and those of several
+//     attributes (see derivedIdentity), such as an ECS task definition's
+//     family:revision;
 //   - IDs and ARNs inside a longer string, whole between its / and :
 //     separators: "integrations/${aws_apigatewayv2_integration.x.id}";
 //   - an Azure resource's location, as its resource group's (see
@@ -215,10 +230,8 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 				x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: block + "[0]." + key})
 			}
 		}
-		if derive, ok := derivedIdentities[AddressType(address)]; ok {
-			if v, parts, ok := derive(address, attrs); ok {
-				x.byValue[v] = append(x.byValue[v], identity{address: address, named: true, parts: parts})
-			}
+		if v, parts, ok := derivedIdentity(address, attrs); ok {
+			x.byValue[v] = append(x.byValue[v], identity{address: address, named: true, parts: parts})
 		}
 	}
 	return x
@@ -321,9 +334,14 @@ func (x *identities) whole(address, argument, value string, preferred map[string
 	return nil, false
 }
 
-// containerTypes hold other resources: their IDs start the IDs of what is
-// in them, which reads better whole than as "${...}/providers/...".
-var containerTypes = map[string]bool{"azurerm_resource_group": true, "google_project": true, "google_folder": true, "google_organization": true}
+// isContainer reports whether resources of typ hold others, as the
+// catalogue says (see catalogue.Container): their IDs start the IDs of
+// what is in them, which reads better whole than as
+// "${...}/providers/...".
+func isContainer(typ string) bool {
+	_, ok := catalogue.ForType(typ).Container(typ)
+	return ok
+}
 
 // embedded returns value with the IDs and ARNs inside it replaced by
 // references: each a run of whole segments between its / and :
@@ -378,7 +396,7 @@ func (x *identities) embeddable(address, value string) (referenceTarget, bool) {
 	byAddress := map[string]identity{}
 	var addresses []string
 	for _, id := range x.byValue[value] {
-		if id.address == address || id.named || id.parts != nil || containerTypes[AddressType(id.address)] {
+		if id.address == address || id.named || id.parts != nil || isContainer(AddressType(id.address)) {
 			continue
 		}
 		if _, seen := byAddress[id.address]; !seen {

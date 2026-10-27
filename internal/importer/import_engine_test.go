@@ -529,10 +529,10 @@ func TestModulesMode(t *testing.T) {
 		if got := modulesMode(Options{Modules: mode}); got != mode {
 			t.Errorf("--modules %q: mode %q", mode, got)
 		}
-		if got := modulesMode(Options{Modules: mode, CloudFormationStacks: []string{"app"}}); got != ModulesNone {
+		if got := modulesMode(Options{Modules: mode, ProviderScope: fakeScope{stacks: true}}); got != ModulesNone {
 			t.Errorf("--modules %q by default with --cfn-stack: mode %q, want %q", mode, got, ModulesNone)
 		}
-		if got := modulesMode(Options{Modules: mode, ModulesChosen: true, CloudFormationStacks: []string{"app"}}); got != mode {
+		if got := modulesMode(Options{Modules: mode, ModulesChosen: true, ProviderScope: fakeScope{stacks: true}}); got != mode {
 			t.Errorf("--modules %q chosen with --cfn-stack: mode %q", mode, got)
 		}
 	}

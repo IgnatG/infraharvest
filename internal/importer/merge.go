@@ -87,7 +87,7 @@ func mergePlaces(resourcesByService map[string][]harvest.Resource, envOf func(ha
 // stacks asks, whose calls are of the one account, as its roots take the
 // stacks' templates unless they merge (see generate).
 func markMerging(options Options, calls []*listedCall) error {
-	if !options.MergeEnvironments || len(options.CloudFormationStacks) == 0 {
+	if !options.MergeEnvironments || !options.stackScoped() {
 		return nil
 	}
 	byStack := map[string][]mergeMember{}
@@ -219,7 +219,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		scope:          c.scope,
 		account:        scopeAccount(c.scope),
 		region:         region,
-		group:          c.options.ResourceGroup,
+		group:          c.options.scopeGroup(),
 		provider:       c.provider,
 		engineProvider: c.toolchain.root.provider,
 		profile:        profile,

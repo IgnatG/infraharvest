@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
 )
 
@@ -18,12 +18,12 @@ import (
 // for the resources it imports, matched by the call's scope, type and
 // import ID.
 func TestStackIntent(t *testing.T) {
-	stack := report.CloudFormationStack{
+	stack := cfn.Stack{
 		Name: "app", ID: "arn:aws:cloudformation:eu-west-2:123456789012:stack/app/1",
-		Resources: []report.CloudFormationResource{
-			{LogicalID: "Logs", Type: "AWS::Logs::LogGroup", Matches: []report.CloudFormationMatch{{Scope: "123456789012/eu-west-2", Type: "aws_cloudwatch_log_group", ID: "/app/logs"}}},
+		Resources: []cfn.Resource{
+			{LogicalID: "Logs", Type: "AWS::Logs::LogGroup", Matches: []cfn.Match{{Scope: "123456789012/eu-west-2", Type: "aws_cloudwatch_log_group", ID: "/app/logs"}}},
 			// Listed by another call: not this root's.
-			{LogicalID: "Role", Type: "AWS::IAM::Role", Matches: []report.CloudFormationMatch{{Scope: "123456789012/global", Type: "aws_iam_role", ID: "app"}}},
+			{LogicalID: "Role", Type: "AWS::IAM::Role", Matches: []cfn.Match{{Scope: "123456789012/global", Type: "aws_iam_role", ID: "app"}}},
 		},
 	}
 	stack.SetTemplates(`
@@ -45,7 +45,7 @@ Outputs:
 `, "", "yaml")
 	stack.SetParameters(map[string]string{"Days": "7"}, nil)
 	run := NewRun()
-	run.report.AddCloudFormationStacks([]report.CloudFormationStack{stack})
+	run.report.CloudFormationStacks.Add([]cfn.Stack{stack})
 	c := &listedCall{run: run, provider: &fakeProvider{}, scope: "123456789012/eu-west-2"}
 	refine, key := c.stackIntent()
 	if refine == nil {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/report/cfn"
 )
 
 const (
@@ -170,10 +171,10 @@ func TestResolveStacks(t *testing.T) {
 	if r := got["Seed"]; !strings.Contains(r.notImportable, "custom resource") || !reflect.DeepEqual(r.retain, defaultDelete) {
 		t.Errorf("Seed: %+v", r)
 	}
-	if r := got["CDKMetadata"]; r.outcome != report.StackOnlyInCloudFormation || r.retain != nil {
+	if r := got["CDKMetadata"]; r.outcome != cfn.StackOnlyInCloudFormation || r.retain != nil {
 		t.Errorf("CDKMetadata: %+v", r)
 	}
-	if r := got["Network"]; r.outcome != report.StackNested || r.retain != nil {
+	if r := got["Network"]; r.outcome != cfn.StackNested || r.retain != nil {
 		t.Errorf("Network: %+v", r)
 	}
 	if r := network.resources[0]; r.logicalID != "Role" || r.retain != nil {
@@ -278,7 +279,7 @@ func TestImportScope(t *testing.T) {
 	if !reflect.DeepEqual(got.Outside, wantOutside) {
 		t.Errorf("outside %v", got.Outside)
 	}
-	matches := map[string][]report.CloudFormationMatch{}
+	matches := map[string][]cfn.Match{}
 	for _, s := range p.CloudFormationStacks() {
 		for _, r := range s.Resources {
 			if len(r.Matches) > 0 {
@@ -286,7 +287,7 @@ func TestImportScope(t *testing.T) {
 			}
 		}
 	}
-	wantMatches := map[string][]report.CloudFormationMatch{
+	wantMatches := map[string][]cfn.Match{
 		"app/Assets":            {{Type: "aws_s3_bucket", ID: "app-assets"}},
 		"app/AssetsPolicy":      {{Type: "aws_s3_bucket_policy", ID: "app-assets"}},
 		"app/Db":                {{Type: "aws_db_instance", ID: "app-db"}},

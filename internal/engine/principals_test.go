@@ -153,7 +153,7 @@ resource "azurerm_key_vault_access_policy" "other" {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if strings.Count(got, entraNote) != 2 {
+	if strings.Count(got, "# Entra ID ") != 2 {
 		t.Errorf("want two notes:\n%s", got)
 	}
 	if noted, err := notePrincipals(path); err != nil || noted {
