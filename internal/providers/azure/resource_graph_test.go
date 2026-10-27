@@ -164,7 +164,7 @@ func TestGraphResourcesThroughAzapi(t *testing.T) {
 func TestWildcardListsResourceGraph(t *testing.T) {
 	p := &Provider{}
 	services := p.Services()
-	optIn := p.OptInServices()
+	optIn := p.Profile().OptInServices
 	for _, name := range optIn {
 		if _, ok := services[name]; !ok {
 			t.Errorf("opt-in service %s isn't a service", name)
