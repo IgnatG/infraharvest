@@ -107,7 +107,7 @@ func TestMergedMoves(t *testing.T) {
 
 	// With it, the moved blocks go into the merged root's moves.tf.
 	f := &fakeEngine{}
-	r.options = Options{Regenerate: true, tools: f.tools()}
+	r.options, r.tools = Options{Regenerate: true}, f.tools()
 	stack := filepath.Join(t.TempDir(), "app")
 	if err := os.MkdirAll(stack, 0o755); err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run
 		members = append(members, mergeMember{dir: dir, stack: stack, env: env, fingerprint: "fp-" + env, result: &engine.Result{}})
 	}
 	run := NewRun()
-	run.options = Options{Out: out, tools: f.tools()}
+	run.options, run.tools = Options{Out: out}, f.tools()
 	return run, stack, members
 }
 

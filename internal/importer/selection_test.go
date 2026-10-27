@@ -577,7 +577,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 			"s3":  {harvest.RecordBare("bucket-"+scope[len(scope)-1:], "bucket", "aws_s3_bucket", "aws")},
 		}
 		first.addDiscovered(listing{resources: listed}, sourcesOf(t, listing{resources: listed}, nil), scope, importID)
-		first.cover(scope, services)
+		first.cover(callOf(services, scope))
 	}
 	if err := first.writeSelection(false); err != nil {
 		t.Fatal(err)
@@ -599,7 +599,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	vpcOnly := Options{Discover: true, Selection: path, Services: []string{"vpc"}}
 	again.options = vpcOnly
 	again.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil}}, nil), b, importID)
-	again.cover(b, vpcOnly)
+	again.cover(callOf(vpcOnly, b))
 	if err := again.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +641,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	withTag := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}, TagFilters: []string{"env=prod"}}
 	filtered.options = withTag
 	filtered.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, nil), a, importID)
-	filtered.cover(a, withTag)
+	filtered.cover(callOf(withTag, a))
 	if err := filtered.writeSelection(false); err != nil {
 		t.Fatal(err)
 	}

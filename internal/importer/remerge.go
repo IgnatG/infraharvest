@@ -248,7 +248,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	imported := members[slices.IndexFunc(members, func(m mergeMember) bool { return !m.restored })]
 	opts := imported.opts
 	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
-	result, err := r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
+	result, err := r.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	// Nothing says which of the resources of a stack merged before an
 	// earlier merge kept apart, as what an incremental import added (see
 	// mergeMember.isolated), nor the labels it gave them, which came from
@@ -289,7 +289,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 		if err := clearMerged(stack, result.Files); err != nil {
 			return err
 		}
-		result, err = r.options.tools.mergeRoots(ctx, stack, roots, mergeOptions)
+		result, err = r.tools.mergeRoots(ctx, stack, roots, mergeOptions)
 	}
 	if err != nil {
 		r.warnMergedIncomplete(stack, members, err.Error())
@@ -366,7 +366,7 @@ func (r *Run) mergeStack(ctx context.Context, stack string, members []mergeMembe
 	r.recordMerge(merge, members)
 	if merge.Merged {
 		if gone := r.readdressNotInCloud(merge.Path, members, imports); len(gone) > 0 {
-			if err := r.options.tools.writeMergedNotInCloud(stack, gone); err != nil {
+			if err := r.tools.writeMergedNotInCloud(stack, gone); err != nil {
 				return err
 			}
 		}
@@ -679,7 +679,7 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 	}
 	result.Files = append(result.Files, engine.MovesFileName)
 	sort.Strings(result.Files)
-	check, err := r.options.tools.writeMergedMoves(stack, moves, removed)
+	check, err := r.tools.writeMergedMoves(stack, moves, removed)
 	if err != nil {
 		return "", err
 	}

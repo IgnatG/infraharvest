@@ -282,7 +282,7 @@ func awsCall(options importer.Options, region, where string) call {
 // services, each in their order, into global ones, those that only work in
 // us-east-1, and regional ones.
 func groupAWSServices(options importer.Options) (global, eastOnly, regional []string) {
-	for _, service := range importer.ResolveServices(newAWSProvider(), options).Services {
+	for _, service := range importer.ResolveServices(newAWSProvider(), options) {
 		switch {
 		case slices.Contains(awsprovider.GlobalServices, service):
 			global = append(global, service)
