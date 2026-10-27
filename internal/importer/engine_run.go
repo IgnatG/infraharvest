@@ -67,6 +67,9 @@ type Run struct {
 	vacating []*handovers
 	// shared is what the run and its children work out once.
 	shared *shared
+	// tools are what the run's Import calls, and its merge phase, reach
+	// outside the process through; nil uses the real ones (see callTools).
+	tools *callTools
 	// OpenPicker opens the picker on the selection file discover writes,
 	// when run in a terminal (see pick).
 	OpenPicker bool
@@ -265,11 +268,11 @@ func couldNotRun(err, writeErr error) error {
 
 // child returns a run for one of several accounts or projects of r's
 // command, imported alongside the others (see Run.ImportEach): it shares r's
-// selection file, state backend, lock file, modules and environments,
-// and keeps everything else to itself until r merges it.
+// selection file, state backend, lock file, modules, environments and
+// tools, and keeps everything else to itself until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
-	c.selection, c.backend, c.lock, c.modules, c.shared = r.selection, r.backend, r.lock, r.modules, r.shared
+	c.selection, c.backend, c.lock, c.modules, c.shared, c.tools = r.selection, r.backend, r.lock, r.modules, r.shared, r.tools
 	c.environments = r.environments
 	return c
 }

@@ -71,7 +71,7 @@ func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
 	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"good", "bad"}}
 
-	failures, err := listServices(t.Context(), registry, options, nil)
+	failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
 	if err != nil {
 		t.Fatalf("a failing service must not abort the run: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
 	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"good", "partial", "bad"}}
 
-	failures, err := listServices(t.Context(), registry, options, nil)
+	failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
 	if err != nil {
 		t.Fatalf("a partial listing must not abort the run: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 		registry := harvest.NewRegistry(&fakeProvider{})
 		options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
 
-		failures, err := listServices(t.Context(), registry, options, nil)
+		failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
 		if err != nil {
 			t.Fatalf("a slow service must not abort the run: %v", err)
 		}
@@ -137,7 +137,7 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 	cancel()
 	registry := harvest.NewRegistry(&fakeProvider{})
 
-	_, err := listServices(ctx, registry, Options{Services: []string{"slow", "good"}}, nil)
+	_, err := listServices(ctx, registry, callOf(Options{Services: []string{"slow", "good"}}, ""), 0, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("want the run stopped, got %v", err)
 	}
@@ -211,7 +211,7 @@ func TestResolveServicesKeepsWhatIsNamedBesideTheWildcard(t *testing.T) {
 		{[]string{"*", "s3"}, []string{"vpc", "s3"}},
 		{[]string{"s3", "*", "vpc", "s3"}, []string{"vpc", "s3"}},
 	} {
-		if got := ResolveServices(&optInProvider{}, Options{Services: tc.services}).Services; !slices.Equal(got, tc.want) {
+		if got := ResolveServices(&optInProvider{}, Options{Services: tc.services}); !slices.Equal(got, tc.want) {
 			t.Errorf("%v: got %v, want %v", tc.services, got, tc.want)
 		}
 	}
@@ -321,7 +321,7 @@ func TestListServicesGivesEachServiceTheCatalogue(t *testing.T) {
 	cat := catalogue.MustBuiltin("aws")
 	registry := harvest.NewRegistry(&catalogueProvider{})
 
-	if _, err := listServices(t.Context(), registry, Options{Services: []string{"good", "partial"}, cat: cat}, nil); err != nil {
+	if _, err := listServices(t.Context(), registry, &callContext{services: []string{"good", "partial"}, cat: cat}, 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(registry.Providers) != 2 {
@@ -382,7 +382,7 @@ func (s *afterService) List() error {
 func TestListServicesListsDependentServicesAfterTheOthers(t *testing.T) {
 	registry := harvest.NewRegistry(&dependentProvider{})
 
-	failures, err := listServices(t.Context(), registry, Options{Services: []string{"after", "good", "bad", "partial"}, ListParallel: 4}, nil)
+	failures, err := listServices(t.Context(), registry, callOf(Options{Services: []string{"after", "good", "bad", "partial"}}, ""), 4, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,4 +481,10 @@ func TestWithChildImportsAsksInParallelAndKeepsTheOrder(t *testing.T) {
 	if len(byService["a"]) != 3 {
 		t.Error("the resources given were changed")
 	}
+}
+
+// callOf is an Import call of options in scope, which lists the services
+// options name as they are.
+func callOf(options Options, scope string) *callContext {
+	return &callContext{options: options, services: options.Services, scope: scope}
 }

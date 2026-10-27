@@ -76,7 +76,7 @@ func TestListedInScopeOnlyWhereTheListingIsComplete(t *testing.T) {
 			if listed.resources == nil {
 				listed = sqsListing()
 			}
-			here, why := listedInScope(&fakeProvider{}, cat, tc.options, tc.pattern, tc.scope, listed, tc.failures, nil, importID)
+			here, why := listedInScope(&fakeProvider{}, &callContext{options: tc.options, cat: cat, services: tc.options.Services, scope: tc.scope, importID: importID}, tc.pattern, listed, tc.failures, nil)
 			switch {
 			case tc.why == "" && here == nil:
 				t.Fatalf("got nothing, %q; want what was listed", why)
@@ -97,7 +97,7 @@ func TestListedInScopeOnlyWhereTheListingIsComplete(t *testing.T) {
 // list or can't import; nor those the provider lists in part.
 func TestTypesListedInFull(t *testing.T) {
 	t.Parallel()
-	aws := typesListedInFull(&fakeProvider{}, catalogue.MustBuiltin("aws"), Options{Services: []string{"sqs", "s3", "route_table"}})
+	aws := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs", "s3", "route_table"}})
 	for typ, want := range map[string]bool{
 		"aws_sqs_queue":                    true,
 		"aws_s3_bucket":                    true,
@@ -110,26 +110,26 @@ func TestTypesListedInFull(t *testing.T) {
 			t.Errorf("aws: %s listed in full: got %v, want %v", typ, aws[typ], want)
 		}
 	}
-	if unwanted := typesListedInFull(&fakeProvider{}, catalogue.MustBuiltin("aws"), Options{Services: []string{"sqs"}, unwanted: []string{"aws_sqs_queue"}}); unwanted["aws_sqs_queue"] {
+	if unwanted := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}, unwanted: []string{"aws_sqs_queue"}}); unwanted["aws_sqs_queue"] {
 		t.Error("aws: a type the import doesn't list is listed in full")
 	}
-	if partial := typesListedInFull(&partialProvider{partial: []string{"aws_sqs_queue"}}, catalogue.MustBuiltin("aws"), Options{Services: []string{"sqs"}}); partial["aws_sqs_queue"] {
+	if partial := typesListedInFull(&partialProvider{partial: []string{"aws_sqs_queue"}}, &callContext{cat: catalogue.MustBuiltin("aws"), services: []string{"sqs"}}); partial["aws_sqs_queue"] {
 		t.Error("aws: a type the provider lists in part is listed in full")
 	}
 
 	google := catalogue.MustBuiltin("google")
-	if got := typesListedInFull(&fakeProvider{}, google, Options{Services: []string{"cloud_asset"}}); !got["google_compute_subnetwork"] || !got["google_compute_network"] {
+	if got := typesListedInFull(&fakeProvider{}, &callContext{cat: google, services: []string{"cloud_asset"}}); !got["google_compute_subnetwork"] || !got["google_compute_network"] {
 		t.Errorf("google: the inventory entries aren't listed in full: %v", got)
 	}
-	if got := typesListedInFull(&partialProvider{partial: []string{"google_compute_subnetwork"}}, google, Options{Services: []string{"cloud_asset"}}); got["google_compute_subnetwork"] || !got["google_compute_network"] {
+	if got := typesListedInFull(&partialProvider{partial: []string{"google_compute_subnetwork"}}, &callContext{cat: google, services: []string{"cloud_asset"}}); got["google_compute_subnetwork"] || !got["google_compute_network"] {
 		t.Errorf("google: a region's import lists subnetworks in full: %v", got)
 	}
-	if got := typesListedInFull(&fakeProvider{}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
+	if got := typesListedInFull(&fakeProvider{}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
 		t.Error("azurerm: a type Resource Graph maps through Resource Manager is listed in full")
 	}
 	// Azure's provider lists custom roles in part (see its PartialTypes):
 	// one made assignable outside the run isn't listed, nor gone.
-	roles := typesListedInFull(&partialProvider{partial: []string{"azurerm_role_definition"}}, catalogue.MustBuiltin("azurerm"), Options{Services: []string{"role_assignment"}})
+	roles := typesListedInFull(&partialProvider{partial: []string{"azurerm_role_definition"}}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"role_assignment"}})
 	if roles["azurerm_role_definition"] || !roles["azurerm_role_assignment"] {
 		t.Errorf("azurerm: role_assignment lists in full %v, want its assignments and not its custom roles", roles)
 	}
@@ -182,7 +182,7 @@ func TestListedInScopeCountsWhatTheSelectionLeavesOut(t *testing.T) {
 	r := &Run{discovered: map[string]int{}, options: Options{Selection: "selection.yaml"}}
 	selected, _ := r.selectResources(listed, sourcesOf(t, listed, map[string]string{"aws_sqs_queue https://sqs.eu-west-2.amazonaws.com/123/jobs": "excluded by default"}), nil, "aws/123/eu-west-2", "", importIDFunc(cat))
 
-	here, why := listedInScope(&fakeProvider{}, cat, Options{Services: []string{"sqs"}}, "", "aws/123/eu-west-2", listed, nil, selected, importIDFunc(cat))
+	here, why := listedInScope(&fakeProvider{}, &callContext{cat: cat, services: []string{"sqs"}, scope: "aws/123/eu-west-2", importID: importIDFunc(cat)}, "", listed, nil, selected)
 	if here == nil {
 		t.Fatal(why)
 	}

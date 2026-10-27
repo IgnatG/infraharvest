@@ -84,7 +84,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if err != nil {
 		return added, nil, nil, err
 	}
-	result, err := r.options.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
+	result, err := r.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
 	if err != nil {
 		return added, nil, nil, err
 	}
@@ -95,7 +95,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	if previous != nil {
 		// Without the earlier result, the root's README stays as it is.
 		holds.NotInCloud = gone
-		if err := r.options.tools.writeReadme(dir, holds); err != nil {
+		if err := r.tools.writeReadme(dir, holds); err != nil {
 			return added, nil, nil, err
 		}
 	}

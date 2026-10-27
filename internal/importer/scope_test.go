@@ -115,7 +115,8 @@ func (*brokenScopeProvider) ImportScope(context.Context, []harvest.Resource) (*h
 // import everything listed.
 func TestImportScopeFailureStopsTheCall(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
-	c, err := listCall(t.Context(), NewRun(), &brokenScopeProvider{}, pathOptions(out, &fakeEngine{}), nil)
+	options := pathOptions(out, &fakeEngine{})
+	c, err := listCall(t.Context(), options.run(), &brokenScopeProvider{}, options.Options, nil)
 	if err == nil || !strings.Contains(err.Error(), "the stacks can't be matched") {
 		t.Errorf("call %+v, error %v", c, err)
 	}
@@ -126,8 +127,9 @@ func TestImportScopeFailureStopsTheCall(t *testing.T) {
 // delete: the run writes its report, and, as nothing failed, succeeds.
 func TestImportScopeWithNothingToList(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
-	run := NewRun()
-	c, err := listCall(t.Context(), run, &stackOnlyProvider{}, pathOptions(out, &fakeEngine{}), nil)
+	options := pathOptions(out, &fakeEngine{})
+	run := options.run()
+	c, err := listCall(t.Context(), run, &stackOnlyProvider{}, options.Options, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
