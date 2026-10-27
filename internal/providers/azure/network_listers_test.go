@@ -493,6 +493,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 			armItem(unlisted, "unlisted", `{"addressSpace":{"addressPrefixes":["10.1.0.0/16"]}}`),
 			armItem(bareNet, "bare", ""),
 		),
+		noSubnets + "/subnets":         armList(),
 		unlisted + "/subnets":          armList(armItem(standalone, "db", "")),
 		bareNet + "/subnets":           armList(),
 		rg + "serviceEndpointPolicies": armList(),
@@ -502,7 +503,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	if err := s.List(); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "virtualNetworks", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
+	if want := []string{rg + "virtualNetworks", noSubnets + "/subnets", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
 		t.Errorf("subnets: requested %v, want %v", networks.paths, want)
 	}
 	wantSubnets := []listedResource{
