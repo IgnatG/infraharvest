@@ -350,8 +350,9 @@ func (m *stackMerge) splitForced() {
 // MergeProfile is what the root the environments of a stack share reads
 // of each environment's account (or subscription, or project) and
 // region, where the environments' roots differ by them. The importer
-// fills it from the provider's profile (see harvest.Merge, which has the
-// same fields), so that the engine needn't tell providers apart.
+// fills it from the provider's profile (see harvest.Merge, and
+// harvest.Scope's noun for ScopeTitle), so that the engine needn't tell
+// providers apart.
 type MergeProfile struct {
 	// ScopeTitle is what the roots are scoped by, for the README, such as
 	// Account.
