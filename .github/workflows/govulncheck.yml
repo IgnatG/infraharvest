@@ -3,14 +3,12 @@
 
 name: Vulnerability check
 
-# Checks the binary for known vulnerabilities after each merge to main and
-# every week, as the tests workflow does on each pull request: a
-# vulnerability published after a dependency last changed fails here, with
-# no pull request to show it. The same gate and allowlist
-# (.github/govulncheck-allowlist.txt) as the pull request job.
+# Checks the binary for known vulnerabilities every week, as the tests
+# workflow does on each pull request and merge to main: a vulnerability
+# published after a dependency last changed fails here, with no pull
+# request to show it. The same gate and allowlist
+# (.github/govulncheck-allowlist.txt) as the tests workflow's job.
 on:
-  push:
-    branches: [main]
   schedule:
   - cron: "17 4 * * 1"
   workflow_dispatch:
