@@ -31,6 +31,7 @@ func TestDriftFlags(t *testing.T) {
 		"force-unlock":      "false",
 		"accept":            "",
 		"keep":              "",
+		"rules":             "",
 		"decisions":         "",
 		"write-decisions":   "false",
 	} {
@@ -53,6 +54,7 @@ func TestDriftRejectsBadFlags(t *testing.T) {
 		"--root":      {"--root", "aws/["},
 		"--accept":    {"--accept", "everything"},
 		"--keep":      {"--keep", "name=x"},
+		"--rules":     {"--rules", "no-such-rules"},
 		"--decisions": {"--decisions", "no-such-drift.yaml"},
 		"--catalogue": {"--catalogue", "no-such-catalogue"},
 		"arguments":   {"a", "b"},
@@ -105,6 +107,45 @@ func TestDriftRuleFlagsKeepTheirOrder(t *testing.T) {
 	}
 	if accept.String() != "all,attribute=tags.*" || keep.String() != "type=aws_security_group" {
 		t.Errorf("--accept %q, --keep %q", accept.String(), keep.String())
+	}
+}
+
+// The rules of a --rules file join --accept's and --keep's in the order
+// given, each line in its place, and a line the rules don't parse names
+// the file and the line.
+func TestDriftRulesFileKeepsTheOrder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "rules")
+	content := "# tags are the console's\r\naccept attribute=tags.*\n\nkeep   type=aws_security_group\nroot=aws/*\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var rules []importer.DriftRule
+	accept, keep, files := &driftRules{rules: &rules, accept: true}, &driftRules{rules: &rules}, &driftRuleFiles{rules: &rules}
+	for _, set := range []struct {
+		flag  interface{ Set(string) error }
+		value string
+	}{{keep, "all"}, {files, file}, {accept, "address=aws_s3_bucket.logs"}} {
+		if err := set.flag.Set(set.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, r := range rules {
+		got = append(got, fmt.Sprintf("%v %s", r.Accept, r))
+	}
+	want := []string{"false all", "true attribute=tags.*", "false type=aws_security_group", "true root=aws/*", "true address=aws_s3_bucket.logs"}
+	if !slices.Equal(got, want) {
+		t.Errorf("rules %v, want %v", got, want)
+	}
+
+	bad := filepath.Join(dir, "bad")
+	if err := os.WriteFile(bad, []byte("keep all\nreject all\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&driftRuleFiles{rules: &rules}).Set(bad); err == nil || !strings.Contains(err.Error(), bad+": line 2:") {
+		t.Errorf("got %v, want the file and line 2", err)
 	}
 }
 

@@ -6,6 +6,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -42,9 +43,9 @@ func newDriftCmd() *cobra.Command {
 			"its var files; as they share its code, an accepted change is written into\n" +
 			"vars/<env>/terraform.tfvars where a variable sets the value, else needs a\n" +
 			"hand edit.\n\n" +
-			"Without --accept or --decisions, the code isn't changed either. With them, the\n" +
-			"cloud's values of the changes they accept are written into the code, once the\n" +
-			"plan of the edited copy, without refreshing again, shows each accepted\n" +
+			"Without --accept, --rules or --decisions, the code isn't changed either. With\n" +
+			"them, the cloud's values of the changes they accept are written into the code,\n" +
+			"once the plan of the edited copy, without refreshing again, shows each accepted\n" +
 			"resource taking them and nothing else changing; the others are kept, and the\n" +
 			"next apply puts them back. Secrets are never written.\n\n" +
 			"--config takes the import's configuration file: its settings drift has, engine,\n" +
@@ -88,8 +89,9 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().StringVar(&options.Catalogue, "catalogue", "", "directory of catalogue files the import used to add to or override the built-in catalogue, whose arguments kept only in state aren't drift (see "+providers.DocsURL+"catalogue/)")
 	cmd.Flags().IntVar(&options.Parallel, "parallel", 1, "how many roots to check at once; each runs its own Terraform, so memory use grows with it")
 	cmd.Flags().StringArrayVar(&options.Roots, "root", nil, "check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable)")
-	cmd.Flags().Var(&driftRules{rules: &options.Rules, accept: true}, "accept", "write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep, the last rule that matches a change decides)")
+	cmd.Flags().Var(&driftRules{rules: &options.Rules, accept: true}, "accept", "write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep and --rules, the last rule that matches a change decides)")
 	cmd.Flags().Var(&driftRules{rules: &options.Rules}, "keep", "keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable)")
+	cmd.Flags().Var(&driftRuleFiles{rules: &options.Rules}, "rules", "accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given)")
 	cmd.Flags().StringVar(&options.Decisions, "decisions", "", "decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it")
 	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+importer.DefaultDriftDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().Lookup("write-decisions").NoOptDefVal = "true"
@@ -129,6 +131,50 @@ func (r *driftRules) String() string {
 }
 
 func (r *driftRules) Type() string { return "rule" }
+
+// driftRuleFiles is the value of --rules: each file's rules, one a line
+// as importer.ParseDriftRuleLine takes it, join the list --accept and
+// --keep add to, in the order given.
+type driftRuleFiles struct {
+	rules *[]importer.DriftRule
+	files []string
+}
+
+func (r *driftRuleFiles) Set(file string) error {
+	content, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	rules, err := parseDriftRuleLines(string(content))
+	if err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	*r.rules = append(*r.rules, rules...)
+	r.files = append(r.files, file)
+	return nil
+}
+
+func (r *driftRuleFiles) String() string { return strings.Join(r.files, ",") }
+
+func (r *driftRuleFiles) Type() string { return "file" }
+
+// parseDriftRuleLines parses rules, one a line, in order: blank lines and
+// lines starting with # are skipped.
+func parseDriftRuleLines(content string) ([]importer.DriftRule, error) {
+	var rules []importer.DriftRule
+	for i, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rule, err := importer.ParseDriftRuleLine(line)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
 
 // writeDecisions is the value of --write-decisions: true or false, as a
 // boolean flag takes them, or the decisions file to write, which sets it

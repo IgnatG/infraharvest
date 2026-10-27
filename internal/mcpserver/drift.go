@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -46,12 +47,13 @@ type DriftInput struct {
 // DriftAcceptInput is the drift_accept tool's input.
 type DriftAcceptInput struct {
 	DriftInput
-	// Accept and Keep are --accept and --keep rules: every Accept rule
-	// comes first, so that a Keep rule decides a change both match.
-	Accept []string `json:"accept,omitempty" flag:"accept,each" jsonschema:"rules of the changes to accept into the code: all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as attribute=tags.*"`
-	Keep   []string `json:"keep,omitempty" flag:"keep,each" jsonschema:"rules of the changes to keep the code's values of, which the next apply puts back, as accept takes them; they come after the accept rules, so that a keep rule decides a change both match"`
+	// Rules are accept and keep rules, in order, each as a line of drift's
+	// --rules file takes it (see importer.ParseDriftRuleLine): they become
+	// --accept and --keep flags in that order, so that the last that
+	// matches a change decides, as on the command line.
+	Rules []string `json:"rules,omitempty" jsonschema:"rules of the changes to accept into the code, or to keep the code's values of, which the next apply puts back, in order, the last that matches a change deciding: each accept or keep, then all, or attribute=, type=, address= or root= with a pattern in which * matches any text, such as accept attribute=tags.* or keep type=aws_security_group; a rule alone is accepted"`
 	// Decisions is --decisions.
-	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; accept and keep decide after it"`
+	Decisions string `json:"decisions,omitempty" jsonschema:"a decisions file to decide the changes by, such as one write_decisions wrote and the user edited: each change's entry, else its rules and defaults; rules decide after it"`
 	// WriteDecisions is --write-decisions.
 	WriteDecisions bool `json:"write_decisions,omitempty" flag:"write-decisions" jsonschema:"write the run's changes into the decisions file, decisions or drift.yaml in the output directory: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped"`
 }
@@ -155,15 +157,16 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	if err != nil {
 		return nil, nil, err
 	}
-	detect := append(slices.Clone(args), detectFlags...)
-	args = append(args, flags...)
-	// Parsed here too, for the confirmation to count what they accept.
-	rules, err := parseDriftRules(in.Accept, in.Keep)
+	// Parsed here, for the confirmation to count what they accept, and
+	// passed on as --accept and --keep flags in their order.
+	rules, ruleFlags, err := parseDriftRules(in.Rules)
 	if err != nil {
 		return nil, nil, err
 	}
+	detect := append(slices.Clone(args), detectFlags...)
+	args = append(append(args, flags...), ruleFlags...)
 	if len(rules) == 0 && in.Decisions == "" && !in.WriteDecisions {
-		return nil, nil, errors.New("set accept, keep, decisions or write_decisions; to only check, call drift")
+		return nil, nil, errors.New("set rules, decisions or write_decisions; to only check, call drift")
 	}
 	target := filepath.Join(in.Out, importer.DefaultDriftDecisionsFile)
 	var content []byte
@@ -236,23 +239,30 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 	return t.finishDrift(ctx, append(args, "--decisions="+snapshot.path, "--", in.Out), in, target, snapshot, content)
 }
 
-// parseDriftRules parses the accept rules, then the keep rules, as
-// --accept and --keep take them, with the parser drift has.
-func parseDriftRules(accept, keep []string) ([]importer.DriftRule, error) {
-	var rules []importer.DriftRule
-	for _, list := range []struct {
-		rules  []string
-		accept bool
-	}{{accept, true}, {keep, false}} {
-		for _, s := range list.rules {
-			r, err := importer.ParseDriftRule(s, list.accept)
-			if err != nil {
-				return nil, err
-			}
-			rules = append(rules, r)
+// parseDriftRules parses rules, accept and keep rules in order, with the
+// parser drift's --rules file has, and returns them with the --accept and
+// --keep flags that pass them on in that order. A rule with a control
+// character, such as a newline, which could make the confirmation the
+// user is shown say something else, is rejected.
+func parseDriftRules(rules []string) ([]importer.DriftRule, []string, error) {
+	parsed := make([]importer.DriftRule, 0, len(rules))
+	flags := make([]string, 0, len(rules))
+	for _, s := range rules {
+		if strings.ContainsFunc(s, unicode.IsControl) {
+			return nil, nil, fmt.Errorf("rules %q has a control character", s)
 		}
+		r, err := importer.ParseDriftRuleLine(s)
+		if err != nil {
+			return nil, nil, err
+		}
+		flag := "--keep="
+		if r.Accept {
+			flag = "--accept="
+		}
+		parsed = append(parsed, r)
+		flags = append(flags, flag+r.String())
 	}
-	return rules, nil
+	return parsed, flags, nil
 }
 
 // driftConfirmationMessage asks the user to confirm in, saying how many
@@ -263,11 +273,8 @@ func driftConfirmationMessage(in DriftAcceptInput, target string, d *report.Drif
 	if in.Decisions != "" {
 		by = append(by, fmt.Sprintf("the decisions file %q", in.Decisions))
 	}
-	if len(in.Accept) > 0 {
-		by = append(by, "the accept rules "+quoteAll(in.Accept))
-	}
-	if len(in.Keep) > 0 {
-		by = append(by, "the keep rules "+quoteAll(in.Keep))
+	if len(in.Rules) > 0 {
+		by = append(by, "the rules "+quoteAll(in.Rules)+", the last that matches a change deciding,")
 	}
 	message := fmt.Sprintf("Take changes in the cloud into the Terraform code of the roots in %q? A check just now found %d changes the next apply would revert: %s accept %d of them, written into the roots' files, and keep %d, which the next apply puts back.",
 		in.Out, p.Accept+p.Keep, strings.Join(by, ", then "), p.Accept, p.Keep)

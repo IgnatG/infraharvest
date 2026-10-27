@@ -97,15 +97,14 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		"discover":     {"selection": selectionFile},
 		"import":       {"selection": selectionFile, "out": "generated"},
 		"drift":        {"out": "generated"},
-		"drift_accept": {"out": "generated", "keep": []string{"all"}},
+		"drift_accept": {"out": "generated", "rules": []string{"keep all"}},
 	}
 	values := map[string]any{
 		"engine":         importer.EngineTofu,
 		"engine_timeout": "30m",
 		"catalogue":      "catalogue",
 		"decisions":      decisions,
-		"accept":         []string{"all"},
-		"keep":           []string{"all"},
+		"rules":          []string{"accept all", "keep type=x"},
 	}
 
 	listed, err := session.ListTools(t.Context(), nil)

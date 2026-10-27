@@ -60,6 +60,8 @@ The report goes into `<out>/report/drift.json` and `<out>/report/drift.md`, apar
 
 `*` matches any text. For example, `--accept all --keep 'type=aws_security_group'` accepts everything but security group changes.
 
+`--rules <file>` reads rules from a file, one a line: `accept` or `keep`, then a rule, such as `accept attribute=tags.*` or `keep type=aws_security_group`. A rule alone is accepted, and blank lines and lines starting with `#` are skipped. Its rules join those of `--accept` and `--keep` where the flag is, in the file's order, so the last rule that matches still decides. The [GitHub Action](../action/README.md)'s `drift-accept` and the [MCP server](mcp.md)'s `rules` take rules the same way.
+
 A change of tags several resources share (see [below](#tags-several-resources-share)) has the address of where the root keeps them, such as `local.tags`, and lists the resources in `covers`. `attribute=` and `root=` rules match it as any other change. A `type=` rule matches it if one of the resources it covers is of that type; an `address=` rule, if its own address or one of theirs matches. So `--accept 'type=aws_s3_bucket'` accepts a change of `local.tags` that covers a bucket and a queue, editing the tag for both; to keep it, add `--keep 'address=local.tags'` after it.
 
 An accepted change is edited in place, keeping comments and the layout of everything else, and only the edited files are formatted:
@@ -188,7 +190,7 @@ A change is decided, in order:
 1. By the file's `defaults`.
 2. By its rules: the last that matches decides over the defaults.
 3. By its entry, if its decision is `accept` or `keep`, and its fingerprint is the change's. An `undecided` entry leaves the change to the rules and defaults. An entry whose fingerprint isn't the change's keeps it, whatever the rules and defaults say (see [When the cloud changes again](#when-the-cloud-changes-again)).
-4. By `--accept` and `--keep`: on the command line, the last rule that matches decides over the file.
+4. By `--accept`, `--keep` and `--rules`: on the command line, the last rule that matches decides over the file.
 
 A rule the command line takes is a rule of the file with one field: `--accept 'attribute=tags.*'` is `- accept: { attribute: "tags.*" }`, and `--keep all` is `- keep: all`.
 

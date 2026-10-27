@@ -101,7 +101,7 @@ func TestAWSDriftMCP(t *testing.T) {
 		t.Errorf("drift asked the user: %q", asked)
 	}
 
-	accept := map[string]any{"out": out, "engine": engineName, "accept": []string{"attribute=tags.team"}}
+	accept := map[string]any{"out": out, "engine": engineName, "rules": []string{"accept attribute=tags.team"}}
 	r = callDriftTool(ctx, t, session, "drift_accept", accept)
 	if len(asked) != 1 || !strings.Contains(asked[0], "accept 1 of them") || !strings.Contains(asked[0], `"attribute=tags.team"`) {
 		t.Errorf("drift_accept asked the user %q, want one confirmation of accepting the change", asked)

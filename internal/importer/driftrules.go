@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -43,6 +44,29 @@ func ParseDriftRule(s string, accept bool) (DriftRule, error) {
 		return DriftRule{}, fmt.Errorf("%s %q: want all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.*", flag, s)
 	}
 	return DriftRule{Accept: accept, Field: field, Pattern: pattern}, nil
+}
+
+// ParseDriftRuleLine parses a rule as an ordered list of accept and keep
+// rules takes it, as a line of drift's --rules file, which the GitHub
+// Action's drift-accept becomes, and an entry of the MCP server's
+// drift_accept rules do: accept or keep, then the rule as ParseDriftRule
+// takes it, such as keep attribute=tags.*; a rule alone is accepted.
+func ParseDriftRuleLine(s string) (DriftRule, error) {
+	s = strings.TrimSpace(s)
+	accept, rule := true, s
+	if i := strings.IndexFunc(s, unicode.IsSpace); i >= 0 {
+		switch s[:i] {
+		case "accept":
+			rule = strings.TrimSpace(s[i:])
+		case "keep":
+			accept, rule = false, strings.TrimSpace(s[i:])
+		}
+	}
+	r, err := ParseDriftRule(rule, accept)
+	if err != nil {
+		return DriftRule{}, fmt.Errorf("rule %q: want accept or keep, then all, or attribute=, type=, address= or root= with a pattern, such as keep attribute=tags.*", s)
+	}
+	return r, nil
 }
 
 // String is the rule as --accept and --keep take it.

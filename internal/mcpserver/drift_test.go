@@ -150,37 +150,58 @@ func TestDriftCouldNotRun(t *testing.T) {
 }
 
 // Accepting asks the user first, with what a check without the rules
-// found, and only then writes into the code.
+// found, and only then writes into the code. The rules keep their order,
+// on the command line and in the counts the user sees: the last that
+// matches a change decides.
 func TestDriftAcceptAfterTheUserConfirms(t *testing.T) {
-	runner := &fakeRunner{}
-	var asked string
-	dir := t.TempDir()
-	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
-		asked = req.Params.Message
-		return &mcp.ElicitResult{Action: "accept"}, nil
-	})
-	out := generatedOut(t, dir)
+	for name, tc := range map[string]struct {
+		rules        []string
+		flags        []string
+		accept, keep string
+	}{
+		"keep last": {
+			[]string{"accept attribute=tags.*", "keep attribute=tags.Owner"},
+			[]string{"--accept=attribute=tags.*", "--keep=attribute=tags.Owner"},
+			"accept 1 of them", "keep 1",
+		},
+		"accept last": {
+			[]string{"keep attribute=tags.Owner", " attribute=tags.* "},
+			[]string{"--keep=attribute=tags.Owner", "--accept=attribute=tags.*"},
+			"accept 2 of them", "keep 0",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			runner := &fakeRunner{}
+			var asked string
+			dir := t.TempDir()
+			session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				asked = req.Params.Message
+				return &mcp.ElicitResult{Action: "accept"}, nil
+			})
+			out := generatedOut(t, dir)
 
-	res, text := call(t, session, "drift_accept", map[string]any{"out": out, "accept": []string{"attribute=tags.*"}, "keep": []string{"attribute=tags.Owner"}})
+			res, text := call(t, session, "drift_accept", map[string]any{"out": out, "rules": tc.rules})
 
-	if res.IsError || !strings.Contains(text, "1 accepted into the code") {
-		t.Errorf("result: %s", text)
-	}
-	for _, want := range []string{fmt.Sprintf("roots in %q?", out), "found 2 changes", `"attribute=tags.*"`, `then the keep rules "attribute=tags.Owner"`, "accept 1 of them", "keep 1", "never written", "never applies"} {
-		if !strings.Contains(asked, want) {
-			t.Errorf("confirmation %q misses %q", asked, want)
-		}
-	}
-	base := []string{"drift", "--format=json", "--detailed-exitcode"}
-	want := [][]string{
-		append(slices.Clone(base), "--", out),
-		append(slices.Clone(base), "--accept=attribute=tags.*", "--keep=attribute=tags.Owner", "--", out),
-	}
-	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
-		t.Errorf("runs: %v, want %v", runner.runs, want)
-	}
-	if r := structured(t, res); r.Totals.Written != 1 || r.Totals.Kept != 1 {
-		t.Errorf("structured result: %+v", r)
+			if res.IsError || !strings.Contains(text, "1 accepted into the code") {
+				t.Errorf("result: %s", text)
+			}
+			for _, want := range []string{fmt.Sprintf("roots in %q?", out), "found 2 changes", "the rules " + quoteAll(tc.rules), tc.accept, tc.keep, "never written", "never applies"} {
+				if !strings.Contains(asked, want) {
+					t.Errorf("confirmation %q misses %q", asked, want)
+				}
+			}
+			base := []string{"drift", "--format=json", "--detailed-exitcode"}
+			want := [][]string{
+				append(slices.Clone(base), "--", out),
+				append(append(slices.Clone(base), tc.flags...), "--", out),
+			}
+			if !slices.EqualFunc(runner.runs, want, slices.Equal) {
+				t.Errorf("runs: %v, want %v", runner.runs, want)
+			}
+			if r := structured(t, res); r.Totals.Written != 1 || r.Totals.Kept != 1 {
+				t.Errorf("structured result: %+v", r)
+			}
+		})
 	}
 }
 
@@ -206,7 +227,7 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 			runner := &fakeRunner{}
 			session := connect(t, runner, dir, tc.elicit)
 
-			res, text := call(t, session, "drift_accept", map[string]any{"out": out, "accept": []string{"all"}})
+			res, text := call(t, session, "drift_accept", map[string]any{"out": out, "rules": []string{"accept all"}})
 
 			if !res.IsError || !strings.Contains(text, tc.want) {
 				t.Errorf("want an error result with %q, got %s", tc.want, text)
@@ -223,7 +244,7 @@ func TestDriftAcceptNeedsTheUser(t *testing.T) {
 		InputResponses: mcp.InputResponseMap{driftConfirmation: &mcp.ElicitResult{Action: "accept"}},
 		RequestState:   "a confirmation of another run",
 	}}
-	in := DriftAcceptInput{DriftInput: DriftInput{Out: out}, Accept: []string{"all"}}
+	in := DriftAcceptInput{DriftInput: DriftInput{Out: out}, Rules: []string{"accept all"}}
 	if res, _, err := tools.driftAccept(t.Context(), req, in); err != nil || res == nil || !res.IsError {
 		t.Errorf("an answer to another request: got %+v, %v, want it refused", res, err)
 	}
@@ -318,7 +339,7 @@ func TestDriftAcceptWithoutCode(t *testing.T) {
 		flag string
 	}{
 		"write_decisions": {map[string]any{"out": out, "write_decisions": true}, "--write-decisions"},
-		"keep":            {map[string]any{"out": out, "keep": []string{"type=aws_iam_*"}}, "--keep=type=aws_iam_*"},
+		"keep":            {map[string]any{"out": out, "rules": []string{"keep type=aws_iam_*"}}, "--keep=type=aws_iam_*"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			runner := &fakeRunner{}
@@ -351,14 +372,14 @@ func TestDriftAcceptRejectsBadInput(t *testing.T) {
 		want string
 	}{
 		"nothing to do":         {DriftAcceptInput{DriftInput: DriftInput{Out: out}}, "call drift"},
-		"no output directory":   {DriftAcceptInput{Accept: []string{"all"}}, "out is required"},
-		"a rule of no field":    {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Accept: []string{"name=x"}}, "attribute="},
-		"a rule with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Keep: []string{"attribute=tags.*\nand accept all"}}, `keep "attribute=tags.*\nand accept all" has a control character`},
-		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Accept: []string{"all"}}, `roots "aws/*\n" has a control character`},
-		"an empty root":         {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{""}}, Accept: []string{"all"}}, "roots has an empty value"},
-		"an empty environment":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod", ""}}, Accept: []string{"all"}}, "environments has an empty value"},
+		"no output directory":   {DriftAcceptInput{Rules: []string{"accept all"}}, "out is required"},
+		"a rule of no field":    {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Rules: []string{"accept name=x"}}, "attribute="},
+		"a rule with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Rules: []string{"keep attribute=tags.*\nand accept all"}}, `rules "keep attribute=tags.*\nand accept all" has a control character`},
+		"a root with a newline": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{"aws/*\n"}}, Rules: []string{"accept all"}}, `roots "aws/*\n" has a control character`},
+		"an empty root":         {DriftAcceptInput{DriftInput: DriftInput{Out: out, Roots: []string{""}}, Rules: []string{"accept all"}}, "roots has an empty value"},
+		"an empty environment":  {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod", ""}}, Rules: []string{"accept all"}}, "environments has an empty value"},
 		// --environment takes a list: prod,dev would be two environments.
-		"an environment with a comma": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod,dev"}}, Accept: []string{"all"}}, `environments "prod,dev" has a comma`},
+		"an environment with a comma": {DriftAcceptInput{DriftInput: DriftInput{Out: out, Environments: []string{"prod,dev"}}, Rules: []string{"accept all"}}, `environments "prod,dev" has a comma`},
 		"a bad decisions file":        {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: writeFile(t, dir, "bad.yaml", "version: 9\n")}, "version 9"},
 		"no decisions file":           {DriftAcceptInput{DriftInput: DriftInput{Out: out}, Decisions: filepath.Join(dir, "missing.yaml")}, ""},
 	} {
@@ -402,7 +423,7 @@ func TestDriftFilesStayUnderRoot(t *testing.T) {
 		t.Errorf("drift outside: got %v, want the output rejected", err)
 	}
 	for name, in := range map[string]DriftAcceptInput{
-		"an output outside":               {DriftInput: DriftInput{Out: outside}, Accept: []string{"all"}},
+		"an output outside":               {DriftInput: DriftInput{Out: outside}, Rules: []string{"accept all"}},
 		"decisions from outside":          {DriftInput: DriftInput{Out: inside}, Decisions: decisions},
 		"decisions written outside":       {DriftInput: DriftInput{Out: inside}, Decisions: decisions, WriteDecisions: true},
 		"decisions up from the root":      {DriftInput: DriftInput{Out: inside}, Decisions: filepath.Join(root, "..", "elsewhere", "drift.yaml")},
@@ -490,7 +511,7 @@ func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 	if res, text := call(t, session, "drift", map[string]any{"out": out, "engine_timeout": "90m", "force_unlock": true}); res.IsError {
 		t.Fatalf("result: %s", text)
 	}
-	if res, text := call(t, session, "drift_accept", map[string]any{"out": out, "engine_timeout": "0", "keep": []string{"all"}}); res.IsError {
+	if res, text := call(t, session, "drift_accept", map[string]any{"out": out, "engine_timeout": "0", "rules": []string{"keep all"}}); res.IsError {
 		t.Fatalf("result: %s", text)
 	}
 	want := [][]string{
