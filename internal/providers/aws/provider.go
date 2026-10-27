@@ -103,6 +103,7 @@ func (*Provider) Profile() harvest.Profile {
 			Field:    "accounts",
 			ID:       accountID,
 			IDFormat: "an account ID, 12 digits",
+			Flags:    []string{"regions", "profile", "accounts", "cfn-stack", "cfn-ignore"},
 			Describe: describeScope,
 		},
 		Modules:           providerName,

@@ -123,7 +123,7 @@ func New(version, root string, run Runner, check Checker, compiled Providers) *m
 		Name:        "discover",
 		Title:       "List resources into a selection file",
 		Description: "Lists a provider's resources into a selection file, each marked included or excluded by the default rules (which leave out resources the cloud manages itself), and summarises it. Reads the cloud; writes only the selection file. " + help,
-		InputSchema: scopeSchema[DiscoverInput](compiled.names()),
+		InputSchema: scopeSchema[DiscoverInput](compiled),
 		// It writes the selection file, merging into one that is there, so
 		// it isn't read-only, though it destroys nothing.
 		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true), DestructiveHint: ptr(false)},
@@ -132,7 +132,7 @@ func New(version, root string, run Runner, check Checker, compiled Providers) *m
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
 		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + help,
-		InputSchema: scopeSchema[ImportInput](compiled.names()),
+		InputSchema: scopeSchema[ImportInput](compiled),
 		// Not idempotent: the same import again is refused, with
 		// incremental adds what is new since, or with regenerate writes
 		// the roots again.
@@ -332,36 +332,38 @@ func (t *tools) readWithin(what, path string) (string, []byte, error) {
 
 // Scope is what to list: a provider command, its services, and where to
 // list them, in the provider's own terms. Each field but Provider sets the
-// flag its flag tag names (see flagArgs). A field with a providers tag is
-// for the providers it names alone, whose command has that flag: the
-// tools reject it for the others (see checkScopeProviders), and the tools'
-// descriptions say which provider takes which (see scopeHelp). The
-// provider's description names the provider commands compiled in (see
-// scopeSchema).
+// flag its flag tag names (see flagArgs). A field with a scope tag is for
+// the providers whose profiles declare its flag alone (see
+// harvest.Scope.Flags), so that a provider's parameters come with it:
+// the tools reject it for the others (see checkScopeProviders), the
+// tools' descriptions say which provider takes which (see scopeHelp),
+// and their schemas have it only where a provider compiled in takes it,
+// its description naming them for {providers} (see scopeSchema), as the
+// provider's description names the provider commands compiled in.
 type Scope struct {
 	Provider string   `json:"provider" jsonschema:"the provider command"`
 	Services []string `json:"services,omitempty" flag:"services" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
 	// Regions is for aws and google.
-	Regions []string `json:"regions,omitempty" flag:"regions" providers:"aws,google" jsonschema:"aws and google only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
+	Regions []string `json:"regions,omitempty" flag:"regions" scope:"provider" jsonschema:"{providers} only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
 	// Profile and Accounts are for aws.
-	Profile  string   `json:"profile,omitempty" flag:"profile" providers:"aws" jsonschema:"aws only: the AWS profile whose credentials to use"`
-	Accounts []string `json:"accounts,omitempty" flag:"accounts" providers:"aws" jsonschema:"aws only: accounts to list, each through the role infraharvest-readonly in it"`
+	Profile  string   `json:"profile,omitempty" flag:"profile" scope:"provider" jsonschema:"{providers} only: the AWS profile whose credentials to use"`
+	Accounts []string `json:"accounts,omitempty" flag:"accounts" scope:"provider" jsonschema:"{providers} only: accounts to list, each through the role infraharvest-readonly in it"`
 	// CloudFormationStacks and CloudFormationIgnore are for aws: the
 	// stacks whose resources alone to import, and those of their resources
 	// Terraform can't import that they may be deleted without.
-	CloudFormationStacks []string `json:"cfn_stacks,omitempty" flag:"cfn-stack,each" providers:"aws" jsonschema:"aws only: CloudFormation stacks, by name or stack ID (ARN), whose resources and nested stacks' alone to import; the report says whether each can be deleted once they are in Terraform"`
-	CloudFormationIgnore []string `json:"cfn_ignore,omitempty" flag:"cfn-ignore,each" providers:"aws" jsonschema:"aws only, with cfn_stacks: resources of the stacks Terraform can't import, such as custom resources, by logical ID or as <stack>/<logical ID>, which the stacks may be deleted without"`
+	CloudFormationStacks []string `json:"cfn_stacks,omitempty" flag:"cfn-stack,each" scope:"provider" jsonschema:"{providers} only: CloudFormation stacks, by name or stack ID (ARN), whose resources and nested stacks' alone to import; the report says whether each can be deleted once they are in Terraform"`
+	CloudFormationIgnore []string `json:"cfn_ignore,omitempty" flag:"cfn-ignore,each" scope:"provider" jsonschema:"{providers} only, with cfn_stacks: resources of the stacks Terraform can't import, such as custom resources, by logical ID or as <stack>/<logical ID>, which the stacks may be deleted without"`
 	// Projects, Organization and Folders are for google, which needs at
 	// least one of them.
-	Projects     []string `json:"projects,omitempty" flag:"projects" providers:"google" jsonschema:"google only: projects to list; google needs projects, organization or folders"`
-	Organization string   `json:"organization,omitempty" flag:"organization" providers:"google" jsonschema:"google only: an organization ID, to list every active project of it, in its folders too"`
-	Folders      []string `json:"folders,omitempty" flag:"folders" providers:"google" jsonschema:"google only: folder IDs, to list every active project of them, in their subfolders too"`
+	Projects     []string `json:"projects,omitempty" flag:"projects" scope:"provider" jsonschema:"{providers} only: projects to list; google needs projects, organization or folders"`
+	Organization string   `json:"organization,omitempty" flag:"organization" scope:"provider" jsonschema:"{providers} only: an organization ID, to list every active project of it, in its folders too"`
+	Folders      []string `json:"folders,omitempty" flag:"folders" scope:"provider" jsonschema:"{providers} only: folder IDs, to list every active project of them, in their subfolders too"`
 	// Subscriptions, ManagementGroup and ResourceGroup are for azure.
-	Subscriptions   []string `json:"subscriptions,omitempty" flag:"subscriptions" providers:"azure" jsonschema:"azure only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
-	ManagementGroup string   `json:"management_group,omitempty" flag:"management-group" providers:"azure" jsonschema:"azure only: a management group ID, to list every enabled subscription under it, in its child groups too"`
-	ResourceGroup   string   `json:"resource_group,omitempty" flag:"resource-group" providers:"azure" jsonschema:"azure only: the resource group to list (default: the whole subscription)"`
+	Subscriptions   []string `json:"subscriptions,omitempty" flag:"subscriptions" scope:"provider" jsonschema:"{providers} only: subscription IDs to list (default: ARM_SUBSCRIPTION_ID's)"`
+	ManagementGroup string   `json:"management_group,omitempty" flag:"management-group" scope:"provider" jsonschema:"{providers} only: a management group ID, to list every enabled subscription under it, in its child groups too"`
+	ResourceGroup   string   `json:"resource_group,omitempty" flag:"resource-group" scope:"provider" jsonschema:"{providers} only: the resource group to list (default: the whole subscription)"`
 	// Azapi is for azure.
-	Azapi bool `json:"azapi,omitempty" flag:"azapi" providers:"azure" jsonschema:"azure only: import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out"`
+	Azapi bool `json:"azapi,omitempty" flag:"azapi" scope:"provider" jsonschema:"{providers} only: import what Resource Graph lists that azurerm has no resource type for as azapi_resource, through the Azure/azapi provider, instead of leaving it out"`
 }
 
 // DiscoverInput is the discover tool's input.
@@ -409,7 +411,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	if in.Selection, err = t.within("selection", in.Selection); err != nil {
 		return nil, nil, err
 	}
-	config, err := t.loadConfig(&in.Config, configUse{tool: "discover", provider: in.Provider})
+	config, err := t.loadConfig(&in.Config, configUse{tool: "discover", provider: in.Provider, providers: t.providers})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -540,7 +542,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	// The check reads the private copy of it that the run reads.
-	config, err := t.loadConfig(&in.Config, configUse{tool: "import", provider: in.Provider})
+	config, err := t.loadConfig(&in.Config, configUse{tool: "import", provider: in.Provider, providers: t.providers})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -936,8 +938,8 @@ func (t *tools) linksStayUnder(what, dir string) error {
 }
 
 // scopeHelp says which provider takes which of Scope's fields, for the
-// tools' descriptions, from their providers tags, and which of them a
-// provider's command needs one of, from its profile (see
+// tools' descriptions, from their profiles' flags (see scopeTakers), and
+// which of them a provider's command needs one of (see
 // harvest.Scope.Needs).
 func scopeHelp(compiled Providers) string {
 	scope := reflect.TypeFor[Scope]()
@@ -948,11 +950,11 @@ func scopeHelp(compiled Providers) string {
 		required := profile.Scope.Needs
 		for i := range scope.NumField() {
 			field := scope.Field(i)
-			if !slices.Contains(scopeProviders(field), provider) {
+			if !slices.Contains(compiled.scopeTakers(field), provider) {
 				continue
 			}
 			fields = append(fields, jsonName(field))
-			if flag, _, _ := strings.Cut(field.Tag.Get("flag"), ","); slices.Contains(required, flag) {
+			if slices.Contains(required, flagName(field)) {
 				needed = append(needed, jsonName(field))
 			}
 		}
@@ -964,15 +966,27 @@ func scopeHelp(compiled Providers) string {
 	return "Where to list depends on the provider: " + strings.Join(takes, "; ") + "." + strings.Join(needs, "")
 }
 
-// scopeProviders returns the providers that field, one of Scope's, is
-// for, as its providers tag names them, or none for a field every
-// provider takes.
-func scopeProviders(field reflect.StructField) []string {
-	tag, ok := field.Tag.Lookup("providers")
-	if !ok {
+// scopeTakers returns the providers that field, one of Scope's or of a
+// tool's input, is for: for a field with a scope tag, those whose
+// profiles declare its flag (see harvest.Scope.Flags), by command, maybe
+// none; for any other, nil, as every provider takes it.
+func (p Providers) scopeTakers(field reflect.StructField) []string {
+	if _, ok := field.Tag.Lookup("scope"); !ok {
 		return nil
 	}
-	return strings.Split(tag, ",")
+	takers := []string{}
+	for _, profile := range p.Profiles {
+		if slices.Contains(profile.Scope.Flags, flagName(field)) {
+			takers = append(takers, profile.Command)
+		}
+	}
+	return takers
+}
+
+// flagName returns the name of the flag field sets, from its flag tag.
+func flagName(field reflect.StructField) string {
+	name, _, _ := strings.Cut(field.Tag.Get("flag"), ",")
+	return name
 }
 
 // jsonName returns the name an agent sends field by.
@@ -982,31 +996,53 @@ func jsonName(field reflect.StructField) string {
 }
 
 // scopeSchema returns the input schema of a tool whose input In embeds
-// Scope, as the SDK would infer it, with the provider commands compiled
-// in after the provider's description: the provider command: aws, azure
-// or google. It panics where the schema can't be inferred, as the SDK
-// does.
-func scopeSchema[In any](names []string) *jsonschema.Schema {
+// Scope, as the SDK would infer it, for the providers compiled: with
+// their commands after the provider's description, the provider command:
+// aws, azure or google; and with each field of Scope that is for some
+// providers alone (see scopeTakers) only if one of them is compiled, its
+// description naming those that are where it has {providers}. It panics
+// where the schema can't be inferred, as the SDK does.
+func scopeSchema[In any](compiled Providers) *jsonschema.Schema {
 	schema, err := jsonschema.For[In](&jsonschema.ForOptions{})
 	if err != nil {
 		panic(fmt.Sprintf("mcpserver: the input schema of %T: %v", *new(In), err))
 	}
 	provider := schema.Properties["provider"]
-	provider.Description += ": " + sentence.List(names, "or")
+	provider.Description += ": " + sentence.List(compiled.names(), "or")
+	scope := reflect.TypeFor[Scope]()
+	for i := range scope.NumField() {
+		field := scope.Field(i)
+		takers := compiled.scopeTakers(field)
+		if takers == nil {
+			continue
+		}
+		name := jsonName(field)
+		if len(takers) == 0 {
+			delete(schema.Properties, name)
+			schema.PropertyOrder = slices.DeleteFunc(schema.PropertyOrder, func(p string) bool { return p == name })
+			continue
+		}
+		property := schema.Properties[name]
+		property.Description = strings.ReplaceAll(property.Description, "{providers}", sentence.List(takers, "and"))
+	}
 	return schema
 }
 
 // checkScopeProviders rejects each field of s that is set and is for
-// other providers than s's, rather than leave it to a flag the command
-// may have with another meaning: aws has --organization too, which lists
-// the whole organisation.
-func checkScopeProviders(s Scope) error {
+// other providers of compiled than s's (see scopeTakers), rather than
+// leave it to a flag the command may have with another meaning: aws has
+// --organization too, which lists the whole organisation.
+func (p Providers) checkScopeProviders(s Scope) error {
 	v := reflect.ValueOf(s)
 	var errs []error
 	for i := range v.NumField() {
 		field, value := v.Type().Field(i), v.Field(i)
-		takers := scopeProviders(field)
-		if len(takers) == 0 || !isSet(value) || slices.Contains(takers, s.Provider) {
+		takers := p.scopeTakers(field)
+		if takers == nil || !isSet(value) || slices.Contains(takers, s.Provider) {
+			continue
+		}
+		if len(takers) == 0 {
+			errs = append(errs, fmt.Errorf("%s doesn't take %s, which no provider of this infraharvest takes", s.Provider, jsonName(field)))
 			continue
 		}
 		errs = append(errs, fmt.Errorf("%s doesn't take %s, which is for %s only", s.Provider, jsonName(field), strings.Join(takers, " and ")))
@@ -1040,7 +1076,7 @@ func (p Providers) commandArgs(command string, scope Scope, in any) ([]string, e
 	if err := checkScopeNames(scope); err != nil {
 		return nil, err
 	}
-	if err := checkScopeProviders(scope); err != nil {
+	if err := p.checkScopeProviders(scope); err != nil {
 		return nil, err
 	}
 	flags, err := flagArgs(in)
