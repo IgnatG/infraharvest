@@ -496,6 +496,7 @@ func driftChecks(ctx context.Context, stf DriftTerraform, staging string, origin
 		checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
 		sensitive: append(sensitiveValues(p), sensitive...),
 		baseline:  Gate{standards, moves},
+		diff:      true,
 		edited:    names,
 		before:    original,
 		after:     edited,

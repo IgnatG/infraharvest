@@ -44,7 +44,7 @@ type Check struct {
 	// Changes are the changes a plan check found, for CheckPlan.
 	Changes []PlannedChange
 	// files are the edited files a failure is blamed on, where the gate
-	// blames edited files (see gatePolicy.edited).
+	// blames edited files (see gatePolicy.diff).
 	files []string
 }
 
@@ -129,7 +129,7 @@ func countImportBlocks(dir string) (int, error) {
 // withheld); a stack's merged root is planned as each environment, and
 // its scanners run once, if none of them finds a secret (see others);
 // and drift judges its edits by what they add to the findings the root
-// had, blaming the files they are in (see baseline and edited).
+// had, blaming the files they are in (see baseline and diff).
 type gatePolicy struct {
 	// checks are the names of the checks that run; none runs them all.
 	checks []string
@@ -152,14 +152,16 @@ type gatePolicy struct {
 	// baseline, for diff mode, has checks of the directory before it was
 	// edited: a check it has fails only on the findings it adds to them.
 	baseline Gate
-	// edited, if set, are the files edits changed, by name, which before
-	// and after hold as they were and are: the gate blames its failures
-	// on them. The format check fails only on these files, as the others
-	// are as they were; the secrets check scans only these, failing on a
-	// finding an edit adds, without saying where the secret is; a check
-	// that fails names the files it blames (see Check.files), none where
-	// it can't tell; and the gate stops at the first that fails, as the
-	// edits it blames are left out and the rest checked again.
+	// diff has the gate judge edits: edited are the files they changed,
+	// by name, which before and after hold as they were and are, and the
+	// gate blames its failures on them. The format check fails only on
+	// these files, as the others are as they were; the secrets check scans
+	// only these, failing on a finding an edit adds, without saying where
+	// the secret is; a check that fails names the files it blames (see
+	// Check.files), none where it can't tell; and the gate stops at the
+	// first that fails, as the edits it blames are left out and the rest
+	// checked again.
+	diff          bool
 	edited        []string
 	before, after map[string][]byte
 	// omit and own are the output standard's (see checkStandards), and
@@ -214,7 +216,7 @@ func (p gatePolicy) runChecks(ctx context.Context, tf Terraform, dir string) (Ga
 	// add adds c to the gate, and reports whether the gate stops there.
 	add := func(c Check) bool {
 		gate = append(gate, c)
-		return p.edited != nil && !c.Passed
+		return p.diff && !c.Passed
 	}
 	if p.runs(CheckFormat) {
 		c, err := p.format(ctx, tf)
@@ -326,7 +328,7 @@ func (p gatePolicy) format(ctx context.Context, tf Terraform) (Check, error) {
 	if err != nil {
 		return Check{}, fmt.Errorf("terraform fmt: %w", err)
 	}
-	if p.edited == nil {
+	if !p.diff {
 		return Check{Name: CheckFormat, Passed: formatted, Details: files}, nil
 	}
 	c := Check{Name: CheckFormat, Passed: true}
@@ -392,7 +394,7 @@ func (p gatePolicy) judged(name, dir string) (Check, error) {
 // files of dir, or, where the gate blames edited files, on what an edit
 // adds to each.
 func (p gatePolicy) secrets(dir string, sensitive []string) (Check, error) {
-	if p.edited == nil {
+	if !p.diff {
 		return scanSecrets(dir, sensitive)
 	}
 	values := newValueMatcher(sensitive)
