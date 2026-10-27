@@ -46,6 +46,22 @@ An import goes through a few modules, each owning one decision. Change a decisio
 - **Generate and add.** `engine.Generate` and `engine.Add` run one pipeline; a `policy` (`internal/engine/engine.go`) is what tells them apart, such as the names an add leaves alone and whether it makes local modules. When an edit makes the pipeline plan `generated.tf` again, the log says which (`replanReason`).
 - **The merged root's layout.** Where a root that environments share keeps what differs between them (`vars/common.tfvars`, and `terraform.tfvars`, `imports.tfvars` and `backend.hcl` under `vars/<env>/`, the `deploy_<feature>` flags, the workspaces' state) is decided in `internal/engine/mergedlayout.go` alone: whatever writes, plans or reads such a root back takes its paths from there.
 
+### Dependency directions
+
+Imports run one way across the modules' seams, and CI fails a change that turns one round. golangci-lint's `depguard` holds most of them, each rule in `.golangci.json` with the reason a finding prints; `go test ./pkg/cfn` holds the last:
+
+| Package | Doesn't import | Why |
+|---|---|---|
+| `internal/engine` | `internal/providers/*`, `harvest`, `importer`, `cli`, `mcpserver` | It runs Terraform on import blocks for any provider; the importer drives it. |
+| `internal/harvest` | `report`, `engine`, `importer`, `internal/providers/*`, `cli`, `mcpserver` | It is the API listers implement: it lists and never runs Terraform. |
+| `internal/providers/*` | `cli`, `mcpserver`, each other, and `importer` outside tests | Listers implement `harvest`; `internal/cli/providers` registers them, and each builds alone (`-tags minimal,aws`). |
+| `internal/mcpserver` | `internal/providers/*` | It reads the providers compiled in through `internal/cli/providers`. |
+| `internal/config` | `internal/providers/*`, `cli`, `mcpserver` | `config.Load` takes the providers' profiles from its caller. |
+| `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
+| `pkg/cfn` | anything of infraharvest's but `internal/cfnhcl`, which imports nothing of infraharvest's | The two can move to a module of their own (`TestNoInternalImports`). |
+
+Some of these would be an import cycle today as well, such as the engine importing `harvest` (`harvest` imports `catalogue`, which imports the engine), so the compiler stops them first; the rule keeps the direction if that chain goes. `depguard` reads the files the default build compiles, test files included; a tagged file outside it isn't checked. To add a rule, add a list under `linters.settings.depguard.rules` with a `desc` for each package it denies, then import a denied package somewhere it applies, check that `golangci-lint run --enable-only depguard ./...` reports it, and take the import out.
+
 ## Licence headers
 
 infraharvest is licensed under AGPL-3.0-only ([LICENSE](https://github.com/IgnatG/infraharvest/blob/main/LICENSE)).
@@ -163,7 +179,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 ## Formatting and lint
 
 - `gofmt -s`, and imports in three groups: the standard library, third-party modules, then this module's packages (`internal/engine/engine.go`). The pre-commit hook checks the grouping with `goimports -local github.com/IgnatG/infraharvest`. CI doesn't check the third group yet: `.golangci.json` gives the `goimports` formatter no `local-prefixes`.
-- golangci-lint runs with `.golangci.json` (`gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
+- golangci-lint runs with `.golangci.json` (`depguard`, which holds the [dependency directions](#dependency-directions), `gocritic`, `revive`, `unconvert`, `unparam`, and the `gofmt` and `goimports` formatters) on the whole repository for every pull request, in MegaLinter. Any finding fails the check, wherever it is, not only on changed lines.
 - [MegaLinter](https://megalinter.io) runs every linter CI runs, in the `megalinter` workflow, and reports in one comment on the pull request and in the run's summary. `.mega-linter.yml` lists the linters and says why the others are off: golangci-lint, actionlint and zizmor (workflows), shellcheck, markdownlint, lychee (links), hadolint, editorconfig-checker, yamllint, v8r (schemas), jsonlint, checkov, osv-scanner, betterleaks and trufflehog. `make ci-lint` runs it on a branch; `npx mega-linter-runner --flavor go -e GOTOOLCHAIN=auto` runs it locally, with Docker.
 - Fix findings rather than silencing them. New code has no `//nolint`; the few there are mark legacy types due to be rewritten.
 
