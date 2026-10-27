@@ -499,6 +499,11 @@ type Skipped struct {
 	Reason string `json:"reason"`
 }
 
+// TerraformPrefix starts the reason of an exclusion for a resource
+// Terraform already manages, by a state --managed-state reads or by its
+// tags, such as "already managed by Terraform (prod.tfstate)".
+const TerraformPrefix = "already managed by Terraform"
+
 // OtherToolPrefix starts the reason of an exclusion for a resource another
 // infrastructure-as-code tool manages, such as "managed by CloudFormation
 // stack app".

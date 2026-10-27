@@ -31,7 +31,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -576,7 +575,7 @@ func checkManagedState(ctx context.Context, t *testing.T, created []*tfjson.Stat
 			continue
 		}
 		found++
-		if r.Include || !strings.HasPrefix(r.Reason, managed.Reason) {
+		if r.Include || !strings.HasPrefix(r.Reason, report.TerraformPrefix) {
 			t.Errorf("%s %s is in the state but not excluded as managed: include=%v %q", r.Type, r.ID, r.Include, r.Reason)
 		}
 	}

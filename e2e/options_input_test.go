@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -146,8 +145,8 @@ func TestAWSOptionsReport(t *testing.T) {
 		t.Errorf("--catalogue: the legacy topic is left out with %q, want the overlay's %q; excluded %+v", reason, optionsSkipReason, r.Excluded)
 	}
 	owned := e.id(t, "aws_sqs_queue", "owned")
-	if reason := reasons["aws_sqs_queue "+owned]; !strings.HasPrefix(reason, managed.Reason) {
-		t.Errorf("the queue tagged ManagedBy=Terraform is left out with %q, want %q; excluded %+v", reason, managed.Reason, r.Excluded)
+	if reason := reasons["aws_sqs_queue "+owned]; !strings.HasPrefix(reason, report.TerraformPrefix) {
+		t.Errorf("the queue tagged ManagedBy=Terraform is left out with %q, want %q; excluded %+v", reason, report.TerraformPrefix, r.Excluded)
 	}
 	orders, jobs := e.id(t, "aws_sqs_queue", "orders"), e.id(t, "aws_sqs_queue", "jobs")
 	want := map[string][]string{

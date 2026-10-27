@@ -19,7 +19,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -336,7 +335,7 @@ func TestExcludeManaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := defaults["aws_s3_bucket old-archive"]; got != managed.Reason+" ("+path+")" {
+	if got := defaults["aws_s3_bucket old-archive"]; got != report.TerraformPrefix+" ("+path+")" {
 		t.Errorf("managed bucket: %q", got)
 	}
 	if len(defaults) != 2 {
@@ -425,7 +424,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := map[string]string{"aws_vpc vpc-default": managed.Reason + " (" + other + ")"}; !reflect.DeepEqual(defaults, want) {
+	if want := map[string]string{"aws_vpc vpc-default": report.TerraformPrefix + " (" + other + ")"}; !reflect.DeepEqual(defaults, want) {
 		t.Errorf("defaults: %v, want %v", defaults, want)
 	}
 	got, err := run.shared.previousAddressesOf(out, dir)
@@ -694,7 +693,7 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 	run.listed = append(run.listed, []selection.Resource{
 		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
 		{Type: "aws_s3_bucket", ID: "logs", Scope: scope, Include: true, Tags: map[string]string{"team": "web"}},
-		{Type: "aws_s3_bucket", ID: "state", Scope: scope, Reason: managed.Reason + " (prod.tfstate)"},
+		{Type: "aws_s3_bucket", ID: "state", Scope: scope, Reason: report.TerraformPrefix + " (prod.tfstate)"},
 		{Type: "aws_s3_bucket", ID: "assets", Scope: scope, Reason: stack},
 		{Type: "aws_vpc", ID: "vpc-default", Scope: scope, Reason: "default VPC"},
 	}...)
@@ -723,7 +722,7 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 func TestDiscoverRefreshesManaged(t *testing.T) {
 	for _, partial := range []bool{false, true} {
 		path := filepath.Join(t.TempDir(), "selection.yaml")
-		reason := managed.Reason + " (prod.tfstate)"
+		reason := report.TerraformPrefix + " (prod.tfstate)"
 		first := NewRun()
 		first.options = Options{Discover: true, Selection: path, ManagedState: []string{"prod.tfstate"}}
 		first.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Service: "s3", Reason: reason}}

@@ -26,10 +26,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 )
 
-// Reason starts the reason an import gives for leaving out a resource
-// Terraform already manages.
-const Reason = "already managed by Terraform"
-
 // ObjectStore reads state from a bucket.
 type ObjectStore interface {
 	// List returns the keys under prefix.

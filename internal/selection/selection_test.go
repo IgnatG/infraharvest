@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func write(t *testing.T, content string) string {
@@ -279,7 +279,7 @@ func TestMergeExcludesManaged(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "assets", Include: true, Note: "moving it to this root"},
 		{Type: "aws_s3_bucket", ID: "old", Include: false, Reason: "excluded in the selection file"},
 	}}
-	reason := managed.Reason + " (prod.tfstate)"
+	reason := report.TerraformPrefix + " (prod.tfstate)"
 
 	f.Merge([]Resource{
 		{Type: "aws_s3_bucket", ID: "logs", Reason: reason},
@@ -427,7 +427,7 @@ func TestMergeRulesKeepOwnedOut(t *testing.T) {
 	prod := map[string]string{"Environment": "prod"}
 	stack := "managed by CloudFormation stack app"
 	pulumi := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
-	terraform := managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
+	terraform := report.TerraformPrefix + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
 	listed := []Resource{
 		{Type: "aws_s3_bucket", ID: "stack-bucket", Tags: prod, Reason: stack},
 		{Type: "aws_sqs_queue", ID: "pulumi-queue", Tags: prod, Reason: pulumi},
@@ -487,7 +487,7 @@ func TestMergeRulesKeepOwnedOut(t *testing.T) {
 func TestOwned(t *testing.T) {
 	t.Parallel()
 	for reason, want := range map[string]bool{
-		managed.Reason + " (prod.tfstate)":                                 true,
+		report.TerraformPrefix + " (prod.tfstate)":                         true,
 		"managed by CloudFormation stack app":                              true,
 		"default VPC, which AWS creates in every region":                   false,
 		"shared by account 111122223333 through AWS RAM, which manages it": false,
@@ -503,9 +503,9 @@ func TestOwned(t *testing.T) {
 // manages each resource now, and leaves people's decisions as they are.
 func TestMergeRefreshesReasons(t *testing.T) {
 	t.Parallel()
-	prod := managed.Reason + " (prod.tfstate)"
-	dev := managed.Reason + " (dev.tfstate)"
-	tag := managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
+	prod := report.TerraformPrefix + " (prod.tfstate)"
+	dev := report.TerraformPrefix + " (dev.tfstate)"
+	tag := report.TerraformPrefix + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)"
 	stack := "managed by CloudFormation stack app"
 	pulumi := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
 	f := &File{
@@ -569,7 +569,7 @@ func TestMergeRefreshesReasons(t *testing.T) {
 // --managed-state, or after tags that failed to read, stays as it is.
 func TestMergeKeepsReasonsItDidNotWorkOut(t *testing.T) {
 	t.Parallel()
-	state := managed.Reason + " (prod.tfstate)"
+	state := report.TerraformPrefix + " (prod.tfstate)"
 	tag := "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)"
 	for _, refresh := range []Refresh{{}, {Defaults: true}} {
 		f := &File{Version: Version, Defaults: Defaults{Include: true}, Refresh: refresh, Resources: []Resource{

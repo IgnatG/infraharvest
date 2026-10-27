@@ -8,17 +8,15 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 func TestOwnerOf(t *testing.T) {
 	t.Parallel()
 	for reason, want := range map[string]string{
-		"":                                 "",
-		managed.Reason + " (prod.tfstate)": OwnerTerraformState,
-		managed.Reason + " (backend)":      OwnerTerraformState,
-		managed.Reason + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)": OwnerTerraformTag,
+		"":                                  "",
+		TerraformPrefix + " (prod.tfstate)": OwnerTerraformState,
+		TerraformPrefix + " (backend)":      OwnerTerraformState,
+		TerraformPrefix + " (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)": OwnerTerraformTag,
 		"managed by CloudFormation stack app": OwnerCloudFormation,
 		"managed by CloudFormation stack app (per its tag aws:cloudformation:stack-name; --include-owned imports it)": OwnerCloudFormation,
 		"managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)":                                OwnerOtherTool,
@@ -39,8 +37,8 @@ func TestDiscovery(t *testing.T) {
 	const prod, dev = "aws/1/eu-west-2", "aws/2/eu-west-2"
 	d := NewDiscovery("audit.yaml", []string{"team", "team"})
 	d.Add(prod, "aws_s3_bucket", "", map[string]string{"team": "web"})
-	d.Add(prod, "aws_s3_bucket", managed.Reason+" (prod.tfstate)", map[string]string{"team": "web"})
-	d.Add(prod, "aws_s3_bucket", managed.Reason+" (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)", nil)
+	d.Add(prod, "aws_s3_bucket", TerraformPrefix+" (prod.tfstate)", map[string]string{"team": "web"})
+	d.Add(prod, "aws_s3_bucket", TerraformPrefix+" (Terraform elsewhere, per its tag ManagedBy=terraform; --include-owned imports it)", nil)
 	d.Add(prod, "aws_s3_bucket", "managed by CloudFormation stack app", nil)
 	d.Add(dev, "aws_s3_bucket", "managed by Pulumi (per its tag ManagedBy=pulumi; --include-owned imports it)", nil)
 	d.Add(dev, "aws_vpc", "default VPC", map[string]string{"team": "net"})
