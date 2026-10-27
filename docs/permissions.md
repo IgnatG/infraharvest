@@ -98,11 +98,13 @@ or grant them to a service account (`member=serviceAccount:<email>`) that those 
 
 `infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and the Google Cloud member is denied `storage.objects.get`. The drift templates grant it on the state alone, with the read-only access above. Drift never takes the state's lock, so none of them grants write access for it. Applying the saved refresh plan to drift's private copy configures the provider again: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission, and with Azure and Google Cloud signs in again, so the credentials must still be valid after the refresh (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).
 
+The state holds secrets, so for GitHub Actions trust only the branch, tag or environment drift runs on, never a pull request's workflow: it runs the code the pull request proposes, which could then read the state. `permissions/aws-drift` refuses `pull_request` subjects, and `repo:<owner>/<repository>:*`, which they match. With Azure, give the federated credential such a subject, and with Google Cloud, pass the subject's own principal as the member, `principal://iam.googleapis.com/projects/<project-number>/locations/global/workloadIdentityPools/<pool>/subject/<subject>` (with `google.subject = assertion.sub`), rather than the repository's principal set.
+
 ### AWS: `permissions/aws-drift`
 
 Creates the `infraharvest-drift` role, for the S3 backend:
 
-- **Trust** and **`ReadOnlyAccess`:** as the read-only role, with the same `trusted_principal_arns`, `github_oidc_subjects` and `create_github_oidc_provider` (see [GitHub Actions](#github-actions)).
+- **Trust** and **`ReadOnlyAccess`:** as the read-only role, with the same `trusted_principal_arns`, `github_oidc_subjects` and `create_github_oidc_provider` (see [GitHub Actions](#github-actions)), but `github_oidc_subjects` refuses `pull_request` and `repo:<owner>/<repository>:*` (see above).
 - **`read-state`:** `s3:ListBucket` on the state's bucket and `s3:GetObject` on the roots' state keys, `<key_prefix>/<root path>/terraform.tfstate`, and `kms:Decrypt` on the state's key when the backend sets `kms_key_id`.
 - **`deny-data-reads`:** the read-only role's [`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json), read from `permissions/aws`, with the object reads (and `kms:Decrypt`, with a state key) denied everywhere but the state instead.
 

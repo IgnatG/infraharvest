@@ -10,7 +10,7 @@ variable "trusted_principal_arns" {
 }
 
 variable "github_oidc_subjects" {
-  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as their token's sub claim: a branch, tag, environment or pull_request of one repository, e.g. [\"repo:acme/infra:ref:refs/heads/main\", \"repo:acme/infra:environment:production\"]. A repository with immutable subject claims names its owner and itself with their IDs, e.g. \"repo:acme@123456/infra@456789:ref:refs/heads/main\". repo:<owner>/<repository>:* trusts every workflow of that one repository, on any branch."
+  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as their token's sub claim: a branch, tag or environment of one repository, e.g. [\"repo:acme/infra:ref:refs/heads/main\", \"repo:acme/infra:environment:production\"]. A repository with immutable subject claims names its owner and itself with their IDs, e.g. \"repo:acme@123456/infra@456789:ref:refs/heads/main\". The role reads the state, which holds secrets, so pull_request and repo:<owner>/<repository>:*, which a pull request's workflow matches, are refused."
   type        = list(string)
   default     = []
 
@@ -20,7 +20,15 @@ variable "github_oidc_subjects" {
   # or environment name more refs than meant.
   validation {
     condition     = alltrue([for subject in var.github_oidc_subjects : can(regex("^repo:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+):(ref:refs/(heads|tags)/[^*?]+|environment:[^*?]+|pull_request|\\*)$", subject))])
-    error_message = "Give each subject as repo:<owner>/<repository>: (or, with immutable subject claims, repo:<owner>@<owner ID>/<repository>@<repository ID>:) and then ref:refs/heads/<branch>, ref:refs/tags/<tag>, environment:<name> or pull_request, without * or ?; or as repo:<owner>/<repository>:* for every workflow of the repository."
+    error_message = "Give each subject as repo:<owner>/<repository>: (or, with immutable subject claims, repo:<owner>@<owner ID>/<repository>@<repository ID>:) and then ref:refs/heads/<branch>, ref:refs/tags/<tag> or environment:<name>, without * or ?."
+  }
+
+  # A pull request's workflow runs the code it proposes, which anyone who
+  # can open one writes: trusting it, or every workflow of the repository,
+  # would let that code read the state and its secrets.
+  validation {
+    condition     = alltrue([for subject in var.github_oidc_subjects : !endswith(subject, ":pull_request") && !endswith(subject, ":*")])
+    error_message = "The drift role reads the state, which holds secrets: trust the branch, tag or environment drift runs on (repo:<owner>/<repository>:ref:refs/heads/main, or :environment:<name>), not pull_request or repo:<owner>/<repository>:*, which pull requests' workflows match."
   }
 }
 
