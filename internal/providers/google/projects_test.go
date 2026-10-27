@@ -80,12 +80,13 @@ func TestProjectsUnder(t *testing.T) {
 }
 
 // A folder whose projects can't be listed fails the discovery, naming the
-// folder, rather than leaving its projects out.
+// folder, rather than leaving its projects out. Every folder of the level
+// is still listed, and each that fails is named.
 func TestProjectsUnderFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch parent := r.URL.Query().Get("parent"); {
-		case parent == "folders/2":
+		case parent == "folders/1", parent == "folders/2":
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"error": {"code": 403, "message": "denied"}}`))
 		case r.URL.Path == "/v3/folders" && parent == "organizations/9":
@@ -99,7 +100,7 @@ func TestProjectsUnderFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := projectsUnder(t.Context(), svc, "9", nil); err == nil || !strings.Contains(err.Error(), "folders/2") {
-		t.Errorf("error %v, want one naming folders/2", err)
+	if _, err := projectsUnder(t.Context(), svc, "9", nil); err == nil || !strings.Contains(err.Error(), "folders/1") || !strings.Contains(err.Error(), "folders/2") {
+		t.Errorf("error %v, want one naming folders/1 and folders/2", err)
 	}
 }

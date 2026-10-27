@@ -157,7 +157,7 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
 			Telemetry: policy.TelemetryOptions{ApplicationID: telemetryApplicationID},
-			Transport: subscriptionLimiter(cfg.subscriptionID).Client(resourceManagerHTTPClient()),
+			Transport: limitedClient(cfg.subscriptionID, resourceManagerHTTPClient()),
 		},
 		AuxiliaryTenants: cfg.auxiliaryTenants,
 		// The SDK otherwise answers a MissingSubscriptionRegistration
@@ -218,7 +218,7 @@ func signInKey(cfg authConfig) string {
 
 // limiters holds each subscription's *ratelimit.Limiter, by subscription
 // ID: Azure throttles Resource Manager reads per subscription, so every
-// service and request of a subscription shares one limit.
+// service and Resource Manager request of a subscription shares one limit.
 var limiters sync.Map
 
 // subscriptionLimiter returns the subscription's limiter, made with
@@ -229,6 +229,40 @@ func subscriptionLimiter(subscriptionID string) *ratelimit.Limiter {
 	}
 	l, _ := limiters.LoadOrStore(subscriptionID, ratelimit.Like(ratelimit.Default()))
 	return l.(*ratelimit.Limiter)
+}
+
+// graphLimiter is the limiter of every Resource Graph query, made with
+// Default's rate the first time it is asked for. Azure throttles Resource
+// Graph per user, not per subscription, so the queries of every
+// subscription of a run share one limit.
+var graphLimiter = sync.OnceValue(func() *ratelimit.Limiter {
+	return ratelimit.Like(ratelimit.Default())
+})
+
+// graphPathPrefix is how the path of every Resource Graph request begins,
+// in lower case.
+const graphPathPrefix = "/providers/microsoft.resourcegraph/"
+
+// limitedClient sends each request through base once its limit allows: a
+// Resource Graph query graphLimiter's, any other request the
+// subscription's (see subscriptionLimiter).
+func limitedClient(subscriptionID string, base ratelimit.Doer) ratelimit.Doer {
+	return &limitedDoer{
+		resourceManager: subscriptionLimiter(subscriptionID).Client(base),
+		graph:           graphLimiter().Client(base),
+	}
+}
+
+// limitedDoer is limitedClient's Doer.
+type limitedDoer struct {
+	resourceManager, graph ratelimit.Doer
+}
+
+func (d *limitedDoer) Do(req *http.Request) (*http.Response, error) {
+	if strings.HasPrefix(strings.ToLower(req.URL.Path), graphPathPrefix) {
+		return d.graph.Do(req)
+	}
+	return d.resourceManager.Do(req)
 }
 
 // resourceManagerHTTPClient is the HTTP client Resource Manager requests

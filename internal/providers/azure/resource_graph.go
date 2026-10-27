@@ -206,37 +206,61 @@ func resourceGroupsQuery(predicate string) string {
 // the ID and, as properties, the tags and what manages the group. A row
 // whose ID doesn't parse is logged and left out.
 func graphResourceGroups(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, subscriptionID, predicate string) ([]azlist.AzureResource, error) {
+	rows, err := graphQuery(ctx, credential, options, armresourcegraph.QueryRequest{
+		Query:         to.Ptr(resourceGroupsQuery(predicate)),
+		Subscriptions: []*string{to.Ptr(subscriptionID)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resource groups from Resource Graph: %w", err)
+	}
+	var groups []azlist.AzureResource
+	for _, properties := range rows {
+		id, _ := properties["id"].(string)
+		if id == "" {
+			continue
+		}
+		rid, err := armid.ParseResourceId(id)
+		if err != nil {
+			log.Printf("azurerm: resource_graph: resource group %s: %v", id, err)
+			continue
+		}
+		groups = append(groups, azlist.AzureResource{Id: rid, Properties: properties})
+	}
+	return groups, nil
+}
+
+// graphPageSize is how many rows a Resource Graph page has: the most it
+// allows, where it would otherwise send 100, so that a query takes as few
+// requests as it can.
+const graphPageSize = 1000
+
+// graphQuery returns the rows of every page of request's query, as
+// objects, graphPageSize to a page. Resource Graph sends a page's skip
+// token only when the query projects id. A row that isn't an object is
+// left out.
+func graphQuery(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, request armresourcegraph.QueryRequest) ([]map[string]interface{}, error) {
 	client, err := armresourcegraph.NewClient(credential, options)
 	if err != nil {
 		return nil, err
 	}
-	request := armresourcegraph.QueryRequest{
-		Query:         to.Ptr(resourceGroupsQuery(predicate)),
-		Subscriptions: []*string{to.Ptr(subscriptionID)},
-		Options:       &armresourcegraph.QueryRequestOptions{ResultFormat: to.Ptr(armresourcegraph.ResultFormatObjectArray)},
+	request.Options = &armresourcegraph.QueryRequestOptions{
+		ResultFormat: to.Ptr(armresourcegraph.ResultFormatObjectArray),
+		Top:          to.Ptr[int32](graphPageSize),
 	}
-	var groups []azlist.AzureResource
+	var rows []map[string]interface{}
 	for {
 		resp, err := client.Resources(ctx, request, nil)
 		if err != nil {
-			return nil, fmt.Errorf("resource groups from Resource Graph: %w", err)
+			return nil, err
 		}
-		rows, _ := resp.Data.([]interface{})
-		for _, row := range rows {
-			properties, _ := row.(map[string]interface{})
-			id, _ := properties["id"].(string)
-			if id == "" {
-				continue
+		data, _ := resp.Data.([]interface{})
+		for _, item := range data {
+			if row, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, row)
 			}
-			rid, err := armid.ParseResourceId(id)
-			if err != nil {
-				log.Printf("azurerm: resource_graph: resource group %s: %v", id, err)
-				continue
-			}
-			groups = append(groups, azlist.AzureResource{Id: rid, Properties: properties})
 		}
 		if resp.SkipToken == nil || *resp.SkipToken == "" {
-			return groups, nil
+			return rows, nil
 		}
 		request.Options.SkipToken = resp.SkipToken
 	}
