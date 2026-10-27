@@ -6,9 +6,11 @@ package cli
 import (
 	"bytes"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -17,10 +19,19 @@ import (
 // flag, as the race detector checks, and each prints to its own output.
 func TestRootsBuiltConcurrently(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
-	checks := [][]string{
+	// A build with -tags minimal checks only the providers it includes.
+	var checks [][]string
+	for _, check := range [][]string{
 		{"import", "aws", "--services=vpc", "--all", "--out=" + out},
 		{"discover", "azure", "--services=resource_graph", "--subscriptions=one", "--out=" + out},
 		{"import", "google", "--services=iam", "--all", "--projects=one", "--out=" + out},
+	} {
+		if slices.Contains(providers.Names(), check[1]) {
+			checks = append(checks, check)
+		}
+	}
+	if len(checks) == 0 {
+		t.Skip("no provider is built in")
 	}
 	var wg sync.WaitGroup
 	for i := range 9 {
