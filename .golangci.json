@@ -173,6 +173,29 @@
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal/providers/",
                 "desc": "the MCP server reads the providers compiled in through internal/cli/providers, never a lister directly"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the MCP server runs the infraharvest binary for imports and drift; it reads drift's rules and decisions through internal/driftpolicy"
+              }
+            ]
+          },
+          "driftpolicy": {
+            "files": [
+              "**/internal/driftpolicy/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/importer",
+                "desc": "the importer applies what driftpolicy decides, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/cli",
+                "desc": "the commands use driftpolicy, not the other way round"
+              },
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/mcpserver",
+                "desc": "driftpolicy knows nothing of the MCP server"
               }
             ]
           },

@@ -56,6 +56,10 @@ const (
 	ExitTerminated = 143
 )
 
+// DefaultOut is the output directory an import writes its roots and
+// report into, and the commands that read them back read, without --out.
+const DefaultOut = "infraharvest-out"
+
 // Dir is the directory of the output the report files go into.
 const Dir = "report"
 

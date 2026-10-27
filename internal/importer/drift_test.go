@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -286,82 +287,20 @@ func TestDriftOptionsChecked(t *testing.T) {
 	}
 }
 
-func TestParseDriftRule(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		s    string
-		want DriftRule
-	}{
-		{"all", DriftRule{Accept: true}},
-		{"attribute=tags.*", DriftRule{Accept: true, Field: "attribute", Pattern: "tags.*"}},
-		{"type=aws_security_group", DriftRule{Accept: true, Field: "type", Pattern: "aws_security_group"}},
-		{"address=aws_s3_bucket.*", DriftRule{Accept: true, Field: "address", Pattern: "aws_s3_bucket.*"}},
-		{"root=aws/*/eu-west-2", DriftRule{Accept: true, Field: "root", Pattern: "aws/*/eu-west-2"}},
-		{"attribute=tags.a=b", DriftRule{Accept: true, Field: "attribute", Pattern: "tags.a=b"}},
-	} {
-		s, want := tc.s, tc.want
-		got, err := ParseDriftRule(s, true)
-		if err != nil || got != want {
-			t.Errorf("%s: got %+v (%v), want %+v", s, got, err, want)
-		}
-		if got.String() != s {
-			t.Errorf("%s: written back as %s", s, got.String())
-		}
-	}
-	for _, s := range []string{"", "everything", "name=x", "attribute=", "=x"} {
-		if _, err := ParseDriftRule(s, false); err == nil || !strings.Contains(err.Error(), "--keep") {
-			t.Errorf("%q: got %v, want an error naming --keep", s, err)
-		}
-	}
-}
-
-func TestDriftRulesLastMatchWins(t *testing.T) {
-	t.Parallel()
-	tag := engine.DriftChange{Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "tags.Env"}
-	rule := engine.DriftChange{Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "ingress[0].cidr_blocks"}
-	bucket := engine.DriftChange{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "versioning[0].enabled"}
-	parse := func(accept bool, s string) DriftRule {
-		r, err := ParseDriftRule(s, accept)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return r
-	}
-	rules := []DriftRule{parse(true, "all"), parse(false, "type=aws_security_group"), parse(true, "attribute=tags.*")}
-	for _, tc := range []struct {
-		rules []DriftRule
-		root  string
-		c     engine.DriftChange
-		want  bool
-	}{
-		{nil, "aws/1/eu-west-2", tag, false},
-		{rules, "aws/1/eu-west-2", tag, true},
-		{rules, "aws/1/eu-west-2", rule, false},
-		{rules, "aws/1/eu-west-2", bucket, true},
-		{[]DriftRule{parse(true, "root=aws/*/eu-west-1")}, "aws/1/eu-west-2", bucket, false},
-		{[]DriftRule{parse(true, "root=aws/*/eu-west-1")}, "aws/1/eu-west-1", bucket, true},
-		{[]DriftRule{parse(true, "address=aws_s3_bucket.*"), parse(false, "all")}, "aws/1/eu-west-2", bucket, false},
-	} {
-		if got := (driftDecider{rules: tc.rules}).decide(tc.root, tc.c).accept; got != tc.want {
-			t.Errorf("%v in %s, %s %s: accepted %v, want %v", tc.rules, tc.root, tc.c.Address, tc.c.Attribute, got, tc.want)
-		}
-	}
-}
-
 func TestDriftAcceptsByRule(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name     string
 		accepted string // what accepting a change makes of it
-		rules    []DriftRule
+		rules    []driftpolicy.Rule
 		want     int
 	}{
 		{"none accepted", report.DriftWritten, nil, report.ExitDrift},
-		{"all written", report.DriftWritten, []DriftRule{{Accept: true}}, report.ExitOK},
-		{"rejected", report.DriftRejectedByPlan, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
-		{"rejected by a check", report.DriftRejectedByCheck, []DriftRule{{Accept: true}}, report.ExitDriftRejected},
-		{"a hand edit", report.DriftManual, []DriftRule{{Accept: true}}, report.ExitDrift},
-		{"in another root", report.DriftWritten, []DriftRule{{Accept: true, Field: "root", Pattern: "google/*"}}, report.ExitDrift},
+		{"all written", report.DriftWritten, []driftpolicy.Rule{{Accept: true}}, report.ExitOK},
+		{"rejected", report.DriftRejectedByPlan, []driftpolicy.Rule{{Accept: true}}, report.ExitDriftRejected},
+		{"rejected by a check", report.DriftRejectedByCheck, []driftpolicy.Rule{{Accept: true}}, report.ExitDriftRejected},
+		{"a hand edit", report.DriftManual, []driftpolicy.Rule{{Accept: true}}, report.ExitDrift},
+		{"in another root", report.DriftWritten, []driftpolicy.Rule{{Accept: true, Field: "root", Pattern: "google/*"}}, report.ExitDrift},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -391,39 +330,9 @@ func TestDriftAcceptsByRule(t *testing.T) {
 
 	out := driftOutput(t, "aws/1/eu-west-2")
 	options := driftOptions(out, &fakeDriftCheck{out: out})
-	options.Rules = []DriftRule{{Accept: true, Field: "name", Pattern: "x"}}
+	options.Rules = []driftpolicy.Rule{{Accept: true, Field: "name", Pattern: "x"}}
 	if err := Drift(context.Background(), options, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "--accept") {
 		t.Errorf("got %v, want the rule refused", err)
-	}
-}
-
-// A rule on a type or an address matches a change of shared tags if it
-// matches one of the resources the change covers, or, for an address,
-// where the tags are kept.
-func TestDriftRulesMatchSharedTags(t *testing.T) {
-	t.Parallel()
-	shared := engine.DriftChange{Address: "local.tags", Attribute: "tags.Env", Covers: []string{"aws_s3_bucket.logs", "module.queues.aws_sqs_queue.this[0]"}}
-	for _, tc := range []struct {
-		rule string
-		want bool
-	}{
-		{"attribute=tags.*", true},
-		{"attribute=labels.*", false},
-		{"type=aws_s3_bucket", true},
-		{"type=aws_sqs_queue", true},
-		{"type=aws_security_group", false},
-		{"address=local.tags", true},
-		{"address=aws_s3_bucket.*", true},
-		{"address=aws_instance.*", false},
-		{"root=aws/*", true},
-	} {
-		r, err := ParseDriftRule(tc.rule, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := (driftDecider{rules: []DriftRule{r}}).decide("aws/1/eu-west-2", shared).accept; got != tc.want {
-			t.Errorf("%s: accepted %v, want %v", tc.rule, got, tc.want)
-		}
 	}
 }
 
@@ -506,7 +415,7 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	if want := []string{"aws/us-east-1 (dev)", "aws/us-east-1 (prod)"}; !reflect.DeepEqual(envs, want) {
 		t.Errorf("changes of tags.Env: %v, want %v", envs, want)
 	}
-	f, err := LoadDriftDecisions(filepath.Join(out, DefaultDriftDecisionsFile))
+	f, err := driftpolicy.LoadDecisions(filepath.Join(out, driftpolicy.DefaultDecisionsFile))
 	if err != nil {
 		t.Fatal(err)
 	}

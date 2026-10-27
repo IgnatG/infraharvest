@@ -43,7 +43,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -367,7 +366,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	args = append(args, config.flag()...)
 	// discover saves what it lists under the output directory: the default
 	// one, but under the root rather than where the server runs.
-	out, err := t.within("out", importer.DefaultOut)
+	out, err := t.within("out", report.DefaultOut)
 	if err != nil {
 		return nil, nil, err
 	}

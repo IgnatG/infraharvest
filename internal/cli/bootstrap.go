@@ -8,6 +8,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func newBootstrapCmd() *cobra.Command {
@@ -27,7 +28,7 @@ func newBootstrapCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&configFile, "config", "", "configuration file with the backend (required)")
-	cmd.Flags().StringVarP(&out, "out", "o", importer.DefaultOut, "directory to write the bootstrap root under")
+	cmd.Flags().StringVarP(&out, "out", "o", report.DefaultOut, "directory to write the bootstrap root under")
 	_ = cmd.MarkFlagRequired("config")
 	return cmd
 }

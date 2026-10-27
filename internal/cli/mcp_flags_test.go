@@ -20,6 +20,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -80,7 +81,7 @@ func TestMCPToolFlagsExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisions := filepath.Join(dir, "drift.yaml")
-	if err := os.WriteFile(decisions, fmt.Appendf(nil, "version: %d\n", importer.DriftDecisionsVersion), 0o644); err != nil {
+	if err := os.WriteFile(decisions, fmt.Appendf(nil, "version: %d\n", driftpolicy.DecisionsVersion), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(dir, "catalogue"), 0o755); err != nil {

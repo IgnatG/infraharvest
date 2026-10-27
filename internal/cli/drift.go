@@ -14,7 +14,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // driftSettings are the settings of a configuration file drift takes, of
@@ -29,7 +31,7 @@ func newDriftCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "drift [output-directory]",
 		Short: "Find what changed in the cloud since the generated roots were applied",
-		Long: "Check every root an import generated (default directory: " + importer.DefaultOut + ")\n" +
+		Long: "Check every root an import generated (default directory: " + report.DefaultOut + ")\n" +
 			"for what changed in the cloud since it was applied. Each root is initialised\n" +
 			"with its backend and its state pulled; a private copy is then refreshed once,\n" +
 			"and planned again with the code, to tell the changes the next apply would\n" +
@@ -75,7 +77,7 @@ func newDriftCmd() *cobra.Command {
 				}
 				options.Modules = f.Modules
 			}
-			options.Out = importer.DefaultOut
+			options.Out = report.DefaultOut
 			if len(args) == 1 {
 				options.Out = args[0]
 			}
@@ -96,7 +98,7 @@ func newDriftCmd() *cobra.Command {
 	cmd.Flags().Var(&driftRules{rules: &options.Rules}, "keep", "keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable)")
 	cmd.Flags().Var(&driftRuleFiles{rules: &options.Rules}, "rules", "accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given)")
 	cmd.Flags().StringVar(&options.Decisions, "decisions", "", "decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it")
-	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+importer.DefaultDriftDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
+	cmd.Flags().Var(&writeDecisions{on: &options.WriteDecisions, path: &options.WriteDecisionsTo}, "write-decisions", "write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else "+driftpolicy.DefaultDecisionsFile+" in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped")
 	cmd.Flags().Lookup("write-decisions").NoOptDefVal = "true"
 	cmd.Flags().BoolVar(&options.DetailedExitCode, "detailed-exitcode", false, "exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none")
 	cmd.Flags().StringSliceVar(&options.Environments, "environment", nil, "for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it")
@@ -107,12 +109,12 @@ func newDriftCmd() *cobra.Command {
 // driftRules is the value of --accept or --keep: both add to one list, in
 // the order given, as the last rule that matches a change decides.
 type driftRules struct {
-	rules  *[]importer.DriftRule
+	rules  *[]driftpolicy.Rule
 	accept bool
 }
 
 func (r *driftRules) Set(s string) error {
-	rule, err := importer.ParseDriftRule(s, r.accept)
+	rule, err := driftpolicy.ParseRule(s, r.accept)
 	if err != nil {
 		return err
 	}
@@ -136,10 +138,10 @@ func (r *driftRules) String() string {
 func (r *driftRules) Type() string { return "rule" }
 
 // driftRuleFiles is the value of --rules: each file's rules, one a line
-// as importer.ParseDriftRuleLine takes it, join the list --accept and
+// as driftpolicy.ParseRuleLine takes it, join the list --accept and
 // --keep add to, in the order given.
 type driftRuleFiles struct {
-	rules *[]importer.DriftRule
+	rules *[]driftpolicy.Rule
 	files []string
 }
 
@@ -163,14 +165,14 @@ func (r *driftRuleFiles) Type() string { return "file" }
 
 // parseDriftRuleLines parses rules, one a line, in order: blank lines and
 // lines starting with # are skipped.
-func parseDriftRuleLines(content string) ([]importer.DriftRule, error) {
-	var rules []importer.DriftRule
+func parseDriftRuleLines(content string) ([]driftpolicy.Rule, error) {
+	var rules []driftpolicy.Rule
 	for i, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		rule, err := importer.ParseDriftRuleLine(line)
+		rule, err := driftpolicy.ParseRuleLine(line)
 		if err != nil {
 			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
