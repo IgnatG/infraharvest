@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -124,7 +125,7 @@ func TestListCallRegeneratesAMergedRoot(t *testing.T) {
 }
 
 // decideRoot decides once what a run does with each root, by its mode and
-// what earlier imports left.
+// what earlier imports left, as main's import loop did.
 func TestDecideRoot(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha"))
@@ -133,12 +134,16 @@ func TestDecideRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	foreign := filepath.Join(out, "fake", "foreign")
-	if err := os.MkdirAll(foreign, 0o755); err != nil {
+	writeRootFiles(t, foreign, map[string]string{"main.tf": "# someone's\n"})
+	// A root whose generation started, and didn't finish.
+	unfinished := filepath.Join(out, "fake", "unfinished")
+	writeRootFiles(t, unfinished, map[string]string{engine.GeneratedFileName: "resource \"fake_thing\" \"unfinished\" {}\n"})
+	if err := saveCheckpoint(out, unfinished, "fp", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(foreign, "main.tf"), []byte("# someone's\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// A root its stack's merge set aside, with no resources.
+	empty := filepath.Join(out, "fake", "empty")
+	writeRootFiles(t, premergeDir(out, empty), map[string]string{engine.VersionsFileName: "terraform {}\n"})
 	fp := func(dir string) string {
 		c, err := readCheckpoint(out, dir)
 		if err != nil || c == nil {
@@ -146,28 +151,54 @@ func TestDecideRoot(t *testing.T) {
 		}
 		return c.Fingerprint
 	}
+	// alpha is left as it was, or hands what it has over to a root that
+	// didn't import it, with --regenerate.
+	left := &handovers{out: out, refused: map[string]error{filepath.Clean(alpha): errors.New("alpha is left as it was")}}
+	unreceived := &handovers{
+		out:       out,
+		removals:  map[string][]engine.Removal{filepath.Clean(alpha): {{From: "fake_thing.alpha", Resources: []engine.Departure{{Type: "fake_thing", ID: "id-alpha", Address: "fake_thing.alpha", Root: "fake/beta"}}}}},
+		generated: map[string]*engine.Result{filepath.Join(out, "fake", "beta"): {}},
+	}
 	for _, tc := range []struct {
-		name   string
-		dir    string
-		set    func(*Options)
-		want   rootMode
-		reason string
+		name string
+		dir  string
+		set  func(*Options)
+		// h are the call's handovers, fp the fingerprint, if not the
+		// checkpoint's, and restored that the root is brought back
+		// first.
+		h        *handovers
+		fp       string
+		want     rootMode
+		reason   string
+		restored bool
 	}{
-		{"new", filepath.Join(out, "fake", "new"), func(*Options) {}, rootFresh, ""},
-		{"foreign", foreign, func(*Options) {}, rootRefused, "no import by infraharvest wrote"},
-		{"in use", alpha, func(*Options) {}, rootRefused, "--regenerate"},
-		{"regenerate", alpha, func(o *Options) { o.Regenerate = true }, rootRegenerated, ""},
-		{"resume", alpha, func(o *Options) { o.Resume = true }, rootResumed, ""},
-		{"incremental", alpha, func(o *Options) { o.Incremental = true }, rootIncremental, ""},
+		{name: "new", dir: filepath.Join(out, "fake", "new"), set: func(*Options) {}, want: rootFresh},
+		{name: "foreign", dir: foreign, set: func(*Options) {}, want: rootRefused, reason: "no import by infraharvest wrote"},
+		{name: "in use", dir: alpha, set: func(*Options) {}, want: rootRefused, reason: "--regenerate"},
+		{name: "regenerate", dir: alpha, set: func(o *Options) { o.Regenerate = true }, want: rootRegenerated},
+		{name: "resume", dir: alpha, set: func(o *Options) { o.Resume = true }, want: rootResumed},
+		{name: "resume, changed", dir: alpha, set: func(o *Options) { o.Resume = true }, fp: "changed", want: rootRefused, reason: "is a root an earlier import generated, which may be in use: pass --regenerate"},
+		{name: "incremental", dir: alpha, set: func(o *Options) { o.Incremental = true }, want: rootIncremental},
+		{name: "incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Incremental = true }, want: rootRefused, reason: "didn't finish: generate the root again with --resume"},
+		{name: "resume and incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Resume, o.Incremental = true, true }, want: rootRegenerated},
+		{name: "left by handovers", dir: alpha, set: func(o *Options) { o.Regenerate = true }, h: left, want: rootRefused, reason: "alpha is left as it was"},
+		{name: "unreceived", dir: alpha, set: func(o *Options) { o.Regenerate = true }, h: unreceived, want: rootRefused, reason: "fake_thing.alpha goes to fake/beta, which didn't import it"},
+		{name: "merged, incremental, no resources", dir: empty, set: func(o *Options) { o.Incremental = true }, want: rootRefused, reason: "was merged into the root its stack's environments share", restored: true},
 	} {
-		c := &listedCall{options: Options{Out: out}}
+		c := &listedCall{options: Options{Out: out}, handovers: tc.h}
 		tc.set(&c.options)
-		d, err := c.decideRoot(tc.dir, fp(tc.dir))
+		if tc.fp == "" {
+			tc.fp = fp(tc.dir)
+		}
+		d, err := c.decideRoot(tc.dir, tc.fp)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 		if d.mode != tc.want || (tc.reason == "") != (d.reason == nil) || (d.reason != nil && !strings.Contains(d.reason.Error(), tc.reason)) {
 			t.Errorf("%s: mode %d, reason %v; want mode %d, reason %q", tc.name, d.mode, d.reason, tc.want, tc.reason)
+		}
+		if d.restore != tc.restored {
+			t.Errorf("%s: restore %v, want %v", tc.name, d.restore, tc.restored)
 		}
 	}
 }
