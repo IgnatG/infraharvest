@@ -10,13 +10,16 @@ variable "trusted_principal_arns" {
 }
 
 variable "github_oidc_subjects" {
-  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as patterns of their token's sub claim, e.g. [\"repo:acme/infra:ref:refs/heads/main\"] or [\"repo:acme/infra:*\"]."
+  description = "GitHub Actions workflows allowed to assume the role through the account's OIDC provider, as their token's sub claim: a branch, tag, environment or pull_request of one repository, e.g. [\"repo:acme/infra:ref:refs/heads/main\", \"repo:acme/infra:environment:production\"]. repo:<owner>/<repository>:* trusts every workflow of that one repository, on any branch."
   type        = list(string)
   default     = []
 
+  # The owner and repository are spelled out, and nothing else is a
+  # pattern: a wildcard in either would trust other repositories, and one
+  # in a branch or environment name more refs than meant.
   validation {
-    condition     = alltrue([for subject in var.github_oidc_subjects : can(regex("^repo:[A-Za-z0-9_.-]+/[^/:]+:.+$", subject))])
-    error_message = "Start each subject with repo:<owner>/<repository>: and spell the owner out, e.g. repo:acme/infra:ref:refs/heads/main."
+    condition     = alltrue([for subject in var.github_oidc_subjects : can(regex("^repo:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+:(ref:refs/(heads|tags)/[^*?]+|environment:[^*?]+|pull_request|\\*)$", subject))])
+    error_message = "Give each subject as repo:<owner>/<repository>: and then ref:refs/heads/<branch>, ref:refs/tags/<tag>, environment:<name> or pull_request, without * or ?; or as repo:<owner>/<repository>:* for every workflow of the repository."
   }
 }
 

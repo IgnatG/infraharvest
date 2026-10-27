@@ -22,11 +22,13 @@ data "aws_iam_policy_document" "trust" {
   }
 
   # The audience is the one aws-actions/configure-aws-credentials asks for.
+  # Subjects match exactly; repo:<owner>/<repository>:*, the one pattern
+  # variables.tf allows, matches as a pattern, in a statement of its own.
   dynamic "statement" {
-    for_each = length(var.github_oidc_subjects) > 0 ? [var.github_oidc_subjects] : []
+    for_each = { for test, subjects in local.github_subjects : test => subjects if length(subjects) > 0 }
 
     content {
-      sid     = "AllowGitHubActions"
+      sid     = statement.key == "StringEquals" ? "AllowGitHubActions" : "AllowGitHubActionsRepository"
       actions = ["sts:AssumeRoleWithWebIdentity"]
 
       principals {
@@ -41,7 +43,7 @@ data "aws_iam_policy_document" "trust" {
       }
 
       condition {
-        test     = "StringLike"
+        test     = statement.key
         variable = "token.actions.githubusercontent.com:sub"
         values   = statement.value
       }
@@ -68,6 +70,12 @@ data "aws_iam_openid_connect_provider" "github" {
 
 locals {
   github_oidc_provider_arn = one(concat(aws_iam_openid_connect_provider.github[*].arn, data.aws_iam_openid_connect_provider.github[*].arn))
+
+  # github_oidc_subjects by the condition that matches them.
+  github_subjects = {
+    StringEquals = [for subject in var.github_oidc_subjects : subject if !endswith(subject, ":*")]
+    StringLike   = [for subject in var.github_oidc_subjects : subject if endswith(subject, ":*")]
+  }
 }
 
 resource "aws_iam_role" "readonly" {
