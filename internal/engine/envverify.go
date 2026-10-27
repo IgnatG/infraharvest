@@ -47,7 +47,8 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		}
 		expected = len(ids)
 	}
-	return gateWith(ctx, tf, dir, opts, func() (Check, []string, error) {
+	policy := fullGate(opts)
+	policy.plan = func() (Check, []string, error) {
 		p, _, diags, err := showPlanWithSummary(ctx, tf, vars)
 		if err != nil {
 			return Check{}, nil, err
@@ -55,5 +56,7 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		check := planCheck(p, diags, nil, opts.StateOnly, expected)
 		check.Details = append([]string{"environment " + env}, check.Details...)
 		return check, sensitiveValues(p), nil
-	}, nil)
+	}
+	gate, _, err := policy.run(ctx, tf, dir)
+	return gate, err
 }

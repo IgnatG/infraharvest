@@ -396,7 +396,6 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	gateOpts := Options{Omit: g.opts.Omit, StateOnly: g.opts.StateOnly, Scanners: g.opts.Scanners, Adapters: g.opts.Adapters}
 	envs := make([]MergedEnvironment, len(g.roots))
 	for e := range g.roots {
 		envs[e] = MergedEnvironment{Env: m.envs[e], Imports: g.imports(m, e), Addresses: g.addresses(m, e)}
@@ -407,40 +406,31 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			envs[e].Gate = Gate{{Name: CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
 		}
 	}
-	// others is the secrets check of the other environments, which the
-	// first's gate holds its scanners back on.
-	others := Check{Name: CheckSecrets, Passed: true}
-	plan := func() (Check, []string, error) {
-		planned, sensitive, err := g.plan(ctx, tf, m, w, first)
-		if err != nil {
-			return Check{}, nil, err
+	policy := fullGate(Options{Omit: g.opts.Omit, Scanners: g.opts.Scanners, Adapters: g.opts.Adapters})
+	policy.plan = func() (Check, []string, error) { return g.plan(ctx, tf, m, w, first) }
+	// planned are the other environments the gate plans, in the order of
+	// their gates.
+	var planned []int
+	for e := first + 1; e < len(g.roots); e++ {
+		if envs[e].Unplanned {
+			continue
 		}
-		for e := first + 1; e < len(g.roots); e++ {
-			if envs[e].Unplanned {
-				continue
-			}
+		planned = append(planned, e)
+		policy.others = append(policy.others, gatePlan{name: "environment " + m.envs[e], run: func() (Check, []string, error) {
 			envTF, err := g.terraform(e)
 			if err != nil {
 				return Check{}, nil, err
 			}
-			envPlanned, envSensitive, err := g.plan(ctx, envTF, m, w, e)
-			if err != nil {
-				return Check{}, nil, err
-			}
-			secrets, err := scanSecrets(g.dir, envSensitive)
-			if err != nil {
-				return Check{}, nil, err
-			}
-			envs[e].Gate = Gate{envPlanned, secrets}
-			if !secrets.Passed {
-				others.Passed = false
-				others.Details = append(others.Details, "environment "+m.envs[e])
-			}
-		}
-		return planned, sensitive, nil
+			return g.plan(ctx, envTF, m, w, e)
+		}})
 	}
-	if envs[first].Gate, err = gateWith(ctx, tf, g.dir, gateOpts, plan, func() Check { return others }); err != nil {
+	gate, others, err := policy.run(ctx, tf, g.dir)
+	if err != nil {
 		return nil, err
+	}
+	envs[first].Gate = gate
+	for i, e := range planned {
+		envs[e].Gate = others[i]
 	}
 	return envs, nil
 }

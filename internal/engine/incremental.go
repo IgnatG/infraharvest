@@ -285,21 +285,14 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	// The root's gate knows the organisation's own modules root calls, as
 	// Verify's does, although staging calls none of them. Only staging's
 	// plan knew the secret values to look for: where root has the ones it
-	// found, its scanners don't run either.
+	// found, its secrets check fails and its scanners don't run either.
 	secrets := staged.check(CheckSecrets)
-	gate, err := gateWith(ctx, rootTF, root, opts, func() (Check, []string, error) {
-		return staged.check(CheckPlan), nil, nil
-	}, func() Check { return secrets })
+	policy := fullGate(opts)
+	policy.plan = func() (Check, []string, error) { return staged.check(CheckPlan), nil, nil }
+	policy.withheld = &secrets
+	gate, _, err := policy.run(ctx, rootTF, root)
 	if err != nil {
 		return nil, errors.Join(err, undo())
-	}
-	if !secrets.Passed {
-		for i := range gate {
-			if gate[i].Name == CheckSecrets {
-				gate[i].Passed = false
-				gate[i].Details = append(gate[i].Details, secrets.Details...)
-			}
-		}
 	}
 	result.Gate = gate
 	if err := os.RemoveAll(staging); err != nil {
