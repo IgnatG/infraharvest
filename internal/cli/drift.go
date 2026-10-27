@@ -63,7 +63,7 @@ func newDriftCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if configFile != "" {
-				f, err := config.Load(configFile)
+				f, err := config.Load(configFile, providers.Profiles())
 				if err != nil {
 					return err
 				}

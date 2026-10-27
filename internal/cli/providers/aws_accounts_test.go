@@ -252,7 +252,7 @@ func TestCloudFormationFlagsFromConfig(t *testing.T) {
 	if err := os.WriteFile(path, []byte("version: 1\nproviders:\n  aws:\n    cfn-stack: [app, \"arn:aws:cloudformation:eu-west-2:111111111111:stack/old/1\"]\n    cfn-ignore: [app/Seed]\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f, err := config.Load(path)
+	f, err := config.Load(path, Profiles())
 	if err != nil {
 		t.Fatal(err)
 	}

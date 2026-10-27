@@ -43,7 +43,7 @@ type serviceSettings struct {
 	// catalogue is the import's catalogue, nil for the built-in one.
 	catalogue *catalogue.Catalogue
 	// listed is what the import's other services listed, for the services
-	// that list from it (see Provider.DependentServices).
+	// that list from it (see Provider.Profile).
 	listed []harvest.Resource
 	// azapi is --azapi: resource_graph imports what azurerm has no type
 	// for as azapi_resource (see azapiCandidates).

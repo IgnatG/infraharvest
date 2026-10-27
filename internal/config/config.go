@@ -26,14 +26,12 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/zclconf/go-cty/cty"
 	"go.yaml.in/yaml/v3"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // Version is the configuration file format's version.
 const Version = 1
-
-// ProviderCommands are the provider commands providers: holds settings
-// for, whichever of them the binary is built with.
-var ProviderCommands = []string{"aws", "azure", "google"}
 
 // File is a configuration file.
 type File struct {
@@ -96,8 +94,11 @@ type GCS struct {
 	Prefix string `yaml:"prefix,omitempty"`
 }
 
-// Load reads and checks a configuration file.
-func Load(file string) (*File, error) {
+// Load reads and checks a configuration file. profiles are those of the
+// provider commands the binary is built with, which say what the IDs of
+// their accounts, subscriptions or projects are like in the environments
+// (see harvest.Scope).
+func Load(file string, profiles []harvest.Profile) (*File, error) {
 	content, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
@@ -114,7 +115,7 @@ func Load(file string) (*File, error) {
 	if err := f.Backend.check(); err != nil {
 		return nil, fmt.Errorf("%s: backend: %w", file, err)
 	}
-	if err := f.Environments.check(); err != nil {
+	if err := f.Environments.check(profiles); err != nil {
 		return nil, fmt.Errorf("%s: environments: %w", file, err)
 	}
 	for i, m := range f.Modules {
@@ -251,11 +252,13 @@ var commandLineOnly = []string{"check", "config"}
 // Apply sets the flags the command line didn't, from the file's settings
 // and the provider's. It fails on a setting that isn't a flag, or is one
 // of commandLineOnly, and on settings for a provider that is neither one
-// of ProviderCommands nor provider, which would otherwise never apply.
+// of the provider commands the file has sections for (see
+// providerCommands) nor provider, which would otherwise never apply.
 func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
+	commands := providerCommands()
 	for _, name := range slices.Sorted(maps.Keys(f.Providers)) {
-		if name != provider && !slices.Contains(ProviderCommands, name) {
-			return fmt.Errorf("providers: unknown provider %q: use %s", name, strings.Join(ProviderCommands, ", "))
+		if name != provider && !slices.Contains(commands, name) {
+			return fmt.Errorf("providers: unknown provider %q: use %s", name, strings.Join(commands, ", "))
 		}
 	}
 	for _, settings := range []map[string]any{f.Settings, f.Providers[provider]} {

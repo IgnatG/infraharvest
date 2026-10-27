@@ -21,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -306,8 +307,10 @@ func (r *Run) merge(child *Run) {
 
 // ApplyConfig applies the configuration file at path to the command's
 // flags, and keeps its backend, modules and environments for the run.
-func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string) error {
-	f, err := config.Load(path)
+// profiles are those of the providers the binary is built with (see
+// config.Load).
+func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, profiles []harvest.Profile) error {
+	f, err := config.Load(path, profiles)
 	if err != nil {
 		return err
 	}
