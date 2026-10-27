@@ -80,11 +80,11 @@ func (az *SubnetLister) List() error {
 // came back without the subnets field, as floci-az answers for subnets
 // created on their own, are they listed with subnetsClient, under the
 // network's own resource group, which is not --resource-group when the
-// whole subscription is listed. The SDK decodes an empty list as an empty
-// slice and a missing field as nil, so a network Azure lists with no
-// subnets costs no request.
+// whole subscription is listed. floci-az answers an empty list rather than
+// omitting the field, so an empty list is listed on its own too: a network
+// with no subnets costs one request.
 func (az *SubnetLister) subnetsOf(subnetsClient *armnetwork.SubnetsClient, network *armnetwork.VirtualNetwork) ([]*armnetwork.Subnet, error) {
-	if network.Properties != nil && network.Properties.Subnets != nil {
+	if network.Properties != nil && len(network.Properties.Subnets) > 0 {
 		return network.Properties.Subnets, nil
 	}
 	networkResourceGroup, err := resourceGroupOf(*network.ID)
