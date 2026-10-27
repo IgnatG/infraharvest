@@ -360,7 +360,13 @@ runs:
         output exit-code "$code"
         output drift-found "$found"
         if [[ -f "$report" ]]; then output drift-report "$report"; fi
-        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        # Not through a symbolic link the repository commits (see unlinked
+        # in output.sh).
+        if unlinked "$report"; then
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        elif [[ -e "$report" || -L "$report" ]]; then
+          echo "::warning::$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
+        fi
         # 4 says drift is left, which the report and drift-found tell; it
         # doesn't fail the step. 1 (an accepted change failed verification),
         # 2 (a root couldn't be checked) and any other code do.
@@ -387,7 +393,11 @@ runs:
         report="$OUT/report/report.md"
         output exit-code "$code"
         output report "$report"
-        if [[ -f "$report" ]]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+        if unlinked "$report"; then
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+        elif [[ -e "$report" || -L "$report" ]]; then
+          echo "::warning::$report isn't a regular file that no symbolic link leads to: not adding it to the job summary"
+        fi
         if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"

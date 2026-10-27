@@ -1185,6 +1185,15 @@ jobs:
           expect all title "Import new resources, and record cloud changes (drift) for review"
           expect all branch infraharvest/import
 
+          # A report the repository links elsewhere, here through a report
+          # directory linked to another, is left out of the body.
+          mkdir -p linked-out "$RUNNER_TEMP/elsewhere"
+          printf '# Not a report\n' > "$RUNNER_TEMP/elsewhere/report.md"
+          ln -s "$RUNNER_TEMP/elsewhere" linked-out/report
+          details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          cmp "$RUNNER_TEMP/drift.md" "$(output linked body-path)"
+
   # What action/commit.sh commits and pushes, checked against a repository
   # of the job's own, which it pushes to over file://, so that it needs no
   # token: only the paths given, nothing when they haven't changed, a
