@@ -300,6 +300,63 @@ func TestCloudSQLInstanceListFails(t *testing.T) {
 	}
 }
 
+// An instance that can't serve the database list, as one stopped, being
+// created or deleted since it was listed, is left out, and the listing is whole. Any other failure to
+// list an instance's databases fails the listing in part, keeping the
+// other instances' databases: before, it was logged, and the databases
+// missing read as deleted.
+func TestCloudSQLDatabaseListFails(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		status  int
+		body    string
+		partial bool
+	}{
+		{"stopped", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request: Invalid request since instance is not running.", "errors": [{"reason": "invalid", "message": "Invalid request: Invalid request since instance is not running."}]}}`, false},
+		{"being created", http.StatusConflict, `{"error": {"code": 409, "message": "The instance or operation is not in an appropriate state to handle the request.", "errors": [{"reason": "invalidState"}]}}`, false},
+		{"permission denied", http.StatusForbidden, `{"error": {"code": 403, "message": "The client is not authorized to make this request.", "errors": [{"reason": "notAuthorized"}]}}`, true},
+		{"other bad request", http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request.", "errors": [{"reason": "invalid"}]}}`, true},
+		{"deleted since listed", http.StatusNotFound, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist.", "errors": [{"reason": "instanceDoesNotExist"}]}}`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/v1/projects/acme/instances":
+					_, _ = w.Write([]byte(`{"items": [
+						{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
+						{"name": "billing", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}
+					]}`))
+				case "/v1/projects/acme/instances/orders/databases":
+					_, _ = w.Write([]byte(`{"items": [{"name": "app"}]}`))
+				default:
+					w.WriteHeader(tt.status)
+					_, _ = w.Write([]byte(tt.body))
+				}
+			}))
+			defer server.Close()
+			t.Setenv(EndpointEnv, server.URL)
+
+			g := newCloudSQL(t, "us-central1")
+			err := g.List()
+			if got := err != nil; got != tt.partial {
+				t.Fatalf("error %v, want one: %v", err, tt.partial)
+			}
+			if tt.partial {
+				if !harvest.IsPartial(err) {
+					t.Errorf("error %v isn't partial", err)
+				}
+				if !strings.Contains(err.Error(), "billing") {
+					t.Errorf("error %q doesn't name the instance", err)
+				}
+			}
+			if len(g.Resources) != 1 || g.Resources[0].Observed.ID != "projects/acme/instances/orders/databases/app" {
+				t.Errorf("resources %v, want the database of orders", g.Resources)
+			}
+		})
+	}
+}
+
 func TestOwnsDatabases(t *testing.T) {
 	for _, tt := range []struct {
 		instanceType, master string

@@ -5,6 +5,7 @@ package google
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"google.golang.org/api/compute/v1"
+	"google.golang.org/api/googleapi"
 )
 
 // TestMain makes the waits between retries short, so that the tests of
@@ -117,6 +119,65 @@ func TestNoRetryForClientErrors(t *testing.T) {
 			t.Errorf("%d: got %d requests, want 1", status, f.count())
 		}
 		server.Close()
+	}
+}
+
+// Compute Engine, Cloud DNS, the SQL Admin API and Cloud Resource Manager
+// v1 throttle with a 403 whose reason says so: that is sent again, as a
+// 429 is. Any other 403, as a permission denied or a quota spent for the
+// day, fails at once, with its whole error.
+func TestRetriesRateLimited403(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		body  string
+		retry bool
+	}{
+		{"rateLimitExceeded", `{"error": {"code": 403, "message": "Rate Limit Exceeded", "errors": [{"domain": "usageLimits", "reason": "rateLimitExceeded", "message": "Rate Limit Exceeded"}]}}`, true},
+		{"userRateLimitExceeded", `{"error": {"code": 403, "message": "User Rate Limit Exceeded", "errors": [{"domain": "usageLimits", "reason": "userRateLimitExceeded"}]}}`, true},
+		{"ErrorInfo RATE_LIMIT_EXCEEDED", `{"error": {"code": 403, "message": "Quota exceeded for quota metric 'Read requests'.", "status": "PERMISSION_DENIED", "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "RATE_LIMIT_EXCEEDED", "domain": "googleapis.com"}]}}`, true},
+		{"permission denied", `{"error": {"code": 403, "message": "Required 'compute.networks.list' permission for 'projects/acme-prod'", "errors": [{"domain": "global", "reason": "forbidden"}]}}`, false},
+		{"IAM_PERMISSION_DENIED", `{"error": {"code": 403, "message": "Permission denied on resource project acme-prod.", "status": "PERMISSION_DENIED", "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "IAM_PERMISSION_DENIED", "domain": "iam.googleapis.com"}]}}`, false},
+		{"daily quota", `{"error": {"code": 403, "message": "Quota exceeded", "errors": [{"domain": "usageLimits", "reason": "quotaExceeded"}]}}`, false},
+		{"not JSON", `Forbidden`, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				mu.Lock()
+				n := requests
+				requests++
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				if n == 0 {
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(tt.body))
+					return
+				}
+				_, _ = w.Write([]byte(`{"items":[{"name":"main"}]}`))
+			}))
+			defer server.Close()
+
+			list, err := networks(t, server)
+			mu.Lock()
+			made := requests
+			mu.Unlock()
+			if tt.retry {
+				if err != nil || len(list.Items) != 1 || made != 2 {
+					t.Errorf("got %v after %d requests, want the list after 2", err, made)
+				}
+				return
+			}
+			if made != 1 {
+				t.Errorf("got %d requests, want 1", made)
+			}
+			// The client still reads the whole error the retry looked
+			// into.
+			var apiErr *googleapi.Error
+			if !errors.As(err, &apiErr) || apiErr.Code != http.StatusForbidden || apiErr.Body != tt.body {
+				t.Errorf("error %#v, want the 403 with its body", err)
+			}
+		})
 	}
 }
 
