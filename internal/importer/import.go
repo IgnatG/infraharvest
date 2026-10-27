@@ -460,7 +460,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, options Optio
 		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && options.cat != nil {
 			p.SetCatalogue(options.cat)
 		}
-		if p, ok := serviceProvider.(unwantedTypesSetter); ok && len(options.unwanted) > 0 {
+		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && len(options.unwanted) > 0 {
 			p.SetUnwantedTypes(options.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)

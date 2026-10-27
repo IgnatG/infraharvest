@@ -66,13 +66,6 @@ func defaultSelection(ctx context.Context, provider harvest.Provider, cat *catal
 	return selection.NewSources(ctx, cat, withDefaults, all, includeOwned)
 }
 
-// unwantedTypesSetter is a provider whose listers can skip the calls that
-// list only resources of types the import leaves out (see
-// selection.Unwanted), such as an AWS IAM user's access keys.
-type unwantedTypesSetter interface {
-	SetUnwantedTypes(types []string)
-}
-
 // selectionFile loads the selection file options.Selection once per run;
 // nil for --all. With --include-owned, its rules may include what another
 // Terraform state or tool manages.
