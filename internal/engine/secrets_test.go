@@ -378,3 +378,61 @@ resource "aws_lightsail_database" "db" {
 		t.Errorf("want the required master_password read from its variable:\n%s", got)
 	}
 }
+
+// Telling which secrets the imported objects leave unset, and which
+// aren't secret after all, needs the imported objects, which every plan
+// that imports them shows, whatever the configuration: the last plan
+// before them, which had no errors, shows them, so neither plans again.
+func TestGenerateReadsSecretsFromTheLastPlan(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		// Not sorted by type, so that Generate plans again before it
+		// reads the secrets.
+		generated: `resource "aws_ssm_parameter" "app_env" {
+  name  = "/app/region"
+  type  = "String"
+  value = null # sensitive
+}
+
+resource "aws_redshift_cluster" "dw" {
+  cluster_identifier = "dw"
+  master_password    = null # sensitive
+}
+`,
+		schemas: &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+			"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+				"aws_redshift_cluster": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+					"master_password": {AttributeType: cty.String, Optional: true, Sensitive: true},
+				}}},
+				"aws_ssm_parameter": ssmSchemas.Schemas["registry.terraform.io/hashicorp/aws"].ResourceSchemas["aws_ssm_parameter"],
+			}},
+		}},
+		shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+			importedChange("aws_redshift_cluster.dw", map[string]any{"cluster_identifier": "dw", "master_password": nil}),
+			importedChange("aws_ssm_parameter.app_env", map[string]any{"name": "/app/region", "type": "String", "value": "eu-west-2-primary"}),
+		}},
+	}
+
+	result, err := Generate(context.Background(), tf, dir, []rootfile.Import{
+		{Type: "aws_ssm_parameter", Name: "app_env", ID: "/app/region"},
+		{Type: "aws_redshift_cluster", Name: "dw", ID: "dw"},
+	}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Generate's plan, the plan after sorting, validation, then
+	// post-processing's plans.
+	if want := "init,plan,plan,show,schema,validate,plan,show,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
+		t.Errorf("calls: got %v, want %s", tf.calls, want)
+	}
+	if len(result.Secrets) != 0 {
+		t.Errorf("want no secret variable, got %+v", result.Secrets)
+	}
+	got := readFile(t, dir, rootfile.GeneratedFileName)
+	if !strings.Contains(got, `value = "eu-west-2-primary"`) || strings.Contains(got, "master_password") {
+		t.Errorf("want the parameter's value written and the cluster's unset password left out:\n%s", got)
+	}
+}
