@@ -170,7 +170,6 @@ func (s *awsScope) check(options importer.Options) error {
 // --organization, each of several accounts through the role --assume-role
 // names.
 func (s *awsScope) plan(ctx context.Context, options importer.Options) (plan, error) {
-	awsprovider.UseResourceExplorer(s.resourceExplorer)
 	if len(s.stacks) > 0 {
 		return s.planStacks(ctx, options)
 	}
@@ -186,12 +185,12 @@ func (s *awsScope) plan(ctx context.Context, options importer.Options) (plan, er
 		}
 		return plan{calls: func(accountOptions importer.Options, _ string) []call {
 			return s.calls(accountOptions, roleARN)
-		}}, nil
+		}, newProvider: s.newProvider}, nil
 	}
 	return plan{kind: "account", scopes: accounts, calls: func(accountOptions importer.Options, account string) []call {
 		log.Printf("aws: importing account %s", account)
 		return s.calls(accountOptions, strings.ReplaceAll(s.assumeRole, "{account}", account))
-	}}, nil
+	}, newProvider: s.newProvider}, nil
 }
 
 // planStacks imports the resources of the CloudFormation stacks
@@ -244,11 +243,20 @@ func (s *awsScope) planStacks(ctx context.Context, options importer.Options) (pl
 			return s.calls(callOptions, roleARN)
 		},
 		newProvider: func() harvest.Provider {
-			p := &awsprovider.Provider{}
+			p := s.newProvider().(*awsprovider.Provider)
 			p.SetStackScope(scope)
 			return p
 		},
 	}, nil
+}
+
+// newProvider returns the provider of each Import call: an AWS provider
+// that uses Resource Explorer if --resource-explorer says so, which each
+// run's own providers carry, not the process.
+func (s *awsScope) newProvider() harvest.Provider {
+	p := &awsprovider.Provider{}
+	p.UseResourceExplorer(s.resourceExplorer)
+	return p
 }
 
 // accountsToImport returns the accounts --accounts or --organization

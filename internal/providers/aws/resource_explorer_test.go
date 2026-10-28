@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 const explorerViewARN = "arn:aws:resource-explorer-2:eu-west-2:123456789012:view/default/1111"
@@ -142,37 +143,37 @@ func resourceJSON(typ string) string {
 	return fmt.Sprintf(`{"Arn":"arn:aws:%s:eu-west-2:123456789012:%s/x","Region":"eu-west-2","ResourceType":%q,"Service":%q}`, service, resource, typ, service)
 }
 
-// useExplorer turns the pre-filter on against f, and returns the context
-// of the run that lists against it and what it logs.
-func useExplorer(t *testing.T, f *fakeExplorer) (context.Context, *bytes.Buffer) {
+// explorerRun returns the context of a run of its own that lists against
+// f, at explorerTestNow.
+func explorerRun(t *testing.T, f *fakeExplorer) context.Context {
 	t.Helper()
 	ctx := useFakeAPI(t, f.handle)
-	reset := func() {
-		explorerMu.Lock()
-		explorerRegions = map[configKey]*explorerRegion{}
-		explorerMu.Unlock()
-	}
-	reset()
-	UseResourceExplorer(true)
-	now := explorerNow
-	explorerNow = func() time.Time { return explorerTestNow }
+	configsOf(ratelimit.FromContext(ctx)).explorerNow = func() time.Time { return explorerTestNow }
+	return ctx
+}
+
+// useExplorer returns the context of a run of its own that lists against
+// f, and what it logs: the log is the process's, so the tests that read
+// it don't run in parallel.
+func useExplorer(t *testing.T, f *fakeExplorer) (context.Context, *bytes.Buffer) {
+	t.Helper()
+	ctx := explorerRun(t, f)
 	logs := &bytes.Buffer{}
 	writer := log.Writer()
 	log.SetOutput(logs)
-	t.Cleanup(func() {
-		UseResourceExplorer(false)
-		reset()
-		explorerNow = now
-		log.SetOutput(writer)
-	})
+	t.Cleanup(func() { log.SetOutput(writer) })
 	return ctx, logs
 }
 
 // listRegion lists service in eu-west-2 as an import does: through the
-// provider's guardedLister, in the run of ctx.
-func listRegion(ctx context.Context, t *testing.T, service string) []harvest.Resource {
+// guardedLister of a provider that uses Resource Explorer if explorer
+// says so, in the run of ctx.
+func listRegion(ctx context.Context, t *testing.T, service string, explorer bool) []harvest.Resource {
 	t.Helper()
 	p := &Provider{}
+	if explorer {
+		p.UseResourceExplorer(true)
+	}
 	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +192,8 @@ func TestResourceExplorerSkipsServicesTheRegionHasNoneOf(t *testing.T) {
 	f := newFakeExplorer()
 	ctx, logs := useExplorer(t, f)
 
-	sqs := listRegion(ctx, t, "sqs")
-	listRegion(ctx, t, "sfn")
+	sqs := listRegion(ctx, t, "sqs", true)
+	listRegion(ctx, t, "sfn", true)
 
 	// sqs:queue is on the second page of supported types, and the region
 	// has none.
@@ -218,7 +219,7 @@ func TestResourceExplorerListsServicesWithATypeItDoesntIndex(t *testing.T) {
 	f.present = []string{"ec2:instance"}
 	ctx, logs := useExplorer(t, f)
 
-	listRegion(ctx, t, "sfn")
+	listRegion(ctx, t, "sfn", true)
 
 	// The region has no state machine, but the index can't see activities.
 	if !slices.Contains(f.calls, "ListActivities") {
@@ -262,8 +263,8 @@ func TestResourceExplorerFallsBackToListing(t *testing.T) {
 			tt.change(f)
 			ctx, logs := useExplorer(t, f)
 
-			sqs := listRegion(ctx, t, "sqs")
-			listRegion(ctx, t, "sfn")
+			sqs := listRegion(ctx, t, "sqs", true)
+			listRegion(ctx, t, "sfn", true)
 
 			assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
 			if !slices.Contains(f.calls, "ListStateMachines") {
@@ -291,7 +292,7 @@ func TestResourceExplorerSearchesThroughTheAggregator(t *testing.T) {
 	f.views = []string{`{}`, `{"ViewArn":"` + explorerViewARN + `"}`}
 	ctx, _ := useExplorer(t, f)
 
-	listRegion(ctx, t, "sqs")
+	listRegion(ctx, t, "sqs", true)
 
 	if slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs was listed: %v", f.calls)
@@ -311,7 +312,7 @@ func TestResourceExplorerWithoutAnAggregatorListsEverything(t *testing.T) {
 	f.views = []string{`{}`, `{"ViewArn":"` + explorerViewARN + `"}`}
 	ctx, logs := useExplorer(t, f)
 
-	listRegion(ctx, t, "sqs")
+	listRegion(ctx, t, "sqs", true)
 
 	if !slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs wasn't listed: %v", f.calls)
@@ -330,8 +331,8 @@ func TestResourceExplorerSearchesForTypesInALargeRegion(t *testing.T) {
 	f.complete = false
 	ctx, _ := useExplorer(t, f)
 
-	listRegion(ctx, t, "sqs")
-	listRegion(ctx, t, "sfn")
+	listRegion(ctx, t, "sqs", true)
+	listRegion(ctx, t, "sfn", true)
 
 	if slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs was listed: %v", f.calls)
@@ -351,7 +352,32 @@ func TestResourceExplorerSearchesForTypesInALargeRegion(t *testing.T) {
 	}
 }
 
+// Two runs of one process, as a server's, each use Resource Explorer as
+// they were told, and each reads its index for itself.
+func TestResourceExplorerIsEachRunsOwn(t *testing.T) {
+	t.Parallel()
+	filtered, unfiltered := newFakeExplorer(), newFakeExplorer()
+	filteredRun, unfilteredRun := explorerRun(t, filtered), explorerRun(t, unfiltered)
+
+	listRegion(filteredRun, t, "sqs", true)
+	sqs := listRegion(unfilteredRun, t, "sqs", false)
+	listRegion(filteredRun, t, "sfn", true)
+
+	if slices.Contains(filtered.calls, "ListQueues") || !slices.Contains(filtered.calls, "ListStateMachines") {
+		t.Errorf("the run with Resource Explorer listed %v", filtered.calls)
+	}
+	assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
+	if len(unfiltered.gets) != 0 || len(unfiltered.queries) != 0 {
+		t.Errorf("the run without Resource Explorer read its index: %v, searches %q", unfiltered.gets, unfiltered.queries)
+	}
+	// The filtered run read its index once, for both of its services.
+	if filtered.gets["/GetIndex"] != 1 || len(filtered.queries) != 2 {
+		t.Errorf("the run with Resource Explorer read its index %d times, searches %q", filtered.gets["/GetIndex"], filtered.queries)
+	}
+}
+
 func TestResourceExplorerIsOffByDefault(t *testing.T) {
+	t.Parallel()
 	f := newFakeExplorer()
 	ctx := useFakeAPI(t, func(call apiCall) string {
 		if strings.HasPrefix(call.Path, "/Get") || call.Path == "/Search" || call.Path == "/ListSupportedResourceTypes" {
@@ -360,7 +386,7 @@ func TestResourceExplorerIsOffByDefault(t *testing.T) {
 		return f.handle(call)
 	})
 
-	sqs := listRegion(ctx, t, "sqs")
+	sqs := listRegion(ctx, t, "sqs", false)
 
 	assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
 }

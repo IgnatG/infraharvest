@@ -62,6 +62,10 @@ type Provider struct {
 	// scopedStacks are the stacks of stackScope as ImportScope last
 	// matched them with what is listed (see CloudFormationStacks).
 	scopedStacks []cfn.Stack
+	// resourceExplorer makes the services skip the regions Resource
+	// Explorer shows have none of their resources (see
+	// UseResourceExplorer).
+	resourceExplorer bool
 	// limiter is the limiter of the run Init was given (see
 	// ratelimit.FromContext), whose configurations the provider's own
 	// calls use, whatever context they are given (see service).
@@ -255,11 +259,11 @@ func (p *Provider) newServiceLister(name string) harvest.Lister {
 		return &harvest.QueryLister{}
 	}
 	if types, ok := p.cloudControl()[name]; ok {
-		return &guardedLister{lister: p.withUnwanted(&CloudControlLister{types: types})}
+		return p.guard(&CloudControlLister{types: types})
 	}
 	for _, s := range serviceTable {
 		if s.name == name {
-			return &guardedLister{lister: p.withUnwanted(s.newLister())}
+			return p.guard(s.newLister())
 		}
 	}
 	return nil
@@ -321,4 +325,20 @@ func (p *Provider) withUnwanted(lister harvest.Lister) harvest.Lister {
 		l.setUnwanted(p.unwanted)
 	}
 	return lister
+}
+
+// guard wraps lister, given the types the import leaves out, in a
+// guardedLister that Resource Explorer rules out when the provider uses
+// it.
+func (p *Provider) guard(lister harvest.Lister) *guardedLister {
+	return &guardedLister{lister: p.withUnwanted(lister), resourceExplorer: p.resourceExplorer}
+}
+
+// UseResourceExplorer makes the services the provider lists skip the
+// regions where AWS Resource Explorer's index has none of their resources
+// (see explorerTypes). It is off by default: the index can lag behind
+// recent changes by hours, and a resource it hasn't found yet would be
+// left out. It is the provider's, so that each run says for itself.
+func (p *Provider) UseResourceExplorer(on bool) {
+	p.resourceExplorer = on
 }

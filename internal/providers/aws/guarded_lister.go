@@ -26,6 +26,9 @@ type guardedLister struct {
 	// the service's state is the lister's.
 	Service
 	lister harvest.Lister
+	// resourceExplorer lets Resource Explorer rule the service out (see
+	// Provider.UseResourceExplorer).
+	resourceExplorer bool
 }
 
 // List lists the service, unless Resource Explorer shows the

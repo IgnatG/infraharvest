@@ -173,6 +173,16 @@ type runConfigs struct {
 	// stackScans are the regions the run scanned lately (see
 	// stackScanMemory).
 	stackScans map[stackScanKey]stackScan
+
+	// explorerMu guards explorerRegions.
+	explorerMu sync.Mutex
+	// explorerRegions are what Resource Explorer says about each account
+	// and region the run lists, read once for all of its services (see
+	// explorerFor).
+	explorerRegions map[configKey]*explorerRegion
+	// explorerNow is the clock an index's age is measured by. Tests set
+	// it, on a run of their own.
+	explorerNow func() time.Time
 }
 
 // runConfigsKey is the key of the run's configurations kept with its
@@ -185,12 +195,14 @@ type runConfigsKey struct{}
 func configsOf(l *ratelimit.Limiter) *runConfigs {
 	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
 		return &runConfigs{
-			configs:        map[configKey]aws.Config{},
-			baseProviders:  map[configKey]aws.CredentialsProvider{},
-			buildFailures:  map[configKey]buildFailure{},
-			credentials:    map[credentialsKey]sharedCredentials{},
-			callerAccounts: map[*aws.CredentialsCache]string{},
-			stackScans:     map[stackScanKey]stackScan{},
+			configs:         map[configKey]aws.Config{},
+			baseProviders:   map[configKey]aws.CredentialsProvider{},
+			buildFailures:   map[configKey]buildFailure{},
+			credentials:     map[credentialsKey]sharedCredentials{},
+			callerAccounts:  map[*aws.CredentialsCache]string{},
+			stackScans:      map[stackScanKey]stackScan{},
+			explorerRegions: map[configKey]*explorerRegion{},
+			explorerNow:     time.Now,
 		}
 	})
 }
