@@ -9,6 +9,15 @@
 # happened. The service accounts, the workload identity provider they
 # trust and the project's APIs come from a one-time bootstrap
 # (e2e/testdata/sandbox/google-bootstrap); see e2e/README.md.
+#
+# A cancelled job gets five minutes for its always() steps before GitHub
+# stops it, too few for the destroy, and a job that times out or whose
+# runner is lost runs no more steps. So when the round trip doesn't
+# succeed, the clean-up job, a job of its own with its full timeout,
+# sweeps the project as the round trip does when it fails. Like any job
+# of the sandbox environment, it waits for a reviewer to approve it
+# first, after a cancel too, and the run, and so the next one, waits
+# with it.
 name: Sandbox (Google Cloud)
 
 on:
@@ -20,12 +29,12 @@ on:
         options: [terraform, tofu]
         default: terraform
 
-permissions:
-  contents: read
-  id-token: write # OpenID Connect, for the service accounts
+permissions: {}
 
 # One run at a time: each imports the whole project, so another run's
 # estate would show up in its import.
+# The group holds the whole run, its clean-up job too, so the next run
+# starts only once this one's estate is swept.
 concurrency:
   group: sandbox-google
   cancel-in-progress: false
@@ -35,6 +44,9 @@ jobs:
     name: round-trip (${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the service accounts
     timeout-minutes: 120
     env:
       E2E_ENGINE: ${{ inputs.engine }}
@@ -42,6 +54,9 @@ jobs:
       SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
       SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
     steps:
+    # First in the run's summary, where it shows at once.
+    - name: Clean-up
+      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
     - name: Directories
       run: |
         {
@@ -100,7 +115,7 @@ jobs:
         types=compute.googleapis.com/Network,compute.googleapis.com/Subnetwork,compute.googleapis.com/Firewall
         types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
         types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
-        types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk
+        types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk,compute.googleapis.com/FirewallPolicy
         left=$(gcloud asset search-all-resources --scope "projects/$SANDBOX_GOOGLE_PROJECT" --asset-types "$types" \
           --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
         if [ -n "$left" ]; then
@@ -138,114 +153,16 @@ jobs:
           echo "::error::Left in the estate: $left"
           exit 1
         fi
-    # When the run failed, deletes what Terraform's state doesn't hold,
-    # such as a resource whose creation failed half-way, and what an earlier
-    # run left: every resource of a sandbox estate, whichever engine's run
-    # made it (runs never overlap), as the fixture service account.
-    # Networks, subnetworks, firewall rules, routers and service accounts
-    # take no labels, so the sweep finds everything by name, ih-sbx-<engine>-,
-    # which the estate gives every resource but its function, ih-sbx-function,
-    # and deletes what uses others first: the function, the zones' record
-    # sets, the zones, the subscriptions and topics, the buckets, the
-    # instances and their disks, then the network's firewall rules,
-    # routers and subnetworks, the network, and the service account.
+    # When the run failed, or an earlier run left something: deletes what
+    # Terraform's state doesn't hold, such as a resource whose creation
+    # failed half-way, and what an earlier run left, by name, as the
+    # fixture service account (see the script).
     - name: Sweep the project
       if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
-      run: |
-        prefix="ih-sbx-"
-        named="name ~ '^$prefix'"
-        q=(--quiet)
-        functions=$(gcloud functions list --filter "name ~ '/functions/ih-sbx-'" --format 'value(name.basename(),name.segment(3))')
-        while read -r name region; do
-          if [ -n "$name" ]; then
-            gcloud functions delete "$name" --region "$region" "${q[@]}" || true
-          fi
-        done <<< "$functions"
-        zones=$(gcloud dns managed-zones list --filter "$named" --format 'value(name)')
-        while IFS= read -r zone; do
-          if [ -z "$zone" ]; then
-            continue
-          fi
-          sets=$(gcloud dns record-sets list --zone "$zone" --filter 'type != SOA AND type != NS' --format 'csv[no-heading](name,type)')
-          while IFS=, read -r name type; do
-            if [ -n "$name" ]; then
-              gcloud dns record-sets delete "$name" --type "$type" --zone "$zone" "${q[@]}" || true
-            fi
-          done <<< "$sets"
-          gcloud dns managed-zones delete "$zone" "${q[@]}" || true
-        done <<< "$zones"
-        for kind in subscriptions topics; do
-          names=$(gcloud pubsub "$kind" list --filter "name ~ '/$prefix'" --format 'value(name.basename())')
-          while IFS= read -r name; do
-            if [ -n "$name" ]; then
-              gcloud pubsub "$kind" delete "$name" "${q[@]}" || true
-            fi
-          done <<< "$names"
-        done
-        buckets=$(gcloud storage buckets list --filter "$named" --format 'value(name)')
-        while IFS= read -r bucket; do
-          if [ -n "$bucket" ]; then
-            gcloud storage rm --recursive "gs://$bucket" "${q[@]}" || true
-          fi
-        done <<< "$buckets"
-        # The instances, with their boot disks, before the data disks they
-        # attach and the subnetworks they use.
-        for kind in instances disks; do
-          found=$(gcloud compute "$kind" list --filter "$named" --format 'value(name,zone.basename())')
-          while read -r name zone; do
-            if [ -n "$name" ]; then
-              gcloud compute "$kind" delete "$name" --zone "$zone" "${q[@]}" || true
-            fi
-          done <<< "$found"
-        done
-        rules=$(gcloud compute firewall-rules list --filter "$named" --format 'value(name)')
-        while IFS= read -r rule; do
-          if [ -n "$rule" ]; then
-            gcloud compute firewall-rules delete "$rule" "${q[@]}" || true
-          fi
-        done <<< "$rules"
-        for kind in routers "networks subnets"; do
-          read -r -a group <<< "$kind"
-          found=$(gcloud compute "${group[@]}" list --filter "$named" --format 'value(name,region.basename())')
-          while read -r name region; do
-            if [ -n "$name" ]; then
-              gcloud compute "${group[@]}" delete "$name" --region "$region" "${q[@]}" || true
-            fi
-          done <<< "$found"
-        done
-        networks=$(gcloud compute networks list --filter "$named" --format 'value(name)')
-        while IFS= read -r network; do
-          if [ -n "$network" ]; then
-            gcloud compute networks delete "$network" "${q[@]}" || true
-          fi
-        done <<< "$networks"
-        accounts=$(gcloud iam service-accounts list --filter "email ~ '^$prefix'" --format 'value(email)')
-        while IFS= read -r account; do
-          if [ -n "$account" ]; then
-            gcloud iam service-accounts delete "$account" "${q[@]}" || true
-          fi
-        done <<< "$accounts"
-        left=$(
-          gcloud functions list --filter "name ~ '/functions/ih-sbx-'" --format 'value(name)'
-          gcloud dns managed-zones list --filter "$named" --format 'value(name)'
-          gcloud pubsub topics list --filter "name ~ '/$prefix'" --format 'value(name)'
-          gcloud pubsub subscriptions list --filter "name ~ '/$prefix'" --format 'value(name)'
-          gcloud storage buckets list --filter "$named" --format 'value(name)'
-          gcloud compute instances list --filter "$named" --format 'value(name)'
-          gcloud compute disks list --filter "$named" --format 'value(name)'
-          gcloud compute firewall-rules list --filter "$named" --format 'value(name)'
-          gcloud compute routers list --filter "$named" --format 'value(name)'
-          gcloud compute networks subnets list --filter "$named" --format 'value(name)'
-          gcloud compute networks list --filter "$named" --format 'value(name)'
-          gcloud iam service-accounts list --filter "email ~ '^$prefix'" --format 'value(email)'
-        )
-        if [ -n "$left" ]; then
-          echo "::error::Left in $SANDBOX_GOOGLE_PROJECT: $left"
-          exit 1
-        fi
+      run: .github/scripts/sandbox-google-sweep.sh
     # The generated configuration, encrypted to the OpenPGP key in the
     # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
     # artifacts of a public repository are public. Without the variable,
@@ -287,3 +204,43 @@ jobs:
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
         if-no-files-found: ignore
         retention-days: 7
+
+  # When the round trip was cancelled, timed out or failed: its destroy
+  # and sweep may not have run, or not to the end. always() starts this
+  # job after a cancel too, and keeps it running if the run is cancelled
+  # again; a reviewer of the sandbox environment approves it first, as for
+  # the round trip, or rejects it to skip it. The state was on the round
+  # trip's runner, and is never uploaded (the artifacts of a public
+  # repository are public), so it sweeps by name alone.
+  clean-up:
+    needs: round-trip
+    if: always() && needs.round-trip.result != 'success'
+    runs-on: ubuntu-latest
+    environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the fixture service account
+    timeout-minutes: 30
+    steps:
+    - name: Why
+      env:
+        RESULT: ${{ needs.round-trip.result }}
+      run: |
+        echo "The round trip ended $RESULT: sweeping the project." >> "$GITHUB_STEP_SUMMARY"
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Credentials of the fixture service account
+      id: fixture
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_FIXTURE_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    - name: Sweep the project
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
+        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      run: .github/scripts/sandbox-google-sweep.sh

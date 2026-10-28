@@ -15,6 +15,14 @@
 # the test moves to Terraform with --cfn-stack, deleting them as it goes;
 # and environments (TestSandboxAWSEnvironments): two small estates, dev
 # and prd, told apart by tag, which the import merges into one root.
+#
+# A cancelled job gets five minutes for its always() steps before GitHub
+# stops it, too few for the destroy, and a job that times out or whose
+# runner is lost runs no more steps. So when the round trip doesn't
+# succeed, the clean-up job, a job of its own with its full timeout,
+# sweeps whatever still carries the run's tag. Like any job of the
+# sandbox environment, it waits for a reviewer to approve it first, after
+# a cancel too, and the run, and so the next one, waits with it.
 name: Sandbox (AWS)
 
 on:
@@ -31,12 +39,12 @@ on:
         options: [terraform, tofu]
         default: terraform
 
-permissions:
-  contents: read
-  id-token: write # OpenID Connect, for the roles
+permissions: {}
 
 # One run at a time: each imports the whole of its regions, so another
 # run's estate would show up in its import, and change between its runs.
+# The group holds the whole run, its clean-up job too, so the next run
+# starts only once this one's estate is swept.
 concurrency:
   group: sandbox-aws
   cancel-in-progress: false
@@ -46,6 +54,9 @@ jobs:
     name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the roles
     # go test gets the test's own deadline plus the 30 minutes its cleanup
     # destroy has, and a margin, so that it never stops a destroy halfway
     # (the cfn estate's test 90 minutes, then 30 for what its stacks
@@ -66,6 +77,9 @@ jobs:
       # fixture role may not create one without (see aws-bootstrap).
       TF_VAR_permissions_boundary_arn: ${{ vars.AWS_BOUNDARY_POLICY_ARN }}
     steps:
+    # First in the run's summary, where it shows at once.
+    - name: Clean-up
+      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
     - name: Directories
       run: |
         {
@@ -187,8 +201,9 @@ jobs:
           exit 1
         fi
     # The last resort, whatever the destroy did: deletes what still carries
-    # this run's tag (TF_VAR_run_id) and costs the most while it exists, and
-    # warns about the rest. It touches nothing without the tag.
+    # this run's tag (TF_VAR_run_id), in the order its dependencies allow,
+    # and warns about what is still tagged. It touches nothing without the
+    # tag (see the script).
     - name: Sweep what the run left
       if: always()
       timeout-minutes: 30
@@ -238,3 +253,47 @@ jobs:
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
         if-no-files-found: ignore
         retention-days: 7
+
+  # When the round trip was cancelled, timed out or failed: its destroy
+  # and sweep may not have run, or not to the end. always() starts this
+  # job after a cancel too, and keeps it running if the run is cancelled
+  # again; a reviewer of the sandbox environment approves it first, as for
+  # the round trip, or rejects it to skip it. The state was on the round
+  # trip's runner, and is never uploaded (the artifacts of a public
+  # repository are public), so it sweeps by the run's tag alone.
+  clean-up:
+    needs: round-trip
+    if: always() && needs.round-trip.result != 'success'
+    runs-on: ubuntu-latest
+    environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the fixture role
+    # The sweep waits up to half an hour for CloudFront, and up to ten
+    # minutes for the network to let go of what used it.
+    timeout-minutes: 90
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
+    steps:
+    - name: Why
+      env:
+        RESULT: ${{ needs.round-trip.result }}
+      run: |
+        echo "The round trip ended $RESULT: sweeping what still carries the run's tag." >> "$GITHUB_STEP_SUMMARY"
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Credentials to sweep the estate
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        role-session-name: infraharvest-cleanup-${{ github.run_id }}
+        role-duration-seconds: 7200
+        aws-region: ${{ vars.AWS_REGION }}
+    # Both regions, and us-east-1, as in the round trip.
+    - name: Sweep what the run left
+      env:
+        RUN_ID: ${{ github.run_id }}
+      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1

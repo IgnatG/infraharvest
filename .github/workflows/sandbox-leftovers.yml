@@ -32,7 +32,9 @@ jobs:
     permissions:
       contents: read
       id-token: write # OpenID Connect, for the roles
-    timeout-minutes: 45
+    # The sweep waits for CloudFront to deploy a distribution disabled
+    # before it deletes it, which takes up to half an hour.
+    timeout-minutes: 90
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
@@ -99,9 +101,8 @@ jobs:
           fi
         }
         regions=$(printf '%s\n' "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1 | sort -u)
-        # What every earlier run left with its run tag: instances, NAT
-        # gateways, Elastic IPs, databases, clusters, load balancers,
-        # streams, functions and buckets.
+        # Everything every earlier run left with its run tag (see the
+        # script).
         # shellcheck disable=SC2086
         .github/scripts/sandbox-aws-sweep.sh $regions
         for region in $regions; do

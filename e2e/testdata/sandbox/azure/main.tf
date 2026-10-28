@@ -139,6 +139,16 @@ resource "azurerm_subnet_network_security_group_association" "app" {
   network_security_group_id = azurerm_network_security_group.app.id
 }
 
+# A type no lister of its own lists, which the test lists through the
+# query service (Terraform's list resources) as well as resource_graph.
+# Application security groups are free.
+resource "azurerm_application_security_group" "web" {
+  name                = "${local.name}-web"
+  location            = local.location
+  resource_group_name = local.rg
+  tags                = local.tags
+}
+
 # A route table, which floci-az doesn't serve, with a route of its own,
 # on both subnets.
 resource "azurerm_route_table" "main" {

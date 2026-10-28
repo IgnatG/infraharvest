@@ -9,6 +9,15 @@
 # end, whatever happened. The identities and the resource group come from
 # a one-time bootstrap (e2e/testdata/sandbox/azure-bootstrap); see
 # e2e/README.md.
+#
+# A cancelled job gets five minutes for its always() steps before GitHub
+# stops it, too few for the destroy, and a job that times out or whose
+# runner is lost runs no more steps. So when the round trip doesn't
+# succeed, the clean-up job, a job of its own with its full timeout,
+# sweeps the resource group as the round trip does when it fails. Like
+# any job of the sandbox environment, it waits for a reviewer to approve
+# it first, after a cancel too, and the run, and so the next one, waits
+# with it.
 name: Sandbox (Azure)
 
 on:
@@ -20,12 +29,12 @@ on:
         options: [terraform, tofu]
         default: terraform
 
-permissions:
-  contents: read
-  id-token: write # OpenID Connect, for the identities
+permissions: {}
 
 # One run at a time: each imports the whole of the estate's resource group,
 # so another run's estate would show up in its import.
+# The group holds the whole run, its clean-up job too, so the next run
+# starts only once this one's estate is swept.
 concurrency:
   group: sandbox-azure
   cancel-in-progress: false
@@ -35,6 +44,9 @@ jobs:
     name: round-trip (${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the identities
     timeout-minutes: 120
     env:
       E2E_ENGINE: ${{ inputs.engine }}
@@ -49,6 +61,9 @@ jobs:
       SANDBOX_AZURE_READONLY_CLIENT_ID: ${{ vars.AZURE_READONLY_CLIENT_ID }}
       SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
     steps:
+    # First in the run's summary, where it shows at once.
+    - name: Clean-up
+      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
     - name: Directories
       run: |
         {
@@ -136,54 +151,12 @@ jobs:
         client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-    # When the run failed, deletes what Terraform's state doesn't hold,
-    # such as a resource whose creation failed half-way, and what an earlier
-    # run left: the locks first, which would stop the rest, the estate's role
-    # assignments and custom roles, then every resource tagged
-    # infraharvest-sandbox, whichever engine's run made it
-    # (runs never overlap), a few rounds over, as some can only go once what
-    # uses them has. The resource group itself stays.
+    # When the run failed, or an earlier run left something: deletes what
+    # Terraform's state doesn't hold, such as a resource whose creation
+    # failed half-way, and what an earlier run left (see the script).
     - name: Sweep the resource group
       if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
-      run: |
-        sub=(--subscription "$ARM_SUBSCRIPTION_ID")
-        locks=$(az lock list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
-        while IFS= read -r lock; do
-          if [ -n "$lock" ]; then
-            az lock delete "${sub[@]}" --ids "$lock" || true
-          fi
-        done <<< "$locks"
-        # The estate's role assignments, by their description, and then
-        # its custom roles, by their name, both starting ih-sbx-: the
-        # bootstrap's, which the fixture's own roles come from, don't.
-        scope="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$SANDBOX_AZURE_RESOURCE_GROUP"
-        assignments=$(az role assignment list "${sub[@]}" --scope "$scope" --query "[?starts_with(description || '', 'ih-sbx-')].id" -o tsv)
-        while IFS= read -r assignment; do
-          if [ -n "$assignment" ]; then
-            az role assignment delete "${sub[@]}" --ids "$assignment" || true
-          fi
-        done <<< "$assignments"
-        roles=$(az role definition list "${sub[@]}" --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].name" -o tsv)
-        while IFS= read -r role; do
-          if [ -n "$role" ]; then
-            az role definition delete "${sub[@]}" --name "$role" --scope "$scope" || true
-          fi
-        done <<< "$roles"
-        query="[?tags.\"infraharvest-sandbox\" != null].id"
-        for _ in 1 2 3; do
-          ids=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query "$query" -o tsv)
-          if [ -z "$ids" ]; then
-            break
-          fi
-          while IFS= read -r id; do
-            az resource delete "${sub[@]}" --ids "$id" || true
-          done <<< "$ids"
-        done
-        left=$(az resource list "${sub[@]}" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
-        if [ -n "$left" ]; then
-          echo "::error::Left in $SANDBOX_AZURE_RESOURCE_GROUP: $left"
-          exit 1
-        fi
+      run: .github/scripts/sandbox-azure-sweep.sh
     # The generated configuration, encrypted to the OpenPGP key in the
     # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
     # artifacts of a public repository are public. Without the variable,
@@ -225,3 +198,41 @@ jobs:
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
         if-no-files-found: ignore
         retention-days: 7
+
+  # When the round trip was cancelled, timed out or failed: its destroy
+  # and sweep may not have run, or not to the end. always() starts this
+  # job after a cancel too, and keeps it running if the run is cancelled
+  # again; a reviewer of the sandbox environment approves it first, as for
+  # the round trip, or rejects it to skip it. The state was on the round
+  # trip's runner, and is never uploaded (the artifacts of a public
+  # repository are public), so it sweeps by tag and name alone.
+  clean-up:
+    needs: round-trip
+    if: always() && needs.round-trip.result != 'success'
+    runs-on: ubuntu-latest
+    environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the fixture identity
+    timeout-minutes: 30
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
+    steps:
+    - name: Why
+      env:
+        RESULT: ${{ needs.round-trip.result }}
+      run: |
+        echo "The round trip ended $RESULT: sweeping the resource group." >> "$GITHUB_STEP_SUMMARY"
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Azure CLI as the fixture identity
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+    - name: Sweep the resource group
+      run: .github/scripts/sandbox-azure-sweep.sh

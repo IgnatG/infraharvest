@@ -74,8 +74,14 @@ var sandboxGoogleLagging = []string{"cloudfunctions.googleapis.com/Function"}
 
 // sandboxGoogleUnlisted are the types the estate creates that no lister
 // lists: a bucket's objects, such as the function's source, aren't
-// resources Cloud Asset Inventory finds.
-var sandboxGoogleUnlisted = []string{"google_storage_bucket_object"}
+// resources Cloud Asset Inventory finds, and the query service lists the
+// network firewall policy (see sandboxGoogleQueried).
+var sandboxGoogleUnlisted = []string{"google_storage_bucket_object", sandboxGoogleQueried}
+
+// sandboxGoogleQueried is the type of the estate no lister lists that the
+// query service lists, through Terraform's list resources (see
+// checkGoogleQuery).
+const sandboxGoogleQueried = "google_compute_network_firewall_policy"
 
 // TestSandboxGoogle creates testdata/sandbox/google in a real project as
 // the fixture service account (the credentials file
@@ -116,10 +122,36 @@ func TestSandboxGoogle(t *testing.T) {
 	checkGoogleLabels(ctx, t, s, coverage, created)
 	checkGoogleFunction(t, coverage, created)
 	checkGoogleDisks(t, coverage, created)
+	s.checkGoogleQuery(ctx, t, created)
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
 	}
 	s.checkGoogleDrift(ctx, t, estate)
+}
+
+// checkGoogleQuery takes the estate's network firewall policy through the
+// query service as the read-only service account, in the project's
+// global resources (see checkQueryRoundTrip). Call it once the test has
+// signed in as that account.
+func (s *googleSandbox) checkGoogleQuery(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	name := ""
+	for _, r := range created {
+		if r.Type == sandboxGoogleQueried {
+			name, _ = r.AttributeValues["name"].(string)
+		}
+	}
+	if name == "" {
+		t.Fatalf("the estate has no %s", sandboxGoogleQueried)
+	}
+	checkQueryRoundTrip(ctx, t, queryRoundTrip{
+		command:  "google",
+		scope:    []string{"--projects=" + s.project, "--regions=global"},
+		typ:      sandboxGoogleQueried,
+		identity: map[string]string{"project": s.project, "name": name},
+		file:     "network.tf",
+		plugins:  s.plugins,
+	})
 }
 
 // googleSandbox is what the Google Cloud sandbox test runs with: the
