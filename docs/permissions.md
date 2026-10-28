@@ -93,7 +93,6 @@ terraform apply -var project_id=<project> \
 
 or grant them to a service account (`member=serviceAccount:<email>`) that those identities may impersonate (`roles/iam.workloadIdentityUser`). The workflow signs in with `google-github-actions/auth`, which writes the credentials file Application Default Credentials read (see [Google Cloud](google.md)).
 
-
 ## Drift: reading the state
 
 `infraharvest drift` refreshes roots that are applied, so besides the access above it needs read access to their state (see [Drift](drift.md#credentials)). None of the roles above grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, `Reader` has no data actions, and the Google Cloud member is denied `storage.objects.get`. The drift templates grant it on the state alone, with the read-only access above. Drift never takes the state's lock, so none of them grants write access for it. Applying the saved refresh plan to drift's private copy configures the provider again: with AWS, that calls `sts:GetCallerIdentity`, which needs no permission, and with Azure and Google Cloud signs in again, so the credentials must still be valid after the refresh (see the GitHub Action's [Permissions for drift](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#permissions-for-drift)).

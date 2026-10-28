@@ -175,9 +175,9 @@ func TestLockOutputRefusesLinks(t *testing.T) {
 func TestLockOutputTakesLinksThatStayInside(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
-	real := filepath.Join(base, "real")
-	common := filepath.Join(real, "common", "providers.tf")
-	root := filepath.Join(real, "aws", "1", "eu-west-2")
+	target := filepath.Join(base, "target")
+	common := filepath.Join(target, "common", "providers.tf")
+	root := filepath.Join(target, "aws", "1", "eu-west-2")
 	for _, dir := range []string{filepath.Dir(common), root} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
@@ -187,7 +187,7 @@ func TestLockOutputTakesLinksThatStayInside(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(base, "out")
-	if err := os.Symlink(real, out); err != nil {
+	if err := os.Symlink(target, out); err != nil {
 		t.Skipf("no symbolic links here: %v", err)
 	}
 	if err := os.Symlink(common, filepath.Join(root, "providers.tf")); err != nil {
