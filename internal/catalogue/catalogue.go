@@ -716,6 +716,18 @@ func (c *Catalogue) FromInventory(assetType, name string) []string {
 	return types
 }
 
+// InventoryTypes returns the Terraform types whose inventory entry has
+// assetType, whatever its name pattern: those FromInventory may return
+// for a resource of that type, sorted.
+func (c *Catalogue) InventoryTypes(assetType string) []string {
+	c.inventoryOnce.Do(c.indexInventory)
+	var types []string
+	for _, e := range c.byInventory[strings.ToLower(assetType)] {
+		types = append(types, e.typ)
+	}
+	return types
+}
+
 // indexInventory builds byInventory (see FromInventory).
 func (c *Catalogue) indexInventory() {
 	c.byInventory = map[string][]inventoryEntry{}
