@@ -10,6 +10,8 @@ name: Release
 # dependency code runs where the token can write the repository or packages
 # or mint the OIDC token cosign signs with. GoReleaser publishes a draft
 # release; the release job makes it public only once the provenance is
+# attested. The release job runs in the release environment, so that its
+# reviewers, if the repository sets any, approve it before the tag is made.
 # attested. When a step after the tag fails before GoReleaser runs, it
 # takes the tag back, so that the version can be released again; once
 # GoReleaser has run, which signs the checksum file and pushes and signs
@@ -67,6 +69,13 @@ jobs:
   release:
     needs: test
     runs-on: ubuntu-latest
+    # A reviewer of the release environment approves the release before it
+    # runs, as one of the sandbox environment approves a sandbox run; the
+    # environment is created with no reviewers until the repository's
+    # settings add them. The signatures name this workflow and ref, not the
+    # environment, so what verifies them (install.sh, docs/install.md)
+    # stays the same.
+    environment: release
     # Six targets built one at a time, about 12 minutes each: past
     # goreleaser's default --timeout of an hour.
     timeout-minutes: 180
