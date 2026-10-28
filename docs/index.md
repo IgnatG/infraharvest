@@ -31,4 +31,6 @@ Terraform 1.14 and later can find resources itself: [`terraform query`](https://
 | `terraform query`, or Search & Import | A handful of resources, brought into a workspace you already run in HCP Terraform or with Terraform |
 | infraharvest | Whole accounts, subscriptions and projects, on Terraform or OpenTofu, run locally: references between resources, locals, modules, secrets as variables, a plan with no changes for every root, environments sharing one root, and [drift](drift.md) accepted into the code |
 
+For a resource type it has no lister for, infraharvest can use Terraform's list resources itself: `--services=query --query-types=<type>,...` lists those types through `terraform query` and imports what it finds by identity, with Terraform 1.14 or later, not OpenTofu (see [Listing through Terraform](usage.md#listing-through-terraform)).
+
 infraharvest is licensed under [AGPL-3.0-only](https://github.com/IgnatG/infraharvest/blob/main/LICENSE).

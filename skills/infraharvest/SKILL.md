@@ -30,6 +30,8 @@ infraharvest discover google --services='*' --projects=my-project --regions=glob
 
 `--pick=false` skips the terminal picker. If part of the estate is already under Terraform, add `--managed-state` with that state (state files, a directory, `s3://`, `gs://`, an Azure blob URL, `tfc://<organization>/<workspace>`, or `backend`), so nothing is imported twice.
 
+For a resource type no service lists, infraharvest can list it through Terraform's own list resources: `--services=query --query-types=aws_flow_log` (the `query_types` parameter over MCP), with Terraform 1.14 or later, not OpenTofu. Those resources have no tags, so tag rules and `--env-tags` can't decide them.
+
 ### 2. Review the selection with the user
 
 `selection.yaml` lists each resource with `include: true` or `false`, and the reason for each exclusion. The default selection leaves out what the cloud creates itself and what another tool manages (CloudFormation, a `ManagedBy` tag, another state). Summarise it for the user by type and scope, point out the exclusions and anything marked `new: true`, and change only what they ask for. They can review it themselves with `infraharvest pick --selection selection.yaml`.
