@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // schemaHints is what a provider's code says about its arguments (see
@@ -65,7 +66,7 @@ func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 	}
 	h := schemaHints{file: file, constrained: constrainedOf(file)}
 	used := ""
-	if lock, err := os.ReadFile(filepath.Join(dir, LockFileName)); err == nil {
+	if lock, err := os.ReadFile(filepath.Join(dir, tfrun.LockFileName)); err == nil {
 		// The source without its registry: hashicorp/aws.
 		source := file.Provider
 		if parts := strings.Split(source, "/"); len(parts) == 3 {

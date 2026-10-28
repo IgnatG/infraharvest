@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // sensitiveValues returns the string values the plan marks sensitive in
@@ -279,7 +281,7 @@ func scanFile(check *Check, sensitive valueMatcher, rel, content string) {
 	if !readsLiteralSecrets(rel) {
 		return
 	}
-	parsed, err := parseHCL(rel, []byte(content))
+	parsed, err := hclfile.Parse(rel, []byte(content))
 	if err != nil {
 		return
 	}
@@ -320,12 +322,12 @@ func checkReadme(dir string, result *Result, values []string) error {
 
 // providerCredentials returns the credential arguments the provider blocks
 // of a .tf file set to constants, sorted, as "provider.argument".
-func providerCredentials(f *hclFile) []string {
-	if !strings.HasSuffix(f.path, ".tf") {
+func providerCredentials(f *hclfile.File) []string {
+	if !strings.HasSuffix(f.Path, ".tf") {
 		return nil
 	}
 	var names []string
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 {
 			continue
 		}

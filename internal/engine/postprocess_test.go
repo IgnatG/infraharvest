@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // An edit that fails after changing a file leaves nothing of it behind.
@@ -32,7 +34,7 @@ func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
 		return true, failure
 	}
 
-	kept, err := verify(context.Background(), tf, dir, changeSummary{}, nil, nil, edit, GeneratedFileName, LocalsFileName)
+	kept, err := verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, edit, GeneratedFileName, LocalsFileName)
 	if kept || !errors.Is(err, failure) {
 		t.Fatalf("got kept=%v err=%v, want the edit's error", kept, err)
 	}
@@ -53,7 +55,7 @@ func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
 // already updates, such as its labels after an import, is undone.
 func TestVerifyComparesEachResourcesChange(t *testing.T) {
 	t.Parallel()
-	baseline := changeSummary{Change: 1}
+	baseline := tfrun.ChangeSummary{Change: 1}
 	updatesTags := resourceChange("aws_subnet.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"tags": map[string]any{}}, map[string]any{"tags": map[string]any{"a": "b"}})
 	changes := map[string]string{"aws_subnet.a": changeSignature(updatesTags)}
 	edit := func(dir string) func() (bool, error) {
@@ -155,15 +157,15 @@ func TestVerifySteps(t *testing.T) {
 		want  []string // the comments kept
 	}{
 		"together":          {nil, "plan,show", []string{"one", "two"}},
-		"one at a time":     {[]fakePlan{{summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", []string{"two"}},
-		"none of them kept": {[]fakePlan{{summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}, {summary: changeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", nil},
+		"one at a time":     {[]fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}, {summary: tfrun.ChangeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", []string{"two"}},
+		"none of them kept": {[]fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}, {summary: tfrun.ChangeSummary{Change: 1}}, {summary: tfrun.ChangeSummary{Change: 1}}}, "plan,show,plan,show,plan,show", nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, GeneratedFileName, networkGenerated)
 			tf := &fakeTerraform{dir: dir, plans: tt.plans}
 
-			if err := verifySteps(context.Background(), tf, dir, changeSummary{}, nil, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
+			if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -190,7 +192,7 @@ func TestVerifyStepsWithoutChanges(t *testing.T) {
 	unchanged := tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return false, nil }}
 	none := tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(map[string]int) (map[string]bool, error) { return nil, nil }}
 
-	if err := verifySteps(context.Background(), tf, dir, changeSummary{}, nil, nil, []tidyStep{unchanged, none}); err != nil {
+	if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{unchanged, none}); err != nil {
 		t.Fatal(err)
 	}
 

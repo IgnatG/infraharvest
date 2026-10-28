@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -120,7 +120,7 @@ func applyWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plugins s
 	t.Helper()
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

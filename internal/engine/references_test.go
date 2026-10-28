@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // importedValues are what a plan of the imports reports, by address.
@@ -249,7 +251,7 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
 	// The imported values, then the plan of every step at once, then that
 	// of the references alone.
-	changed := fakePlan{summary: changeSummary{Change: 1}}
+	changed := fakePlan{summary: tfrun.ChangeSummary{Change: 1}}
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues), plans: []fakePlan{{}, changed, changed}}
 
 	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {

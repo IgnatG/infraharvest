@@ -20,6 +20,9 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // registryTimeout bounds one registry request; registryBodyLimit bounds
@@ -28,15 +31,6 @@ const (
 	registryTimeout   = 30 * time.Second
 	registryBodyLimit = 4 << 20
 )
-
-// DefaultRegistry is the registry provider sources without a host use.
-const DefaultRegistry = "registry.terraform.io"
-
-// BinaryVersion returns the version of the Terraform or OpenTofu binary at
-// execPath.
-func BinaryVersion(ctx context.Context, execPath string) (*version.Version, error) {
-	return binaryVersion(ctx, execPath)
-}
 
 // RequiredVersion is the required_version for configuration generated with
 // Terraform v: this minor release or newer, within its major release.
@@ -113,7 +107,7 @@ func LatestProviderVersion(ctx context.Context, client *http.Client, baseURL, so
 func ProviderVersion(ctx context.Context, client *http.Client, baseURL, source string, constraints []version.Constraints) (*version.Version, error) {
 	parts := strings.Split(source, "/")
 	if len(parts) == 2 {
-		parts = append([]string{DefaultRegistry}, parts...)
+		parts = append([]string{tfrun.DefaultRegistry}, parts...)
 	}
 	if len(parts) != 3 {
 		return nil, fmt.Errorf("provider source %q is not [host/]namespace/type", source)
@@ -195,7 +189,7 @@ func ModuleReleases(ctx context.Context, client *http.Client, baseURL, source st
 		return nil, fmt.Errorf("module source %q is not namespace/name/system", source)
 	}
 	if baseURL == "" {
-		baseURL = "https://" + DefaultRegistry
+		baseURL = "https://" + tfrun.DefaultRegistry
 	}
 	what := source + " versions"
 	content, err := getRegistry(ctx, client, baseURL+"/v1/modules/"+module+"/versions", what)
@@ -299,11 +293,11 @@ func fetchVersions(ctx context.Context, client *http.Client, url string) (conten
 // (host/namespace/type) that a dependency lock file records, or "" if it
 // records none.
 func LockedVersion(lock []byte, source string) string {
-	f, err := parseHCL(LockFileName, lock)
+	f, err := hclfile.Parse(tfrun.LockFileName, lock)
 	if err != nil {
 		return ""
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 || !strings.EqualFold(b.Labels[0], source) {
 			continue
 		}
@@ -323,12 +317,12 @@ func LockedVersion(lock []byte, source string) string {
 // meet. Requirements that aren't literal, and providers lock doesn't
 // record, stay as they are.
 func pinnedToLock(versions, lock []byte) ([]byte, error) {
-	f, diags := parseFile(VersionsFileName, versions)
+	f, diags := hclfile.ParseDiagnostics(VersionsFileName, versions)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 	changed := false
-	for _, tb := range f.edit().Body().Blocks() {
+	for _, tb := range f.Edit().Body().Blocks() {
 		if tb.Type() != "terraform" {
 			continue
 		}
@@ -363,7 +357,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 	if !changed {
 		return versions, nil
 	}
-	return hclwrite.Format(f.edit().Bytes()), nil
+	return hclwrite.Format(f.Edit().Bytes()), nil
 }
 
 // lockedVersionOf is LockedVersion for a provider source as
@@ -373,7 +367,7 @@ func lockedVersionOf(lock []byte, source string) string {
 	if strings.Count(source, "/") >= 2 {
 		return LockedVersion(lock, source)
 	}
-	for _, registry := range []string{DefaultRegistry, TofuBinary.Registry} {
+	for _, registry := range []string{tfrun.DefaultRegistry, tfrun.TofuBinary.Registry} {
 		if v := LockedVersion(lock, registry+"/"+source); v != "" {
 			return v
 		}

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // TestGenerateWithRealTerraform runs the whole engine against real Terraform
@@ -26,11 +28,11 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	cache := t.TempDir()
 	dir := t.TempDir()
 
-	execPath, err := FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tfVersion, err := BinaryVersion(ctx, execPath)
+	tfVersion, err := tfrun.BinaryVersion(ctx, execPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := map[string][]byte{VersionsFileName: VersionsFile(RequiredVersion(tfVersion), p), ProvidersFileName: providers}
-	tf, err := NewTerraform(dir, execPath, filepath.Join(cache, "plugins"), nil)
+	tf, err := tfrun.New(dir, execPath, filepath.Join(cache, "plugins"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

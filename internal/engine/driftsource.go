@@ -21,6 +21,7 @@ import (
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // How a root's code sets an attribute that changed in the cloud
@@ -70,11 +71,11 @@ type codeSource struct {
 	Kind  string
 	// Edit takes the cloud's value into the code; nil when that is a hand
 	// edit, as Reason says, or a secret.
-	Edit *codeEdit
+	Edit *hclfile.Edit
 	// Also are the other edits Edit takes, made with it, or not at all:
 	// for a literal of a generated module made a variable of it, the
 	// module's and the call's (see promoteLiteral).
-	Also []codeEdit
+	Also []hclfile.Edit
 	// Reason says why there is no Edit.
 	Reason string
 	// instance says Edit is of the instance's own value, its key's in the
@@ -89,38 +90,6 @@ type codeSource struct {
 	// Note says what the report should say of an edit, such as a call's
 	// argument set to null, whose module's default isn't null.
 	Note string
-}
-
-// codeEdit replaces the bytes from Start to End of File, relative to
-// the root, with Text.
-type codeEdit struct {
-	File       string
-	Start, End int
-	Text       []byte
-	// Layout is the address of the resource block to lay out once edited,
-	// as for an argument added at the end of it.
-	Layout string
-}
-
-// appendEdit is the edit that adds text, whole lines, at the end of f,
-// the file name, nil where there is none yet: on a line of its own, and
-// after a blank line where blank says so and f has anything to keep
-// apart from.
-func appendEdit(f *hclFile, name string, text []byte, blank bool) codeEdit {
-	var src []byte
-	if f != nil {
-		src = f.src
-	}
-	var before []byte
-	if n := len(src); n > 0 {
-		if src[n-1] != '\n' {
-			before = append(before, '\n')
-		}
-		if blank {
-			before = append(before, '\n')
-		}
-	}
-	return codeEdit{File: name, Start: len(src), End: len(src), Text: slices.Concat(before, text)}
 }
 
 // refreshedResource is a resource as the refresh found it: the state's
@@ -443,7 +412,7 @@ type driftWalk struct {
 	cfg     *driftConfig
 	c       *DriftChange
 	file    string // of the expression walked
-	f       *hclFile
+	f       *hclfile.File
 	address string
 	res     refreshedResource
 	steps   []pathStep
@@ -471,10 +440,10 @@ func (w *driftWalk) manual(kind string, rng hcl.Range, reason string) codeSource
 }
 
 func (w *driftWalk) text(rng hcl.Range) string {
-	if rng.End.Byte > len(w.f.src) || rng.Start.Byte > rng.End.Byte {
+	if rng.End.Byte > len(w.f.Src) || rng.Start.Byte > rng.End.Byte {
 		return ""
 	}
-	return string(w.f.src[rng.Start.Byte:rng.End.Byte])
+	return string(w.f.Src[rng.Start.Byte:rng.End.Byte])
 }
 
 // at returns the cloud's value at the first n steps, or nil if the cloud
@@ -676,7 +645,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 				src.Edit = w.removeLines(h.attr.SrcRange)
 			}
 			if src.Edit == nil {
-				src.Edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
+				src.Edit = &hclfile.Edit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("null")}
 				src.Note = note
 			}
 		case h.attr != nil:
@@ -699,7 +668,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 			return src
 		}
 	}
-	src.Edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
+	src.Edit = &hclfile.Edit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
 	return src
 }
 
@@ -711,7 +680,7 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 		if w.mod.adapter == nil || len(path) != 1 {
 			return false
 		}
-		tokens := parseExpr(string(text))
+		tokens := hclfile.ParseExpr(string(text))
 		if tokens == nil {
 			return false
 		}
@@ -835,23 +804,23 @@ func keyText(key string) string {
 }
 
 // insertArgument adds name = text at the end of block's body, which the
-// block's layout then puts in its place (see layoutBody); nil if the
+// block's layout then puts in its place (see hclfile.LayoutBody); nil if the
 // block is on one line with something in it.
-func (w *driftWalk) insertArgument(block *hclsyntax.Block, name string, text []byte) *codeEdit {
-	src := w.f.src
+func (w *driftWalk) insertArgument(block *hclsyntax.Block, name string, text []byte) *hclfile.Edit {
+	src := w.f.Src
 	line := slices.Concat([]byte(name+" = "), text, []byte("\n"))
 	opening, closing := block.OpenBraceRange, block.CloseBraceRange
 	if opening.Start.Line == closing.Start.Line {
 		if len(block.Body.Attributes)+len(block.Body.Blocks) > 0 {
 			return nil
 		}
-		return &codeEdit{File: w.file, Start: opening.End.Byte, End: closing.Start.Byte, Text: slices.Concat([]byte("\n"), line), Layout: w.address}
+		return &hclfile.Edit{File: w.file, Start: opening.End.Byte, End: closing.Start.Byte, Text: slices.Concat([]byte("\n"), line), Layout: w.address}
 	}
-	at := lineStart(src, closing.Start.Byte)
+	at := hclfile.LineStart(src, closing.Start.Byte)
 	if len(bytes.TrimSpace(src[at:closing.Start.Byte])) > 0 {
 		return nil
 	}
-	return &codeEdit{File: w.file, Start: at, End: at, Text: line, Layout: w.address}
+	return &hclfile.Edit{File: w.file, Start: at, End: at, Text: line, Layout: w.address}
 }
 
 // insertKey adds the key with the cloud's value to obj, an object
@@ -865,22 +834,22 @@ func (w *driftWalk) insertKey(obj *hclsyntax.ObjectConsExpr, key string, path []
 		return w.unwritable(sourceLiteral, obj.Range())
 	}
 	item := keyText(key) + " = " + string(text)
-	src := w.f.src
+	src := w.f.Src
 	rng := obj.Range()
 	end := rng.End.Byte - 1 // the closing brace
-	var edit *codeEdit
+	var edit *hclfile.Edit
 	switch {
 	case obj.OpenRange.Start.Line == rng.End.Line && len(obj.Items) == 0:
-		edit = &codeEdit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("{\n" + item + "\n}")}
+		edit = &hclfile.Edit{File: w.file, Start: rng.Start.Byte, End: rng.End.Byte, Text: []byte("{\n" + item + "\n}")}
 	case obj.OpenRange.Start.Line == rng.End.Line:
 		after := obj.Items[len(obj.Items)-1].ValueExpr.Range().End.Byte
-		edit = &codeEdit{File: w.file, Start: after, End: after, Text: []byte(", " + item)}
+		edit = &hclfile.Edit{File: w.file, Start: after, End: after, Text: []byte(", " + item)}
 	default:
-		at := lineStart(src, end)
+		at := hclfile.LineStart(src, end)
 		if len(bytes.TrimSpace(src[at:end])) > 0 {
 			return w.manual(sourceLiteral, rng, "add the key by hand")
 		}
-		edit = &codeEdit{File: w.file, Start: at, End: at, Text: []byte(item + "\n")}
+		edit = &hclfile.Edit{File: w.file, Start: at, End: at, Text: []byte(item + "\n")}
 	}
 	return codeSource{File: w.file, Range: rng, Kind: sourceLiteral, Edit: edit}
 }
@@ -896,27 +865,27 @@ func (w *driftWalk) appendMergeArg(call *hclsyntax.FunctionCallExpr, key string,
 		return w.unwritable(sourceExpression, call.Range())
 	}
 	at := call.CloseParenRange.Start.Byte
-	return codeSource{File: w.file, Range: call.Range(), Kind: sourceLiteral, Edit: &codeEdit{File: w.file, Start: at, End: at, Text: []byte(", { " + keyText(key) + " = " + string(text) + " }")}}
+	return codeSource{File: w.file, Range: call.Range(), Kind: sourceLiteral, Edit: &hclfile.Edit{File: w.file, Start: at, End: at, Text: []byte(", { " + keyText(key) + " = " + string(text) + " }")}}
 }
 
 // removeLines removes the lines of rng, if nothing else is on them.
-func (w *driftWalk) removeLines(rng hcl.Range) *codeEdit {
-	src := w.f.src
-	start, end := lineStart(src, rng.Start.Byte), lineEnd(src, rng.End.Byte)
+func (w *driftWalk) removeLines(rng hcl.Range) *hclfile.Edit {
+	src := w.f.Src
+	start, end := hclfile.LineStart(src, rng.Start.Byte), hclfile.LineEnd(src, rng.End.Byte)
 	if len(bytes.TrimSpace(src[start:rng.Start.Byte])) > 0 || len(bytes.TrimSpace(src[rng.End.Byte:end])) > 0 {
 		return nil
 	}
-	return &codeEdit{File: w.file, Start: start, End: end}
+	return &hclfile.Edit{File: w.file, Start: start, End: end}
 }
 
 // removeItem removes item from obj: its lines, if it is alone on them,
 // else the item and the comma after it.
-func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.ObjectConsItem) *codeEdit {
+func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.ObjectConsItem) *hclfile.Edit {
 	rng := hcl.RangeBetween(item.KeyExpr.Range(), item.ValueExpr.Range())
 	if edit := w.removeLines(rng); edit != nil && obj.OpenRange.Start.Line != rng.Start.Line {
 		return edit
 	}
-	src := w.f.src
+	src := w.f.Src
 	end := rng.End.Byte
 	for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
 		end++
@@ -927,7 +896,7 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 			end++
 		}
 	}
-	return &codeEdit{File: w.file, Start: rng.Start.Byte, End: end}
+	return &hclfile.Edit{File: w.file, Start: rng.Start.Byte, End: end}
 }
 
 // apply makes in contents, files by name, the edits that take the
@@ -956,7 +925,7 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 			failed[c] = src
 			continue
 		}
-		next, reason, secret := editFiles(contents, slices.Concat([]codeEdit{*src.Edit}, src.Also))
+		next, reason, secret := editFiles(contents, slices.Concat([]hclfile.Edit{*src.Edit}, src.Also))
 		if reason != "" {
 			src.Edit, src.Also, src.Reason, src.Secret = nil, nil, reason, secret
 			failed[c] = src
@@ -975,8 +944,8 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 // them, each laid out where an argument was added and formatted; or why
 // they can't be made, as an edited file wouldn't parse or would hold a
 // literal secret it didn't (secret).
-func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte, string, bool) {
-	byFile := map[string][]codeEdit{}
+func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]byte, string, bool) {
+	byFile := map[string][]hclfile.Edit{}
 	for _, edit := range edits {
 		byFile[edit.File] = append(byFile[edit.File], edit)
 	}
@@ -998,14 +967,14 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 			content = layoutResource(content, address)
 		}
 		content = hclwrite.Format(content)
-		edited, err := parseHCL(name, content)
+		edited, err := hclfile.Parse(name, content)
 		if err != nil {
 			return nil, "the edit wouldn't parse: edit it by hand", false
 		}
 		// The findings, not their count: an edit may remove one secret and
 		// add another.
 		var had Check
-		if f, err := parseHCL(name, old); err == nil {
+		if f, err := hclfile.Parse(name, old); err == nil {
 			had.Details = literalSecrets(f)
 		}
 		if len(addedDetails(had, Check{Details: literalSecrets(edited)})) > 0 {
@@ -1017,17 +986,17 @@ func editFiles(contents map[string][]byte, edits []codeEdit) (map[string][]byte,
 }
 
 // layoutResource lays out the block of the resource at address in src
-// (see layoutBody), and only that block.
+// (see hclfile.LayoutBody), and only that block.
 func layoutResource(src []byte, address string) []byte {
-	f, err := parseHCL("", src)
+	f, err := hclfile.Parse("", src)
 	if err != nil {
 		return src
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		if b.Type != "resource" || len(b.Labels) != 2 || b.Labels[0]+"."+b.Labels[1] != address || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 			continue
 		}
-		inner, ok := layoutBody(src, b, true)
+		inner, ok := hclfile.LayoutBody(src, b, true)
 		if !ok {
 			return src
 		}
@@ -1049,10 +1018,10 @@ func reportSource(cfg *driftConfig, src codeSource, forms []string) *DriftSource
 		return out
 	}
 	rng := src.Range
-	if rng.End.Byte > len(f.src) || rng.Start.Byte >= rng.End.Byte {
+	if rng.End.Byte > len(f.Src) || rng.Start.Byte >= rng.End.Byte {
 		return out
 	}
-	expr := string(f.src[rng.Start.Byte:rng.End.Byte])
+	expr := string(f.Src[rng.Start.Byte:rng.End.Byte])
 	if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression && credentialFormat(expr) == "" {
 		out.Expression = redactText(expr, forms)
 	}

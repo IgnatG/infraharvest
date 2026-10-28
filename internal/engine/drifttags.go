@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // providerTags are the provider settings that give every resource of the
@@ -102,7 +104,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 		return s
 	}
 	for _, name := range sortedKeys(cfg.files) {
-		for _, b := range cfg.files[name].syntax.Blocks {
+		for _, b := range cfg.files[name].Syntax.Blocks {
 			switch {
 			case b.Type == "provider" && len(b.Labels) == 1:
 				_, aliased := b.Body.Attributes["alias"]
@@ -272,7 +274,7 @@ func (s *sharedSource) object(cfg *driftConfig) (*hclsyntax.ObjectConsExpr, stri
 		return obj, def.file, ok
 	}
 	for _, name := range sortedKeys(cfg.files) {
-		for _, b := range cfg.files[name].syntax.Blocks {
+		for _, b := range cfg.files[name].Syntax.Blocks {
 			if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != s.provider {
 				continue
 			}
@@ -478,7 +480,7 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource 
 		if err != nil {
 			return w.unwritable(sourceSharedTags, src.Range)
 		}
-		src.Edit = &codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
+		src.Edit = &hclfile.Edit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
 		return src
 	}
 	return w.manual(sourceSharedTags, obj.Range(), s.address+" no longer has the key: edit it by hand")
@@ -536,7 +538,7 @@ func moduleTagTargets(m *driftModule, variable string) (string, []string, bool) 
 	}
 	uses := 0
 	for _, name := range sortedKeys(m.cfg.files) {
-		for _, t := range allTraversals(m.cfg.files[name].syntax) {
+		for _, t := range allTraversals(m.cfg.files[name].Syntax) {
 			if t.RootName() != "var" || len(t) < 2 {
 				continue
 			}

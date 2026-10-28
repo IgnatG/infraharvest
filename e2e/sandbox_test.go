@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -30,7 +30,7 @@ import (
 // with vars, such as its suffix, which tells its names apart from other
 // runs'.
 type sandboxEstate struct {
-	tf   *engine.Runner
+	tf   *tfrun.Runner
 	vars []string
 }
 
@@ -50,7 +50,7 @@ func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := engine.NewTerraform(dir, execPath, plugins, env)
+	tf, err := tfrun.New(dir, execPath, plugins, env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 			t.Fatal(err)
 		}
 		root := filepath.Join(copied, rel)
-		applier, err := engine.NewTerraform(root, execPath, plugins, env)
+		applier, err := tfrun.New(root, execPath, plugins, env)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +208,7 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 		if managed == 0 {
 			t.Errorf("%s: the apply left nothing in state", rel)
 		}
-		planner, err := engine.NewTerraform(root, execPath, plugins, nil)
+		planner, err := tfrun.New(root, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

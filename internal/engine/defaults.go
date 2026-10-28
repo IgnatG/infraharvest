@@ -19,6 +19,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -89,20 +91,20 @@ func (c defaultCandidate) key() string {
 // shows in the plan, so it could hide a real setting. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
-func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return false, nil, err
 	}
-	current, err := loadHCL(path)
+	current, err := hclfile.Load(path)
 	if err != nil {
 		return false, nil, err
 	}
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
-	if len(rules.defaults) > 0 || hasConstants(current.syntax) || slices.ContainsFunc(current.syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
+	if len(rules.defaults) > 0 || hasConstants(current.Syntax) || slices.ContainsFunc(current.Syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
 			return false, nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
@@ -131,7 +133,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if err := restore(); err != nil {
 				return false, nil, err
 			}
-			f, err := loadHCL(path)
+			f, err := hclfile.Load(path)
 			if err != nil {
 				return false, nil, err
 			}
@@ -139,7 +141,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 			if len(removed) == 0 {
 				return false, nil, restore()
 			}
-			if err := f.save(); err != nil {
+			if err := f.Save(); err != nil {
 				return false, nil, err
 			}
 			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
@@ -184,7 +186,7 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 				return false, nil, err
 			}
 			if len(unassigned) > 0 || len(assigned) == 0 {
-				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, diagnosticsError(diags))
+				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(diags))
 				return nullsOnly()
 			}
 			for address, ds := range assigned {
@@ -244,13 +246,13 @@ func stripDefaults(ctx context.Context, tf Terraform, dir string, baseline chang
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
-func removeValid(ctx context.Context, tf Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
+func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
 	path := filepath.Join(dir, GeneratedFileName)
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
 			return nil, err
 		}
-		generated, err := loadHCL(path)
+		generated, err := hclfile.Load(path)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +260,7 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 		if len(removed) == 0 {
 			return nil, nil
 		}
-		if err := generated.save(); err != nil {
+		if err := generated.Save(); err != nil {
 			return nil, err
 		}
 		// Leaving out nulls never makes configuration invalid, nor do proven
@@ -273,7 +275,7 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 		if out.Valid {
 			return removed, nil
 		}
-		assigned, _, err := assignErrors(dir, errorDiagnostics(out.Diagnostics))
+		assigned, _, err := assignErrors(dir, tfrun.ErrorDiagnostics(out.Diagnostics))
 		if err != nil {
 			return nil, err
 		}
@@ -292,11 +294,11 @@ func removeValid(ctx context.Context, tf Terraform, dir string, restore func() e
 // assignErrors assigns diags to the resources of dir they are about (see
 // byResource).
 func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -453,11 +455,11 @@ func noWorse(now, before string) bool {
 
 // removeDefaults removes the candidates not in keep from every resource,
 // and returns them. Without schemas, only nulls are candidates.
-func removeDefaults(f *hclFile, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) []defaultCandidate {
+func removeDefaults(f *hclfile.File, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) []defaultCandidate {
 	var removed []defaultCandidate
-	for _, r := range f.resources() {
-		typ := AddressType(r.address)
-		removed = append(removed, removeIn(r.address, typ, nil, r.syntax.Body, r.write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags, hints: rules.hints, verifiedOnly: rules.verifiedOnly}, keep)...)
+	for _, r := range f.Resources() {
+		typ := AddressType(r.Address)
+		removed = append(removed, removeIn(r.Address, typ, nil, r.Syntax.Body, r.Write.Body(), schemas, typeRules{defaults: defaultValues(rules.defaults[typ]), keepEmpty: rules.keepEmpty[typ], tags: rules.tags, hints: rules.hints, verifiedOnly: rules.verifiedOnly}, keep)...)
 	}
 	return removed
 }

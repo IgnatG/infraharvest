@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -229,7 +230,7 @@ func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out 
 		stackDir := filepath.Join(out, filepath.FromSlash(stack))
 		for _, env := range []string{"dev", "prod"} {
 			credentials(env)
-			tf, err := engine.NewTerraform(stackDir, execPath, plugins, nil)
+			tf, err := tfrun.New(stackDir, execPath, plugins, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

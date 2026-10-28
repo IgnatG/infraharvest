@@ -20,7 +20,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -218,9 +218,9 @@ func checkEnvironmentsDrift(ctx context.Context, t *testing.T, fixture *appliedF
 
 // backendTerraform returns Terraform for the merged root in dir,
 // initialised with environment env's backend settings.
-func backendTerraform(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *engine.Runner {
+func backendTerraform(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *tfrun.Runner {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

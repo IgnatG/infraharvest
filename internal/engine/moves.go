@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
@@ -622,7 +623,7 @@ func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) e
 		fmt.Fprintf(&b, "removed {\n  from = %s\n\n  lifecycle {\n    destroy = false\n  }\n}\n", from)
 	}
 	content := hclwrite.Format([]byte(b.String()))
-	if _, diags := parseFile(path, content); diags.HasErrors() {
+	if _, diags := hclfile.ParseDiagnostics(path, content); diags.HasErrors() {
 		return fmt.Errorf("%s: %w", MovesFileName, diags)
 	}
 	return fsutil.WriteFile(path, content, 0o644)
@@ -631,20 +632,20 @@ func writeMoves(dir string, moved []Move, removed []Removal, retyped []Retype) e
 // ReadMoves returns the moved blocks of dir's moves.tf; none if dir has
 // no moves.tf.
 func ReadMoves(dir string) ([]Move, error) {
-	f, err := loadOptionalHCL(filepath.Join(dir, MovesFileName))
+	f, err := hclfile.LoadOptional(filepath.Join(dir, MovesFileName))
 	if err != nil || f == nil {
 		return nil, err
 	}
 	var moved []Move
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		from, hasFrom := b.Body.Attributes["from"]
 		to, hasTo := b.Body.Attributes["to"]
 		if b.Type != "moved" || !hasFrom || !hasTo {
 			continue
 		}
 		moved = append(moved, Move{
-			From: strings.TrimSpace(string(from.Expr.Range().SliceBytes(f.src))),
-			To:   strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src))),
+			From: strings.TrimSpace(string(from.Expr.Range().SliceBytes(f.Src))),
+			To:   strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.Src))),
 		})
 	}
 	return moved, nil
@@ -653,17 +654,17 @@ func ReadMoves(dir string) ([]Move, error) {
 // ReadRemoved returns the removed blocks of dir's moves.tf, by what they
 // remove; none if dir has no moves.tf.
 func ReadRemoved(dir string) ([]Removal, error) {
-	f, err := loadOptionalHCL(filepath.Join(dir, MovesFileName))
+	f, err := hclfile.LoadOptional(filepath.Join(dir, MovesFileName))
 	if err != nil || f == nil {
 		return nil, err
 	}
 	var removed []Removal
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		from, ok := b.Body.Attributes["from"]
 		if b.Type != "removed" || !ok {
 			continue
 		}
-		removed = append(removed, Removal{From: strings.TrimSpace(string(from.Expr.Range().SliceBytes(f.src)))})
+		removed = append(removed, Removal{From: strings.TrimSpace(string(from.Expr.Range().SliceBytes(f.Src)))})
 	}
 	return removed, nil
 }

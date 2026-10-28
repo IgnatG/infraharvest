@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package tfrun
 
 import (
 	"context"
@@ -25,6 +25,19 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/filelock"
+)
+
+// DefaultRegistry is the registry provider sources without a host use.
+const DefaultRegistry = "registry.terraform.io"
+
+// Files Terraform keeps in a root.
+const (
+	// LocalStateFileName is the file Terraform's local backend keeps a
+	// workspace's state in: the default one's in the root, each other
+	// one's under terraform.tfstate.d.
+	LocalStateFileName = "terraform.tfstate"
+	// LockFileName is Terraform's dependency lock file.
+	LockFileName = ".terraform.lock.hcl"
 )
 
 // Binary describes an engine binary: Terraform or OpenTofu, which run the
@@ -79,7 +92,7 @@ func (b Binary) Find(ctx context.Context, explicitPath, cacheDir string) (string
 	// same cache.
 	findMu.Lock()
 	defer findMu.Unlock()
-	return b.find(ctx, explicitPath, cacheDir, binaryVersion)
+	return b.find(ctx, explicitPath, cacheDir, BinaryVersion)
 }
 
 func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, versionOf versionOf) (string, error) {
@@ -138,9 +151,9 @@ func (b Binary) fileName() string {
 	return b.Name
 }
 
-// binaryVersion asks the binary at execPath for its version. OpenTofu
-// answers `version -json` like Terraform.
-func binaryVersion(ctx context.Context, execPath string) (*version.Version, error) {
+// BinaryVersion returns the version of the Terraform or OpenTofu binary
+// at execPath. OpenTofu answers `version -json` like Terraform.
+func BinaryVersion(ctx context.Context, execPath string) (*version.Version, error) {
 	tf, err := tfexec.NewTerraform(os.TempDir(), execPath)
 	if err != nil {
 		return nil, err
@@ -184,9 +197,9 @@ func lockPluginCache(ctx context.Context, dir string) (*filelock.Lock, error) {
 	return lock, nil
 }
 
-// initTerraform runs terraform init in tf's working directory, one at a
+// Init runs terraform init in tf's working directory, one at a
 // time (see initSlot).
-func initTerraform(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
+func Init(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
 	select {
 	case initSlot <- struct{}{}:
 	case <-ctx.Done():
@@ -197,7 +210,7 @@ func initTerraform(ctx context.Context, tf Terraform, opts ...tfexec.InitOption)
 }
 
 // timeoutError is the error of a Terraform command that ran longer than
-// it may (see Options.CommandTimeout).
+// it may (see WithTimeout).
 type timeoutError struct {
 	timeout time.Duration
 }
@@ -219,9 +232,9 @@ type timedTerraform struct {
 	timeout time.Duration
 }
 
-// withTimeout returns tf with each command bounded by timeout (see
+// WithTimeout returns tf with each command bounded by timeout (see
 // timedTerraform), or tf itself if timeout is 0 or tf is bounded already.
-func withTimeout(tf Terraform, timeout time.Duration) Terraform {
+func WithTimeout(tf Terraform, timeout time.Duration) Terraform {
 	if timeout <= 0 {
 		return tf
 	}
@@ -299,46 +312,96 @@ func (t *timedTerraform) FormatCheck(ctx context.Context, opts ...tfexec.FormatO
 	return formatted, unformatted, err
 }
 
-// emptyStatePattern names the temporary directories of emptyState.
-const emptyStatePattern = "infraharvest-state-"
+// timedDriftTerraform is a DriftTerraform whose every command runs for at
+// most a timeout (see timedTerraform).
+type timedDriftTerraform struct {
+	*timedTerraform
+	drift DriftTerraform
+}
 
-// emptyState returns the path of a state file that doesn't exist, in a
+// DriftWithTimeout returns tf with each command bounded by timeout (see
+// timedDriftTerraform), or tf itself if timeout is 0 or tf is bounded
+// already.
+func DriftWithTimeout(tf DriftTerraform, timeout time.Duration) DriftTerraform {
+	if _, ok := tf.(*timedDriftTerraform); ok || timeout <= 0 {
+		return tf
+	}
+	return &timedDriftTerraform{timedTerraform: &timedTerraform{Terraform: tf, timeout: timeout}, drift: tf}
+}
+
+func (t *timedDriftTerraform) StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error) {
+	var state string
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		state, err = t.drift.StatePull(ctx, opts...)
+		return err
+	})
+	return state, err
+}
+
+func (t *timedDriftTerraform) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
+	return t.bounded(ctx, func(ctx context.Context) error {
+		return t.drift.Apply(ctx, opts...)
+	})
+}
+
+func (t *timedDriftTerraform) ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error) {
+	var state *tfjson.State
+	err := t.bounded(ctx, func(ctx context.Context) error {
+		var err error
+		state, err = t.drift.ShowStateFile(ctx, statePath, opts...)
+		return err
+	})
+	return state, err
+}
+
+// EmptyStatePattern names the temporary directories of EmptyState.
+const EmptyStatePattern = "infraharvest-state-"
+
+// EmptyState returns the path of a state file that doesn't exist, in a
 // new temporary directory, and a function that removes the directory.
-// Plans with it read no state (see statelessTerraform), and its lock is
+// Plans with it read no state (see Stateless), and its lock is
 // in that directory.
-func emptyState() (string, func(), error) {
-	empty, err := os.MkdirTemp("", emptyStatePattern)
+func EmptyState() (string, func(), error) {
+	empty, err := os.MkdirTemp("", EmptyStatePattern)
 	if err != nil {
 		return "", nil, err
 	}
-	return filepath.Join(empty, localStateFileName), func() { _ = os.RemoveAll(empty) }, nil
+	return filepath.Join(empty, LocalStateFileName), func() { _ = os.RemoveAll(empty) }, nil
 }
 
-// withoutLocalState returns tf for dir, whose plans read no state: if dir
+// WithoutLocalState returns tf for dir, whose plans read no state: if dir
 // has the local state of a root applied without a backend (see
-// LocalStateFile), they plan with an empty state outside dir instead (see
-// emptyState), as Generate plans a root with a backend, whose state it
+// LocalStateFileName), they plan with an empty state outside dir instead
+// (see EmptyState), as the engine plans a root with a backend, whose state it
 // never reaches. With dir's state, Terraform would skip the import of
 // each resource the state has, and so generate no configuration for it;
 // the root's own plans, by whoever applies it, skip those imports, and
 // its moved blocks move the state's resources. The state is never
 // written, as a plan doesn't write state. The function it returns removes
 // the empty state's directory.
-func withoutLocalState(tf Terraform, dir string) (Terraform, func(), error) {
-	if _, err := os.Stat(filepath.Join(dir, localStateFileName)); errors.Is(err, fs.ErrNotExist) {
+func WithoutLocalState(tf Terraform, dir string) (Terraform, func(), error) {
+	if _, err := os.Stat(filepath.Join(dir, LocalStateFileName)); errors.Is(err, fs.ErrNotExist) {
 		return tf, func() {}, nil
 	} else if err != nil {
 		return nil, nil, err
 	}
-	state, remove, err := emptyState()
+	state, remove, err := EmptyState()
 	if err != nil {
 		return nil, nil, err
 	}
-	return &statelessTerraform{Terraform: tf, state: state}, remove, nil
+	return Stateless(tf, state), remove, nil
+}
+
+// Stateless returns tf with its plans reading the state at state, which
+// doesn't exist (see EmptyState), rather than its directory's (see
+// statelessTerraform).
+func Stateless(tf Terraform, state string) Terraform {
+	return &statelessTerraform{Terraform: tf, state: state}
 }
 
 // statelessTerraform is a Terraform whose plans read the state at state,
-// which doesn't exist (see emptyState), rather than the state of the
+// which doesn't exist (see EmptyState), rather than the state of the
 // directory it plans, in terraform.tfstate or a workspace's: -state
 // takes the place of both.
 type statelessTerraform struct {

@@ -12,6 +12,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -27,12 +28,12 @@ type terraformRun struct {
 
 // in returns the Terraform runner of dir: one that asks freshEnv for its
 // environment before each plan, when it is set (see
-// engine.NewFreshEnvTerraform).
-func (t terraformRun) in(dir string) (engine.Terraform, error) {
+// tfrun.NewFreshEnv).
+func (t terraformRun) in(dir string) (tfrun.Terraform, error) {
 	if t.freshEnv != nil {
-		return engine.NewFreshEnvTerraform(dir, t.execPath, t.pluginCacheDir, t.env, t.freshEnv)
+		return tfrun.NewFreshEnv(dir, t.execPath, t.pluginCacheDir, t.env, t.freshEnv)
 	}
-	tf, err := engine.NewTerraform(dir, t.execPath, t.pluginCacheDir, t.env)
+	tf, err := tfrun.New(dir, t.execPath, t.pluginCacheDir, t.env)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +74,7 @@ func generateDir(ctx context.Context, dir string, tr terraformRun, imports []eng
 	if err != nil {
 		return nil, err
 	}
-	lockPath := filepath.Join(dir, engine.LockFileName)
+	lockPath := filepath.Join(dir, tfrun.LockFileName)
 	if *lock != nil {
 		if err := os.WriteFile(lockPath, *lock, 0o644); err != nil {
 			return nil, err

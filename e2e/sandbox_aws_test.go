@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -158,7 +159,7 @@ func newSandbox(ctx context.Context, t *testing.T) *sandbox {
 	s.fixtureDir = envOr("SANDBOX_FIXTURE_DIR", t.TempDir())
 	s.plugins = envOr("SANDBOX_PLUGIN_CACHE", t.TempDir())
 	s.out = envOr("SANDBOX_OUTPUT_DIR", t.TempDir())
-	var binary engine.Binary
+	var binary tfrun.Binary
 	s.engineName, binary = e2eEngine(t)
 	var err error
 	if s.execPath, err = binary.Find(ctx, "", filepath.Join(s.plugins, binary.Name)); err != nil {
@@ -755,7 +756,7 @@ func checkSandboxDrift(ctx context.Context, t *testing.T, s *sandbox, estate *sa
 // local state it has, as the process's identity, and returns the plan.
 func planned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) *tfjson.Plan {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -777,7 +778,7 @@ func planned(ctx context.Context, t *testing.T, dir, execPath, plugins string, v
 // its local state, as the process's identity.
 func applyPlanned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

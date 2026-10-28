@@ -22,6 +22,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Secret is a variable the generated configuration reads a secret value
@@ -62,11 +64,11 @@ func (s secretAttribute) name() string {
 
 // findSecrets lists the secret attributes of every resource in f, by
 // resource address.
-func findSecrets(f *hclFile) map[string][]secretAttribute {
+func findSecrets(f *hclfile.File) map[string][]secretAttribute {
 	secrets := map[string][]secretAttribute{}
-	for _, r := range f.resources() {
-		if found := secretsIn(r.address, r.syntax.Body, r.write.Body(), "", nil); len(found) > 0 {
-			secrets[r.address] = found
+	for _, r := range f.Resources() {
+		if found := secretsIn(r.Address, r.Syntax.Body, r.Write.Body(), "", nil); len(found) > 0 {
+			secrets[r.Address] = found
 		}
 	}
 	return secrets
@@ -143,7 +145,7 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 // with the attributes still null as Terraform generated them; if that plan
 // doesn't succeed, found is returned as it is. It reports whether it
 // removed any attribute.
-func withoutUnset(ctx context.Context, tf Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
+func withoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
 	p, _, _, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil || p == nil {
 		return found, false, err
@@ -223,7 +225,7 @@ func allUnset(values []any) bool {
 // attributes are often called value or password.
 func aboutSecret(d tfjson.Diagnostic, secrets []secretAttribute) bool {
 	for _, s := range secrets {
-		if d.Range != nil && spans(s.rng, d.Range.Start.Line) {
+		if d.Range != nil && hclfile.Spans(s.rng, d.Range.Start.Line) {
 			return true
 		}
 	}
@@ -254,7 +256,7 @@ var notInVariableName = regexp.MustCompile(`[^A-Za-z0-9]+`)
 // variable, named other than the variables in taken, and returns the
 // variables, by resource in file order and by attribute as secretsIn
 // lists them (by name, then nested blocks in order). It edits f's tree.
-func secretsToVariables(f *hclFile, secrets map[string][]secretAttribute, taken Names) []Secret {
+func secretsToVariables(f *hclfile.File, secrets map[string][]secretAttribute, taken Names) []Secret {
 	var vars []Secret
 	used := map[string]bool{}
 	for name := range taken {
@@ -262,8 +264,8 @@ func secretsToVariables(f *hclFile, secrets map[string][]secretAttribute, taken 
 			used[v] = true
 		}
 	}
-	for _, r := range f.resources() {
-		for _, s := range secrets[r.address] {
+	for _, r := range f.Resources() {
+		for _, s := range secrets[r.Address] {
 			// Shells can only set TF_VAR_<name> for names without dashes.
 			base := strings.Trim(notInVariableName.ReplaceAllString(s.address+"_"+s.path, "_"), "_")
 			name := base
@@ -387,16 +389,16 @@ func isPublic(rule catalogue.SecretWhen, when string) bool {
 // (see secretReason) stay in their variables. It plans only if a secret
 // may be public, with the values of known, if set, for the secrets Generate
 // found (see secretValues).
-func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
+func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
 	path := filepath.Join(dir, GeneratedFileName)
-	generated, err := loadHCL(path)
+	generated, err := hclfile.Load(path)
 	if err != nil {
 		return nil, err
 	}
 	bodies := map[string]*hclsyntax.Body{}
 	writes := map[string]*hclwrite.Body{}
-	for _, r := range generated.resources() {
-		bodies[r.address], writes[r.address] = r.syntax.Body, r.write.Body()
+	for _, r := range generated.Resources() {
+		bodies[r.Address], writes[r.Address] = r.Syntax.Body, r.Write.Body()
 	}
 	candidate := func(s Secret) (catalogue.SecretWhen, bool) {
 		rule, ok := publicSensitive(strings.SplitN(s.Address, ".", 2)[0])
@@ -448,7 +450,7 @@ func publicSecretsToLiterals(ctx context.Context, tf Terraform, dir string, secr
 	if !changed {
 		return secrets, nil
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	return kept, writeVariables(dir, kept, nil)

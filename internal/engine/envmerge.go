@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // The variables a merged root always has, or has for its placeholders.
@@ -301,7 +303,7 @@ func mergeStackWith(provider string, profile MergeProfile, roots []envRoot, sche
 	for _, r := range m.resources {
 		for e, member := range r.members {
 			if member != nil {
-				m.index[e][member.block.address] = member
+				m.index[e][member.block.Address] = member
 			}
 		}
 	}
@@ -329,7 +331,7 @@ func (m *stackMerge) splitForced() {
 				if member == nil {
 					continue
 				}
-				if reason, ok := m.controls.split[mergeKey(e, member.block.address)]; ok {
+				if reason, ok := m.controls.split[mergeKey(e, member.block.Address)]; ok {
 					m.split(r, reason)
 					split = true
 					break
@@ -768,15 +770,15 @@ func (m *stackMerge) render() {
 	}
 	m.workload = workloadOf(templates)
 	if m.workload != "" {
-		m.locals = append(m.locals, namedLocal{"naming_prefix", parseExpr(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
+		m.locals = append(m.locals, namedLocal{"naming_prefix", hclfile.ParseExpr(`"` + m.workload + `-${var.` + envVariableName + `}"`)})
 	}
 	if holds(templates, accountPlaceholder) {
 		m.data = append(m.data, m.profile.ScopeData)
-		m.locals = append(m.locals, namedLocal{m.profile.ScopeLocal, parseExpr(m.profile.ScopeExpr)})
+		m.locals = append(m.locals, namedLocal{m.profile.ScopeLocal, hclfile.ParseExpr(m.profile.ScopeExpr)})
 	}
 	if holds(templates, regionPlaceholder) {
 		m.data = append(m.data, m.profile.RegionData)
-		m.locals = append(m.locals, namedLocal{m.profile.RegionLocal, parseExpr(m.profile.RegionExpr)})
+		m.locals = append(m.locals, namedLocal{m.profile.RegionLocal, hclfile.ParseExpr(m.profile.RegionExpr)})
 	}
 	for _, b := range bodies {
 		b.visit(func(a *mergedAttribute) {
@@ -786,7 +788,7 @@ func (m *stackMerge) render() {
 			case variableValue:
 				a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: a.variable.name}})
 			case referenceValue:
-				a.value = parseExpr(string(m.presence(a.target).Bytes()) + " ? " + strings.TrimSpace(string(a.value.Bytes())) + " : null")
+				a.value = hclfile.ParseExpr(string(m.presence(a.target).Bytes()) + " ? " + strings.TrimSpace(string(a.value.Bytes())) + " : null")
 			}
 		}, nil)
 	}
@@ -907,7 +909,7 @@ func isNameAttribute(resourceType, attr string) bool {
 // variable has the key.
 func (m *stackMerge) presence(r *stackResource) hclwrite.Tokens {
 	if r.forEach != nil {
-		return parseExpr(fmt.Sprintf("contains(keys(%s), %q)", r.forEach.source(), r.label))
+		return hclfile.ParseExpr(fmt.Sprintf("contains(keys(%s), %q)", r.forEach.source(), r.label))
 	}
 	return hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: r.deploy.name}})
 }
@@ -1034,7 +1036,7 @@ func (m *stackMerge) mergeBody(r *stackResource) (*mergedBody, string) {
 	var in []envBody
 	for e, member := range r.members {
 		if member != nil {
-			in = append(in, envBody{e, member.block.write.Body()})
+			in = append(in, envBody{e, member.block.Write.Body()})
 		}
 	}
 	b := &bodyMerger{m: m, r: r}
@@ -1228,9 +1230,9 @@ func (m *stackMerge) envCondition(in []envBody, values []hclwrite.Tokens) (hclwr
 		if literals[odd].False() {
 			op = "!="
 		}
-		return parseExpr(fmt.Sprintf("var.%s %s %q", envVariableName, op, token)), true
+		return hclfile.ParseExpr(fmt.Sprintf("var.%s %s %q", envVariableName, op, token)), true
 	}
-	return parseExpr(fmt.Sprintf("var.%s == %q ? %s : %s", envVariableName, token, strings.TrimSpace(string(values[odd].Bytes())), strings.TrimSpace(string(values[other].Bytes())))), true
+	return hclfile.ParseExpr(fmt.Sprintf("var.%s == %q ? %s : %s", envVariableName, token, strings.TrimSpace(string(values[odd].Bytes())), strings.TrimSpace(string(values[other].Bytes())))), true
 }
 
 // literalValue returns the value of tokens, an expression, where it is a
@@ -1357,7 +1359,7 @@ func (m *stackMerge) keysBody(keys []*stackResource) (*mergedBody, []string, boo
 	for _, k := range keys {
 		for e, member := range k.members {
 			if member != nil {
-				in = append(in, envBody{e, member.block.write.Body()})
+				in = append(in, envBody{e, member.block.Write.Body()})
 			}
 		}
 	}
@@ -1428,7 +1430,7 @@ func (m *stackMerge) keysVariable(g *forEachGroup) *envVariable {
 			}
 			var fields []hclwrite.ObjectAttrTokens
 			for _, f := range g.fields {
-				if attr := member.block.write.Body().GetAttribute(f); attr != nil {
+				if attr := member.block.Write.Body().GetAttribute(f); attr != nil {
 					fields = append(fields, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForIdentifier(f), Value: attr.Expr().BuildTokens(nil)})
 				}
 			}
@@ -1457,11 +1459,11 @@ func (m *stackMerge) keysLocal(g *forEachGroup) []*mergedBody {
 			var in []envBody
 			var values []hclwrite.Tokens
 			for e, member := range k.members {
-				attr := member.block.write.Body().GetAttribute(f)
+				attr := member.block.Write.Body().GetAttribute(f)
 				if attr == nil {
 					return nil
 				}
-				in = append(in, envBody{e, member.block.write.Body()})
+				in = append(in, envBody{e, member.block.Write.Body()})
 				values = append(values, attr.Expr().BuildTokens(nil))
 			}
 			if sameExprs(values) {

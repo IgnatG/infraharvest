@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // part is a piece of what a literal becomes: text, or a reference.
@@ -253,17 +254,17 @@ func nestedIdentity(attrs map[string]any, block, key string) string {
 
 // writtenArguments returns the arguments and nested blocks each resource
 // of f sets, by address.
-func writtenArguments(f *hclFile) map[string]map[string]bool {
+func writtenArguments(f *hclfile.File) map[string]map[string]bool {
 	written := map[string]map[string]bool{}
-	for _, r := range f.resources() {
+	for _, r := range f.Resources() {
 		set := map[string]bool{}
-		for name := range r.syntax.Body.Attributes {
+		for name := range r.Syntax.Body.Attributes {
 			set[name] = true
 		}
-		for _, b := range r.syntax.Body.Blocks {
+		for _, b := range r.Syntax.Body.Blocks {
 			set[b.Type] = true
 		}
-		written[r.address] = set
+		written[r.Address] = set
 	}
 	return written
 }

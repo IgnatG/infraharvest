@@ -7,13 +7,15 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // testEnvRoot returns environment env's root of generated, with tokens,
 // its account and the import IDs by address.
 func testEnvRoot(t *testing.T, env string, tokens []string, scope, generated string, ids map[string]string) envRoot {
 	t.Helper()
-	f, err := parseHCL("generated.tf", []byte(generated))
+	f, err := hclfile.Parse("generated.tf", []byte(generated))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +143,7 @@ func describeMatches(resources []*stackResource, envs []string) []string {
 		parts := []string{r.address(), rules[r.rule]}
 		for e, m := range r.members {
 			if m != nil {
-				parts = append(parts, envs[e]+"="+m.block.address)
+				parts = append(parts, envs[e]+"="+m.block.Address)
 			}
 		}
 		out = append(out, strings.Join(parts, " "))

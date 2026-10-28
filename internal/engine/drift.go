@@ -21,20 +21,11 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
-
-// DriftTerraform is a Terraform that can also read a root's state and
-// apply a saved plan, which only Drift needs: *Runner is one.
-type DriftTerraform interface {
-	Terraform
-	StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error)
-	Apply(ctx context.Context, opts ...tfexec.ApplyOption) error
-	ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error)
-}
-
-var _ DriftTerraform = (*Runner)(nil)
 
 // What changed in the cloud (DriftChange.Kind).
 const (
@@ -289,14 +280,14 @@ func (e *UnsupportedBackendError) Error() string {
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
-func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged func(dir string) (DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
+func Drift(ctx context.Context, tf tfrun.DriftTerraform, dir, staging string, staged func(dir string) (tfrun.DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
 	s, err := openDriftSession(dir, staging, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer s.close()
 	result := &RootDrift{Backend: s.backend}
-	applied, err := s.stage(ctx, driftWithTimeout(tf, opts.CommandTimeout))
+	applied, err := s.stage(ctx, tfrun.DriftWithTimeout(tf, opts.CommandTimeout))
 	if err != nil {
 		return nil, err
 	}
@@ -352,10 +343,10 @@ func Drift(ctx context.Context, tf DriftTerraform, dir, staging string, staged f
 // rootBackend returns the type of the backend the configuration files
 // configure, local if none, or an UnsupportedBackendError for one other
 // than local and backends.
-func rootBackend(files []*hclFile, backends []string) (string, error) {
+func rootBackend(files []*hclfile.File, backends []string) (string, error) {
 	backend := "local"
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "terraform" {
 				continue
 			}
@@ -419,7 +410,7 @@ func stageDrift(dir, staging string, state []byte) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info" {
+		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -436,7 +427,7 @@ func stageDrift(dir, staging string, state []byte) error {
 			return err
 		}
 	}
-	return os.WriteFile(filepath.Join(staging, localStateFileName), state, 0o600)
+	return os.WriteFile(filepath.Join(staging, tfrun.LocalStateFileName), state, 0o600)
 }
 
 // stagedConfig returns content, the configuration file at path of the
@@ -444,13 +435,13 @@ func stageDrift(dir, staging string, state []byte) error {
 // blocks, and with local module sources relative to staging, or calling
 // copies in it of the generated modules (see stageModule).
 func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
-	f, err := parseHCL(path, content)
+	f, err := hclfile.Parse(path, content)
 	if err != nil {
 		return nil, err
 	}
-	blocks := f.edit().Body().Blocks()
+	blocks := f.Edit().Body().Blocks()
 	changed := false
-	for i, b := range f.syntax.Blocks {
+	for i, b := range f.Syntax.Blocks {
 		if i >= len(blocks) {
 			break
 		}
@@ -495,7 +486,7 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 	if !changed {
 		return content, nil
 	}
-	return f.edit().Bytes(), nil
+	return f.Edit().Bytes(), nil
 }
 
 // stateAddresses returns the addresses of the managed resources in state.
@@ -525,10 +516,10 @@ func stateAddresses(state *tfjson.State) map[string]bool {
 // notApplied returns the addresses the import blocks of files import
 // into that inState doesn't have, sorted; those with for_each are left
 // out, as their addresses are known only once planned.
-func notApplied(files []*hclFile, inState map[string]bool) []string {
+func notApplied(files []*hclfile.File, inState map[string]bool) []string {
 	var targets []string
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "import" {
 				continue
 			}
@@ -540,7 +531,7 @@ func notApplied(files []*hclFile, inState map[string]bool) []string {
 				continue
 			}
 			rng := to.Expr.Range()
-			address := strings.Join(strings.Fields(string(f.src[rng.Start.Byte:rng.End.Byte])), "")
+			address := strings.Join(strings.Fields(string(f.Src[rng.Start.Byte:rng.End.Byte])), "")
 			if !inState[address] {
 				targets = append(targets, address)
 			}
@@ -555,12 +546,12 @@ func notApplied(files []*hclFile, inState map[string]bool) []string {
 // variable or a value in a tfvars file of dir that Terraform reads by
 // itself, or in varFiles, the other var files the plans read, and their
 // names, sorted: a plan with -input=false fails without them.
-func variablePlaceholders(dir string, files []*hclFile, varFiles ...string) ([]tfexec.PlanOption, []string) {
+func variablePlaceholders(dir string, files []*hclfile.File, varFiles ...string) ([]tfexec.PlanOption, []string) {
 	set := tfvarsNames(dir, varFiles...)
 	var names []string
 	types := map[string]string{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "variable" || len(b.Labels) != 1 {
 				continue
 			}
@@ -574,7 +565,7 @@ func variablePlaceholders(dir string, files []*hclFile, varFiles ...string) ([]t
 			names = append(names, name)
 			if t, ok := b.Body.Attributes["type"]; ok {
 				rng := t.Expr.Range()
-				types[name] = strings.TrimSpace(string(f.src[rng.Start.Byte:rng.End.Byte]))
+				types[name] = strings.TrimSpace(string(f.Src[rng.Start.Byte:rng.End.Byte]))
 			}
 		}
 	}
@@ -611,11 +602,11 @@ func tfvarsNames(dir string, more ...string) map[string]bool {
 	paths = append(paths, filepath.Join(dir, "terraform.tfvars"))
 	paths = append(paths, more...)
 	for _, path := range paths {
-		f, err := readVarFile(path)
+		f, err := hclfile.ReadVarFile(path)
 		if err != nil || f == nil {
 			continue
 		}
-		for name := range f.syntax.Attributes {
+		for name := range f.Syntax.Attributes {
 			names[name] = true
 		}
 	}
@@ -624,13 +615,13 @@ func tfvarsNames(dir string, more ...string) map[string]bool {
 
 // savedPlan plans with opts into the plan file path and returns it as
 // JSON, or the plan's errors.
-func savedPlan(ctx context.Context, tf DriftTerraform, path string, opts ...tfexec.PlanOption) (*tfjson.Plan, error) {
-	diags, summary, err := plan(ctx, tf, append(opts, tfexec.Out(path))...)
+func savedPlan(ctx context.Context, tf tfrun.DriftTerraform, path string, opts ...tfexec.PlanOption) (*tfjson.Plan, error) {
+	diags, summary, err := tfrun.Plan(ctx, tf, append(opts, tfexec.Out(path))...)
 	if err != nil {
 		return nil, err
 	}
 	if len(diags) > 0 {
-		return nil, diagnosticsError(diags)
+		return nil, tfrun.DiagnosticsError(diags)
 	}
 	if summary == nil {
 		return nil, errors.New("terraform plan reported no change summary")
@@ -1125,44 +1116,4 @@ func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *
 		}
 	}
 	return sources, nil
-}
-
-// timedDriftTerraform is a DriftTerraform whose every command runs for at
-// most a timeout (see timedTerraform).
-type timedDriftTerraform struct {
-	*timedTerraform
-	drift DriftTerraform
-}
-
-func driftWithTimeout(tf DriftTerraform, timeout time.Duration) DriftTerraform {
-	if _, ok := tf.(*timedDriftTerraform); ok || timeout <= 0 {
-		return tf
-	}
-	return &timedDriftTerraform{timedTerraform: &timedTerraform{Terraform: tf, timeout: timeout}, drift: tf}
-}
-
-func (t *timedDriftTerraform) StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error) {
-	var state string
-	err := t.bounded(ctx, func(ctx context.Context) error {
-		var err error
-		state, err = t.drift.StatePull(ctx, opts...)
-		return err
-	})
-	return state, err
-}
-
-func (t *timedDriftTerraform) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
-	return t.bounded(ctx, func(ctx context.Context) error {
-		return t.drift.Apply(ctx, opts...)
-	})
-}
-
-func (t *timedDriftTerraform) ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error) {
-	var state *tfjson.State
-	err := t.bounded(ctx, func(ctx context.Context) error {
-		var err error
-		state, err = t.drift.ShowStateFile(ctx, statePath, opts...)
-		return err
-	})
-	return state, err
 }

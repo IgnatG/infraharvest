@@ -14,6 +14,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // fuzzToken makes a credential in a format credentialFormat knows, a
@@ -155,7 +157,7 @@ EOT
 }
 `)
 	f.Fuzz(func(t *testing.T, content string) {
-		if parsed, err := parseHCL("generated.tf", []byte(content)); err == nil {
+		if parsed, err := hclfile.Parse("generated.tf", []byte(content)); err == nil {
 			_ = literalSecrets(parsed)
 		}
 		path := filepath.Join(t.TempDir(), GeneratedFileName)

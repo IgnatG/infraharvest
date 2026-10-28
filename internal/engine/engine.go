@@ -12,13 +12,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -28,6 +26,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -41,111 +41,11 @@ const (
 	// RejectedFileName holds resources left out of the configuration. It is
 	// not a .tf file, so Terraform doesn't load it.
 	RejectedFileName = "rejected.hcl"
-	// LockFileName is Terraform's dependency lock file.
-	LockFileName = ".terraform.lock.hcl"
 )
 
 // maxPlanRounds bounds how often Generate plans again after repairing the
 // configuration or leaving resources out.
 const maxPlanRounds = 3
-
-// Terraform is the subset of *tfexec.Terraform the engine uses.
-type Terraform interface {
-	Init(ctx context.Context, opts ...tfexec.InitOption) error
-	PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error)
-	Validate(ctx context.Context) (*tfjson.ValidateOutput, error)
-	ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error)
-	ShowPlanFile(ctx context.Context, planPath string, opts ...tfexec.ShowOption) (*tfjson.Plan, error)
-	FormatCheck(ctx context.Context, opts ...tfexec.FormatOption) (bool, []string, error)
-	SetStdout(w io.Writer)
-}
-
-// NewTerraform returns a Terraform runner for dir that shares downloaded
-// providers through pluginCacheDir, with env on top of the process's
-// environment, such as the credentials the provider resolved. It creates
-// both directories. Its init holds the plugin cache's lock (see
-// Runner.Init).
-func NewTerraform(dir, execPath, pluginCacheDir string, env map[string]string) (*Runner, error) {
-	for _, d := range []string{dir, pluginCacheDir} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return nil, err
-		}
-	}
-	tf, err := tfexec.NewTerraform(dir, execPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := tf.SetEnv(terraformEnviron(pluginCacheDir, env)); err != nil {
-		return nil, err
-	}
-	return &Runner{Terraform: tf, pluginCacheDir: pluginCacheDir}, nil
-}
-
-// Runner is the Terraform runner NewTerraform returns: tfexec's, whose
-// init holds the lock of the plugin cache it shares.
-type Runner struct {
-	*tfexec.Terraform
-	pluginCacheDir string
-}
-
-// Init runs terraform init holding the plugin cache's lock (see
-// lockPluginCache): other processes, such as another infraharvest run on
-// the machine, share the cache, and Terraform doesn't guarantee that
-// installs into it at the same time are safe.
-func (r *Runner) Init(ctx context.Context, opts ...tfexec.InitOption) error {
-	lock, err := lockPluginCache(ctx, r.pluginCacheDir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Unlock() }()
-	return r.Terraform.Init(ctx, opts...)
-}
-
-// terraformEnviron is the environment Terraform runs with: the process's,
-// with env on top, and the plugin cache pluginCacheDir. SetEnv replaces
-// the inherited environment and rejects variables that tfexec manages
-// itself (TF_LOG, TF_CLI_ARGS, ...), so those are dropped.
-func terraformEnviron(pluginCacheDir string, env map[string]string) map[string]string {
-	all := tfexec.CleanEnv(mergeEnv(environ(), env, runtime.GOOS == "windows"))
-	all["TF_PLUGIN_CACHE_DIR"] = pluginCacheDir
-	return all
-}
-
-// NewFreshEnvTerraform returns a Terraform runner for dir like
-// NewTerraform, with env on top of the process's environment, which it
-// asks fresh for again before each plan: plans are the commands that call
-// the cloud, and a root may plan for longer than temporary credentials
-// last, such as an SSO session's, so each plan runs with credentials as
-// fresh as the first. An error of fresh fails that plan.
-func NewFreshEnvTerraform(dir, execPath, pluginCacheDir string, env map[string]string, fresh func(context.Context) (map[string]string, error)) (Terraform, error) {
-	tf, err := NewTerraform(dir, execPath, pluginCacheDir, env)
-	if err != nil {
-		return nil, err
-	}
-	return &freshEnvTerraform{Runner: tf, pluginCacheDir: pluginCacheDir, env: fresh}, nil
-}
-
-// freshEnvTerraform is a Terraform runner that sets its environment again,
-// from env, before each plan (see NewFreshEnvTerraform). The engine runs a
-// root's commands one at a time, so the environment never changes under a
-// running one.
-type freshEnvTerraform struct {
-	*Runner
-	pluginCacheDir string
-	env            func(context.Context) (map[string]string, error)
-}
-
-// PlanJSON plans with the environment env gives now.
-func (t *freshEnvTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
-	env, err := t.env(ctx)
-	if err != nil {
-		return false, err
-	}
-	if err := t.SetEnv(terraformEnviron(t.pluginCacheDir, env)); err != nil {
-		return false, err
-	}
-	return t.Runner.PlanJSON(ctx, w, opts...)
-}
 
 // Result is what Generate leaves for the user to finish.
 type Result struct {
@@ -385,7 +285,7 @@ const (
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf or imports.tf.
-func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, opts Options) (*Result, error) {
+func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Import, opts Options) (*Result, error) {
 	return generate(ctx, tf, dir, imports, generating(opts))
 }
 
@@ -397,7 +297,7 @@ func Generate(ctx context.Context, tf Terraform, dir string, imports []Import, o
 // import (leaveOut), makes the secret attributes read from variables
 // (secretVariables), tidies the configuration (tidy, finish) and gates it
 // (gate). Last, it writes the README.
-func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r *run) (*Result, error) {
+func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Import, r *run) (*Result, error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -413,13 +313,13 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 	// Several steps need the providers' schemas: read them once per init.
 	// No plan shows the secret values Generate finds (see
 	// redactingTerraform), and none reads the state the root may have
-	// locally (see withoutLocalState).
-	tf, removeEmptyState, err := withoutLocalState(tf, dir)
+	// locally (see tfrun.WithoutLocalState).
+	tf, removeEmptyState, err := tfrun.WithoutLocalState(tf, dir)
 	if err != nil {
 		return nil, err
 	}
 	defer removeEmptyState()
-	redacting := &redactingTerraform{Terraform: withTimeout(tf, r.opts.CommandTimeout)}
+	redacting := &redactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
 	g := &generation{
 		tf:        &schemaCache{Terraform: redacting},
 		redacting: redacting,
@@ -483,7 +383,7 @@ func generate(ctx context.Context, tf Terraform, dir string, imports []Import, r
 type generation struct {
 	// tf runs Terraform in dir, without showing the secret values hidden
 	// with redacting.
-	tf        Terraform
+	tf        tfrun.Terraform
 	redacting *redactingTerraform
 	dir       string
 	// generated is the path of generated.tf.
@@ -553,7 +453,7 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	if err := requireProviders(dir, others, opts.ModuleProviders); err != nil {
 		return nil, err
 	}
-	if err := initTerraform(ctx, g.tf); err != nil {
+	if err := tfrun.Init(ctx, g.tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	if len(others) > 0 {
@@ -573,7 +473,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) 
 	// The release the lock file records decides how far the provider's
 	// metadata goes (see schemaHints).
 	hints := schemaHintsFor(g.dir, g.opts.SchemaMetadata)
-	diags, _, err := plan(ctx, g.tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	diags, _, err := tfrun.Plan(ctx, g.tf, tfexec.GenerateConfigOut(GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
 	}
@@ -583,7 +483,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) 
 		if len(diags) == 0 {
 			return nil, errors.New("terraform plan generated no configuration")
 		}
-		return nil, fmt.Errorf("terraform plan: %w", diagnosticsError(diags))
+		return nil, fmt.Errorf("terraform plan: %w", tfrun.DiagnosticsError(diags))
 	} else if err != nil {
 		return nil, err
 	}
@@ -670,7 +570,7 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 				all = append(all, ds...)
 			}
 			// Errors can quote the values they reject, as below.
-			return fmt.Errorf("terraform plan: %s", redact(diagnosticsError(all).Error(), g.literal))
+			return fmt.Errorf("terraform plan: %s", redact(tfrun.DiagnosticsError(all).Error(), g.literal))
 		}
 		// Repair once; leave out what is left.
 		changed := false
@@ -830,7 +730,7 @@ func (g *generation) finish(ctx context.Context) error {
 	if err := typeLiteralsOf(ctx, g.tf, dir); err != nil {
 		return err
 	}
-	if err := layoutDir(dir); err != nil {
+	if err := hclfile.LayoutDir(dir); err != nil {
 		return err
 	}
 	if result.Addresses, err = ImportedAddresses(dir); err != nil {
@@ -879,7 +779,7 @@ func prepareGenerated(path string, imports []Import, opts Options, hints schemaH
 		reason replanReason
 		edit   func() (bool, error)
 	}{
-		{replanSorted, func() (bool, error) { return sortResources(path) }},
+		{replanSorted, func() (bool, error) { return hclfile.SortResources(path) }},
 		{replanOmitted, func() (bool, error) { return OmitArguments(path, withResourceOmissions(opts.Omit, imports)) }},
 		{replanPlaceholders, func() (bool, error) { return setPlaceholders(path, opts.Placeholders) }},
 		{replanLifecycles, func() (bool, error) { return setLifecycles(path, opts.Lifecycles) }},
@@ -905,17 +805,17 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 	if len(diags) == 0 {
 		return nil, nil
 	}
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
 	errs, general := byResource(diags, generated, imports)
 	if len(general) > 0 {
-		return nil, fmt.Errorf("%s: %w", command, diagnosticsError(diags))
+		return nil, fmt.Errorf("%s: %w", command, tfrun.DiagnosticsError(diags))
 	}
 	secrets := findSecrets(generated)
 	for addr, ds := range errs {
@@ -943,8 +843,8 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // Secret attributes the imported objects hold no value for are left out of
 // the configuration instead (see withoutUnset); vars are the options the
 // plan that tells them apart needs.
-func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]Secret, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]Secret, error) {
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -962,7 +862,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 			return nil, err
 		}
 		if unset {
-			if err := generated.save(); err != nil {
+			if err := generated.Save(); err != nil {
 				return nil, err
 			}
 		}
@@ -975,7 +875,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 	for i := len(literal); i < len(secrets); i++ {
 		secrets[i].ty = attributeType(schemas, strings.SplitN(secrets[i].Address, ".", 2)[0], secrets[i].schemaPath)
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	if err := writeVariables(dir, secrets, schemas); err != nil {
@@ -989,7 +889,7 @@ func useVariables(ctx context.Context, tf Terraform, dir string, taken Names, li
 	if validation.Valid {
 		return secrets, nil
 	}
-	errs, err := unresolved("terraform validate", dir, errorDiagnostics(validation.Diagnostics))
+	errs, err := unresolved("terraform validate", dir, tfrun.ErrorDiagnostics(validation.Diagnostics))
 	if err != nil {
 		return nil, err
 	}
@@ -1026,7 +926,7 @@ func writeVariables(dir string, secrets []Secret, schemas *tfjson.ProviderSchema
 // schemaCache is a Terraform that reads the providers' schemas once, until
 // the next init, which may install other providers, such as a module's.
 type schemaCache struct {
-	Terraform
+	tfrun.Terraform
 	schemas *tfjson.ProviderSchemas
 	read    bool
 }
@@ -1046,20 +946,6 @@ func (c *schemaCache) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSche
 	}
 	c.schemas, c.read = schemas, true
 	return schemas, nil
-}
-
-// environ returns the current environment as a map.
-func environ() map[string]string {
-	env := map[string]string{}
-	for _, kv := range os.Environ() {
-		for i := 1; i < len(kv); i++ { // start at 1: Windows has "=C:=C:\" entries
-			if kv[i] == '=' {
-				env[kv[:i]] = kv[i+1:]
-				break
-			}
-		}
-	}
-	return env
 }
 
 // rootFileContents returns the content of the regular files directly in dir, by
@@ -1092,49 +978,4 @@ func sameFiles(dir string, files map[string][]byte) (bool, error) {
 		return false, err
 	}
 	return maps.EqualFunc(now, files, bytes.Equal), nil
-}
-
-// mergeEnv returns the environment base with over on top, for Terraform.
-// Without base's TF_DATA_DIR, the process's: Terraform then keeps its
-// working data in each root's .terraform, where the engine reads it, such
-// as the modules init installed, and roots generating in parallel don't
-// share one. over's, a directory of one Terraform's own, such as drift's
-// for roots that may come from someone else (see
-// DriftOptions.DataDir), is kept. Where
-// variable names are case-insensitive (foldCase), as on Windows, a
-// variable of over replaces base's of any case, so that Terraform doesn't
-// get both, and the names of TF_ variables but input variables are upper
-// case, so that tfexec.CleanEnv, which matches names exactly, finds those
-// it manages.
-func mergeEnv(base, over map[string]string, foldCase bool) map[string]string {
-	key := func(name string) string { return name }
-	if foldCase {
-		key = strings.ToUpper
-	}
-	all := make(map[string]string, len(base)+len(over))
-	names := map[string]string{} // by key, the name all has the variable under
-	set := func(name, value string) {
-		if old, ok := names[key(name)]; ok {
-			delete(all, old)
-		}
-		names[key(name)] = name
-		all[name] = value
-	}
-	for name, value := range base {
-		if key(name) != key("TF_DATA_DIR") {
-			set(name, value)
-		}
-	}
-	for name, value := range over {
-		set(name, value)
-	}
-	if foldCase {
-		for name, value := range maps.Clone(all) {
-			if upper := strings.ToUpper(name); upper != name && strings.HasPrefix(upper, "TF_") && !strings.HasPrefix(upper, "TF_VAR_") {
-				delete(all, name)
-				all[upper] = value
-			}
-		}
-	}
-	return all
 }

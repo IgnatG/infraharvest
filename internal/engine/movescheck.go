@@ -93,7 +93,7 @@ func checkMoves(dir string) (Check, error) {
 	}
 	declared := map[string]bool{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch {
 			case b.Type == "resource" && len(b.Labels) == 2:
 				declared[b.Labels[0]+"."+b.Labels[1]] = true
@@ -128,9 +128,9 @@ func checkMoves(dir string) (Check, error) {
 	// that keeps others (see Removal.Instance and Retype.Removed).
 	removed := map[string]bool{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if attr, ok := b.Body.Attributes["from"]; ok && b.Type == "removed" {
-				if from, ok := parseRefactorAddress(attr, f.src); ok {
+				if from, ok := parseRefactorAddress(attr, f.Src); ok {
 					removed[from.text] = true
 				}
 			}
@@ -139,9 +139,9 @@ func checkMoves(dir string) (Check, error) {
 	var moved []Move
 	for _, f := range files {
 		where := func(b *hclsyntax.Block) string {
-			return fmt.Sprintf("%s:%d", rel(dir, f.path), b.DefRange().Start.Line)
+			return fmt.Sprintf("%s:%d", rel(dir, f.Path), b.DefRange().Start.Line)
 		}
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "moved" && b.Type != "removed" {
 				continue
 			}
@@ -150,7 +150,7 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: %s block has no from", where(b), b.Type)
 				continue
 			}
-			from, ok := parseRefactorAddress(fromAttr, f.src)
+			from, ok := parseRefactorAddress(fromAttr, f.Src)
 			if !ok {
 				fail("%s: %s block's from isn't an address", where(b), b.Type)
 				continue
@@ -169,7 +169,7 @@ func checkMoves(dir string) (Check, error) {
 				fail("%s: moved block has no to", where(b))
 				continue
 			}
-			to, ok := parseRefactorAddress(toAttr, f.src)
+			to, ok := parseRefactorAddress(toAttr, f.Src)
 			if !ok {
 				fail("%s: moved block's to isn't an address", where(b))
 				continue

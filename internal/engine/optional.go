@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // optionalTypeTokens is the type of a generated module's variable, with
@@ -108,7 +110,7 @@ func withoutNullAttributes(tokens hclwrite.Tokens) hclwrite.Tokens {
 		last = end
 	}
 	out = append(out, src[last:]...)
-	if formatted := formatExpr(out); formatted != nil {
+	if formatted := hclfile.FormatExpr(out); formatted != nil {
 		return formatted
 	}
 	return tokens

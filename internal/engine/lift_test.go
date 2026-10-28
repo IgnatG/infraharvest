@@ -14,6 +14,9 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 const networkGenerated = `resource "aws_subnet" "a" {
@@ -158,7 +161,7 @@ func TestCommonTags(t *testing.T) {
 // liftTagsVerified lifts tags in dir as postProcess does, against an empty
 // baseline.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
-	return verify(context.Background(), tf, dir, changeSummary{}, nil, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) },
+	return verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) },
 		GeneratedFileName, ProvidersFileName, LocalsFileName)
 }
 
@@ -205,7 +208,7 @@ func TestLiftTags(t *testing.T) {
 func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
 	t.Parallel()
 	dir, tf := liftTagsDir(t)
-	tf.plans = []fakePlan{{summary: changeSummary{Change: 3}}}
+	tf.plans = []fakePlan{{summary: tfrun.ChangeSummary{Change: 3}}}
 
 	kept, err := liftTagsVerified(tf, dir)
 	if err != nil || kept {
@@ -252,7 +255,7 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
   region   = "us-east-1"
   tags_all = {}
 }
-`).path
+`).Path
 
 	changed, err := OmitArguments(path, map[string][]string{"*": {"region", "tags_all"}})
 	if err != nil || !changed {
@@ -307,9 +310,9 @@ resource "google_storage_bucket" "b" {
 	}
 
 	// An incremental import reads them back.
-	files := []*hclFile{}
+	files := []*hclfile.File{}
 	for _, name := range []string{ProvidersFileName, LocalsFileName} {
-		f, err := loadHCL(filepath.Join(dir, name))
+		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -504,9 +507,9 @@ resource "aws_subnet" "c" {
 	}
 
 	// An incremental import reads the default configuration's tags.
-	files := []*hclFile{}
+	files := []*hclfile.File{}
 	for _, name := range []string{ProvidersFileName, LocalsFileName} {
-		f, err := loadHCL(filepath.Join(dir, name))
+		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
 		}

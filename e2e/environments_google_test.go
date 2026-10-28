@@ -19,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -170,7 +171,7 @@ func TestGoogleEnvironments(t *testing.T) {
 
 	// 2. Each environment applies the merged root into its workspace.
 	for _, env := range envs {
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

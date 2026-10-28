@@ -1,7 +1,10 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package hclfile reads, edits and lays out Terraform configuration files:
+// each a syntax tree with source positions and an editable tree, and the
+// byte edits made to their source.
+package hclfile
 
 import (
 	"bytes"
@@ -22,62 +25,62 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// hclFile is a configuration file: a syntax tree with source positions,
+// File is a configuration file: a syntax tree with source positions,
 // and an editable tree, parsed from the file the first time it is edited,
 // since most readers only read. Both list blocks in the same order. The
 // syntax tree describes the file as loaded, not later edits.
-type hclFile struct {
-	path   string
-	src    []byte // the file as loaded, which syntax ranges point into
-	syntax *hclsyntax.Body
+type File struct {
+	Path   string
+	Src    []byte // the file as loaded, which syntax ranges point into
+	Syntax *hclsyntax.Body
 	write  *hclwrite.File // nil until edit
 }
 
-// parseFile parses src, the content of the file at path, or returns the
-// diagnostics of why it doesn't parse, each naming the file and position;
-// parseHCL and readVarFile wrap them in an error.
-func parseFile(path string, src []byte) (*hclFile, hcl.Diagnostics) {
+// ParseDiagnostics parses src, the content of the file at path, or
+// returns the diagnostics of why it doesn't parse, each naming the file
+// and position; Parse and ReadVarFile wrap them in an error.
+func ParseDiagnostics(path string, src []byte) (*File, hcl.Diagnostics) {
 	syntax, diags := hclsyntax.ParseConfig(src, path, hcl.InitialPos)
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	return &hclFile{path: path, src: src, syntax: syntax.Body.(*hclsyntax.Body)}, nil
+	return &File{Path: path, Src: src, Syntax: syntax.Body.(*hclsyntax.Body)}, nil
 }
 
-// parseHCL parses src, the content of the file at path.
-func parseHCL(path string, src []byte) (*hclFile, error) {
-	f, diags := parseFile(path, src)
+// Parse parses src, the content of the file at path.
+func Parse(path string, src []byte) (*File, error) {
+	f, diags := ParseDiagnostics(path, src)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parse %s: %w", path, diags)
 	}
 	return f, nil
 }
 
-func loadHCL(path string) (*hclFile, error) {
+func Load(path string) (*File, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return parseHCL(path, src)
+	return Parse(path, src)
 }
 
-// loadOptionalHCL loads the file at path, or returns nil if there is none.
-func loadOptionalHCL(path string) (*hclFile, error) {
-	f, err := loadHCL(path)
+// LoadOptional loads the file at path, or returns nil if there is none.
+func LoadOptional(path string) (*File, error) {
+	f, err := Load(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	return f, err
 }
 
-// newHCL is an empty file at path, to fill and save.
-func newHCL(path string) *hclFile {
-	return &hclFile{path: path, syntax: &hclsyntax.Body{}, write: hclwrite.NewEmptyFile()}
+// New is an empty file at path, to fill and save.
+func New(path string) *File {
+	return &File{Path: path, Syntax: &hclsyntax.Body{}, write: hclwrite.NewEmptyFile()}
 }
 
-// readVarFile reads the var file at path, such as a .tfvars file or a
+// ReadVarFile reads the var file at path, such as a .tfvars file or a
 // backend's settings; nil where there is none.
-func readVarFile(path string) (*hclFile, error) {
+func ReadVarFile(path string) (*File, error) {
 	src, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -85,18 +88,18 @@ func readVarFile(path string) (*hclFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, diags := parseFile(path, src)
+	f, diags := ParseDiagnostics(path, src)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("%s: %w", path, diags)
 	}
 	return f, nil
 }
 
-// values returns the values the file's arguments set, by name, of those
+// Values returns the values the file's arguments set, by name, of those
 // that are literals, as a var file's are.
-func (f *hclFile) values() map[string]cty.Value {
+func (f *File) Values() map[string]cty.Value {
 	values := map[string]cty.Value{}
-	for name, attr := range f.syntax.Attributes {
+	for name, attr := range f.Syntax.Attributes {
 		if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
 			values[name] = v
 		}
@@ -104,30 +107,30 @@ func (f *hclFile) values() map[string]cty.Value {
 	return values
 }
 
-// edit returns the editable tree of the file.
-func (f *hclFile) edit() *hclwrite.File {
+// Edit returns the editable tree of the file.
+func (f *File) Edit() *hclwrite.File {
 	if f.write == nil {
-		// hclwrite parses src into a syntax tree first, as parseFile
+		// hclwrite parses src into a syntax tree first, as ParseDiagnostics
 		// did without errors: it can't fail.
-		f.write, _ = hclwrite.ParseConfig(f.src, f.path, hcl.InitialPos)
+		f.write, _ = hclwrite.ParseConfig(f.Src, f.Path, hcl.InitialPos)
 	}
 	return f.write
 }
 
-// save writes the edited file back, formatted. Removing the first block
-// leaves the blank line that separated it from the next; save drops it.
-func (f *hclFile) save() error {
-	return fsutil.WriteFile(f.path, bytes.TrimLeft(hclwrite.Format(f.edit().Bytes()), "\n"), 0o644)
+// Save writes the edited file back, formatted. Removing the first block
+// leaves the blank line that separated it from the next; Save drops it.
+func (f *File) Save() error {
+	return fsutil.WriteFile(f.Path, bytes.TrimLeft(hclwrite.Format(f.Edit().Bytes()), "\n"), 0o644)
 }
 
-// parseExpr parses src, an expression, into the tokens of an editable
+// ParseExpr parses src, an expression, into the tokens of an editable
 // tree; nil if it doesn't parse.
-func parseExpr(src string) hclwrite.Tokens {
+func ParseExpr(src string) hclwrite.Tokens {
 	return valueOfX([]byte("x = " + src + "\n"))
 }
 
-// formatExpr is parseExpr of src formatted as the value of an argument.
-func formatExpr(src []byte) hclwrite.Tokens {
+// FormatExpr is ParseExpr of src formatted as the value of an argument.
+func FormatExpr(src []byte) hclwrite.Tokens {
 	return valueOfX(hclwrite.Format(slices.Concat([]byte("x = "), src, []byte("\n"))))
 }
 
@@ -146,48 +149,48 @@ func valueOfX(src []byte) hclwrite.Tokens {
 	return attr.Expr().BuildTokens(nil)
 }
 
-// resourceBlock is a top-level resource block in both trees.
-type resourceBlock struct {
-	address string
-	write   *hclwrite.Block
-	syntax  *hclsyntax.Block
+// Resource is a top-level resource block in both trees.
+type Resource struct {
+	Address string
+	Write   *hclwrite.Block
+	Syntax  *hclsyntax.Block
 }
 
-// resources lists the resource blocks of the file.
-func (f *hclFile) resources() []resourceBlock {
-	var resources []resourceBlock
-	blocks := f.edit().Body().Blocks()
-	for i, b := range f.syntax.Blocks {
+// Resources lists the resource blocks of the file.
+func (f *File) Resources() []Resource {
+	var resources []Resource
+	blocks := f.Edit().Body().Blocks()
+	for i, b := range f.Syntax.Blocks {
 		if b.Type == "resource" && len(b.Labels) == 2 && i < len(blocks) {
-			resources = append(resources, resourceBlock{address: b.Labels[0] + "." + b.Labels[1], write: blocks[i], syntax: b})
+			resources = append(resources, Resource{Address: b.Labels[0] + "." + b.Labels[1], Write: blocks[i], Syntax: b})
 		}
 	}
 	return resources
 }
 
-// resourceAt returns the address of the resource block spanning line.
-func (f *hclFile) resourceAt(line int) string {
-	for _, r := range f.resources() {
-		if spans(r.syntax.Range(), line) {
-			return r.address
+// ResourceAt returns the address of the resource block spanning line.
+func (f *File) ResourceAt(line int) string {
+	for _, r := range f.Resources() {
+		if Spans(r.Syntax.Range(), line) {
+			return r.Address
 		}
 	}
 	return ""
 }
 
-// importBlock is a top-level import block in both trees.
-type importBlock struct {
-	to     string // address of the resource it imports into
-	id     string // the import ID, if a literal
-	write  *hclwrite.Block
-	syntax *hclsyntax.Block
+// Import is a top-level import block in both trees.
+type Import struct {
+	To     string // address of the resource it imports into
+	ID     string // the import ID, if a literal
+	Write  *hclwrite.Block
+	Syntax *hclsyntax.Block
 }
 
-// imports lists the import blocks of the file.
-func (f *hclFile) imports() []importBlock {
-	var imports []importBlock
-	blocks := f.edit().Body().Blocks()
-	for i, b := range f.syntax.Blocks {
+// Imports lists the import blocks of the file.
+func (f *File) Imports() []Import {
+	var imports []Import
+	blocks := f.Edit().Body().Blocks()
+	for i, b := range f.Syntax.Blocks {
 		if b.Type != "import" || i >= len(blocks) {
 			continue
 		}
@@ -209,31 +212,31 @@ func (f *hclFile) imports() []importBlock {
 				id = v.AsString()
 			}
 		}
-		imports = append(imports, importBlock{to: traversal.RootName() + "." + step.Name, id: id, write: blocks[i], syntax: b})
+		imports = append(imports, Import{To: traversal.RootName() + "." + step.Name, ID: id, Write: blocks[i], Syntax: b})
 	}
 	return imports
 }
 
-// importAt returns the address the import block spanning line imports into.
-func (f *hclFile) importAt(line int) string {
-	for _, imp := range f.imports() {
-		if spans(imp.syntax.Range(), line) {
-			return imp.to
+// ImportAt returns the address the import block spanning line imports into.
+func (f *File) ImportAt(line int) string {
+	for _, imp := range f.Imports() {
+		if Spans(imp.Syntax.Range(), line) {
+			return imp.To
 		}
 	}
 	return ""
 }
 
-// importAddresses returns the addresses the file imports into.
-func (f *hclFile) importAddresses() map[string]bool {
+// ImportAddresses returns the addresses the file imports into.
+func (f *File) ImportAddresses() map[string]bool {
 	addresses := map[string]bool{}
-	for _, imp := range f.imports() {
-		addresses[imp.to] = true
+	for _, imp := range f.Imports() {
+		addresses[imp.To] = true
 	}
 	return addresses
 }
 
-func spans(rng hcl.Range, line int) bool {
+func Spans(rng hcl.Range, line int) bool {
 	return rng.Start.Line <= line && line <= rng.End.Line
 }
 
@@ -242,13 +245,13 @@ func spans(rng hcl.Range, line int) bool {
 // each resource, which imports.tf has.
 var generatedComments = regexp.MustCompile(`(?m)^# (__generated__ by Terraform|Please review these resources and move them into your main configuration files).*\r?\n`)
 
-// sortResources rewrites the file with its blocks ordered by address, and
+// SortResources rewrites the file with its blocks ordered by address, and
 // without the comments Terraform generates (see generatedComments), and
 // reports whether that changed it. Terraform writes generated
 // configuration in the order its graph walk reaches the resources, which
 // differs between runs. Other comments directly above a block move with
 // it; anything else between blocks is dropped.
-func sortResources(path string) (bool, error) {
+func SortResources(path string) (bool, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
@@ -259,11 +262,11 @@ func sortResources(path string) (bool, error) {
 			return false, err
 		}
 	}
-	f, err := loadHCL(path)
+	f, err := Load(path)
 	if err != nil {
 		return false, err
 	}
-	blocks := f.edit().Body().Blocks()
+	blocks := f.Edit().Body().Blocks()
 	if len(blocks) == 0 {
 		return false, nil
 	}
@@ -281,5 +284,5 @@ func sortResources(path string) (bool, error) {
 	if bytes.Equal(before, hclwrite.Format(sorted.Bytes())) {
 		return false, nil
 	}
-	return true, f.save()
+	return true, f.Save()
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -673,11 +674,11 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 // need (see secretValues), and warnings about tags named after AWS access
 // key IDs.
 func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, error) {
-	file, err := loadHCL(path)
+	file, err := hclfile.Load(path)
 	if err != nil {
 		return nil, nil, err
 	}
-	src := file.src
+	src := file.Src
 	used := map[string]bool{}
 	for name := range taken {
 		if v, ok := strings.CutPrefix(name, "var."); ok {
@@ -700,7 +701,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 		used[n] = true
 		return n
 	}
-	for _, b := range file.syntax.Blocks {
+	for _, b := range file.Syntax.Blocks {
 		if b.Type != "resource" || len(b.Labels) != 2 {
 			continue
 		}
@@ -770,7 +771,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 	for _, e := range edits {
 		out = append(out[:e.start:e.start], append([]byte(e.text), out[e.end:]...)...)
 	}
-	if _, diags := parseFile(path, out); diags.HasErrors() {
+	if _, diags := hclfile.ParseDiagnostics(path, out); diags.HasErrors() {
 		return nil, nil, fmt.Errorf("move secrets out of %s: %w", path, diags)
 	}
 	return secrets, warnings, fsutil.WriteFile(path, hclwrite.Format(out), 0o644)
@@ -901,8 +902,8 @@ func readsLiteralSecrets(rel string) bool {
 // secret value secretsInBody finds in any of its blocks; and for a merged
 // root's var file (see isMergedVarFile), in its arguments too, the values it
 // sets, as secretsInBody judges a provider's arguments.
-func literalSecrets(f *hclFile) []string {
-	rel, body := f.path, f.syntax
+func literalSecrets(f *hclfile.File) []string {
+	rel, body := f.Path, f.Syntax
 	if !readsLiteralSecrets(rel) {
 		return nil
 	}
