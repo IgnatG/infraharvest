@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"fmt"
@@ -53,7 +53,7 @@ type envRoot struct {
 	// credentials; its required_version; the tags its provider applies
 	// to every resource (default_tags), if any, and whether it applies
 	// them with an argument (default_labels); the file each resource
-	// goes in, by address (see Import.File); its backend.tf and its
+	// goes in, by address (see rootfile.Import.File); its backend.tf and its
 	// variables.tf, nil for none.
 	provider        rootfile.Provider
 	requiredVersion string

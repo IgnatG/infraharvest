@@ -17,13 +17,13 @@ import (
 
 // Verify runs the verification gate on a directory Generate wrote, for
 // example after people edit it: on a private copy of it without its
-// backend (see verifyCopy), which newTF returns a runner for, initialised
-// without a backend, so verifying needs no access to the state and
-// changes nothing in the directory.
-// Secret variables need values, from TF_VAR_ environment variables or a
-// .auto.tfvars file; opts.Omit and opts.StateOnly are the provider's.
-func Verify(ctx context.Context, newTF NewRunner, dir string, opts Options) (gate.Gate, error) {
-	copied, remove, err := verifyCopy(dir)
+// backend (see gate.VerifyCopy), which newTF returns a runner for,
+// initialised without a backend, so verifying needs no access to the state
+// and changes nothing in the directory. Secret variables need values, from
+// TF_VAR_ environment variables or a .auto.tfvars file; opts.Omit and
+// opts.StateOnly are the provider's.
+func Verify(ctx context.Context, newTF gate.NewRunner, dir string, opts Options) (gate.Gate, error) {
+	copied, remove, err := gate.VerifyCopy(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func Verify(ctx context.Context, newTF NewRunner, dir string, opts Options) (gat
 }
 
 // runGate runs the import gate on the directory as Generate leaves it:
-// every check of the gate (see fullGate), with a plan that imports each
+// every check of the gate (see FullGate), with a plan that imports each
 // resource an import block names and changes nothing else (see
 // gate.PlanCheck). Secret variables Terraform doesn't show get placeholder
 // values in the plan, so the arguments they set may change; so may the
@@ -52,7 +52,7 @@ func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []secr
 	if err != nil {
 		return nil, err
 	}
-	policy := fullGate(opts)
+	policy := FullGate(opts)
 	policy.Plan = func() (gate.Check, []string, error) {
 		p, _, diags, err := tfrun.ShowPlan(ctx, tf, append(secret.Placeholders(secrets), known.Options()...))
 		if err != nil {
@@ -82,11 +82,11 @@ func countImportBlocks(dir string) (int, error) {
 	return n, nil
 }
 
-// fullGate returns the policy that runs every check of the gate, to the
+// FullGate returns the policy that runs every check of the gate, to the
 // output standard, with the omissions and the organisation's own modules
 // of opts (see checkStandards), and with the scanners and scanner slots of
 // opts; its plan is still to be set.
-func fullGate(opts Options) gate.Policy {
+func FullGate(opts Options) gate.Policy {
 	own := ownModuleDirs(opts.Adapters)
 	return gate.Policy{
 		Standards: func(dir string) (gate.Check, error) { return checkStandards(dir, opts.Omit, own) },

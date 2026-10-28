@@ -139,7 +139,7 @@ func setsWriteOnly(body *hclsyntax.Body) bool {
 // in whichever of its files has it, such as a merged root's providers.tf,
 // to the oldest release its blocks work with (see FeaturesNeed), where
 // that is later: as for the removed blocks a merged root gets once
-// written (see engine.WriteMergedMoves). Unlike the engine's
+// written (see envmerge.WriteMergedMoves). Unlike the engine's
 // requireMinimumVersion, it never lowers it, as what the root's modules
 // need isn't known here.
 func RaiseRequiredVersion(dir string) error {

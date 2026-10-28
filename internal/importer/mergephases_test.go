@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -51,8 +52,8 @@ func remergeStack(t *testing.T, out string, f *fakeEngine, queues ...string) (*R
 // than the merged root has them, and the rest stay where they were; with
 // always, they go there kept apart or not. It records the roots of each
 // merge in f.
-func readdressingMerge(f *fakeEngine, queues []string, moving int, always bool) func(context.Context, string, []engine.MergeRoot, engine.MergeOptions) (*engine.MergeResult, error) {
-	return func(_ context.Context, dir string, roots []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+func readdressingMerge(f *fakeEngine, queues []string, moving int, always bool) func(context.Context, string, []envmerge.MergeRoot, envmerge.MergeOptions) (*envmerge.MergeResult, error) {
+	return func(_ context.Context, dir string, roots []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 		f.merged = append(f.merged, slices.Clone(roots))
 		dev := map[string]string{}
 		moved := 0
@@ -70,9 +71,9 @@ func readdressingMerge(f *fakeEngine, queues []string, moving int, always bool) 
 				return nil, err
 			}
 		}
-		return &engine.MergeResult{
+		return &envmerge.MergeResult{
 			Files:        []string{"main.tf", "queues.tf"},
-			Environments: []engine.MergedEnvironment{{Env: "dev", Imports: dev}, {Env: "prod"}},
+			Environments: []envmerge.MergedEnvironment{{Env: "dev", Imports: dev}, {Env: "prod"}},
 		}, nil
 	}
 }
@@ -201,11 +202,11 @@ func TestKeepApart(t *testing.T) {
 		"dev":  {"aws_sqs_queue.audit[0]": "q-audit", "aws_sqs_queue.orders": "q-orders"},
 		"prod": {"aws_sqs_queue.billing[0]": "q-billing", "aws_sqs_queue.reports[0]": "q-reports", "aws_sqs_queue.orders": "q-orders-prod"},
 	}}
-	result := &engine.MergeResult{Environments: []engine.MergedEnvironment{
+	result := &envmerge.MergeResult{Environments: []envmerge.MergedEnvironment{
 		{Env: "dev", Imports: map[string]string{`aws_sqs_queue.this["audit"]`: "q-audit", `aws_sqs_queue.this["orders"]`: "q-orders"}},
 		{Env: "prod", Imports: map[string]string{`aws_sqs_queue.this["billing"]`: "q-billing", "aws_sqs_queue.reports[0]": "q-reports", `aws_sqs_queue.this["orders"]`: "q-orders-prod"}},
 	}}
-	roots := make([]engine.MergeRoot, len(members))
+	roots := make([]envmerge.MergeRoot, len(members))
 	s := &stackMerge{members: members, prev: prev}
 	if !s.keepApart(roots, result, sharedAddresses(prev.Imports)) {
 		t.Fatal("kept nothing apart")
@@ -267,7 +268,7 @@ func TestHandOver(t *testing.T) {
 			writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
 			run := NewRun()
 			run.options.Out = out
-			result := &engine.MergeResult{Reason: tc.reason, Files: []string{"main.tf"}}
+			result := &envmerge.MergeResult{Reason: tc.reason, Files: []string{"main.tf"}}
 			s := &stackMerge{run: run, out: out, stack: stack, prev: tc.prev, adopted: tc.adopted, result: result, imports: tc.imports}
 			if err := s.handOver(); err != nil {
 				t.Fatal(err)

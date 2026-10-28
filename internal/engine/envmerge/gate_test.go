@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"context"
@@ -104,6 +104,24 @@ import {
 		}
 	}
 	return dir
+}
+
+// testGate is the gate MergeRoots's tests merge with: the moves check,
+// and a standards check, the engine's, that finds nothing. The engine's
+// tests hold the golden merged roots to the output standard.
+var testGate = gate.Policy{
+	Standards: func(string) (gate.Check, error) { return gate.Check{Name: gate.CheckStandards, Passed: true}, nil },
+	Moves:     gate.MovesCheck,
+}
+
+// readFile returns the file name in dir.
+func readFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 // mergeFake is a Terraform runner of one environment that plans the
@@ -278,7 +296,7 @@ func TestMergeRoots(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +382,7 @@ func TestMergeRootsPlansWithoutLocalState(t *testing.T) {
 		}
 	}
 
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +409,7 @@ func TestMergeRootsResidue(t *testing.T) {
 	var overrides []string
 	// prod's first plan of the shared queue would update it.
 	changed := map[string]map[string]int{"prod": {"aws_sqs_queue.orders": 1}}
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +536,7 @@ func TestMergeRootsGoneShared(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	roots := goneRoots(t, dir, "aws_sqs_queue.orders")
 	roots[0].Gone = []string{"aws_sqs_queue.orders"}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +552,7 @@ func TestMergeRootsGoneShared(t *testing.T) {
 
 	// Planned with its import, as before, the gate fails.
 	dir = filepath.Join(t.TempDir(), "aws", "eu-west-2")
-	if _, err := MergeRoots(context.Background(), dir, goneRoots(t, dir, "aws_sqs_queue.orders"), MergeOptions{Profile: mergeProfiles["aws"]}); err == nil || !strings.Contains(err.Error(), "non-existent") {
+	if _, err := MergeRoots(context.Background(), dir, goneRoots(t, dir, "aws_sqs_queue.orders"), MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate}); err == nil || !strings.Contains(err.Error(), "non-existent") {
 		t.Errorf("merged with the import of what is gone: %v", err)
 	}
 }
@@ -548,7 +566,7 @@ func TestMergeRootsGoneResidue(t *testing.T) {
 	roots := goneRoots(t, dir, "aws_sqs_queue.audit")
 	addQueue(t, roots[0], "audit")
 	roots[0].Gone = []string{"aws_sqs_queue.audit"}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,7 +579,7 @@ func TestMergeRootsFallBack(t *testing.T) {
 	var overrides []string
 	// prod's plans of the queue always update it.
 	changed := map[string]map[string]int{"prod": {"aws_sqs_queue.orders": 9, "aws_sqs_queue.orders_prod[0]": 9}}
-	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, changed, &overrides), MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +599,7 @@ func TestMergeRootsRefusesDataOfOneEnvironment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(roots[1].Dir, rootfile.DataFileName), []byte("data \"aws_vpc\" \"shared\" {\n  id = \"vpc-0123456789abcdef0\"\n}\n\ndata \"aws_vpc\" \"prod\" {\n  id = \"vpc-0fedcba9876543210\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,10 +785,10 @@ func TestVerifyMerged(t *testing.T) {
 	prodFake := func(d string) (tfrun.Terraform, error) {
 		return &mergeFake{env: "prod", dir: d, overrides: &overrides}, nil
 	}
-	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
+	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
-	checks, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
+	checks, err := VerifyMerged(context.Background(), prodFake, dir, "prod", MergeOptions{Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,7 +799,7 @@ func TestVerifyMerged(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
-	checks, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
+	checks, err = VerifyMerged(context.Background(), prodFake, dir, "prod", MergeOptions{Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -792,20 +810,20 @@ func TestVerifyMerged(t *testing.T) {
 
 // TestMergeRootsUnplanned merges a stack of which the run has dev's root
 // only as an earlier import set it aside, with no Terraform runner, and
-// prod's provider as RootProvider reads it from its root: prod runs the
-// whole gate, and dev is merged, but not planned.
+// prod's provider as rootfile.ReadProvider reads it from its root: prod
+// runs the whole gate, and dev is merged, but not planned.
 func TestMergeRootsUnplanned(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
 	roots := mergeRoots(t, dir, nil, &overrides)
 	roots[0].Terraform = nil
-	provider, err := RootProvider(roots[1].Dir, "aws")
+	provider, err := rootfile.ReadProvider(roots[1].Dir, "aws")
 	if err != nil {
 		t.Fatal(err)
 	}
 	roots[1].Provider = provider
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -826,16 +844,16 @@ func TestMergeRootsUnplanned(t *testing.T) {
 	}
 
 	roots[1].Terraform = nil
-	if _, err := MergeRoots(context.Background(), filepath.Join(t.TempDir(), "aws", "eu-west-2"), roots, MergeOptions{Profile: mergeProfiles["aws"]}); err == nil {
+	if _, err := MergeRoots(context.Background(), filepath.Join(t.TempDir(), "aws", "eu-west-2"), roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate}); err == nil {
 		t.Error("merged with no environment to plan as")
 	}
 }
 
-func TestRootProvider(t *testing.T) {
+func TestReadProvider(t *testing.T) {
 	t.Parallel()
 	// A provider block with an alias isn't the root's provider.
 	aliased := "\nprovider \"aws\" {\n  alias  = \"global\"\n  region = \"us-east-1\"\n}\n"
-	p, err := RootProvider(writeRootDir(t, "prd", "222222222222", "60", aliased), "aws")
+	p, err := rootfile.ReadProvider(writeRootDir(t, "prd", "222222222222", "60", aliased), "aws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -848,7 +866,7 @@ func TestRootProvider(t *testing.T) {
 	if role, ok := p.Config["assume_role"].(map[string]interface{}); !ok || role["role_arn"] != "arn:aws:iam::222222222222:role/deploy" {
 		t.Errorf("assume_role: %#v", p.Config["assume_role"])
 	}
-	if _, err := RootProvider(t.TempDir(), "aws"); err == nil {
+	if _, err := rootfile.ReadProvider(t.TempDir(), "aws"); err == nil {
 		t.Error("a directory without a provider block has a provider")
 	}
 }
@@ -998,7 +1016,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 			return &backendWatcher{Terraform: tf, dir: dir, planned: &planned}, err
 		}
 	}
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: testGate})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1052,7 +1070,9 @@ func TestMergeRootsScannersDontSeeLaterSecrets(t *testing.T) {
 		return nil, nil
 	}}
 
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Scanners: []gate.Scanner{spy}})
+	withSpy := testGate
+	withSpy.Scanners = []gate.Scanner{spy}
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Gate: withSpy})
 	if err != nil {
 		t.Fatal(err)
 	}

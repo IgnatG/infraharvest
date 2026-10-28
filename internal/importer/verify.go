@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
@@ -135,7 +136,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if len(options.Environments) > 0 && !slices.Contains(options.Environments, env) {
 				continue
 			}
-			checks, err := engine.VerifyMerged(ctx, newTF, dir, env, opts)
+			checks, err := envmerge.VerifyMerged(ctx, newTF, dir, env, envmerge.MergeOptions{Gate: engine.FullGate(opts), StateOnly: opts.StateOnly, CommandTimeout: opts.CommandTimeout})
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
@@ -200,7 +201,7 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 
 // generatedRoots returns the directories under out that an import
 // generated, sorted: those with a providers.tf, outside .terraform and
-// the copies verify checks roots in (see engine.IsVerifyCopy), the
+// the copies verify checks roots in (see gate.IsVerifyCopy), the
 // generated modules, the bootstrap root and the checkpoints, where an
 // incremental import stages what it adds (see stagingDir).
 func generatedRoots(out string) ([]string, error) {
@@ -210,7 +211,7 @@ func generatedRoots(out string) ([]string, error) {
 			return err
 		}
 		topLevel := path != out && filepath.Dir(path) == filepath.Clean(out)
-		if d.IsDir() && (d.Name() == ".terraform" || engine.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == hclfile.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
+		if d.IsDir() && (d.Name() == ".terraform" || gate.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == hclfile.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.

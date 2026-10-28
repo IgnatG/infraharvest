@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"errors"
@@ -28,19 +28,20 @@ var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 
 // VacateMerged writes the merged root in dir, which environments share
 // (see mergedRootFiles), all of whose resources, in every environment, go
-// to other roots now (see Removal), as Vacate does a root of its own. Of
-// files, the files its merge wrote, by path in dir with forward slashes,
-// it keeps what each environment plans it with: providers.tf, .gitignore
-// and each environment's vars/<env>/backend.hcl, and variables.tf and the
-// var files with only the variables providers.tf reads. It removes the
-// rest, its code, imports.tf and each vars/<env>/imports.tfvars, and
-// writes moves.tf with removed, the removed blocks of what it had, its
-// required_version raised to what they need, and a README that says to
-// apply it as each environment before the roots they go to. Each
-// environment's plan of it then forgets them, and destroys nothing. It
-// runs no Terraform: it returns the files it leaves, by path in dir with
-// forward slashes, sorted, and the moves check of them (see gate.MovesCheck).
-// It fails if removed is empty, or its moves.tf still moves resources.
+// to other roots now (see rootfile.Removal), as engine.Vacate does a root
+// of its own. Of files, the files its merge wrote, by path in dir with
+// forward slashes, it keeps what each environment plans it with:
+// providers.tf, .gitignore and each environment's vars/<env>/backend.hcl,
+// and variables.tf and the var files with only the variables providers.tf
+// reads. It removes the rest, its code, imports.tf and each
+// vars/<env>/imports.tfvars, and writes moves.tf with removed, the removed
+// blocks of what it had, its required_version raised to what they need,
+// and a README that says to apply it as each environment before the roots
+// they go to. Each environment's plan of it then forgets them, and
+// destroys nothing. It runs no Terraform: it returns the files it leaves,
+// by path in dir with forward slashes, sorted, and the moves check of them
+// (see gate.MovesCheck). It fails if removed is empty, or its moves.tf
+// still moves resources.
 func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error) {
 	if len(removed) == 0 {
 		return nil, gate.Check{}, errors.New("no resources to hand over")

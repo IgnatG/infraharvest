@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -33,7 +34,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 	config := map[string][]byte{"versions.tf": []byte("terraform {}\n")}
 	opts := engine.Options{Config: config}
 	result := &engine.Result{}
-	roots := []engine.MergeRoot{{Env: "dev", Dir: "dev"}, {Env: "prod", Dir: "prod"}}
+	roots := []envmerge.MergeRoot{{Env: "dev", Dir: "dev"}, {Env: "prod", Dir: "prod"}}
 	moved := []rootfile.Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
 	removed := []rootfile.Removal{{From: "aws_sqs_queue.c"}}
 	gone := map[string][]rootfile.Import{"prod": imports}
@@ -130,13 +131,13 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "merge",
 			set: func(tools *callTools, args *[]any) {
-				tools.merge = func(_ context.Context, dir string, r []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+				tools.merge = func(_ context.Context, dir string, r []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 					*args = []any{dir, r}
 					return nil, errStub
 				}
 			},
 			call: func(tools *callTools) error {
-				_, err := tools.mergeRoots(ctx, "merged", roots, engine.MergeOptions{})
+				_, err := tools.mergeRoots(ctx, "merged", roots, envmerge.MergeOptions{})
 				return err
 			},
 			want: []any{"merged", roots},
@@ -245,7 +246,7 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 		{
 			name: "merge",
 			call: func(tools *callTools, dir string) error {
-				_, err := tools.mergeRoots(ctx, dir, nil, engine.MergeOptions{})
+				_, err := tools.mergeRoots(ctx, dir, nil, envmerge.MergeOptions{})
 				return err
 			},
 			want: "two environments or more",

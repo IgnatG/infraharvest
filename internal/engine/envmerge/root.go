@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"bytes"
@@ -884,9 +884,9 @@ func (w *rootWriter) sameTemplate(normal []string) bool {
 }
 
 // terraformBlock writes the terraform block: required_version, from the
-// roots' and raised to what the merged files use (see rootfile.FeaturesNeed), the
-// provider's requirement, and the backend, its settings in each
-// environment's backend.hcl, where the roots have one.
+// roots' and raised to what the merged files use (see
+// rootfile.FeaturesNeed), the provider's requirement, and the backend, its
+// settings in each environment's backend.hcl, where the roots have one.
 func (w *rootWriter) terraformBlock(files map[string][]byte) ([]byte, error) {
 	var parsed []*hclfile.File
 	for _, name := range slices.Sorted(maps.Keys(files)) {

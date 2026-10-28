@@ -19,9 +19,9 @@ import (
 // requireMinimumVersion sets the required_version of the root in dir to
 // the oldest release its configuration works with: at least
 // rootfile.MinimumVersion, the release that brought each feature it uses,
-// or OpenTofu's where later (see rootfile.FeaturesNeed), and the lowest version each
-// module it calls, as Terraform installed them, requires. It stays
-// within that release's major version.
+// or OpenTofu's where later (see rootfile.FeaturesNeed), and the lowest
+// version each module it calls, as Terraform installed them, requires. It
+// stays within that release's major version.
 func requireMinimumVersion(dir string) error {
 	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {

@@ -158,18 +158,17 @@ func rootLabel(address string) (string, bool) {
 }
 
 // moves returns the moved blocks of a root generated again, given now,
-// where its resources are, and sources, the sources of its module calls
-// by name: previous's own moved blocks, then one for each resource of
+// where its resources are, and sources, the sources of its module calls by
+// name: previous's own moved blocks, then one for each resource of
 // previous now at another address; and the resources of previous now of
-// another type (see retypes). It leaves out, with why, the moves
-// Terraform rejects: into or out of a call that a module from the
-// registry the root calls makes, as moved blocks stay within a module
-// package, and onto an address another resource had. It returns none if
-// the blocks together, with those that move what removed blocks take
-// alone first (see rootfile.DepartureMoves), don't move each resource once: two
-// that move the same one, or to the same address, a chain that comes
-// back to where it started, or a move from an address a resource has
-// now.
+// another type (see retypes). It leaves out, with why, the moves Terraform
+// rejects: into or out of a call that a module from the registry the root
+// calls makes, as moved blocks stay within a module package, and onto an
+// address another resource had. It returns none if the blocks together,
+// with those that move what removed blocks take alone first (see
+// rootfile.DepartureMoves), don't move each resource once: two that move
+// the same one, or to the same address, a chain that comes back to where
+// it started, or a move from an address a resource has now.
 func moves(previous *Previous, now []Managed, sources map[string]string) ([]rootfile.Move, []rootfile.Retype, []string) {
 	if previous == nil {
 		return nil, nil, nil
@@ -458,11 +457,10 @@ func movedFrom(b *hclsyntax.Block) (string, bool) {
 // Vacate writes the root in dir that an earlier import generated, all of
 // whose resources go to other roots now (see Removal): opts.Config, such
 // as versions.tf and providers.tf, moves.tf with the removed blocks of
-// opts.Previous, and a README that says to apply the root before the
-// roots they go to. A plan of it then forgets them, and destroys
-// nothing. It runs no Terraform: the gate is the moves check (see
-// gate.MovesCheck). It fails if opts.Previous has no removed blocks, or still
-// moves resources.
+// opts.Previous, and a README that says to apply the root before the roots
+// they go to. A plan of it then forgets them, and destroys nothing. It
+// runs no Terraform: the gate is the moves check (see gate.MovesCheck). It
+// fails if opts.Previous has no removed blocks, or still moves resources.
 func Vacate(dir string, opts Options) (*Result, error) {
 	if opts.Previous == nil || len(opts.Previous.Removed) == 0 {
 		return nil, errors.New("no resources to hand over")

@@ -269,7 +269,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	// plan knew the secret values to look for: where root has the ones it
 	// found, its secrets check fails and its scanners don't run either.
 	secrets := staged.Named(gate.CheckSecrets)
-	policy := fullGate(opts)
+	policy := FullGate(opts)
 	policy.Plan = func() (gate.Check, []string, error) { return staged.Named(gate.CheckPlan), nil, nil }
 	policy.Withheld = &secrets
 	checks, _, err := policy.Run(ctx, rootTF, root)

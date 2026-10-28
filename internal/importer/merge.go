@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -158,7 +159,7 @@ type mergeMember struct {
 	// harvest.Merge).
 	provider       harvest.Provider
 	engineProvider rootfile.Provider
-	profile        engine.MergeProfile
+	profile        envmerge.MergeProfile
 	fingerprint    string
 	result         *engine.Result
 	// opts are the root's engine options, of which the merged root's gate
@@ -167,11 +168,12 @@ type mergeMember struct {
 	execPath, cacheDir string
 	// premerged says its files are set aside (see premergeDir), as its
 	// stack merged before, and isolated are the addresses of what an
-	// incremental import added to it since (see engine.MergeRoot.Isolated).
+	// incremental import added to it since (see
+	// envmerge.MergeRoot.Isolated).
 	premerged bool
 	isolated  []string
 	// labels are the labels the merged root had for some of isolated (see
-	// engine.MergeRoot.Labels).
+	// envmerge.MergeRoot.Labels).
 	labels map[string]string
 	// restored says the import didn't have the member's environment: it
 	// merges again from its set-aside root, unplanned, as the import has
@@ -240,13 +242,13 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 // mergeProfile is what the merged root reads of each environment's scope
 // and region, by profile: its Merge, titled by what the roots are scoped
 // by, its scope's noun, such as Account for account.
-func mergeProfile(profile harvest.Profile) engine.MergeProfile {
+func mergeProfile(profile harvest.Profile) envmerge.MergeProfile {
 	m, noun := profile.Merge, profile.Scope.Noun
 	title := noun
 	if noun != "" {
 		title = strings.ToUpper(noun[:1]) + noun[1:]
 	}
-	merge := engine.MergeProfile{
+	merge := envmerge.MergeProfile{
 		ScopeTitle: title,
 		ScopeData:  m.ScopeData, ScopeLocal: m.ScopeLocal, ScopeExpr: m.ScopeExpr,
 		RegionArgument: m.RegionArgument, RegionTitle: m.RegionTitle,
@@ -265,7 +267,7 @@ func mergeProfile(profile harvest.Profile) engine.MergeProfile {
 // mergeMember): the stack's roots of two environments or more become one
 // root they share, in the directory stackLayout names, checked by its gate
 // once per environment with that environment's credentials (see
-// engine.MergeRoots). A stack whose roots don't merge so that every
+// envmerge.MergeRoots). A stack whose roots don't merge so that every
 // environment's plan stays the same keeps them, and the report says why.
 // The roots of a merged stack are set aside under the output's
 // checkpoints (see premergeDir). Then a merged root none of whose
@@ -376,8 +378,8 @@ func inside(parent, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
-// fillMerge records result, of engine.MergeRoots, in merge.
-func fillMerge(merge *report.Merge, result *engine.MergeResult) {
+// fillMerge records result, of envmerge.MergeRoots, in merge.
+func fillMerge(merge *report.Merge, result *envmerge.MergeResult) {
 	merge.Merged = result.Reason == ""
 	merge.Reason = result.Reason
 	merge.Shared = result.Shared

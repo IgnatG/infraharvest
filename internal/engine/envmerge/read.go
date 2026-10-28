@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"errors"
@@ -71,8 +71,8 @@ type MergeRoot struct {
 	// imported all the same.
 	Gone []string
 	// Arrivals are the resources the root imports that other roots hand
-	// over (see Result.Arrived), which the merged root's README names, as
-	// the roots they come from are applied first.
+	// over (see engine.Result.Arrived), which the merged root's README
+	// names, as the roots they come from are applied first.
 	Arrivals []rootfile.Arrival
 }
 
@@ -323,14 +323,14 @@ func replaceLocals(tokens hclwrite.Tokens, values map[string]cty.Value) hclwrite
 	return out
 }
 
-// mergedObject returns tokens, an expression, as the object it gives
-// where it is a merge of object literals only, such as
-// merge({ env = "dev" }, { owner = "alice" }) once the local of a tag
-// lift is put in (see referTags): false otherwise. A root lifts the tags
-// its resources share only where two or more have them, so the same
-// resource reads alike in a root that lifted its tags and one that
-// didn't, as when an environment gains a resource the others lack;
-// else its tags couldn't merge, and it would be each environment's.
+// mergedObject returns tokens, an expression, as the object it gives where
+// it is a merge of object literals only, such as merge({ env = "dev" }, {
+// owner = "alice" }) once the local of a tag lift is put in (see the
+// engine's referTags): false otherwise. A root lifts the tags its
+// resources share only where two or more have them, so the same resource
+// reads alike in a root that lifted its tags and one that didn't, as when
+// an environment gains a resource the others lack; else its tags couldn't
+// merge, and it would be each environment's.
 func mergedObject(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	expr, diags := hclsyntax.ParseExpression(tokens.Bytes(), "", hcl.InitialPos)
 	if diags.HasErrors() {

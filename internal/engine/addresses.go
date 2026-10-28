@@ -54,9 +54,9 @@ func managedOf(targets map[string]string) []Managed {
 }
 
 // MergedManaged returns the resources of one environment of a root
-// environments share, from their import IDs by their addresses in the
-// root (see MergedImportIDs and MergedEnvironment.Imports), sorted by
-// type and import ID.
+// environments share, from their import IDs by their addresses in the root
+// (see hclfile.MergedImportIDs and envmerge.MergedEnvironment.Imports),
+// sorted by type and import ID.
 func MergedManaged(ids map[string]string) []Managed {
 	managed := make([]Managed, 0, len(ids))
 	for address, id := range ids {

@@ -198,9 +198,9 @@ type Layout struct {
 
 // Merge is what the root the environments of a stack share reads of each
 // environment's account (or subscription, or project) and region, where
-// the environments' roots differ by them. The importer hands it to the
-// engine as engine.MergeProfile, which has the same fields and a
-// title of the scope, Scope.Noun capitalised, for the README.
+// the environments' roots differ by them. The importer hands it to
+// environment merging as envmerge.MergeProfile, which has the same fields
+// and a title of the scope, Scope.Noun capitalised, for the README.
 type Merge struct {
 	// ScopeData is the data source that reads the ID of the account,
 	// ScopeLocal the local that holds the ID, and ScopeExpr the
@@ -225,7 +225,7 @@ type Merge struct {
 	// account_id is the account's ID, for the scope ID and the region of
 	// an environment, "" where they aren't known: a resource of the root
 	// environments share that reads them is told as the environment's own
-	// root has it (see engine.UnmergedBlocks). Nil for a provider with
+	// root has it (see envmerge.UnmergedBlocks). Nil for a provider with
 	// none.
 	EnvironmentData func(scope, region string) EnvironmentData
 }

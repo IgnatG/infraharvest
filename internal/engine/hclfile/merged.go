@@ -96,7 +96,7 @@ func IsBackendConfig(name string) bool {
 // vars/<env>/imports.tfvars. That one only sets the import IDs imports.tf
 // reads, so it counts until both are deleted after the first apply, and
 // never for a root that imports nothing, as one whose resources all went
-// to other roots (see the engine's VacateMerged).
+// to other roots (see envmerge.VacateMerged).
 func VarFiles(env string, imports bool) []string {
 	files := []string{CommonVarsPath, EnvVarsPath(env)}
 	if imports {

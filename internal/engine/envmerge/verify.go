@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"context"
@@ -21,14 +21,16 @@ import (
 // VerifyMerged runs the verification gate on the root environments share
 // in root as environment env plans it, with a Terraform runner newTF
 // returns with env's credentials, on a private copy of the root without
-// its backend (see verifyCopy): with its var files, vars/common.tfvars,
-// vars/<env>/terraform.tfvars and, until it is deleted after the first
-// apply, vars/<env>/imports.tfvars, whose every import the plan must
-// make. It initialises the copy without a backend, as Verify does.
+// its backend (see gate.VerifyCopy): with its var files,
+// vars/common.tfvars, vars/<env>/terraform.tfvars and, until it is
+// deleted after the first apply, vars/<env>/imports.tfvars, whose every
+// import the plan must make. It initialises the copy without a backend,
+// as engine.Verify does. The gate checks what opts.Gate does, as
+// MergeRoots's, with the plan's state-only arguments of opts.StateOnly.
 // Secret variables need values, from TF_VAR_ environment variables or a
 // .auto.tfvars file.
-func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts Options) (gate.Gate, error) {
-	dir, remove, err := verifyCopy(root)
+func VerifyMerged(ctx context.Context, newTF gate.NewRunner, root, env string, opts MergeOptions) (gate.Gate, error) {
+	dir, remove, err := gate.VerifyCopy(root)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +55,7 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		}
 		expected = len(ids)
 	}
-	policy := fullGate(opts)
+	policy := opts.Gate
 	policy.Plan = func() (gate.Check, []string, error) {
 		p, _, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {

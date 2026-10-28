@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -172,7 +173,7 @@ func TestMoveMergedHandsOver(t *testing.T) {
 	r.options.Regenerate = true
 	before := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.reports": "q2"}}
 	now := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1"}}
-	result := &engine.MergeResult{Files: []string{"main.tf"}}
+	result := &envmerge.MergeResult{Files: []string{"main.tf"}}
 	removed := []rootfile.Removal{{From: "aws_sqs_queue.reports", Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q2", Address: "aws_sqs_queue.reports", Root: "envs/shared/fake"}}}}
 	if why, err := r.moveMerged(stack, result, before, now, nil, removed); why != "" || err != nil {
 		t.Fatalf("moveMerged: %q, %v", why, err)

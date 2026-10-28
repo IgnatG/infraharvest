@@ -17,6 +17,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -77,7 +78,7 @@ type fakeEngine struct {
 	// added are the imports added to each root, by directory, and merged
 	// the roots of each merge, in order.
 	added  map[string][]rootfile.Import
-	merged [][]engine.MergeRoot
+	merged [][]envmerge.MergeRoot
 	// mergeReason, if set, is why the roots of a stack don't merge.
 	mergeReason string
 	// readmes are the roots whose README was written after adding to
@@ -187,11 +188,11 @@ func (f *fakeEngine) tools() *callTools {
 			name := engine.AddedFileName(2)
 			return &engine.Result{Imported: imports, Files: []string{name}}, os.WriteFile(filepath.Join(root, name), []byte("# fake\n"), 0o644)
 		},
-		merge: func(_ context.Context, dir string, roots []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+		merge: func(_ context.Context, dir string, roots []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.merged = append(f.merged, roots)
-			result := &engine.MergeResult{Reason: f.mergeReason}
+			result := &envmerge.MergeResult{Reason: f.mergeReason}
 			if f.mergeReason != "" {
 				return result, nil
 			}
@@ -200,7 +201,7 @@ func (f *fakeEngine) tools() *callTools {
 				return nil, err
 			}
 			for _, r := range roots {
-				result.Environments = append(result.Environments, engine.MergedEnvironment{Env: r.Env})
+				result.Environments = append(result.Environments, envmerge.MergedEnvironment{Env: r.Env})
 			}
 			return result, os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# merged\n"), 0o644)
 		},

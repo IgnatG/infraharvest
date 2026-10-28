@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package rootfile
 
 import (
 	"fmt"
@@ -11,23 +11,23 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
-	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
-// RootProvider returns provider name as the root in dir, which Generate
-// wrote, configures it: its source and version constraint, from
-// required_providers, and the arguments of its provider block without an
-// alias, as Provider.Config holds them: strings, bools and lists of
-// strings as Go values, other values as cty values, and nested blocks as
-// maps, or lists of maps where they repeat. Its default tags and labels,
-// which merging reads from the root's files, are left out. The root's
-// files hold no credentials, so neither does its configuration.
-func RootProvider(dir, name string) (rootfile.Provider, error) {
+// ReadProvider returns provider name as the root in dir, which
+// engine.Generate wrote, configures it: its source and version constraint,
+// from required_providers, and the arguments of its provider block
+// without an alias, as Provider.Config holds them: strings, bools and
+// lists of strings as Go values, other values as cty values, and nested
+// blocks as maps, or lists of maps where they repeat. Its default tags
+// and labels, which merging reads from the root's files, are left out.
+// The root's files hold no credentials, so neither does its
+// configuration.
+func ReadProvider(dir, name string) (Provider, error) {
 	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
-		return rootfile.Provider{}, err
+		return Provider{}, err
 	}
-	p := rootfile.Provider{Name: name}
+	p := Provider{Name: name}
 	found := false
 	for _, f := range files {
 		for _, b := range f.Syntax.Blocks {
@@ -40,7 +40,7 @@ func RootProvider(dir, name string) (rootfile.Provider, error) {
 					if attr, ok := nested.Body.Attributes[name]; ok {
 						v, diags := attr.Expr.Value(nil)
 						if diags.HasErrors() || !v.Type().IsObjectType() {
-							return rootfile.Provider{}, fmt.Errorf("%s: the requirement of provider %s isn't an object of literals", f.Path, name)
+							return Provider{}, fmt.Errorf("%s: the requirement of provider %s isn't an object of literals", f.Path, name)
 						}
 						p.Source, p.Version = stringAttr(v, "source"), stringAttr(v, "version")
 					}
@@ -51,14 +51,14 @@ func RootProvider(dir, name string) (rootfile.Provider, error) {
 				}
 				config, err := bodyConfig(b.Body, "default_tags", "default_labels")
 				if err != nil {
-					return rootfile.Provider{}, fmt.Errorf("%s: provider %s: %w", f.Path, name, err)
+					return Provider{}, fmt.Errorf("%s: provider %s: %w", f.Path, name, err)
 				}
 				p.Config, found = config, true
 			}
 		}
 	}
 	if !found {
-		return rootfile.Provider{}, fmt.Errorf("%s: no provider %s block", dir, name)
+		return Provider{}, fmt.Errorf("%s: no provider %s block", dir, name)
 	}
 	return p, nil
 }
@@ -76,7 +76,7 @@ func stringAttr(v cty.Value, name string) string {
 }
 
 // bodyConfig returns body, of literal values, as Provider.Config holds a
-// provider block's arguments (see RootProvider), without the arguments
+// provider block's arguments (see ReadProvider), without the arguments
 // and blocks skip names.
 func bodyConfig(body *hclsyntax.Body, skip ...string) (map[string]interface{}, error) {
 	config := map[string]interface{}{}

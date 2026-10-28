@@ -6,6 +6,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -176,6 +177,52 @@ func TestCheckStandardsFindings(t *testing.T) {
 			}
 			if check.Passed || len(check.Details) != 1 || !strings.HasPrefix(check.Details[0], rule+": ") {
 				t.Errorf("want one %s finding, got %v", rule, check.Details)
+			}
+		})
+	}
+}
+
+// goldenHeader is the line before each file of a golden file.
+var goldenHeader = regexp.MustCompile(`(?m)^-- (.+) --$`)
+
+// The merged roots of envmerge's golden files, which its tests hold to
+// every other check of the gate, meet the output standard.
+func TestMergedRootsMeetTheStandard(t *testing.T) {
+	t.Parallel()
+	goldens, err := filepath.Glob(filepath.Join("envmerge", "testdata", "envroot", "*.golden.txt"))
+	if err != nil || len(goldens) == 0 {
+		t.Fatalf("no golden merged roots: %v", err)
+	}
+	for _, golden := range goldens {
+		t.Run(filepath.Base(golden), func(t *testing.T) {
+			t.Parallel()
+			content, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			// Each file follows a -- path -- line.
+			headers := goldenHeader.FindAllStringSubmatchIndex(string(content), -1)
+			for i, h := range headers {
+				end := len(content)
+				if i+1 < len(headers) {
+					end = headers[i+1][0]
+				}
+				name, body := string(content[h[2]:h[3]]), content[h[1]+1:end]
+				path := filepath.Join(dir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, body, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			check, err := FullGate(Options{}).Standards(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !check.Passed {
+				t.Errorf("%s: %s", check.Name, strings.Join(check.Details, "; "))
 			}
 		})
 	}

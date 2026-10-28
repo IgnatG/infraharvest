@@ -34,7 +34,7 @@ const goneChange = "no longer in the cloud: the plan creates it again"
 
 // PlanCheckWith is PlanCheck, where the plan may also create gone, the
 // addresses of resources no longer in the cloud, whose import it leaves
-// out (see the engine's MergeRoot.Gone).
+// out (see envmerge.MergeRoot.Gone).
 func PlanCheckWith(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []secret.Variable, stateOnly map[string][]string, expected int, gone map[string]bool) Check {
 	check := Check{Name: CheckPlan}
 	if len(diags) > 0 || p == nil {

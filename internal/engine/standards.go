@@ -188,7 +188,7 @@ func checkTerraformBlock(b *hclsyntax.Block, root bool, where func(hcl.Range) st
 
 // checkVariable: typed, described, and no default for a sensitive one but
 // null, which persists no secret: a merged root's, for the environments
-// that don't set it (see mergedRootFiles).
+// that don't set it (see envmerge.MergeRoots).
 func checkVariable(b *hclsyntax.Block, where func(hcl.Range) string, fail func(rule, format string, args ...any)) {
 	name := b.Labels[0]
 	if _, ok := b.Body.Attributes["type"]; !ok {
@@ -213,7 +213,7 @@ func isNull(expr hclsyntax.Expression) bool {
 }
 
 // checkVarFiles checks the vars directory of dir, where a merged root
-// keeps the values each environment sets (see mergedRootFiles): only
+// keeps the values each environment sets (see envmerge.MergeRoots): only
 // .tfvars and .hcl files, each of which parses, and none that sets a
 // variable the root declares sensitive.
 func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {

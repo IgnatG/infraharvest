@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -450,7 +451,7 @@ func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
 
 // vacateMerged writes the merged root in stack with the removed blocks of
 // leaving alone, what its environments have that goes to other roots of
-// the run (see engine.VacateMerged): once every environment's every
+// the run (see envmerge.VacateMerged): once every environment's every
 // resource in it goes, and the roots they go to imported them. Else, or
 // where merging says the run merges roots into it, it stays as it was,
 // the run fails, saying why, and the handovers of what the roots it goes
@@ -534,7 +535,7 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 // writeVacated writes the merged root in stack, of which c is the merge
 // checkpoint, with removals alone, the removed blocks of all it has, and
 // those of its moves.tf from before, not yet applied and deleted (see
-// engine.VacateMerged), and records it in c: it has nothing now. It
+// envmerge.VacateMerged), and records it in c: it has nothing now. It
 // returns why it can't, where it can't, and leaves the merged root as it
 // was.
 func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile.Removal) (string, error) {
@@ -544,7 +545,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile
 	}
 	files := c.Files
 	if len(files) == 0 {
-		if files, err = engine.MergedRootFiles(stack); err != nil {
+		if files, err = envmerge.MergedRootFiles(stack); err != nil {
 			return "", err
 		}
 	}

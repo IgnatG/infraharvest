@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"fmt"
@@ -542,13 +542,14 @@ func (m *stackMerge) forEachBodies() {
 }
 
 // features groups the resources some environments only have, outside a
-// forEach, into features: resources the same environments have that
-// refer to one another, or whose names start with the same word, such as
+// forEach, into features: resources the same environments have that refer
+// to one another, or whose names start with the same word, such as
 // aws_vpn_gateway.vpn and aws_vpn_connection.vpn_customer. One
 // deploy_<feature> variable, true where an environment has the feature,
 // counts every resource of it. A feature is named after the word most of
 // its resources' names start with, or, for one resource, after the
-// resource (see hclfile.CallName). Each residue resource is a feature of its own.
+// resource (see hclfile.CallName). Each residue resource is a feature of
+// its own.
 func (m *stackMerge) features() {
 	var parts []*stackResource
 	for _, r := range m.resources {

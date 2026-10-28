@@ -14,12 +14,12 @@ import (
 // accepting changes to, as generation with opts would write them: the
 // standards check, with the omissions of opts, which leaves the
 // organisation's own modules its adapters call to their owners, and the
-// moves check, as the verification gate runs them (see fullGate); the
+// moves check, as the verification gate runs them (see FullGate); the
 // values the defaults of opts name, which an edit leaves out; and the
 // references to other resources that generation writes for their IDs,
 // ARNs and names (see uniqueTarget).
 func DriftRules(opts Options) drift.Rules {
-	policy := fullGate(opts)
+	policy := FullGate(opts)
 	return drift.Rules{
 		Standards: policy.Standards,
 		Moves:     policy.Moves,

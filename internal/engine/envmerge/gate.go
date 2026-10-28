@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package envmerge
 
 import (
 	"context"
@@ -24,7 +24,6 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
@@ -45,16 +44,17 @@ const maxMergeRounds = 3
 const credentialsOverrideFileName = "infraharvest_credentials_override.tf"
 
 // MergeOptions configure MergeRoots: what the merged root's gate checks,
-// as Generate's does (see Options).
+// as Generate's does (see engine.Options).
 type MergeOptions struct {
 	// Profile is what the merged root reads of each environment's account
 	// and region.
-	Profile         MergeProfile
-	Omit, StateOnly map[string][]string
-	Scanners        []gate.Scanner
-	ScannerSlots    *gate.ScannerSlots
-	Adapters        []adapters.Adapter
-	CommandTimeout  time.Duration
+	Profile MergeProfile
+	// Gate is the policy of the merged root's gate, whose plans MergeRoots
+	// sets: the checks of the output standard, of moved blocks and the
+	// scanners, as engine.FullGate returns them for the run's options.
+	Gate           gate.Policy
+	StateOnly      map[string][]string
+	CommandTimeout time.Duration
 }
 
 // MergeResult is what MergeRoots did with the roots of a stack.
@@ -412,7 +412,7 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			envs[e].Gate = gate.Gate{{Name: gate.CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
 		}
 	}
-	policy := fullGate(Options{Omit: g.opts.Omit, Scanners: g.opts.Scanners, ScannerSlots: g.opts.ScannerSlots, Adapters: g.opts.Adapters})
+	policy := g.opts.Gate
 	policy.Plan = func() (gate.Check, []string, error) { return g.plan(ctx, tf, m, w, first) }
 	// planned are the other environments the gate plans, in the order of
 	// their gates.
@@ -698,7 +698,7 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []secret.Variable) []secre
 // next plan moves them in its state rather than destroying and creating
 // them again. With them go removed, the removed blocks, with destroy =
 // false, of what the merged root hands over to other roots, which import
-// it (see Removal): each environment's next plan forgets it, as the
+// it (see rootfile.Removal): each environment's next plan forgets it, as the
 // environments share the merged root's code, and its required_version is
 // raised to what removed blocks need. It returns the moves check of them
 // (see gate.MovesCheck); the README lists them only once it passes.
@@ -750,7 +750,7 @@ func WriteMergedMoves(dir string, moved []rootfile.Move, removed []rootfile.Remo
 // gone, by environment, the resources of each environment that the
 // incremental import which merged it again didn't find in the cloud,
 // though it listed every resource of their type where they were, at
-// their addresses in the merged root (see notInCloudSection).
+// their addresses in the merged root (see the engine's notInCloudSection).
 func WriteMergedNotInCloud(dir string, gone map[string][]rootfile.Import) error {
 	var b strings.Builder
 	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `" + hclfile.ImportVarsPath("<env>") + "` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")

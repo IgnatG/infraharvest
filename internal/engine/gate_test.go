@@ -437,10 +437,10 @@ variable "api_token" {
 	}
 }
 
-// withChecks gives p the engine's standards and moves checks, as fullGate
+// withChecks gives p the engine's standards and moves checks, as FullGate
 // does, with no omissions and none of the organisation's own modules.
 func withChecks(p gate.Policy) gate.Policy {
-	full := fullGate(Options{})
+	full := FullGate(Options{})
 	p.Standards, p.Moves = full.Standards, full.Moves
 	return p
 }
