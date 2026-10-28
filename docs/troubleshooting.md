@@ -39,6 +39,7 @@ A service fails with the cloud's denial in its message, `service <name>: ...`, a
 
 - Run as the principal the [permissions templates](permissions.md) grant: on AWS `ReadOnlyAccess` with the data-read deny, on Azure Reader, on Google Cloud `roles/viewer`, `roles/iam.securityReviewer` and `roles/cloudasset.viewer`.
 - On AWS, the templates deny `kms:Decrypt`, so SSM `SecureString` parameters fail to import by design (see [Permissions](permissions.md#aws)).
+- On Google Cloud, `roles/viewer` can't read a Memorystore for Redis instance's AUTH string, so an instance with AUTH enabled fails to import by design, with `Error reading AuthString` (see [Permissions](permissions.md#google-cloud)).
 - `--allow-partial` keeps everything else and exits 3; `--skip=<service>` leaves out a service you can't read.
 - If the templates should grant what was denied, please [open an issue](https://github.com/IgnatG/infraharvest/issues) with the resource type and the message.
 
