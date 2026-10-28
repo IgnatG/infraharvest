@@ -15,6 +15,8 @@ import (
 	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // stagedModulesDir is the directory of drift's staged copy of a root that
@@ -51,11 +53,11 @@ func stageModule(staging, dir string) (string, error) {
 		return "", err
 	}
 	for name, content := range contents {
-		f, err := parseHCL(name, content)
+		f, err := hclfile.Parse(name, content)
 		if err != nil {
 			return "", err
 		}
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "module" {
 				return "", nil
 			}
@@ -159,10 +161,10 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		return codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Reason: fmt.Sprintf("in the module call %s: the module %s sets it to a literal the calls share, which can't be made a variable of it: %s", c.ModuleAddress, m.dir, reason)}, true
 	}
 	mf := m.cfg.files[t.file]
-	if mf == nil || t.rng.End.Byte > len(mf.src) {
+	if mf == nil || t.rng.End.Byte > len(mf.Src) {
 		return manual("edit the module by hand")
 	}
-	literal := string(mf.src[t.rng.Start.Byte:t.rng.End.Byte])
+	literal := string(mf.Src[t.rng.Start.Byte:t.rng.End.Byte])
 	at := steps[:t.at]
 	value := c.value
 	if t.at < len(steps) {
@@ -188,13 +190,13 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 
 	// The module: the literal is the variable, whose default it is.
 	moduleFile := path.Join(m.dir, t.file)
-	edits := []codeEdit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
+	edits := []hclfile.Edit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
 	variablesFile := t.file
 	if m.cfg.files[VariablesFileName] != nil {
 		variablesFile = VariablesFileName
 	}
 	description := fmt.Sprintf("The %s of %s, the same for every call that doesn't set it.", pathText(at), resource)
-	edits = append(edits, appendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
+	edits = append(edits, hclfile.AppendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
 
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: call.file, f: call.f, address: "module." + callName}
 	src := codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Module: e.viaText(m, t)}
@@ -224,7 +226,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		rootFile = VariablesFileName
 	}
 	description = fmt.Sprintf("The %s of module.%s, which an environment's terraform.tfvars sets where it differs from the default.", name, callName)
-	edits = append(edits, appendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
+	edits = append(edits, hclfile.AppendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
 	set, _ := vars.set(e.env, rootName, text)
 	src.Edit, src.Also = &set, edits
 	return src, true

@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -63,7 +64,7 @@ func acceptAll(t *testing.T, dir, staging string, plans []*tfjson.Plan, opts Dri
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: plans}
 	opts.Accept = func(DriftChange) bool { return true }
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, opts)
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, opts)
 	return result, copied, calls, err
 }
 
@@ -273,7 +274,7 @@ func TestDriftAcceptChecksTheEditedCode(t *testing.T) {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, edited}, unformatted: []string{"main.tf"}}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +322,7 @@ func TestDriftAcceptChecksBlameTheEditsOfTheFilesTheyFailOn(t *testing.T) {
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, both, logsOnly}, unformatted: []string{"data.tf"}}
 
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +384,7 @@ resource "aws_db_instance" "db" {
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code}}
 	accept := func(c DriftChange) bool { return c.Attribute != "tags.Env" }
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +463,7 @@ module "own" {
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, edited}}
 	opts := DriftOptions{Accept: func(DriftChange) bool { return true }, Adapters: []adapters.Adapter{{Source: own}}}
 
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (DriftTerraform, error) { return copied, nil }, opts)
+	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, opts)
 	if err != nil {
 		t.Fatal(err)
 	}

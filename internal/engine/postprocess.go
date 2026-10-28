@@ -15,6 +15,9 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // placeholderString stands in for secret values in the plans post-processing
@@ -48,7 +51,7 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // didn't move into a curated module, with why. planned, if set, is a plan
 // of the configuration as it is, with the same variables, which it starts
 // from instead of planning.
-func postProcess(ctx context.Context, tf Terraform, dir string, r *run, secrets []Secret, planned *shownPlan) ([]ModuleCall, error) {
+func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []Secret, planned *shownPlan) ([]ModuleCall, error) {
 	vars := append(placeholders(secrets), r.secrets.options()...)
 	baseline, values, changes, err := replanValues(ctx, tf, vars, planned)
 	if err != nil {
@@ -130,12 +133,12 @@ type tidyPass struct {
 // for the passes after them.
 type tidying struct {
 	ctx  context.Context
-	tf   Terraform
+	tf   tfrun.Terraform
 	dir  string
 	r    *run
 	vars []tfexec.PlanOption
 
-	baseline changeSummary
+	baseline tfrun.ChangeSummary
 	values   map[string]map[string]any
 	changes  map[string]string
 
@@ -340,7 +343,7 @@ func (t *tidying) liftModules() error {
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration
 // can't be planned, and undoes the lift if it doesn't validate.
-func liftLiteralsValidated(ctx context.Context, tf Terraform, dir string, taken Names) error {
+func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, taken Names) error {
 	backup, err := backupFiles(dir, GeneratedFileName, LocalsFileName)
 	if err != nil {
 		return err
@@ -389,7 +392,7 @@ func (s tidyStep) apply() (bool, error) {
 // changes, by resource where the step has each (see verifyEach), and
 // with its fallback where the plan rejects its edit. Either way, what it
 // keeps has every resource plan the change it had.
-func verifySteps(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) error {
+func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) error {
 	if len(steps) > 1 {
 		settled, err := verifyTogether(ctx, tf, dir, baseline, changes, vars, steps)
 		if err != nil || settled {
@@ -422,7 +425,7 @@ func verifySteps(ctx context.Context, tf Terraform, dir string, baseline changeS
 // them, or none of them changed anything. Otherwise, as when one edit
 // fails, it leaves the files as they were, for the steps to be checked
 // one at a time.
-func verifyTogether(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
+func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
 	var files []string
 	for _, s := range steps {
 		for _, f := range s.files {
@@ -467,7 +470,7 @@ func verifyTogether(ctx context.Context, tf Terraform, dir string, baseline chan
 // after an import. Resources changes doesn't have, such as those moved
 // into module calls since, are judged by the totals. It reports whether
 // it kept the edit.
-func verify(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
+func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
 	backup, err := backupFiles(dir, files...)
 	if err != nil {
 		return false, err
@@ -503,7 +506,7 @@ const maxEditRounds = 3
 // verifier). edit returns the resources it changed. It undoes the edit
 // if the plan still differs then, or differs in a way no resource it
 // changed explains, and reports whether it kept any of it.
-func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
+func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
 	backup, err := backupFiles(dir, files...)
 	if err != nil {
 		return false, err
@@ -552,21 +555,21 @@ func verifyEach(ctx context.Context, tf Terraform, dir string, baseline changeSu
 // dataReaders returns the resources of generated that refer to the data
 // source at address, such as data.aws_kms_alias.ebs, or none if address
 // isn't a data source's.
-func dataReaders(generated *hclFile, address string) []string {
+func dataReaders(generated *hclfile.File, address string) []string {
 	parts := strings.Split(address, ".")
 	if len(parts) != 3 || parts[0] != "data" {
 		return nil
 	}
 	var readers []string
-	for _, r := range generated.resources() {
-		for _, t := range allTraversals(r.syntax.Body) {
+	for _, r := range generated.Resources() {
+		for _, t := range allTraversals(r.Syntax.Body) {
 			if len(t) < 3 || t.RootName() != "data" {
 				continue
 			}
 			typ, ok1 := t[1].(hcl.TraverseAttr)
 			name, ok2 := t[2].(hcl.TraverseAttr)
 			if ok1 && ok2 && typ.Name == parts[1] && name.Name == parts[2] {
-				readers = append(readers, r.address)
+				readers = append(readers, r.Address)
 				break
 			}
 		}
@@ -580,11 +583,11 @@ func dataReaders(generated *hclFile, address string) []string {
 func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
-		generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+		generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 		if err != nil {
 			return nil, err
 		}
-		imports, err := loadOptionalHCL(filepath.Join(dir, ImportsFileName))
+		imports, err := hclfile.LoadOptional(filepath.Join(dir, ImportsFileName))
 		if err != nil || imports == nil {
 			return nil, err
 		}
@@ -646,7 +649,7 @@ func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
 // each resource's imported attribute values and planned change (see
 // changeSignature), by address. It returns no summary if the
 // configuration doesn't plan.
-func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*changeSummary, map[string]map[string]any, map[string]string, error) {
+func planValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
 	p, summary, _, err := showPlanWithSummary(ctx, tf, vars)
 	if err != nil || p == nil {
 		return nil, nil, nil, err
@@ -661,14 +664,14 @@ func planValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*c
 // the same configuration again.
 type shownPlan struct {
 	plan    *tfjson.Plan
-	summary *changeSummary
+	summary *tfrun.ChangeSummary
 }
 
 // replanValues is planValues, from last if set: a plan of the
 // configuration as it is, with vars, such as the one a step ended on.
 // Planning the same configuration with the same vars again would only
 // read every imported resource again.
-func replanValues(ctx context.Context, tf Terraform, vars []tfexec.PlanOption, last *shownPlan) (*changeSummary, map[string]map[string]any, map[string]string, error) {
+func replanValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption, last *shownPlan) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
 	if last == nil || last.plan == nil || last.summary == nil {
 		return planValues(ctx, tf, vars)
 	}

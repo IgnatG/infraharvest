@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // mergeStack is mergeStackWith without controls, as a stack first merges.
@@ -719,7 +721,7 @@ resource "aws_sqs_queue" "refunds" {
 
 		// Keys that no longer merge, as one has a block the other
 		// lacks, dissolve the group, rather than leave it without a body.
-		g.keys[1].members[1].block.write.Body().AppendNewBlock("redrive_allow_policy", nil)
+		g.keys[1].members[1].block.Write.Body().AppendNewBlock("redrive_allow_policy", nil)
 		m.forEachBodies()
 		if len(m.forEach) != 0 {
 			t.Fatalf("%d for_each groups, want the group dissolved", len(m.forEach))
@@ -745,7 +747,7 @@ func TestMergeStackFeatureData(t *testing.T) {
 			awsEnvRoot(t, "dev", nil, "111111111111", dev, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}, nil, nil, ""),
 			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, map[string]string{"aws_sqs_queue.orders": "shop-prd-orders", "aws_vpn_gateway.vpn": "vgw-1"}, nil, nil, ""),
 		}
-		f, err := parseHCL(DataFileName, []byte(data))
+		f, err := hclfile.Parse(DataFileName, []byte(data))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -997,7 +999,7 @@ func TestLiteralTokens(t *testing.T) {
 		{src: `jsonencode({ Version = "2012-10-17", Statement = [{ Sid = "Dev" }] })`, want: `"{\"Statement\":[{\"Sid\":\"Dev\"}],\"Version\":\"2012-10-17\"}"`, ok: true},
 		{src: `upper("x")`, ok: false},
 	} {
-		got, ok := literalTokens(parseExpr(tc.src))
+		got, ok := literalTokens(hclfile.ParseExpr(tc.src))
 		if ok != tc.ok {
 			t.Errorf("%s: ok %v, want %v", tc.src, ok, tc.ok)
 			continue

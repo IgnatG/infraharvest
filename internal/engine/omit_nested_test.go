@@ -182,7 +182,7 @@ func TestCheckOmittedNested(t *testing.T) {
 	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, targetGroupsGenerated)
 	var findings []string
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		checkOmitted(b, map[string][]string{"aws_lb_target_group": {"stickiness when stickiness.enabled=false", "stickiness.cookie_duration=3600"}}, func(hcl.Range) string { return "x" }, func(rule, _ string, _ ...any) {
 			findings = append(findings, rule)
 		})

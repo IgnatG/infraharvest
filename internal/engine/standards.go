@@ -19,6 +19,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // CheckStandards is the verification gate's built-in standards check (G4).
@@ -72,18 +74,12 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	return check, nil
 }
 
-// localStateFileName is the file Terraform's local backend keeps a
-// workspace's state in: the default one's in the root, each other one's
-// under workspaceStateDir (see workspaceStateFile). Drift's staged copy
-// plans with its state there too.
-const localStateFileName = "terraform.tfstate"
-
 // LocalStateFile reports whether name is a file Terraform's local backend
 // keeps a root's state in, its backups and its lock, which the output's
 // .gitignore leaves out (see GitignoreFile); its workspaces' states are
 // in the directory workspaceStateDir.
 func LocalStateFile(name string) bool {
-	return strings.HasPrefix(name, localStateFileName) || name == ".terraform.tfstate.lock.info"
+	return strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info"
 }
 
 // standardsIn checks the files of dir, a root or a module, naming them
@@ -113,14 +109,14 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 		case !strings.HasSuffix(name, ".tf"):
 			continue
 		}
-		f, err := loadHCL(filepath.Join(dir, name))
+		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			return nil, err
 		}
 		where := func(rng hcl.Range) string {
 			return fmt.Sprintf("%s:%d", rel(base, filepath.Join(dir, name)), rng.Start.Line)
 		}
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch b.Type {
 			case "terraform":
 				if checkTerraformBlock(b, root, where, fail) {
@@ -150,7 +146,7 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 			}
 		}
 		// The visitor reports through fail and returns no diagnostics.
-		_ = hclsyntax.VisitAll(f.syntax, func(n hclsyntax.Node) hcl.Diagnostics {
+		_ = hclsyntax.VisitAll(f.Syntax, func(n hclsyntax.Node) hcl.Diagnostics {
 			if w, ok := n.(*hclsyntax.TemplateWrapExpr); ok {
 				fail("legacy-interpolation", "%s: \"${...}\" around a single expression", where(w.Range()))
 			}
@@ -247,7 +243,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
 			return nil
 		}
-		f, err := loadHCL(path)
+		f, err := hclfile.Load(path)
 		if err != nil {
 			fail("invalid-var-file", "%s doesn't parse", name)
 			return nil
@@ -255,9 +251,9 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 		if !strings.HasSuffix(name, ".tfvars") {
 			return nil
 		}
-		for _, v := range slices.Sorted(maps.Keys(f.syntax.Attributes)) {
+		for _, v := range slices.Sorted(maps.Keys(f.Syntax.Attributes)) {
 			if sensitive[v] {
-				fail("secret-in-var-file", "%s:%d: sets %s, a sensitive variable, which belongs outside the files", name, f.syntax.Attributes[v].SrcRange.Start.Line, v)
+				fail("secret-in-var-file", "%s:%d: sets %s, a sensitive variable, which belongs outside the files", name, f.Syntax.Attributes[v].SrcRange.Start.Line, v)
 			}
 		}
 		return nil
@@ -273,7 +269,7 @@ func sensitiveVariables(dir string) (map[string]bool, error) {
 	}
 	sensitive := map[string]bool{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "variable" || len(b.Labels) != 1 {
 				continue
 			}

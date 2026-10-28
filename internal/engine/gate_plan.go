@@ -16,6 +16,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // stateOnlyChange is what the plan check's details say of a resource that
@@ -43,7 +45,7 @@ func planCheckWith(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, 
 	check := Check{Name: CheckPlan}
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
-			check.Details = append(check.Details, formatDiagnostic(d))
+			check.Details = append(check.Details, tfrun.FormatDiagnostic(d))
 		}
 		if len(diags) == 0 {
 			check.Details = append(check.Details, "terraform plan reported no change summary")
@@ -233,7 +235,7 @@ func changedAttributes(before, after, afterUnknown any) []string {
 // JSON with its change summary, or the errors if the configuration doesn't
 // plan. The plan file holds secret values: it lives in a private temporary
 // directory, removed before showPlanWithSummary returns.
-func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *changeSummary, []tfjson.Diagnostic, error) {
+func showPlanWithSummary(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *tfrun.ChangeSummary, []tfjson.Diagnostic, error) {
 	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
 	if err != nil {
 		return nil, nil, nil, err
@@ -241,7 +243,7 @@ func showPlanWithSummary(ctx context.Context, tf Terraform, vars []tfexec.PlanOp
 	defer os.RemoveAll(tmp)
 	planFile := filepath.Join(tmp, "plan")
 	opts := append(append([]tfexec.PlanOption(nil), vars...), tfexec.Out(planFile))
-	diags, summary, err := plan(ctx, tf, opts...)
+	diags, summary, err := tfrun.Plan(ctx, tf, opts...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("terraform plan: %w", err)
 	}

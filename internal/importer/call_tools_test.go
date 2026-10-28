@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // errStub is what every stubbed tool returns, so a test tells the stub's
@@ -24,7 +25,7 @@ var errStub = errors.New("stub")
 func TestCallToolsUseTheToolSet(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	binary := engine.Binary{Name: "terraform"}
+	binary := tfrun.Binary{Name: "terraform"}
 	provider := engine.Provider{Name: "aws", Source: "hashicorp/aws"}
 	imports := []engine.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q-1"}}
 	config := map[string][]byte{"versions.tf": []byte("terraform {}\n")}
@@ -45,7 +46,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "find",
 			set: func(tools *callTools, args *[]any) {
-				tools.findBinary = func(_ context.Context, b engine.Binary, explicit, cache string) (string, error) {
+				tools.findBinary = func(_ context.Context, b tfrun.Binary, explicit, cache string) (string, error) {
 					*args = []any{b, explicit, cache}
 					return "", errStub
 				}
@@ -88,7 +89,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "add",
 			set: func(tools *callTools, args *[]any) {
-				tools.addTo = func(_ context.Context, _, _ engine.Terraform, staging, root string, imps []engine.Import, _ engine.Options, ext map[engine.External]string) (*engine.Result, error) {
+				tools.addTo = func(_ context.Context, _, _ tfrun.Terraform, staging, root string, imps []engine.Import, _ engine.Options, ext map[engine.External]string) (*engine.Result, error) {
 					*args = []any{staging, root, imps, ext}
 					return nil, errStub
 				}
@@ -208,7 +209,7 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 		{
 			name: "find",
 			call: func(tools *callTools, dir string) error {
-				_, err := tools.find(ctx, engine.Binary{Name: "terraform"}, filepath.Join(dir, "terraform"), dir)
+				_, err := tools.find(ctx, tfrun.Binary{Name: "terraform"}, filepath.Join(dir, "terraform"), dir)
 				return err
 			},
 			want: "terraform",

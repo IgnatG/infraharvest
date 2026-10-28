@@ -9,6 +9,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // A sourceResolver is one kind of source an argument of the code gets its
@@ -128,7 +130,7 @@ func (l localResolver) resolve(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, pa
 			return w.unwritable(sourceSharedLocal, x.Range())
 		}
 	}
-	return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
+	return codeSource{File: w.file, Range: x.Range(), Kind: sourceSharedLocal, Edit: &hclfile.Edit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 }
 
 // variableResolver is var.name, declared by block, nil where the root
@@ -279,7 +281,7 @@ func (referenceResolver) resolve(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 		if target, ok := uniqueTarget(path[len(path)-1], value, w.e.refs[value]); ok && target.address != w.address {
 			text := hclwrite.TokensForTraversal(target.traversal()).Bytes()
 			if string(text) != ref {
-				return codeSource{File: w.file, Range: x.Range(), Kind: sourceReference, Edit: &codeEdit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
+				return codeSource{File: w.file, Range: x.Range(), Kind: sourceReference, Edit: &hclfile.Edit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 			}
 		}
 	}

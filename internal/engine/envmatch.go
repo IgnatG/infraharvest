@@ -15,6 +15,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // The placeholders normalising puts in names and values for what differs
@@ -37,10 +39,10 @@ type envRoot struct {
 	// scope is the root's account, subscription or project ID, region its
 	// AWS region, and group its resource group, if any.
 	scope, region, group string
-	file                 *hclFile          // generated.tf
+	file                 *hclfile.File     // generated.tf
 	importIDs            map[string]string // by resource address
 	// data are the data sources the root reads, nil for none.
-	data *hclFile
+	data *hclfile.File
 
 	// What the merged root's other files are written from (see
 	// mergedRootFiles): the root's provider, its configuration without
@@ -55,7 +57,7 @@ type envRoot struct {
 	defaultLabels   bool
 	files           map[string]string
 	backend         []byte
-	variables       *hclFile
+	variables       *hclfile.File
 	// arrivals are what the root imports that other roots hand over (see
 	// MergeRoot.Arrivals).
 	arrivals []Arrival
@@ -101,12 +103,12 @@ func newNormaliser(root envRoot) *normaliser {
 // resources hold most often as a whole word, as they write it, in
 // whatever case (PRD for prd, where the names say PRD); the first of
 // order for a tie, or where none holds any.
-func chooseToken(order []string, f *hclFile) string {
+func chooseToken(order []string, f *hclfile.File) string {
 	counts := map[string]int{}
 	var forms []string // as the values write the tokens, in order seen
 	if f != nil {
-		for _, r := range f.resources() {
-			forms = countTokens(r.write.Body(), order, counts, forms)
+		for _, r := range f.Resources() {
+			forms = countTokens(r.Write.Body(), order, counts, forms)
 		}
 	}
 	best := order[0]
@@ -319,7 +321,7 @@ const (
 // envResource is a resource of one environment's root.
 type envResource struct {
 	env          int // the index of its root
-	block        resourceBlock
+	block        hclfile.Resource
 	resourceType string
 	id           string // its import ID, "" if unknown
 	normalID     string // id normalised, "" if unknown
@@ -408,26 +410,26 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 		labels[e] = map[string]int{}
 		index := map[string]*envResource{}
 		for _, b := range stackBlocks(root.file) {
-			typ, label, _ := strings.Cut(b.address, ".")
+			typ, label, _ := strings.Cut(b.Address, ".")
 			r := &envResource{env: e, block: b, resourceType: typ, normalLabel: norms[e].label(label)}
-			r.isolated = isolated[mergeKey(e, b.address)]
-			if l := keptLabels[mergeKey(e, b.address)]; r.isolated && l != "" {
+			r.isolated = isolated[mergeKey(e, b.Address)]
+			if l := keptLabels[mergeKey(e, b.Address)]; r.isolated && l != "" {
 				r.normalLabel = l
 			}
 			if typ == moduleType {
 				r.moduleIDs = moduleImportIDs(root.importIDs, label)
 			}
-			if id := root.importIDs[b.address]; id != "" {
+			if id := root.importIDs[b.Address]; id != "" {
 				r.id, r.normalID = id, norms[e].value(id)
 			}
 			if !r.isolated {
 				labels[e][typ+"."+r.normalLabel]++
 			}
-			index[b.address] = r
+			index[b.Address] = r
 			byEnv[e] = append(byEnv[e], r)
 		}
 		for _, r := range byEnv[e] {
-			for _, a := range stackReferences(r.block.syntax.Body) {
+			for _, a := range stackReferences(r.block.Syntax.Body) {
 				if t, ok := index[a]; ok && t != r {
 					r.refs = append(r.refs, t)
 				}
@@ -606,7 +608,7 @@ func assignLabels(resources []*stackResource, envs []string) {
 		if a.first != b.first {
 			return a.first < b.first
 		}
-		return a.r.members[a.first].block.address < b.r.members[b.first].block.address
+		return a.r.members[a.first].block.Address < b.r.members[b.first].block.Address
 	})
 	used := map[string]bool{}
 	for _, l := range all {

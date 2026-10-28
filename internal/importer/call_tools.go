@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // callTools are what an Import call reaches outside the process through,
@@ -20,15 +21,15 @@ import (
 // field, uses the real one.
 type callTools struct {
 	// findBinary returns the path of the engine binary, as
-	// engine.Binary.Find does.
-	findBinary func(ctx context.Context, binary engine.Binary, explicitPath, cacheDir string) (string, error)
+	// tfrun.Binary.Find does.
+	findBinary func(ctx context.Context, binary tfrun.Binary, explicitPath, cacheDir string) (string, error)
 	// rootConfig renders the root files, as rootConfig does with the
 	// default registry.
 	rootConfig func(ctx context.Context, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error)
 	// generate generates a root, as generateDir does.
 	generate func(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error)
 	// addTo adds to a root, as engine.Add does.
-	addTo func(ctx context.Context, tf, rootTF engine.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error)
+	addTo func(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error)
 	// vacateRoot writes a root with removed blocks alone, as engine.Vacate
 	// does.
 	vacateRoot func(dir string, opts engine.Options) (*engine.Result, error)
@@ -48,8 +49,8 @@ type callTools struct {
 	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, engine.Check, error)
 }
 
-// find returns the path of binary (see engine.Binary.Find).
-func (t *callTools) find(ctx context.Context, binary engine.Binary, explicitPath, cacheDir string) (string, error) {
+// find returns the path of binary (see tfrun.Binary.Find).
+func (t *callTools) find(ctx context.Context, binary tfrun.Binary, explicitPath, cacheDir string) (string, error) {
 	if t != nil && t.findBinary != nil {
 		return t.findBinary(ctx, binary, explicitPath, cacheDir)
 	}
@@ -74,7 +75,7 @@ func (t *callTools) generateDir(ctx context.Context, dir string, tr terraformRun
 
 // add adds imports to the root in root, generating them in staging (see
 // engine.Add).
-func (t *callTools) add(ctx context.Context, tf, rootTF engine.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error) {
+func (t *callTools) add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error) {
 	if t != nil && t.addTo != nil {
 		return t.addTo(ctx, tf, rootTF, staging, root, imports, opts, existing)
 	}

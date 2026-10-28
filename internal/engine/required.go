@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // minimumVersion is the oldest Terraform release generated configuration
@@ -103,7 +105,7 @@ func requireMinimumVersion(dir string) error {
 	// trials the plan rejected too (see synthesize).
 	called := map[string]bool{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "module" && len(b.Labels) == 1 {
 				called[b.Labels[0]] = true
 			}
@@ -115,14 +117,14 @@ func requireMinimumVersion(dir string) error {
 		}
 	}
 	path := filepath.Join(dir, VersionsFileName)
-	versions, err := loadOptionalHCL(path)
+	versions, err := hclfile.LoadOptional(path)
 	if err != nil || versions == nil {
 		return err
 	}
 	want := fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)
 	changed := false
-	blocks := versions.edit().Body().Blocks()
-	for i, b := range versions.syntax.Blocks {
+	blocks := versions.Edit().Body().Blocks()
+	for i, b := range versions.Syntax.Blocks {
 		if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) || stringAttribute(b.Body, "required_version") == want {
 			continue
 		}
@@ -132,16 +134,16 @@ func requireMinimumVersion(dir string) error {
 	if !changed {
 		return nil
 	}
-	return versions.save()
+	return versions.Save()
 }
 
 // featuresNeed returns the oldest release the blocks of files work with:
 // MinimumVersion, or the release that brought a feature they use, or
 // OpenTofu's where later (see features).
-func featuresNeed(files []*hclFile) *version.Version {
+func featuresNeed(files []*hclfile.File) *version.Version {
 	need := MinimumVersion()
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			for _, feature := range features {
 				if !feature.uses(b) {
 					continue
@@ -227,7 +229,7 @@ func requiredByModule(dir string) *version.Version {
 	}
 	var need *version.Version
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			constraint := stringAttribute(b.Body, "required_version")
 			if b.Type != "terraform" || constraint == "" {
 				continue
@@ -288,9 +290,9 @@ func raiseRequiredVersion(dir string) error {
 	need := featuresNeed(files)
 	want := fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)
 	for _, f := range files {
-		blocks := f.edit().Body().Blocks()
+		blocks := f.Edit().Body().Blocks()
 		changed := false
-		for i, b := range f.syntax.Blocks {
+		for i, b := range f.Syntax.Blocks {
 			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) {
 				continue
 			}
@@ -303,7 +305,7 @@ func raiseRequiredVersion(dir string) error {
 			changed = true
 		}
 		if changed {
-			if err := f.save(); err != nil {
+			if err := f.Save(); err != nil {
 				return err
 			}
 		}

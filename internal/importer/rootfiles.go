@@ -14,6 +14,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -46,7 +47,7 @@ type rootFiles struct {
 // is refused, and the import doesn't call it (see newestMajor). A
 // registryURL replaces the registry, for tests.
 func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
-	engineVersion, err := engine.BinaryVersion(ctx, execPath)
+	engineVersion, err := tfrun.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
 	}

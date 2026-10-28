@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 const (
@@ -326,9 +328,9 @@ resource "aws_subnet" "a" {
 			rc.Change = &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionUpdate}, Before: map[string]any{"rest_api_id": "okoipb1lhk"}, After: map[string]any{"rest_api_id": "other"}}
 		}
 	}
-	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: changeSummary{Change: 1}}}, showns: []*tfjson.Plan{changed}, shown: clean}
+	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}, showns: []*tfjson.Plan{changed}, shown: clean}
 
-	kept, err := verifyEach(context.Background(), tf, dir, changeSummary{}, changes, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
 	}, GeneratedFileName)
 	if err != nil || !kept {
@@ -358,7 +360,7 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 	writeConfig(t, dir, GeneratedFileName, config)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	kept, err := verifyEach(context.Background(), tf, dir, changeSummary{}, nil, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
 	}, GeneratedFileName)
 	if err != nil || kept {

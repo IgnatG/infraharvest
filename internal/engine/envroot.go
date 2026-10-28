@@ -20,6 +20,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // mainFileName holds the resources whose roots name no file of their own
@@ -166,7 +168,7 @@ func (w *rootWriter) placeResources() {
 			if member == nil {
 				continue
 			}
-			if f := w.m.roots[e].files[member.block.address]; f != "" && strings.HasSuffix(f, ".tf") && !slices.Contains(reservedFiles, f) && !strings.Contains(f, "/") {
+			if f := w.m.roots[e].files[member.block.Address]; f != "" && strings.HasSuffix(f, ".tf") && !slices.Contains(reservedFiles, f) && !strings.Contains(f, "/") {
 				return f
 			}
 			break
@@ -236,7 +238,7 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 			texts[i] = b.text
 		}
 		src := []byte(strings.Join(texts, "\n"))
-		out, ok := layout(src)
+		out, ok := hclfile.Layout(src)
 		if !ok {
 			return nil, fmt.Errorf("%s doesn't parse:\n%s", name, src)
 		}
@@ -337,11 +339,11 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 	var missing []string
 	read := map[string]bool{}
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		f, err := parseHCL(name, files[name])
+		f, err := hclfile.Parse(name, files[name])
 		if err != nil {
 			return fmt.Errorf("%s doesn't parse", name)
 		}
-		_ = hclsyntax.VisitAll(f.syntax, func(n hclsyntax.Node) hcl.Diagnostics {
+		_ = hclsyntax.VisitAll(f.Syntax, func(n hclsyntax.Node) hcl.Diagnostics {
 			expr, ok := n.(hclsyntax.Expression)
 			if !ok {
 				return nil
@@ -372,7 +374,7 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 			if root.variables == nil {
 				continue
 			}
-			for _, b := range root.variables.edit().Body().Blocks() {
+			for _, b := range root.variables.Edit().Body().Blocks() {
 				if b.Type() == "variable" && len(b.Labels()) == 1 && b.Labels()[0] == name {
 					declaring[e] = b
 					break
@@ -868,12 +870,12 @@ func (w *rootWriter) sameTemplate(normal []string) bool {
 // provider's requirement, and the backend, its settings in each
 // environment's backend.hcl, where the roots have one.
 func (w *rootWriter) terraformBlock(files map[string][]byte) ([]byte, error) {
-	var parsed []*hclFile
+	var parsed []*hclfile.File
 	for _, name := range slices.Sorted(maps.Keys(files)) {
 		if !strings.HasSuffix(name, ".tf") {
 			continue
 		}
-		f, err := parseHCL(name, files[name])
+		f, err := hclfile.Parse(name, files[name])
 		if err != nil {
 			return nil, err
 		}
@@ -916,12 +918,12 @@ func (w *rootWriter) rootBackend(env int) (string, []string, map[string]hclwrite
 	if len(src) == 0 {
 		return "", nil, nil
 	}
-	f, err := parseHCL(backendFileName, src)
+	f, err := hclfile.Parse(backendFileName, src)
 	if err != nil {
 		return "", nil, nil
 	}
-	blocks := f.edit().Body().Blocks()
-	for i, b := range f.syntax.Blocks {
+	blocks := f.Edit().Body().Blocks()
+	for i, b := range f.Syntax.Blocks {
 		if b.Type != "terraform" || i >= len(blocks) {
 			continue
 		}
@@ -1070,7 +1072,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 			}
 			block.AppendNewline()
 			validation := block.AppendNewBlock("validation", nil).Body()
-			validation.SetAttributeRaw("condition", parseExpr(fmt.Sprintf("contains(%s, var.%s)", string(hclwrite.TokensForValue(cty.TupleVal(values)).Bytes()), envVariableName)))
+			validation.SetAttributeRaw("condition", hclfile.ParseExpr(fmt.Sprintf("contains(%s, var.%s)", string(hclwrite.TokensForValue(cty.TupleVal(values)).Bytes()), envVariableName)))
 			validation.SetAttributeValue("error_message", cty.StringVal(fmt.Sprintf("%s must be one of %s.", envVariableName, strings.Join(tokens, ", "))))
 		}
 	}
@@ -1081,7 +1083,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 	body.AppendNewline()
 	imports := body.AppendNewBlock("variable", []string{importIDsVariableName}).Body()
 	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
-	imports.SetAttributeRaw("type", parseExpr("map(string)"))
+	imports.SetAttributeRaw("type", hclfile.ParseExpr("map(string)"))
 	imports.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
 	return formatHCL(string(f.Bytes())), nil
 }
@@ -1166,7 +1168,7 @@ func (w *rootWriter) importVarsFile(env int) []byte {
 // formatHCL is src, HCL, formatted as terraform fmt does, with the blocks
 // and objects that hold nothing on one line.
 func formatHCL(src string) []byte {
-	return collapseEmptyBlocks(hclwrite.Format([]byte(src)))
+	return hclfile.CollapseEmptyBlocks(hclwrite.Format([]byte(src)))
 }
 
 // readme writes the merged root's README.md: its environments, and how to

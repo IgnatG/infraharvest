@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Verify runs the verification gate on a directory Generate wrote, for
@@ -27,8 +29,8 @@ func Verify(ctx context.Context, newTF NewRunner, dir string, opts Options) (Gat
 	if err != nil {
 		return nil, err
 	}
-	tf = withTimeout(tf, opts.CommandTimeout)
-	if err := initTerraform(ctx, tf, tfexec.Backend(false)); err != nil {
+	tf = tfrun.WithTimeout(tf, opts.CommandTimeout)
+	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	return runGate(ctx, tf, copied, nil, opts, nil)

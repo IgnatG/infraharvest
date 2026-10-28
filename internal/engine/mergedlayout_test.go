@@ -13,6 +13,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // mergedRootDir writes files, by path with forward slashes, into a new
@@ -200,7 +202,7 @@ func TestMergedStateLocations(t *testing.T) {
 func TestMergedRootFilesOnDisk(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{}
-	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
+	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", tfrun.LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
 		files[name] = "# " + name + "\n"
 	}
 	got, err := MergedRootFiles(mergedRootDir(t, files))
@@ -264,7 +266,7 @@ func setVar(t *testing.T, vars mergedVars, env, name, text string) string {
 	if want := envVarsPath(env); edit.File != want {
 		t.Fatalf("%s: edits %s, want %s", env, edit.File, want)
 	}
-	src := vars.own(env).src
+	src := vars.own(env).Src
 	return string(slices.Concat(src[:edit.Start], edit.Text, src[edit.End:]))
 }
 

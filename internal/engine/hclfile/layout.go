@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package hclfile
 
 import (
 	"bytes"
@@ -17,12 +17,12 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// layoutDir lays out the resource and data blocks of the .tf files of
-// dir as HashiCorp's style guide does (see layoutBody). The layout changes
-// nothing Terraform reads, so no plan checks it. Generated local modules
-// are laid out as they are written (see writeModule): the modules
-// directory is shared with the roots generating in parallel.
-func layoutDir(dir string) error {
+// LayoutDir lays out the resource and data blocks of the .tf files of
+// dir as HashiCorp's style guide does (see LayoutBody). The layout changes
+// nothing Terraform reads, so no plan checks it. The engine lays out
+// generated local modules as it writes them: the modules directory is
+// shared with the roots generating in parallel.
+func LayoutDir(dir string) error {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 	if err != nil {
 		return err
@@ -36,43 +36,43 @@ func layoutDir(dir string) error {
 }
 
 // layoutFile lays out the resource and data blocks of the file at path
-// (see layoutBody), formatted, and reports whether that changed it. It
+// (see LayoutBody), formatted, and reports whether that changed it. It
 // leaves a file that doesn't parse as it is.
 func layoutFile(path string) (bool, error) {
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
 	}
-	out, ok := layout(src)
+	out, ok := Layout(src)
 	if !ok || bytes.Equal(out, src) {
 		return false, nil
 	}
 	return true, fsutil.WriteFile(path, out, 0o644)
 }
 
-// layout returns src with its resource and data blocks laid out (see
-// layoutBody), formatted. It reports false if src doesn't parse.
-func layout(src []byte) ([]byte, bool) {
-	f, err := parseHCL("", src)
+// Layout returns src with its resource and data blocks laid out (see
+// LayoutBody), formatted. It reports false if src doesn't parse.
+func Layout(src []byte) ([]byte, bool) {
+	f, err := Parse("", src)
 	if err != nil {
 		return nil, false
 	}
 	out := slices.Clone(src)
-	blocks := f.syntax.Blocks
+	blocks := f.Syntax.Blocks
 	// From the last block, so that the offsets of the others hold.
 	for i := len(blocks) - 1; i >= 0; i-- {
 		b := blocks[i]
 		if (b.Type != "resource" && b.Type != "data") || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 			continue
 		}
-		inner, ok := layoutBody(src, b, true)
+		inner, ok := LayoutBody(src, b, true)
 		if !ok {
 			continue
 		}
 		out = slices.Concat(out[:b.OpenBraceRange.End.Byte], []byte("\n"), inner, out[b.CloseBraceRange.Start.Byte:])
 	}
-	formatted := collapseEmptyBlocks(hclwrite.Format(out))
-	if _, err := parseHCL("", formatted); err != nil {
+	formatted := CollapseEmptyBlocks(hclwrite.Format(out))
+	if _, err := Parse("", formatted); err != nil {
 		return nil, false
 	}
 	return formatted, true
@@ -133,7 +133,7 @@ func isReference(expr hclsyntax.Expression) bool {
 	return true
 }
 
-// layoutBody returns the lines of the body of b, which src holds, laid out:
+// LayoutBody returns the lines of the body of b, which src holds, laid out:
 // arguments first, then nested blocks, each group separated by one blank
 // line, and the nested blocks laid out the same way. In a resource's or
 // data source's own block, top, the arguments go in the order of
@@ -141,10 +141,10 @@ func isReference(expr hclsyntax.Expression) bool {
 // nested block is a group, lifecycle goes last but for depends_on, after
 // it. It reports false if the body holds anything but arguments, blocks
 // and the comments above them, which it then leaves as they are.
-func layoutBody(src []byte, b *hclsyntax.Block, top bool) ([]byte, bool) {
+func LayoutBody(src []byte, b *hclsyntax.Block, top bool) ([]byte, bool) {
 	body := b.Body
 	// Nothing after the opening brace on its line.
-	if len(bytes.TrimSpace(src[b.OpenBraceRange.End.Byte:lineEnd(src, b.OpenBraceRange.End.Byte)])) > 0 {
+	if len(bytes.TrimSpace(src[b.OpenBraceRange.End.Byte:LineEnd(src, b.OpenBraceRange.End.Byte)])) > 0 {
 		return nil, false
 	}
 	var items []bodyItem
@@ -158,14 +158,14 @@ func layoutBody(src []byte, b *hclsyntax.Block, top bool) ([]byte, bool) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].start < items[j].start })
 	// Nothing but blank lines between the items, so that nothing is lost.
-	from := lineEnd(src, b.OpenBraceRange.End.Byte)
+	from := LineEnd(src, b.OpenBraceRange.End.Byte)
 	for _, it := range items {
 		if it.start < from || len(bytes.TrimSpace(src[from:it.start])) > 0 {
 			return nil, false
 		}
 		from = it.end
 	}
-	if to := lineStart(src, b.CloseBraceRange.Start.Byte); from > to || len(bytes.TrimSpace(src[from:to])) > 0 {
+	if to := LineStart(src, b.CloseBraceRange.Start.Byte); from > to || len(bytes.TrimSpace(src[from:to])) > 0 {
 		return nil, false
 	}
 	var meta, arguments, blocks, last [][]byte
@@ -214,7 +214,7 @@ func itemText(src []byte, it bodyItem) []byte {
 	if b == nil || b.OpenBraceRange.Start.Line == b.CloseBraceRange.Start.Line {
 		return withNewline(text)
 	}
-	inner, ok := layoutBody(src, b, false)
+	inner, ok := LayoutBody(src, b, false)
 	if !ok {
 		return withNewline(text)
 	}
@@ -225,26 +225,26 @@ func itemText(src []byte, it bodyItem) []byte {
 // end: from the comments right above it, to after the newline that ends
 // its last line.
 func itemLines(src []byte, rng hcl.Range) (int, int) {
-	start := lineStart(src, rng.Start.Byte)
+	start := LineStart(src, rng.Start.Byte)
 	for start > 0 {
-		above := lineStart(src, start-1)
+		above := LineStart(src, start-1)
 		line := bytes.TrimSpace(src[above:start])
 		if !bytes.HasPrefix(line, []byte("#")) && !bytes.HasPrefix(line, []byte("//")) {
 			break
 		}
 		start = above
 	}
-	return start, lineEnd(src, rng.End.Byte)
+	return start, LineEnd(src, rng.End.Byte)
 }
 
-// lineStart returns the offset of the start of the line offset is on.
-func lineStart(src []byte, offset int) int {
+// LineStart returns the offset of the start of the line offset is on.
+func LineStart(src []byte, offset int) int {
 	return bytes.LastIndexByte(src[:offset], '\n') + 1
 }
 
-// lineEnd returns the offset after the newline that ends the line offset
+// LineEnd returns the offset after the newline that ends the line offset
 // is on, or the end of src.
-func lineEnd(src []byte, offset int) int {
+func LineEnd(src []byte, offset int) int {
 	if i := bytes.IndexByte(src[offset:], '\n'); i >= 0 {
 		return offset + i + 1
 	}
@@ -258,9 +258,9 @@ func withNewline(text []byte) []byte {
 	return append(slices.Clone(text), '\n')
 }
 
-// collapseEmptyBlocks writes the blocks and objects of src that hold
+// CollapseEmptyBlocks writes the blocks and objects of src that hold
 // nothing on one line, as allow {} and tags = {}, as people write them.
-func collapseEmptyBlocks(src []byte) []byte {
+func CollapseEmptyBlocks(src []byte) []byte {
 	tokens, diags := hclsyntax.LexConfig(src, "", hcl.InitialPos)
 	if diags.HasErrors() {
 		return src

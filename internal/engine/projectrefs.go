@@ -14,6 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // moduleTarget is a type whose resources module calls name by an
@@ -36,24 +37,24 @@ type moduleTarget struct {
 // same value, such as a bucket's name, isn't the project. It reports
 // whether it changed generated.tf.
 func referModulesToResources(dir string) (bool, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
 	// The resources module calls name, by type.
 	targets := map[string]*moduleTarget{}
-	for _, r := range generated.resources() {
-		typ := AddressType(r.address)
+	for _, r := range generated.Resources() {
+		typ := AddressType(r.Address)
 		refs, ok := catalogue.ForType(typ).ModuleReferences(typ)
 		if !ok {
 			continue
 		}
-		if attr, ok := r.syntax.Body.Attributes[refs.Attribute]; ok {
+		if attr, ok := r.Syntax.Body.Attributes[refs.Attribute]; ok {
 			if value, ok := constantString(attr.Expr); ok && value != "" {
 				if targets[typ] == nil {
 					targets[typ] = &moduleTarget{refs: refs, byValue: map[string][]string{}}
 				}
-				targets[typ].byValue[value] = append(targets[typ].byValue[value], r.syntax.Labels[1])
+				targets[typ].byValue[value] = append(targets[typ].byValue[value], r.Syntax.Labels[1])
 			}
 		}
 	}
@@ -61,8 +62,8 @@ func referModulesToResources(dir string) (bool, error) {
 		return false, nil
 	}
 	changed := false
-	blocks := generated.edit().Body().Blocks()
-	for i, b := range generated.syntax.Blocks {
+	blocks := generated.Edit().Body().Blocks()
+	for i, b := range generated.Syntax.Blocks {
 		if b.Type != "module" || len(b.Labels) != 1 || i >= len(blocks) {
 			continue
 		}
@@ -103,7 +104,7 @@ func referModulesToResources(dir string) (bool, error) {
 	if !changed {
 		return false, nil
 	}
-	return true, generated.save()
+	return true, generated.Save()
 }
 
 // referInTuple returns a list of literal strings, such as a call's

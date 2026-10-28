@@ -67,6 +67,18 @@
               }
             ]
           },
+          "engine-parts": {
+            "files": [
+              "**/internal/engine/hclfile/*.go",
+              "**/internal/engine/tfrun/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal/engine$",
+                "desc": "the engine's parts know nothing of the engine, so that its stages can move out of it"
+              }
+            ]
+          },
           "harvest": {
             "files": [
               "**/internal/harvest/*.go"

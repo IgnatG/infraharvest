@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const bucketGenerated = `resource "aws_s3_bucket" "artifacts" {
@@ -64,7 +66,7 @@ func TestGenerateOmitsArguments(t *testing.T) {
 func TestOmitArgumentsWithoutMatches(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := writeConfig(t, dir, GeneratedFileName, bucketGenerated).path
+	path := writeConfig(t, dir, GeneratedFileName, bucketGenerated).Path
 
 	changed, err := OmitArguments(path, map[string][]string{"aws_sqs_queue": {"policy"}})
 
@@ -97,14 +99,14 @@ var omitScope = map[string][]string{"azurerm_storage_container": {"default_encry
 func TestOmitArgumentsByValue(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := writeConfig(t, dir, GeneratedFileName, containersGenerated).path
+	path := writeConfig(t, dir, GeneratedFileName, containersGenerated).Path
 
 	changed, err := OmitArguments(path, omitScope)
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
 
-	f, err := loadHCL(path)
+	f, err := hclfile.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +114,7 @@ func TestOmitArgumentsByValue(t *testing.T) {
 		"data": {"name"},
 		"logs": {"default_encryption_scope", "encryption_scope_override_enabled", "name"},
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		var names []string
 		for name := range b.Body.Attributes {
 			names = append(names, name)
@@ -130,7 +132,7 @@ func TestCheckOmittedByValue(t *testing.T) {
 	t.Parallel()
 	f := writeConfig(t, t.TempDir(), GeneratedFileName, containersGenerated)
 	var findings []string
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		checkOmitted(b, omitScope, func(hcl.Range) string { return "x" }, func(rule, format string, args ...any) {
 			findings = append(findings, rule+": "+fmt.Sprintf(format, args...))
 		})
@@ -165,7 +167,7 @@ const instanceGenerated = `resource "aws_instance" "app" {
 func TestOmitArgumentsInNestedBlocks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := writeConfig(t, dir, GeneratedFileName, instanceGenerated).path
+	path := writeConfig(t, dir, GeneratedFileName, instanceGenerated).Path
 	omit := map[string][]string{"*": {"tags_all", "*.tags_all"}, "aws_instance": {"root_block_device.volume_type=gp3", "ebs_block_device.volume_type=gp3"}}
 
 	changed, err := OmitArguments(path, omit)
@@ -185,7 +187,7 @@ func TestOmitArgumentsInNestedBlocks(t *testing.T) {
 	}
 
 	var findings []string
-	for _, b := range writeConfig(t, t.TempDir(), GeneratedFileName, instanceGenerated).syntax.Blocks {
+	for _, b := range writeConfig(t, t.TempDir(), GeneratedFileName, instanceGenerated).Syntax.Blocks {
 		checkOmitted(b, omit, func(hcl.Range) string { return "x" }, func(rule, format string, args ...any) {
 			findings = append(findings, rule+": "+fmt.Sprintf(format, args...))
 		})

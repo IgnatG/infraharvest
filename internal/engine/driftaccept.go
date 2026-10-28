@@ -18,6 +18,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -95,7 +97,7 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 // var file too, the only file edited (see variableResolver.env), and a change
 // written gets its source there. Each accepted change ends written,
 // rejected by the plan or a check, a hand edit or a secret.
-func acceptDrift(ctx context.Context, stf DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
+func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("terraform providers schema: %w", err)
@@ -294,7 +296,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	}
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
-			reason := "the plan of the edited code fails: " + strings.Join(strings.Fields(formatDiagnostic(d)), " ")
+			reason := "the plan of the edited code fails: " + strings.Join(strings.Fields(tfrun.FormatDiagnostic(d)), " ")
 			blamed := false
 			for _, c := range pending {
 				if diagnosticOf(d, c, sources[c], contents) {
@@ -437,16 +439,16 @@ func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src codeSource, contents 
 	if d.Range == nil || src.Edit == nil || filepath.Base(d.Range.Filename) != src.Edit.File {
 		return false
 	}
-	f, err := parseHCL(src.Edit.File, contents[src.Edit.File])
+	f, err := hclfile.Parse(src.Edit.File, contents[src.Edit.File])
 	if err != nil {
 		return true
 	}
-	if address := f.resourceAt(d.Range.Start.Line); address != "" {
+	if address := f.ResourceAt(d.Range.Start.Line); address != "" {
 		return address == trimInstanceKey(c.Address)
 	}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		switch {
-		case !spans(b.Range(), d.Range.Start.Line):
+		case !hclfile.Spans(b.Range(), d.Range.Start.Line):
 		case b.Type == "locals":
 			return src.Kind == sourceLocal
 		case b.Type == "module" && len(b.Labels) == 1 && src.Module != "":
@@ -490,7 +492,7 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 // values p and sensitive have that no file may hold. It returns the
 // check that fails, with what it found, and the edited files it fails
 // on, none where it can't tell; or "".
-func driftChecks(ctx context.Context, stf DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
+func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
 	gate, _, err := gatePolicy{
 		checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
 		sensitive: append(sensitiveValues(p), sensitive...),
@@ -522,7 +524,7 @@ func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, fil
 		if src.Edit == nil {
 			continue
 		}
-		for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
+		for _, edit := range append([]hclfile.Edit{*src.Edit}, src.Also...) {
 			if slices.Contains(files, edit.File) {
 				blamed = append(blamed, c)
 				break

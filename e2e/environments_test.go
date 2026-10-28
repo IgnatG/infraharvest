@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -121,7 +121,7 @@ func resourceAddresses(t *testing.T, dir string) map[string]bool {
 // selectWorkspace selects workspace in the root in dir, initialised.
 func selectWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, workspace string) {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plu
 	t.Helper()
 	for _, env := range envs {
 		credentials(env)
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,9 +191,9 @@ func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plu
 
 // workspace returns Terraform in the merged root in dir, initialised, in
 // env's workspace, which the environment has applied it into.
-func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *engine.Runner {
+func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *tfrun.Runner {
 	t.Helper()
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
