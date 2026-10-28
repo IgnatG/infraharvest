@@ -54,8 +54,8 @@ func TestParseConftest(t *testing.T) {
 		want []Finding
 	}{
 		"failures and warnings": {conftestReport, []Finding{
-			{Rule: "s3", Severity: "failure", Location: "main.tf", Message: "aws_s3_bucket.logs has no aws_s3_bucket_versioning"},
-			{Rule: "s3", Severity: "warning", Location: "main.tf", Message: "aws_s3_bucket.logs has no owner tag"},
+			{Rule: "s3", Severity: "failure", Location: "main.tf", Message: "aws_s3_bucket.logs has no aws_s3_bucket_versioning", Resource: "aws_s3_bucket.logs"},
+			{Rule: "s3", Severity: "warning", Location: "main.tf", Message: "aws_s3_bucket.logs has no owner tag", Resource: "aws_s3_bucket.logs"},
 		}},
 		"namespaces": {`[{"filename":"main.tf","namespace":"main","successes":0,"failures":[{"msg":"no public buckets","metadata":{"query":"data.main.deny"}}]},{"filename":"main.tf","namespace":"tags","successes":0,"warnings":[{"msg":"no team tag","metadata":{"query":"data.tags.warn"}}]}]`, []Finding{
 			{Rule: "main", Severity: "failure", Location: "main.tf", Message: "no public buckets"},

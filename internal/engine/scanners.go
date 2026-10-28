@@ -49,6 +49,16 @@ func (s *ScannerSlots) channel() chan struct{} {
 // Finding is one thing a scanner reports.
 type Finding struct {
 	Rule, Severity, Location, Message string
+	// Resource is the address, in the directory scanned, of the resource
+	// or module call the finding is about, such as aws_s3_bucket.logs or
+	// module.logs.aws_s3_bucket.this: as the scanner names it, or else
+	// the block at the place it gives (see locateFindings). A finding
+	// about no resource, such as one about a variable, has none.
+	Resource string `json:",omitempty"`
+	// Scanner is the name of the scanner that reported it.
+	Scanner string `json:",omitempty"`
+	// at is where the scanner found it, for locateFindings.
+	at position
 }
 
 func (f Finding) String() string {
@@ -230,7 +240,9 @@ func scannerEnv(environ []string) []string {
 // runScanners runs scanners on dir, at the same time, as they only read
 // it, each in one of slots (nil gives the call slots of its own), and
 // reports them in their order. Blocking scanners' findings at warning
-// level or above fail the check; the others' are listed. With no scanner
+// level or above fail the check; the others' are listed, up to
+// maxReportedFindings each, and the check keeps them all, with the
+// resource each is about (see Check.Findings). With no scanner
 // installed, the check is skipped.
 func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *ScannerSlots) Check {
 	check := Check{Name: CheckScanners, Passed: true}
@@ -275,7 +287,12 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *Sca
 			check.Details = append(check.Details, fmt.Sprintf("%s couldn't run: %v", s.Name, err))
 			continue
 		}
+		locateFindings(dir, findings)
+		for i := range findings {
+			findings[i].Scanner = s.Name
+		}
 		sort.Slice(findings, func(i, j int) bool { return findings[i].String() < findings[j].String() })
+		check.Findings = append(check.Findings, findings...)
 		var blocking []Finding
 		if s.Blocking {
 			for _, f := range findings {
@@ -331,7 +348,8 @@ func parseTflint(out []byte) ([]Finding, error) {
 	}
 	var findings []Finding
 	for _, i := range result.Issues {
-		findings = append(findings, Finding{Rule: i.Rule.Name, Severity: i.Rule.Severity, Location: fmt.Sprintf("%s:%d", i.Range.Filename, i.Range.Start.Line), Message: i.Message})
+		findings = append(findings, Finding{Rule: i.Rule.Name, Severity: i.Rule.Severity, Location: fmt.Sprintf("%s:%d", i.Range.Filename, i.Range.Start.Line), Message: i.Message,
+			at: position{file: filepath.ToSlash(i.Range.Filename), line: i.Range.Start.Line}})
 	}
 	for _, e := range result.Errors {
 		findings = append(findings, Finding{Rule: "error", Severity: "error", Message: e.Message})
@@ -339,15 +357,23 @@ func parseTflint(out []byte) ([]Finding, error) {
 	return findings, nil
 }
 
+// parseTrivy reads trivy's report: its failed checks, each about the
+// resource its cause names, which, for a resource in a module call, is
+// the call alone, at the line of the module's file the resource is at
+// (see locateFindings).
 func parseTrivy(out []byte) ([]Finding, error) {
 	var result struct {
 		Results []struct {
 			Target            string `json:"Target"`
 			Misconfigurations []struct {
-				ID       string `json:"ID"`
-				Title    string `json:"Title"`
-				Severity string `json:"Severity"`
-				Status   string `json:"Status"`
+				ID            string `json:"ID"`
+				Title         string `json:"Title"`
+				Severity      string `json:"Severity"`
+				Status        string `json:"Status"`
+				CauseMetadata struct {
+					Resource  string `json:"Resource"`
+					StartLine int    `json:"StartLine"`
+				} `json:"CauseMetadata"`
 			} `json:"Misconfigurations"`
 		} `json:"Results"`
 	}
@@ -358,7 +384,8 @@ func parseTrivy(out []byte) ([]Finding, error) {
 	for _, r := range result.Results {
 		for _, m := range r.Misconfigurations {
 			if m.Status == "FAIL" {
-				findings = append(findings, Finding{Rule: m.ID, Severity: m.Severity, Location: r.Target, Message: m.Title})
+				findings = append(findings, Finding{Rule: m.ID, Severity: m.Severity, Location: r.Target, Message: m.Title,
+					Resource: addressOf(m.CauseMetadata.Resource), at: position{file: filepath.ToSlash(r.Target), line: m.CauseMetadata.StartLine}})
 			}
 		}
 	}
@@ -366,7 +393,8 @@ func parseTrivy(out []byte) ([]Finding, error) {
 }
 
 // parseCheckov reads checkov's report: one object, or a list with one per
-// framework.
+// framework. A failed check names the resource it is about, in module
+// calls or not; its secrets scan's checks name none (see addressOf).
 func parseCheckov(out []byte) ([]Finding, error) {
 	type report struct {
 		Results struct {
@@ -376,6 +404,7 @@ func parseCheckov(out []byte) ([]Finding, error) {
 				Severity  string `json:"severity"`
 				FilePath  string `json:"file_path"`
 				Lines     []int  `json:"file_line_range"`
+				Resource  string `json:"resource"`
 			} `json:"failed_checks"`
 		} `json:"results"`
 	}
@@ -394,11 +423,13 @@ func parseCheckov(out []byte) ([]Finding, error) {
 	var findings []Finding
 	for _, r := range reports {
 		for _, c := range r.Results.FailedChecks {
-			location := strings.TrimPrefix(c.FilePath, "/")
+			file := strings.TrimPrefix(c.FilePath, "/")
+			location, at := file, position{file: file}
 			if len(c.Lines) > 0 {
 				location = fmt.Sprintf("%s:%d", location, c.Lines[0])
+				at.line = c.Lines[0]
 			}
-			findings = append(findings, Finding{Rule: c.CheckID, Severity: c.Severity, Location: location, Message: c.CheckName})
+			findings = append(findings, Finding{Rule: c.CheckID, Severity: c.Severity, Location: location, Message: c.CheckName, Resource: addressOf(c.Resource), at: at})
 		}
 	}
 	return findings, nil
@@ -406,10 +437,23 @@ func parseCheckov(out []byte) ([]Finding, error) {
 
 // parseConftest reads conftest's report: a result per file and namespace,
 // whose failures (deny rules) and warnings (warn rules) are findings, of
-// the namespace's rule, at the file, saying the policy's message.
+// the namespace's rule, at the file, saying the policy's message. A rule
+// that returns an object, such as {"msg": ..., "resource":
+// "aws_s3_bucket.logs"}, has its keys besides msg in the result's
+// metadata: its resource is the address the finding is about; else the
+// address the message starts with, if any, is. conftest gives no line.
 func parseConftest(out []byte) ([]Finding, error) {
 	type result struct {
-		Msg string `json:"msg"`
+		Msg      string         `json:"msg"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	about := func(r result) string {
+		if resource, ok := r.Metadata["resource"].(string); ok {
+			if address := addressOf(strings.TrimSpace(resource)); address != "" {
+				return address
+			}
+		}
+		return messageAddress(r.Msg)
 	}
 	var results []struct {
 		Filename  string   `json:"filename"`
@@ -423,10 +467,10 @@ func parseConftest(out []byte) ([]Finding, error) {
 	var findings []Finding
 	for _, r := range results {
 		for _, f := range r.Failures {
-			findings = append(findings, Finding{Rule: r.Namespace, Severity: "failure", Location: r.Filename, Message: f.Msg})
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "failure", Location: r.Filename, Message: f.Msg, Resource: about(f)})
 		}
 		for _, w := range r.Warnings {
-			findings = append(findings, Finding{Rule: r.Namespace, Severity: "warning", Location: r.Filename, Message: w.Msg})
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "warning", Location: r.Filename, Message: w.Msg, Resource: about(w)})
 		}
 	}
 	return findings, nil

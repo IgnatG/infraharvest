@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +44,36 @@ func TestRunScanners(t *testing.T) {
 				t.Errorf("skipped=%v with %d scanners", check.Skipped, len(tc.scanners))
 			}
 		})
+	}
+}
+
+// The check lists a bounded number of each scanner's findings, but keeps
+// them all, of the scanner that found them, about the resource each is
+// at.
+func TestRunScannersKeepsEveryFinding(t *testing.T) {
+	t.Parallel()
+	dir := writeFindingsRoot(t)
+	var many []Finding
+	for i := range maxReportedFindings + 5 {
+		many = append(many, Finding{Rule: fmt.Sprintf("AVD-%03d", i), Severity: "LOW", Resource: "aws_s3_bucket.logs"})
+	}
+	lint := Finding{Rule: "terraform_deprecated_interpolation", Severity: "warning", Location: "main.tf:3", at: position{file: "main.tf", line: 3}}
+
+	check := runScanners(t.Context(), dir, []Scanner{scanner("tflint", true, lint), scanner("trivy", false, many...)}, nil)
+
+	if len(check.Findings) != len(many)+1 {
+		t.Fatalf("got %d findings, want %d", len(check.Findings), len(many)+1)
+	}
+	if f := check.Findings[0]; f.Scanner != "tflint" || f.Resource != "aws_s3_bucket.logs" {
+		t.Errorf("tflint's finding: got %+v", f)
+	}
+	for _, f := range check.Findings[1:] {
+		if f.Scanner != "trivy" || f.Resource != "aws_s3_bucket.logs" {
+			t.Errorf("trivy's finding: got %+v", f)
+		}
+	}
+	if got := check.Details[len(check.Details)-1]; got != "trivy: 5 more" {
+		t.Errorf("details end with %q, want the bound", got)
 	}
 }
 
