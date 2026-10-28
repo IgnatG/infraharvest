@@ -148,6 +148,9 @@ type callContext struct {
 	// importID returns the ID Terraform imports a resource by (see
 	// importIDFunc).
 	importID func(harvest.Resource) (string, bool)
+	// query returns how the query service lists through a provider of its
+	// own (see Run.query); nil when the call doesn't list it.
+	query func(provider harvest.Provider) harvest.Query
 }
 
 // prepareCall initialises provider with args, and works out what the
@@ -180,6 +183,9 @@ func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, option
 	c.scope = discoveryScope(ctx, provider)
 	r.scope = c.scope
 	c.importID = importIDFunc(cat)
+	if usesQuery(options) {
+		c.query = func(provider harvest.Provider) harvest.Query { return r.query(c, provider) }
+	}
 	return c, nil
 }
 
@@ -297,7 +303,7 @@ type toolchain struct {
 // modules accept (see rootConfig).
 func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callContext, selected map[string][]harvest.Resource) (*toolchain, error) {
 	options := c.options
-	t := &toolchain{binary: engineBinary(options.Engine)}
+	t := &toolchain{binary: engineBinaryOf(options)}
 	var err error
 	if t.cacheDir, err = infraharvestCacheDir(); err != nil {
 		return nil, err

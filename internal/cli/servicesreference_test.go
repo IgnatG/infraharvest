@@ -82,6 +82,7 @@ func renderServicesReference() (string, error) {
 		"A service lists only the types an account has, and a few services decide the type of a resource from what the cloud returns, so the cloud can add types not shown here.\n\n")
 	b.WriteString("`--services=*` lists every service except the opt-in ones: name them to use them. " +
 		"Azure's list through the cloud's inventory API what other services already list, and AWS's list services that have reached end of support. " +
+		"Every provider's `query` service lists through Terraform's own list resources the types `--query-types` names (see [Listing through Terraform](../usage.md#listing-through-terraform)). " +
 		"`infraharvest services <provider>` prints a provider's services.\n")
 	for _, name := range referenceProviders {
 		if err := writeProviderServices(&b, name); err != nil {
@@ -118,6 +119,10 @@ func writeProviderServices(b *strings.Builder, name string) error {
 	}
 	b.WriteString(".\n\n| Service | Terraform types |\n|---|---|\n")
 	for _, service := range slices.Concat(services, optIn) {
+		if service == harvest.QueryService {
+			fmt.Fprintf(b, "| `%s` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |\n", service)
+			continue
+		}
 		types := serviceTypes(service, supported[service], source, cat, prefix, slices.Contains(optIn, service))
 		cellService := "`" + service + "`"
 		if slices.Contains(optIn, service) {

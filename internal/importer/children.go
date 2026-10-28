@@ -42,6 +42,11 @@ func withChildImports(ctx context.Context, provider harvest.Provider, resourcesB
 	slots := make(chan struct{}, max(parallel, 1))
 	var wg sync.WaitGroup
 	for i := range asks {
+		// What Terraform's list resources returned has no children the
+		// provider looks for: they are found by an import ID it lacks.
+		if asks[i].r.Observed.Identity != nil {
+			continue
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

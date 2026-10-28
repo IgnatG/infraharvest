@@ -210,6 +210,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	// What to list.
 	flags.StringSliceVarP(&options.Services, "services", "s", nil, "services to import, such as "+sampleRes+`, or "*" for all (infraharvest services <provider> lists them)`)
 	flags.StringSliceVar(&options.Skip, "skip", nil, "services to leave out of --services, such as "+sampleRes)
+	flags.StringSliceVar(&options.QueryTypes, "query-types", nil, "resource types for the query service to list through Terraform's own list resources (terraform query, Terraform 1.14 or later), for types no other service lists; with --services query (see "+DocsURL+"usage/#listing-through-terraform)")
 	flags.StringArrayVar(&options.IDFilters, "id", nil, "keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as "+sampleIDs+"; repeat for other types (see "+DocsURL+"usage/#filtering)")
 	flags.StringArrayVar(&options.TagFilters, "tag", nil, "keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
 	flags.StringArrayVar(&options.WhereFilters, "where", nil, "keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see "+DocsURL+"usage/#filtering)")

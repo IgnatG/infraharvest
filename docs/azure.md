@@ -103,6 +103,8 @@ infraharvest discover azure --services=resource_group,virtual_network,subnet,net
 
 `subnet` and `network_security_group` take the subnets and rules from the list of networks and of security groups, which carries them, so they make no request per network or group; only for one whose list leaves them out are they listed on their own. In a custom cloud (`ARM_ENVIRONMENT=stack`), one listed with none is asked again too, as emulators such as floci-az answer an empty list for subnets created on their own; in Azure's own clouds a network or group listed with none costs no request.
 
+`query` lists the types `--query-types` names through Terraform's own list resources, for those no other service lists, such as `azurerm_storage_account_customer_managed_key`, which is a setting of a storage account rather than a resource of its own in Resource Graph; where `resource_graph` runs too and lists a type, it wins (see [Listing through Terraform](usage.md#listing-through-terraform)). With `--resource-group`, each list is narrowed to the group where its list resource takes one, and only the group's resources are kept.
+
 A page of `resource_group`'s list of the subscription that fails after the first fails the service in part: the resource groups listed before it are imported, and the failure is reported, so that the groups it left out aren't taken for deleted.
 
 `managed_identity` lists each identity's federated credentials under the identity's own resource group. A list of them that fails fails the service in part, as `resource_group`'s does: the identity is imported with the credentials listed, and the failure is reported. An identity gone since it was listed (404) has none.

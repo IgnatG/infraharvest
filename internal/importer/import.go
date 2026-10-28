@@ -45,6 +45,9 @@ type Options struct {
 	Services []string
 	// Skip are services to leave out of Services.
 	Skip []string
+	// QueryTypes are the resource types the query service lists through
+	// Terraform's list resources (see harvest.QueryService).
+	QueryTypes []string
 	// IDFilters, TagFilters and WhereFilters keep only the resources these
 	// filters match: --id, --tag and --where, as harvest.ParseIDFilter,
 	// ParseTagFilter and ParseWhereFilter read them.
@@ -208,7 +211,8 @@ func checkEngine(name string) error {
 // --services where no --cfn-stack says which to list, an unknown
 // --engine, --format or --modules, a filter that doesn't parse, an import
 // that says neither --selection nor --all, --services or --skip naming
-// services provider has no service of, a --layout checkLayout rejects,
+// services provider has no service of, what checkQuery rejects of the
+// query service, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -260,6 +264,9 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 		if len(unknown) > 0 {
 			return fmt.Errorf("%s: %s has no service %s (infraharvest services %s lists them)", flag, provider.Name(), strings.Join(unknown, ", "), provider.Name())
 		}
+	}
+	if err := checkQuery(provider, options); err != nil {
+		return err
 	}
 	if err := checkLayout(options.Layout, options.EnvTags); err != nil {
 		return err
@@ -456,6 +463,9 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
+		if service == harvest.QueryService && c.query != nil {
+			d = queryDiscoverer{Discoverer: d, query: c.query(serviceProvider)}
+		}
 		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
 			if p, ok := serviceProvider.(harvest.ProviderWithListedByOthers); ok {

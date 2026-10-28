@@ -90,6 +90,8 @@ func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.R
 // catalogue's next import ID template for r, where that is the same
 // resource by another query alone, as an azapi_resource's ID without
 // ?api-version= is (see engine.Import.Fallback and engine.ResourceKey).
+// A resource Terraform's list resources returned is imported by its
+// identity instead (see engine.Import.Identity).
 func (b importBlocks) of(service string, r harvest.Resource) (engine.Import, bool) {
 	typ := r.Address.Type
 	id, ok := b.importID(r)
@@ -102,6 +104,12 @@ func (b importBlocks) of(service string, r harvest.Resource) (engine.Import, boo
 	// google_* resources still name google-beta.
 	if _, ok := b.configured[implied]; ok && implied != catalogueName(b.provider) {
 		imp.Provider = ""
+	}
+	// What Terraform's list resources returned is imported by its
+	// identity: the catalogue makes no import ID of it.
+	if r.Observed != nil && r.Observed.Identity != nil {
+		imp.Identity = r.Observed.Identity
+		return imp, true
 	}
 	if b.cat == nil || r.Observed == nil {
 		return imp, true

@@ -13,20 +13,22 @@ import (
 	"strings"
 	"testing"
 
+	"google.golang.org/api/compute/v1"
+
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// The services are cloud_asset and those that list what Cloud Asset
-// Inventory doesn't find, and cloud_asset lists every type the catalogue
-// maps from it.
+// The services are cloud_asset, those that list what Cloud Asset
+// Inventory doesn't find and the query service, and cloud_asset lists
+// every type the catalogue maps from it.
 func TestServices(t *testing.T) {
 	var names []string
 	for name := range (&Provider{}).Services() {
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	if want := []string{"cloud_asset", "cloudsql", "dns", "iam", "schedulerJobs"}; !slices.Equal(names, want) {
+	if want := []string{"cloud_asset", "cloudsql", "dns", "iam", "query", "schedulerJobs"}; !slices.Equal(names, want) {
 		t.Errorf("services: %v, want %v", names, want)
 	}
 	all := (&CloudAssetLister{}).Types(catalogue.MustBuiltin("google"))
@@ -173,5 +175,35 @@ func TestModuleProviders(t *testing.T) {
 	}
 	if got := strings.Join(profile.InheritedArguments, ","); got != "project,region,zone" {
 		t.Errorf("inherited arguments: %s", got)
+	}
+}
+
+// What Terraform's list resources return is in a region's import by the
+// region, zone or location of its identity, and in the global import when
+// it has none, or a multi-region.
+func TestInQueryScope(t *testing.T) {
+	t.Parallel()
+	regional := &Provider{region: compute.Region{Name: "europe-west2"}}
+	global := &Provider{}
+	for _, tt := range []struct {
+		identity         map[string]string
+		regional, global bool
+	}{
+		{map[string]string{"name": "net", "project": "p"}, false, true},
+		{map[string]string{"name": "sub", "region": "europe-west2"}, true, false},
+		{map[string]string{"name": "vm", "zone": "europe-west2-b"}, true, false},
+		{map[string]string{"name": "vm", "zone": "us-central1-a"}, false, false},
+		{map[string]string{"name": "svc", "location": "europe-west2"}, true, false},
+		{map[string]string{"name": "data", "location": "EU"}, false, true},
+	} {
+		if got := regional.InQueryScope(tt.identity); got != tt.regional {
+			t.Errorf("%v: in europe-west2 %v", tt.identity, got)
+		}
+		if got := global.InQueryScope(tt.identity); got != tt.global {
+			t.Errorf("%v: global %v", tt.identity, got)
+		}
+	}
+	if regional.QueryConfig() != nil {
+		t.Errorf("config %v", regional.QueryConfig())
 	}
 }
