@@ -49,9 +49,17 @@ variable "run_id" {
   default     = ""
 }
 
+variable "permissions_boundary_arn" {
+  description = "The permissions boundary of every IAM role the estate creates, which the fixture role may create no role without (see aws-bootstrap). Empty creates them without, as on an emulator."
+  type        = string
+  default     = ""
+}
+
 locals {
   # The tags every resource carries, so a sweep finds what a run left.
   sandbox_tags = { for k, v in { infraharvest-sandbox = var.suffix, infraharvest-sandbox-run = var.run_id } : k => v if v != "" }
+
+  permissions_boundary = var.permissions_boundary_arn == "" ? null : var.permissions_boundary_arn
 }
 
 provider "aws" {
@@ -280,9 +288,10 @@ data "aws_iam_policy_document" "ec2_trust" {
 }
 
 resource "aws_iam_role" "app" {
-  name               = "${local.name}-app"
-  assume_role_policy = data.aws_iam_policy_document.ec2_trust.json
-  tags               = local.tags
+  name                 = "${local.name}-app"
+  assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
+  permissions_boundary = local.permissions_boundary
+  tags                 = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "app_ssm" {
@@ -342,9 +351,10 @@ data "aws_iam_policy_document" "lambda_trust" {
 }
 
 resource "aws_iam_role" "fn" {
-  name               = "${local.name}-fn"
-  assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
-  tags               = local.tags
+  name                 = "${local.name}-fn"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  permissions_boundary = local.permissions_boundary
+  tags                 = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "fn_logs" {
@@ -620,9 +630,10 @@ data "aws_iam_policy_document" "states_trust" {
 }
 
 resource "aws_iam_role" "workflow" {
-  name               = "${local.name}-workflow"
-  assume_role_policy = data.aws_iam_policy_document.states_trust.json
-  tags               = local.tags
+  name                 = "${local.name}-workflow"
+  assume_role_policy   = data.aws_iam_policy_document.states_trust.json
+  permissions_boundary = local.permissions_boundary
+  tags                 = local.tags
 }
 
 resource "aws_sfn_state_machine" "workflow" {
