@@ -1,6 +1,11 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
+// Package secret keeps secret values out of the configuration infraharvest
+// generates: it finds them, among the values Terraform marks sensitive and
+// those it writes in the open, moves them into sensitive variables, hides
+// them from the output of infraharvest's own plans, and tells whether a
+// file holds one. It never writes a value into the output.
 package secret
 
 import (
