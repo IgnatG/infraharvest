@@ -12,6 +12,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/tfquery"
 )
 
 // queryProvider is a provider with the query service, whose vpc service
@@ -82,7 +83,7 @@ func TestListServicesGivesTheQueryServiceItsQuery(t *testing.T) {
 	c := callOf(options, "")
 	volume := harvest.RecordIdentity(map[string]string{"id": "vol-1", "region": "eu-west-2"}, "vol-1", "fake_volume", "fake")
 	var asked harvest.Provider
-	c.query = func(p harvest.Provider) harvest.Query {
+	c.query = func(p harvest.Provider, _ []harvest.Resource) harvest.Query {
 		asked = p
 		return func(context.Context) ([]harvest.Resource, error) { return []harvest.Resource{volume}, nil }
 	}
@@ -110,7 +111,7 @@ func TestQueryFindsTerraformWithQuery(t *testing.T) {
 		return "", errStub
 	}}
 	options := Options{Services: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}, TerraformPath: "/opt/terraform", Out: t.TempDir()}
-	if _, err := r.query(callOf(options, ""), &queryProvider{})(t.Context()); err != errStub {
+	if _, err := r.query(callOf(options, ""), &queryProvider{}, nil)(t.Context()); err != errStub {
 		t.Fatalf("got %v", err)
 	}
 	if minimum != "1.14.0" || explicit != "/opt/terraform" {
@@ -121,6 +122,43 @@ func TestQueryFindsTerraformWithQuery(t *testing.T) {
 	}
 	if got := engineBinaryOf(Options{Services: []string{"vpc"}}).Minimum.String(); got != "1.5.0" {
 		t.Errorf("without the query service, generates with Terraform %s", got)
+	}
+}
+
+// The query lists with the provider release the call's roots pin, which
+// the toolchain then takes as it is, rather than the newest: listing and
+// import run one release of the provider.
+func TestQueryListsWithTheRootsProvider(t *testing.T) {
+	t.Parallel()
+	var pins int
+	var listedWith engine.Provider
+	r := NewRun()
+	r.tools = &callTools{
+		findBinary: func(context.Context, engine.Binary, string, string) (string, error) { return "/opt/terraform", nil },
+		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
+			pins++
+			p.Version = "~> 6.14"
+			return &rootFiles{provider: p}, nil
+		},
+		query: func(_ context.Context, req tfquery.Request) ([]harvest.Resource, error) {
+			listedWith = req.Provider
+			return nil, nil
+		},
+	}
+	options := Options{Services: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}, Modules: ModulesNone, Out: t.TempDir()}
+	c := callOf(options, "")
+	if _, err := r.query(c, &queryProvider{}, nil)(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if listedWith.Version != "~> 6.14" || listedWith.Config["region"] != "eu-west-2" {
+		t.Errorf("listed with %+v", listedWith)
+	}
+	tools, err := r.toolchain(t.Context(), &queryProvider{}, c, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pins != 1 || tools.root.provider.Version != "~> 6.14" {
+		t.Errorf("pinned %d times, the roots at %q", pins, tools.root.provider.Version)
 	}
 }
 

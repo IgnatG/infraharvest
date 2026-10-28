@@ -442,8 +442,8 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 // initialised, a filter that doesn't parse, or an interrupt.
 //
 // The services that list from what the others listed (see
-// harvest.Profile.DependentServices) list once the others are done, given
-// what they listed.
+// harvest.Profile.DependentServices), and the query service, list once
+// the others are done, given what they listed.
 func listServices(ctx context.Context, registry *harvest.Registry, c *callContext, parallel int, args []string) ([]error, error) {
 	options := c.options
 	filters, err := options.filters()
@@ -453,6 +453,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 	discoverers := make([]discovery.Discoverer, 0, len(c.services))
 	var dependent []discovery.Discoverer
 	var waiting []harvest.ProviderWithListedByOthers
+	var queries []*queryDiscoverer
 	for _, service := range c.services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
@@ -468,7 +469,13 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
 		if service == harvest.QueryService && c.query != nil {
-			d = queryDiscoverer{Discoverer: d, query: c.query(serviceProvider)}
+			// It lists once the others are done, with the provider
+			// release the modules of what they listed pin (see
+			// Run.callRoot).
+			q := &queryDiscoverer{Discoverer: d, query: func(listed []harvest.Resource) harvest.Query { return c.query(serviceProvider, listed) }}
+			dependent = append(dependent, q)
+			queries = append(queries, q)
+			continue
 		}
 		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
@@ -492,6 +499,9 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		}
 		for _, p := range waiting {
 			p.SetListedByOthers(listed)
+		}
+		for _, q := range queries {
+			q.listedByOthers = listed
 		}
 		more, err := discovery.List(ctx, dependent, listOptions)
 		if err != nil {
