@@ -24,6 +24,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -147,6 +148,13 @@ type Resource struct {
 	New bool `yaml:"new,omitempty"`
 }
 
+// tagsUnread reports whether r's tags aren't read: the query service
+// lists through Terraform's list resources, which return none (see
+// harvest.ListedByIdentity).
+func (r Resource) tagsUnread() bool {
+	return r.Service == harvest.QueryService
+}
+
 // Decision is whether to import a resource, and why not.
 type Decision struct {
 	Include bool
@@ -156,13 +164,14 @@ type Decision struct {
 // Decide returns the decision for the untagged resource of resourceType
 // with id and name, whatever scope it is listed in (see decideIn).
 func (f *File) Decide(resourceType, id, name string) Decision {
-	return f.decideIn("", resourceType, id, name, nil)
+	return f.decideIn("", resourceType, id, name, nil, false)
 }
 
 // decideIn returns the decision for the resource of resourceType with id,
-// name and tags in scope: its entry in Resources if it has one (see
-// hasIn), else the last rule that matches it, else Defaults.
-func (f *File) decideIn(scope, resourceType, id, name string, tags map[string]string) Decision {
+// name and tags in scope, which aren't read if tagsUnread is set: its
+// entry in Resources if it has one (see hasIn), else the last rule that
+// matches it (see byRule), else Defaults.
+func (f *File) decideIn(scope, resourceType, id, name string, tags map[string]string, tagsUnread bool) Decision {
 	if r, ok := f.lookup(scope, resourceType, id); ok {
 		if r.Include {
 			return Decision{Include: true}
@@ -173,7 +182,7 @@ func (f *File) decideIn(scope, resourceType, id, name string, tags map[string]st
 		}
 		return Decision{Reason: reason}
 	}
-	if d, ok := f.byRule(resourceType, id, name, tags); ok {
+	if d, ok := f.byRule(resourceType, id, name, tags, tagsUnread); ok {
 		return d
 	}
 	if f.Defaults.Include {
@@ -238,16 +247,30 @@ func (p Patterns) matchesAny() bool {
 }
 
 // byRule returns the decision of the last rule that matches the resource
-// of resourceType with id, name and tags, and whether one does.
-func (f *File) byRule(resourceType, id, name string, tags map[string]string) (Decision, bool) {
+// of resourceType with id, name and tags, and whether one does. For a
+// resource whose tags aren't read, tagsUnread, as Terraform's list
+// resources return none, a rule on tags that matches it otherwise can't
+// be told to match: it excludes it with report.ReasonSelectionTagsUnread,
+// which says so, rather than decide by tags it doesn't have.
+func (f *File) byRule(resourceType, id, name string, tags map[string]string, tagsUnread bool) (Decision, bool) {
 	var decision Decision
 	matched := false
 	for _, rule := range f.Rules {
-		if rule.Include != nil && rule.Include.matches(resourceType, id, name, tags) {
-			decision, matched = Decision{Include: true}, true
-		}
-		if rule.Exclude != nil && rule.Exclude.matches(resourceType, id, name, tags) {
-			decision, matched = Decision{Reason: report.ReasonSelectionRule}, true
+		for _, m := range []*Match{rule.Include, rule.Exclude} {
+			if m == nil || !m.matchesNames(resourceType, id, name) {
+				continue
+			}
+			switch {
+			case tagsUnread && len(m.Tags) > 0:
+				decision = Decision{Reason: report.ReasonSelectionTagsUnread}
+			case !m.matchesTags(tags):
+				continue
+			case m == rule.Include:
+				decision = Decision{Include: true}
+			default:
+				decision = Decision{Reason: report.ReasonSelectionRule}
+			}
+			matched = true
 		}
 	}
 	return decision, matched
@@ -258,19 +281,22 @@ func (f *File) byRule(resourceType, id, name string, tags map[string]string) (De
 // or includes if reason is "", and whether a rule decides it. A rule
 // doesn't include what another Terraform state or tool manages (see
 // owned): that stays excluded with reason, unless IncludeOwned is set.
-// Only its entry includes it then.
-func (f *File) byRuleFor(resourceType, id, name string, tags map[string]string, reason string) (Decision, bool) {
-	d, ok := f.byRule(resourceType, id, name, tags)
+// Only its entry includes it then. tagsUnread is byRule's.
+func (f *File) byRuleFor(resourceType, id, name string, tags map[string]string, tagsUnread bool, reason string) (Decision, bool) {
+	d, ok := f.byRule(resourceType, id, name, tags, tagsUnread)
 	if ok && d.Include && !f.IncludeOwned && owned(reason) {
 		return Decision{Reason: reason}, true
 	}
 	return d, ok
 }
 
-func (m *Match) matches(resourceType, id, name string, tags map[string]string) bool {
-	if !m.Type.match(resourceType) || !m.ID.match(id) || !m.Name.match(name) {
-		return false
-	}
+// matchesNames reports whether m's type, ID and name patterns match.
+func (m *Match) matchesNames(resourceType, id, name string) bool {
+	return m.Type.match(resourceType) && m.ID.match(id) && m.Name.match(name)
+}
+
+// matchesTags reports whether m's tag patterns match tags.
+func (m *Match) matchesTags(tags map[string]string) bool {
 	for key, patterns := range m.Tags {
 		if !patterns.match(tags[key]) {
 			return false
@@ -505,10 +531,10 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 			merged = append(merged, m)
 			continue
 		}
-		if d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, l.Reason); ok {
+		if d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, l.tagsUnread(), l.Reason); ok {
 			l.Include, l.Reason = d.Include, d.Reason
 		} else if l.Include {
-			d := f.decideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags)
+			d := f.decideIn(l.Scope, l.Type, l.ID, l.Name, l.Tags, l.tagsUnread())
 			l.Include, l.Reason = d.Include, d.Reason
 		}
 		l.New = true
@@ -562,7 +588,7 @@ func (f *File) refresh(m *Resource, l Resource) {
 		}
 		m.Reason = l.Reason
 	default:
-		d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, "")
+		d, ok := f.byRuleFor(l.Type, l.ID, l.Name, l.Tags, l.tagsUnread(), "")
 		if !ok {
 			d = Decision{Include: f.Defaults.Include}
 			if !d.Include {
@@ -624,7 +650,7 @@ func (f *File) Summary() Summary {
 			c = &TypeCount{Type: r.Type}
 			byType[r.Type] = c
 		}
-		d := f.decideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags)
+		d := f.decideIn(r.Scope, r.Type, r.ID, r.Name, r.Tags, r.tagsUnread())
 		if d.Include {
 			c.Included++
 			s.Included++

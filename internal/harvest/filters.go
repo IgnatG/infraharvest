@@ -65,13 +65,21 @@ func (f *Filter) Keeps(resource Resource) bool {
 // ParseIDFilter parses one --id: <type>=<id>[,<id>...], a filter on the
 // IDs the listers record for one type, named without the provider prefix,
 // as in vpc=vpc-1,vpc-2. Empty IDs are left out; at least one must remain.
+// IDs whose every part is <key>=<value> are one identity, as the query
+// service records a resource's ID (see RecordIdentity), such as
+// id=fl-1,region=eu-west-2, whose commas separate its attributes rather
+// than IDs: it is taken whole.
 func ParseIDFilter(raw string) (Filter, error) {
 	service, ids, ok := strings.Cut(raw, "=")
 	if !ok || service == "" {
 		return Filter{}, fmt.Errorf("--id %q: use <type>=<id>[,<id>...], such as vpc=vpc-1", raw)
 	}
+	parts := strings.Split(ids, ",")
+	if len(parts) > 1 && !slices.ContainsFunc(parts, func(part string) bool { return !strings.Contains(part, "=") }) {
+		return Filter{Service: service, Path: idPath, Values: []string{ids}}, nil
+	}
 	var values []string
-	for _, id := range strings.Split(ids, ",") {
+	for _, id := range parts {
 		if id != "" {
 			values = append(values, id)
 		}

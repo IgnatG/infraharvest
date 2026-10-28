@@ -43,6 +43,8 @@ func TestParseFilters(t *testing.T) {
 		{"several ids, one with a colon", ParseIDFilter, "resource=id1,project:dataset_id", Filter{Service: "resource", Path: "id", Values: []string{"id1", "project:dataset_id"}}},
 		{"empty ids are dropped", ParseIDFilter, "vpc=,vpc-1,,vpc-2,", Filter{Service: "vpc", Path: "id", Values: []string{"vpc-1", "vpc-2"}}},
 		{"an id with =", ParseIDFilter, "secret=a=b", Filter{Service: "secret", Path: "id", Values: []string{"a=b"}}},
+		{"ids, one with =", ParseIDFilter, "secret=a=b,c", Filter{Service: "secret", Path: "id", Values: []string{"a=b", "c"}}},
+		{"an identity", ParseIDFilter, "flow_log=id=fl-1,region=eu-west-2", Filter{Service: "flow_log", Path: "id", Values: []string{"id=fl-1,region=eu-west-2"}}},
 		{"a tag with values", ParseTagFilter, "env=prod,staging", Filter{Path: "tags.env", Values: []string{"prod", "staging"}}},
 		{"a tag without values", ParseTagFilter, "owner", Filter{Path: "tags.owner"}},
 		{"a tag with an empty value", ParseTagFilter, "owner=", Filter{Path: "tags.owner", Values: []string{""}}},

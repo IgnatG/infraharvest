@@ -343,6 +343,9 @@ func (t *tools) readWithin(what, path string) (string, []byte, error) {
 type Scope struct {
 	Provider string   `json:"provider" jsonschema:"the provider command"`
 	Services []string `json:"services,omitempty" flag:"services" jsonschema:"services to list, such as vpc, s3 and iam; with cfn_stacks, those of the stacks' resource types when left out"`
+	// QueryTypes are the types the query service lists through Terraform's
+	// list resources, which every provider has.
+	QueryTypes []string `json:"query_types,omitempty" flag:"query-types" jsonschema:"resource types for the query service to list through Terraform's own list resources (terraform query, Terraform 1.14 or later), such as aws_flow_log, for types no other service lists; with query in services, and not with engine tofu"`
 	// Regions is for aws and google.
 	Regions []string `json:"regions,omitempty" flag:"regions" scope:"provider" jsonschema:"{providers} only: regions to list, such as eu-west-2 for aws or global and europe-west1 for google (default: the profile's region for aws, global for google)"`
 	// Profile and Accounts are for aws.
@@ -416,6 +419,13 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 		return nil, nil, err
 	}
 	defer config.remove()
+	scope, err := config.scope(in.Scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkQueryEngine(scope, config.engine("")); err != nil {
+		return nil, nil, err
+	}
 	args = append(args, config.flag()...)
 	// discover saves what it lists under the output directory: the default
 	// one, but under the root rather than where the server runs.
@@ -547,6 +557,13 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		return nil, nil, err
 	}
 	defer config.remove()
+	scope, err := config.scope(in.Scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkQueryEngine(scope, config.engine(in.Engine)); err != nil {
+		return nil, nil, err
+	}
 	args = append(args, config.flag()...)
 	args = append(args, "--selection="+in.Selection, "--out="+in.Out, "--format=json")
 	if err := t.check(ctx, config.run(args)); err != nil {
@@ -574,10 +591,6 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	// The tool asks the client to ask the user, and the client calls it
 	// again with the answer (multi round-trip requests). The request state
 	// ties the answer to this exact import.
-	scope, err := config.scope(in.Scope)
-	if err != nil {
-		return nil, nil, err
-	}
 	profile, err := t.providers.profile(in.Provider)
 	if err != nil {
 		return nil, nil, err
@@ -1158,13 +1171,33 @@ func flagArgs(in any) ([]string, error) {
 // resource_graph, eu-west-2, global, or * for all.
 var namePattern = regexp.MustCompile(`^[A-Za-z0-9_*.-]+$`)
 
+// typePattern is what a resource type is named like: aws_flow_log.
+var typePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
 // checkScopeNames rejects a service or region that isn't named like one,
-// which the confirmation the user is shown names.
+// and a query type that isn't named like a resource type, which the
+// confirmation the user is shown names.
 func checkScopeNames(s Scope) error {
 	for _, v := range append(slices.Clone(s.Services), s.Regions...) {
 		if !namePattern.MatchString(v) {
 			return fmt.Errorf("%q isn't a service or a region", v)
 		}
+	}
+	for _, v := range s.QueryTypes {
+		if !typePattern.MatchString(v) {
+			return fmt.Errorf("query_types: %q isn't a resource type", v)
+		}
+	}
+	return nil
+}
+
+// checkQueryEngine refuses query types with engine, the run's, as the
+// command does: the query service lists through terraform query, which
+// OpenTofu doesn't have. The command would refuse it too, but discover
+// runs without checking first, and a configuration file can set either.
+func checkQueryEngine(s Scope, engine string) error {
+	if len(s.QueryTypes) > 0 && engine == "tofu" {
+		return fmt.Errorf("query_types: the %s service lists through Terraform's list resources (terraform query), which OpenTofu doesn't have: use engine terraform", harvest.QueryService)
 	}
 	return nil
 }
@@ -1193,8 +1226,9 @@ func shellQuote(s string) string {
 // profile, the profile of scope's provider, describes of the flags scope
 // sets (see harvest.Scope.Describe), the provider's accounts,
 // subscriptions or projects and where in them, in the provider's own
-// terms; and the services, which, when scope names none, the stacks'
-// resources do. scope is the run's: the tool's input, with what its
+// terms; the services, which, when scope names none, the stacks'
+// resources do; and the types the query service lists through
+// Terraform's list resources. scope is the run's: the tool's input, with what its
 // configuration file sets of the rest (see toolConfig.scope), and each
 // field set is one its provider takes.
 func scopeText(s Scope, profile harvest.Profile) (string, error) {
@@ -1203,9 +1237,14 @@ func scopeText(s Scope, profile harvest.Profile) (string, error) {
 	}
 	text := profile.Scope.Describe(scopeFlags(s))
 	if len(s.Services) == 0 {
-		return text + " (the services of the stacks' resources)", nil
+		text += " (the services of the stacks' resources)"
+	} else {
+		text += " (" + strings.Join(s.Services, ", ") + ")"
 	}
-	return text + " (" + strings.Join(s.Services, ", ") + ")", nil
+	if len(s.QueryTypes) > 0 {
+		text += ", listing " + strings.Join(s.QueryTypes, ", ") + " through Terraform's list resources"
+	}
+	return text, nil
 }
 
 // scopeFlags returns the flags of s that are set, by the names their flag

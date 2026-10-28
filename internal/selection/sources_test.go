@@ -125,6 +125,8 @@ func TestSourcesDecide(t *testing.T) {
 		{Type: "aws_s3_bucket", ID: "plain"},
 	}}
 	excludeByDefault := &File{Version: Version}
+	byTag := &File{Version: Version, Defaults: Defaults{Include: true}, Rules: []Rule{{Exclude: &Match{Tags: map[string]Patterns{"env": {"dev"}}}}}}
+	queried := Listed{Resource: harvest.RecordIdentity(map[string]string{"id": "fl-1"}, "fl-1", "aws_flow_log", "aws")}
 	inProd := report.TerraformPrefix + " (prod.tfstate)"
 	for _, tc := range []struct {
 		name   string
@@ -144,6 +146,8 @@ func TestSourcesDecide(t *testing.T) {
 		{"an entry that excludes", entries, plain, Decision{Reason: report.ReasonSelectionEntry}},
 		{"the defaults before the file's", excludeByDefault, defaultVPC, Decision{Reason: "default VPC"}},
 		{"the file's defaults", excludeByDefault, plain, Decision{Reason: report.ReasonSelectionDefaults}},
+		{"a rule on tags, which a listing by identity doesn't read", byTag, queried, Decision{Reason: report.ReasonSelectionTagsUnread}},
+		{"a rule on tags that don't match", byTag, plain, Decision{Include: true}},
 	} {
 		if got := s.Decide(tc.file, "", tc.listed.Observed.ID, tc.listed); got != tc.want {
 			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,5 +201,37 @@ func TestPlaceWritesWholeImportsIntoEachRoot(t *testing.T) {
 	}
 	if p.kept != nil || p.places != nil {
 		t.Errorf("kept %+v, places %+v, without the configuration file's environments", p.kept, p.places)
+	}
+}
+
+// What the query service lists has no tags, so environment tags can't
+// place it: the report and the log say where it goes instead, once tags
+// split the roots by environment, and not otherwise.
+func TestPlaceWarnsOfUnreadEnvTags(t *testing.T) {
+	queried := harvest.RecordIdentity(map[string]string{"id": "fl-1", "region": "eu-west-2"}, "fl-1", "aws_flow_log", "aws")
+	for name, tc := range map[string]struct {
+		root, defaultEnv string
+		want             string
+	}{
+		"by environment":     {"{out}/{provider}/{env}/", "", "to shared unless"},
+		"with a default":     {"{out}/{provider}/{env}/", "prod", "to prod unless"},
+		"not by environment": {"{out}/{provider}/", "", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := &callContext{options: Options{Out: "out", EnvTags: []string{"Env"}, DefaultEnv: tc.defaultEnv}, cat: catalogue.MustBuiltin("aws"), importID: listerID}
+			layout := callLayout{pattern: tc.root, root: tc.root}
+			resources := callResources{byService: map[string][]harvest.Resource{harvest.QueryService: {queried}}}
+			run := NewRun()
+			if _, err := run.place(t.Context(), &rootsProvider{}, c, layout, listing{}, resources, map[string]engine.Provider{"aws": {Name: "aws"}}); err != nil {
+				t.Fatal(err)
+			}
+			got := strings.Join(run.report.Warnings, "\n")
+			switch {
+			case tc.want == "" && got != "":
+				t.Errorf("warnings %q, want none", got)
+			case tc.want != "" && (!strings.Contains(got, "1 resources the query service listed have no tags") || !strings.Contains(got, tc.want)):
+				t.Errorf("warnings %q, want one saying %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -42,6 +42,11 @@ const (
 	ReasonSelectionEntry    = "excluded in the selection file"
 	ReasonSelectionRule     = "excluded by a rule in the selection file"
 	ReasonSelectionDefaults = "excluded by the selection file's defaults"
+	// ReasonSelectionTagsUnread is the reason of a rule on tags that would
+	// decide a resource whose tags aren't read, as Terraform's list
+	// resources return none: what the rule makes of it can't be told, so it
+	// is left out until its entry includes it.
+	ReasonSelectionTagsUnread = "excluded by a rule in the selection file on tags, which Terraform's list resources don't return: include its entry to import it"
 )
 
 // byTagMarker is in the reason of an exclusion a resource's tags decide,
@@ -65,7 +70,7 @@ func OwnerOf(reason string) string {
 		return OwnerCloudFormation
 	case strings.HasPrefix(reason, OtherToolPrefix):
 		return OwnerOtherTool
-	case reason == ReasonSelectionEntry || reason == ReasonSelectionRule || reason == ReasonSelectionDefaults, strings.HasPrefix(reason, OutsideScopePrefix):
+	case reason == ReasonSelectionEntry || reason == ReasonSelectionRule || reason == ReasonSelectionDefaults || reason == ReasonSelectionTagsUnread, strings.HasPrefix(reason, OutsideScopePrefix):
 		return OwnerSelection
 	}
 	return OwnerCloud
