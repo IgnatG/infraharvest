@@ -151,9 +151,9 @@ const ConftestBinary = "conftest"
 // a policy says what the infrastructure should be, which the
 // configuration mirrors as it is. The policies are local directories
 // only, and nothing is fetched: no --update, which downloads policies
-// before the test. They run without OPA's built-in functions that reach
-// the network (see conftestCapabilities), so that a policy can't send
-// the configuration anywhere.
+// before the test. They run without the built-in functions that reach
+// the network or read files (see deniedBuiltins), so that a policy can't
+// send the configuration anywhere, or read what conftest wasn't given.
 func conftestScanner(path string, policies []string) Scanner {
 	return Scanner{Name: ConftestBinary, Run: func(ctx context.Context, dir string) ([]Finding, error) {
 		files, err := filepath.Glob(filepath.Join(dir, "*.tf"))

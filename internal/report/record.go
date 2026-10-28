@@ -170,15 +170,28 @@ func (r *Report) addFindings(path, scope string, result *engine.Result) {
 	if len(managed) == 0 {
 		managed = engine.InferredAddresses(result)
 	}
-	for _, c := range result.Gate {
+	for _, f := range GateFindings(path, "", managed, result.Gate) {
+		f.Scope = scope
+		r.Findings = append(r.Findings, f)
+	}
+}
+
+// GateFindings returns what the scanners of gate found in the root at
+// root, as env plans it for a root environments share, each about the
+// resource of managed, what the root imports, at the address it names, if
+// any (see engine.ResourceAt), with its type and import ID.
+func GateFindings(root, env string, managed []engine.Managed, gate engine.Gate) []Finding {
+	var findings []Finding
+	for _, c := range gate {
 		for _, f := range c.Findings {
-			finding := Finding{Root: path, Address: f.Resource, Scope: scope, Scanner: f.Scanner, Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}
+			finding := Finding{Root: root, Environment: env, Address: f.Resource, Scanner: f.Scanner, Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}
 			if m, ok := engine.ResourceAt(managed, f.Resource); ok {
 				finding.Address, finding.Type, finding.ID = m.Address, m.Type, m.ID
 			}
-			r.Findings = append(r.Findings, finding)
+			findings = append(findings, finding)
 		}
 	}
+	return findings
 }
 
 // addMoves records what result, of the root at path, moves within it, as
@@ -296,16 +309,34 @@ func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, impor
 
 // AddMerge records m, the outcome of a stack whose environments' roots are
 // at roots, relative to the output directory: once merged, each root's
-// directory names the merged root.
+// directory names the merged root, and the merged root's findings
+// (Merge.Findings) are the report's, which coverage.json lists once,
+// with the others.
 func (r *Report) AddMerge(m Merge, roots []string) {
+	findings := m.Findings
+	m.Findings = nil
 	r.Merges = append(r.Merges, m)
 	if !m.Merged {
 		return
 	}
+	scopes := map[string]string{}
 	for i, d := range r.Directories {
 		if slices.Contains(roots, d.Path) {
 			r.Directories[i].MergedInto = m.Path
+			scopes[d.Path] = d.Scope
 		}
+	}
+	// The merged root's findings replace those of the roots it merges,
+	// which are set aside; each environment's resources were listed where
+	// its root's were.
+	r.Findings = slices.DeleteFunc(r.Findings, func(f Finding) bool { return slices.Contains(roots, f.Root) })
+	for _, f := range findings {
+		for _, root := range m.Roots {
+			if root.Env == f.Environment {
+				f.Scope = scopes[root.Path]
+			}
+		}
+		r.Findings = append(r.Findings, f)
 	}
 }
 

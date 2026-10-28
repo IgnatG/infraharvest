@@ -68,6 +68,36 @@ func TestWriteVerified(t *testing.T) {
 	if want := "aws/1/eu-west-2: passed; skipped G5 scanners\naws/1/global: failed G3 plan\n"; b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
 	}
+
+	// The scanners' findings follow, by resource, as report.md lists them.
+	gate := engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+		{Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: "S3 Bucket Logging", Resource: "aws_s3_bucket.logs"},
+		{Scanner: "tflint", Rule: "terraform_required_version", Severity: "warning", Location: "providers.tf:1", Message: "required_version is required"},
+	}}}
+	managed := []engine.Managed{{Type: "aws_s3_bucket", ID: "acme-logs", Address: "aws_s3_bucket.logs"}}
+	results = []verifiedRoot{
+		{Path: "aws/eu-west-2", Environment: "prod", Checks: []report.Check{{Name: engine.CheckScanners, Passed: true}}, Findings: report.GateFindings("aws/eu-west-2", "prod", managed, gate)},
+		{Path: "aws/1/global", Checks: []report.Check{{Name: engine.CheckScanners, Passed: true}}},
+	}
+	b.Reset()
+	if err := writeVerified(&b, results, FormatText); err != nil {
+		t.Fatal(err)
+	}
+	want := "aws/eu-west-2 (prod): passed\naws/1/global: passed\n\nFindings by resource:\n" +
+		"- `aws_s3_bucket.logs` in `aws/eu-west-2` as prod (`acme-logs`):\n" +
+		"  - trivy: AWS-0089 (low) main.tf: S3 Bucket Logging\n" +
+		"- `aws/eu-west-2` as prod, not about one resource:\n" +
+		"  - tflint: terraform_required_version (warning) providers.tf:1: required_version is required\n"
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
+	}
+	b.Reset()
+	if err := writeVerified(&b, results[:1], FormatJSON); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), `"findings": [`) || !strings.Contains(b.String(), `"id": "acme-logs"`) {
+		t.Errorf("--format json lacks the findings:\n%s", b.String())
+	}
 }
 
 func TestPrintReport(t *testing.T) {

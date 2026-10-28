@@ -34,6 +34,9 @@ type verifiedRoot struct {
 	// was planned as.
 	Environment string         `json:"environment,omitempty"`
 	Checks      []report.Check `json:"checks"`
+	// Findings are what its scanners found, each about the resource it
+	// imports at the address the finding names, as report.md lists them.
+	Findings []report.Finding `json:"findings,omitempty"`
 }
 
 func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
@@ -92,7 +95,8 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		newTF := func(d string) (engine.Terraform, error) {
 			return engine.NewTerraform(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		}
-		record := func(root verifiedRoot, gate engine.Gate) {
+		record := func(root verifiedRoot, gate engine.Gate, managed []engine.Managed) {
+			root.Findings = report.GateFindings(root.Path, root.Environment, managed, gate)
 			name := root.Path
 			if root.Environment != "" {
 				name += " (" + root.Environment + ")"
@@ -116,7 +120,11 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s: %w", dir, err)
 			}
-			record(verifiedRoot{Path: relativePath(out, dir)}, gate)
+			managed, err := engine.ImportedAddresses(dir)
+			if err != nil {
+				return fmt.Errorf("%s: %w", dir, err)
+			}
+			record(verifiedRoot{Path: relativePath(out, dir)}, gate, managed)
 			continue
 		}
 		for _, env := range envs {
@@ -127,7 +135,11 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
-			record(verifiedRoot{Path: relativePath(out, dir), Environment: env}, gate)
+			ids, err := engine.MergedImportIDs(dir, env)
+			if err != nil {
+				return fmt.Errorf("%s (%s): %w", dir, env, err)
+			}
+			record(verifiedRoot{Path: relativePath(out, dir), Environment: env}, gate, engine.MergedManaged(ids))
 		}
 	}
 	if err := writeVerified(w, results, format); err != nil {
@@ -148,7 +160,9 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 		_, err = fmt.Fprintf(w, "%s\n", content)
 		return err
 	}
+	var findings []report.Finding
 	for _, r := range results {
+		findings = append(findings, r.Findings...)
 		status := "passed"
 		var failedNames, skippedNames []string
 		for _, c := range r.Checks {
@@ -173,7 +187,11 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 			return err
 		}
 	}
-	return nil
+	if len(findings) == 0 {
+		return nil
+	}
+	_, err := fmt.Fprintf(w, "\nFindings by resource:\n%s", report.ListFindings(findings))
+	return err
 }
 
 // generatedRoots returns the directories under out that an import
