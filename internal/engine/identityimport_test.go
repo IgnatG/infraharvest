@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // A resource with an identity, as Terraform's list resources return it, is
@@ -48,16 +49,16 @@ import {
 
 	dir := t.TempDir()
 	writeConfig(t, dir, ImportsFileName, string(got))
-	f, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	f, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
-	for _, imp := range f.imports() {
-		ids[imp.to] = imp.id
+	for _, imp := range f.Imports() {
+		ids[imp.To] = imp.ID
 	}
 	if ids["aws_cloudwatch_log_group.logs"] != id || ids["aws_sqs_queue.orders"] != "https://sqs.eu-west-2.amazonaws.com/123/orders" {
-		t.Errorf("imports() read %v", ids)
+		t.Errorf("Imports() read %v", ids)
 	}
 	if got := importTargetsIn(f)["aws_cloudwatch_log_group\x00"+id]; got != "aws_cloudwatch_log_group.logs" {
 		t.Errorf("importTargetsIn: got %q", got)
@@ -80,11 +81,11 @@ func TestImportIDOfIdentity(t *testing.T) {
 	} {
 		dir := t.TempDir()
 		writeConfig(t, dir, ImportsFileName, tt.block)
-		f, err := loadHCL(filepath.Join(dir, ImportsFileName))
+		f, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, ok := importIDOf(f.syntax.Blocks[0].Body)
+		got, ok := hclfile.ImportIDOf(f.Syntax.Blocks[0].Body)
 		if got != tt.want || ok != tt.ok {
 			t.Errorf("%s: got %q, %v; want %q, %v", name, got, ok, tt.want, tt.ok)
 		}

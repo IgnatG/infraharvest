@@ -6,9 +6,10 @@ name: Action test
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against the Floci emulators of AWS, Azure and Google Cloud: no cloud account is
 # involved. It also runs when the Go code changes, since the action relies on
-# the binary's flags, report path and exit codes. It imports with Terraform and
-# OpenTofu, through a selection file, with environments that share roots,
-# and with managed-state; checks drift on the roots once they're applied,
+# the binary's flags, report path and exit codes. It imports with Terraform,
+# and with OpenTofu too when run by hand (workflow_dispatch), through a
+# selection file, with environments that share roots, and with
+# managed-state; checks drift on the roots once they're applied,
 # per environment for roots environments share; and checks what the action
 # would open its pull request with. On main, once the repository lets
 # workflows open pull requests, it opens a real one too (see the
@@ -33,8 +34,8 @@ on:
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
-  # Only the pull-request and commit jobs run on a push: a pull request ran
-  # the rest.
+  # Only the pull-request and commit jobs, which a pull request can't run,
+  # run on a push: a pull request ran the rest.
   push:
     branches: [main]
     paths:
@@ -75,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [terraform, tofu]
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
     env:
       AWS_ENDPOINT_URL: http://localhost:4566
       AWS_ACCESS_KEY_ID: test
@@ -1067,6 +1068,7 @@ jobs:
   # request, peter-evans/create-pull-request, only passes it on. The
   # pull-request job opens one for an import only.
   pull-request-details:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1169,6 +1171,18 @@ jobs:
           expect drift add-paths infraharvest-out
           test ! -s "$(output drift body-path)"
 
+          # A report the repository commits as a link, which a run that
+          # failed before writing its report leaves there, isn't read
+          # through it into the body, nor is one in a linked directory.
+          mkdir -p linked-out/report
+          printf 'secret\n' > "$RUNNER_TEMP/secret"
+          ln -s "$RUNNER_TEMP/secret" linked-out/report/report.md
+          ln -s "$RUNNER_TEMP" linked-report
+          printf '# Drift report\n' > "$RUNNER_TEMP/drift.md"
+          details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$GITHUB_WORKSPACE/linked-report/drift.md"
+          test ! -s "$(output linked body-path)"
+
           # Drift accepted as one environment, in a matrix job of its own:
           # that environment's pull request, on a branch of its own.
           details prod IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift-prod.yaml \
@@ -1185,6 +1199,15 @@ jobs:
           expect all title "Import new resources, and record cloud changes (drift) for review"
           expect all branch infraharvest/import
 
+          # A report the repository links elsewhere, here through a report
+          # directory linked to another, is left out of the body.
+          mkdir -p linked-out "$RUNNER_TEMP/elsewhere"
+          printf '# Not a report\n' > "$RUNNER_TEMP/elsewhere/report.md"
+          ln -s "$RUNNER_TEMP/elsewhere" linked-out/report
+          details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
+            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+          cmp "$RUNNER_TEMP/drift.md" "$(output linked body-path)"
+
   # What action/commit.sh commits and pushes, checked against a repository
   # of the job's own, which it pushes to over file://, so that it needs no
   # token: only the paths given, nothing when they haven't changed, a
@@ -1192,6 +1215,7 @@ jobs:
   # that has moved on. The commit job runs it through the action, on
   # GitHub.
   commit-script:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Import engines selectable with --engine.
@@ -27,11 +28,11 @@ const (
 )
 
 // engineBinary is the binary --engine runs.
-func engineBinary(name string) engine.Binary {
+func engineBinary(name string) tfrun.Binary {
 	if name == EngineTofu {
-		return engine.TofuBinary
+		return tfrun.TofuBinary
 	}
-	return engine.TerraformBinary
+	return tfrun.TerraformBinary
 }
 
 // checkImportOptions rejects values of --format and --modules the import

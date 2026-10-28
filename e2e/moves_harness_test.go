@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -26,7 +27,7 @@ import (
 // its own, which a test applies again with other variables.
 type appliedFixture struct {
 	name string
-	tf   *engine.Runner
+	tf   *tfrun.Runner
 }
 
 // seedApplied applies testdata/<name> in the emulator, with opts, such as
@@ -37,7 +38,7 @@ func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins stri
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", name, "main.tf"))), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/discovery"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -169,7 +169,7 @@ func leaveOutQueryOverlap(provider string, resources map[string][]harvest.Resour
 // with: Terraform at tfquery.Minimum or newer, for an import that lists
 // through Terraform, which imports what it lists by identity too (see
 // engineBinary).
-func engineBinaryOf(options Options) engine.Binary {
+func engineBinaryOf(options Options) tfrun.Binary {
 	if usesQuery(options) {
 		return tfquery.Binary()
 	}

@@ -10,6 +10,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 func TestOptionalTypeString(t *testing.T) {
@@ -56,7 +58,7 @@ func TestWithoutNullAttributes(t *testing.T) {
 		{`{ k = { a = null } }`, cty.ObjectVal(map[string]cty.Value{"k": cty.EmptyObjectVal})},
 		{`["x"]`, cty.TupleVal([]cty.Value{cty.StringVal("x")})},
 	} {
-		tokens := parseExpr(tc.in)
+		tokens := hclfile.ParseExpr(tc.in)
 		if tokens == nil {
 			t.Fatalf("%s doesn't parse", tc.in)
 		}

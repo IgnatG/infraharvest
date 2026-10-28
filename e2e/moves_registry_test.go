@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // TestAWSRegistryModuleMoves plans the roots of testdata/aws-registry-moves
@@ -46,7 +46,7 @@ func TestAWSRegistryModuleMoves(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, fixture)), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

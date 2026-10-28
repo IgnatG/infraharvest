@@ -12,6 +12,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Owner is the tool a resource's tags or labels say manages it, and the
@@ -118,24 +120,24 @@ type OwnedResource struct {
 // them, but those keep names by "<type> <import ID>": the listing doesn't
 // read the tags of every type, such as IAM roles'.
 func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
 	ids := map[string]string{}
-	for _, imp := range imports.imports() {
-		ids[imp.to] = imp.id
+	for _, imp := range imports.Imports() {
+		ids[imp.To] = imp.ID
 	}
 	owners := map[string]Owner{}
 	errs := map[string][]tfjson.Diagnostic{}
-	for _, r := range generated.resources() {
+	for _, r := range generated.Resources() {
 		tags := map[string]string{}
 		for _, name := range []string{"tags", "labels", "terraform_labels", "effective_labels"} {
-			obj, ok := attributeExpr(r.syntax.Body, name).(*hclsyntax.ObjectConsExpr)
+			obj, ok := attributeExpr(r.Syntax.Body, name).(*hclsyntax.ObjectConsExpr)
 			if !ok {
 				continue
 			}
@@ -145,10 +147,10 @@ func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
 				}
 			}
 		}
-		typ, _, _ := strings.Cut(r.address, ".")
-		if owner, ok := OwnedBy(tags); ok && !keep[typ+" "+ids[r.address]] {
-			owners[r.address] = owner
-			errs[r.address] = []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "managed by " + owner.Tool}}
+		typ, _, _ := strings.Cut(r.Address, ".")
+		if owner, ok := OwnedBy(tags); ok && !keep[typ+" "+ids[r.Address]] {
+			owners[r.Address] = owner
+			errs[r.Address] = []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "managed by " + owner.Tool}}
 		}
 	}
 	if len(owners) == 0 {

@@ -18,3 +18,6 @@ dist/
 /site/
 .claude/
 .mcp.json
+# Secrets and keys, never committed
+.env
+*.pem

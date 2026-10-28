@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -373,7 +374,7 @@ func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (engine.Merge
 			return engine.MergeRoot{}, err
 		}
 	}
-	var runner func(string) (engine.Terraform, error)
+	var runner func(string) (tfrun.Terraform, error)
 	if !m.restored {
 		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
 		var err error

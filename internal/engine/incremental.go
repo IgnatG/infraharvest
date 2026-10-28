@@ -22,24 +22,26 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // configFiles parses the .tf files of dir, in name order, without override
 // files, which only change what the others declare.
-func configFiles(dir string) ([]*hclFile, error) {
+func configFiles(dir string) ([]*hclfile.File, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 	if err != nil {
 		return nil, err
 	}
 	sort.Strings(paths)
-	var files []*hclFile
+	var files []*hclfile.File
 	for _, path := range paths {
 		name := filepath.Base(path)
 		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
 			continue
 		}
-		f, err := loadHCL(path)
+		f, err := hclfile.Load(path)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +58,7 @@ func HasConfiguration(dir string) (bool, error) {
 		return false, err
 	}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "resource" || b.Type == "module" {
 				return true, nil
 			}
@@ -68,10 +70,10 @@ func HasConfiguration(dir string) (bool, error) {
 // rootNames returns the names files use (see Names), with those that
 // moved and removed blocks take resources from: a plan rejects a moved
 // block from an address the configuration declares.
-func rootNames(files []*hclFile) Names {
+func rootNames(files []*hclfile.File) Names {
 	names := Names{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch {
 			case b.Type == "moved" || b.Type == "removed":
 				if from, ok := movedFrom(b); ok {
@@ -107,8 +109,8 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 	}
 	resources := map[string]bool{}
 	for _, f := range files {
-		for _, r := range f.resources() {
-			resources[r.address] = true
+		for _, r := range f.Resources() {
+			resources[r.Address] = true
 		}
 	}
 	existing := map[External]string{}
@@ -142,13 +144,13 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 // resource through dt.Block (an argument with dt.Argument), if they are
 // literal, directly or through a local. Without dt.Block, they are the
 // local the resources refer to, local.<dt.Attribute>.
-func appliedTags(files []*hclFile, dt DefaultTags) (map[string]string, bool) {
+func appliedTags(files []*hclfile.File, dt DefaultTags) (map[string]string, bool) {
 	if dt.Block == "" {
 		return literalLocal(files, dt.Attribute)
 	}
 	var expr hclsyntax.Expression
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != dt.Provider {
 				continue
 			}
@@ -181,9 +183,9 @@ func appliedTags(files []*hclFile, dt DefaultTags) (map[string]string, bool) {
 
 // literalLocal returns the local named name, if it is a literal map of
 // strings.
-func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
+func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) {
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if attr, ok := b.Body.Attributes[name]; ok && b.Type == "locals" {
 				return stringMap(attr.Expr)
 			}
@@ -208,9 +210,9 @@ func literalLocal(files []*hclFile, name string) (map[string]string, bool) {
 // empties staging but for it, and pins the providers opts.Config requires
 // to its releases (see pinnedToLock), so that the additions are generated
 // with the provider releases root runs.
-func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
-	rootTF = withTimeout(rootTF, opts.CommandTimeout)
-	lock, err := os.ReadFile(filepath.Join(staging, LockFileName))
+func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
+	lock, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
@@ -221,7 +223,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 		if err := os.MkdirAll(staging, 0o755); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(filepath.Join(staging, LockFileName), lock, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(staging, tfrun.LockFileName), lock, 0o644); err != nil {
 			return nil, err
 		}
 	}
@@ -244,7 +246,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	fileOf := blockFiles(result.Imported, result.Modules)
 	// The providers that added module calls use go into providers.tf and
 	// the file of the root's required_providers (see mergeProviders).
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, LockFileName, ProvidersFileName, VersionsFileName}
+	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, tfrun.LockFileName, ProvidersFileName, VersionsFileName}
 	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
 		names = append(names, required)
 	}
@@ -279,7 +281,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 	}
 	result.Files = added
 	// After merge: the calls it added need their modules installed.
-	if err := initTerraform(ctx, rootTF, tfexec.Backend(false)); err != nil {
+	if err := tfrun.Init(ctx, rootTF, tfexec.Backend(false)); err != nil {
 		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
 	staged := result.Gate
@@ -322,7 +324,7 @@ func Add(ctx context.Context, tf, rootTF Terraform, staging, root string, import
 // generated.tf, whose resources merge then puts after the blocks of the
 // file of their type, or into a file of their own. The caller's opts stay
 // as they are.
-func adding(opts Options, lock []byte, root []*hclFile, existing map[External]string) (*run, error) {
+func adding(opts Options, lock []byte, root []*hclfile.File, existing map[External]string) (*run, error) {
 	r := generating(opts)
 	o := &r.opts
 	if versions, ok := opts.Config[VersionsFileName]; ok && lock != nil {
@@ -445,7 +447,7 @@ func AddedFileName(n int) string {
 // files of resources it wrote to, sorted, also when it fails after
 // writing them.
 func merge(staging, root string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
-	generated, err := loadHCL(filepath.Join(staging, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(staging, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +463,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 		}
 	}
 	for _, f := range rootFiles {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "data" || len(b.Labels) != 2 {
 				continue
 			}
@@ -473,13 +475,13 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	}
 	declared := rootDeclarations(rootFiles)
 	var data []*hclwrite.Block
-	staged, err := loadOptionalHCL(filepath.Join(staging, DataFileName))
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, DataFileName))
 	if err != nil {
 		return nil, err
 	}
 	if staged != nil {
-		blocks := staged.edit().Body().Blocks()
-		for i, b := range staged.syntax.Blocks {
+		blocks := staged.Edit().Body().Blocks()
+		for i, b := range staged.Syntax.Blocks {
 			if b.Type != "data" || len(b.Labels) != 2 || i >= len(blocks) {
 				continue
 			}
@@ -487,13 +489,13 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			if !ok {
 				// A data source root declares the same, such as a lookup
 				// of the tenant: the staged one has another name.
-				replacement, ok = declared[declarationKey(b, staged.src)]
+				replacement, ok = declared[declarationKey(b, staged.Src)]
 			}
 			if !ok {
 				data = append(data, blocks[i])
 				continue
 			}
-			for _, block := range generated.edit().Body().Blocks() {
+			for _, block := range generated.Edit().Body().Blocks() {
 				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
 			}
 		}
@@ -508,7 +510,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	own := ""
 	var names []string
 	blocksFor := map[string][]*hclwrite.Block{}
-	for _, b := range generated.edit().Body().Blocks() {
+	for _, b := range generated.Edit().Body().Blocks() {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			if own == "" {
@@ -534,12 +536,12 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
 		return added, err
 	}
-	imports, err := loadOptionalHCL(filepath.Join(staging, ImportsFileName))
+	imports, err := hclfile.LoadOptional(filepath.Join(staging, ImportsFileName))
 	if err != nil {
 		return added, err
 	}
 	if imports != nil {
-		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.edit().Body().Blocks()); err != nil {
+		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.Edit().Body().Blocks()); err != nil {
 			return added, err
 		}
 	}
@@ -559,9 +561,9 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return added, err
 	}
-	lock := filepath.Join(root, LockFileName)
+	lock := filepath.Join(root, tfrun.LockFileName)
 	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
-		if content, err := os.ReadFile(filepath.Join(staging, LockFileName)); err == nil {
+		if content, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName)); err == nil {
 			return added, fsutil.WriteFile(lock, content, 0o644)
 		}
 	}
@@ -601,10 +603,10 @@ func dataKey(b *hclsyntax.Block, sources map[string]DataSource) string {
 // source and each variable with a default that files declare, the first
 // of those that declare the same: data.<type>.<name> or var.<name>, as
 // steps of a reference.
-func rootDeclarations(files []*hclFile) map[string][]string {
+func rootDeclarations(files []*hclfile.File) map[string][]string {
 	declared := map[string][]string{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			var address []string
 			switch {
 			case b.Type == "data" && len(b.Labels) == 2:
@@ -614,7 +616,7 @@ func rootDeclarations(files []*hclFile) map[string][]string {
 			default:
 				continue
 			}
-			key := declarationKey(b, f.src)
+			key := declarationKey(b, f.Src)
 			if _, ok := declared[key]; key != "" && !ok {
 				declared[key] = address
 			}
@@ -661,20 +663,20 @@ func declarationKey(b *hclsyntax.Block, src []byte) string {
 // root's, but for the variables with a default that root declares the
 // same (see rootDeclarations): references to those in generated's blocks
 // refer to root's instead, which has another name.
-func stagedVariables(staging string, declared map[string][]string, generated *hclFile) ([]*hclwrite.Block, error) {
-	staged, err := loadOptionalHCL(filepath.Join(staging, VariablesFileName))
+func stagedVariables(staging string, declared map[string][]string, generated *hclfile.File) ([]*hclwrite.Block, error) {
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, VariablesFileName))
 	if err != nil || staged == nil {
 		return nil, err
 	}
-	blocks := staged.edit().Body().Blocks()
+	blocks := staged.Edit().Body().Blocks()
 	var kept []*hclwrite.Block
-	for i, b := range staged.syntax.Blocks {
+	for i, b := range staged.Syntax.Blocks {
 		if i >= len(blocks) {
 			break
 		}
 		if b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b) {
-			if replacement, ok := declared[declarationKey(b, staged.src)]; ok {
-				for _, block := range generated.edit().Body().Blocks() {
+			if replacement, ok := declared[declarationKey(b, staged.Src)]; ok {
+				for _, block := range generated.Edit().Body().Blocks() {
 					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
 				}
 				continue
@@ -689,7 +691,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 // provider configuration uses and those root has, such as the tags its
 // resources refer to: root has its own of them.
 func mergeLocals(staging, root string) error {
-	staged, err := loadOptionalHCL(filepath.Join(staging, LocalsFileName))
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, LocalsFileName))
 	if err != nil || staged == nil {
 		return err
 	}
@@ -698,12 +700,12 @@ func mergeLocals(staging, root string) error {
 		return err
 	}
 	taken := rootNames(rootFiles)
-	providers, err := loadHCL(filepath.Join(staging, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(staging, ProvidersFileName))
 	if err != nil {
 		return err
 	}
 	used := map[string]bool{}
-	for _, b := range providers.syntax.Blocks {
+	for _, b := range providers.Syntax.Blocks {
 		for _, t := range allTraversals(b.Body) {
 			if t.RootName() == "local" && len(t) > 1 {
 				if attr, ok := t[1].(hcl.TraverseAttr); ok {
@@ -717,7 +719,7 @@ func mergeLocals(staging, root string) error {
 		tokens hclwrite.Tokens
 	}
 	var added []local
-	for _, b := range staged.edit().Body().Blocks() {
+	for _, b := range staged.Edit().Body().Blocks() {
 		if b.Type() != "locals" {
 			continue
 		}
@@ -732,15 +734,15 @@ func mergeLocals(staging, root string) error {
 	}
 	sort.Slice(added, func(i, j int) bool { return added[i].name < added[j].name })
 	path := filepath.Join(root, LocalsFileName)
-	f, err := loadOptionalHCL(path)
+	f, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return err
 	}
 	var body *hclwrite.Body
 	if f == nil {
-		f = newHCL(path)
+		f = hclfile.New(path)
 	} else {
-		for _, b := range f.edit().Body().Blocks() {
+		for _, b := range f.Edit().Body().Blocks() {
 			if b.Type() == "locals" {
 				body = b.Body()
 				break
@@ -748,12 +750,12 @@ func mergeLocals(staging, root string) error {
 		}
 	}
 	if body == nil {
-		body = f.edit().Body().AppendNewBlock("locals", nil).Body()
+		body = f.Edit().Body().AppendNewBlock("locals", nil).Body()
 	}
 	for _, l := range added {
 		body.SetAttributeRaw(l.name, l.tokens)
 	}
-	return f.save()
+	return f.Save()
 }
 
 // mergeProviders adds to root the providers staging configures and
@@ -765,11 +767,11 @@ func mergeLocals(staging, root string) error {
 // required_providers (see requiredProvidersFile). Without them, an added
 // module call would run on a provider root neither configures nor pins.
 // rootFiles are root's files before the merge.
-func mergeProviders(staging, root string, rootFiles []*hclFile) error {
+func mergeProviders(staging, root string, rootFiles []*hclfile.File) error {
 	configured := map[string]bool{}
 	required := map[string]bool{}
 	for _, f := range rootFiles {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch b.Type {
 			case "provider":
 				if len(b.Labels) == 1 {
@@ -787,13 +789,13 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 			}
 		}
 	}
-	providers, err := loadOptionalHCL(filepath.Join(staging, ProvidersFileName))
+	providers, err := hclfile.LoadOptional(filepath.Join(staging, ProvidersFileName))
 	if err != nil {
 		return err
 	}
 	if providers != nil {
 		var blocks []*hclwrite.Block
-		for _, b := range providers.edit().Body().Blocks() {
+		for _, b := range providers.Edit().Body().Blocks() {
 			if b.Type() == "provider" && len(b.Labels()) == 1 && !configured[b.Labels()[0]] {
 				blocks = append(blocks, b)
 			}
@@ -802,12 +804,12 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 			return err
 		}
 	}
-	versions, err := loadOptionalHCL(filepath.Join(staging, VersionsFileName))
+	versions, err := hclfile.LoadOptional(filepath.Join(staging, VersionsFileName))
 	if err != nil || versions == nil {
 		return err
 	}
 	missing := map[string]hclwrite.Tokens{}
-	for _, b := range versions.edit().Body().Blocks() {
+	for _, b := range versions.Edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}
@@ -828,14 +830,14 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 		return nil
 	}
 	path := filepath.Join(root, requiredProvidersFile(rootFiles))
-	f, err := loadOptionalHCL(path)
+	f, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return err
 	}
 	if f == nil {
-		f = newHCL(path)
+		f = hclfile.New(path)
 	}
-	body := requiredProvidersBody(f.edit().Body())
+	body := requiredProvidersBody(f.Edit().Body())
 	names := make([]string, 0, len(missing))
 	for name := range missing {
 		names = append(names, name)
@@ -844,21 +846,21 @@ func mergeProviders(staging, root string, rootFiles []*hclFile) error {
 	for _, name := range names {
 		body.SetAttributeRaw(name, missing[name])
 	}
-	return f.save()
+	return f.Save()
 }
 
 // requiredProvidersFile returns the name of the file of files that has
 // the root's required_providers, or versions.tf, where Generate writes
 // them, if none has.
-func requiredProvidersFile(files []*hclFile) string {
+func requiredProvidersFile(files []*hclfile.File) string {
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "terraform" {
 				continue
 			}
 			for _, nested := range b.Body.Blocks {
 				if nested.Type == "required_providers" {
-					return filepath.Base(f.path)
+					return filepath.Base(f.Path)
 				}
 			}
 		}
@@ -897,23 +899,23 @@ func appendBlocks(path, header string, blocks []*hclwrite.Block) error {
 	if len(blocks) == 0 {
 		return nil
 	}
-	f, err := loadOptionalHCL(path)
+	f, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return err
 	}
 	if f == nil {
-		f = newHCL(path)
+		f = hclfile.New(path)
 		if header != "" {
-			f.edit().Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
+			f.Edit().Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
 		}
 	}
 	for _, b := range blocks {
-		if len(f.edit().Body().Blocks()) > 0 || header != "" {
-			f.edit().Body().AppendNewline()
+		if len(f.Edit().Body().Blocks()) > 0 || header != "" {
+			f.Edit().Body().AppendNewline()
 		}
-		f.edit().Body().AppendBlock(b)
+		f.Edit().Body().AppendBlock(b)
 	}
-	return f.save()
+	return f.Save()
 }
 
 // appendFile adds content to the end of the file at path.

@@ -30,6 +30,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
@@ -39,10 +40,10 @@ import (
 var Minimum = version.Must(version.NewVersion("1.14.0"))
 
 // Binary is Terraform, at Minimum or newer: what a run that lists through
-// Terraform finds or downloads (see engine.Binary.Find), to list and then
+// Terraform finds or downloads (see tfrun.Binary.Find), to list and then
 // to generate with.
-func Binary() engine.Binary {
-	b := engine.TerraformBinary
+func Binary() tfrun.Binary {
+	b := tfrun.TerraformBinary
 	b.Minimum = Minimum
 	return b
 }
@@ -84,7 +85,7 @@ type Request struct {
 	InScope func(identity map[string]string) bool
 }
 
-// terraform is what List runs Terraform with: *engine.Runner, or a fake.
+// terraform is what List runs Terraform with: *tfrun.Runner, or a fake.
 type terraform interface {
 	Init(ctx context.Context, opts ...tfexec.InitOption) error
 	ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error)
@@ -100,9 +101,9 @@ type runner struct {
 
 var defaultRunner = runner{
 	newTerraform: func(dir, execPath, pluginCacheDir string, env map[string]string) (terraform, error) {
-		return engine.NewTerraform(dir, execPath, pluginCacheDir, env)
+		return tfrun.New(dir, execPath, pluginCacheDir, env)
 	},
-	versionOf: engine.BinaryVersion,
+	versionOf: tfrun.BinaryVersion,
 }
 
 // List lists req.Types through Terraform's list resources, identities

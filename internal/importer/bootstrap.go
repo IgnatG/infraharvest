@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -27,6 +28,11 @@ func WriteBootstrap(configFile, out string, w io.Writer, profiles []harvest.Prof
 	if err != nil {
 		return err
 	}
+	// As an import checks it (see lockOutput): out may be a clone, which
+	// could commit bootstrap, or a file in it, as a link elsewhere.
+	if err := fsutil.CheckContained(out, CheckpointDir, ".terraform", ".git"); err != nil {
+		return fmt.Errorf("%w: refusing to write under %s; remove it", err, out)
+	}
 	dir := filepath.Join(out, config.BootstrapDir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -41,7 +47,7 @@ func WriteBootstrap(configFile, out string, w io.Writer, profiles []harvest.Prof
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := os.WriteFile(filepath.Join(dir, name), files[name], 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, name), files[name], 0o644); err != nil {
 			return err
 		}
 	}

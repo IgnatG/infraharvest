@@ -5,7 +5,9 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,6 +17,8 @@ import (
 	"github.com/hashicorp/hcl/v2/ext/typeexpr"
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // stagedModulesDir is the directory of drift's staged copy of a root that
@@ -51,11 +55,11 @@ func stageModule(staging, dir string) (string, error) {
 		return "", err
 	}
 	for name, content := range contents {
-		f, err := parseHCL(name, content)
+		f, err := hclfile.Parse(name, content)
 		if err != nil {
 			return "", err
 		}
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "module" {
 				return "", nil
 			}
@@ -87,13 +91,27 @@ func stagedPath(staging, name string) string {
 // files of the generated modules of modules that call no modules of
 // their own, by their paths relative to the root, such as
 // ../../../modules/s3_0a1b2c3d/main.tf: an accepted change may edit them
-// (see promoteLiteral).
-func addModuleFiles(contents map[string][]byte, dir string, modules map[string]*driftModule) error {
+// (see promoteLiteral). Only a module in out, the output directory the
+// root is in, is added, and only if it is reached from there through
+// directories alone (see confinedModule): the root, or the modules.json
+// of its init, could name a directory elsewhere, or one through a link,
+// which the accepted change would then be written into. For out "", the
+// output directory is the one the module's modules directory is in,
+// which the root has to be in too.
+func addModuleFiles(contents map[string][]byte, dir, out string, modules map[string]*driftModule) error {
 	for _, m := range modules {
 		if !generatedModuleDir(m.dir) || !isModuleFile(m.dir+"/") || len(m.cfg.calls) > 0 {
 			continue
 		}
-		files, err := tfContents(filepath.Join(dir, filepath.FromSlash(m.dir)))
+		moduleDir := filepath.Join(dir, filepath.FromSlash(m.dir))
+		confined, err := confinedModule(dir, moduleDir, out)
+		if err != nil {
+			return err
+		}
+		if !confined {
+			continue
+		}
+		files, err := tfContents(moduleDir)
 		if err != nil {
 			return err
 		}
@@ -102,6 +120,67 @@ func addModuleFiles(contents map[string][]byte, dir string, modules map[string]*
 		}
 	}
 	return nil
+}
+
+// confinedModule reports whether moduleDir, a generated module's directory
+// the root in dir calls, is in out with the root, every directory on the
+// way to it from out a directory, rather than a symbolic link or a
+// junction, and each of its .tf files a regular file: whether an accepted
+// change written into the module stays in out. For out "", out is the
+// directory moduleDir's modules directory is in.
+func confinedModule(dir, moduleDir, out string) (bool, error) {
+	moduleDir, err := filepath.Abs(moduleDir)
+	if err != nil {
+		return false, err
+	}
+	if dir, err = filepath.Abs(dir); err != nil {
+		return false, err
+	}
+	if out == "" {
+		out = filepath.Dir(filepath.Dir(moduleDir))
+	} else if out, err = filepath.Abs(out); err != nil {
+		return false, err
+	}
+	rel, err := filepath.Rel(out, moduleDir)
+	if err != nil || !inDir(out, dir) || !inDir(out, moduleDir) || rel == "." {
+		return false, nil
+	}
+	current := out
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		// A symbolic link, or a junction (fs.ModeIrregular), isn't a
+		// directory here.
+		if !info.IsDir() {
+			return false, nil
+		}
+	}
+	files, err := filepath.Glob(filepath.Join(moduleDir, "*.tf"))
+	if err != nil {
+		return false, err
+	}
+	for _, file := range files {
+		info, err := os.Lstat(file)
+		if err != nil {
+			return false, err
+		}
+		if !info.Mode().IsRegular() {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// inDir reports whether path is dir or in it; both are absolute and clean.
+func inDir(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // syncModules parses again, from contents, the modules whose files
@@ -159,10 +238,10 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		return codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Reason: fmt.Sprintf("in the module call %s: the module %s sets it to a literal the calls share, which can't be made a variable of it: %s", c.ModuleAddress, m.dir, reason)}, true
 	}
 	mf := m.cfg.files[t.file]
-	if mf == nil || t.rng.End.Byte > len(mf.src) {
+	if mf == nil || t.rng.End.Byte > len(mf.Src) {
 		return manual("edit the module by hand")
 	}
-	literal := string(mf.src[t.rng.Start.Byte:t.rng.End.Byte])
+	literal := string(mf.Src[t.rng.Start.Byte:t.rng.End.Byte])
 	at := steps[:t.at]
 	value := c.value
 	if t.at < len(steps) {
@@ -188,13 +267,13 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 
 	// The module: the literal is the variable, whose default it is.
 	moduleFile := path.Join(m.dir, t.file)
-	edits := []codeEdit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
+	edits := []hclfile.Edit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
 	variablesFile := t.file
 	if m.cfg.files[VariablesFileName] != nil {
 		variablesFile = VariablesFileName
 	}
 	description := fmt.Sprintf("The %s of %s, the same for every call that doesn't set it.", pathText(at), resource)
-	edits = append(edits, appendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
+	edits = append(edits, hclfile.AppendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
 
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: call.file, f: call.f, address: "module." + callName}
 	src := codeSource{File: call.file, Range: call.b.DefRange(), Kind: sourceModule, Module: e.viaText(m, t)}
@@ -224,7 +303,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 		rootFile = VariablesFileName
 	}
 	description = fmt.Sprintf("The %s of module.%s, which an environment's terraform.tfvars sets where it differs from the default.", name, callName)
-	edits = append(edits, appendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
+	edits = append(edits, hclfile.AppendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
 	set, _ := vars.set(e.env, rootName, text)
 	src.Edit, src.Also = &set, edits
 	return src, true

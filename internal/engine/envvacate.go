@@ -15,6 +15,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -74,7 +76,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		keep := false
 		switch {
-		case name == ProvidersFileName, name == ".gitignore", name == LockFileName, isBackendConfig(name):
+		case name == ProvidersFileName, name == ".gitignore", name == tfrun.LockFileName, isBackendConfig(name):
 			keep = true
 		case name == VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
@@ -160,11 +162,11 @@ func parseWritable(path string) (*hclwrite.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, diags := parseFile(path, src)
+	f, diags := hclfile.ParseDiagnostics(path, src)
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	return f.edit(), nil
+	return f.Edit(), nil
 }
 
 // vacatedMergedReadme describes a merged root of envs, its environments,

@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -105,31 +106,31 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	if len(index) == 0 {
 		return nil, nil
 	}
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	r := &resolver{index: index, g: dependencies{}, src: generated.src}
+	r := &resolver{index: index, g: dependencies{}, src: generated.Src}
 	edited := map[string]bool{}
-	for _, res := range generated.resources() {
-		if skip[res.address] == 0 && r.attributes(res.address, res.syntax.Body, res.write.Body(), "", false) {
-			edited[res.address] = true
+	for _, res := range generated.Resources() {
+		if skip[res.Address] == 0 && r.attributes(res.Address, res.Syntax.Body, res.Write.Body(), "", false) {
+			edited[res.Address] = true
 		}
 	}
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	// Write the data sources the configuration now refers to.
-	saved, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	saved, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
 	referred := map[string]bool{}
-	for _, res := range saved.resources() {
-		for _, t := range allTraversals(res.syntax.Body) {
+	for _, res := range saved.Resources() {
+		for _, t := range allTraversals(res.Syntax.Body) {
 			if t.RootName() != "data" || len(t) < 3 {
 				continue
 			}

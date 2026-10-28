@@ -30,7 +30,10 @@ fail() {
   exit 1
 }
 
-# fetch URL FILE downloads URL to FILE, with GITHUB_TOKEN if set.
+# fetch URL FILE downloads URL to FILE, with GITHUB_TOKEN if set. curl
+# sends the token to URL's host only, not to the host a release download
+# redirects to; wget sends it on every redirect, so it gets the token for
+# the GitHub API alone, which doesn't redirect elsewhere.
 fetch() {
   if command -v curl > /dev/null 2>&1; then
     if [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -39,7 +42,11 @@ fetch() {
       curl -fsSL -o "$2" "$1"
     fi
   elif command -v wget > /dev/null 2>&1; then
-    if [ -n "${GITHUB_TOKEN:-}" ]; then
+    case "$1" in
+      https://api.github.com/*) with_token=1 ;;
+      *) with_token= ;;
+    esac
+    if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "$with_token" ]; then
       wget -q --header "Authorization: Bearer $GITHUB_TOKEN" -O "$2" "$1"
     else
       wget -q -O "$2" "$1"

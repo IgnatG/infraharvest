@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package hclfile
 
 import (
 	"strings"
@@ -140,7 +140,7 @@ module "net" {
 `,
 		},
 	} {
-		got, ok := layout([]byte(tt.in))
+		got, ok := Layout([]byte(tt.in))
 		if !ok {
 			t.Errorf("%s: doesn't parse", name)
 			continue
@@ -149,7 +149,7 @@ module "net" {
 			t.Errorf("%s: got\n%s\nwant\n%s", name, got, tt.want)
 		}
 	}
-	if _, ok := layout([]byte("resource {")); ok {
+	if _, ok := Layout([]byte("resource {")); ok {
 		t.Error("a file that doesn't parse: want it left alone")
 	}
 }
@@ -160,7 +160,7 @@ module "net" {
 // each group apart.
 func TestLayoutOrdersArguments(t *testing.T) {
 	t.Parallel()
-	got, ok := layout([]byte(`resource "azurerm_subnet" "app" {
+	got, ok := Layout([]byte(`resource "azurerm_subnet" "app" {
   address_prefixes     = ["10.0.1.0/24"]
   name                 = "app"
   resource_group_name  = azurerm_resource_group.app.name
@@ -218,7 +218,7 @@ resource "aws_sqs_queue" "q" {
 // and a block with a comment stay as they are.
 func TestLayoutCollapsesEmptyBlocks(t *testing.T) {
 	t.Parallel()
-	got, ok := layout([]byte(`resource "aws_wafv2_web_acl" "a" {
+	got, ok := Layout([]byte(`resource "aws_wafv2_web_acl" "a" {
   name = "a"
   policy = <<EOT
 {
@@ -249,4 +249,10 @@ provider "azurerm" {
 			t.Errorf("misses %q:\n%s", want, got)
 		}
 	}
+}
+
+// squashed is s with each run of white space one space, to compare
+// layouts whatever their alignment.
+func squashed(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }

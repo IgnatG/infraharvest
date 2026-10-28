@@ -16,6 +16,9 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -52,7 +55,7 @@ const maxFillRounds = 2
 // configuration doesn't plan, no resource keeps tags. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
-func fillEffectiveTags(ctx context.Context, tf Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
+func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
 	backup, err := backupFiles(dir, GeneratedFileName)
 	if err != nil {
 		return false, nil, err
@@ -129,14 +132,14 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 // without reserved tags, but for the resources in skip. It returns the
 // addresses of the resources it set.
 func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
 	var filled []string
-	for _, r := range generated.resources() {
-		imported, ok := values[r.address]
-		if !ok || skip[r.address] {
+	for _, r := range generated.Resources() {
+		imported, ok := values[r.Address]
+		if !ok || skip[r.Address] {
 			continue
 		}
 		// Only a type with the attribute: its imported values list every
@@ -144,7 +147,7 @@ func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, sk
 		if _, ok := imported[et.Attribute]; !ok {
 			continue
 		}
-		if attr, ok := r.syntax.Body.Attributes[et.Attribute]; ok {
+		if attr, ok := r.Syntax.Body.Attributes[et.Attribute]; ok {
 			if tags, ok := stringMap(attr.Expr); !ok || len(tags) > 0 {
 				continue
 			}
@@ -159,13 +162,13 @@ func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, sk
 		if len(tags) == 0 {
 			continue
 		}
-		setBeforeBlocks(r.write.Body(), et.Attribute, mapValue(tags))
-		filled = append(filled, r.address)
+		setBeforeBlocks(r.Write.Body(), et.Attribute, mapValue(tags))
+		filled = append(filled, r.Address)
 	}
 	if len(filled) == 0 {
 		return nil, nil
 	}
-	return filled, generated.save()
+	return filled, generated.Save()
 }
 
 // setBeforeBlocks sets the attribute name of body to value where the style

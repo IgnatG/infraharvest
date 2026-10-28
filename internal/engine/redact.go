@@ -14,6 +14,8 @@ import (
 	"sync"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // redacted is what a secret value is replaced with in text infraharvest
@@ -28,7 +30,7 @@ const redacted = "(sensitive value)"
 // so the errors, logs, checks and README Generate writes from them hold
 // none of the values.
 type redactingTerraform struct {
-	Terraform
+	tfrun.Terraform
 
 	mu     sync.Mutex
 	values []string

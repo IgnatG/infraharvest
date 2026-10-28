@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Accepting a change to a credential, whatever key it goes by and whether
@@ -41,7 +43,7 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
   }
 }
 `
-			if _, err := parseHCL("main.tf", []byte(src)); err != nil {
+			if _, err := hclfile.Parse("main.tf", []byte(src)); err != nil {
 				t.Skipf("%q doesn't make valid HCL: %v", key, err)
 			}
 			for _, c := range []*DriftChange{
@@ -79,6 +81,7 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 	f.Add("SECRET_ARN", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db")
 	f.Add("kubernetes.io/"+"token", "RED"+"ACTED") // joined so a secret scanner sees no key/value literal
 	f.Add("ключ", "token")
+	f.Add("0000\xa1000token", "00\x9e000") // JSON shows both invalid bytes as U+FFFD, so the key holds the value
 	f.Fuzz(func(t *testing.T, key, value string) {
 		quotedKey, err := json.Marshal(key)
 		if err != nil {
@@ -93,8 +96,9 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 				continue
 			}
 			escaped := string(quoted[1 : len(quoted)-1])
-			// What a report shows besides the value mustn't hold it.
-			if strings.Contains(key+string(quotedKey)+redacted+` #1 keyed {"name":"value":"pairs":[]}`, v) {
+			// What a report shows besides the value mustn't hold it, as it
+			// is or as JSON has it.
+			if shown := key + string(quotedKey) + redacted + ` #1 keyed {"name":"value":"pairs":[]}`; strings.Contains(shown, v) || strings.Contains(shown, escaped) {
 				continue
 			}
 			pairs := []any{map[string]any{"name": key, "value": v}}

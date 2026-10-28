@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -26,7 +27,7 @@ const refineFailed = "the edits that refine the root (with --cfn-stack, a CloudF
 // changed none of them. Refine is an optional enhancement: should it fail,
 // or should the schemas it needs not be read, its edits are rolled back
 // and a warning says why, and the root goes on without them.
-func refine(ctx context.Context, tf Terraform, dir string, result *Result, opts Options) (map[string][]byte, error) {
+func refine(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options) (map[string][]byte, error) {
 	before, err := rootFileContents(dir)
 	if err != nil {
 		return nil, err
@@ -67,7 +68,7 @@ func refine(ctx context.Context, tf Terraform, dir string, result *Result, opts 
 // root goes on with the gate that failed with them, and Refine's warnings.
 // known, if set, has the values of the secrets Generate found (see
 // secretValues).
-func gateRefined(ctx context.Context, tf Terraform, dir string, result *Result, opts Options, known *secretValues, before map[string][]byte, refineWarnings int) error {
+func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options, known *secretValues, before map[string][]byte, refineWarnings int) error {
 	gate, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err

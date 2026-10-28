@@ -22,6 +22,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // ModuleCall is a module call Generate made, or a cluster of resources it
@@ -80,7 +82,7 @@ func (t *trial) moduleAddress(member string) string {
 // trial.literals). It returns the clusters it didn't move, with why, and
 // the plan's change summary with the calls it kept, and the lengths of
 // their list outputs (see outputLists).
-func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values map[string]map[string]any, baseline changeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, changeSummary, map[string]int, error) {
+func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, tfrun.ChangeSummary, map[string]int, error) {
 	opts := r.opts
 	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName, ProvidersFileName, VersionsFileName)
 	if err != nil {
@@ -100,7 +102,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 	if err := writeCalls(dir, trials, opts.ModuleProviders, opts.DefaultTags); err != nil {
 		return nil, baseline, nil, errors.Join(err, backup.restore())
 	}
-	if err := initTerraform(ctx, tf); err != nil {
+	if err := tfrun.Init(ctx, tf); err != nil {
 		// Typically: the registry can't be reached.
 		reject(fmt.Sprintf("terraform init: %v", err), trials...)
 	}
@@ -108,7 +110,7 @@ func synthesize(ctx context.Context, tf Terraform, dir string, r *run, values ma
 	// accepted together, and keptSummary is that plan's summary.
 	written := trials
 	var kept []*trial
-	var keptSummary changeSummary
+	var keptSummary tfrun.ChangeSummary
 	write := func(ts []*trial) error {
 		if slices.Equal(ts, written) {
 			return nil
@@ -244,19 +246,19 @@ func activeTrials(trials []*trial) []*trial {
 // plan fails with nothing to tell the calls apart by, an error about none
 // of them or totals that don't match, it also returns why, and rejects
 // none for it: the caller plans them apart.
-func judge(active []*trial, p *tfjson.Plan, summary *changeSummary, diags []tfjson.Diagnostic, baseline changeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
+func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags []tfjson.Diagnostic, baseline tfrun.ChangeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
 	if len(diags) > 0 || p == nil {
 		unattributed := ""
 		for _, d := range diags {
 			t := trialOf(active, d)
 			if t == nil {
 				if unattributed == "" {
-					unattributed = "plan error: " + diagnosticMessage(d)
+					unattributed = "plan error: " + tfrun.DiagnosticMessage(d)
 				}
 				continue
 			}
 			if t.rejected == "" {
-				t.rejected = "plan error: " + diagnosticMessage(d)
+				t.rejected = "plan error: " + tfrun.DiagnosticMessage(d)
 			}
 		}
 		return false, unattributed
@@ -398,17 +400,17 @@ func rejections(trials []*trial) []ModuleCall {
 // the type may repeat. It returns the clusters the adapters mapped and the
 // ones they declined.
 func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
 	}
-	resources := generated.resources()
+	resources := generated.Resources()
 	// Every anchor and every trial asks about the same references: read
 	// them once.
 	refs := indexReferences(resources)
 	clustered := map[string]bool{}
 	used := map[string]bool{}
-	for _, b := range generated.syntax.Blocks {
+	for _, b := range generated.Syntax.Blocks {
 		if b.Type == "module" && len(b.Labels) == 1 {
 			used[b.Labels[0]] = true
 		}
@@ -424,15 +426,15 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 		a := &list[ai]
 		grouped := map[string]bool{}
 		for _, anchor := range resources {
-			if clustered[anchor.address] || AddressType(anchor.address) != a.Anchor {
+			if clustered[anchor.Address] || AddressType(anchor.Address) != a.Anchor {
 				continue
 			}
 			c := adapters.Cluster{Anchor: resourceOf(anchor)}
 			// refers reports whether r joins the cluster as one of Members:
 			// by referring to the anchor, or, for the anchor's type in a
 			// group, by having its key.
-			refers := func(r resourceBlock) bool {
-				return refs.refers[r.address][anchor.address]
+			refers := func(r hclfile.Resource) bool {
+				return refs.refers[r.Address][anchor.Address]
 			}
 			if a.Group != nil {
 				key, ok := a.Group(c.Anchor)
@@ -442,21 +444,21 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				// A group is tried once: when it is declined, its other
 				// resources don't anchor it again.
 				grouped[key] = true
-				refers = func(r resourceBlock) bool {
-					if AddressType(r.address) != a.Anchor {
-						return refs.refers[r.address][anchor.address]
+				refers = func(r hclfile.Resource) bool {
+					if AddressType(r.Address) != a.Anchor {
+						return refs.refers[r.Address][anchor.Address]
 					}
 					k, ok := a.Group(resourceOf(r))
 					return ok && k == key
 				}
 			}
 			types := map[string]bool{}
-			in := []resourceBlock{anchor}
+			in := []hclfile.Resource{anchor}
 			// join adds r to the cluster if it is of one of kinds, linked to
 			// it, and in no cluster yet.
-			join := func(r resourceBlock, kinds []string, linked func(resourceBlock) bool) bool {
-				typ := AddressType(r.address)
-				if clustered[r.address] || slices.ContainsFunc(in, func(b resourceBlock) bool { return b.address == r.address }) ||
+			join := func(r hclfile.Resource, kinds []string, linked func(hclfile.Resource) bool) bool {
+				typ := AddressType(r.Address)
+				if clustered[r.Address] || slices.ContainsFunc(in, func(b hclfile.Resource) bool { return b.Address == r.Address }) ||
 					(types[typ] && !slices.Contains(a.Repeated, typ)) || !slices.Contains(kinds, typ) || !linked(r) {
 					return false
 				}
@@ -468,7 +470,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			// Without a group, only what refers to the anchor can join.
 			candidates := resources
 			if a.Group == nil {
-				candidates = refs.referrers(anchor.address, resources)
+				candidates = refs.referrers(anchor.Address, resources)
 			}
 			for _, r := range candidates {
 				join(r, a.Members, refers)
@@ -477,7 +479,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 			for joined := len(a.Through) > 0; joined; {
 				joined = false
 				for _, r := range resources {
-					if join(r, a.Through, func(r resourceBlock) bool { return refs.linked(r.address, in) }) {
+					if join(r, a.Through, func(r hclfile.Resource) bool { return refs.linked(r.Address, in) }) {
 						joined = true
 					}
 				}
@@ -507,7 +509,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
-			name := callName(anchor.address)
+			name := callName(anchor.Address)
 			if call.Name != "" {
 				name = call.Name
 			}
@@ -543,32 +545,32 @@ type reference struct {
 
 // indexReferences reads the references of resources (see
 // referencedAddresses and allTraversals).
-func indexReferences(resources []resourceBlock) clusterReferences {
+func indexReferences(resources []hclfile.Resource) clusterReferences {
 	idx := clusterReferences{refers: map[string]map[string]bool{}, incoming: map[string][]reference{}, position: map[string]int{}}
 	for i, r := range resources {
-		idx.position[r.address] = i
+		idx.position[r.Address] = i
 		refers := map[string]bool{}
-		for _, tr := range allTraversals(r.syntax.Body) {
+		for _, tr := range allTraversals(r.Syntax.Body) {
 			target := resourceAddress(tr)
 			if target == "" {
 				continue
 			}
 			refers[target] = true
-			idx.incoming[target] = append(idx.incoming[target], reference{from: r.address, traversal: tr})
+			idx.incoming[target] = append(idx.incoming[target], reference{from: r.Address, traversal: tr})
 		}
-		idx.refers[r.address] = refers
+		idx.refers[r.Address] = refers
 	}
 	return idx
 }
 
 // referrers returns the resources of resources, those of the root in
 // their order, that refer to the resource at address, in that order.
-func (idx clusterReferences) referrers(address string, resources []resourceBlock) []resourceBlock {
-	var referring []resourceBlock
+func (idx clusterReferences) referrers(address string, resources []hclfile.Resource) []hclfile.Resource {
+	var referring []hclfile.Resource
 	// incoming has the references of each resource next to each other.
 	for _, ref := range idx.incoming[address] {
 		r := resources[idx.position[ref.from]]
-		if len(referring) == 0 || referring[len(referring)-1].address != r.address {
+		if len(referring) == 0 || referring[len(referring)-1].Address != r.Address {
 			referring = append(referring, r)
 		}
 	}
@@ -577,18 +579,18 @@ func (idx clusterReferences) referrers(address string, resources []resourceBlock
 
 // linked reports whether the resource at address refers to one of
 // cluster, or one of cluster refers to it.
-func (idx clusterReferences) linked(address string, cluster []resourceBlock) bool {
+func (idx clusterReferences) linked(address string, cluster []hclfile.Resource) bool {
 	for _, b := range cluster {
-		if idx.refers[address][b.address] || idx.refers[b.address][address] {
+		if idx.refers[address][b.Address] || idx.refers[b.Address][address] {
 			return true
 		}
 	}
 	return false
 }
 
-func resourceOf(r resourceBlock) adapters.Resource {
-	typ, name, _ := strings.Cut(r.address, ".")
-	return adapters.Resource{Type: typ, Name: name, Body: r.write.Body()}
+func resourceOf(r hclfile.Resource) adapters.Resource {
+	typ, name, _ := strings.Cut(r.Address, ".")
+	return adapters.Resource{Type: typ, Name: name, Body: r.Write.Body()}
 }
 
 func uniqueName(base string, used map[string]bool) string {
@@ -660,11 +662,11 @@ func unfollowable(t *trial, refs clusterReferences, values map[string]map[string
 // imports into the modules, and configures the other providers the
 // modules use, of moduleProviders, with the root's tags of tags.
 func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider, tags *DefaultTags) error {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return err
 	}
-	body := generated.edit().Body()
+	body := generated.Edit().Body()
 	moved := map[string]bool{}
 	importTo := map[string]string{}
 	var renames []referenceRename
@@ -686,12 +688,12 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		}
 	}
 	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
-	for _, r := range generated.resources() {
-		if moved[r.address] {
-			body.RemoveBlock(r.write)
+	for _, r := range generated.Resources() {
+		if moved[r.Address] {
+			body.RemoveBlock(r.Write)
 			continue
 		}
-		replaceAllReferences(r.write.Body(), renames, byStart)
+		replaceAllReferences(r.Write.Body(), renames, byStart)
 	}
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
@@ -721,7 +723,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		body.AppendNewline()
 		body.AppendBlock(block)
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return err
 	}
 	if err := writeModuleProviders(dir, trials, moduleProviders, tags); err != nil {
@@ -771,18 +773,18 @@ type moduleImport struct {
 // identity, by the identity the adapter makes of its (see
 // adapters.Import.Identity).
 func retargetImports(dir string, to map[string]string, added []moduleImport) error {
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return err
 	}
 	ids := map[string]string{}
 	identities := map[string]map[string]string{}
-	for _, imp := range imports.imports() {
-		ids[imp.to] = imp.id
-		if _, hasID := imp.syntax.Body.Attributes["id"]; !hasID {
-			identities[imp.to], _ = identityOf(imp.syntax.Body)
+	for _, imp := range imports.Imports() {
+		ids[imp.To] = imp.ID
+		if _, hasID := imp.Syntax.Body.Attributes["id"]; !hasID {
+			identities[imp.To], _ = hclfile.IdentityOf(imp.Syntax.Body)
 		}
-		address, ok := to[imp.to]
+		address, ok := to[imp.To]
 		if !ok {
 			continue
 		}
@@ -790,9 +792,9 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		if diags.HasErrors() {
 			return fmt.Errorf("import into %s: %w", address, diags)
 		}
-		imp.write.Body().SetAttributeTraversal("to", traversal)
+		imp.Write.Body().SetAttributeTraversal("to", traversal)
 	}
-	body := imports.edit().Body()
+	body := imports.Edit().Body()
 	for _, imp := range added {
 		id := ids[imp.Of]
 		if id == "" {
@@ -816,7 +818,7 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		}
 		block.SetAttributeValue("identity", identityValue(identity))
 	}
-	return imports.save()
+	return imports.Save()
 }
 
 // identityFrom returns the identity spec makes of of, the identity of
@@ -842,7 +844,7 @@ func identityFrom(spec, of map[string]string) map[string]string {
 // resource type and import ID: resources of different types can share an
 // ID, such as a bucket and its versioning.
 func importTargets(dir string) (map[string]string, error) {
-	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -851,19 +853,19 @@ func importTargets(dir string) (map[string]string, error) {
 
 // importTargetsIn returns where each import block of f with a literal ID,
 // or identity, imports into, by resource type and import ID (see
-// importIDOf).
-func importTargetsIn(f *hclFile) map[string]string {
+// hclfile.ImportIDOf).
+func importTargetsIn(f *hclfile.File) map[string]string {
 	targets := map[string]string{}
-	for _, b := range f.syntax.Blocks {
+	for _, b := range f.Syntax.Blocks {
 		to, ok := b.Body.Attributes["to"]
 		if b.Type != "import" || !ok {
 			continue
 		}
-		id, ok := importIDOf(b.Body)
+		id, ok := hclfile.ImportIDOf(b.Body)
 		if !ok {
 			continue
 		}
-		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src)))
+		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.Src)))
 		targets[AddressType(address)+"\x00"+id] = address
 	}
 	return targets
@@ -889,12 +891,12 @@ func movedAddresses(dir string, before map[string]string) (map[string]string, er
 // moduleCalls lists the module calls in generated.tf, with the resources
 // moved into each, followed by the clusters declined.
 func moduleCalls(dir string, moved map[string]string, declined []ModuleCall) ([]ModuleCall, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
 	var calls []ModuleCall
-	for _, b := range generated.syntax.Blocks {
+	for _, b := range generated.Syntax.Blocks {
 		if b.Type != "module" || len(b.Labels) != 1 {
 			continue
 		}
@@ -1104,7 +1106,7 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 		return err
 	}
 	var module *hclwrite.Body
-	for _, b := range providers.edit().Body().Blocks() {
+	for _, b := range providers.Edit().Body().Blocks() {
 		if b.Type() == "provider" && len(b.Labels()) == 1 && b.Labels()[0] == implied && b.Body().GetAttribute("alias") == nil {
 			module = b.Body()
 		}
@@ -1118,7 +1120,7 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 			return nil
 		}
 		module.SetAttributeRaw(tags.Block, applied.Expr().BuildTokens(nil))
-		return providers.save()
+		return providers.Save()
 	}
 	applied := root.FirstMatchingBlock(tags.Block, nil)
 	if applied == nil || module.FirstMatchingBlock(tags.Block, nil) != nil {
@@ -1129,7 +1131,7 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 		return fmt.Errorf("provider %s: %w", implied, err)
 	}
 	module.AppendBlock(copied)
-	return providers.save()
+	return providers.Save()
 }
 
 // requireProviders adds to providers.tf the blocks, and to versions.tf
@@ -1143,16 +1145,16 @@ func requireProviders(dir string, names []string, configured map[string]Provider
 		return nil
 	}
 	names = slices.Sorted(slices.Values(names))
-	providers, err := loadHCL(filepath.Join(dir, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(dir, ProvidersFileName))
 	if err != nil {
 		return err
 	}
-	versions, err := loadHCL(filepath.Join(dir, VersionsFileName))
+	versions, err := hclfile.Load(filepath.Join(dir, VersionsFileName))
 	if err != nil {
 		return err
 	}
 	var required *hclwrite.Body
-	for _, b := range versions.edit().Body().Blocks() {
+	for _, b := range versions.Edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}
@@ -1170,19 +1172,19 @@ func requireProviders(dir string, names []string, configured map[string]Provider
 		if required.GetAttribute(name) == nil {
 			required.SetAttributeValue(name, cty.ObjectVal(map[string]cty.Value{"source": cty.StringVal(p.Source)}))
 		}
-		if providers.edit().Body().FirstMatchingBlock("provider", []string{name}) != nil {
+		if providers.Edit().Body().FirstMatchingBlock("provider", []string{name}) != nil {
 			continue
 		}
 		config, _ := withoutCredentials(p.Config)
-		providers.edit().Body().AppendNewline()
-		if err := writeBody(providers.edit().Body().AppendNewBlock("provider", []string{name}).Body(), config); err != nil {
+		providers.Edit().Body().AppendNewline()
+		if err := writeBody(providers.Edit().Body().AppendNewBlock("provider", []string{name}).Body(), config); err != nil {
 			return fmt.Errorf("provider %s: %w", name, err)
 		}
 	}
-	if err := providers.save(); err != nil {
+	if err := providers.Save(); err != nil {
 		return err
 	}
-	return versions.save()
+	return versions.Save()
 }
 
 // pinModuleProviders pins each provider of configured that versions.tf
@@ -1192,14 +1194,14 @@ func pinModuleProviders(dir string, configured map[string]Provider) error {
 	if len(configured) == 0 {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, LockFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, tfrun.LockFileName)); err != nil {
 		return nil
 	}
-	lock, err := loadHCL(filepath.Join(dir, LockFileName))
+	lock, err := hclfile.Load(filepath.Join(dir, tfrun.LockFileName))
 	if err != nil {
 		return err
 	}
-	versions, err := loadHCL(filepath.Join(dir, VersionsFileName))
+	versions, err := hclfile.Load(filepath.Join(dir, VersionsFileName))
 	if err != nil {
 		return err
 	}
@@ -1209,7 +1211,7 @@ func pinModuleProviders(dir string, configured map[string]Provider) error {
 	}
 	sort.Strings(names)
 	changed := false
-	for _, b := range versions.edit().Body().Blocks() {
+	for _, b := range versions.Edit().Body().Blocks() {
 		if b.Type() != "terraform" {
 			continue
 		}
@@ -1241,14 +1243,14 @@ func pinModuleProviders(dir string, configured map[string]Provider) error {
 	if !changed {
 		return nil
 	}
-	return versions.save()
+	return versions.Save()
 }
 
 // lockedVersion returns the version the lock file selected of the
 // provider at source, such as hashicorp/google-beta, on whichever registry.
-func lockedVersion(lock *hclFile, source string) *version.Version {
+func lockedVersion(lock *hclfile.File, source string) *version.Version {
 	suffix := "/" + strings.ToLower(source)
-	for _, b := range lock.syntax.Blocks {
+	for _, b := range lock.Syntax.Blocks {
 		if b.Type != "provider" || len(b.Labels) != 1 || !strings.HasSuffix(strings.ToLower(b.Labels[0]), suffix) {
 			continue
 		}

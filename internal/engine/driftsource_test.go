@@ -11,6 +11,8 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // testEditor is a driftEditor for the resources at their addresses, each
@@ -703,7 +705,7 @@ func TestEditFilesRefusesASecretInPlaceOfAnother(t *testing.T) {
 	old := file(token, `"none"`)
 	edited := file(`"none"`, token)
 
-	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []codeEdit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
+	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []hclfile.Edit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
 
 	if !secret || reason == "" {
 		t.Errorf("wrote a secret in place of another: %q, secret %v", reason, secret)

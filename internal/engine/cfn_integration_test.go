@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
@@ -33,11 +34,11 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	cache := t.TempDir()
-	execPath, err := FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tfVersion, err := BinaryVersion(ctx, execPath)
+	tfVersion, err := tfrun.BinaryVersion(ctx, execPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			tf, err := NewTerraform(dir, execPath, filepath.Join(cache, "plugins"), nil)
+			tf, err := tfrun.New(dir, execPath, filepath.Join(cache, "plugins"), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,16 +91,16 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("terraform validate: %v", err)
 			}
-			for _, d := range errorDiagnostics(validation.Diagnostics) {
+			for _, d := range tfrun.ErrorDiagnostics(validation.Diagnostics) {
 				guessed := false
 				for _, summary := range guessedNameErrors {
 					guessed = guessed || d.Summary == summary
 				}
 				if guessed {
-					t.Logf("a guessed name: %s", formatDiagnostic(d))
+					t.Logf("a guessed name: %s", tfrun.FormatDiagnostic(d))
 					continue
 				}
-				t.Errorf("%s", formatDiagnostic(d))
+				t.Errorf("%s", tfrun.FormatDiagnostic(d))
 			}
 		})
 	}

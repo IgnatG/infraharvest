@@ -12,6 +12,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // How drift takes a change of a resource whose block makes it with count
@@ -196,7 +198,7 @@ func (eachResolver) overVariable(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 	if len(src.Also) > 0 || edit.File != vf.name || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
 		return unset
 	}
-	value := slices.Concat(vf.f.src[rng.Start.Byte:edit.Start], edit.Text, vf.f.src[edit.End:rng.End.Byte])
+	value := slices.Concat(vf.f.Src[rng.Start.Byte:edit.Start], edit.Text, vf.f.Src[edit.End:rng.End.Byte])
 	set, _ := vars.set(w.e.env, v.name, value)
 	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &set}
 }
@@ -257,7 +259,7 @@ func eachFieldUses(block *hclsyntax.Block, field string) int {
 func importUses(cfg *driftConfig, root, name, address string) int {
 	n := 0
 	for _, f := range cfg.files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "import" {
 				continue
 			}
@@ -266,7 +268,7 @@ func importUses(cfg *driftConfig, root, name, address string) int {
 				continue
 			}
 			rng := to.Expr.Range()
-			if rng.End.Byte > len(f.src) || trimInstanceKey(strings.Join(strings.Fields(string(f.src[rng.Start.Byte:rng.End.Byte])), "")) != address {
+			if rng.End.Byte > len(f.Src) || trimInstanceKey(strings.Join(strings.Fields(string(f.Src[rng.Start.Byte:rng.End.Byte])), "")) != address {
 				continue
 			}
 			n += blockUses(b, root, name)
@@ -306,7 +308,7 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource)
 		return false
 	}
 	rng := b.b.Range()
-	for _, edit := range append([]codeEdit{*src.Edit}, src.Also...) {
+	for _, edit := range append([]hclfile.Edit{*src.Edit}, src.Also...) {
 		if edit.File != b.file || edit.Start < rng.Start.Byte || edit.End > rng.End.Byte {
 			return false
 		}
@@ -318,14 +320,14 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource)
 // environments share in dir that environment env alone sets true, such as
 // the deploy_ variables of the features, and residue, only it has (see
 // mergedVars.ownFlags).
-func envOnlyFlags(dir, env string, files []*hclFile) (map[string]bool, error) {
+func envOnlyFlags(dir, env string, files []*hclfile.File) (map[string]bool, error) {
 	envs, err := MergedEnvironments(dir)
 	if err != nil {
 		return nil, err
 	}
 	defaults := map[string]cty.Value{}
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type != "variable" || len(b.Labels) != 1 {
 				continue
 			}
@@ -369,7 +371,7 @@ func (w *driftWalk) variableUses(name string, sub []pathStep) string {
 			continue
 		}
 		f := w.cfg.files[fileName]
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			if b.Type == "variable" || b.Type == "output" || blockUses(b, "var", name) == 0 {
 				continue
 			}

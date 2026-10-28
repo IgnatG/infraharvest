@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // azapiProvider is azapi as the Azure provider configures it for modules
@@ -60,7 +62,7 @@ func TestGenerateRequiresTheProvidersOfItsResources(t *testing.T) {
 			var atInit string
 			tf.onInit = func() {
 				atInit = readFile(t, dir, VersionsFileName) + readFile(t, dir, ProvidersFileName)
-				writeConfig(t, dir, LockFileName, "provider \"registry.terraform.io/hashicorp/azurerm\" {\n  version = \"5.10.0\"\n}\n\nprovider \"registry.terraform.io/azure/azapi\" {\n  version = \"2.13.0\"\n}\n")
+				writeConfig(t, dir, tfrun.LockFileName, "provider \"registry.terraform.io/hashicorp/azurerm\" {\n  version = \"5.10.0\"\n}\n\nprovider \"registry.terraform.io/azure/azapi\" {\n  version = \"2.13.0\"\n}\n")
 			}
 			if _, err := Generate(context.Background(), tf, dir, tc.imports, Options{Config: config, ModuleProviders: azapiProvider}); err != nil {
 				t.Fatal(err)

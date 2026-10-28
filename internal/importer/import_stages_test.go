@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
@@ -139,7 +140,7 @@ func TestToolchainFollowsTheModulesMode(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tools.execPath != "terraform" || tools.binary.Name != engine.TerraformBinary.Name || tools.root.engineVersion != "1.9.0" {
+			if tools.execPath != "terraform" || tools.binary.Name != tfrun.TerraformBinary.Name || tools.root.engineVersion != "1.9.0" {
 				t.Errorf("binary %+v at %q, root files %+v", tools.binary, tools.execPath, tools.root)
 			}
 			if tools.modulesDir != tc.modulesDir || len(tools.adapters) != 0 {

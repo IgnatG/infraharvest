@@ -31,7 +31,7 @@ resource "aws_lambda_function" "image" {
   image_uri     = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/web:1"
 }
 `)
-	changed, err := setPlaceholders(f.path, lambdaPlaceholder)
+	changed, err := setPlaceholders(f.Path, lambdaPlaceholder)
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
@@ -53,7 +53,7 @@ resource "aws_lambda_function" "image" {
 	if !found || strings.Contains(image, "lifecycle") || strings.Contains(image, "filename") {
 		t.Errorf("the image function got a placeholder:\n%s", image)
 	}
-	if changed, err := setPlaceholders(f.path, lambdaPlaceholder); err != nil || changed {
+	if changed, err := setPlaceholders(f.Path, lambdaPlaceholder); err != nil || changed {
 		t.Errorf("setting them again: changed=%v err=%v", changed, err)
 	}
 }

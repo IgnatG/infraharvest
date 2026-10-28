@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // position is where in the directory a scanner found something: a file,
@@ -57,7 +59,7 @@ func messageAddress(message string) string {
 // about none. Each file is parsed once; one that doesn't parse, or isn't
 // in dir, places nothing.
 func locateFindings(dir string, findings []Finding) {
-	files := map[string]*hclFile{}
+	files := map[string]*hclfile.File{}
 	blockAt := func(at position) string {
 		if at.file == "" || at.line <= 0 || !filepath.IsLocal(filepath.FromSlash(at.file)) {
 			return ""
@@ -65,14 +67,14 @@ func locateFindings(dir string, findings []Finding) {
 		f, ok := files[at.file]
 		if !ok {
 			if src, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(at.file))); err == nil {
-				f, _ = parseHCL(at.file, src)
+				f, _ = hclfile.Parse(at.file, src)
 			}
 			files[at.file] = f
 		}
 		if f == nil {
 			return ""
 		}
-		return f.blockAt(at.line)
+		return blockAt(f, at.line)
 	}
 	for i := range findings {
 		f := &findings[i]
@@ -99,12 +101,12 @@ func namesModuleCall(address string) bool {
 	return len(names) >= 2 && names[len(names)-2] == "module"
 }
 
-// blockAt returns the address of the top-level block spanning line: a
+// blockAt returns the address of the top-level block of f spanning line: a
 // resource's, a data source's or a module call's, or, for an import
 // block, the address it imports into; "" for any other.
-func (f *hclFile) blockAt(line int) string {
-	for _, b := range f.syntax.Blocks {
-		if !spans(b.Range(), line) {
+func blockAt(f *hclfile.File, line int) string {
+	for _, b := range f.Syntax.Blocks {
+		if !hclfile.Spans(b.Range(), line) {
 			continue
 		}
 		switch {
@@ -116,7 +118,7 @@ func (f *hclFile) blockAt(line int) string {
 			return "module." + b.Labels[0]
 		case b.Type == "import":
 			if to, ok := b.Body.Attributes["to"]; ok {
-				return addressOf(strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src))))
+				return addressOf(strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.Src))))
 			}
 		}
 		return ""

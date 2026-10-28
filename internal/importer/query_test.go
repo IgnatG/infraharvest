@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
 )
@@ -106,7 +107,7 @@ func TestQueryFindsTerraformWithQuery(t *testing.T) {
 	t.Parallel()
 	var minimum, explicit string
 	r := NewRun()
-	r.tools = &callTools{findBinary: func(_ context.Context, b engine.Binary, path, _ string) (string, error) {
+	r.tools = &callTools{findBinary: func(_ context.Context, b tfrun.Binary, path, _ string) (string, error) {
 		minimum, explicit = b.Minimum.String(), path
 		return "", errStub
 	}}
@@ -134,7 +135,7 @@ func TestQueryListsWithTheRootsProvider(t *testing.T) {
 	var listedWith engine.Provider
 	r := NewRun()
 	r.tools = &callTools{
-		findBinary: func(context.Context, engine.Binary, string, string) (string, error) { return "/opt/terraform", nil },
+		findBinary: func(context.Context, tfrun.Binary, string, string) (string, error) { return "/opt/terraform", nil },
 		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
 			pins++
 			p.Version = "~> 6.14"

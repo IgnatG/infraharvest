@@ -27,7 +27,7 @@ func RootProvider(dir, name string) (Provider, error) {
 	p := Provider{Name: name}
 	found := false
 	for _, f := range files {
-		for _, b := range f.syntax.Blocks {
+		for _, b := range f.Syntax.Blocks {
 			switch {
 			case b.Type == "terraform":
 				for _, nested := range b.Body.Blocks {
@@ -37,7 +37,7 @@ func RootProvider(dir, name string) (Provider, error) {
 					if attr, ok := nested.Body.Attributes[name]; ok {
 						v, diags := attr.Expr.Value(nil)
 						if diags.HasErrors() || !v.Type().IsObjectType() {
-							return Provider{}, fmt.Errorf("%s: the requirement of provider %s isn't an object of literals", f.path, name)
+							return Provider{}, fmt.Errorf("%s: the requirement of provider %s isn't an object of literals", f.Path, name)
 						}
 						p.Source, p.Version = stringAttr(v, "source"), stringAttr(v, "version")
 					}
@@ -48,7 +48,7 @@ func RootProvider(dir, name string) (Provider, error) {
 				}
 				config, err := bodyConfig(b.Body, "default_tags", "default_labels")
 				if err != nil {
-					return Provider{}, fmt.Errorf("%s: provider %s: %w", f.path, name, err)
+					return Provider{}, fmt.Errorf("%s: provider %s: %w", f.Path, name, err)
 				}
 				p.Config, found = config, true
 			}

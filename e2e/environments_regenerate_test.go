@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -35,7 +36,7 @@ environments:
     tokens: [prd]
 `
 
-// checkMergedRegenerate goes on from TestAWSEnvironments, whose merged
+// checkMergedRegenerate goes on from TestAWSEnvironmentsRegenerate, whose merged
 // root in out, aws/us-east-1, each environment has applied into its
 // workspace, with fixture applied with the audit, reports and billing
 // queues and dev's orders timeout of 90; prod's workspace doesn't have
@@ -229,7 +230,7 @@ func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out 
 		stackDir := filepath.Join(out, filepath.FromSlash(stack))
 		for _, env := range []string{"dev", "prod"} {
 			credentials(env)
-			tf, err := engine.NewTerraform(stackDir, execPath, plugins, nil)
+			tf, err := tfrun.New(stackDir, execPath, plugins, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

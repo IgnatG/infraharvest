@@ -19,6 +19,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // updateGolden rewrites the golden files of the merged roots from what
@@ -197,7 +199,7 @@ resource "aws_vpn_connection" "office" {
 	prodIDs["aws_customer_gateway.vpn_office"] = "cgw-0abc1234"
 	prodIDs["aws_vpn_connection.office"] = "vpn-0abc1234"
 	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222")
-	data, err := parseHCL(DataFileName, []byte("data \"aws_vpc\" \"vpn\" {\n  id = \"vpc-0abc1234\"\n}\n"))
+	data, err := hclfile.Parse(DataFileName, []byte("data \"aws_vpc\" \"vpn\" {\n  id = \"vpc-0abc1234\"\n}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +290,7 @@ resource "aws_ssm_parameter" "api_key" {
 		return m
 	}
 	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, ids("prd", "222222222222", "aws_db_instance.main", "aws_sqs_queue.refunds", "aws_ssm_parameter.api_key"), files, nil, "")
-	variables, err := parseHCL(VariablesFileName, []byte(`variable "shop_prd_api_key" {
+	variables, err := hclfile.Parse(VariablesFileName, []byte(`variable "shop_prd_api_key" {
   description = "The value of aws_ssm_parameter.api_key."
   type        = string
   sensitive   = true

@@ -552,3 +552,65 @@ func TestDriftEngineTimeoutAndForceUnlock(t *testing.T) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
 }
+
+// The decisions file drift merged is copied back only under the root: a
+// directory on the way to it swapped for a link out of the root while
+// drift ran leads neither the read nor the write there.
+func TestCopyBackDecisionsStaysUnderTheRoot(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	const confirmed = "version: 1\ndefaults: { decision: accept }\n"
+	for _, dir := range []string{filepath.Join(root, "decisions"), outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "drift.yaml"), []byte(confirmed), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copied, err := newSnapshot("drift.yaml", []byte(mergedDecisions))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copied.remove()
+	tools := newTools(&fakeRunner{}, root)
+	target := filepath.Join(root, "decisions", "drift.yaml")
+	if err := os.RemoveAll(filepath.Join(root, "decisions")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "decisions")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+
+	if err := tools.copyBackDecisions(copied, target, []byte(confirmed)); err == nil {
+		t.Error("copied the decisions back through a link out of the root")
+	}
+	if err := tools.writeWithin(target, []byte(mergedDecisions), 0o644); err == nil {
+		t.Error("wrote through a link out of the root")
+	}
+	if content, err := os.ReadFile(filepath.Join(outside, "drift.yaml")); err != nil || string(content) != confirmed {
+		t.Errorf("the file out of the root has %q (%v), want it untouched", content, err)
+	}
+}
+
+// writeWithin replaces a file under the root whole, with the mode given.
+func TestWriteWithinReplacesTheFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sub", "drift.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := newTools(&fakeRunner{}, root).writeWithin(path, []byte(mergedDecisions), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if content, err := os.ReadFile(path); err != nil || string(content) != mergedDecisions {
+		t.Errorf("the file has %q (%v)", content, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Errorf("left %v (%v), want the file alone", entries, err)
+	}
+}

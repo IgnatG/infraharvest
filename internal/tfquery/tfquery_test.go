@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -249,7 +250,7 @@ func TestListRefuses(t *testing.T) {
 // terraform query.
 func TestBinary(t *testing.T) {
 	t.Parallel()
-	if b := Binary(); b.Name != "terraform" || b.Minimum.String() != "1.14.0" || engine.TerraformBinary.Minimum.String() != "1.5.0" {
-		t.Errorf("got %s %s; Terraform's own %s", b.Name, b.Minimum, engine.TerraformBinary.Minimum)
+	if b := Binary(); b.Name != "terraform" || b.Minimum.String() != "1.14.0" || tfrun.TerraformBinary.Minimum.String() != "1.5.0" {
+		t.Errorf("got %s %s; Terraform's own %s", b.Name, b.Minimum, tfrun.TerraformBinary.Minimum)
 	}
 }

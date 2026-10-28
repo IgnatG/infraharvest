@@ -15,6 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // outputIndex matches an output with an index into it: public_subnets[0].
@@ -67,7 +68,7 @@ func outputLists(trials []*trial) map[string]int {
 // catalogue.BlocksAsList) become the argument that takes them. It reports
 // whether it changed anything.
 func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -84,8 +85,8 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 		return attr != nil && attr.AttributeType.IsSetType(), nil
 	}
 	changed := false
-	blocks := generated.edit().Body().Blocks()
-	for i, b := range generated.syntax.Blocks {
+	blocks := generated.Edit().Body().Blocks()
+	for i, b := range generated.Syntax.Blocks {
 		if i >= len(blocks) || len(b.Labels) == 0 || (b.Type != "resource" && b.Type != "module") {
 			continue
 		}
@@ -105,7 +106,7 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 	if !changed {
 		return false, nil
 	}
-	return true, generated.save()
+	return true, generated.Save()
 }
 
 // collapseIn collapses the lists of body, at path in resourceType's schema

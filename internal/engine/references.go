@@ -16,6 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // referenceTarget is a resource attribute a literal can refer to instead.
@@ -75,7 +76,7 @@ func (t referenceTarget) node() string {
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see verifyEach). It returns the resources it changed.
 func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -84,22 +85,22 @@ func addReferencesSkipping(dir string, values map[string]map[string]any, skip ma
 		parents: parentIndex(values),
 		ids:     identityIndex(values, writtenArguments(generated)),
 		g:       dependencies{},
-		src:     generated.src,
+		src:     generated.Src,
 	}
 	edited := map[string]bool{}
-	for _, res := range generated.resources() {
-		level := skip[res.address]
+	for _, res := range generated.Resources() {
+		level := skip[res.Address]
 		if level >= 2 {
 			continue
 		}
-		if r.attributes(res.address, res.syntax.Body, res.write.Body(), "", level == 0) {
-			edited[res.address] = true
+		if r.attributes(res.Address, res.Syntax.Body, res.Write.Body(), "", level == 0) {
+			edited[res.Address] = true
 		}
 	}
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	return edited, generated.save()
+	return edited, generated.Save()
 }
 
 // googleAPIs and computeAPIs start the self links of Google Compute Engine

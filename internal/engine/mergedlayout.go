@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
@@ -90,7 +92,7 @@ func isMergedVarFile(rel string) bool {
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.
 func workspaceStateFile(dir, env string) string {
-	return filepath.Join(dir, workspaceStateDir, env, localStateFileName)
+	return filepath.Join(dir, workspaceStateDir, env, tfrun.LocalStateFileName)
 }
 
 // featureFlagName returns the name of the variable that says whether an
@@ -192,7 +194,7 @@ func mergedValues(dir, env string) (map[string]cty.Value, error) {
 // which is all drift edits in a root environments share. The files are
 // those on disk (see loadMergedVars), or those of the contents drift
 // edits (see driftContents), as the edits before have left them.
-type mergedVars map[string]*hclFile
+type mergedVars map[string]*hclfile.File
 
 // loadMergedVars reads vars/common.tfvars of the merged root in dir and
 // the own var files of envs; those that aren't there are left out.
@@ -206,7 +208,7 @@ func loadMergedVars(dir string, envs []string) (mergedVars, error) {
 		if _, ok := vars[name]; ok {
 			continue
 		}
-		f, err := readVarFile(filepath.Join(dir, filepath.FromSlash(name)))
+		f, err := hclfile.ReadVarFile(filepath.Join(dir, filepath.FromSlash(name)))
 		if err != nil {
 			return nil, err
 		}
@@ -235,14 +237,14 @@ func (v mergedVars) environments() []string {
 }
 
 // own returns environment env's own var file, or nil where it has none.
-func (v mergedVars) own(env string) *hclFile {
+func (v mergedVars) own(env string) *hclfile.File {
 	return v[envVarsPath(env)]
 }
 
 // varValue is the argument of a var file that sets a variable.
 type varValue struct {
 	file string // by path in the root with forward slashes
-	f    *hclFile
+	f    *hclfile.File
 	attr *hclsyntax.Attribute
 }
 
@@ -254,7 +256,7 @@ type varValue struct {
 func (v mergedVars) value(env, name string) (varValue, bool) {
 	for _, file := range []string{envVarsPath(env), commonVarsPath} {
 		if f := v[file]; f != nil {
-			if attr, ok := f.syntax.Attributes[name]; ok {
+			if attr, ok := f.Syntax.Attributes[name]; ok {
 				return varValue{file: file, f: f, attr: attr}, true
 			}
 		}
@@ -269,7 +271,7 @@ func (v mergedVars) values(env string) map[string]cty.Value {
 	values := map[string]cty.Value{}
 	for _, file := range []string{commonVarsPath, envVarsPath(env)} {
 		if f := v[file]; f != nil {
-			maps.Copy(values, f.values())
+			maps.Copy(values, f.Values())
 		}
 	}
 	return values
@@ -280,17 +282,17 @@ func (v mergedVars) values(env string) map[string]cty.Value {
 // there, or else adding name = text at its end, which goes over the value
 // vars/common.tfvars gives the others. False where env has no var file
 // of its own.
-func (v mergedVars) set(env, name string, text []byte) (codeEdit, bool) {
+func (v mergedVars) set(env, name string, text []byte) (hclfile.Edit, bool) {
 	file := envVarsPath(env)
 	f := v[file]
 	if f == nil {
-		return codeEdit{}, false
+		return hclfile.Edit{}, false
 	}
-	if attr, ok := f.syntax.Attributes[name]; ok {
+	if attr, ok := f.Syntax.Attributes[name]; ok {
 		rng := attr.Expr.Range()
-		return codeEdit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}, true
+		return hclfile.Edit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}, true
 	}
-	return appendEdit(f, file, slices.Concat([]byte(name+" = "), text, []byte("\n")), false), true
+	return hclfile.AppendEdit(f, file, slices.Concat([]byte(name+" = "), text, []byte("\n")), false), true
 }
 
 // ownFlags returns the bool variables of defaults, each declared one's
@@ -380,12 +382,12 @@ func MergedEnvironments(dir string) ([]string, error) {
 // the first apply.
 func MergedImportIDs(dir, env string) (map[string]string, error) {
 	path := filepath.Join(dir, filepath.FromSlash(importVarsPath(env)))
-	f, err := readVarFile(path)
+	f, err := hclfile.ReadVarFile(path)
 	if f == nil {
 		return nil, err
 	}
 	var ids map[string]string
-	if attr, ok := f.syntax.Attributes[importIDsVariableName]; ok {
+	if attr, ok := f.Syntax.Attributes[importIDsVariableName]; ok {
 		v, diags := attr.Expr.Value(nil)
 		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
 			return nil, fmt.Errorf("%s: %s isn't a map of literal IDs", path, importIDsVariableName)
@@ -399,7 +401,7 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 			ids[k.AsString()] = id.AsString()
 		}
 	}
-	if attr, ok := f.syntax.Attributes[importIdentitiesVariableName]; ok {
+	if attr, ok := f.Syntax.Attributes[importIdentitiesVariableName]; ok {
 		v, diags := attr.Expr.Value(nil)
 		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
 			return nil, fmt.Errorf("%s: %s isn't a map of literal identities", path, importIdentitiesVariableName)
@@ -409,7 +411,7 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 		}
 		for it := v.ElementIterator(); it.Next(); {
 			k, identity := it.Element()
-			values, ok := literalIdentity(identity)
+			values, ok := hclfile.LiteralIdentity(identity)
 			if !ok {
 				return nil, fmt.Errorf("%s: the identity of %s isn't an object of literal values", path, k.AsString())
 			}
@@ -429,7 +431,7 @@ func MergedImportIDs(dir, env string) (map[string]string, error) {
 func MergedStateLocations(dir, env string) ([]string, error) {
 	locations := []string{workspaceStateFile(dir, env)}
 	path := filepath.Join(dir, filepath.FromSlash(backendConfigPath(env)))
-	f, err := readVarFile(path)
+	f, err := hclfile.ReadVarFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +439,7 @@ func MergedStateLocations(dir, env string) ([]string, error) {
 		return locations, nil
 	}
 	settings := map[string]string{}
-	for name, v := range f.values() {
+	for name, v := range f.Values() {
 		if v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
 			settings[name] = v.AsString()
 		}

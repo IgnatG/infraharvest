@@ -14,6 +14,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -66,17 +67,17 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 		return nil, nil
 	}
 	path := filepath.Join(dir, GeneratedFileName)
-	generated, err := loadHCL(path)
+	generated, err := hclfile.Load(path)
 	if err != nil {
 		return nil, err
 	}
 	files := map[string]*hclwrite.File{}
-	for _, b := range generated.edit().Body().Blocks() {
+	for _, b := range generated.Edit().Body().Blocks() {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			continue
 		}
-		generated.edit().Body().RemoveBlock(b)
+		generated.Edit().Body().RemoveBlock(b)
 		out, ok := files[name]
 		if !ok {
 			out = hclwrite.NewEmptyFile()
@@ -94,8 +95,8 @@ func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, err
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	if len(generated.edit().Body().Blocks()) > 0 {
-		return names, generated.save()
+	if len(generated.Edit().Body().Blocks()) > 0 {
+		return names, generated.Save()
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err

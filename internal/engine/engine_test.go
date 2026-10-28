@@ -13,15 +13,16 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 func TestImportsFile(t *testing.T) {
@@ -177,7 +178,7 @@ func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 type fakePlan struct {
 	diags   []tfjson.Diagnostic
 	err     error
-	summary changeSummary // reported when there are no diags
+	summary tfrun.ChangeSummary // reported when there are no diags
 }
 
 // fakeTerraform records calls. Like Terraform, a plan with
@@ -249,11 +250,11 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 			content := f.generated
 			if content == "" {
 				// As Terraform does: a block for each import, already as
-				// sortResources leaves them, so that nothing plans again.
+				// hclfile.SortResources leaves them, so that nothing plans again.
 				var blocks []string
-				if imports, err := loadHCL(filepath.Join(f.dir, ImportsFileName)); err == nil {
-					for _, imp := range imports.imports() {
-						typ, name, _ := strings.Cut(imp.to, ".")
+				if imports, err := hclfile.Load(filepath.Join(f.dir, ImportsFileName)); err == nil {
+					for _, imp := range imports.Imports() {
+						typ, name, _ := strings.Cut(imp.To, ".")
 						blocks = append(blocks, fmt.Sprintf("resource %q %q {\n}\n", typ, name))
 					}
 				}
@@ -341,9 +342,9 @@ func (f *fakeTerraform) withImports(p *tfjson.Plan) (*tfjson.Plan, error) {
 	}
 	var addresses []string
 	for _, file := range files {
-		for _, b := range file.syntax.Blocks {
+		for _, b := range file.Syntax.Blocks {
 			if to, ok := b.Body.Attributes["to"]; b.Type == "import" && ok {
-				addresses = append(addresses, string(to.Expr.Range().SliceBytes(file.src)))
+				addresses = append(addresses, string(to.Expr.Range().SliceBytes(file.Src)))
 			}
 		}
 	}
@@ -458,7 +459,7 @@ func TestGeneratePlansWithoutTheRootsLocalState(t *testing.T) {
 			if tf.statePlans != want {
 				t.Errorf("%d of %d plans were given a state, want %d", tf.statePlans, plans, want)
 			}
-			if left, err := filepath.Glob(filepath.Join(temp, emptyStatePattern+"*")); err != nil || len(left) > 0 {
+			if left, err := filepath.Glob(filepath.Join(temp, tfrun.EmptyStatePattern+"*")); err != nil || len(left) > 0 {
 				t.Errorf("empty states left: %v, %v", left, err)
 			}
 			if local {
@@ -534,24 +535,6 @@ func TestSameFiles(t *testing.T) {
 	writeConfig(t, dir, VariablesFileName, "# variables\n")
 	if same, err := sameFiles(dir, before); err != nil || same {
 		t.Errorf("a file more: got %v, %v", same, err)
-	}
-}
-
-// Output directories such as generated/aws/sqs don't exist before the
-// first import into them.
-func TestNewTerraformCreatesDirs(t *testing.T) {
-	base := t.TempDir()
-	dir := filepath.Join(base, "generated", "aws", "sqs")
-	cache := filepath.Join(base, "cache", "plugins")
-
-	if _, err := NewTerraform(dir, os.Args[0], cache, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	for _, d := range []string{dir, cache} {
-		if info, err := os.Stat(d); err != nil || !info.IsDir() {
-			t.Errorf("%s not created: %v", d, err)
-		}
 	}
 }
 
@@ -880,169 +863,6 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, VariablesFileName)); err == nil {
 		t.Error("variables.tf kept without secrets")
-	}
-}
-
-func TestBinaryFind(t *testing.T) {
-	versions := map[string]string{}
-	versionOf := func(_ context.Context, path string) (*version.Version, error) {
-		v, ok := versions[path]
-		if !ok {
-			return nil, errors.New("not an engine binary")
-		}
-		return version.NewVersion(v)
-	}
-	installed := ""
-	terraform := TerraformBinary
-	terraform.install = func(_ context.Context, dir string) (string, error) {
-		if _, err := os.Stat(dir); err != nil {
-			return "", err // find must create the cache directory first
-		}
-		installed = filepath.Join(dir, terraform.fileName())
-		return installed, nil
-	}
-	t.Setenv("PATH", t.TempDir()) // no engine on PATH
-
-	t.Run("explicit path too old", func(t *testing.T) {
-		versions["/old/terraform"] = "1.4.6"
-		if _, err := terraform.find(context.Background(), "/old/terraform", t.TempDir(), versionOf); err == nil {
-			t.Error("want an error for Terraform older than 1.5")
-		}
-	})
-
-	t.Run("cached binary is reused", func(t *testing.T) {
-		cache := t.TempDir()
-		cached := filepath.Join(cache, terraform.fileName())
-		if err := os.WriteFile(cached, nil, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		versions[cached] = "1.16.5"
-		installed = ""
-
-		got, err := terraform.find(context.Background(), "", cache, versionOf)
-
-		if err != nil || got != cached || installed != "" {
-			t.Errorf("got %q, %v (installed %q); want the cached binary without installing", got, err, installed)
-		}
-	})
-
-	t.Run("installs when nothing qualifies", func(t *testing.T) {
-		cache := filepath.Join(t.TempDir(), "not-yet-created")
-
-		got, err := terraform.find(context.Background(), "", cache, versionOf)
-
-		if err != nil || got != filepath.Join(cache, terraform.fileName()) {
-			t.Errorf("got %q, %v; want a fresh install into the cache", got, err)
-		}
-	})
-
-	t.Run("OpenTofu is not downloaded", func(t *testing.T) {
-		_, err := TofuBinary.find(context.Background(), "", t.TempDir(), versionOf)
-
-		if err == nil || !strings.Contains(err.Error(), "tofu 1.6.0 or newer not found") {
-			t.Errorf("want an error asking to install OpenTofu, got %v", err)
-		}
-	})
-
-	t.Run("OpenTofu older than 1.6", func(t *testing.T) {
-		versions["/old/tofu"] = "1.5.7"
-		if _, err := TofuBinary.find(context.Background(), "/old/tofu", t.TempDir(), versionOf); err == nil {
-			t.Error("want an error for OpenTofu older than 1.6")
-		}
-	})
-}
-
-func TestMergeEnv(t *testing.T) {
-	t.Parallel()
-	base := map[string]string{"Path": `C:\bin`, "TF_DATA_DIR": "/shared", "tf_log": "trace", "TF_VAR_name": "x", "HOME": "/home/me"}
-	over := map[string]string{"PATH": `C:\tools`, "AWS_REGION": "eu-west-1"}
-
-	got := mergeEnv(base, over, true)
-	want := map[string]string{"PATH": `C:\tools`, "TF_LOG": "trace", "TF_VAR_name": "x", "HOME": "/home/me", "AWS_REGION": "eu-west-1"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("case-insensitive: got %v, want %v", got, want)
-	}
-
-	got = mergeEnv(base, over, false)
-	want = map[string]string{"Path": `C:\bin`, "PATH": `C:\tools`, "tf_log": "trace", "TF_VAR_name": "x", "HOME": "/home/me", "AWS_REGION": "eu-west-1"}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("case-sensitive: got %v, want %v", got, want)
-	}
-	if _, ok := base["TF_DATA_DIR"]; !ok {
-		t.Error("base changed")
-	}
-
-	// A data directory of the runner's own wins; the process's never
-	// reaches Terraform.
-	for _, foldCase := range []bool{true, false} {
-		if got := mergeEnv(base, map[string]string{"TF_DATA_DIR": "/private"}, foldCase); got["TF_DATA_DIR"] != "/private" {
-			t.Errorf("foldCase %v: TF_DATA_DIR %q, want the runner's own", foldCase, got["TF_DATA_DIR"])
-		}
-	}
-}
-
-// The data directory a runner is given reaches the Terraform it runs, in
-// place of the process's.
-func TestNewTerraformDataDir(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the fake Terraform is a shell script")
-	}
-	t.Setenv("TF_DATA_DIR", "/shared")
-	dir := t.TempDir()
-	dump := filepath.Join(dir, "env")
-	fake := filepath.Join(dir, "terraform")
-	script := "#!/bin/sh\nenv > " + dump + "\nif [ \"$1\" = version ]; then echo '{\"terraform_version\":\"1.9.0\"}'; fi\n"
-	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	tf, err := NewTerraform(filepath.Join(dir, "root"), fake, filepath.Join(dir, "plugins"), map[string]string{"TF_DATA_DIR": "/private"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := tf.Init(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-
-	env, err := os.ReadFile(dump)
-	if err != nil || !slices.Contains(strings.Split(string(env), "\n"), "TF_DATA_DIR=/private") {
-		t.Errorf("Terraform ran with:\n%s\n(%v), want TF_DATA_DIR=/private", env, err)
-	}
-}
-
-// A runner with a fresh environment asks for it before each plan, and a
-// plan fails, before Terraform runs, when it can't be had, as when the
-// credentials can't be refreshed.
-func TestFreshEnvTerraformAsksBeforeEachPlan(t *testing.T) {
-	base := t.TempDir()
-	refused := errors.New("the SSO session has expired")
-	asked := 0
-	tf, err := NewFreshEnvTerraform(filepath.Join(base, "root"), os.Args[0], filepath.Join(base, "plugins"), map[string]string{"AWS_ACCESS_KEY_ID": "AKIDFIRST"},
-		func(context.Context) (map[string]string, error) {
-			asked++
-			return nil, refused
-		})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if _, err := tf.PlanJSON(t.Context(), io.Discard); !errors.Is(err, refused) {
-			t.Errorf("want the plan failed with the environment's error, got %v", err)
-		}
-	}
-	if asked != 2 {
-		t.Errorf("asked %d times for the environment, want once a plan", asked)
-	}
-}
-
-// Terraform's environment has the process's, with what the provider adds
-// on top, and the plugin cache.
-func TestTerraformEnviron(t *testing.T) {
-	t.Setenv("INFRAHARVEST_TEST_INHERITED", "kept")
-	t.Setenv("AWS_ACCESS_KEY_ID", "AKIDOLD")
-	env := terraformEnviron("plugins", map[string]string{"AWS_ACCESS_KEY_ID": "AKIDNEW"})
-	if env["INFRAHARVEST_TEST_INHERITED"] != "kept" || env["AWS_ACCESS_KEY_ID"] != "AKIDNEW" || env["TF_PLUGIN_CACHE_DIR"] != "plugins" {
-		t.Errorf("environment: inherited %q, key %q, cache %q", env["INFRAHARVEST_TEST_INHERITED"], env["AWS_ACCESS_KEY_ID"], env["TF_PLUGIN_CACHE_DIR"])
 	}
 }
 

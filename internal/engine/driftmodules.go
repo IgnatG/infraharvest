@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // driftModule is a module a root calls, as Terraform installed it, read
@@ -687,8 +688,8 @@ func (e *driftEditor) moduleManual(c *DriftChange, m *driftModule, t traced) cod
 // traced it: the file, the line and the expression.
 func (e *driftEditor) viaText(m *driftModule, t traced) string {
 	text := path.Join(m.dir, t.file) + fmt.Sprintf(":%d", t.rng.Start.Line)
-	if f := m.cfg.files[t.file]; f != nil && t.rng.End.Byte <= len(f.src) && t.rng.Start.Byte < t.rng.End.Byte {
-		expr := string(f.src[t.rng.Start.Byte:t.rng.End.Byte])
+	if f := m.cfg.files[t.file]; f != nil && t.rng.End.Byte <= len(f.Src) && t.rng.Start.Byte < t.rng.End.Byte {
+		expr := string(f.Src[t.rng.Start.Byte:t.rng.End.Byte])
 		if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression {
 			text += " " + redactText(expr, e.forms)
 		}
@@ -753,7 +754,7 @@ type instanceLiteral struct {
 	expr hclsyntax.Expression
 	into []pathStep
 	file string
-	f    *hclFile
+	f    *hclfile.File
 }
 
 // instanceValue returns where e, the argument of block, a call that makes

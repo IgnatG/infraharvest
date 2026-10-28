@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -292,7 +293,7 @@ func (r *Run) layOut(ctx context.Context, provider harvest.Provider, c *callCont
 // Run.toolchain): the engine binary, the files every root starts with,
 // and the modules that hold clusters of resources.
 type toolchain struct {
-	binary             engine.Binary
+	binary             tfrun.Binary
 	execPath, cacheDir string
 	root               *rootFiles
 	// adapters are those of the modules the roots may call, and modulesDir

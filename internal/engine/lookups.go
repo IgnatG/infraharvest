@@ -14,6 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // lookup is a data source that reads a value no root manages, which the
@@ -60,7 +61,7 @@ type dataBlocks struct {
 
 func newDataBlocks(dir string, taken Names) (*dataBlocks, error) {
 	d := &dataBlocks{path: filepath.Join(dir, DataFileName), used: map[string]bool{}, addresses: map[string]string{}}
-	data, err := loadOptionalHCL(d.path)
+	data, err := hclfile.LoadOptional(d.path)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +71,7 @@ func newDataBlocks(dir string, taken Names) (*dataBlocks, error) {
 		}
 	}
 	if data != nil {
-		for _, b := range data.syntax.Blocks {
+		for _, b := range data.Syntax.Blocks {
 			if b.Type == "data" && len(b.Labels) == 2 {
 				d.used[b.Labels[0]+"."+b.Labels[1]] = true
 			}
@@ -115,7 +116,7 @@ func (d *dataBlocks) write() error {
 // skip, and adds the data sources to data.tf, named other than those in
 // taken and data.tf. It returns the resources it changed.
 func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, error) {
-	generated, err := loadHCL(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -124,11 +125,11 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 		return nil, err
 	}
 	edited := map[string]bool{}
-	for _, r := range generated.resources() {
-		if skip[r.address] > 0 {
+	for _, r := range generated.Resources() {
+		if skip[r.Address] > 0 {
 			continue
 		}
-		typ := AddressType(r.address)
+		typ := AddressType(r.Address)
 		replace := func(argument, _, value string) (hclwrite.Tokens, bool) {
 			l, ok := lookupFor(typ, argument, value)
 			if !ok {
@@ -136,14 +137,14 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 			}
 			return data.reference(l), true
 		}
-		if eachLiteral(r.syntax.Body, r.write.Body(), "", generated.src, replace) {
-			edited[r.address] = true
+		if eachLiteral(r.Syntax.Body, r.Write.Body(), "", generated.Src, replace) {
+			edited[r.Address] = true
 		}
 	}
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.save(); err != nil {
+	if err := generated.Save(); err != nil {
 		return nil, err
 	}
 	return edited, data.write()

@@ -94,15 +94,17 @@ func convertTemplate(path, out string, opts cfn.Options, allowPartial bool, stdi
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		return couldNotRun(err)
 	}
+	// Lstat: a symbolic link there, dangling or not, is a file too, which
+	// the write would follow out of out.
 	for _, name := range res.FileNames() {
-		if _, err := os.Stat(filepath.Join(out, name)); err == nil {
+		if _, err := os.Lstat(filepath.Join(out, name)); err == nil {
 			return couldNotRun(fmt.Errorf("%s already exists; use an empty --out directory", filepath.Join(out, name)))
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return couldNotRun(err)
 		}
 	}
 	for _, name := range res.FileNames() {
-		if err := os.WriteFile(filepath.Join(out, name), res.Files[name], 0o644); err != nil {
+		if err := writeNewFile(filepath.Join(out, name), res.Files[name]); err != nil {
 			return couldNotRun(err)
 		}
 	}
@@ -118,4 +120,23 @@ func convertTemplate(path, out string, opts cfn.Options, allowPartial bool, stdi
 		return &importer.ExitError{Code: code, Err: errors.New("some of the template couldn't be converted: see the diagnostics marked error")}
 	}
 	return nil
+}
+
+// writeNewFile writes content to a file it creates at path, failing if
+// anything is there already, a symbolic link included, which it doesn't
+// follow: one put there after the check before can't lead the write
+// elsewhere.
+func writeNewFile(path string, content []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%s already exists; use an empty --out directory", path)
+		}
+		return err
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

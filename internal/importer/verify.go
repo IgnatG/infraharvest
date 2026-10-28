@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -92,8 +93,8 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		}
 		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
-		newTF := func(d string) (engine.Terraform, error) {
-			return engine.NewTerraform(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
+		newTF := func(d string) (tfrun.Terraform, error) {
+			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		}
 		record := func(root verifiedRoot, gate engine.Gate, managed []engine.Managed) {
 			root.Findings = report.GateFindings(root.Path, root.Environment, managed, gate)
@@ -299,7 +300,7 @@ func configuredProviders(dir string) []string {
 // catalogue entries that depend on the provider's version then don't
 // apply.
 func lockedProviderVersion(dir, registry string, provider harvest.Provider) *goversion.Version {
-	lock, err := os.ReadFile(filepath.Join(dir, engine.LockFileName))
+	lock, err := os.ReadFile(filepath.Join(dir, tfrun.LockFileName))
 	if err != nil {
 		return nil
 	}

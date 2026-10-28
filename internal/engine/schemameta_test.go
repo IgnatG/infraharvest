@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // thingMetadata says what thingSchemas' provider code would: retries
@@ -65,7 +66,7 @@ func TestStripDefaultsWithSchemaMetadata(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{importedPlan("aws_thing.a")}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: exactHints(thingMetadata())})
+	stripped, last, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: exactHints(thingMetadata())})
 	if err != nil || !stripped || last == nil {
 		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
 	}
@@ -95,7 +96,7 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"retries": 0}, map[string]any{"retries": 3}),
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
-	if _, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: otherMajorHints(thingMetadata())}); err != nil {
+	if _, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: otherMajorHints(thingMetadata())}); err != nil {
 		t.Fatal(err)
 	}
 	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
@@ -136,7 +137,7 @@ func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
 			dir, changes := provenRoot(t)
 			tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{importedPlan("aws_thing.a")}}
 
-			stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: hints})
+			stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: hints})
 			if err != nil || !stripped {
 				t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 			}
@@ -162,7 +163,7 @@ func TestStripDefaultsCorrectsWrongProvenDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{wrong, importedPlan("aws_thing.a")}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
+	stripped, last, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
 	if err != nil || !stripped || last == nil {
 		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
 	}
@@ -181,7 +182,7 @@ func TestStripDefaultsKeepsSameMajorDefaultsOnErrors(t *testing.T) {
 	dir, changes := provenRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
 	if err != nil || !stripped {
 		t.Fatalf("want the null stripped, got %v, %v", stripped, err)
 	}
@@ -197,7 +198,7 @@ func TestStripDefaultsKeepsProvenDefaultsOutOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, changeSummary{}, changes, nil, defaultRules{hints: exactHints(thingMetadata())})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{hints: exactHints(thingMetadata())})
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls and proven defaults stripped, got %v, %v", stripped, err)
 	}
@@ -325,7 +326,7 @@ func TestSchemaHintsFor(t *testing.T) {
 	// writes it.
 	lock := func(registry, version string) string {
 		dir := t.TempDir()
-		writeConfig(t, dir, LockFileName, `provider "`+registry+`/hashicorp/aws" {
+		writeConfig(t, dir, tfrun.LockFileName, `provider "`+registry+`/hashicorp/aws" {
   version     = "`+version+`"
   constraints = "~> 6.70"
 }
@@ -479,7 +480,7 @@ func TestGenerateSettlesConflictsAfterOmissions(t *testing.T) {
 		errorAt(4, conflict, `"state": conflicts with is_enabled`),
 	}}}}
 	tf.onInit = func() {
-		if err := os.WriteFile(filepath.Join(dir, LockFileName), []byte(subnetLock), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, tfrun.LockFileName), []byte(subnetLock), 0o644); err != nil {
 			t.Error(err)
 		}
 	}
@@ -536,7 +537,7 @@ func TestGenerateResolvesConflictsBeforeValidation(t *testing.T) {
 		tf := &fakeTerraform{dir: dir, generated: generatedSubnets, plans: []fakePlan{{diags: diags}}}
 		// init records the release the metadata is of.
 		tf.onInit = func() {
-			if err := os.WriteFile(filepath.Join(dir, LockFileName), []byte(subnetLock), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, tfrun.LockFileName), []byte(subnetLock), 0o644); err != nil {
 				t.Error(err)
 			}
 		}

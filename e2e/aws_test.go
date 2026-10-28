@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -198,10 +199,10 @@ func TestAWSRoundTrip(t *testing.T) {
 			t.Errorf("%s: arguments set to null: %v", dir, nulls)
 		}
 		// One provider version for the whole import.
-		if content := readFile(t, filepath.Join(dir, engine.LockFileName)); lock == "" {
+		if content := readFile(t, filepath.Join(dir, tfrun.LockFileName)); lock == "" {
 			lock = content
 		} else if content != lock {
-			t.Errorf("%s: %s differs from the other directories'", dir, engine.LockFileName)
+			t.Errorf("%s: %s differs from the other directories'", dir, tfrun.LockFileName)
 		}
 		for typ, n := range checkNoChanges(ctx, t, dir, execPath, e.pluginCache, secretValues(t, dir, state)) {
 			imported[typ] += n
