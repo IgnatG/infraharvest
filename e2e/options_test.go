@@ -101,6 +101,7 @@ func seedOptions(t *testing.T) optionsEstate {
 	defer optionsSeeded.Unlock()
 	if optionsSeeded.state == nil {
 		optionsSeeded.state = seed(ctx, t, "aws-options", execPath, pluginCache)
+		createDefaultGroupRules(ctx, t, optionsAccount, optionsRegion)
 	}
 	t.Setenv("AWS_ACCESS_KEY_ID", optionsAccount)
 	return optionsEstate{ctx: ctx, engineName: engineName, execPath: execPath, pluginCache: pluginCache, state: optionsSeeded.state}

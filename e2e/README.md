@@ -83,6 +83,8 @@ Not covered yet:
 - **Services Floci runs in Docker containers:** EC2 instances, Lambda, RDS and ElastiCache. The test would need the Docker socket mounted into Floci.
 - **Lambda functions in general:** the generated configuration can't include the function code, so it doesn't validate until you add the package.
 
+Floci gives a VPC's default security group no inbound rule, where AWS gives it one allowing all traffic from the group itself. Once the fixture is created, the tests give each default group that rule, so it is as AWS creates it: the default selection leaves it out, and the load balancer refers to the fixture VPC's default group through a data source. Without it, each default group would be imported as one configuration has changed.
+
 An emulator doesn't enforce IAM permissions or reproduce every AWS API quirk, so this doesn't replace a check against a real account.
 
 ## Google Cloud (floci-gcp)
