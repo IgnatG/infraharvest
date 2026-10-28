@@ -1,10 +1,17 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package rootfile names the files of a root the engine writes, and
+// writes those it generates from data alone: the import blocks
+// (imports.tf), the Terraform and provider requirements (versions.tf) and
+// the provider block (providers.tf), the moved and removed blocks
+// (moves.tf) with what roots hand over to each other, and the Terraform
+// release the root requires.
+package rootfile
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/hashicorp/hcl/v2"
@@ -12,8 +19,47 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
+
+// Files the engine writes into each output directory.
+const (
+	VersionsFileName  = "versions.tf"
+	ProvidersFileName = "providers.tf"
+	ImportsFileName   = "imports.tf"
+	GeneratedFileName = "generated.tf"
+	// RejectedFileName holds resources left out of the configuration. It is
+	// not a .tf file, so Terraform doesn't load it.
+	RejectedFileName = "rejected.hcl"
+)
+
+// ReadmeFileName explains a generated directory and what is left to do.
+const ReadmeFileName = "README.md"
+
+// DataFileName holds the data sources of resources the configuration
+// refers to but doesn't manage.
+const DataFileName = "data.tf"
+
+// DataFileHeader starts data.tf.
+const DataFileHeader = "# What this configuration refers to but doesn't manage: resources the\n# selection left out or other roots manage, and what the cloud or the\n# provider defines.\n"
+
+// LocalsFileName holds the values lifted out of the generated
+// configuration.
+const LocalsFileName = "locals.tf"
+
+// reservedFiles are the files of a root that hold something else than its
+// resources, which no Import.File may name.
+var reservedFiles = []string{
+	GeneratedFileName, ImportsFileName, VersionsFileName, ProvidersFileName, hclfile.VariablesFileName,
+	LocalsFileName, DataFileName, MovesFileName, "backend.tf", "outputs.tf", "main.tf",
+}
+
+// IsReserved reports whether name is that of a file of a root that holds
+// something else than its resources (see reservedFiles).
+func IsReserved(name string) bool {
+	return slices.Contains(reservedFiles, name)
+}
 
 // Import is one existing resource to bring under Terraform.
 type Import struct {
@@ -24,8 +70,8 @@ type Import struct {
 	// imports it by instead of an import ID, from 1.12: what Terraform's
 	// own list resources return (see terraform query). ID is then the
 	// identity's ID (see tftypes.IdentityID), which the engine tells the
-	// resource by, as it reads it back from the import block (see
-	// importIDOf).
+	// resource by, as it reads it back from the import block (see the
+	// engine's importIDOf).
 	Identity map[string]string `json:",omitempty"`
 	// Provider is the local name of the provider to import with, when it
 	// isn't the one the type implies: google-beta for a google_* resource.
@@ -34,10 +80,10 @@ type Import struct {
 	// Fallback, if set, is the import ID to import the resource by instead
 	// should Terraform reject its import by ID or the configuration it
 	// generates for it: an azapi_resource's bare Azure ID, where ID pins
-	// an API version azapi's schemas may not have (see retryFallbacks).
+	// an API version azapi's schemas may not have (see the engine's retryFallbacks).
 	Fallback string `json:",omitempty"`
 	// File, if set, is the file of the root the resource's configuration
-	// goes in, such as network.tf (see Options.SplitFiles).
+	// goes in, such as network.tf (see engine.Options.SplitFiles).
 	File string `json:",omitempty"`
 	// Omit, if set, are arguments to leave out of this resource's
 	// generated configuration besides those Options.Omit names for its
@@ -84,7 +130,7 @@ func ImportsFile(imports []Import) ([]byte, error) {
 			hcl.TraverseAttr{Name: imp.Name},
 		})
 		if len(imp.Identity) > 0 {
-			block.SetAttributeValue("identity", identityValue(imp.Identity))
+			block.SetAttributeValue("identity", IdentityValue(imp.Identity))
 		} else {
 			block.SetAttributeValue("id", cty.StringVal(imp.ID))
 		}
@@ -98,11 +144,11 @@ func ImportsFile(imports []Import) ([]byte, error) {
 	return hclwrite.Format(f.Bytes()), nil
 }
 
-// identityValue is an identity as the object of an import block's
+// IdentityValue is an identity as the object of an import block's
 // identity argument. Its values are strings, as Terraform's list
 // resources return them (see tftypes.IdentityValues): Terraform converts
 // them to the types of the identity's schema.
-func identityValue(identity map[string]string) cty.Value {
+func IdentityValue(identity map[string]string) cty.Value {
 	attrs := make(map[string]cty.Value, len(identity))
 	for k, v := range identity {
 		attrs[k] = cty.StringVal(v)
@@ -127,10 +173,10 @@ func VersionsFile(requiredVersion string, p Provider) []byte {
 	return hclwrite.Format(f.Bytes())
 }
 
-// withoutCredentials returns args without the arguments that hold
+// WithoutCredentials returns args without the arguments that hold
 // credentials (see secret.IsCredential), at any depth, and the names it
 // left out, sorted.
-func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
+func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
 	if args == nil {
 		return nil, nil
 	}
@@ -143,7 +189,7 @@ func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 		}
 		if nested, ok := v.(map[string]interface{}); ok {
 			var nestedDropped []string
-			v, nestedDropped = withoutCredentials(nested)
+			v, nestedDropped = WithoutCredentials(nested)
 			for _, name := range nestedDropped {
 				dropped = append(dropped, k+"."+name)
 			}
@@ -155,19 +201,19 @@ func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 }
 
 // ProvidersFile renders the provider block, without the arguments that
-// hold credentials (see withoutCredentials).
+// hold credentials (see WithoutCredentials).
 func ProvidersFile(p Provider) ([]byte, error) {
 	f := hclwrite.NewEmptyFile()
-	config, _ := withoutCredentials(p.Config)
-	if err := writeBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), config); err != nil {
+	config, _ := WithoutCredentials(p.Config)
+	if err := WriteBody(f.Body().AppendNewBlock("provider", []string{p.Name}).Body(), config); err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.Name, err)
 	}
 	return hclwrite.Format(f.Bytes()), nil
 }
 
-// writeBody writes arguments in sorted order. Maps become nested blocks;
+// WriteBody writes arguments in sorted order. Maps become nested blocks;
 // lists of maps become repeated nested blocks.
-func writeBody(body *hclwrite.Body, args map[string]interface{}) error {
+func WriteBody(body *hclwrite.Body, args map[string]interface{}) error {
 	keys := make([]string, 0, len(args))
 	for k := range args {
 		keys = append(keys, k)
@@ -176,17 +222,17 @@ func writeBody(body *hclwrite.Body, args map[string]interface{}) error {
 	for _, k := range keys {
 		switch v := args[k].(type) {
 		case map[string]interface{}:
-			if err := writeBody(body.AppendNewBlock(k, nil).Body(), v); err != nil {
+			if err := WriteBody(body.AppendNewBlock(k, nil).Body(), v); err != nil {
 				return err
 			}
 		case []map[string]interface{}:
 			for _, item := range v {
-				if err := writeBody(body.AppendNewBlock(k, nil).Body(), item); err != nil {
+				if err := WriteBody(body.AppendNewBlock(k, nil).Body(), item); err != nil {
 					return err
 				}
 			}
 		default:
-			val, err := ctyValue(v)
+			val, err := CtyValue(v)
 			if err != nil {
 				return fmt.Errorf("argument %s: %w", k, err)
 			}
@@ -196,7 +242,7 @@ func writeBody(body *hclwrite.Body, args map[string]interface{}) error {
 	return nil
 }
 
-func ctyValue(v interface{}) (cty.Value, error) {
+func CtyValue(v interface{}) (cty.Value, error) {
 	switch v := v.(type) {
 	case cty.Value:
 		// Such as a list of objects, which isn't a block.

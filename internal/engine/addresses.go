@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
@@ -110,19 +111,19 @@ func InferredAddresses(result *Result) []Managed {
 // previous now doesn't have, such as one deleted in the cloud since,
 // isn't readdressed; nor is one previous has only the module call of
 // (see Managed.Unverified) that now has in that call.
-func Readdressed(previous, now []Managed, moved []Move) []string {
+func Readdressed(previous, now []Managed, moved []rootfile.Move) []string {
 	at := map[External]string{}
 	for _, m := range now {
 		at[ResourceKey(m.Type, m.ID)] = m.Address
 	}
-	follows := map[Move]bool{}
+	follows := map[rootfile.Move]bool{}
 	for _, m := range moved {
 		follows[m] = true
 	}
 	var changed []string
 	for _, p := range previous {
 		to, ok := at[ResourceKey(p.Type, p.ID)]
-		if !ok || to == p.Address || follows[Move{From: p.Address, To: to}] {
+		if !ok || to == p.Address || follows[rootfile.Move{From: p.Address, To: to}] {
 			continue
 		}
 		if p.Unverified && isModuleCall(p.Address) && strings.HasPrefix(to, p.Address+".") {

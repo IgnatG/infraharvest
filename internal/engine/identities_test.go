@@ -10,6 +10,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -127,14 +128,14 @@ resource "aws_sns_topic_subscription" "orders" {
 func TestAddReferencesByIdentities(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, shopGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, shopGenerated)
 
 	changed, err := addReferences(dir, shopValues)
 	if err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
 
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		// Short IDs, by the argument's name.
 		"rest_api_id = aws_api_gateway_rest_api.shop.id",
@@ -194,7 +195,7 @@ func TestAddReferencesLeavesAmbiguousIdentities(t *testing.T) {
 		"aws_subnet.abcdef":  {"id": "abcdef"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudwatch_metric_alarm" "jobs" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_cloudwatch_metric_alarm" "jobs" {
   dimensions = {
     LoadBalancer = "app/b/2"
     TopicName    = "jobs"
@@ -220,7 +221,7 @@ resource "aws_network_interface" "x" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"TopicName = aws_sns_topic.jobs.name",
 		// An ARN suffix is the one balancer's.
@@ -253,7 +254,7 @@ func TestAddReferencesToResourceGroupLocations(t *testing.T) {
 		"azurerm_public_ip.elsewhere":  {"id": "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/app/providers/Microsoft.Network/publicIPAddresses/ip", "name": "ip", "location": "uksouth"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_virtual_network" "main" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_virtual_network" "main" {
   location            = "uksouth"
   name                = "main"
   resource_group_name = "app"
@@ -277,7 +278,7 @@ resource "azurerm_resource_group" "other" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "location = azurerm_resource_group.app.location") != 2 {
 		t.Errorf("want the network's and the account's locations to be the group's:\n%s", got)
 	}
@@ -305,7 +306,7 @@ func TestVerifyEachUndoesOnlyTheResourcesThatChange(t *testing.T) {
 		"aws_security_group.web":          {"id": "sg-0aaa1111"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_api_gateway_resource" "orders" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_api_gateway_resource" "orders" {
   rest_api_id = "okoipb1lhk"
   tags = {
     vpc = "vpc-0abc1234"
@@ -332,11 +333,11 @@ resource "aws_subnet" "a" {
 
 	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
-	}, GeneratedFileName)
+	}, rootfile.GeneratedFileName)
 	if err != nil || !kept {
 		t.Fatalf("want the references kept, got %v, %v", kept, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`rest_api_id = "okoipb1lhk"`,
 		"vpc_id = aws_vpc.main.id }",
@@ -357,16 +358,16 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 	values := map[string]map[string]any{"aws_vpc.main": {"id": "vpc-0abc1234"}}
 	dir := t.TempDir()
 	const config = "resource \"aws_subnet\" \"a\" {\n  vpc_id = \"vpc-0abc1234\"\n}\n"
-	writeConfig(t, dir, GeneratedFileName, config)
+	writeConfig(t, dir, rootfile.GeneratedFileName, config)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
 	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
-	}, GeneratedFileName)
+	}, rootfile.GeneratedFileName)
 	if err != nil || kept {
 		t.Fatalf("want nothing kept, got %v, %v", kept, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != config {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != config {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }
@@ -376,7 +377,7 @@ func TestAddLookupsOfTheTenant(t *testing.T) {
 	t.Parallel()
 	const tenant = "11111111-2222-3333-4444-555555555555"
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_key_vault" "main" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_key_vault" "main" {
   tenant_id = "`+tenant+`"
   access_policy {
     tenant_id = "`+tenant+`"
@@ -391,11 +392,11 @@ resource "aws_instance" "other" {
 	if err != nil || !edited["azurerm_key_vault.main"] || len(edited) != 1 {
 		t.Fatalf("want the vault edited, got %v, %v", edited, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "tenant_id = data.azurerm_client_config.current_2.tenant_id") != 2 || !strings.Contains(got, `tenant_id = "`+tenant+`"`) {
 		t.Errorf("generated.tf:\n%s", got)
 	}
-	data := squashed(readFile(t, dir, DataFileName))
+	data := squashed(readFile(t, dir, rootfile.DataFileName))
 	if !strings.Contains(data, `data "azurerm_client_config" "current_2" {`) || strings.Count(data, "data \"") != 1 {
 		t.Errorf("data.tf:\n%s", data)
 	}
@@ -411,7 +412,7 @@ func TestAddReferencesByDomainNames(t *testing.T) {
 		"aws_s3_bucket.assets":            {"id": "assets-1", "bucket": "assets-1", "bucket_regional_domain_name": "assets-1.s3.eu-west-2.amazonaws.com"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
   origin {
     domain_name = "assets-1.s3.eu-west-2.amazonaws.com"
     origin_id   = "assets"
@@ -428,7 +429,7 @@ resource "aws_route53_record" "www" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"domain_name = aws_s3_bucket.assets.bucket_regional_domain_name",
 		"name = aws_cloudfront_distribution.web.domain_name",
@@ -488,7 +489,7 @@ func TestAddReferencesBySelfLinkOnTheComputeHost(t *testing.T) {
 		"google_compute_network.main": {"id": "projects/acme/global/networks/main", "name": "main", "self_link": "https://www.googleapis.com/compute/v1/projects/acme/global/networks/main"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_dns_managed_zone" "internal" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_dns_managed_zone" "internal" {
   private_visibility_config {
     networks {
       network_url = "https://compute.googleapis.com/compute/v1/projects/acme/global/networks/main"
@@ -499,7 +500,7 @@ func TestAddReferencesBySelfLinkOnTheComputeHost(t *testing.T) {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "network_url = google_compute_network.main.self_link") {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, "network_url = google_compute_network.main.self_link") {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }

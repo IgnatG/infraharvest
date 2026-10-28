@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // A resource with an identity, as Terraform's list resources return it, is
@@ -22,7 +23,7 @@ func TestImportsFileByIdentity(t *testing.T) {
 	t.Parallel()
 	identity := map[string]string{"region": "eu-west-2", "name": "/app/logs", "account_id": "123456789012"}
 	const id = "account_id=123456789012,name=/app/logs,region=eu-west-2"
-	got, err := ImportsFile([]Import{
+	got, err := rootfile.ImportsFile([]rootfile.Import{
 		{Type: "aws_cloudwatch_log_group", Name: "logs", ID: id, Identity: identity},
 		{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs.eu-west-2.amazonaws.com/123/orders"},
 	})
@@ -48,8 +49,8 @@ import {
 	}
 
 	dir := t.TempDir()
-	writeConfig(t, dir, ImportsFileName, string(got))
-	f, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(got))
+	f, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,8 +81,8 @@ func TestImportIDOfIdentity(t *testing.T) {
 		"neither":           {"import {\n  to = a.b\n}\n", "", false},
 	} {
 		dir := t.TempDir()
-		writeConfig(t, dir, ImportsFileName, tt.block)
-		f, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+		writeConfig(t, dir, rootfile.ImportsFileName, tt.block)
+		f, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,8 +103,8 @@ func addLogGroup(t *testing.T, r MergeRoot, name string, byID bool) {
 		importBlock = "\nimport {\n  to = aws_cloudwatch_log_group." + name + "\n  id = \"" + group + "\"\n}\n"
 	}
 	for file, content := range map[string]string{
-		"logs.tf":       "\nresource \"aws_cloudwatch_log_group\" \"" + name + "\" {\n  name = \"" + group + "\"\n}\n",
-		ImportsFileName: importBlock,
+		"logs.tf":                "\nresource \"aws_cloudwatch_log_group\" \"" + name + "\" {\n  name = \"" + group + "\"\n}\n",
+		rootfile.ImportsFileName: importBlock,
 	} {
 		f, err := os.OpenFile(filepath.Join(r.Dir, file), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -135,7 +136,7 @@ func TestMergeRootsByIdentity(t *testing.T) {
 	if result.Reason != "" || !result.Passed() {
 		t.Fatalf("not merged: %s %+v", result.Reason, result.Environments)
 	}
-	imports := readFile(t, dir, ImportsFileName)
+	imports := readFile(t, dir, rootfile.ImportsFileName)
 	for _, want := range []string{
 		"to       = aws_cloudwatch_log_group.app\n  identity = var.import_identities[\"aws_cloudwatch_log_group.app\"]",
 		"identity = var.import_identities[\"aws_cloudwatch_log_group.audit[0]\"]",
@@ -189,7 +190,7 @@ func TestMergeRootsByIDAndIdentity(t *testing.T) {
 func TestRetargetImportsByIdentity(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, ImportsFileName, `import {
+	writeConfig(t, dir, rootfile.ImportsFileName, `import {
   to = aws_route_table.public
   identity = {
     account_id = "123456789012"
@@ -210,7 +211,7 @@ import {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := readFile(t, dir, ImportsFileName)
+	got := readFile(t, dir, rootfile.ImportsFileName)
 	for _, want := range []string{
 		"to = module.vpc.aws_route_table.public[0]",
 		"to = module.vpc.aws_route.public_internet_gateway[0]\n  identity = {\n    account_id             = \"123456789012\"\n    destination_cidr_block = \"0.0.0.0/0\"\n    route_table_id         = \"rtb-1\"\n  }\n",
@@ -222,7 +223,7 @@ import {
 	}
 
 	// An adapter that makes no identity can't add the import.
-	writeConfig(t, dir, ImportsFileName, "import {\n  to = aws_route_table.public\n  identity = {\n    id = \"rtb-1\"\n  }\n}\n")
+	writeConfig(t, dir, rootfile.ImportsFileName, "import {\n  to = aws_route_table.public\n  identity = {\n    id = \"rtb-1\"\n  }\n}\n")
 	err = retargetImports(dir, nil, []moduleImport{{Import: adapters.Import{To: "aws_route.this[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"}, to: "module.vpc.aws_route.this[0]"}})
 	if err == nil || !strings.Contains(err.Error(), "makes no identity") {
 		t.Errorf("want an error, got %v", err)

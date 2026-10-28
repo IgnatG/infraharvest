@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -22,10 +23,10 @@ import (
 func TestGeneratedRoots(t *testing.T) {
 	out := t.TempDir()
 	for _, file := range []string{
-		"aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
-		"aws/111122223333/global/" + engine.ProvidersFileName,
-		"aws/111122223333/eu-west-2/.terraform/modules/state/" + engine.ProvidersFileName,
-		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
+		"aws/111122223333/eu-west-2/" + rootfile.ProvidersFileName,
+		"aws/111122223333/global/" + rootfile.ProvidersFileName,
+		"aws/111122223333/eu-west-2/.terraform/modules/state/" + rootfile.ProvidersFileName,
+		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + rootfile.ProvidersFileName,
 		hclfile.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
 		"report/report.md",
 	} {
@@ -161,7 +162,7 @@ func TestRootProvider(t *testing.T) {
 			t.Fatal(err)
 		}
 		if tc.providers != "" {
-			if err := os.WriteFile(filepath.Join(root, engine.ProvidersFileName), []byte(tc.providers), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(root, rootfile.ProvidersFileName), []byte(tc.providers), 0o644); err != nil {
 				t.Fatal(err)
 			}
 		}

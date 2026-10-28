@@ -14,12 +14,13 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // generateAgain generates the queues of imports into a new directory, as
 // a root an earlier import generated with previous, and returns the
 // directory and the result.
-func generateAgain(t *testing.T, imports []Import, previous *Previous) (string, *Result) {
+func generateAgain(t *testing.T, imports []rootfile.Import, previous *Previous) (string, *Result) {
 	t.Helper()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir}
@@ -44,7 +45,7 @@ func addressesOf(result *Result) map[string]string {
 func TestGenerateKeepsLabelsWhenResourcesAreAdded(t *testing.T) {
 	t.Parallel()
 	previous := &Previous{Addresses: []Managed{{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.main"}}}
-	imports := []Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}}
 
 	dir, result := generateAgain(t, imports, previous)
 
@@ -54,10 +55,10 @@ func TestGenerateKeepsLabelsWhenResourcesAreAdded(t *testing.T) {
 	if len(result.Moves) != 0 || len(result.Unmoved) != 0 {
 		t.Errorf("moves %+v, unmoved %q, want none", result.Moves, result.Unmoved)
 	}
-	if exists(filepath.Join(dir, MovesFileName)) {
-		t.Errorf("%s written without moves", MovesFileName)
+	if exists(filepath.Join(dir, rootfile.MovesFileName)) {
+		t.Errorf("%s written without moves", rootfile.MovesFileName)
 	}
-	if readme := readFile(t, dir, ReadmeFileName); strings.Contains(readme, "## Moves") || strings.Contains(readme, MovesFileName) {
+	if readme := readFile(t, dir, rootfile.ReadmeFileName); strings.Contains(readme, "## Moves") || strings.Contains(readme, rootfile.MovesFileName) {
 		t.Errorf("README.md speaks of moves:\n%s", readme)
 	}
 }
@@ -70,14 +71,14 @@ func TestGenerateMovesWhatWasRenamed(t *testing.T) {
 		{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.orders"},
 		{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.jobs"},
 	}}
-	imports := []Import{{Type: "aws_sqs_queue", Name: "Billing Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "Billing Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}}
 
 	dir, result := generateAgain(t, imports, previous)
 
 	if got, want := addressesOf(result), map[string]string{"a": "aws_sqs_queue.billing", "b": "aws_sqs_queue.jobs"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("addresses: got %v, want %v", got, want)
 	}
-	if want := []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.billing"}}; !reflect.DeepEqual(result.Moves, want) {
+	if want := []rootfile.Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.billing"}}; !reflect.DeepEqual(result.Moves, want) {
 		t.Errorf("moves: got %+v, want %+v", result.Moves, want)
 	}
 	want := `moved {
@@ -85,10 +86,10 @@ func TestGenerateMovesWhatWasRenamed(t *testing.T) {
   to   = aws_sqs_queue.billing
 }
 `
-	if got := readFile(t, dir, MovesFileName); got != want {
-		t.Errorf("%s:\n%s\nwant:\n%s", MovesFileName, got, want)
+	if got := readFile(t, dir, rootfile.MovesFileName); got != want {
+		t.Errorf("%s:\n%s\nwant:\n%s", rootfile.MovesFileName, got, want)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	for _, want := range []string{"## Moves", "| `aws_sqs_queue.orders` | `aws_sqs_queue.billing` |", "or as moved for those `moves.tf` moves", "Delete `imports.tf` and `moves.tf`"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
@@ -105,14 +106,14 @@ func TestGenerateAvoidsSwappingAddresses(t *testing.T) {
 		{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.orders"},
 		{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.billing"},
 	}}
-	imports := []Import{{Type: "aws_sqs_queue", Name: "Billing Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Orders Queue", ID: "b"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "Billing Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Orders Queue", ID: "b"}}
 
 	_, result := generateAgain(t, imports, previous)
 
 	if got, want := addressesOf(result), map[string]string{"a": "aws_sqs_queue.billing_2", "b": "aws_sqs_queue.orders_2"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("addresses: got %v, want %v", got, want)
 	}
-	want := []Move{
+	want := []rootfile.Move{
 		{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.billing_2"},
 		{From: "aws_sqs_queue.billing", To: "aws_sqs_queue.orders_2"},
 	}
@@ -131,9 +132,9 @@ func TestGenerateChainsTheMovesOfMovesTF(t *testing.T) {
 			{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.billing"},
 			{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.jobs"},
 		},
-		Moved: []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.billing"}},
+		Moved: []rootfile.Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.billing"}},
 	}
-	imports := []Import{
+	imports := []rootfile.Import{
 		{Type: "aws_sqs_queue", Name: "Invoices Queue", ID: "a"},
 		{Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"},
 		{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "c"},
@@ -154,8 +155,8 @@ moved {
   to   = aws_sqs_queue.invoices
 }
 `
-	if got := readFile(t, dir, MovesFileName); got != want {
-		t.Errorf("%s:\n%s\nwant:\n%s", MovesFileName, got, want)
+	if got := readFile(t, dir, rootfile.MovesFileName); got != want {
+		t.Errorf("%s:\n%s\nwant:\n%s", rootfile.MovesFileName, got, want)
 	}
 }
 
@@ -165,12 +166,12 @@ func TestGenerateFailsTheMovesOfACycle(t *testing.T) {
 	t.Parallel()
 	previous := &Previous{
 		Addresses: []Managed{{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.jobs"}},
-		Moved:     []Move{{From: "aws_sqs_queue.x", To: "aws_sqs_queue.y"}, {From: "aws_sqs_queue.y", To: "aws_sqs_queue.x"}},
+		Moved:     []rootfile.Move{{From: "aws_sqs_queue.x", To: "aws_sqs_queue.y"}, {From: "aws_sqs_queue.y", To: "aws_sqs_queue.x"}},
 	}
 
-	dir, result := generateAgain(t, []Import{{Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "a"}}, previous)
+	dir, result := generateAgain(t, []rootfile.Import{{Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "a"}}, previous)
 
-	if len(result.Moves) != 0 || exists(filepath.Join(dir, MovesFileName)) {
+	if len(result.Moves) != 0 || exists(filepath.Join(dir, rootfile.MovesFileName)) {
 		t.Errorf("moves %+v written for a cycle", result.Moves)
 	}
 	if len(result.Unmoved) != 1 || !strings.Contains(result.Unmoved[0], "come back") || !strings.Contains(result.Unmoved[0], "delete moves.tf") {
@@ -207,7 +208,7 @@ func TestMoves(t *testing.T) {
 
 	moved, retyped, unmoved := moves(previous, now, sources)
 
-	want := []Move{
+	want := []rootfile.Move{
 		{From: "module.vpc.aws_route_table.public[0]", To: "aws_route_table.public"},
 		{From: "module.old.aws_s3_bucket.this", To: "aws_s3_bucket.state"},
 		{From: "aws_s3_bucket.logs", To: "module.logs.aws_s3_bucket.this"},
@@ -265,7 +266,7 @@ func TestMovesRetypes(t *testing.T) {
 
 	moved, retyped, unmoved := moves(previous, now, sources)
 
-	want := []Retype{
+	want := []rootfile.Retype{
 		{Type: "aws_alb", ID: "lb-1", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"},
 		{Type: "aws_alb_listener", ID: "l-1", From: "aws_alb_listener.http[0]", To: "aws_lb_listener.http[0]", Removed: "aws_alb_listener.http"},
 		{Type: "aws_alb_listener", ID: "l-2", From: "aws_alb_listener.http[1]", To: "aws_lb_listener.http[1]", Removed: "aws_alb_listener.http"},
@@ -295,10 +296,10 @@ func TestMovesRetypes(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := writeMoves(dir, nil, nil, retyped); err != nil {
+	if err := rootfile.WriteMoves(dir, nil, nil, retyped); err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(strings.Fields(readFile(t, dir, MovesFileName)), " ")
+	got := strings.Join(strings.Fields(readFile(t, dir, rootfile.MovesFileName)), " ")
 	for _, block := range []string{
 		`moved { from = aws_alb_target_group.app["a"] to = aws_alb_target_group.departed_app_a }`,
 		"moved { from = module.edge.aws_alb.this to = aws_alb.departed_edge_this }",
@@ -308,11 +309,11 @@ func TestMovesRetypes(t *testing.T) {
 		"removed { from = aws_alb.departed_edge_this lifecycle { destroy = false } }",
 	} {
 		if !strings.Contains(got, block) {
-			t.Errorf("%s misses %q:\n%s", MovesFileName, block, got)
+			t.Errorf("%s misses %q:\n%s", rootfile.MovesFileName, block, got)
 		}
 	}
 	if strings.Count(got, "removed {") != 4 {
-		t.Errorf("%s: want one removed block for each resource, got:\n%s", MovesFileName, got)
+		t.Errorf("%s: want one removed block for each resource, got:\n%s", rootfile.MovesFileName, got)
 	}
 }
 
@@ -343,21 +344,21 @@ func TestDepartedAddress(t *testing.T) {
 func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T) {
 	t.Parallel()
 	previous := &Previous{Addresses: []Managed{{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}}}
-	dir, result := generateAgain(t, []Import{{Type: "aws_lb", Name: "web", ID: "arn:lb"}}, previous)
+	dir, result := generateAgain(t, []rootfile.Import{{Type: "aws_lb", Name: "web", ID: "arn:lb"}}, previous)
 
-	if want := []Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.main", Removed: "aws_alb.web"}}; !reflect.DeepEqual(result.Retyped, want) {
+	if want := []rootfile.Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.main", Removed: "aws_alb.web"}}; !reflect.DeepEqual(result.Retyped, want) {
 		t.Errorf("retyped %+v, want %+v", result.Retyped, want)
 	}
 	if len(result.Unmoved) != 0 || len(result.Moves) != 0 {
 		t.Errorf("unmoved %q, moves %+v", result.Unmoved, result.Moves)
 	}
-	if got := readFile(t, dir, MovesFileName); !strings.Contains(got, "removed {\n  from = aws_alb.web\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
-		t.Errorf("%s:\n%s", MovesFileName, got)
+	if got := readFile(t, dir, rootfile.MovesFileName); !strings.Contains(got, "removed {\n  from = aws_alb.web\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
+		t.Errorf("%s:\n%s", rootfile.MovesFileName, got)
 	}
-	if got := readFile(t, dir, ImportsFileName); !strings.Contains(got, "aws_lb.main") {
-		t.Errorf("%s doesn't import aws_lb.main:\n%s", ImportsFileName, got)
+	if got := readFile(t, dir, rootfile.ImportsFileName); !strings.Contains(got, "aws_lb.main") {
+		t.Errorf("%s doesn't import aws_lb.main:\n%s", rootfile.ImportsFileName, got)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	for _, want := range []string{"## Moves", "| `aws_alb.web` | `aws_lb.main` |", "or as forgotten, not destroyed, for those `moves.tf` removes", "Delete `imports.tf` and `moves.tf`"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
@@ -371,15 +372,15 @@ func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T
 func TestConflictingMoves(t *testing.T) {
 	t.Parallel()
 	for name, tt := range map[string]struct {
-		moved    []Move
+		moved    []rootfile.Move
 		declared string
 		want     string
 	}{
-		"a chain":           {[]Move{{"a.x", "a.y"}, {"a.y", "a.z"}}, "a.z", ""},
-		"one moved twice":   {[]Move{{"a.x", "a.y"}, {"a.x", "a.z"}}, "", "a.x moves both to a.y and to a.z"},
-		"two onto one":      {[]Move{{"a.x", "a.z"}, {"a.y", "a.z"}}, "", "more than one resource moves to a.z"},
-		"from what is here": {[]Move{{"a.x", "a.y"}}, "a.x", "a.x moves to a.y, but a resource is at a.x still"},
-		"a cycle":           {[]Move{{"a.x", "a.y"}, {"a.y", "a.x"}}, "", "the moves from a.x come back to a.x"},
+		"a chain":           {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.z"}}, "a.z", ""},
+		"one moved twice":   {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.x", To: "a.z"}}, "", "a.x moves both to a.y and to a.z"},
+		"two onto one":      {[]rootfile.Move{{From: "a.x", To: "a.z"}, {From: "a.y", To: "a.z"}}, "", "more than one resource moves to a.z"},
+		"from what is here": {[]rootfile.Move{{From: "a.x", To: "a.y"}}, "a.x", "a.x moves to a.y, but a resource is at a.x still"},
+		"a cycle":           {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.x"}}, "", "the moves from a.x come back to a.x"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -387,46 +388,6 @@ func TestConflictingMoves(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-// moves.tf has the moved blocks sorted by where they move to, keys and
-// all, and reads back the same.
-func TestWriteAndReadMoves(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	if got, err := ReadMoves(dir); err != nil || got != nil {
-		t.Fatalf("without moves.tf: %+v, %v", got, err)
-	}
-	moved := []Move{
-		{From: "aws_subnet.a", To: `module.subnets.aws_subnet.this["a"]`},
-		{From: "aws_s3_bucket.logs", To: "module.logs.aws_s3_bucket.this[0]"},
-	}
-	if err := writeMoves(dir, moved, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	want := `moved {
-  from = aws_s3_bucket.logs
-  to   = module.logs.aws_s3_bucket.this[0]
-}
-
-moved {
-  from = aws_subnet.a
-  to   = module.subnets.aws_subnet.this["a"]
-}
-`
-	if got := readFile(t, dir, MovesFileName); got != want {
-		t.Errorf("got:\n%s\nwant:\n%s", got, want)
-	}
-	got, err := ReadMoves(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []Move{moved[1], moved[0]}; !reflect.DeepEqual(got, want) {
-		t.Errorf("read back %+v, want %+v", got, want)
-	}
-	if err := writeMoves(dir, nil, nil, nil); err != nil || exists(filepath.Join(dir, MovesFileName)) {
-		t.Errorf("without moves: %v, want moves.tf removed", err)
 	}
 }
 
@@ -439,10 +400,10 @@ func TestRootWritesReplaceSymlinks(t *testing.T) {
 		name  string
 		write func(dir string) error
 	}{
-		"moves": {MovesFileName, func(dir string) error {
-			return writeMoves(dir, []Move{{From: "aws_subnet.a", To: "aws_subnet.b"}}, nil, nil)
+		"moves": {rootfile.MovesFileName, func(dir string) error {
+			return rootfile.WriteMoves(dir, []rootfile.Move{{From: "aws_subnet.a", To: "aws_subnet.b"}}, nil, nil)
 		}},
-		"readme": {ReadmeFileName, func(dir string) error { return WriteReadme(dir, &Result{}) }},
+		"readme": {rootfile.ReadmeFileName, func(dir string) error { return WriteReadme(dir, &Result{}) }},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -505,13 +466,13 @@ func TestRelabelledKeepsLabelsAndReservedAddresses(t *testing.T) {
 		},
 		Labels: map[External]string{{Type: "aws_s3_bucket", ID: "logs"}: "logs"},
 	}
-	imports := []Import{
+	imports := []rootfile.Import{
 		{Type: "aws_s3_bucket", Name: "logs", ID: "logs"},
 		{Type: "aws_s3_bucket", Name: "state", ID: "new"},
 		{Type: "aws_s3_bucket", Name: "data", ID: "data"},
 	}
 	got := relabelled(imports, nil, true, previous)
-	want := []Import{
+	want := []rootfile.Import{
 		{Type: "aws_s3_bucket", Name: "data", ID: "data"},
 		{Type: "aws_s3_bucket", Name: "logs", ID: "logs"},
 		{Type: "aws_s3_bucket", Name: "state_2", ID: "new"},

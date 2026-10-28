@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -33,7 +34,7 @@ func TestPremerged(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	dir := filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")
-	writeRootFiles(t, dir, map[string]string{engine.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
+	writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
 	if set, err := premerged(out, dir); err != nil || set {
 		t.Errorf("a root in place: %v %v", set, err)
 	}
@@ -78,9 +79,9 @@ func TestMergedMoves(t *testing.T) {
 		"dev":  {`aws_sqs_queue.this["orders"]`: "q1", `aws_sqs_queue.this["audit"]`: "q2"},
 		"prod": {`aws_sqs_queue.this["orders"]`: "q3"},
 	}
-	kept := []engine.Move{{From: "aws_sqs_queue.orders_old", To: "aws_sqs_queue.orders"}}
+	kept := []rootfile.Move{{From: "aws_sqs_queue.orders_old", To: "aws_sqs_queue.orders"}}
 	moves, why := mergedMoves(before, now, kept)
-	want := []engine.Move{kept[0], {From: "aws_sqs_queue.audit", To: `aws_sqs_queue.this["audit"]`}, {From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}
+	want := []rootfile.Move{kept[0], {From: "aws_sqs_queue.audit", To: `aws_sqs_queue.this["audit"]`}, {From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}
 	if why != "" || !slices.Equal(moves, want) {
 		t.Errorf("moves %+v (%s), want %+v", moves, why, want)
 	}
@@ -119,8 +120,8 @@ func TestMergedMoves(t *testing.T) {
 	if got := f.mergedMoves["app"]; !slices.Equal(got, want) {
 		t.Errorf("moved blocks written %+v, want %+v", got, want)
 	}
-	if !slices.Equal(result.Files, []string{engine.MovesFileName}) {
-		t.Errorf("files %v, want %s", result.Files, engine.MovesFileName)
+	if !slices.Equal(result.Files, []string{rootfile.MovesFileName}) {
+		t.Errorf("files %v, want %s", result.Files, rootfile.MovesFileName)
 	}
 }
 
@@ -214,7 +215,7 @@ func TestMergedHolds(t *testing.T) {
 	if err := writeMergeCheckpoint(out, stack, c); err != nil {
 		t.Fatal(err)
 	}
-	held, err := mergedHolds(out, map[string][]engine.Import{filepath.Join(out, "aws", "333333333333", "eu-west-2"): nil})
+	held, err := mergedHolds(out, map[string][]rootfile.Import{filepath.Join(out, "aws", "333333333333", "eu-west-2"): nil})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +223,7 @@ func TestMergedHolds(t *testing.T) {
 		t.Errorf("held by %q", got)
 	}
 	// A run that imports one of its roots adds to it.
-	held, err = mergedHolds(out, map[string][]engine.Import{filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2"): nil})
+	held, err = mergedHolds(out, map[string][]rootfile.Import{filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2"): nil})
 	if err != nil || len(held) != 0 {
 		t.Errorf("held from its own run: %v %v", held, err)
 	}
@@ -243,7 +244,7 @@ func TestReaddressNotInCloud(t *testing.T) {
 	if g := run.report.NotInCloud[1]; g.Path != "aws/222222222222/eu-west-2" || g.Environment != "" {
 		t.Errorf("not in cloud in a root of its own: %+v", g)
 	}
-	if want := map[string][]engine.Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}; !reflect.DeepEqual(gone, want) {
+	if want := map[string][]rootfile.Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}; !reflect.DeepEqual(gone, want) {
 		t.Errorf("gone: %+v, want %+v", gone, want)
 	}
 }
@@ -282,7 +283,7 @@ func joiningStack(t *testing.T, out string) (*mergeCheckpoint, []mergeMember, st
 		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/aws/111111111111/eu-west-2"}, {Env: "prod", Path: "envs/prod/aws/222222222222/eu-west-2"}},
 	}
 	staging := filepath.Join(out, "envs", "staging", "aws", "333333333333", "eu-west-2")
-	writeRootFiles(t, staging, map[string]string{engine.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
+	writeRootFiles(t, staging, map[string]string{rootfile.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
 	if err := copyRoot(staging, premergeDir(out, staging)); err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +380,7 @@ func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run
 	var members []mergeMember
 	for _, env := range envs {
 		dir := filepath.Join(out, env, "app")
-		writeRootFiles(t, dir, map[string]string{engine.VersionsFileName: "terraform {}\n", engine.GeneratedFileName: "resource \"fake_thing\" \"" + env + "\" {}\n"})
+		writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "terraform {}\n", rootfile.GeneratedFileName: "resource \"fake_thing\" \"" + env + "\" {}\n"})
 		members = append(members, mergeMember{dir: dir, stack: stack, env: env, fingerprint: "fp-" + env, result: &engine.Result{}})
 	}
 	run := NewRun()
@@ -408,7 +409,7 @@ func TestMergeStack(t *testing.T) {
 		if r.Env != members[i].env || r.Origin != members[i].dir || r.Dir != premergeDir(out, members[i].dir) {
 			t.Errorf("merged root %d: %+v", i, r)
 		}
-		if _, err := os.Stat(filepath.Join(r.Dir, engine.GeneratedFileName)); err != nil {
+		if _, err := os.Stat(filepath.Join(r.Dir, rootfile.GeneratedFileName)); err != nil {
 			t.Errorf("%s isn't set aside: %v", r.Env, err)
 		}
 		if _, err := os.Stat(members[i].dir); !os.IsNotExist(err) {
@@ -450,7 +451,7 @@ func TestMergeStackKeepsTheRootsWhereTheyDontMerge(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range members {
-		if _, err := os.Stat(filepath.Join(m.dir, engine.GeneratedFileName)); err != nil {
+		if _, err := os.Stat(filepath.Join(m.dir, rootfile.GeneratedFileName)); err != nil {
 			t.Errorf("%s's root is gone: %v", m.env, err)
 		}
 		if _, err := os.Stat(premergeDir(out, m.dir)); !os.IsNotExist(err) {
@@ -485,7 +486,7 @@ func TestMergeStackFailingKeepsTheMergedRoot(t *testing.T) {
 		"copy": func(*testing.T, []mergeMember) {},
 		"credentials": func(t *testing.T, members []mergeMember) {
 			for i, m := range members {
-				writeRootFiles(t, m.dir, map[string]string{engine.VersionsFileName: "terraform {}\n"})
+				writeRootFiles(t, m.dir, map[string]string{rootfile.VersionsFileName: "terraform {}\n"})
 				members[i].provider = &envProvider{asked: 1}
 			}
 		},

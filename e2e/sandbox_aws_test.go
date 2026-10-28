@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -230,7 +231,7 @@ func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjs
 
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, s.out) {
-		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
+		if rejected, err := os.ReadFile(filepath.Join(dir, rootfile.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
 		for typ, n := range checkNoChanges(ctx, t, dir, s.execPath, s.plugins, secretValues(t, dir, created)) {
@@ -405,7 +406,7 @@ func checkResume(ctx context.Context, t *testing.T, out string, regions []string
 	}
 	checkKept("--resume after the interrupt")
 	resumed := rootFiles(t, out, rel)
-	if resumed[rel+"/"+engine.ImportsFileName] == "" {
+	if resumed[rel+"/"+rootfile.ImportsFileName] == "" {
 		t.Fatalf("--resume didn't generate %s", dir)
 	}
 
@@ -603,7 +604,7 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 			t.Errorf("--incremental changed %s", name)
 		}
 	}
-	imports := root + "/" + engine.ImportsFileName
+	imports := root + "/" + rootfile.ImportsFileName
 	if n, m := importBlocks(t, imports, before[imports]), importBlocks(t, imports, after[imports]); m != n+1 {
 		t.Errorf("%s has %d import blocks after --incremental, %d before", imports, m, n)
 	}

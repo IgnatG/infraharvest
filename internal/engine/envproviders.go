@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/go-version"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // newestProvider returns the root of roots, the environments' roots of a
@@ -32,7 +34,7 @@ func newestProvider(roots []envRoot) (int, error) {
 		if p.Version == "" {
 			continue
 		}
-		bound, err := lowerBound(p.Version)
+		bound, err := rootfile.LowerBound(p.Version)
 		if err != nil {
 			return 0, fmt.Errorf("%s: provider version %q: %w", root.env, p.Version, err)
 		}

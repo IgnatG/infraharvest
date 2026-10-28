@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -160,7 +161,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 	workRoot := filepath.Join(work, filepath.FromSlash(rootPath))
 	copyRootFiles(t, root, workRoot)
 	applyRoot(ctx, t, workRoot, execPath, plugins, nil)
-	if err := os.Remove(filepath.Join(workRoot, engine.ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(workRoot, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -181,10 +182,10 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
 			}
 		}
-		moves := strings.Join(strings.Fields(readFile(t, filepath.Join(root, engine.MovesFileName))), " ")
+		moves := strings.Join(strings.Fields(readFile(t, filepath.Join(root, rootfile.MovesFileName))), " ")
 		for id, address := range from {
 			if want := "moved { from = " + address + " to = " + now[id] + " }"; !strings.Contains(moves, want) {
-				t.Errorf("--modules=%s: %s/%s doesn't have %q:\n%s", modules, rootPath, engine.MovesFileName, want, moves)
+				t.Errorf("--modules=%s: %s/%s doesn't have %q:\n%s", modules, rootPath, rootfile.MovesFileName, want, moves)
 			}
 		}
 		for _, d := range coverage.Directories {
@@ -237,7 +238,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 	}
 
 	// Out of them again, once the moves are applied and moves.tf deleted.
-	if err := os.Remove(filepath.Join(root, engine.MovesFileName)); err != nil {
+	if err := os.Remove(filepath.Join(root, rootfile.MovesFileName)); err != nil {
 		t.Fatal(err)
 	}
 	for id, address := range regenerate("none", called) {

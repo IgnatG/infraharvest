@@ -28,20 +28,10 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-)
-
-// Files the engine writes into each output directory.
-const (
-	VersionsFileName  = "versions.tf"
-	ProvidersFileName = "providers.tf"
-	ImportsFileName   = "imports.tf"
-	GeneratedFileName = "generated.tf"
-	// RejectedFileName holds resources left out of the configuration. It is
-	// not a .tf file, so Terraform doesn't load it.
-	RejectedFileName = "rejected.hcl"
 )
 
 // maxPlanRounds bounds how often Generate plans again after repairing the
@@ -52,7 +42,7 @@ const maxPlanRounds = 3
 type Result struct {
 	// Imported are the resources the configuration imports, with the
 	// labels Generate gave them.
-	Imported []Import
+	Imported []rootfile.Import
 	// Secrets are the variables to set before planning.
 	Secrets []secret.Variable
 	// Rejected are the resources left out of the configuration.
@@ -78,25 +68,25 @@ type Result struct {
 	// Moves are the moved blocks of moves.tf, for a root generated again
 	// whose resources have other addresses than before (see
 	// Options.Previous).
-	Moves []Move `json:",omitempty"`
+	Moves []rootfile.Move `json:",omitempty"`
 	// Removed are the removed blocks of moves.tf, for a root generated
 	// again that hands resources over to other roots (see
 	// Previous.Removed), and Arrived the resources it imports that other
 	// roots hand over (see Options.Arrivals).
-	Removed []Removal `json:",omitempty"`
-	Arrived []Arrival `json:",omitempty"`
+	Removed []rootfile.Removal `json:",omitempty"`
+	Arrived []rootfile.Arrival `json:",omitempty"`
 	// Retyped are the resources of such a root that are of another type now,
 	// another name of the one they were, which its removed blocks forget
 	// at the addresses they had and its import blocks import again (see
 	// Retype).
-	Retyped []Retype `json:",omitempty"`
+	Retyped []rootfile.Retype `json:",omitempty"`
 	// Unmoved are the resources of such a root at other addresses that no
 	// moved block can follow, with why; a checkpoint doesn't keep them.
 	Unmoved []string `json:"-"`
 	// NotInCloud are the resources of the root an incremental import added
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
-	NotInCloud []Import `json:"-"`
+	NotInCloud []rootfile.Import `json:"-"`
 }
 
 // Options configure Generate.
@@ -169,7 +159,7 @@ type Options struct {
 	// the root's types are named after it (see shareDefaultTags). So does
 	// a root that imports resources whose type one of them implies, such
 	// as azapi_resource (see resourceProviders).
-	ModuleProviders map[string]Provider
+	ModuleProviders map[string]rootfile.Provider
 	// External are resources the import listed but doesn't manage, which
 	// the configuration may refer to through the data sources in
 	// DataSources, by resource type (see addDataSourcesSkipping).
@@ -207,7 +197,7 @@ type Options struct {
 	Previous *Previous
 	// Arrivals are the resources the root imports that other roots of the
 	// output hand over (see Removal), for its README.
-	Arrivals []Arrival
+	Arrivals []rootfile.Arrival
 	// CommandTimeout bounds each Terraform command Generate, Add and
 	// Verify run, such as a plan whose provider retries an unreachable
 	// endpoint: a command still running then is stopped, and fails the
@@ -286,7 +276,7 @@ const (
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf or imports.tf.
-func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Import, opts Options) (*Result, error) {
+func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, opts Options) (*Result, error) {
 	return generate(ctx, tf, dir, imports, generating(opts))
 }
 
@@ -298,13 +288,13 @@ func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Imp
 // import (leaveOut), makes the secret attributes read from variables
 // (secretVariables), tidies the configuration (tidy, finish) and gates it
 // (gate). Last, it writes the README.
-func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Import, r *run) (*Result, error) {
+func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run) (*Result, error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
-	generated := filepath.Join(dir, GeneratedFileName)
+	generated := filepath.Join(dir, rootfile.GeneratedFileName)
 	// imports.tf too: with SplitFiles, an earlier run leaves no generated.tf.
-	for _, path := range []string{generated, filepath.Join(dir, ImportsFileName)} {
+	for _, path := range []string{generated, filepath.Join(dir, rootfile.ImportsFileName)} {
 		if _, err := os.Stat(path); err == nil {
 			return nil, fmt.Errorf("%s already exists; use an empty output directory", path)
 		} else if !errors.Is(err, fs.ErrNotExist) {
@@ -389,7 +379,7 @@ type generation struct {
 	dir       string
 	// generated is the path of generated.tf.
 	generated string
-	imports   []Import
+	imports   []rootfile.Import
 	r         *run
 	opts      Options
 	// literal are the secrets found in the configuration Terraform
@@ -415,7 +405,7 @@ type generation struct {
 // of generated.tf.
 func (g *generation) write(ctx context.Context) (restoreAccess func() error, err error) {
 	opts, dir := g.opts, g.dir
-	importsHCL, err := ImportsFile(g.imports)
+	importsHCL, err := rootfile.ImportsFile(g.imports)
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +422,7 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	if restoreAccess, err = fsutil.MakePrivate(dir); err != nil {
 		return nil, err
 	}
-	files := map[string][]byte{ImportsFileName: importsHCL}
+	files := map[string][]byte{rootfile.ImportsFileName: importsHCL}
 	for name, content := range opts.Config {
 		files[name] = content
 	}
@@ -474,7 +464,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) 
 	// The release the lock file records decides how far the provider's
 	// metadata goes (see schemaHints).
 	hints := schemaHintsFor(g.dir, g.opts.SchemaMetadata)
-	diags, _, err := tfrun.Plan(ctx, g.tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	diags, _, err := tfrun.Plan(ctx, g.tf, tfexec.GenerateConfigOut(rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, fmt.Errorf("terraform plan: %w", err)
 	}
@@ -550,7 +540,7 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 		for i, reason := range reasons {
 			why[i] = string(reason)
 		}
-		log.Printf("%s: planning %s again: %s", g.dir, GeneratedFileName, strings.Join(why, ", "))
+		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(why, ", "))
 		if err := g.replan(ctx); err != nil {
 			return err
 		}
@@ -638,7 +628,7 @@ func (g *generation) secretVariables(ctx context.Context) error {
 		return err
 	}
 	var public bool
-	if g.result.Secrets, public, err = secret.PublicToLiterals(ctx, g.tf, filepath.Join(g.dir, GeneratedFileName), g.result.Secrets, g.r.secrets); err != nil {
+	if g.result.Secrets, public, err = secret.PublicToLiterals(ctx, g.tf, filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, g.r.secrets); err != nil {
 		return err
 	}
 	if public {
@@ -716,7 +706,7 @@ func (g *generation) finish(ctx context.Context) error {
 		}
 	}
 	if g.rejected.Len() > 0 {
-		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), secret.RedactBytes(g.rejected.Bytes(), g.literal), 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, rootfile.RejectedFileName), secret.RedactBytes(g.rejected.Bytes(), g.literal), 0o644); err != nil {
 			return err
 		}
 	}
@@ -748,7 +738,7 @@ func (g *generation) finish(ctx context.Context) error {
 	result.Moves, result.Retyped, result.Unmoved = moves(opts.Previous, result.Addresses, callSources(result.Modules))
 	result.Removed = removals(opts.Previous, result.Addresses)
 	result.Arrived = arrived(opts.Arrivals, result.Addresses)
-	if err := writeMoves(dir, result.Moves, result.Removed, result.Retyped); err != nil {
+	if err := rootfile.WriteMoves(dir, result.Moves, result.Removed, result.Retyped); err != nil {
 		return err
 	}
 	return requireMinimumVersion(dir)
@@ -781,7 +771,7 @@ func (g *generation) gate(ctx context.Context) error {
 // plan reported them: after the omissions, so that of a pair the catalogue
 // leaves one out of, such as an event rule's is_enabled beside its state,
 // the other stays.
-func prepareGenerated(path string, imports []Import, opts Options, hints schemaHints) ([]replanReason, error) {
+func prepareGenerated(path string, imports []rootfile.Import, opts Options, hints schemaHints) ([]replanReason, error) {
 	edits := []struct {
 		reason replanReason
 		edit   func() (bool, error)
@@ -812,11 +802,11 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 	if len(diags) == 0 {
 		return nil, nil
 	}
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -851,7 +841,7 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // the configuration instead (see secret.WithoutUnset); vars are the options the
 // plan that tells them apart needs.
 func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]secret.Variable, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}

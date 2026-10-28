@@ -10,6 +10,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 const movesCheckConfig = `resource "aws_subnet" "b" {
@@ -29,8 +30,8 @@ module "network" {
 func TestCheckMovesPasses(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, movesCheckConfig)
-	writeConfig(t, dir, MovesFileName, `moved {
+	writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
+	writeConfig(t, dir, rootfile.MovesFileName, `moved {
   from = aws_subnet.a
   to   = aws_subnet.b
 }
@@ -95,7 +96,7 @@ removed {
 func TestCheckMovesWithoutMoves(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, movesCheckConfig)
+	writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
 	check, err := checkMoves(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -213,8 +214,8 @@ moved {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, movesCheckConfig)
-			writeConfig(t, dir, MovesFileName, tc.moves)
+			writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
+			writeConfig(t, dir, rootfile.MovesFileName, tc.moves)
 			check, err := checkMoves(dir)
 			if err != nil {
 				t.Fatal(err)

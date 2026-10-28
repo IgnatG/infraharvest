@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -27,14 +27,14 @@ import (
 type fakeSteps struct {
 	mu     sync.Mutex
 	events []string
-	roots  map[string]map[string][]engine.Import
+	roots  map[string]map[string][]rootfile.Import
 	locks  map[string]string
 	// list, if set, runs as each call lists, and its error fails it.
 	list func(ctx context.Context, call string) error
 }
 
 func newFakeSteps() *fakeSteps {
-	return &fakeSteps{roots: map[string]map[string][]engine.Import{}, locks: map[string]string{}}
+	return &fakeSteps{roots: map[string]map[string][]rootfile.Import{}, locks: map[string]string{}}
 }
 
 func (f *fakeSteps) record(event string) {
@@ -60,10 +60,10 @@ func (f *fakeSteps) steps() callSteps {
 			if c.Options.Discover {
 				return nil, nil
 			}
-			byDir := map[string][]engine.Import{filepath.Join("out", name): {{Type: "aws_vpc", ID: name, Name: name}}}
+			byDir := map[string][]rootfile.Import{filepath.Join("out", name): {{Type: "aws_vpc", ID: name, Name: name}}}
 			return &listedCall{run: run, options: c.Options, scope: "aws/111/" + name, byDir: byDir}, nil
 		},
-		generate: func(_ context.Context, c *listedCall, roots map[string][]engine.Import) error {
+		generate: func(_ context.Context, c *listedCall, roots map[string][]rootfile.Import) error {
 			name := strings.TrimPrefix(c.scope, "aws/111/")
 			f.record("generate " + name)
 			f.mu.Lock()

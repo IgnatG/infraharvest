@@ -12,6 +12,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func TestOutputLists(t *testing.T) {
@@ -45,7 +46,7 @@ var listSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSc
 func TestCollapseOutputLists(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lb" "web" {
   security_groups = [aws_security_group.web.id]
   subnet_mapping {
     subnet_id = module.vpc.public_subnets[1]
@@ -106,7 +107,7 @@ module "alb" {
 	if fetched != 1 {
 		t.Errorf("want the schemas fetched once, got %d", fetched)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		// The blocks become the argument that takes the subnets.
 		`resource "aws_lb" "web" { security_groups = [aws_security_group.web.id] subnets = module.vpc.public_subnets }`,

@@ -19,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -58,7 +59,7 @@ const maxFillRounds = 2
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
 func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
-	backup, err := fsutil.BackupFiles(dir, GeneratedFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName)
 	if err != nil {
 		return false, nil, err
 	}
@@ -134,7 +135,7 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 // without reserved tags, but for the resources in skip. It returns the
 // addresses of the resources it set.
 func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // referenceTarget is a resource attribute a literal can refer to instead.
@@ -76,7 +77,7 @@ func (t referenceTarget) node() string {
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see verifyEach). It returns the resources it changed.
 func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}

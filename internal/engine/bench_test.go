@@ -10,6 +10,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // The benchmarks below run on a root of benchResources resources, as a
@@ -54,7 +56,7 @@ func benchVPCs(n int) []string {
 func benchBodies(b *testing.B, src []byte) []*hclwrite.Block {
 	b.StopTimer()
 	defer b.StartTimer()
-	f, diags := hclwrite.ParseConfig(src, GeneratedFileName, hcl.InitialPos)
+	f, diags := hclwrite.ParseConfig(src, rootfile.GeneratedFileName, hcl.InitialPos)
 	if diags.HasErrors() {
 		b.Fatal(diags)
 	}

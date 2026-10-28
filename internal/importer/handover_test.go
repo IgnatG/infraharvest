@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -24,12 +25,12 @@ func earlierRoot(t *testing.T, out, dir string, addresses ...engine.Managed) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, engine.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result := &engine.Result{Addresses: addresses}
 	for _, m := range addresses {
-		result.Imported = append(result.Imported, engine.Import{Type: m.Type, ID: m.ID, Name: m.ID})
+		result.Imported = append(result.Imported, rootfile.Import{Type: m.Type, ID: m.ID, Name: m.ID})
 	}
 	if err := saveCheckpoint(out, dir, "fp", result); err != nil {
 		t.Fatal(err)
@@ -40,13 +41,13 @@ func thing(id, address string) engine.Managed {
 	return engine.Managed{Type: "fake_thing", ID: id, Address: address}
 }
 
-func thingImport(id string) engine.Import {
-	return engine.Import{Type: "fake_thing", ID: id, Name: id}
+func thingImport(id string) rootfile.Import {
+	return rootfile.Import{Type: "fake_thing", ID: id, Name: id}
 }
 
 // regenerating returns a listed call of an import with --regenerate into
 // out, of byDir.
-func regenerating(out string, byDir map[string][]engine.Import) *listedCall {
+func regenerating(out string, byDir map[string][]rootfile.Import) *listedCall {
 	return &listedCall{run: NewRun(), options: Options{Out: out, Regenerate: true}, scope: "scope", byDir: byDir}
 }
 
@@ -70,7 +71,7 @@ func TestPlanHandoversBetweenRootsOfTheRun(t *testing.T) {
 	out := t.TempDir()
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	c := regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {thingImport("a")}})
+	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a")}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -79,11 +80,11 @@ func TestPlanHandoversBetweenRootsOfTheRun(t *testing.T) {
 	if err := h.refusal(old); err != nil {
 		t.Fatalf("old refused: %v", err)
 	}
-	want := []engine.Removal{{From: "fake_thing.a", Resources: []engine.Departure{{Type: "fake_thing", ID: "a", Address: "fake_thing.a", Root: "fake/next"}}}}
+	want := []rootfile.Removal{{From: "fake_thing.a", Resources: []rootfile.Departure{{Type: "fake_thing", ID: "a", Address: "fake_thing.a", Root: "fake/next"}}}}
 	if got := h.removalsOf(old); !reflect.DeepEqual(got, want) {
 		t.Errorf("old's removals: got %+v, want %+v", got, want)
 	}
-	if got, want := h.arrivalsOf(next), []engine.Arrival{{Type: "fake_thing", ID: "a", Root: "fake/old", From: "fake_thing.a"}}; !reflect.DeepEqual(got, want) {
+	if got, want := h.arrivalsOf(next), []rootfile.Arrival{{Type: "fake_thing", ID: "a", Root: "fake/old", From: "fake_thing.a"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("next's arrivals: got %+v, want %+v", got, want)
 	}
 	if len(c.byDir[next]) != 1 || len(c.run.report.Excluded) != 0 {
@@ -99,7 +100,7 @@ func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
 	out := t.TempDir()
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, engine.Managed{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}, thing("b", "fake_thing.b"))
-	c := regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}}})
+	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -108,23 +109,23 @@ func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
 	if err := h.refusal(old); err != nil {
 		t.Fatalf("old refused: %v", err)
 	}
-	departure := engine.Departure{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web", Root: "fake/next"}
-	if got, want := h.removalsOf(old), []engine.Removal{{From: "aws_alb.web", Resources: []engine.Departure{departure}}}; !reflect.DeepEqual(got, want) {
+	departure := rootfile.Departure{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web", Root: "fake/next"}
+	if got, want := h.removalsOf(old), []rootfile.Removal{{From: "aws_alb.web", Resources: []rootfile.Departure{departure}}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("old's removals: got %+v, want %+v", got, want)
 	}
-	arrival := engine.Arrival{Type: "aws_lb", ID: "arn:lb", Root: "fake/old", From: "aws_alb.web", FromType: "aws_alb"}
-	if got := h.arrivalsOf(next); !reflect.DeepEqual(got, []engine.Arrival{arrival}) {
+	arrival := rootfile.Arrival{Type: "aws_lb", ID: "arn:lb", Root: "fake/old", From: "aws_alb.web", FromType: "aws_alb"}
+	if got := h.arrivalsOf(next); !reflect.DeepEqual(got, []rootfile.Arrival{arrival}) {
 		t.Errorf("next's arrivals: got %+v, want %+v", got, arrival)
 	}
 	arrival.To = "aws_lb.web"
-	h.record(next, &engine.Result{Arrived: []engine.Arrival{arrival}}, nil)
+	h.record(next, &engine.Result{Arrived: []rootfile.Arrival{arrival}}, nil)
 	h.record(old, &engine.Result{Removed: h.removalsOf(old)}, nil)
 	if got := h.incomplete(); len(got) != 0 || h.refuseUnreceived(old) != nil {
 		t.Errorf("incomplete handovers %+v", got)
 	}
 
 	// Left out of a root the run doesn't generate, it stays there.
-	c = regenerating(out, map[string][]engine.Import{next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}, thingImport("c")}})
+	c = regenerating(out, map[string][]rootfile.Import{next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}, thingImport("c")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,7 @@ func TestPlanHandoversLeavesOutWhatARootNotInTheRunHas(t *testing.T) {
 	out := t.TempDir()
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	c := regenerating(out, map[string][]engine.Import{next: {thingImport("a"), thingImport("c")}})
+	c := regenerating(out, map[string][]rootfile.Import{next: {thingImport("a"), thingImport("c")}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -163,8 +164,8 @@ func TestPlanHandoversVacatesARootThatHasNothingLeft(t *testing.T) {
 	old := filepath.Join(out, "fake", "old")
 	alpha, beta := filepath.Join(out, "fake", "alpha"), filepath.Join(out, "fake", "beta")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	first := regenerating(out, map[string][]engine.Import{beta: {thingImport("b")}})
-	second := regenerating(out, map[string][]engine.Import{alpha: {thingImport("a")}})
+	first := regenerating(out, map[string][]rootfile.Import{beta: {thingImport("b")}})
+	second := regenerating(out, map[string][]rootfile.Import{alpha: {thingImport("a")}})
 
 	if err := planHandovers(out, []*listedCall{first, second}); err != nil {
 		t.Fatal(err)
@@ -188,22 +189,22 @@ func TestPlanHandoversVacatesARootThatHasNothingLeft(t *testing.T) {
 func TestPlanHandoversHandsOverSomeInstancesAlone(t *testing.T) {
 	for name, tt := range map[string]struct {
 		had  []engine.Managed
-		want engine.Removal
+		want rootfile.Removal
 	}{
 		"instances": {
 			had:  []engine.Managed{thing("a", "fake_thing.group[0]"), thing("b", "fake_thing.group[1]"), thing("c", "fake_thing.departed_group_0")},
-			want: engine.Removal{From: "fake_thing.departed_group_0_2", Instance: "fake_thing.group[0]"},
+			want: rootfile.Removal{From: "fake_thing.departed_group_0_2", Instance: "fake_thing.group[0]"},
 		},
 		"module call": {
 			had:  []engine.Managed{thing("a", `module.m["k"].fake_thing.x`), thing("b", `module.m["k"].fake_thing.y`)},
-			want: engine.Removal{From: "fake_thing.departed_m_k_x", Instance: `module.m["k"].fake_thing.x`},
+			want: rootfile.Removal{From: "fake_thing.departed_m_k_x", Instance: `module.m["k"].fake_thing.x`},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
 			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 			earlierRoot(t, out, old, tt.had...)
-			c := regenerating(out, map[string][]engine.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}})
+			c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}})
 
 			if err := planHandovers(out, []*listedCall{c}); err != nil {
 				t.Fatal(err)
@@ -211,8 +212,8 @@ func TestPlanHandoversHandsOverSomeInstancesAlone(t *testing.T) {
 			if err := c.handovers.refusal(old); err != nil {
 				t.Fatalf("old refused: %v", err)
 			}
-			tt.want.Resources = []engine.Departure{{Type: "fake_thing", ID: "a", Address: tt.want.Instance, Root: "fake/next"}}
-			if got := c.handovers.removalsOf(old); !reflect.DeepEqual(got, []engine.Removal{tt.want}) {
+			tt.want.Resources = []rootfile.Departure{{Type: "fake_thing", ID: "a", Address: tt.want.Instance, Root: "fake/next"}}
+			if got := c.handovers.removalsOf(old); !reflect.DeepEqual(got, []rootfile.Removal{tt.want}) {
 				t.Errorf("old's removals: got %+v, want %+v", got, tt.want)
 			}
 			if got := c.handovers.arrivalsOf(next); len(got) != 1 || got[0].From != tt.want.Instance {
@@ -244,7 +245,7 @@ func TestPlanHandoversRefusesWhatARemovedBlockCantTake(t *testing.T) {
 			out := t.TempDir()
 			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 			earlierRoot(t, out, old, tt.had...)
-			c := regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {thingImport("a"), thingImport("c")}})
+			c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a"), thingImport("c")}})
 			if err := saveCheckpoint(out, old, "fp", &engine.Result{Addresses: tt.had, Modules: []engine.ModuleCall{{Name: "eks", Source: "terraform-aws-modules/eks/aws"}}}); err != nil {
 				t.Fatal(err)
 			}
@@ -270,7 +271,7 @@ func TestPlanHandoversRemovesAWholeModuleCall(t *testing.T) {
 	out := t.TempDir()
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, thing("a", "module.m.fake_thing.x[0]"), thing("b", "module.m.fake_thing.x[1]"), thing("c", "fake_thing.c"))
-	c := regenerating(out, map[string][]engine.Import{old: {thingImport("c")}, next: {thingImport("a"), thingImport("b")}})
+	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("c")}, next: {thingImport("a"), thingImport("b")}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -287,11 +288,11 @@ func TestPlanHandoversRefusesWhatMovesTFStillMoves(t *testing.T) {
 	out := t.TempDir()
 	old, next, other := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next"), filepath.Join(out, "fake", "other")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	if err := os.WriteFile(filepath.Join(old, engine.MovesFileName), []byte("moved {\n  from = fake_thing.was\n  to   = fake_thing.a\n}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(old, rootfile.MovesFileName), []byte("moved {\n  from = fake_thing.was\n  to   = fake_thing.a\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	earlierRoot(t, out, other, thing("c", "fake_thing.c"), thing("d", "fake_thing.d"))
-	c := regenerating(out, map[string][]engine.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}, other: {thingImport("d")}})
+	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}, other: {thingImport("d")}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -312,7 +313,7 @@ func TestPlanHandoversOnlyWithRegenerate(t *testing.T) {
 	out := t.TempDir()
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"))
-	c := regenerating(out, map[string][]engine.Import{next: {thingImport("a")}})
+	c := regenerating(out, map[string][]rootfile.Import{next: {thingImport("a")}})
 	c.options.Regenerate = false
 	if err := planHandovers(out, []*listedCall{c, nil}); err != nil {
 		t.Fatal(err)
@@ -349,14 +350,14 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/all", "fake/alpha", "fake/beta"}) {
 		t.Errorf("reported directories %v", got)
 	}
-	moves := readFileIn(t, alpha, engine.MovesFileName)
+	moves := readFileIn(t, alpha, rootfile.MovesFileName)
 	if !strings.Contains(moves, "removed {\n  from = fake_thing.alpha\n") || !strings.Contains(moves, "destroy = false") {
-		t.Errorf("alpha's %s:\n%s", engine.MovesFileName, moves)
+		t.Errorf("alpha's %s:\n%s", rootfile.MovesFileName, moves)
 	}
-	if readme := readFileIn(t, alpha, engine.ReadmeFileName); !strings.Contains(readme, "`fake/all`") {
+	if readme := readFileIn(t, alpha, rootfile.ReadmeFileName); !strings.Contains(readme, "`fake/all`") {
 		t.Errorf("alpha's README doesn't say where its resource goes:\n%s", readme)
 	}
-	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName} {
 		if _, err := os.Stat(filepath.Join(alpha, name)); err == nil {
 			t.Errorf("alpha keeps %s", name)
 		}
@@ -386,8 +387,8 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	if len(run.failures) != 0 || !slices.Equal(f.generated, []string{"all"}) {
 		t.Errorf("generated %v, failures %v", f.generated, run.failures)
 	}
-	if _, err := os.Stat(filepath.Join(alpha, engine.MovesFileName)); err != nil {
-		t.Errorf("alpha's %s: %v", engine.MovesFileName, err)
+	if _, err := os.Stat(filepath.Join(alpha, rootfile.MovesFileName)); err != nil {
+		t.Errorf("alpha's %s: %v", rootfile.MovesFileName, err)
 	}
 }
 
@@ -427,7 +428,7 @@ func TestHandoversOrderRootsAfterWhereTheirResourcesGo(t *testing.T) {
 	out := t.TempDir()
 	a, b, c := filepath.Join(out, "fake", "a"), filepath.Join(out, "fake", "b"), filepath.Join(out, "fake", "c")
 	earlierRoot(t, out, a, thing("x", "fake_thing.x"), thing("y", "fake_thing.y"))
-	call := regenerating(out, map[string][]engine.Import{a: {thingImport("y")}, b: {thingImport("z")}, c: {thingImport("x")}})
+	call := regenerating(out, map[string][]rootfile.Import{a: {thingImport("y")}, b: {thingImport("z")}, c: {thingImport("x")}})
 	if err := planHandovers(out, []*listedCall{call}); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +448,7 @@ func halfHandedOver(t *testing.T) (c *listedCall, old, next string) {
 	out := t.TempDir()
 	old, next = filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	c = regenerating(out, map[string][]engine.Import{old: {thingImport("b")}, next: {thingImport("a")}})
+	c = regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +461,7 @@ func halfHandedOver(t *testing.T) (c *listedCall, old, next string) {
 func TestWarnIncompleteWhenTheRootALeavesFails(t *testing.T) {
 	c, old, next := halfHandedOver(t)
 	h := c.handovers
-	h.record(next, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "a", Root: "fake/old", From: "fake_thing.a", To: "fake_thing.a"}}}, nil)
+	h.record(next, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "a", Root: "fake/old", From: "fake_thing.a", To: "fake_thing.a"}}}, nil)
 	h.record(old, &engine.Result{Removed: h.removalsOf(old)}, errors.New("plan failed"))
 
 	warnIncomplete(c.run, []*listedCall{c})
@@ -505,7 +506,7 @@ func TestWarnIncompleteOnlyForHalfAHandover(t *testing.T) {
 				err = errors.New("plan failed")
 			}
 			h.record(old, &engine.Result{Removed: h.removalsOf(old)}, err)
-			h.record(next, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "a", To: "fake_thing.a"}}}, err)
+			h.record(next, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "a", To: "fake_thing.a"}}}, err)
 			warnIncomplete(c.run, []*listedCall{c})
 			if got := c.run.report.IncompleteHandovers; len(got) != 0 {
 				t.Errorf("incomplete handovers %+v", got)
@@ -554,11 +555,11 @@ func TestListCallRegenerateLeavesARootAsItWasWhenWhereItsResourceGoesFails(t *te
 			t.Errorf("all's error: %s", d.Error)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(all, engine.GeneratedFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(all, rootfile.GeneratedFileName)); err != nil {
 		t.Errorf("all isn't left as it was: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(all, engine.MovesFileName)); err == nil {
-		t.Errorf("all has a %s", engine.MovesFileName)
+	if _, err := os.Stat(filepath.Join(all, rootfile.MovesFileName)); err == nil {
+		t.Errorf("all has a %s", rootfile.MovesFileName)
 	}
 	if len(run.report.Departed) != 0 || len(run.report.IncompleteHandovers) != 0 {
 		t.Errorf("departed %+v, incomplete %+v", run.report.Departed, run.report.IncompleteHandovers)

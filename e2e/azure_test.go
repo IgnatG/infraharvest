@@ -20,7 +20,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -94,8 +94,8 @@ func TestAzureRoundTrip(t *testing.T) {
 		if len(members) > 0 {
 			t.Errorf("%s isn't called, yet has %v", adapters.AzureUserAssignedIdentity().Source, members)
 		}
-		if versions := readFile(t, filepath.Join(wantDir, engine.VersionsFileName)); strings.Contains(versions, "azapi") {
-			t.Errorf("no module needs azapi, yet %s requires it:\n%s", engine.VersionsFileName, versions)
+		if versions := readFile(t, filepath.Join(wantDir, rootfile.VersionsFileName)); strings.Contains(versions, "azapi") {
+			t.Errorf("no module needs azapi, yet %s requires it:\n%s", rootfile.VersionsFileName, versions)
 		}
 		return
 	}
@@ -220,8 +220,8 @@ func azureEmulatorFailure(failure string) bool {
 // module call, merged with the identity's own tag.
 func checkAzureTags(t *testing.T, dir string) {
 	t.Helper()
-	if locals := strings.Join(strings.Fields(readFile(t, filepath.Join(dir, engine.LocalsFileName))), " "); !strings.Contains(locals, `env = "test"`) || !strings.Contains(locals, `project = "infraharvest-e2e"`) {
-		t.Errorf("%s doesn't have the shared tags:\n%s", engine.LocalsFileName, locals)
+	if locals := strings.Join(strings.Fields(readFile(t, filepath.Join(dir, rootfile.LocalsFileName))), " "); !strings.Contains(locals, `env = "test"`) || !strings.Contains(locals, `project = "infraharvest-e2e"`) {
+		t.Errorf("%s doesn't have the shared tags:\n%s", rootfile.LocalsFileName, locals)
 	}
 	generated := configuration(t, dir)
 	// The virtual network, network security group, public IP and network

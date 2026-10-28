@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // An import Terraform generated no configuration for, such as of a KMS key
@@ -18,12 +20,12 @@ import (
 func TestUnconfigured(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, "resource \"aws_kms_key\" \"live\" {\n}\n")
-	content, err := ImportsFile([]Import{{Type: "aws_kms_key", Name: "live", ID: "k-1"}, {Type: "aws_kms_key", Name: "pending", ID: "k-2"}})
+	writeConfig(t, dir, rootfile.GeneratedFileName, "resource \"aws_kms_key\" \"live\" {\n}\n")
+	content, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_kms_key", Name: "live", ID: "k-1"}, {Type: "aws_kms_key", Name: "pending", ID: "k-2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
 
 	missing, err := unconfigured(dir)
 	if err != nil {
@@ -44,17 +46,17 @@ func TestUnconfigured(t *testing.T) {
 func TestRejectNamesTheVariablesTheResourceReads(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_ssm_parameter" "p" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_ssm_parameter" "p" {
   name  = "p"
   value = var.aws_ssm_parameter_p_value
   tags  = { k = "${var.aws_ssm_parameter_p_tag}-x", other = local.var.x, again = var.aws_ssm_parameter_p_value }
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "aws_ssm_parameter", Name: "p", ID: "p"}})
+	content, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_ssm_parameter", Name: "p", ID: "p"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
 
 	var out bytes.Buffer
 	if _, err := reject(dir, map[string][]tfjson.Diagnostic{"aws_ssm_parameter.p": {{Severity: tfjson.DiagnosticSeverityError, Summary: "Bad"}}}, &out); err != nil {

@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -70,7 +71,7 @@ func TestStripDefaultsWithSchemaMetadata(t *testing.T) {
 	if err != nil || !stripped || last == nil {
 		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`name = "a"`, "computed = false", "retries = 0"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -102,7 +103,7 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
 		t.Errorf("calls: %s", calls)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "retries = 0") {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, "retries = 0") {
 		t.Errorf("generated.tf lost retries = 0:\n%s", got)
 	}
 }
@@ -112,18 +113,18 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 func provenRoot(t *testing.T) (string, map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_thing" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_thing" "a" {
   name        = "a"
   description = null
   enabled     = false
   retries     = 3
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
+	content, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_thing", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
 	return dir, map[string]string{"aws_thing.a": tfrun.ChangeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
@@ -144,7 +145,7 @@ func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
 			if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show" {
 				t.Errorf("calls: %s", calls)
 			}
-			if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" }` {
+			if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" }` {
 				t.Errorf("generated.tf:\n%s", got)
 			}
 		})
@@ -170,7 +171,7 @@ func TestStripDefaultsCorrectsWrongProvenDefaults(t *testing.T) {
 	if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show,plan,show" {
 		t.Errorf("calls: %s", calls)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" retries = 3 }` {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" retries = 3 }` {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
@@ -186,7 +187,7 @@ func TestStripDefaultsKeepsSameMajorDefaultsOnErrors(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want the null stripped, got %v, %v", stripped, err)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" enabled = false retries = 3 }` {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); got != `resource "aws_thing" "a" { name = "a" enabled = false retries = 3 }` {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
@@ -202,7 +203,7 @@ func TestStripDefaultsKeepsProvenDefaultsOutOnErrors(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls and proven defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{"retries = 0", "tags = {}", `mode = ""`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -296,7 +297,7 @@ func TestSchemaHints(t *testing.T) {
 // a candidate the plan checks; other computed constants stay.
 func TestRemoveDefaultsFrameworkDefaults(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_fw" "a" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "aws_fw" "a" {
   mode  = "auto"
   other = "auto"
 }
@@ -386,7 +387,7 @@ func subnetMetadata() *schemameta.File {
 // their pairs in the first block only (see resolveConflicts).
 func TestResolveConflicts(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	config := rejectedConfig + "\n" + conflictingBlocksConfig + `
 resource "aws_route" "e" {
   target {
@@ -413,7 +414,7 @@ resource "aws_subnet" "f" {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
 
-	got := squashed(readFile(t, filepath.Dir(path), GeneratedFileName))
+	got := squashed(readFile(t, filepath.Dir(path), rootfile.GeneratedFileName))
 	for _, removed := range []string{`availability_zone_id = "us-east-1-az1"`, "warm_throughput_mib_ps", "subnets ="} {
 		if strings.Contains(got, removed) {
 			t.Errorf("%s not removed:\n%s", removed, got)
@@ -442,7 +443,7 @@ const subnetLock = `provider "registry.terraform.io/hashicorp/aws" {
 // judge them, as without metadata.
 func TestResolveConflictsNeedsTheExactRelease(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +486,7 @@ func TestGenerateSettlesConflictsAfterOmissions(t *testing.T) {
 		}
 	}
 
-	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_cloudwatch_event_rule", Name: "a", ID: "default/nightly"}}, Options{
+	result, err := Generate(context.Background(), tf, dir, []rootfile.Import{{Type: "aws_cloudwatch_event_rule", Name: "a", ID: "default/nightly"}}, Options{
 		SchemaMetadata: meta,
 		Omit:           map[string][]string{"aws_cloudwatch_event_rule": {"is_enabled"}},
 	})
@@ -495,7 +496,7 @@ func TestGenerateSettlesConflictsAfterOmissions(t *testing.T) {
 	if len(result.Rejected) != 0 {
 		t.Errorf("want nothing left out, got %+v", result.Rejected)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if !strings.Contains(got, `state = "DISABLED"`) || strings.Contains(got, "is_enabled") {
 		t.Errorf("want state kept and is_enabled left out:\n%s", got)
 	}
@@ -530,7 +531,7 @@ func TestGenerateResolvesConflictsBeforeValidation(t *testing.T) {
 		errorAt(8, conflict, `"availability_zone": conflicts with availability_zone_id`),
 		errorAt(9, conflict, `"availability_zone_id": conflicts with availability_zone`),
 	}
-	imports := []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-a"}, {Type: "aws_subnet", Name: "b", ID: "subnet-b"}}
+	imports := []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-a"}, {Type: "aws_subnet", Name: "b", ID: "subnet-b"}}
 	run := func(t *testing.T, meta *schemameta.File) []string {
 		t.Helper()
 		dir := t.TempDir()
@@ -554,7 +555,7 @@ func TestGenerateResolvesConflictsBeforeValidation(t *testing.T) {
 		if len(result.Rejected) != 0 {
 			t.Errorf("want nothing left out, got %+v", result.Rejected)
 		}
-		got := readFile(t, dir, GeneratedFileName)
+		got := readFile(t, dir, rootfile.GeneratedFileName)
 		if strings.Contains(got, "availability_zone_id") || strings.Count(got, "availability_zone ") != 2 {
 			t.Errorf("want the zone IDs left out, the names kept:\n%s", got)
 		}

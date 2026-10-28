@@ -6,6 +6,8 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // moduleRoots are a dev and a prod root of a stack whose resources are in
@@ -86,7 +88,7 @@ func TestMergeStackModules(t *testing.T) {
 	if !strings.Contains(cache, `module "cache_dev"`) || !strings.Contains(cache, `module "cache_prod"`) || !strings.Contains(cache, `version = "2.0.0"`) {
 		t.Errorf("each environment's release of the cache module is its own:\n%s", cache)
 	}
-	imports := string(files[ImportsFileName])
+	imports := string(files[rootfile.ImportsFileName])
 	for _, want := range []string{
 		"to = module.logs.aws_s3_bucket.this[0]",
 		`for_each = [for k in [0] : k if contains(keys(var.import_ids), "module.logs.aws_s3_bucket_versioning.this[0]")]`,

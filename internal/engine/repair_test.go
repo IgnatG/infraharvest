@@ -12,6 +12,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func errorAt(line int, summary, detail string) tfjson.Diagnostic {
@@ -19,7 +21,7 @@ func errorAt(line int, summary, detail string) tfjson.Diagnostic {
 		Severity: tfjson.DiagnosticSeverityError,
 		Summary:  summary,
 		Detail:   detail,
-		Range:    &tfjson.Range{Filename: GeneratedFileName, Start: tfjson.Pos{Line: line}, End: tfjson.Pos{Line: line}},
+		Range:    &tfjson.Range{Filename: rootfile.GeneratedFileName, Start: tfjson.Pos{Line: line}, End: tfjson.Pos{Line: line}},
 	}
 }
 
@@ -55,7 +57,7 @@ resource "aws_ssm_parameter" "d" {
 
 func TestRemoveRejected(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -68,12 +70,12 @@ func TestRemoveRejected(t *testing.T) {
 		errorAt(11, conflict, `"warm_throughput_mib_ps": conflicts with shard_count`),
 		errorAt(18, "expected point_in_time_recovery.0.recovery_period_in_days to be in the range (1 - 35), got 0", ""),
 		errorAt(25, "Invalid combination of arguments", `"value": one of insecure_value,value,value_wo must be specified`),
-		{Severity: tfjson.DiagnosticSeverityWarning, Summary: "ignored", Range: &tfjson.Range{Filename: GeneratedFileName, Start: tfjson.Pos{Line: 4}}},
-		{Severity: tfjson.DiagnosticSeverityError, Summary: "ignored", Range: &tfjson.Range{Filename: ImportsFileName, Start: tfjson.Pos{Line: 6}}},
+		{Severity: tfjson.DiagnosticSeverityWarning, Summary: "ignored", Range: &tfjson.Range{Filename: rootfile.GeneratedFileName, Start: tfjson.Pos{Line: 4}}},
+		{Severity: tfjson.DiagnosticSeverityError, Summary: "ignored", Range: &tfjson.Range{Filename: rootfile.ImportsFileName, Start: tfjson.Pos{Line: 6}}},
 	}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
@@ -97,7 +99,7 @@ func TestRemoveRejected(t *testing.T) {
 
 func TestRemoveRejectedLeavesOtherErrors(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(rejectedConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +109,7 @@ func TestRemoveRejectedLeavesOtherErrors(t *testing.T) {
 	}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 
 	if err != nil || changed {
@@ -156,7 +158,7 @@ resource "aws_network_acl" "c" {
 
 func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(conflictingBlocksConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,7 @@ func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
 	}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
@@ -196,7 +198,7 @@ func TestRemoveRejectedBlocksAndObjects(t *testing.T) {
 // configuration.
 func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	config := `resource "aws_lb_target_group" "b" {
   target_failover {
     on_deregistration = "rebalance"
@@ -210,7 +212,7 @@ func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
 	diags := []tfjson.Diagnostic{errorAt(2, "Missing required argument", `The argument "target_failover.0.on_unhealthy" is required, but no definition was found.`)}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 
 	if err != nil || changed {
@@ -222,7 +224,7 @@ func TestRemoveRejectedKeepsBlocksWithValues(t *testing.T) {
 // it, such as a forward action's stickiness block, set only to false, on AWS.
 func TestRemoveRejectedBlockByBareArgument(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	config := `resource "aws_lb_listener" "a" {
   port = 80
   default_action {
@@ -244,12 +246,12 @@ func TestRemoveRejectedBlockByBareArgument(t *testing.T) {
 	diags := []tfjson.Diagnostic{errorAt(6, "Missing required argument", `The argument "duration" is required, but no definition was found.`)}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
-	got := readFile(t, filepath.Dir(path), GeneratedFileName)
+	got := readFile(t, filepath.Dir(path), rootfile.GeneratedFileName)
 	if strings.Contains(got, "stickiness") || !strings.Contains(got, `arn = "arn:tg"`) {
 		t.Errorf("want only the stickiness block removed:\n%s", got)
 	}
@@ -260,7 +262,7 @@ func TestRemoveRejectedBlockByBareArgument(t *testing.T) {
 // resource, naming the argument by path or on its own.
 func TestRemoveRejectedAtResourceLevel(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	config := `resource "aws_lb" "a" {
   name = ""
   subnet_mapping {
@@ -296,7 +298,7 @@ resource "aws_cloudfront_distribution" "c" {
 	}
 
 	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		return removeRejected(f, syntax, GeneratedFileName, diags)
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
 	})
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)

@@ -12,6 +12,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -107,7 +108,7 @@ func MergedRootFiles(dir string) ([]string, error) {
 	for _, path := range paths {
 		files = append(files, filepath.Base(path))
 	}
-	candidates := []string{ReadmeFileName, ".gitignore", hclfile.CommonVarsPath}
+	candidates := []string{rootfile.ReadmeFileName, ".gitignore", hclfile.CommonVarsPath}
 	for _, env := range envs {
 		candidates = append(candidates, hclfile.EnvVarsPath(env), hclfile.ImportVarsPath(env), hclfile.BackendConfigPath(env))
 	}

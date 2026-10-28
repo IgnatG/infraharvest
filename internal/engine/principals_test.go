@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // The subscription of the role assignment tests, and its custom role.
@@ -35,7 +36,7 @@ func TestAddReferencesOfRoleAssignments(t *testing.T) {
 		"azurerm_role_assignment.ci":          {"id": roleSubscription + "/resourceGroups/app/providers/Microsoft.Authorization/roleAssignments/1", "principal_id": "aaaaaaaa-0000-0000-0000-000000000001"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_role_assignment" "ci" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_role_assignment" "ci" {
   principal_id       = "aaaaaaaa-0000-0000-0000-000000000001"
   role_definition_id = "`+deployerRole+`"
   scope              = "`+roleSubscription+`/resourceGroups/app"
@@ -62,7 +63,7 @@ resource "azurerm_role_assignment" "group" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"principal_id = azurerm_user_assigned_identity.ci.principal_id",
 		"role_definition_id = azurerm_role_definition.deployer.role_definition_resource_id",
@@ -85,7 +86,7 @@ resource "azurerm_role_assignment" "group" {
 func TestAddLookupsOfTheSubscription(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_role_definition" "deployer" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_role_definition" "deployer" {
   assignable_scopes = ["`+roleSubscription+`"]
   name              = "App Deployer"
   scope             = "`+roleSubscription+`"
@@ -99,7 +100,7 @@ resource "azurerm_role_assignment" "app" {
 	if err != nil || !edited["azurerm_role_definition.deployer"] || len(edited) != 1 {
 		t.Fatalf("want the role definition edited, got %v, %v", edited, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"assignable_scopes = [data.azurerm_subscription.current.id]",
 		"scope = data.azurerm_subscription.current.id",
@@ -109,7 +110,7 @@ resource "azurerm_role_assignment" "app" {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if data := squashed(readFile(t, dir, DataFileName)); strings.Count(data, `data "azurerm_subscription" "current" {`) != 1 {
+	if data := squashed(readFile(t, dir, rootfile.DataFileName)); strings.Count(data, `data "azurerm_subscription" "current" {`) != 1 {
 		t.Errorf("data.tf:\n%s", data)
 	}
 }
@@ -120,7 +121,7 @@ resource "azurerm_role_assignment" "app" {
 func TestNotePrincipals(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_role_assignment" "group" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_role_assignment" "group" {
   principal_id         = "aaaaaaaa-0000-0000-0000-000000000003"
   principal_type       = "Group"
   role_definition_name = "Reader"
@@ -138,11 +139,11 @@ resource "azurerm_key_vault_access_policy" "other" {
   object_id = "aaaaaaaa-0000-0000-0000-000000000003"
 }
 `)
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	if noted, err := notePrincipals(path); err != nil || !noted {
 		t.Fatalf("want notes, got %v, %v", noted, err)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	if _, err := hclfile.Load(path); err != nil {
 		t.Fatalf("the noted file doesn't parse: %v\n%s", err, got)
 	}
@@ -159,6 +160,6 @@ resource "azurerm_key_vault_access_policy" "other" {
 		t.Errorf("want two notes:\n%s", got)
 	}
 	if noted, err := notePrincipals(path); err != nil || noted {
-		t.Errorf("noted again: %v, %v\n%s", noted, err, readFile(t, dir, GeneratedFileName))
+		t.Errorf("noted again: %v, %v\n%s", noted, err, readFile(t, dir, rootfile.GeneratedFileName))
 	}
 }

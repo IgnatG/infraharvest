@@ -15,23 +15,17 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// reservedFiles are the files of a root that hold something else than its
-// resources, which no Import.File may name.
-var reservedFiles = []string{
-	GeneratedFileName, ImportsFileName, VersionsFileName, ProvidersFileName, hclfile.VariablesFileName,
-	LocalsFileName, DataFileName, MovesFileName, "backend.tf", "outputs.tf", "main.tf",
-}
 
 // blockFiles returns the file each block goes in, by address: each
 // resource its import's file (see Import.File), and each module call the
 // file of the first resource it took.
-func blockFiles(imports []Import, calls []ModuleCall) map[string]string {
+func blockFiles(imports []rootfile.Import, calls []ModuleCall) map[string]string {
 	fileOf := map[string]string{}
 	for _, imp := range imports {
-		if imp.File != "" && strings.HasSuffix(imp.File, ".tf") && !slices.Contains(reservedFiles, imp.File) {
+		if imp.File != "" && strings.HasSuffix(imp.File, ".tf") && !rootfile.IsReserved(imp.File) {
 			fileOf[imp.Type+"."+imp.Name] = imp.File
 		}
 	}
@@ -61,12 +55,12 @@ func blockAddress(b *hclwrite.Block) string {
 // name (see blockFiles), such as network.tf for a VPC. Blocks that name no
 // file stay in generated.tf, which goes when nothing is left in it. It
 // returns the files it wrote.
-func splitFiles(dir string, imports []Import, calls []ModuleCall) ([]string, error) {
+func splitFiles(dir string, imports []rootfile.Import, calls []ModuleCall) ([]string, error) {
 	fileOf := blockFiles(imports, calls)
 	if len(fileOf) == 0 {
 		return nil, nil
 	}
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	generated, err := hclfile.Load(path)
 	if err != nil {
 		return nil, err

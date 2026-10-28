@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // lookup is a data source that reads a value no root manages, which the
@@ -60,7 +61,7 @@ type dataBlocks struct {
 }
 
 func newDataBlocks(dir string, taken Names) (*dataBlocks, error) {
-	d := &dataBlocks{path: filepath.Join(dir, DataFileName), used: map[string]bool{}, addresses: map[string]string{}}
+	d := &dataBlocks{path: filepath.Join(dir, rootfile.DataFileName), used: map[string]bool{}, addresses: map[string]string{}}
 	data, err := hclfile.LoadOptional(d.path)
 	if err != nil {
 		return nil, err
@@ -107,7 +108,7 @@ func (d *dataBlocks) reference(l lookup) hclwrite.Tokens {
 
 // write adds the data sources to data.tf.
 func (d *dataBlocks) write() error {
-	return appendBlocks(d.path, dataFileHeader, d.blocks)
+	return appendBlocks(d.path, rootfile.DataFileHeader, d.blocks)
 }
 
 // addLookups replaces literals in generated.tf that a data source reads
@@ -116,7 +117,7 @@ func (d *dataBlocks) write() error {
 // skip, and adds the data sources to data.tf, named other than those in
 // taken and data.tf. It returns the resources it changed.
 func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}

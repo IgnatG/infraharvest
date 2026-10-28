@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // RootResource is a resource another root of the same import manages.
@@ -210,7 +211,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return a.Type+"\x00"+a.Name+"\x00"+a.ID < b.Type+"\x00"+b.Name+"\x00"+b.ID
 	})
 	values := newRootValues(others, arns)
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}

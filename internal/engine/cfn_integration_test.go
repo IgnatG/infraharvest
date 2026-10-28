@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
@@ -46,7 +47,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := Provider{Name: "aws", Source: "hashicorp/aws", Version: ProviderConstraint(latest)}
+	p := rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: rootfile.ProviderConstraint(latest)}
 	templates, err := filepath.Glob(filepath.Join("..", "..", "pkg", "cfn", "testdata", "*.*"))
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +72,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := t.TempDir()
-			files := map[string][]byte{VersionsFileName: VersionsFile(RequiredVersion(tfVersion), p)}
+			files := map[string][]byte{rootfile.VersionsFileName: rootfile.VersionsFile(rootfile.RequiredVersion(tfVersion), p)}
 			for name, content := range res.Files {
 				files[name] = content
 			}

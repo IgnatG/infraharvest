@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -134,7 +134,7 @@ func TestAWSMCP(t *testing.T) {
 	}
 	importsFile := ""
 	for _, dir := range generatedDirs(t, out) {
-		importsFile += readFile(t, filepath.Join(dir, engine.ImportsFileName))
+		importsFile += readFile(t, filepath.Join(dir, rootfile.ImportsFileName))
 	}
 	if !strings.Contains(importsFile, f.Resources[orders].ID) || strings.Contains(importsFile, f.Resources[jobs].ID) {
 		t.Errorf("the import tool's import blocks import other than the orders queue alone:\n%s", importsFile)

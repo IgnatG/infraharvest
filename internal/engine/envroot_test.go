@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // updateGolden rewrites the golden files of the merged roots from what
@@ -55,7 +56,7 @@ func awsEnvRoot(t *testing.T, env string, tokens []string, account, generated st
 	t.Helper()
 	root := testEnvRoot(t, env, tokens, account, generated, ids)
 	root.region = "eu-west-2"
-	root.provider = Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14", Config: map[string]interface{}{
+	root.provider = rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14", Config: map[string]interface{}{
 		"region":              "eu-west-2",
 		"allowed_account_ids": []string{account},
 		"assume_role":         map[string]interface{}{"role_arn": "arn:aws:iam::" + account + ":role/deploy"},
@@ -200,7 +201,7 @@ resource "aws_vpn_connection" "office" {
 	prodIDs["aws_customer_gateway.vpn_office"] = "cgw-0abc1234"
 	prodIDs["aws_vpn_connection.office"] = "vpn-0abc1234"
 	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, prodIDs, files, map[string]string{"Environment": "prd", "Owner": "platform"}, "shop-tfstate-222222222222")
-	data, err := hclfile.Parse(DataFileName, []byte("data \"aws_vpc\" \"vpn\" {\n  id = \"vpc-0abc1234\"\n}\n"))
+	data, err := hclfile.Parse(rootfile.DataFileName, []byte("data \"aws_vpc\" \"vpn\" {\n  id = \"vpc-0abc1234\"\n}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +326,7 @@ func azureRoots(t *testing.T) []envRoot {
 }
 `, map[string]string{"azurerm_storage_account.logs": fmt.Sprintf(id, n, group, name)})
 		r.group = group
-		r.provider = Provider{Name: "azurerm", Source: "hashicorp/azurerm", Version: "~> 4.40", Config: map[string]interface{}{
+		r.provider = rootfile.Provider{Name: "azurerm", Source: "hashicorp/azurerm", Version: "~> 4.40", Config: map[string]interface{}{
 			"features":        map[string]interface{}{},
 			"subscription_id": subscription,
 		}}
@@ -465,21 +466,21 @@ func TestMergedRootFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, tc := range []struct{ file, want string }{
-			{ProvidersFileName, `backend "s3" {}`},
-			{ProvidersFileName, "region              = var.aws_region"},
-			{ProvidersFileName, "allowed_account_ids = var.allowed_account_ids"},
-			{ProvidersFileName, "Environment = var.env"},
-			{ProvidersFileName, `Owner       = "platform"`},
-			{ProvidersFileName, `required_version = ">= 1.7, < 2.0"`},
+			{rootfile.ProvidersFileName, `backend "s3" {}`},
+			{rootfile.ProvidersFileName, "region              = var.aws_region"},
+			{rootfile.ProvidersFileName, "allowed_account_ids = var.allowed_account_ids"},
+			{rootfile.ProvidersFileName, "Environment = var.env"},
+			{rootfile.ProvidersFileName, `Owner       = "platform"`},
+			{rootfile.ProvidersFileName, `required_version = ">= 1.7, < 2.0"`},
 			{"s3.tf", `force_destroy = var.env == "dev"`},
 			{"vpn.tf", "count = var.deploy_vpn ? 1 : 0"},
 			{"vpn.tf", "vpn_gateway_id      = aws_vpn_gateway.vpn[0].id"},
 			{"vpn.tf", "vpc_id = data.aws_vpc.vpn[0].id"},
-			{DataFileName, "data \"aws_vpc\" \"vpn\" {\n  count = var.deploy_vpn ? 1 : 0"},
+			{rootfile.DataFileName, "data \"aws_vpc\" \"vpn\" {\n  count = var.deploy_vpn ? 1 : 0"},
 			{"dynamodb.tf", `dynamic "attribute" {`},
 			{"lambda.tf", "for_each = var.api_tracing_config == null ? [] : [var.api_tracing_config]"},
-			{ImportsFileName, `id = var.import_ids["aws_sqs_queue.orders"]`},
-			{ImportsFileName, "for_each = [for k in [0] : k if var.deploy_vpn]"},
+			{rootfile.ImportsFileName, `id = var.import_ids["aws_sqs_queue.orders"]`},
+			{rootfile.ImportsFileName, "for_each = [for k in [0] : k if var.deploy_vpn]"},
 			{hclfile.VariablesFileName, `condition     = contains(["dev", "prd"], var.env)`},
 			{"vars/prod/terraform.tfvars", `env = "prd"`},
 			{"vars/prod/terraform.tfvars", "deploy_vpn = true"},
@@ -490,7 +491,7 @@ func TestMergedRootFiles(t *testing.T) {
 				t.Errorf("%s doesn't hold %s:\n%s", tc.file, tc.want, files[tc.file])
 			}
 		}
-		if strings.Contains(string(files[ProvidersFileName]), "assume_role") {
+		if strings.Contains(string(files[rootfile.ProvidersFileName]), "assume_role") {
 			t.Error("the provider assumes a role")
 		}
 		for name, content := range files {
@@ -526,7 +527,7 @@ func TestMergedRootFiles(t *testing.T) {
 		}
 		for _, tc := range []struct{ file, want string }{
 			{"sqs.tf", "for_each = var.sqs_queues"},
-			{ImportsFileName, `id       = var.import_ids[format("aws_sqs_queue.this[%q]", each.key)]`},
+			{rootfile.ImportsFileName, `id       = var.import_ids[format("aws_sqs_queue.this[%q]", each.key)]`},
 			{"sns.tf", `resource "aws_sns_topic" "alerts_stage" {`},
 			{"sns.tf", "count = var.deploy_alerts_stage ? 1 : 0"},
 			{"vars/stage/terraform.tfvars", "deploy_alerts_stage = true"},
@@ -538,7 +539,7 @@ func TestMergedRootFiles(t *testing.T) {
 		if _, ok := files[hclfile.BackendConfigPath("dev")]; ok {
 			t.Error("a backend.hcl for roots without a backend")
 		}
-		if strings.Contains(string(files[ProvidersFileName]), "backend") {
+		if strings.Contains(string(files[rootfile.ProvidersFileName]), "backend") {
 			t.Error("a backend for roots without one")
 		}
 	})
@@ -566,7 +567,7 @@ func TestMergedRootFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := string(files[ProvidersFileName]); !strings.Contains(got, `version = "~> 6.20"`) {
+		if got := string(files[rootfile.ProvidersFileName]); !strings.Contains(got, `version = "~> 6.20"`) {
 			t.Errorf("want the newest release line pinned:\n%s", got)
 		}
 		roots[0].provider.Version = "~> 7.0"
@@ -583,12 +584,12 @@ func TestMergedRootFiles(t *testing.T) {
 		// What another root hands prod's root over is named at its address
 		// in the merged root, with the root it comes from.
 		roots := devProdRoots(t)
-		roots[1].arrivals = []Arrival{{Type: "aws_sqs_queue", ID: "https://sqs.eu-west-2.amazonaws.com/222222222222/shop-prd-orders", Root: "aws/222222222222/eu-west-2", From: "aws_sqs_queue.shop_prd_orders", To: "aws_sqs_queue.orders_prd"}}
+		roots[1].arrivals = []rootfile.Arrival{{Type: "aws_sqs_queue", ID: "https://sqs.eu-west-2.amazonaws.com/222222222222/shop-prd-orders", Root: "aws/222222222222/eu-west-2", From: "aws_sqs_queue.shop_prd_orders", To: "aws_sqs_queue.orders_prd"}}
 		files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas))
 		if err != nil {
 			t.Fatal(err)
 		}
-		readme := string(files[ReadmeFileName])
+		readme := string(files[rootfile.ReadmeFileName])
 		if want := "| prod | `aws_sqs_queue.orders` | `aws/222222222222/eu-west-2` | `aws_sqs_queue.shop_prd_orders` |"; !strings.Contains(readme, "## Moves") || !strings.Contains(readme, want) {
 			t.Errorf("the README doesn't name %s:\n%s", want, readme)
 		}
@@ -596,7 +597,7 @@ func TestMergedRootFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if readme := string(files[ReadmeFileName]); strings.Contains(readme, "## Moves") {
+		if readme := string(files[rootfile.ReadmeFileName]); strings.Contains(readme, "## Moves") {
 			t.Errorf("a README of moves without any:\n%s", readme)
 		}
 	})

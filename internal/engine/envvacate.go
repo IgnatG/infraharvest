@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -40,22 +41,22 @@ var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 // runs no Terraform: it returns the files it leaves, by path in dir with
 // forward slashes, sorted, and the moves check of them (see checkMoves).
 // It fails if removed is empty, or its moves.tf still moves resources.
-func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate.Check, error) {
+func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error) {
 	if len(removed) == 0 {
 		return nil, gate.Check{}, errors.New("no resources to hand over")
 	}
-	moved, err := ReadMoves(dir)
+	moved, err := rootfile.ReadMoves(dir)
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
 	if len(moved) > 0 {
-		return nil, gate.Check{}, fmt.Errorf("%s still moves resources: plan and apply every environment, and delete %s, before generating it again", MovesFileName, MovesFileName)
+		return nil, gate.Check{}, fmt.Errorf("%s still moves resources: plan and apply every environment, and delete %s, before generating it again", rootfile.MovesFileName, rootfile.MovesFileName)
 	}
 	envs, err := hclfile.MergedEnvironments(dir)
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
-	providers, err := os.ReadFile(filepath.Join(dir, ProvidersFileName))
+	providers, err := os.ReadFile(filepath.Join(dir, rootfile.ProvidersFileName))
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
@@ -77,7 +78,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		keep := false
 		switch {
-		case name == ProvidersFileName, name == ".gitignore", name == tfrun.LockFileName, hclfile.IsBackendConfig(name):
+		case name == rootfile.ProvidersFileName, name == ".gitignore", name == tfrun.LockFileName, hclfile.IsBackendConfig(name):
 			keep = true
 		case name == hclfile.VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
@@ -97,10 +98,10 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 			return nil, gate.Check{}, err
 		}
 	}
-	if err := writeMoves(dir, nil, removed, nil); err != nil {
+	if err := rootfile.WriteMoves(dir, nil, removed, nil); err != nil {
 		return nil, gate.Check{}, err
 	}
-	if err := raiseRequiredVersion(dir); err != nil {
+	if err := rootfile.RaiseRequiredVersion(dir); err != nil {
 		return nil, gate.Check{}, err
 	}
 	check, err := checkMoves(dir)
@@ -108,10 +109,10 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 		return nil, gate.Check{}, err
 	}
 	backend := slices.ContainsFunc(left, hclfile.IsBackendConfig)
-	if err := fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
 		return nil, gate.Check{}, err
 	}
-	left = append(left, MovesFileName, ReadmeFileName)
+	left = append(left, rootfile.MovesFileName, rootfile.ReadmeFileName)
 	slices.Sort(left)
 	return slices.Compact(left), check, nil
 }
@@ -174,9 +175,9 @@ func parseWritable(path string) (*hclwrite.File, error) {
 // whose resources all go to other roots now (see VacateMerged): what is
 // left to do is forget them, in each environment's state, with its
 // backend settings, if backend, or else in its workspace.
-func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check gate.Check) []byte {
+func vacatedMergedReadme(envs []string, backend bool, removed []rootfile.Removal, check gate.Check) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest merged this root before, for %s. Its resources, in every environment, now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s`, and each environment's settings in `%s/<env>/`.\n", strings.Join(envs, ", "), ProvidersFileName, MovesFileName, hclfile.VarsDir)
+	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest merged this root before, for %s. Its resources, in every environment, now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s`, and each environment's settings in `%s/<env>/`.\n", strings.Join(envs, ", "), rootfile.ProvidersFileName, rootfile.MovesFileName, hclfile.VarsDir)
 	b.WriteString("\n## Next steps\n\n")
 	env := "<env>"
 	if len(envs) > 0 {
@@ -189,10 +190,10 @@ func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check g
 		fmt.Fprintf(&b, "   terraform init\n   terraform workspace select %s\n", env)
 	}
 	varFiles := varFileArgs(env, false)
-	fmt.Fprintf(&b, "   terraform plan %s\n   ```\n\n   Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", varFiles, MovesFileName)
+	fmt.Fprintf(&b, "   terraform plan %s\n   ```\n\n   Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", varFiles, rootfile.MovesFileName)
 	fmt.Fprintf(&b, "2. Run `terraform apply %s` as each environment, before applying the roots the resources go to. It removes them from the environment's state, and changes nothing in the cloud.\n", varFiles)
-	fmt.Fprintf(&b, "3. Delete `%s` once every environment has been applied: the removed blocks have done their job, and the root manages nothing.\n", MovesFileName)
-	fmt.Fprintf(&b, "\n## Handed over to other roots\n\nThese resources go to other roots now, which import them. The removed blocks in `%s`, with `destroy = false`, make each environment's state forget them, without destroying them.\n\n| Resource | Goes to |\n|---|---|\n", MovesFileName)
+	fmt.Fprintf(&b, "3. Delete `%s` once every environment has been applied: the removed blocks have done their job, and the root manages nothing.\n", rootfile.MovesFileName)
+	fmt.Fprintf(&b, "\n## Handed over to other roots\n\nThese resources go to other roots now, which import them. The removed blocks in `%s`, with `destroy = false`, make each environment's state forget them, without destroying them.\n\n| Resource | Goes to |\n|---|---|\n", rootfile.MovesFileName)
 	for _, r := range removed {
 		if len(r.Resources) == 0 {
 			fmt.Fprintf(&b, "| `%s` | |\n", r.From)

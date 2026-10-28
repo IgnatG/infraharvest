@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -323,17 +324,17 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 		if len(blocks) == 0 {
 			continue
 		}
-		var kept []engine.Import
+		var kept []rootfile.Import
 		for _, address := range slices.Sorted(maps.Keys(blocks)) {
 			b := blocks[address]
 			if err := appendFile(filepath.Join(m.dir, b.File), b.Text); err != nil {
 				return "", err
 			}
-			if err := appendFile(filepath.Join(m.dir, engine.ImportsFileName), b.Import); err != nil {
+			if err := appendFile(filepath.Join(m.dir, rootfile.ImportsFileName), b.Import); err != nil {
 				return "", err
 			}
 			typ := engine.AddressType(b.Address)
-			kept = append(kept, engine.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
+			kept = append(kept, rootfile.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
 		}
 		members[i].result = m.result.WithKept(kept)
 		r.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
@@ -421,7 +422,7 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 // is of: shop_audit for aws_sqs_queue.shop_audit[0], and logs for
 // module.logs[0].aws_s3_bucket.this.
 func mergedLabel(address string) string {
-	block := engine.RemovedFrom(address)
+	block := rootfile.RemovedFrom(address)
 	if name, ok := strings.CutPrefix(block, "module."); ok {
 		return name
 	}

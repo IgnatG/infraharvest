@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // GeneratedFiles returns the names of the files Generate may write
@@ -17,7 +18,7 @@ import (
 // (see Result.Files) and versions.tf: what generating the root again
 // replaces.
 func GeneratedFiles() []string {
-	return []string{GeneratedFileName, ImportsFileName, RejectedFileName, LocalsFileName, hclfile.VariablesFileName, DataFileName, ReadmeFileName, MovesFileName}
+	return []string{rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.RejectedFileName, rootfile.LocalsFileName, hclfile.VariablesFileName, rootfile.DataFileName, rootfile.ReadmeFileName, rootfile.MovesFileName}
 }
 
 // AddedFiles returns the paths of the files of resources incremental
@@ -32,7 +33,7 @@ func configurationFiles(result *Result) []string {
 	if result != nil && len(result.Files) > 0 {
 		return result.Files
 	}
-	return []string{GeneratedFileName}
+	return []string{rootfile.GeneratedFileName}
 }
 
 // ResultFiles returns the files the root in dir must still have to be as
@@ -41,13 +42,13 @@ func configurationFiles(result *Result) []string {
 // root has imports.tf. Once the root is applied, its README says to
 // delete both.
 func ResultFiles(dir string, result *Result) ([]string, error) {
-	names := append([]string{VersionsFileName}, configurationFiles(result)...)
-	imports, err := pathExists(filepath.Join(dir, ImportsFileName))
+	names := append([]string{rootfile.VersionsFileName}, configurationFiles(result)...)
+	imports, err := pathExists(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
 	if imports && (len(result.Moves) > 0 || len(result.Removed) > 0 || len(result.Retyped) > 0) {
-		names = append(names, MovesFileName)
+		names = append(names, rootfile.MovesFileName)
 	}
 	return names, nil
 }
@@ -56,11 +57,11 @@ func ResultFiles(dir string, result *Result) ([]string, error) {
 // didn't finish left: it has generated.tf, but not the README written
 // last.
 func Unfinished(dir string) (bool, error) {
-	generated, err := pathExists(filepath.Join(dir, GeneratedFileName))
+	generated, err := pathExists(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil || !generated {
 		return false, err
 	}
-	readme, err := pathExists(filepath.Join(dir, ReadmeFileName))
+	readme, err := pathExists(filepath.Join(dir, rootfile.ReadmeFileName))
 	return !readme, err
 }
 

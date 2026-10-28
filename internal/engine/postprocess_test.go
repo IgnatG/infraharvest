@@ -14,6 +14,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -21,28 +22,28 @@ import (
 func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, networkGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 	tf := &fakeTerraform{dir: dir}
 	failure := errors.New("halfway")
 	edit := func() (bool, error) {
-		if err := os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("# changed\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte("# changed\n"), 0o644); err != nil {
 			return false, err
 		}
-		if err := os.WriteFile(filepath.Join(dir, LocalsFileName), []byte("locals {}\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, rootfile.LocalsFileName), []byte("locals {}\n"), 0o644); err != nil {
 			return false, err
 		}
 		return true, failure
 	}
 
-	kept, err := verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, edit, GeneratedFileName, LocalsFileName)
+	kept, err := verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, edit, rootfile.GeneratedFileName, rootfile.LocalsFileName)
 	if kept || !errors.Is(err, failure) {
 		t.Fatalf("got kept=%v err=%v, want the edit's error", kept, err)
 	}
 
-	if got := readFile(t, dir, GeneratedFileName); got != networkGenerated {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, LocalsFileName)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.LocalsFileName)); err == nil {
 		t.Error("locals.tf not removed")
 	}
 	if len(tf.calls) != 0 {
@@ -60,7 +61,7 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 	changes := map[string]string{"aws_subnet.a": tfrun.ChangeSignature(updatesTags)}
 	edit := func(dir string) func() (bool, error) {
 		return func() (bool, error) {
-			return true, os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("# edited\n"), 0o644)
+			return true, os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte("# edited\n"), 0o644)
 		}
 	}
 	for name, tt := range map[string]struct {
@@ -73,14 +74,14 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 			map[string]any{"tags": map[string]any{"a": "b"}, "cidr_block": "10.0.9.0/24"}), false},
 	} {
 		dir := t.TempDir()
-		writeConfig(t, dir, GeneratedFileName, networkGenerated)
+		writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 		tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: baseline}}, showns: []*tfjson.Plan{{ResourceChanges: []*tfjson.ResourceChange{tt.planned}}}}
 
-		kept, err := verify(context.Background(), tf, dir, baseline, changes, nil, edit(dir), GeneratedFileName)
+		kept, err := verify(context.Background(), tf, dir, baseline, changes, nil, edit(dir), rootfile.GeneratedFileName)
 		if err != nil || kept != tt.kept {
 			t.Errorf("%s: got kept=%v err=%v, want kept=%v", name, kept, err, tt.kept)
 		}
-		if restored := readFile(t, dir, GeneratedFileName) == networkGenerated; restored == tt.kept {
+		if restored := readFile(t, dir, rootfile.GeneratedFileName) == networkGenerated; restored == tt.kept {
 			t.Errorf("%s: generated.tf restored=%v", name, restored)
 		}
 	}
@@ -90,7 +91,7 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 // step undoes only them.
 func TestDataReaders(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_ebs_volume" "data" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "aws_ebs_volume" "data" {
   kms_key_id = data.aws_kms_alias.ebs.target_key_arn
 }
 
@@ -116,7 +117,7 @@ resource "aws_ebs_volume" "logs" {
 func TestPostProcessPlanCount(t *testing.T) {
 	t.Parallel()
 	dir, tf := liftTagsDir(t)
-	writeConfig(t, dir, GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
+	writeConfig(t, dir, rootfile.GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
 
 	if _, err := postProcess(context.Background(), tf, dir, generating(Options{DefaultTags: &awsDefaultTags}), nil, nil); err != nil {
 		t.Fatal(err)
@@ -125,19 +126,19 @@ func TestPostProcessPlanCount(t *testing.T) {
 	if got, want := strings.Join(tf.calls, ","), "plan,show,schema,plan,show,schema,plan,show"; got != want {
 		t.Errorf("calls: got %s, want %s", got, want)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readFile(t, dir, rootfile.GeneratedFileName)
 	if strings.Contains(generated, "propagating_vgws") || !strings.Contains(generated, "local.vpc_id") {
 		t.Errorf("want the null left out and the literals lifted:\n%s", generated)
 	}
-	if !strings.Contains(readFile(t, dir, ProvidersFileName), "default_tags") {
+	if !strings.Contains(readFile(t, dir, rootfile.ProvidersFileName), "default_tags") {
 		t.Error("tags not lifted")
 	}
 }
 
 // commentStep is a step that appends comment to generated.tf.
 func commentStep(dir, comment string) tidyStep {
-	return tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) {
-		path := filepath.Join(dir, GeneratedFileName)
+	return tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) {
+		path := filepath.Join(dir, rootfile.GeneratedFileName)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return false, err
@@ -162,7 +163,7 @@ func TestVerifySteps(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, networkGenerated)
+			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 			tf := &fakeTerraform{dir: dir, plans: tt.plans}
 
 			if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
@@ -176,7 +177,7 @@ func TestVerifySteps(t *testing.T) {
 			for _, c := range tt.want {
 				want += "# " + c + "\n"
 			}
-			if got := readFile(t, dir, GeneratedFileName); got != want {
+			if got := readFile(t, dir, rootfile.GeneratedFileName); got != want {
 				t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
 			}
 		})
@@ -187,10 +188,10 @@ func TestVerifySteps(t *testing.T) {
 func TestVerifyStepsWithoutChanges(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, networkGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 	tf := &fakeTerraform{dir: dir}
-	unchanged := tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return false, nil }}
-	none := tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(map[string]int) (map[string]bool, error) { return nil, nil }}
+	unchanged := tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return false, nil }}
+	none := tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(map[string]int) (map[string]bool, error) { return nil, nil }}
 
 	if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{unchanged, none}); err != nil {
 		t.Fatal(err)
@@ -199,7 +200,7 @@ func TestVerifyStepsWithoutChanges(t *testing.T) {
 	if len(tf.calls) != 0 {
 		t.Errorf("calls: %v, want none", tf.calls)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != networkGenerated {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }

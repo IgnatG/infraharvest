@@ -14,6 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -69,18 +70,18 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	f := writeConfig(t, dir, GeneratedFileName, generated)
-	var imports []Import
+	f := writeConfig(t, dir, rootfile.GeneratedFileName, generated)
+	var imports []rootfile.Import
 	for _, r := range f.Resources() {
 		typ, name, _ := strings.Cut(r.Address, ".")
-		imports = append(imports, Import{Type: typ, Name: name, ID: name})
+		imports = append(imports, rootfile.Import{Type: typ, Name: name, ID: name})
 	}
-	content, err := ImportsFile(imports)
+	content, err := rootfile.ImportsFile(imports)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
-	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.VersionsFileName, string(rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
 	return dir, filepath.Join(out, hclfile.ModulesDirName)
 }
 
@@ -116,7 +117,7 @@ func TestModularize(t *testing.T) {
 			t.Errorf("variables.tf misses %q:\n%s", want, variables)
 		}
 	}
-	versions := squashed(readFile(t, module, VersionsFileName))
+	versions := squashed(readFile(t, module, rootfile.VersionsFileName))
 	for _, want := range []string{`required_version = ">= 1.16"`, `source = "hashicorp/aws"`, `version = ">= 6.14"`} {
 		if !strings.Contains(versions, want) {
 			t.Errorf("versions.tf misses %q:\n%s", want, versions)
@@ -129,7 +130,7 @@ func TestModularize(t *testing.T) {
 		}
 	}
 
-	root := readFile(t, dir, GeneratedFileName)
+	root := readFile(t, dir, rootfile.GeneratedFileName)
 	source := "../../../" + hclfile.ModulesDirName + "/" + filepath.Base(module)
 	for _, want := range []string{
 		`module "logs" {`,
@@ -147,7 +148,7 @@ func TestModularize(t *testing.T) {
 	if strings.Contains(root, `resource "aws_s3_bucket"`) {
 		t.Errorf("clustered resources left in the root:\n%s", root)
 	}
-	imports := readFile(t, dir, ImportsFileName)
+	imports := readFile(t, dir, rootfile.ImportsFileName)
 	for _, want := range []string{"to = module.logs.aws_s3_bucket.this", "to = module.state.aws_s3_bucket_versioning.versioning", "to = aws_iam_policy.read"} {
 		if !strings.Contains(imports, want) {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
@@ -195,7 +196,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
 
-	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != twoBuckets {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 	if entries, _ := os.ReadDir(modulesDir); len(entries) != 0 {
@@ -221,7 +222,7 @@ func TestLiftModulesKeeps(t *testing.T) {
 // address, whatever order its attributes come in.
 func TestFindClustersPicksTheFirstParentByAddress(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_security_group" "b" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "aws_security_group" "b" {
   name = "b"
 }
 
@@ -269,29 +270,8 @@ func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
 	if main := readFile(t, created[0], "main.tf"); !strings.Contains(main, "key    = var.key") {
 		t.Errorf("main.tf:\n%s", main)
 	}
-	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, "key    = var.aws_s3_bucket_logs_key") {
+	if root := readFile(t, dir, rootfile.GeneratedFileName); !strings.Contains(root, "key    = var.aws_s3_bucket_logs_key") {
 		t.Errorf("generated.tf doesn't pass the secret:\n%s", root)
-	}
-}
-
-func TestLowerBound(t *testing.T) {
-	t.Parallel()
-	for constraint, want := range map[string]string{
-		"~> 6.14":        ">= 6.14",
-		">= 1.5, < 2.0":  ">= 1.5",
-		"1.16.5":         ">= 1.16.5",
-		">= 1.5, >= 1.7": ">= 1.7",
-		"> 1.5, != 1.6":  ">= 1.5",
-	} {
-		got, err := lowerBound(constraint)
-		if err != nil || got != want {
-			t.Errorf("%q: got %q, %v, want %q", constraint, got, err, want)
-		}
-	}
-	for _, constraint := range []string{"< 2.0", "not a version"} {
-		if got, err := lowerBound(constraint); err == nil {
-			t.Errorf("%q: got %q, want an error", constraint, got)
-		}
 	}
 }
 
@@ -365,7 +345,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != twoBuckets {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }
@@ -384,7 +364,7 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 	}
 
 	want := `source = "./` + hclfile.ModulesDirName + "/" + filepath.Base(created[0]) + `"`
-	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, want) {
+	if root := readFile(t, dir, rootfile.GeneratedFileName); !strings.Contains(root, want) {
 		t.Errorf("generated.tf misses %q:\n%s", want, root)
 	}
 }

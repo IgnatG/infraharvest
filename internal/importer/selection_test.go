@@ -19,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -359,7 +360,7 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 	}
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
-	writeRoot(t, dir, engine.VersionsFileName, "storage.tf")
+	writeRoot(t, dir, rootfile.VersionsFileName, "storage.tf")
 	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: "old-archive", Address: "aws_s3_bucket.old_archive"}}}
 	if err := writeCheckpoint(out, dir, checkpoint{Result: result}); err != nil {
 		t.Fatal(err)
@@ -398,11 +399,11 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
-	writeRoot(t, dir, engine.VersionsFileName, "storage.tf")
+	writeRoot(t, dir, rootfile.VersionsFileName, "storage.tf")
 	// From an older release, with imports.tf deleted: the bucket's address
 	// is only inferred, as the call it was moved into.
 	older := &engine.Result{
-		Imported: []engine.Import{{Type: "aws_s3_bucket", Name: "old_archive", ID: "old-archive"}},
+		Imported: []rootfile.Import{{Type: "aws_s3_bucket", Name: "old_archive", ID: "old-archive"}},
 		Modules:  []engine.ModuleCall{{Name: "archive", Resources: []string{"aws_s3_bucket.old_archive"}}},
 	}
 	if err := writeCheckpoint(out, dir, checkpoint{Result: older}); err != nil {

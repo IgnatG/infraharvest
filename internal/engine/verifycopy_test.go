@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -136,7 +137,7 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 	if result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
-	providers := readFile(t, dir, ProvidersFileName)
+	providers := readFile(t, dir, rootfile.ProvidersFileName)
 	if !strings.Contains(providers, "backend \"s3\"") {
 		t.Fatalf("the merged root has no backend:\n%s", providers)
 	}
@@ -152,13 +153,13 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 	if !checks.Passed() {
 		t.Errorf("gate: %+v", checks)
 	}
-	if got := inspector.seen[ProvidersFileName]; strings.Contains(got, "backend \"") {
+	if got := inspector.seen[rootfile.ProvidersFileName]; strings.Contains(got, "backend \"") {
 		t.Errorf("the copy's providers.tf has the backend:\n%s", got)
 	}
 	if _, ok := inspector.seen["vars/prod/backend.hcl"]; !ok {
 		t.Errorf("the copy lacks the var files: %v", inspector.seen)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != providers {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != providers {
 		t.Errorf("providers.tf changed:\n%s", got)
 	}
 }

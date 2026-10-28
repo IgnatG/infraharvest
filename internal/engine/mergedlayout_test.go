@@ -12,6 +12,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -117,11 +118,11 @@ func TestMergedStateLocations(t *testing.T) {
 func TestMergedRootFilesOnDisk(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{}
-	for _, name := range []string{"providers.tf", "sqs.tf", ReadmeFileName, ".gitignore", tfrun.LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
+	for _, name := range []string{"providers.tf", "sqs.tf", rootfile.ReadmeFileName, ".gitignore", tfrun.LockFileName, "vars/common.tfvars", "vars/dev/terraform.tfvars", "vars/dev/imports.tfvars", "vars/prod/terraform.tfvars", "vars/prod/backend.hcl", "vars/notes.md", "terraform.tfstate.d/dev/terraform.tfstate"} {
 		files[name] = "# " + name + "\n"
 	}
 	got, err := MergedRootFiles(mergedRootDir(t, files))
-	want := []string{".gitignore", ReadmeFileName, "providers.tf", "sqs.tf", "vars/common.tfvars", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
+	want := []string{".gitignore", rootfile.ReadmeFileName, "providers.tf", "sqs.tf", "vars/common.tfvars", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
 	if err != nil || strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("got %v, %v, want %v", got, err, want)
 	}

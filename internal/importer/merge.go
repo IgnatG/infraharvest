@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -56,7 +57,7 @@ type memberPlace struct {
 // one of the configuration file's environments goes when its stack merges
 // (see stackLayout): none for the roots kept where earlier imports
 // generated them (kept), and for what no environment's tags place.
-func mergePlaces(resourcesByService map[string][]harvest.Resource, envOf func(harvest.Resource) string, dirOf, stackOf func(string, harvest.Resource) string, kept *keptRoots, byDir map[string][]engine.Import) map[string]memberPlace {
+func mergePlaces(resourcesByService map[string][]harvest.Resource, envOf func(harvest.Resource) string, dirOf, stackOf func(string, harvest.Resource) string, kept *keptRoots, byDir map[string][]rootfile.Import) map[string]memberPlace {
 	places := map[string]memberPlace{}
 	for service, resources := range resourcesByService {
 		for _, r := range resources {
@@ -156,7 +157,7 @@ type mergeMember struct {
 	// merged root reads of the environment's account and region (see
 	// harvest.Merge).
 	provider       harvest.Provider
-	engineProvider engine.Provider
+	engineProvider rootfile.Provider
 	profile        engine.MergeProfile
 	fingerprint    string
 	result         *engine.Result

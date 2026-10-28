@@ -15,6 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // mergeStack is mergeStackWith without controls, as a stack first merges.
@@ -747,7 +748,7 @@ func TestMergeStackFeatureData(t *testing.T) {
 			awsEnvRoot(t, "dev", nil, "111111111111", dev, map[string]string{"aws_sqs_queue.orders": "shop-dev-orders"}, nil, nil, ""),
 			awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, map[string]string{"aws_sqs_queue.orders": "shop-prd-orders", "aws_vpn_gateway.vpn": "vgw-1"}, nil, nil, ""),
 		}
-		f, err := hclfile.Parse(DataFileName, []byte(data))
+		f, err := hclfile.Parse(rootfile.DataFileName, []byte(data))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -801,8 +802,8 @@ resource "aws_vpn_gateway" "vpn" {
 			"data \"aws_iam_policy_document\" \"vpn\" {\n  count = var." + deploy.name + " ? 1 : 0\n\n  statement {\n    resources = [data.aws_vpc.vpn[0].arn]\n",
 			"data \"aws_vpc\" \"vpn\" {\n  count = var." + deploy.name + " ? 1 : 0\n\n  id = \"vpc-0abc1234\"\n}\n",
 		} {
-			if got := string(files[DataFileName]); !strings.Contains(got, want) {
-				t.Errorf("%s:\n%s\nwant it to have:\n%s", DataFileName, got, want)
+			if got := string(files[rootfile.DataFileName]); !strings.Contains(got, want) {
+				t.Errorf("%s:\n%s\nwant it to have:\n%s", rootfile.DataFileName, got, want)
 			}
 		}
 	})

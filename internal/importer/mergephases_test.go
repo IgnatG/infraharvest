@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -171,7 +172,7 @@ func TestMergeStackRegeneratingMovesWhatWouldMove(t *testing.T) {
 	if len(f.merged) != 1 || len(f.merged[0][0].Isolated) != 0 {
 		t.Errorf("merged %d times, want once with nothing kept apart", len(f.merged))
 	}
-	want := []engine.Move{{From: "aws_sqs_queue.audit[0]", To: `aws_sqs_queue.this["audit"]`}}
+	want := []rootfile.Move{{From: "aws_sqs_queue.audit[0]", To: `aws_sqs_queue.this["audit"]`}}
 	if got := f.mergedMoves["app"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("moved blocks %+v, want %+v", got, want)
 	}
@@ -289,15 +290,15 @@ func TestMergeStackRestoresTheMergedRootWhereMovesFail(t *testing.T) {
 	run, stack, members := remergeStack(t, out, f, "audit")
 	run.options.Regenerate = true
 	run.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
-	run.tools.mergedMoves = func(string, []engine.Move, []engine.Removal) (gate.Check, error) {
+	run.tools.mergedMoves = func(string, []rootfile.Move, []rootfile.Removal) (gate.Check, error) {
 		return gate.Check{}, errors.New("disk full")
 	}
 	if err := run.mergeStack(t.Context(), stack, members); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("merging again: %v, want the moved blocks' error", err)
 	}
 	checkMergedRootKept(t, stack)
-	if _, err := os.Stat(filepath.Join(stack, engine.MovesFileName)); !os.IsNotExist(err) {
-		t.Errorf("%s is in the merged root: %v", engine.MovesFileName, err)
+	if _, err := os.Stat(filepath.Join(stack, rootfile.MovesFileName)); !os.IsNotExist(err) {
+		t.Errorf("%s is in the merged root: %v", rootfile.MovesFileName, err)
 	}
 }
 

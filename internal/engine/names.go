@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // Names are names a root already uses, which Generate gives nothing it
@@ -39,8 +40,8 @@ func (n Names) hasType(resourceType string) bool {
 // removing others doesn't move it, and no other resource takes an address
 // previous reserves (see Previous.reserved), which another resource had
 // or a moved block names.
-func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []Import {
-	sorted := make([]Import, len(imports))
+func relabelled(imports []rootfile.Import, taken Names, tidy bool, previous *Previous) []rootfile.Import {
+	sorted := make([]rootfile.Import, len(imports))
 	bases := map[External]string{}
 	for i, imp := range imports {
 		imp.Name = hclfile.Label(imp.Name)
@@ -55,7 +56,7 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 		tidyLabels(sorted, taken)
 	}
 	reserved := previous.reserved()
-	free := func(imp Import, name string) bool {
+	free := func(imp rootfile.Import, name string) bool {
 		owner, ok := reserved[imp.Type+"."+name]
 		return !ok || owner == ResourceKey(imp.Type, imp.ID)
 	}
@@ -148,7 +149,7 @@ const mainLabel = "main"
 //     imports or in taken.
 //
 // The labels depend on the imports and taken alone, not on their order.
-func tidyLabels(imports []Import, taken Names) {
+func tidyLabels(imports []rootfile.Import, taken Names) {
 	for i := range imports {
 		imports[i].Name = withoutTypeWords(imports[i].Type, imports[i].Name)
 	}
@@ -195,7 +196,7 @@ func withoutTypeWords(resourceType, label string) string {
 // them share (see sharedPrefix). A label keeps it where dropping it would
 // leave a label starting with a digit, or one that another resource of the
 // same type has, in imports or in taken.
-func stripPrefix(imports []Import, taken Names) {
+func stripPrefix(imports []rootfile.Import, taken Names) {
 	prefix := sharedPrefix(imports)
 	if prefix == "" {
 		return
@@ -221,7 +222,7 @@ func stripPrefix(imports []Import, taken Names) {
 // underscore after it, that more than half of the labels of imports, and
 // at least two, start with and go on past: "shop_prod_" for shop_prod_web,
 // shop_prod_api and logs. It returns "" if there is none.
-func sharedPrefix(imports []Import) string {
+func sharedPrefix(imports []rootfile.Import) string {
 	counts := map[string]int{}
 	for _, imp := range imports {
 		words := strings.Split(imp.Name, "_")

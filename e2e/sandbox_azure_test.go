@@ -20,7 +20,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -193,7 +193,7 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 	if !strings.EqualFold(filepath.Base(root), s.resourceGroup) || !strings.EqualFold(filepath.Base(filepath.Dir(root)), s.subscriptionID) {
 		t.Errorf("root %s, want one named after the subscription %s and the resource group %s", root, s.subscriptionID, s.resourceGroup)
 	}
-	if rejected, err := os.ReadFile(filepath.Join(root, engine.RejectedFileName)); err == nil {
+	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil {
 		t.Errorf("%s: resources left out:\n%s", root, rejected)
 	}
 	imported := checkNoChanges(ctx, t, root, s.execPath, s.plugins, nil)
@@ -399,7 +399,7 @@ func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, create
 		t.Fatalf("--azapi: roots %v, want one, for the resource group %s", dirs, s.resourceGroup)
 	}
 	root := filepath.Clean(dirs[0])
-	if rejected, err := os.ReadFile(filepath.Join(root, engine.RejectedFileName)); err == nil {
+	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil {
 		t.Errorf("--azapi: %s: resources left out:\n%s", root, rejected)
 	}
 	if generated := strings.ToLower(configuration(t, root)); !strings.Contains(generated, strings.ToLower("Microsoft.Resources/templateSpecs@"+version)) {

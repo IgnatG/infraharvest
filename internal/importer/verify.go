@@ -25,6 +25,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -213,7 +214,7 @@ func generatedRoots(out string) ([]string, error) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.
-		if !d.IsDir() && d.Name() == engine.ProvidersFileName {
+		if !d.IsDir() && d.Name() == rootfile.ProvidersFileName {
 			roots = append(roots, filepath.Dir(path))
 		}
 		return nil
@@ -275,7 +276,7 @@ func rootProvider(out, dir string, options VerifyOptions) harvest.Provider {
 // Terraform providers the provider blocks of dir's providers.tf configure,
 // such as google for google-beta; none if it doesn't parse.
 func configuredProviders(dir string) []string {
-	path := filepath.Join(dir, engine.ProvidersFileName)
+	path := filepath.Join(dir, rootfile.ProvidersFileName)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil

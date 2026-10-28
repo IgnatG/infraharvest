@@ -24,6 +24,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -46,7 +47,7 @@ import {
 }
 `
 	files := map[string]string{
-		VersionsFileName: `terraform {
+		rootfile.VersionsFileName: `terraform {
   required_version = ">= 1.5, < 2.0"
 
   required_providers {
@@ -57,7 +58,7 @@ import {
   }
 }
 `,
-		ProvidersFileName: `provider "aws" {
+		rootfile.ProvidersFileName: `provider "aws" {
   region              = "eu-west-2"
   allowed_account_ids = ["` + account + `"]
 
@@ -70,7 +71,7 @@ import {
   }
 }
 `,
-		LocalsFileName: `locals {
+		rootfile.LocalsFileName: `locals {
   tags = {
     Environment = "` + token + `"
     Project     = "shop"
@@ -90,12 +91,12 @@ import {
   }
 }
 `,
-		DataFileName: `data "aws_vpc" "shared" {
+		rootfile.DataFileName: `data "aws_vpc" "shared" {
   id = "vpc-0123456789abcdef0"
 }
 `,
-		ImportsFileName:    imports,
-		tfrun.LockFileName: "# lock\n",
+		rootfile.ImportsFileName: imports,
+		tfrun.LockFileName:       "# lock\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
@@ -194,7 +195,7 @@ func mergeRoots(t *testing.T, dir string, changed map[string]map[string]int, ove
 		fake := &mergeFake{env: env, dir: dir, changed: changed[env], overrides: overrides}
 		return MergeRoot{
 			Env: env, Tokens: []string{token}, Scope: account, Region: "eu-west-2", Dir: d,
-			Provider: Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14", Config: map[string]interface{}{
+			Provider: rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14", Config: map[string]interface{}{
 				"region":              "eu-west-2",
 				"allowed_account_ids": []string{account},
 				"assume_role":         map[string]interface{}{"role_arn": "arn:aws:iam::" + account + ":role/deploy"},
@@ -208,7 +209,7 @@ func mergeRoots(t *testing.T, dir string, changed map[string]map[string]int, ove
 func TestReadEnvRoot(t *testing.T) {
 	t.Parallel()
 	dir := writeRootDir(t, "prd", "222222222222", "60", "")
-	root, reason, err := readEnvRoot(MergeRoot{Env: "prod", Tokens: []string{"prd"}, Dir: dir, Provider: Provider{Name: "aws"}}, t.TempDir())
+	root, reason, err := readEnvRoot(MergeRoot{Env: "prod", Tokens: []string{"prd"}, Dir: dir, Provider: rootfile.Provider{Name: "aws"}}, t.TempDir())
 	if err != nil || reason != "" {
 		t.Fatalf("readEnvRoot: %v %s", err, reason)
 	}
@@ -236,14 +237,14 @@ func TestReadEnvRoot(t *testing.T) {
 	}
 
 	for name, content := range map[string]string{
-		MovesFileName: "moved {\n  from = aws_sqs_queue.old\n  to   = aws_sqs_queue.orders\n}\n",
-		"outputs.tf":  "output \"queue\" {\n  value = aws_sqs_queue.orders.id\n}\n",
+		rootfile.MovesFileName: "moved {\n  from = aws_sqs_queue.old\n  to   = aws_sqs_queue.orders\n}\n",
+		"outputs.tf":           "output \"queue\" {\n  value = aws_sqs_queue.orders.id\n}\n",
 	} {
 		other := writeRootDir(t, "prd", "222222222222", "60", "")
 		if err := os.WriteFile(filepath.Join(other, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, reason, err := readEnvRoot(MergeRoot{Env: "prod", Dir: other, Provider: Provider{Name: "aws"}}, t.TempDir()); err != nil || reason == "" {
+		if _, reason, err := readEnvRoot(MergeRoot{Env: "prod", Dir: other, Provider: rootfile.Provider{Name: "aws"}}, t.TempDir()); err != nil || reason == "" {
 			t.Errorf("%s: want a reason not to merge, got %q %v", name, reason, err)
 		}
 	}
@@ -264,7 +265,7 @@ func TestReadEnvRootModuleSources(t *testing.T) {
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	root, _, err := readEnvRoot(MergeRoot{Env: "dev", Dir: premerge, Origin: origin, Provider: Provider{Name: "aws"}}, filepath.Join(out, "aws", "eu-west-2"))
+	root, _, err := readEnvRoot(MergeRoot{Env: "dev", Dir: premerge, Origin: origin, Provider: rootfile.Provider{Name: "aws"}}, filepath.Join(out, "aws", "eu-west-2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +288,7 @@ func TestMergeRoots(t *testing.T) {
 	if result.Shared != 2 || len(result.Residue) != 0 {
 		t.Errorf("shared %d, residue %+v", result.Shared, result.Residue)
 	}
-	for _, name := range []string{ProvidersFileName, hclfile.VariablesFileName, ImportsFileName, "sqs.tf", "s3.tf", DataFileName, tfrun.LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
+	for _, name := range []string{rootfile.ProvidersFileName, hclfile.VariablesFileName, rootfile.ImportsFileName, "sqs.tf", "s3.tf", rootfile.DataFileName, tfrun.LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -298,7 +299,7 @@ func TestMergeRoots(t *testing.T) {
 	if len(overrides) != 2 || !strings.Contains(overrides[0], "arn:aws:iam::111111111111:role/deploy") || !strings.Contains(overrides[1], "arn:aws:iam::222222222222:role/deploy") {
 		t.Errorf("each environment plans with its own role: %q", overrides)
 	}
-	providers := readFile(t, dir, ProvidersFileName)
+	providers := readFile(t, dir, rootfile.ProvidersFileName)
 	for _, want := range []string{"region              = var.aws_region", "Environment = var.env", `Project     = "shop"`} {
 		if !strings.Contains(providers, want) {
 			t.Errorf("providers.tf misses %q:\n%s", want, providers)
@@ -307,7 +308,7 @@ func TestMergeRoots(t *testing.T) {
 	if strings.Contains(providers, "assume_role") {
 		t.Errorf("providers.tf assumes a role:\n%s", providers)
 	}
-	if data := readFile(t, dir, DataFileName); !strings.Contains(data, `id = "vpc-0123456789abcdef0"`) {
+	if data := readFile(t, dir, rootfile.DataFileName); !strings.Contains(data, `id = "vpc-0123456789abcdef0"`) {
 		t.Errorf("data.tf misses the roots' data source:\n%s", data)
 	}
 	if got := result.Environments[1].Imports["aws_sqs_queue.orders"]; got != "https://sqs.eu-west-2.amazonaws.com/222222222222/shop-prd-orders" {
@@ -424,7 +425,7 @@ func (f *goneFake) ShowPlanFile(ctx context.Context, path string, opts ...tfexec
 	if err != nil {
 		return nil, err
 	}
-	imports, _ := os.ReadFile(filepath.Join(f.dir, ImportsFileName))
+	imports, _ := os.ReadFile(filepath.Join(f.dir, rootfile.ImportsFileName))
 	for _, rc := range p.ResourceChanges {
 		if !slices.ContainsFunc(f.gone, func(g string) bool { return rc.Address == g || strings.HasPrefix(rc.Address, g+"[") }) {
 			continue
@@ -443,8 +444,8 @@ func addQueue(t *testing.T, r MergeRoot, name string) {
 	t.Helper()
 	token := r.Tokens[0]
 	for file, content := range map[string]string{
-		"sqs.tf":        "\nresource \"aws_sqs_queue\" \"" + name + "\" {\n  name = \"shop-" + token + "-" + name + "\"\n}\n",
-		ImportsFileName: "\nimport {\n  to = aws_sqs_queue." + name + "\n  id = \"https://sqs.eu-west-2.amazonaws.com/" + r.Scope + "/shop-" + token + "-" + name + "\"\n}\n",
+		"sqs.tf":                 "\nresource \"aws_sqs_queue\" \"" + name + "\" {\n  name = \"shop-" + token + "-" + name + "\"\n}\n",
+		rootfile.ImportsFileName: "\nimport {\n  to = aws_sqs_queue." + name + "\n  id = \"https://sqs.eu-west-2.amazonaws.com/" + r.Scope + "/shop-" + token + "-" + name + "\"\n}\n",
 	} {
 		f, err := os.OpenFile(filepath.Join(r.Dir, file), os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
@@ -500,7 +501,7 @@ func checkGoneMerged(t *testing.T, dir string, result *MergeResult, gone, id str
 	if !slices.ContainsFunc(slices.Collect(maps.Values(result.Environments[1].Imports)), func(i string) bool { return strings.HasSuffix(i, "/shop-prd-alerts") }) {
 		t.Errorf("prod doesn't import its new queue: %v", result.Environments[1].Imports)
 	}
-	if imports := readFile(t, dir, ImportsFileName); !strings.Contains(imports, "to = "+strings.TrimSuffix(at, "[0]")) {
+	if imports := readFile(t, dir, rootfile.ImportsFileName); !strings.Contains(imports, "to = "+strings.TrimSuffix(at, "[0]")) {
 		t.Errorf("imports.tf lost the import block of %s:\n%s", at, imports)
 	}
 	if plan := result.Environments[0].Gate[2]; !strings.Contains(strings.Join(plan.Details, "\n"), "no longer in the cloud: the plan creates it again") {
@@ -577,7 +578,7 @@ func TestMergeRootsRefusesDataOfOneEnvironment(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "aws", "eu-west-2")
 	var overrides []string
 	roots := mergeRoots(t, dir, nil, &overrides)
-	if err := os.WriteFile(filepath.Join(roots[1].Dir, DataFileName), []byte("data \"aws_vpc\" \"shared\" {\n  id = \"vpc-0123456789abcdef0\"\n}\n\ndata \"aws_vpc\" \"prod\" {\n  id = \"vpc-0fedcba9876543210\"\n}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(roots[1].Dir, rootfile.DataFileName), []byte("data \"aws_vpc\" \"shared\" {\n  id = \"vpc-0123456789abcdef0\"\n}\n\ndata \"aws_vpc\" \"prod\" {\n  id = \"vpc-0fedcba9876543210\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
@@ -681,8 +682,8 @@ import {
 	target := t.TempDir()
 	var roots []envRoot
 	for _, r := range []MergeRoot{
-		{Env: "dev", Scope: "infraharvest-e2e", Dir: dev, Provider: Provider{Name: "google"}},
-		{Env: "prod", Tokens: []string{"prd"}, Scope: "infraharvest-e2e", Dir: prod, Provider: Provider{Name: "google"}},
+		{Env: "dev", Scope: "infraharvest-e2e", Dir: dev, Provider: rootfile.Provider{Name: "google"}},
+		{Env: "prod", Tokens: []string{"prd"}, Scope: "infraharvest-e2e", Dir: prod, Provider: rootfile.Provider{Name: "google"}},
 	} {
 		root, reason, err := readEnvRoot(r, target)
 		if err != nil || reason != "" {
@@ -777,7 +778,7 @@ func TestVerifyMerged(t *testing.T) {
 		t.Errorf("gate: %+v", checks)
 	}
 	// Once applied, imports.tf goes, and nothing is imported.
-	if err := os.Remove(filepath.Join(dir, ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(dir, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 	checks, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
@@ -859,22 +860,22 @@ func TestRootProvider(t *testing.T) {
 func TestWriteMergedMoves(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"sqs.tf":       "resource \"aws_sqs_queue\" \"this\" {\n  for_each = local.sqs_queues\n\n  name = each.value.name\n}\n",
-		ReadmeFileName: "# aws/eu-west-2\n",
+		"sqs.tf":                "resource \"aws_sqs_queue\" \"this\" {\n  for_each = local.sqs_queues\n\n  name = each.value.name\n}\n",
+		rootfile.ReadmeFileName: "# aws/eu-west-2\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, nil)
+	check, err := WriteMergedMoves(dir, []rootfile.Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, nil)
 	if err != nil || !check.Passed {
 		t.Fatalf("the moves check: %+v, %v", check, err)
 	}
-	moves, err := ReadMoves(dir)
+	moves, err := rootfile.ReadMoves(dir)
 	if err != nil || len(moves) != 1 || moves[0].To != `aws_sqs_queue.this["orders"]` {
 		t.Errorf("moves.tf: %+v, %v", moves, err)
 	}
-	readme, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	readme, err := os.ReadFile(filepath.Join(dir, rootfile.ReadmeFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -886,13 +887,13 @@ func TestWriteMergedMoves(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, "sqs.tf"), []byte("resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(other, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(other, rootfile.ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if check, err := WriteMergedMoves(other, []Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}, nil); err != nil || check.Passed {
+	if check, err := WriteMergedMoves(other, []rootfile.Move{{From: "aws_sqs_queue.orders", To: "aws_sqs_queue.events"}}, nil); err != nil || check.Passed {
 		t.Errorf("moves from what the root declares: %+v, %v", check, err)
 	}
-	if readme, err := os.ReadFile(filepath.Join(other, ReadmeFileName)); err != nil || strings.Contains(string(readme), "Moved blocks") {
+	if readme, err := os.ReadFile(filepath.Join(other, rootfile.ReadmeFileName)); err != nil || strings.Contains(string(readme), "Moved blocks") {
 		t.Errorf("README.md lists moves that failed the check: %s %v", readme, err)
 	}
 }
@@ -907,27 +908,27 @@ func TestWriteMergedMoves(t *testing.T) {
 func TestWriteMergedMovesRemoved(t *testing.T) {
 	dir := t.TempDir()
 	for name, content := range map[string]string{
-		"providers.tf": "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
-		"sqs.tf":       "resource \"aws_sqs_queue\" \"this\" {\n  for_each = var.sqs_queues\n\n  name = each.value.name\n}\n",
-		ReadmeFileName: "# aws/eu-west-2\n",
+		"providers.tf":          "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
+		"sqs.tf":                "resource \"aws_sqs_queue\" \"this\" {\n  for_each = var.sqs_queues\n\n  name = each.value.name\n}\n",
+		rootfile.ReadmeFileName: "# aws/eu-west-2\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	removed := []Removal{
-		{From: "aws_sqs_queue.reports_dev", Resources: []Departure{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.reports_dev[0]", Root: "envs/shared/aws/111111111111/eu-west-2"}}},
-		{From: "aws_sqs_queue.departed_this_audit", Instance: `aws_sqs_queue.this["audit"]`, Resources: []Departure{{Type: "aws_sqs_queue", ID: "q2", Address: `aws_sqs_queue.this["audit"]`, Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+	removed := []rootfile.Removal{
+		{From: "aws_sqs_queue.reports_dev", Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.reports_dev[0]", Root: "envs/shared/aws/111111111111/eu-west-2"}}},
+		{From: "aws_sqs_queue.departed_this_audit", Instance: `aws_sqs_queue.this["audit"]`, Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q2", Address: `aws_sqs_queue.this["audit"]`, Root: "envs/shared/aws/111111111111/eu-west-2"}}},
 	}
-	check, err := WriteMergedMoves(dir, []Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, removed)
+	check, err := WriteMergedMoves(dir, []rootfile.Move{{From: "aws_sqs_queue.orders", To: `aws_sqs_queue.this["orders"]`}}, removed)
 	if err != nil || !check.Passed {
 		t.Fatalf("the moves check: %+v, %v", check, err)
 	}
-	gone, err := ReadRemoved(dir)
+	gone, err := rootfile.ReadRemoved(dir)
 	if err != nil || len(gone) != 2 || gone[0].From != "aws_sqs_queue.departed_this_audit" || gone[1].From != "aws_sqs_queue.reports_dev" {
 		t.Errorf("removed blocks: %+v, %v", gone, err)
 	}
-	moves, err := ReadMoves(dir)
+	moves, err := rootfile.ReadMoves(dir)
 	if err != nil || len(moves) != 2 {
 		t.Errorf("moved blocks: %+v, %v", moves, err)
 	}
@@ -935,12 +936,12 @@ func TestWriteMergedMovesRemoved(t *testing.T) {
 	if !strings.Contains(providers, `required_version = ">= 1.10, < 2.0"`) {
 		t.Errorf("providers.tf doesn't require what removed blocks need:\n%s", providers)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	if !strings.Contains(readme, "## Moved blocks") || !strings.Contains(readme, "## Handed over to other roots") || !strings.Contains(readme, "| `aws_sqs_queue.reports_dev[0]` | `envs/shared/aws/111111111111/eu-west-2` |") {
 		t.Errorf("README.md:\n%s", readme)
 	}
 
-	if check, err := WriteMergedMoves(dir, nil, []Removal{{From: "aws_sqs_queue.this"}}); err != nil || check.Passed {
+	if check, err := WriteMergedMoves(dir, nil, []rootfile.Removal{{From: "aws_sqs_queue.this"}}); err != nil || check.Passed {
 		t.Errorf("a removed block of what the root declares: %+v, %v", check, err)
 	}
 }
@@ -949,14 +950,14 @@ func TestWriteMergedMovesRemoved(t *testing.T) {
 // found no longer in the cloud, by environment.
 func TestWriteMergedNotInCloud(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), []byte("# aws/eu-west-2\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	gone := map[string][]Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}
+	gone := map[string][]rootfile.Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}
 	if err := WriteMergedNotInCloud(dir, gone); err != nil {
 		t.Fatal(err)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	if !strings.Contains(readme, "## No longer in the cloud") || !strings.Contains(readme, "- `aws_sqs_queue.this[\"orders\"]` (`q1`), of dev") {
 		t.Errorf("README.md:\n%s", readme)
 	}
@@ -971,7 +972,7 @@ type backendWatcher struct {
 }
 
 func (b *backendWatcher) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
-	content, _ := os.ReadFile(filepath.Join(b.dir, ProvidersFileName))
+	content, _ := os.ReadFile(filepath.Join(b.dir, rootfile.ProvidersFileName))
 	*b.planned = append(*b.planned, strings.Contains(string(content), "backend \""))
 	return b.Terraform.PlanJSON(ctx, w, opts...)
 }
@@ -1007,7 +1008,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 	if len(planned) == 0 || slices.Contains(planned, true) {
 		t.Errorf("plans with a backend in providers.tf: %v, want none", planned)
 	}
-	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
 		t.Errorf("providers.tf has no backend once merged:\n%s", got)
 	}
 	if got := readFile(t, dir, filepath.FromSlash(hclfile.BackendConfigPath("prod"))); !strings.Contains(got, "222222222222") {

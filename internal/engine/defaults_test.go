@@ -11,6 +11,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -50,12 +51,12 @@ var thingSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderS
 func thingRoot(t *testing.T) (string, map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, withDefaults)
-	content, err := ImportsFile([]Import{{Type: "aws_thing", Name: "a", ID: "a"}})
+	writeConfig(t, dir, rootfile.GeneratedFileName, withDefaults)
+	content, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_thing", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
 	return dir, map[string]string{"aws_thing.a": tfrun.ChangeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
@@ -80,7 +81,7 @@ func TestStripDefaults(t *testing.T) {
 		t.Errorf("want the last plan handed back, got %+v", last)
 	}
 
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`name = "a"`, "computed = false", "retries = 0"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -108,7 +109,7 @@ func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
 	if _, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, "setting {") {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, "setting {") {
 		t.Errorf("generated.tf lost the setting block:\n%s", got)
 	}
 }
@@ -128,7 +129,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	if last != nil {
 		t.Errorf("want no plan handed back, got %+v", last)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{"enabled = false", "retries = 0", "tags = {}", `mode = ""`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -145,7 +146,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 // constants still go.
 func TestRemoveDefaultsKeepsTags(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "google_pubsub_topic" "events" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "google_pubsub_topic" "events" {
   name   = "events"
   labels = { env = "prod" }
   kms_key_name = "k"
@@ -208,12 +209,12 @@ var roleSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSc
 func roleRoot(t *testing.T, content string) (string, map[string]string) {
 	t.Helper()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, content)
-	imports, err := ImportsFile([]Import{{Type: "aws_role", Name: "a", ID: "a"}})
+	writeConfig(t, dir, rootfile.GeneratedFileName, content)
+	imports, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_role", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(imports))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(imports))
 	return dir, map[string]string{"aws_role.a": tfrun.ChangeSignature(resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
@@ -239,7 +240,7 @@ func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`description = "the app's role"`, `managed = "x"`, `name = "app"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -280,7 +281,7 @@ func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `name = "app"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -317,7 +318,7 @@ func TestStripDefaultsRetriesTheRestOfAResourceBlamedTwice(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `name = "app"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -355,7 +356,7 @@ func TestStripDefaultsKeepsEverythingOfAResourceInTheLastRounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`alpha = "a"`, `beta = "b"`, `description = "d"`, "gamma = 1", `path = "/"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -398,7 +399,7 @@ func TestStripDefaultsKeepsSettingsWhenThePlanRejectsAgain(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`alpha = "a"`, `beta = "b"`, "gamma = 1", `name = "app"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -446,7 +447,7 @@ var lambdaSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.Provider
 func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "a" {
   filename      = "lambda/a.zip"
   function_name = "a"
   handler       = "index.handler"
@@ -465,11 +466,11 @@ func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
   }
 }
 `)
-	imports, err := ImportsFile([]Import{{Type: "aws_lambda_function", Name: "a", ID: "a"}})
+	imports, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_lambda_function", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(imports))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(imports))
 	changes := map[string]string{"aws_lambda_function.a": tfrun.ChangeSignature(resourceChange("aws_lambda_function.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	alternatives := errorAt(1, "Invalid combination of arguments", `"filename": one of `+"`filename,image_uri,s3_bucket`"+` must be specified`)
 	tf := &fakeTerraform{
@@ -485,7 +486,7 @@ func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`filename = "lambda/a.zip"`, `handler = "index.handler"`, `runtime = "nodejs22.x"`, `role = "app-role"`, "ignore_changes = [filename]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -526,7 +527,7 @@ var lbSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSche
 func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lb" "a" {
   description     = ""
   name            = "web"
   route           = []
@@ -537,11 +538,11 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
   }
 }
 `)
-	imports, err := ImportsFile([]Import{{Type: "aws_lb", Name: "a", ID: "a"}})
+	imports, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_lb", Name: "a", ID: "a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(imports))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(imports))
 	changes := map[string]string{"aws_lb.a": tfrun.ChangeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
 
@@ -549,7 +550,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 	if err != nil || !stripped {
 		t.Fatalf("want empty values stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`name = "web"`, "route = []"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)
@@ -573,7 +574,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 func TestStripDefaultsNamedInTheCatalogue(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_storage_bucket" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_storage_bucket" "a" {
   name          = "a"
   storage_class = "STANDARD"
   rpo           = "DEFAULT"
@@ -591,11 +592,11 @@ resource "google_storage_bucket" "b" {
   }
 }
 `)
-	content, err := ImportsFile([]Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
+	content, err := rootfile.ImportsFile([]rootfile.Import{{Type: "google_storage_bucket", Name: "a", ID: "a"}, {Type: "google_storage_bucket", Name: "b", ID: "b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(content))
+	writeConfig(t, dir, rootfile.ImportsFileName, string(content))
 	noChange := tfrun.ChangeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	changes := map[string]string{"google_storage_bucket.a": noChange, "google_storage_bucket.b": noChange}
 	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
@@ -626,7 +627,7 @@ resource "google_storage_bucket" "b" {
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`resource "google_storage_bucket" "a" { name = "a" rpo = "DEFAULT" location = "EU" }`,
 		`storage_class = "NEARLINE" soft_delete_policy { retention_duration_seconds = 0 }`,

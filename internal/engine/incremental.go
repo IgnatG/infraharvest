@@ -24,6 +24,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -188,7 +189,7 @@ func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) 
 // empties staging but for it, and pins the providers opts.Config requires
 // to its releases (see pinnedToLock), so that the additions are generated
 // with the provider releases root runs.
-func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []Import, opts Options, existing map[External]string) (*Result, error) {
+func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts Options, existing map[External]string) (*Result, error) {
 	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
 	lock, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -224,7 +225,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	fileOf := blockFiles(result.Imported, result.Modules)
 	// The providers that added module calls use go into providers.tf and
 	// the file of the root's required_providers (see mergeProviders).
-	names := []string{DataFileName, ImportsFileName, hclfile.VariablesFileName, LocalsFileName, RejectedFileName, tfrun.LockFileName, ProvidersFileName, VersionsFileName}
+	names := []string{rootfile.DataFileName, rootfile.ImportsFileName, hclfile.VariablesFileName, rootfile.LocalsFileName, rootfile.RejectedFileName, tfrun.LockFileName, rootfile.ProvidersFileName, rootfile.VersionsFileName}
 	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
 		names = append(names, required)
 	}
@@ -305,13 +306,13 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 func adding(opts Options, lock []byte, root []*hclfile.File, existing map[External]string) (*run, error) {
 	r := generating(opts)
 	o := &r.opts
-	if versions, ok := opts.Config[VersionsFileName]; ok && lock != nil {
+	if versions, ok := opts.Config[rootfile.VersionsFileName]; ok && lock != nil {
 		pinned, err := pinnedToLock(versions, lock)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", VersionsFileName, err)
+			return nil, fmt.Errorf("%s: %w", rootfile.VersionsFileName, err)
 		}
 		o.Config = maps.Clone(opts.Config)
-		o.Config[VersionsFileName] = pinned
+		o.Config[rootfile.VersionsFileName] = pinned
 	}
 	r.taken = rootNames(root)
 	o.ModulesDir = ""
@@ -425,7 +426,7 @@ func AddedFileName(n int) string {
 // files of resources it wrote to, sorted, also when it fails after
 // writing them.
 func merge(staging, root string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
-	generated, err := hclfile.Load(filepath.Join(staging, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(staging, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +454,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	}
 	declared := rootDeclarations(rootFiles)
 	var data []*hclwrite.Block
-	staged, err := hclfile.LoadOptional(filepath.Join(staging, DataFileName))
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.DataFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -511,15 +512,15 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			return added, err
 		}
 	}
-	if err := appendBlocks(filepath.Join(root, DataFileName), dataFileHeader, data); err != nil {
+	if err := appendBlocks(filepath.Join(root, rootfile.DataFileName), rootfile.DataFileHeader, data); err != nil {
 		return added, err
 	}
-	imports, err := hclfile.LoadOptional(filepath.Join(staging, ImportsFileName))
+	imports, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.ImportsFileName))
 	if err != nil {
 		return added, err
 	}
 	if imports != nil {
-		if err := appendBlocks(filepath.Join(root, ImportsFileName), "", imports.Edit().Body().Blocks()); err != nil {
+		if err := appendBlocks(filepath.Join(root, rootfile.ImportsFileName), "", imports.Edit().Body().Blocks()); err != nil {
 			return added, err
 		}
 	}
@@ -532,8 +533,8 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	if err := mergeProviders(staging, root, rootFiles); err != nil {
 		return added, err
 	}
-	if rejected, err := os.ReadFile(filepath.Join(staging, RejectedFileName)); err == nil {
-		if err := appendFile(filepath.Join(root, RejectedFileName), rejected); err != nil {
+	if rejected, err := os.ReadFile(filepath.Join(staging, rootfile.RejectedFileName)); err == nil {
+		if err := appendFile(filepath.Join(root, rootfile.RejectedFileName), rejected); err != nil {
 			return added, err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
@@ -661,7 +662,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 // provider configuration uses and those root has, such as the tags its
 // resources refer to: root has its own of them.
 func mergeLocals(staging, root string) error {
-	staged, err := hclfile.LoadOptional(filepath.Join(staging, LocalsFileName))
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.LocalsFileName))
 	if err != nil || staged == nil {
 		return err
 	}
@@ -670,7 +671,7 @@ func mergeLocals(staging, root string) error {
 		return err
 	}
 	taken := rootNames(rootFiles)
-	providers, err := hclfile.Load(filepath.Join(staging, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(staging, rootfile.ProvidersFileName))
 	if err != nil {
 		return err
 	}
@@ -703,7 +704,7 @@ func mergeLocals(staging, root string) error {
 		return nil
 	}
 	sort.Slice(added, func(i, j int) bool { return added[i].name < added[j].name })
-	path := filepath.Join(root, LocalsFileName)
+	path := filepath.Join(root, rootfile.LocalsFileName)
 	f, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return err
@@ -759,7 +760,7 @@ func mergeProviders(staging, root string, rootFiles []*hclfile.File) error {
 			}
 		}
 	}
-	providers, err := hclfile.LoadOptional(filepath.Join(staging, ProvidersFileName))
+	providers, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.ProvidersFileName))
 	if err != nil {
 		return err
 	}
@@ -770,11 +771,11 @@ func mergeProviders(staging, root string, rootFiles []*hclfile.File) error {
 				blocks = append(blocks, b)
 			}
 		}
-		if err := appendBlocks(filepath.Join(root, ProvidersFileName), "", blocks); err != nil {
+		if err := appendBlocks(filepath.Join(root, rootfile.ProvidersFileName), "", blocks); err != nil {
 			return err
 		}
 	}
-	versions, err := hclfile.LoadOptional(filepath.Join(staging, VersionsFileName))
+	versions, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.VersionsFileName))
 	if err != nil || versions == nil {
 		return err
 	}
@@ -835,7 +836,7 @@ func requiredProvidersFile(files []*hclfile.File) string {
 			}
 		}
 	}
-	return VersionsFileName
+	return rootfile.VersionsFileName
 }
 
 // requiredProvidersBody returns the body of body's required_providers

@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // The placeholders normalising puts in names and values for what differs
@@ -54,7 +55,7 @@ type envRoot struct {
 	// them with an argument (default_labels); the file each resource
 	// goes in, by address (see Import.File); its backend.tf and its
 	// variables.tf, nil for none.
-	provider        Provider
+	provider        rootfile.Provider
 	requiredVersion string
 	defaultTags     map[string]string
 	defaultLabels   bool
@@ -63,7 +64,7 @@ type envRoot struct {
 	variables       *hclfile.File
 	// arrivals are what the root imports that other roots hand over (see
 	// MergeRoot.Arrivals).
-	arrivals []Arrival
+	arrivals []rootfile.Arrival
 }
 
 // normaliser puts placeholders in one environment's labels, import IDs

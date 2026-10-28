@@ -11,6 +11,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -122,14 +123,14 @@ resource "aws_sfn_state_machine" "flow" {
 func TestAddReferences(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, referencingGenerated)
 
 	changed, err := addReferences(dir, importedValues)
 	if err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
 
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	for _, want := range []string{
 		"vpc_id = aws_vpc.main.id",
 		// Lists keep literals that refer to nothing imported.
@@ -168,7 +169,7 @@ func TestAddReferences(t *testing.T) {
 func TestAddReferencesToTheOwnerNamedAfterTheArgument(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_instance_profile" "ci" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_iam_instance_profile" "ci" {
   name = "ci"
   role = "ci"
 }
@@ -199,7 +200,7 @@ resource "aws_iam_role_policy_attachment" "ci" {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
 
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "role = aws_iam_role.ci.name") != 3 {
 		t.Errorf("want every role argument to refer to the role:\n%s", got)
 	}
@@ -230,7 +231,7 @@ func TestDependenciesRejectCycles(t *testing.T) {
 func TestPostProcessAddsReferences(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, referencingGenerated)
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues)}
 
 	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {
@@ -240,7 +241,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 	if want := []string{"plan", "show", "schema", "plan", "show"}; !reflect.DeepEqual(tf.calls, want) {
 		t.Errorf("calls: got %v, want %v", tf.calls, want)
 	}
-	if got := readFile(t, dir, GeneratedFileName); !strings.Contains(got, "aws_vpc.main.id") {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); !strings.Contains(got, "aws_vpc.main.id") {
 		t.Errorf("no references:\n%s", got)
 	}
 }
@@ -248,7 +249,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, referencingGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, referencingGenerated)
 	// The imported values, then the plan of every step at once, then that
 	// of the references alone.
 	changed := fakePlan{summary: tfrun.ChangeSummary{Change: 1}}
@@ -258,7 +259,7 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "aws_vpc.main.id") {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, "aws_vpc.main.id") {
 		t.Errorf("references kept although the plan changed:\n%s", got)
 	}
 }
@@ -292,7 +293,7 @@ func TestAddReferencesToParentsByName(t *testing.T) {
 		"azurerm_network_security_rule.fe_https": {"id": sub + "/resourceGroups/app/providers/Microsoft.Network/networkSecurityGroups/fe/securityRules/https", "name": "https"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_subnet" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_subnet" "web" {
   name                 = "web"
   resource_group_name  = "app"
   virtual_network_name = "main"
@@ -314,7 +315,7 @@ resource "azurerm_virtual_network" "other_main" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	for _, want := range []string{
 		"resource_group_name  = azurerm_resource_group.app.name",
 		"virtual_network_name = azurerm_virtual_network.main.name",
@@ -338,7 +339,7 @@ func TestAddReferencesBySelfLink(t *testing.T) {
 		"google_compute_subnetwork.app": {"id": "projects/acme/regions/us-central1/subnetworks/app", "name": "app", "self_link": "https://www.googleapis.com/compute/v1/projects/acme/regions/us-central1/subnetworks/app"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_compute_subnetwork" "app" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_compute_subnetwork" "app" {
   name    = "app"
   network = "`+network+`"
 }
@@ -351,7 +352,7 @@ resource "google_compute_firewall" "https" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); strings.Count(got, "network = google_compute_network.main.self_link") != 2 {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Count(got, "network = google_compute_network.main.self_link") != 2 {
 		t.Errorf("want both networks referenced:\n%s", got)
 	}
 	if index := referenceIndex(values); !reflect.DeepEqual(index[network], []referenceTarget{{address: "google_compute_network.main", attribute: "self_link"}}) {
@@ -367,7 +368,7 @@ func TestAddReferencesInListsOfObjects(t *testing.T) {
 		"aws_internet_gateway.main": {"id": "igw-0abc12345", "arn": "arn:aws:ec2:us-east-1:123:internet-gateway/igw-0abc12345"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_route_table" "public" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_route_table" "public" {
   route = [{
     cidr_block     = "0.0.0.0/0"
     gateway_id     = "igw-0abc12345"
@@ -379,7 +380,7 @@ func TestAddReferencesInListsOfObjects(t *testing.T) {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if !strings.Contains(got, `route = [{ cidr_block = "0.0.0.0/0" gateway_id = aws_internet_gateway.main.id nat_gateway_id = "" }]`) {
 		t.Errorf("generated.tf:\n%s", got)
 	}
@@ -396,7 +397,7 @@ func TestAddReferencesToServiceAccounts(t *testing.T) {
 		"google_project_iam_member.ci": {"id": "acme/roles/pubsub.subscriber/serviceAccount:" + email, "member": "serviceAccount:" + email},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_project_iam_member" "ci" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_project_iam_member" "ci" {
   member  = "serviceAccount:`+email+`"
   project = "acme"
   role    = "roles/pubsub.subscriber"
@@ -416,7 +417,7 @@ resource "google_pubsub_subscription" "worker" {
 	if changed, err := addReferences(dir, values); err != nil || !changed {
 		t.Fatalf("want references, got changed=%v err=%v", changed, err)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	for _, want := range []string{"member  = google_service_account.ci.member", "service_account_email = google_service_account.ci.email"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, got)

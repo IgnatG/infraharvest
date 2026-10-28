@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -41,18 +42,18 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := Provider{Name: "random", Source: "hashicorp/random", Version: ProviderConstraint(latest)}
-	providers, err := ProvidersFile(p)
+	p := rootfile.Provider{Name: "random", Source: "hashicorp/random", Version: rootfile.ProviderConstraint(latest)}
+	providers, err := rootfile.ProvidersFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := map[string][]byte{VersionsFileName: VersionsFile(RequiredVersion(tfVersion), p), ProvidersFileName: providers}
+	config := map[string][]byte{rootfile.VersionsFileName: rootfile.VersionsFile(rootfile.RequiredVersion(tfVersion), p), rootfile.ProvidersFileName: providers}
 	tf, err := tfrun.New(dir, execPath, filepath.Join(cache, "plugins"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := Generate(ctx, tf, dir, []Import{{Type: "random_string", Name: "example", ID: "s3cr3tvalue"}}, Options{Config: config})
+	result, err := Generate(ctx, tf, dir, []rootfile.Import{{Type: "random_string", Name: "example", ID: "s3cr3tvalue"}}, Options{Config: config})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Errorf("want nothing left to do, got %+v", result)
 	}
 
-	generated, err := os.ReadFile(filepath.Join(dir, GeneratedFileName))
+	generated, err := os.ReadFile(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		t.Fatal(err)
 	}

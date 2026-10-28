@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // update rewrites the golden files from what the catalogue does now:
@@ -139,7 +140,7 @@ func renderGolden(t *testing.T, c *catalogue.Catalogue, typ, input string) []byt
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# %s, from %s\n", typ, c.Source(typ))
 
-	var imports []engine.Import
+	var imports []rootfile.Import
 	var notes []string
 	// resourceOmit has, by address, what the catalogue leaves out of a
 	// resource's configuration depending on what its lister recorded.
@@ -157,7 +158,7 @@ func renderGolden(t *testing.T, c *catalogue.Catalogue, typ, input string) []byt
 		case skipped != "":
 			notes = append(notes, fmt.Sprintf("%s: left out by default, would import as %q: %s", r.ID, id, skipped))
 		default:
-			imports = append(imports, engine.Import{Type: typ, Name: r.Name, ID: id})
+			imports = append(imports, rootfile.Import{Type: typ, Name: r.Name, ID: id})
 		}
 		if extra := c.ResourceOmit(typ, r.Attributes); len(extra) > 0 {
 			resourceOmit[typ+"."+r.Name] = extra
@@ -172,7 +173,7 @@ func renderGolden(t *testing.T, c *catalogue.Catalogue, typ, input string) []byt
 		}
 	}
 	if len(imports) > 0 {
-		blocks, err := engine.ImportsFile(imports)
+		blocks, err := rootfile.ImportsFile(imports)
 		if err != nil {
 			t.Fatal(err)
 		}

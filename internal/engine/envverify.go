@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -45,7 +46,7 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		return nil, err
 	}
 	expected := 0
-	if _, err := os.Stat(filepath.Join(dir, ImportsFileName)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.ImportsFileName)); err == nil {
 		ids, err := hclfile.MergedImportIDs(dir, env)
 		if err != nil {
 			return nil, err

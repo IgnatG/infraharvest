@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -39,7 +40,7 @@ const mergedGitignore = `# The environments' var files hold no secret values (se
 // rootWriter writes the files of a merged root.
 type rootWriter struct {
 	m *stackMerge
-	p Provider
+	p rootfile.Provider
 	// fileOf is the file each resource of m, and each forEach, goes in.
 	fileOf map[*stackResource]string
 	// groupFile is the file each forEach goes in: its first key's.
@@ -110,20 +111,20 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	}
 	maps.Copy(files, resources)
 	if len(m.data) > 0 || len(m.rootData) > 0 {
-		files[DataFileName] = w.dataFile()
+		files[rootfile.DataFileName] = w.dataFile()
 	}
 	if err := w.copyVariables(files); err != nil {
 		return nil, nil, err
 	}
 	if len(m.locals) > 0 {
-		files[LocalsFileName] = w.localsFile()
+		files[rootfile.LocalsFileName] = w.localsFile()
 	}
 	imports, err := w.importsFile()
 	if err != nil {
 		return nil, nil, err
 	}
 	if imports != nil {
-		files[ImportsFileName] = imports
+		files[rootfile.ImportsFileName] = imports
 	}
 	// The provider block's variables come before variables.tf and the
 	// var files, which hold them too.
@@ -146,7 +147,7 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files[ProvidersFileName] = formatHCL(string(terraform) + string(providers))
+	files[rootfile.ProvidersFileName] = formatHCL(string(terraform) + string(providers))
 	files[hclfile.CommonVarsPath] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in " + hclfile.EnvVarsPath("<env>") + ".\n")
 	for e, env := range m.envs {
 		files[hclfile.EnvVarsPath(env)] = w.tfvarsFile(e)
@@ -155,7 +156,7 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 			files[hclfile.BackendConfigPath(env)] = backend
 		}
 	}
-	files[ReadmeFileName] = w.readme()
+	files[rootfile.ReadmeFileName] = w.readme()
 	files[".gitignore"] = []byte(mergedGitignore)
 	return files, w, nil
 }
@@ -169,7 +170,7 @@ func (w *rootWriter) placeResources() {
 			if member == nil {
 				continue
 			}
-			if f := w.m.roots[e].files[member.block.Address]; f != "" && strings.HasSuffix(f, ".tf") && !slices.Contains(reservedFiles, f) && !strings.Contains(f, "/") {
+			if f := w.m.roots[e].files[member.block.Address]; f != "" && strings.HasSuffix(f, ".tf") && !rootfile.IsReserved(f) && !strings.Contains(f, "/") {
 				return f
 			}
 			break
@@ -534,7 +535,7 @@ func (w *rootWriter) localsFile() []byte {
 // account's ID.
 func (w *rootWriter) dataFile() []byte {
 	var b strings.Builder
-	b.WriteString(dataFileHeader)
+	b.WriteString(rootfile.DataFileHeader)
 	written := map[string]bool{}
 	for _, d := range w.m.rootData {
 		typ, name, _ := strings.Cut(d.address, ".")
@@ -651,7 +652,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 	configs := make([]map[string]interface{}, len(w.m.roots))
 	keys := map[string]bool{}
 	for e, root := range w.m.roots {
-		configs[e], _ = withoutCredentials(root.provider.Config)
+		configs[e], _ = rootfile.WithoutCredentials(root.provider.Config)
 		for k := range configs[e] {
 			keys[k] = true
 		}
@@ -693,7 +694,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 				continue
 			}
 			f := hclwrite.NewEmptyFile()
-			if err := writeBody(f.Body(), map[string]interface{}{k: v}); err != nil {
+			if err := rootfile.WriteBody(f.Body(), map[string]interface{}{k: v}); err != nil {
 				return nil, fmt.Errorf("provider %s: %w", w.p.Name, err)
 			}
 			if attr := f.Body().GetAttribute(k); attr != nil {
@@ -717,7 +718,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 			v := &envVariable{name: uniqueEnvName(w.used, k, ""), what: k + " of the " + w.p.Name + " provider", ty: cty.DynamicPseudoType, values: map[int]hclwrite.Tokens{}}
 			for e, config := range configs {
 				if raw, ok := config[k]; ok {
-					if value, err := ctyValue(raw); err == nil {
+					if value, err := rootfile.CtyValue(raw); err == nil {
 						v.ty = value.Type()
 					}
 					v.values[e] = values[e]
@@ -725,7 +726,7 @@ func (w *rootWriter) providerBlocks() ([]byte, error) {
 			}
 			v.setDefault(len(w.m.envs))
 			w.extra = append(w.extra, v)
-			w.sectionOf[v] = ProvidersFileName
+			w.sectionOf[v] = rootfile.ProvidersFileName
 			fmt.Fprintf(&args, "%s = var.%s\n", k, v.name)
 		}
 	}
@@ -836,7 +837,7 @@ func (w *rootWriter) defaultTagsText() string {
 			}
 			v.setDefault(len(w.m.envs))
 			w.extra = append(w.extra, v)
-			w.sectionOf[v] = ProvidersFileName
+			w.sectionOf[v] = rootfile.ProvidersFileName
 			fields = append(fields, name+" = var."+v.name)
 		}
 	}
@@ -852,7 +853,7 @@ func (w *rootWriter) defaultTagsText() string {
 		v.values[e] = hclwrite.TokensForObject(extra[e])
 	}
 	w.extra = append(w.extra, v)
-	w.sectionOf[v] = ProvidersFileName
+	w.sectionOf[v] = rootfile.ProvidersFileName
 	if tags == "" {
 		return "var." + v.name
 	}
@@ -898,12 +899,12 @@ func (w *rootWriter) terraformBlock(files map[string][]byte) ([]byte, error) {
 		}
 		parsed = append(parsed, f)
 	}
-	need := featuresNeed(parsed)
+	need := rootfile.FeaturesNeed(parsed)
 	for _, root := range w.m.roots {
 		if root.requiredVersion == "" {
 			continue
 		}
-		lower, err := lowerBound(root.requiredVersion)
+		lower, err := rootfile.LowerBound(root.requiredVersion)
 		if err != nil {
 			continue
 		}
@@ -913,7 +914,7 @@ func (w *rootWriter) terraformBlock(files map[string][]byte) ([]byte, error) {
 	}
 	f := hclwrite.NewEmptyFile()
 	terraform := f.Body().AppendNewBlock("terraform", nil).Body()
-	terraform.SetAttributeValue("required_version", cty.StringVal(fmt.Sprintf(">= %s, < %d.0", shortVersion(need), need.Segments()[0]+1)))
+	terraform.SetAttributeValue("required_version", cty.StringVal(fmt.Sprintf(">= %s, < %d.0", rootfile.ShortVersion(need), need.Segments()[0]+1)))
 	requirement := map[string]cty.Value{"source": cty.StringVal(w.p.Source)}
 	if w.p.Version != "" {
 		requirement["version"] = cty.StringVal(w.p.Version)
@@ -1194,7 +1195,7 @@ func (w *rootWriter) importVarsFile(env int) []byte {
 	if w.m.importsByIdentity() {
 		attrs := make([]hclwrite.ObjectAttrTokens, 0, len(identities))
 		for _, address := range slices.Sorted(maps.Keys(identities)) {
-			attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(address)), Value: hclwrite.TokensForValue(identityValue(identities[address]))})
+			attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(address)), Value: hclwrite.TokensForValue(rootfile.IdentityValue(identities[address]))})
 		}
 		fmt.Fprintf(&b, "%s = %s\n", hclfile.ImportIdentitiesVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
 	}
@@ -1244,7 +1245,7 @@ func (w *rootWriter) readme() []byte {
 		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", tfrun.WorkspaceStateDir)
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
-	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, hclfile.ImportVarsPath("<env>"), hclfile.ImportVarsPath("<env>"))
+	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", rootfile.ImportsFileName, hclfile.ImportVarsPath("<env>"), hclfile.ImportVarsPath("<env>"))
 	b.WriteString(w.arrivals())
 	var secrets []string
 	for _, v := range w.variables() {

@@ -10,13 +10,15 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // omitResult writes config, leaves out what omit names, and returns what
 // is left.
 func omitResult(t *testing.T, config string, omit map[string][]string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +164,7 @@ func TestOmitJSONValue(t *testing.T) {
 // Entries under a resource's address apply to that resource only.
 func TestOmitByAddress(t *testing.T) {
 	t.Parallel()
-	omit := withResourceOmissions(map[string][]string{"aws_lb_target_group": {"name"}}, []Import{
+	omit := withResourceOmissions(map[string][]string{"aws_lb_target_group": {"name"}}, []rootfile.Import{
 		{Type: "aws_lb_target_group", Name: "api", ID: "arn:api", Omit: []string{"protocol"}},
 		{Type: "aws_lb_target_group", Name: "web", ID: "arn:web"},
 	})
@@ -180,7 +182,7 @@ func TestOmitByAddress(t *testing.T) {
 // out for, where its conditions hold.
 func TestCheckOmittedNested(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, targetGroupsGenerated)
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, targetGroupsGenerated)
 	var findings []string
 	for _, b := range f.Syntax.Blocks {
 		checkOmitted(b, map[string][]string{"aws_lb_target_group": {"stickiness when stickiness.enabled=false", "stickiness.cookie_duration=3600"}}, func(hcl.Range) string { return "x" }, func(rule, _ string, _ ...any) {

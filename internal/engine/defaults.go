@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -92,7 +93,7 @@ func (c defaultCandidate) key() string {
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
 func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return false, nil, err
@@ -247,7 +248,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
 func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
 			return nil, err
@@ -294,11 +295,11 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore fu
 // assignErrors assigns diags to the resources of dir they are about (see
 // byResource).
 func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, nil, err
 	}

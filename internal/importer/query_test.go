@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -138,11 +139,11 @@ func TestQueryFindsTerraformWithQuery(t *testing.T) {
 func TestQueryListsWithTheRootsProvider(t *testing.T) {
 	t.Parallel()
 	var pins int
-	var listedWith engine.Provider
+	var listedWith rootfile.Provider
 	r := NewRun()
 	r.tools = &callTools{
 		findBinary: func(context.Context, tfrun.Binary, string, string) (string, error) { return "/opt/terraform", nil },
-		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
+		rootConfig: func(_ context.Context, _, _ string, p rootfile.Provider, _ []moduleConstraint) (*rootFiles, error) {
 			pins++
 			p.Version = "~> 6.14"
 			return &rootFiles{provider: p}, nil
@@ -230,7 +231,7 @@ func TestModuleReleasesLookedUpOncePerCommand(t *testing.T) {
 	r.tools = &callTools{
 		findBinary:     func(context.Context, tfrun.Binary, string, string) (string, error) { return "/opt/terraform", nil },
 		moduleReleases: lookUpIn(registry),
-		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+		rootConfig: func(_ context.Context, _, _ string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 			mu.Lock()
 			pinned = append(pinned, constraints)
 			mu.Unlock()

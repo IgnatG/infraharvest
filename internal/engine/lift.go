@@ -21,13 +21,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// LocalsFileName holds the values lifted out of the generated
-// configuration.
-const LocalsFileName = "locals.tf"
 
 // DefaultTags describes how a provider applies tags to every resource it
 // manages, such as the AWS provider's default_tags.
@@ -84,7 +81,7 @@ var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 // leaves those tags out of the resources, or makes the resources refer to
 // them: the root has them already (see applyDefaultTags).
 func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
-	generatedPath := filepath.Join(dir, GeneratedFileName)
+	generatedPath := filepath.Join(dir, rootfile.GeneratedFileName)
 	generated, err := hclfile.Load(generatedPath)
 	if err != nil {
 		return false, err
@@ -174,7 +171,7 @@ func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schem
 			return false, err
 		}
 		if provider == nil {
-			return false, fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+			return false, fmt.Errorf("%s has no provider %q to apply default tags", rootfile.ProvidersFileName, dt.Provider)
 		}
 		alias := aliasFor(dt)
 		if !hasAlias(providers, dt.Provider, alias) {
@@ -228,7 +225,7 @@ func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
 	if dt.Block == "" {
 		return false, nil
 	}
-	generated, err := hclfile.Load(filepath.Join(staging, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(staging, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -253,7 +250,7 @@ func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
 		return false, err
 	}
 	if provider == nil {
-		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, ProvidersFileName), dt.Provider)
+		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, rootfile.ProvidersFileName), dt.Provider)
 	}
 	if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 		return false, err
@@ -354,7 +351,7 @@ func applyDefaultTags(dir string, dt DefaultTags) error {
 		return err
 	}
 	if provider == nil {
-		return fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+		return fmt.Errorf("%s has no provider %q to apply default tags", rootfile.ProvidersFileName, dt.Provider)
 	}
 	return setDefaultTags(dir, providers, provider, dt, dt.Applied)
 }
@@ -362,7 +359,7 @@ func applyDefaultTags(dir string, dt DefaultTags) error {
 // loadProvider loads providers.tf and finds the default configuration of
 // the provider named name, the block without an alias, or nil.
 func loadProvider(dir, name string) (*hclfile.File, *hclwrite.Body, error) {
-	providers, err := hclfile.Load(filepath.Join(dir, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -512,7 +509,7 @@ func mapValue(m map[string]string) cty.Value {
 // stay the same, so the plan does too. It reports whether it lifted
 // anything.
 func liftLiterals(dir string, taken Names) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -608,7 +605,7 @@ func setLocals(dir string, values map[string]cty.Value) error {
 // readLocals returns the literal locals in locals.tf, if any.
 func readLocals(dir string) (map[string]cty.Value, error) {
 	locals := map[string]cty.Value{}
-	f, err := hclfile.Load(filepath.Join(dir, LocalsFileName))
+	f, err := hclfile.Load(filepath.Join(dir, rootfile.LocalsFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return locals, nil
 	}
@@ -622,7 +619,7 @@ func readLocals(dir string) (map[string]cty.Value, error) {
 		for name, attr := range b.Body.Attributes {
 			v, diags := attr.Expr.Value(nil)
 			if diags.HasErrors() {
-				return nil, fmt.Errorf("%s: local.%s isn't a literal", LocalsFileName, name)
+				return nil, fmt.Errorf("%s: local.%s isn't a literal", rootfile.LocalsFileName, name)
 			}
 			locals[name] = v
 		}
@@ -642,5 +639,5 @@ func writeLocals(dir string, locals map[string]cty.Value) error {
 	for _, name := range names {
 		body.SetAttributeValue(name, locals[name])
 	}
-	return fsutil.WriteFile(filepath.Join(dir, LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return fsutil.WriteFile(filepath.Join(dir, rootfile.LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
 }

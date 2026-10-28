@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func TestRemovedFrom(t *testing.T) {
@@ -24,7 +25,7 @@ func TestRemovedFrom(t *testing.T) {
 		"module.vpc.module.inner.aws_subnet.a": "module.vpc",
 		"module.vpc":                           "module.vpc",
 	} {
-		if got := RemovedFrom(address); got != want {
+		if got := rootfile.RemovedFrom(address); got != want {
 			t.Errorf("RemovedFrom(%q) = %q, want %q", address, got, want)
 		}
 	}
@@ -36,9 +37,9 @@ func TestRemovedFrom(t *testing.T) {
 func TestWriteAndReadRemoved(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	moved := []Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
-	removed := []Removal{{From: "module.vpc"}, {From: "aws_subnet.a"}, {From: "aws_subnet.a"}}
-	if err := writeMoves(dir, moved, removed, nil); err != nil {
+	moved := []rootfile.Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
+	removed := []rootfile.Removal{{From: "module.vpc"}, {From: "aws_subnet.a"}, {From: "aws_subnet.a"}}
+	if err := rootfile.WriteMoves(dir, moved, removed, nil); err != nil {
 		t.Fatal(err)
 	}
 	want := `moved {
@@ -62,25 +63,25 @@ removed {
   }
 }
 `
-	if got := readFile(t, dir, MovesFileName); got != want {
+	if got := readFile(t, dir, rootfile.MovesFileName); got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
-	got, err := ReadRemoved(dir)
+	got, err := rootfile.ReadRemoved(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []Removal{{From: "aws_subnet.a"}, {From: "module.vpc"}}; !reflect.DeepEqual(got, want) {
+	if want := []rootfile.Removal{{From: "aws_subnet.a"}, {From: "module.vpc"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("read back %+v, want %+v", got, want)
 	}
-	if moves, err := ReadMoves(dir); err != nil || !reflect.DeepEqual(moves, moved) {
+	if moves, err := rootfile.ReadMoves(dir); err != nil || !reflect.DeepEqual(moves, moved) {
 		t.Errorf("moved blocks read back %+v, %v, want %+v", moves, err, moved)
 	}
 
 	// With removed blocks alone.
-	if err := writeMoves(dir, nil, []Removal{{From: "aws_subnet.a"}}, nil); err != nil {
+	if err := rootfile.WriteMoves(dir, nil, []rootfile.Removal{{From: "aws_subnet.a"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, dir, MovesFileName); !strings.HasPrefix(got, "removed {\n") {
+	if got := readFile(t, dir, rootfile.MovesFileName); !strings.HasPrefix(got, "removed {\n") {
 		t.Errorf("got:\n%s", got)
 	}
 }
@@ -89,9 +90,9 @@ removed {
 // it removes again.
 func TestRemovals(t *testing.T) {
 	t.Parallel()
-	previous := &Previous{Removed: []Removal{{From: "aws_subnet.b"}, {From: "aws_subnet.a"}, {From: "module.vpc"}}}
+	previous := &Previous{Removed: []rootfile.Removal{{From: "aws_subnet.b"}, {From: "aws_subnet.a"}, {From: "module.vpc"}}}
 	now := []Managed{{Type: "aws_subnet", ID: "b", Address: "aws_subnet.b[0]"}, {Type: "aws_vpc", ID: "v", Address: "aws_vpc.main"}}
-	if got, want := removals(previous, now), []Removal{{From: "aws_subnet.a"}, {From: "module.vpc"}}; !reflect.DeepEqual(got, want) {
+	if got, want := removals(previous, now), []rootfile.Removal{{From: "aws_subnet.a"}, {From: "module.vpc"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 	if got := removals(nil, now); got != nil {
@@ -105,33 +106,33 @@ func TestRemovals(t *testing.T) {
 // says where it was.
 func TestGenerateHandsOverAnInstanceAlone(t *testing.T) {
 	t.Parallel()
-	departure := Departure{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.group[0]", Root: "aws/prod"}
+	departure := rootfile.Departure{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.group[0]", Root: "aws/prod"}
 	previous := &Previous{
 		Addresses: []Managed{
 			{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.group[0]"},
 			{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.group[1]"},
 		},
-		Removed: []Removal{{From: "aws_sqs_queue.departed_group_0", Resources: []Departure{departure}, Instance: "aws_sqs_queue.group[0]"}},
+		Removed: []rootfile.Removal{{From: "aws_sqs_queue.departed_group_0", Resources: []rootfile.Departure{departure}, Instance: "aws_sqs_queue.group[0]"}},
 	}
-	dir, result := generateAgain(t, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "b"}}, previous)
+	dir, result := generateAgain(t, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "b"}}, previous)
 
 	if !reflect.DeepEqual(result.Removed, previous.Removed) || len(result.Unmoved) != 0 {
 		t.Errorf("removed %+v, unmoved %q", result.Removed, result.Unmoved)
 	}
-	got := strings.Join(strings.Fields(readFile(t, dir, MovesFileName)), " ")
+	got := strings.Join(strings.Fields(readFile(t, dir, rootfile.MovesFileName)), " ")
 	for _, block := range []string{
 		"moved { from = aws_sqs_queue.group[0] to = aws_sqs_queue.departed_group_0 }",
 		"removed { from = aws_sqs_queue.departed_group_0 lifecycle { destroy = false } }",
 	} {
 		if !strings.Contains(got, block) {
-			t.Errorf("%s misses %q:\n%s", MovesFileName, block, got)
+			t.Errorf("%s misses %q:\n%s", rootfile.MovesFileName, block, got)
 		}
 	}
 	// The move for the removed block isn't one of the root's own.
-	if slices.ContainsFunc(result.Moves, func(m Move) bool { return m.From == "aws_sqs_queue.group[0]" }) {
+	if slices.ContainsFunc(result.Moves, func(m rootfile.Move) bool { return m.From == "aws_sqs_queue.group[0]" }) {
 		t.Errorf("moves %+v", result.Moves)
 	}
-	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "| `aws_sqs_queue.group[0]`, moved to `aws_sqs_queue.departed_group_0` | `aws/prod` |") {
+	if readme := readFile(t, dir, rootfile.ReadmeFileName); !strings.Contains(readme, "| `aws_sqs_queue.group[0]`, moved to `aws_sqs_queue.departed_group_0` | `aws/prod` |") {
 		t.Errorf("README.md:\n%s", readme)
 	}
 	if !result.Gate.Named(gate.CheckMoves).Passed {
@@ -149,10 +150,10 @@ func TestGenerateHandsOverWithRemovedBlocks(t *testing.T) {
 			{Type: "aws_sqs_queue", ID: "a", Address: "aws_sqs_queue.orders"},
 			{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.jobs"},
 		},
-		Removed: []Removal{{From: "aws_sqs_queue.jobs", Resources: []Departure{{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.jobs", Root: "aws/prod"}}}},
+		Removed: []rootfile.Removal{{From: "aws_sqs_queue.jobs", Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.jobs", Root: "aws/prod"}}}},
 	}
 	// A new queue named after the one that goes doesn't take its address.
-	imports := []Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "c"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}, {Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "c"}}
 
 	dir, result := generateAgain(t, imports, previous)
 
@@ -162,10 +163,10 @@ func TestGenerateHandsOverWithRemovedBlocks(t *testing.T) {
 	if !reflect.DeepEqual(result.Removed, previous.Removed) || len(result.Moves) != 0 {
 		t.Errorf("removed %+v, moves %+v, want the removed block alone", result.Removed, result.Moves)
 	}
-	if got := readFile(t, dir, MovesFileName); !strings.Contains(got, "removed {\n  from = aws_sqs_queue.jobs\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
-		t.Errorf("%s:\n%s", MovesFileName, got)
+	if got := readFile(t, dir, rootfile.MovesFileName); !strings.Contains(got, "removed {\n  from = aws_sqs_queue.jobs\n\n  lifecycle {\n    destroy = false\n  }\n}\n") {
+		t.Errorf("%s:\n%s", rootfile.MovesFileName, got)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	for _, want := range []string{"## Moves", "| `aws_sqs_queue.jobs` | `aws/prod` |", "Apply this root first", "or as forgotten, not destroyed, for those `moves.tf` removes", "before applying the roots those it removes go to", "Delete `imports.tf` and `moves.tf`", "so `versions.tf` requires 1.10 or later while `moves.tf` has them"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
@@ -180,24 +181,24 @@ func TestGenerateRecordsArrivals(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{dir: dir}
-	imports := []Import{{Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}, {Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}}
-	arrivals := []Arrival{{Type: "aws_sqs_queue", ID: "b", Root: "aws/all", From: "aws_sqs_queue.jobs"}, {Type: "aws_sqs_queue", ID: "gone", Root: "aws/all", From: "aws_sqs_queue.gone"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "Jobs Queue", ID: "b"}, {Type: "aws_sqs_queue", Name: "Orders Queue", ID: "a"}}
+	arrivals := []rootfile.Arrival{{Type: "aws_sqs_queue", ID: "b", Root: "aws/all", From: "aws_sqs_queue.jobs"}, {Type: "aws_sqs_queue", ID: "gone", Root: "aws/all", From: "aws_sqs_queue.gone"}}
 	result, err := Generate(t.Context(), tf, dir, imports, Options{TidyLabels: true, Arrivals: arrivals})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Arrival{{Type: "aws_sqs_queue", ID: "b", Root: "aws/all", From: "aws_sqs_queue.jobs", To: addressesOf(result)["b"]}}
+	want := []rootfile.Arrival{{Type: "aws_sqs_queue", ID: "b", Root: "aws/all", From: "aws_sqs_queue.jobs", To: addressesOf(result)["b"]}}
 	if !reflect.DeepEqual(result.Arrived, want) {
 		t.Errorf("arrived %+v, want %+v", result.Arrived, want)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	for _, want := range []string{"## Moves", "| `" + want[0].To + "` | `aws/all` | `aws_sqs_queue.jobs` |", "Apply the root each comes from first", "after applying the roots the resources it imports from other roots come from"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
 	}
-	if exists(filepath.Join(dir, MovesFileName)) {
-		t.Errorf("%s written for a root that only imports", MovesFileName)
+	if exists(filepath.Join(dir, rootfile.MovesFileName)) {
+		t.Errorf("%s written for a root that only imports", rootfile.MovesFileName)
 	}
 }
 
@@ -210,12 +211,12 @@ func TestVacate(t *testing.T) {
 	dir := t.TempDir()
 	opts := Options{
 		Config: map[string][]byte{
-			VersionsFileName:  VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"}),
-			ProvidersFileName: []byte("provider \"aws\" {\n  region = \"eu-west-1\"\n}\n"),
+			rootfile.VersionsFileName:  rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"}),
+			rootfile.ProvidersFileName: []byte("provider \"aws\" {\n  region = \"eu-west-1\"\n}\n"),
 		},
 		Previous: &Previous{
 			Addresses: []Managed{{Type: "aws_subnet", ID: "s", Address: "aws_subnet.a[0]"}},
-			Removed:   []Removal{{From: "aws_subnet.a", Resources: []Departure{{Type: "aws_subnet", ID: "s", Address: "aws_subnet.a[0]", Root: "aws/prod"}}}},
+			Removed:   []rootfile.Removal{{From: "aws_subnet.a", Resources: []rootfile.Departure{{Type: "aws_subnet", ID: "s", Address: "aws_subnet.a[0]", Root: "aws/prod"}}}},
 		},
 	}
 	result, err := Vacate(dir, opts)
@@ -228,16 +229,16 @@ func TestVacate(t *testing.T) {
 	if !result.Gate.Passed() || result.Gate.Named(gate.CheckMoves).Name != gate.CheckMoves {
 		t.Errorf("gate: %+v", result.Gate)
 	}
-	if got := readFile(t, dir, VersionsFileName); !strings.Contains(got, `required_version = ">= 1.10, < 2.0"`) {
-		t.Errorf("%s:\n%s", VersionsFileName, got)
+	if got := readFile(t, dir, rootfile.VersionsFileName); !strings.Contains(got, `required_version = ">= 1.10, < 2.0"`) {
+		t.Errorf("%s:\n%s", rootfile.VersionsFileName, got)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != string(opts.Config[ProvidersFileName]) {
-		t.Errorf("%s:\n%s", ProvidersFileName, got)
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != string(opts.Config[rootfile.ProvidersFileName]) {
+		t.Errorf("%s:\n%s", rootfile.ProvidersFileName, got)
 	}
-	if got := readFile(t, dir, MovesFileName); !strings.Contains(got, "from = aws_subnet.a\n") {
-		t.Errorf("%s:\n%s", MovesFileName, got)
+	if got := readFile(t, dir, rootfile.MovesFileName); !strings.Contains(got, "from = aws_subnet.a\n") {
+		t.Errorf("%s:\n%s", rootfile.MovesFileName, got)
 	}
-	readme := readFile(t, dir, ReadmeFileName)
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
 	for _, want := range []string{"# Handed over resources", "before applying the roots the resources go to", "| `aws_subnet.a` | `aws/prod` |", "G8 moves"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
@@ -248,7 +249,7 @@ func TestVacate(t *testing.T) {
 		t.Error("want an error without removed blocks")
 	}
 	moving := *opts.Previous
-	moving.Moved = []Move{{From: "aws_subnet.x", To: "aws_subnet.a"}}
+	moving.Moved = []rootfile.Move{{From: "aws_subnet.x", To: "aws_subnet.a"}}
 	if _, err := Vacate(t.TempDir(), Options{Previous: &moving}); err == nil || !strings.Contains(err.Error(), "still moves") {
 		t.Errorf("want an error for moved blocks still there, got %v", err)
 	}

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 const deploymentsGenerated = `resource "aws_api_gateway_deployment" "prod" {
@@ -30,7 +32,7 @@ resource "aws_api_gateway_stage" "prod" {
 // above it, but one that sets it already, and no other type.
 func TestSetLifecycles(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), GeneratedFileName)
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
 	if err := os.WriteFile(path, []byte(deploymentsGenerated), 0o644); err != nil {
 		t.Fatal(err)
 	}

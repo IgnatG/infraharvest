@@ -18,6 +18,8 @@ import (
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // OmitArguments removes from the resources in path the arguments omit
@@ -448,7 +450,7 @@ func nthBlockOf(body *hclwrite.Body, typ string, index int) *hclwrite.Block {
 
 // withResourceOmissions returns omit with, under each import's address,
 // the arguments the import itself leaves out (see Import.Omit).
-func withResourceOmissions(omit map[string][]string, imports []Import) map[string][]string {
+func withResourceOmissions(omit map[string][]string, imports []rootfile.Import) map[string][]string {
 	var with map[string][]string
 	for _, imp := range imports {
 		if len(imp.Omit) == 0 {

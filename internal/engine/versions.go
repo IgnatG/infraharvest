@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -31,20 +32,6 @@ const (
 	registryTimeout   = 30 * time.Second
 	registryBodyLimit = 4 << 20
 )
-
-// RequiredVersion is the required_version for configuration generated with
-// Terraform v: this minor release or newer, within its major release.
-func RequiredVersion(v *version.Version) string {
-	s := v.Segments()
-	return fmt.Sprintf(">= %d.%d, < %d.0", s[0], s[1], s[0]+1)
-}
-
-// ProviderConstraint pins a provider to v's minor release line: "~> 6.67"
-// accepts 6.67 and later 6.x releases, never 7.0.
-func ProviderConstraint(v *version.Version) string {
-	s := v.Segments()
-	return fmt.Sprintf("~> %d.%d", s[0], s[1])
-}
 
 // registryAttempts is how many times a registry lookup is tried when the
 // connection fails or the registry answers 429 or 5xx; registryBackoff is
@@ -317,7 +304,7 @@ func LockedVersion(lock []byte, source string) string {
 // meet. Requirements that aren't literal, and providers lock doesn't
 // record, stay as they are.
 func pinnedToLock(versions, lock []byte) ([]byte, error) {
-	f, diags := hclfile.ParseDiagnostics(VersionsFileName, versions)
+	f, diags := hclfile.ParseDiagnostics(rootfile.VersionsFileName, versions)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -331,7 +318,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 				continue
 			}
 			for name, attr := range rb.Body().Attributes() {
-				expr, diags := hclsyntax.ParseExpression(attr.Expr().BuildTokens(nil).Bytes(), VersionsFileName, hcl.InitialPos)
+				expr, diags := hclsyntax.ParseExpression(attr.Expr().BuildTokens(nil).Bytes(), rootfile.VersionsFileName, hcl.InitialPos)
 				if diags.HasErrors() {
 					continue
 				}
@@ -348,7 +335,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 					continue
 				}
 				requirement := v.AsValueMap()
-				requirement["version"] = cty.StringVal(ProviderConstraint(locked))
+				requirement["version"] = cty.StringVal(rootfile.ProviderConstraint(locked))
 				rb.Body().SetAttributeValue(name, cty.ObjectVal(requirement))
 				changed = true
 			}

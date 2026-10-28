@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
@@ -192,7 +192,7 @@ func TestGoogleEnvironments(t *testing.T) {
 	had := resourceAddresses(t, dir)
 	for _, path := range []string{
 		filepath.Join(out, ".infraharvest"),
-		filepath.Join(dir, engine.ImportsFileName),
+		filepath.Join(dir, rootfile.ImportsFileName),
 		filepath.Join(dir, "vars", "dev", "imports.tfvars"),
 		filepath.Join(dir, "vars", "prod", "imports.tfvars"),
 	} {
@@ -376,8 +376,8 @@ func TestGoogleEnvironments(t *testing.T) {
 	if len(coverage.Moved) != 0 || len(coverage.Departed) != 0 {
 		t.Errorf("--regenerate with nothing changed: moved %+v, departed %+v", coverage.Moved, coverage.Departed)
 	}
-	if _, err := os.Stat(filepath.Join(dir, engine.MovesFileName)); err == nil {
-		t.Errorf("--regenerate with nothing changed wrote %s:\n%s", engine.MovesFileName, readFile(t, filepath.Join(dir, engine.MovesFileName)))
+	if _, err := os.Stat(filepath.Join(dir, rootfile.MovesFileName)); err == nil {
+		t.Errorf("--regenerate with nothing changed wrote %s:\n%s", rootfile.MovesFileName, readFile(t, filepath.Join(dir, rootfile.MovesFileName)))
 	}
 	if now := resourceAddresses(t, dir); !maps.Equal(now, had) {
 		t.Errorf("--regenerate with nothing changed: the merged root's resources are %v, were %v", slices.Sorted(maps.Keys(now)), slices.Sorted(maps.Keys(had)))
@@ -405,10 +405,10 @@ func TestGoogleEnvironments(t *testing.T) {
 	if len(coverage.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", coverage.IncompleteHandovers)
 	}
-	moves := readFile(t, filepath.Join(dir, engine.MovesFileName))
+	moves := readFile(t, filepath.Join(dir, rootfile.MovesFileName))
 	for _, want := range []string{"removed {", "destroy = false"} {
 		if !strings.Contains(moves, want) {
-			t.Errorf("the merged root's %s has no %q:\n%s", engine.MovesFileName, want, moves)
+			t.Errorf("the merged root's %s has no %q:\n%s", rootfile.MovesFileName, want, moves)
 		}
 	}
 	for address := range resourceAddresses(t, dir) {

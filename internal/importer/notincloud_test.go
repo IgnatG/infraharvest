@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
 	googleprovider "github.com/IgnatG/infraharvest/internal/providers/google"
@@ -160,7 +161,7 @@ func TestNotInCloud(t *testing.T) {
 
 	got := here.notInCloud(existing)
 
-	want := []engine.Import{
+	want := []rootfile.Import{
 		{Type: "aws_sqs_queue", Name: "dlq", ID: "https://sqs.eu-west-2.amazonaws.com/123/dlq"},
 		{Type: "aws_sqs_queue", Name: "jobs", ID: "https://sqs.eu-west-2.amazonaws.com/123/jobs"},
 	}
@@ -207,21 +208,21 @@ func TestAddToRootReportsWhatIsNoLongerInTheCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"sqs.tf":               "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n\nresource \"aws_sqs_queue\" \"jobs\" {\n  name = \"jobs\"\n}\n",
-		engine.ImportsFileName: "import {\n  to = aws_sqs_queue.orders\n  id = \"q/orders\"\n}\n\nimport {\n  to = aws_sqs_queue.jobs\n  id = \"q/jobs\"\n}\n",
-		engine.ReadmeFileName:  "# Imported resources\n",
+		"sqs.tf":                 "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n\nresource \"aws_sqs_queue\" \"jobs\" {\n  name = \"jobs\"\n}\n",
+		rootfile.ImportsFileName: "import {\n  to = aws_sqs_queue.orders\n  id = \"q/orders\"\n}\n\nimport {\n  to = aws_sqs_queue.jobs\n  id = \"q/jobs\"\n}\n",
+		rootfile.ReadmeFileName:  "# Imported resources\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	previous := &engine.Result{Imported: []engine.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q/orders"}, {Type: "aws_sqs_queue", Name: "jobs", ID: "q/jobs"}}, Files: []string{"sqs.tf"}}
+	previous := &engine.Result{Imported: []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q/orders"}, {Type: "aws_sqs_queue", Name: "jobs", ID: "q/jobs"}}, Files: []string{"sqs.tf"}}
 	if err := saveCheckpoint(out, dir, "fp", previous); err != nil {
 		t.Fatal(err)
 	}
 	r := &Run{options: Options{Out: out}, scope: "aws/123/eu-west-2", here: &listedHere{ids: map[string]bool{"q/orders": true}, types: map[string]bool{"aws_sqs_queue": true}}}
-	imports := []engine.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q/orders"}}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q/orders"}}
 
 	added, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 

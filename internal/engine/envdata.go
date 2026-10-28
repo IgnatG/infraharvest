@@ -9,10 +9,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // stackData is a data source the roots of a stack read, by its address

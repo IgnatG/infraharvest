@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -297,7 +297,7 @@ func TestAzureEnvironments(t *testing.T) {
 	if len(coverage.Departed) != 0 || len(coverage.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: departed %+v, incomplete handovers %+v, want none", coverage.Departed, coverage.IncompleteHandovers)
 	}
-	if moves := readFile(t, filepath.Join(dir, engine.MovesFileName)); !strings.Contains(moves, "moved {") {
+	if moves := readFile(t, filepath.Join(dir, rootfile.MovesFileName)); !strings.Contains(moves, "moved {") {
 		t.Errorf("the merged root's moves.tf has no moved block:\n%s", moves)
 	}
 	for _, env := range []string{"dev", "prod"} {

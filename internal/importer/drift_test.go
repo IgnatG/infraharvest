@@ -20,8 +20,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/drift"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -31,7 +31,7 @@ func driftOutput(t *testing.T, rels ...string) string {
 	t.Helper()
 	out := t.TempDir()
 	for _, rel := range rels {
-		path := filepath.Join(out, filepath.FromSlash(rel), engine.ProvidersFileName)
+		path := filepath.Join(out, filepath.FromSlash(rel), rootfile.ProvidersFileName)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}

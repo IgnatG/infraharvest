@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -41,7 +42,7 @@ type MergeRoot struct {
 	Dir, Origin string
 	// Provider is the root's provider, with its configuration without
 	// credentials and its version constraint.
-	Provider Provider
+	Provider rootfile.Provider
 	// Secrets are the root's secret variables, whose arguments its plan
 	// gives placeholder values (see placeholders).
 	Secrets []secret.Variable
@@ -72,7 +73,7 @@ type MergeRoot struct {
 	// Arrivals are the resources the root imports that other roots hand
 	// over (see Result.Arrived), which the merged root's README names, as
 	// the roots they come from are applied first.
-	Arrivals []Arrival
+	Arrivals []rootfile.Arrival
 }
 
 // readEnvRoot reads the root r as merging reads it (see envRoot): its
@@ -133,18 +134,18 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 					}
 				}
 			case "moved", "removed":
-				return root, fmt.Sprintf("%s: the root moves or removes resources (%s), which a merged root doesn't carry", r.Env, MovesFileName), nil
+				return root, fmt.Sprintf("%s: the root moves or removes resources (%s), which a merged root doesn't carry", r.Env, rootfile.MovesFileName), nil
 			case "output":
 				return root, fmt.Sprintf("%s: the root has outputs (%s), which a merged root doesn't carry", r.Env, name), nil
 			}
 		}
 	}
 	values := localValues(locals)
-	if root.file, err = inlinedFile(GeneratedFileName, blocks.String(), values, r, target); err != nil {
+	if root.file, err = inlinedFile(rootfile.GeneratedFileName, blocks.String(), values, r, target); err != nil {
 		return root, "", err
 	}
 	if data.Len() > 0 {
-		if root.data, err = inlinedFile(DataFileName, data.String(), values, r, target); err != nil {
+		if root.data, err = inlinedFile(rootfile.DataFileName, data.String(), values, r, target); err != nil {
 			return root, "", err
 		}
 	}

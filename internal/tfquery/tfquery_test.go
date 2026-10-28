@@ -20,7 +20,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -86,7 +86,7 @@ func request(t *testing.T, types ...string) Request {
 	return Request{
 		ExecPath:     "terraform",
 		Parent:       filepath.Join(t.TempDir(), ".infraharvest"),
-		Provider:     engine.Provider{Name: "aws", Source: "hashicorp/aws", Config: map[string]interface{}{"region": "eu-west-2"}},
+		Provider:     rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Config: map[string]interface{}{"region": "eu-west-2"}},
 		ProviderName: "aws",
 		Types:        types,
 		Config:       map[string]string{"region": "eu-west-2", "resource_group_name": "rg"},
@@ -99,7 +99,7 @@ func fakeRunner(t *testing.T, tf *fakeTerraform, v string) runner {
 	return runner{
 		newTerraform: func(dir, _, _ string, _ map[string]string) (terraform, error) {
 			tf.dir = dir
-			for _, name := range []string{engine.VersionsFileName, engine.ProvidersFileName} {
+			for _, name := range []string{rootfile.VersionsFileName, rootfile.ProvidersFileName} {
 				if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 					t.Error(err)
 				}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -157,7 +158,7 @@ func (t *tidying) passes() []tidyPass {
 		// Next, so the passes below see only the arguments that matter.
 		{name: passDefaults, after: []string{passEffectiveTags}, run: t.stripDefaults},
 		{name: passReferences, after: []string{passDefaults}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addReferencesSkipping(dir, t.values, skip)
 			}}, nil
 		}},
@@ -167,7 +168,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.External) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
 			}}, nil
 		}},
@@ -176,13 +177,13 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.OtherRoots) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName, hclfile.VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, hclfile.VariablesFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
 			}}, nil
 		}},
 		// Lookups are for what nothing the import lists has.
 		{name: passLookups, after: []string{passReferences, passDataSources, passRootVariables}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addLookups(dir, taken, skip)
 			}}, nil
 		}},
@@ -190,7 +191,7 @@ func (t *tidying) passes() []tidyPass {
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
 		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
 		}},
 		// After the steps above, as clusters reach the modules through the
 		// references.
@@ -200,7 +201,7 @@ func (t *tidying) passes() []tidyPass {
 				return nil, nil
 			}
 			lists := t.lists
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) {
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
 			}}, nil
 		}},
@@ -208,7 +209,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
 		}},
 		// After the curated modules, whose calls take the project from the
 		// resources.
@@ -216,7 +217,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Inherited) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }}, nil
 		}},
 		// Last: curated modules first, and the resources left no longer
 		// repeat what the provider sets.
@@ -303,7 +304,7 @@ func (t *tidying) tagLift() (*tidyStep, error) {
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	tags := &tidyStep{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+	tags := &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.ProvidersFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
 	if dt.Block != "" && dt.Applied == nil {
 		// Where the provider can't apply the tags without changing a
 		// resource's, the resources still share them through the local.
@@ -339,7 +340,7 @@ func (t *tidying) liftModules() error {
 // liftLiteralsValidated lifts repeated identifiers when the configuration
 // can't be planned, and undoes the lift if it doesn't validate.
 func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, taken Names) error {
-	backup, err := fsutil.BackupFiles(dir, GeneratedFileName, LocalsFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.LocalsFileName)
 	if err != nil {
 		return err
 	}
@@ -578,11 +579,11 @@ func dataReaders(generated *hclfile.File, address string) []string {
 func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
-		generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+		generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 		if err != nil {
 			return nil, err
 		}
-		imports, err := hclfile.LoadOptional(filepath.Join(dir, ImportsFileName))
+		imports, err := hclfile.LoadOptional(filepath.Join(dir, rootfile.ImportsFileName))
 		if err != nil || imports == nil {
 			return nil, err
 		}

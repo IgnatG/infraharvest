@@ -33,6 +33,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -230,7 +231,7 @@ func optionsImports(t *testing.T, out string) map[string][]string {
 // within a module call or not.
 func optionsRootImports(t *testing.T, dir string) map[string][]string {
 	t.Helper()
-	name := filepath.Join(dir, engine.ImportsFileName)
+	name := filepath.Join(dir, rootfile.ImportsFileName)
 	f, diags := hclsyntax.ParseConfig([]byte(readFile(t, name)), name, hcl.InitialPos)
 	if diags.HasErrors() {
 		t.Fatal(diags)
@@ -332,7 +333,7 @@ func TestAWSOptionsLayout(t *testing.T) {
 		if !ok {
 			continue
 		}
-		data, _ := os.ReadFile(filepath.Join(dir, engine.DataFileName))
+		data, _ := os.ReadFile(filepath.Join(dir, rootfile.DataFileName))
 		if generated := configuration(t, dir); !readsVPC.MatchString(generated) || !strings.Contains(string(data), `data "aws_vpc"`) || !strings.Contains(string(data), vpc) {
 			t.Errorf("%s doesn't read the VPC %s of the root %svpc through a data source:\n%s", regional+service, vpc, regional, generated)
 		}
@@ -402,7 +403,7 @@ func TestAWSOptionsModules(t *testing.T) {
 				t.Errorf("--modules=none: %s calls the module %s", rel, strings.Join(b.Labels, " "))
 			}
 		}
-		if imports := readFile(t, filepath.Join(dir, engine.ImportsFileName)); strings.Contains(imports, "module.") {
+		if imports := readFile(t, filepath.Join(dir, rootfile.ImportsFileName)); strings.Contains(imports, "module.") {
 			t.Errorf("--modules=none: %s imports into a module:\n%s", rel, imports)
 		}
 	}

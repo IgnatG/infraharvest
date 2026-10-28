@@ -12,6 +12,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // refactorAddress is the address a moved or removed block names, as in
@@ -135,7 +136,7 @@ func checkMoves(dir string) (gate.Check, error) {
 			}
 		}
 	}
-	var moved []Move
+	var moved []rootfile.Move
 	for _, f := range files {
 		where := func(b *hclsyntax.Block) string {
 			return fmt.Sprintf("%s:%d", rel(dir, f.Path), b.DefRange().Start.Line)
@@ -191,7 +192,7 @@ func checkMoves(dir string) (gate.Check, error) {
 			default:
 				fail("%s: moved block from %s to %s changes the resource type", where(b), from.text, to.text)
 			}
-			moved = append(moved, Move{From: from.text, To: to.text})
+			moved = append(moved, rootfile.Move{From: from.text, To: to.text})
 		}
 	}
 	if problem := conflictingMoves(moved, nil); problem != "" {

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // required_version is what the configuration needs: 1.5 for its import
@@ -22,7 +24,7 @@ func TestRequireMinimumVersion(t *testing.T) {
 		want    string
 	}{
 		"import blocks": {
-			files: map[string]string{ImportsFileName: "import {\n  to = aws_sqs_queue.a\n  id = \"a\"\n}\n"},
+			files: map[string]string{rootfile.ImportsFileName: "import {\n  to = aws_sqs_queue.a\n  id = \"a\"\n}\n"},
 			want:  `">= 1.5, < 2.0"`,
 		},
 		"removed blocks": {
@@ -31,16 +33,16 @@ func TestRequireMinimumVersion(t *testing.T) {
 		},
 		// Terraform takes them from 1.7, OpenTofu from 1.10.
 		"removed blocks with destroy = false": {
-			files: map[string]string{MovesFileName: "removed {\n  from = aws_sqs_queue.a\n\n  lifecycle {\n    destroy = false\n  }\n}\n"},
+			files: map[string]string{rootfile.MovesFileName: "removed {\n  from = aws_sqs_queue.a\n\n  lifecycle {\n    destroy = false\n  }\n}\n"},
 			want:  `">= 1.10, < 2.0"`,
 		},
 		// Terraform takes them from 1.1, OpenTofu from 1.6.
 		"moved blocks": {
-			files: map[string]string{MovesFileName: "moved {\n  from = aws_sqs_queue.a\n  to   = aws_sqs_queue.b\n}\n"},
+			files: map[string]string{rootfile.MovesFileName: "moved {\n  from = aws_sqs_queue.a\n  to   = aws_sqs_queue.b\n}\n"},
 			want:  `">= 1.5, < 2.0"`,
 		},
 		"import blocks by identity": {
-			files: map[string]string{ImportsFileName: "import {\n  to = aws_cloudwatch_log_group.a\n  identity = {\n    name = \"a\"\n  }\n}\n"},
+			files: map[string]string{rootfile.ImportsFileName: "import {\n  to = aws_cloudwatch_log_group.a\n  identity = {\n    name = \"a\"\n  }\n}\n"},
 			want:  `">= 1.12, < 2.0"`,
 		},
 		"write-only arguments": {
@@ -64,7 +66,7 @@ func TestRequireMinimumVersion(t *testing.T) {
 		},
 	} {
 		dir := t.TempDir()
-		writeConfig(t, dir, VersionsFileName, versions)
+		writeConfig(t, dir, rootfile.VersionsFileName, versions)
 		for file, content := range tt.files {
 			writeConfig(t, dir, file, content)
 		}
@@ -75,7 +77,7 @@ func TestRequireMinimumVersion(t *testing.T) {
 				if err := os.MkdirAll(moduleDir, 0o755); err != nil {
 					t.Fatal(err)
 				}
-				writeConfig(t, moduleDir, VersionsFileName, "terraform {\n  required_version = \""+required+"\"\n}\n")
+				writeConfig(t, moduleDir, rootfile.VersionsFileName, "terraform {\n  required_version = \""+required+"\"\n}\n")
 				entries = append(entries, `{"Key":"`+key+`","Source":"x","Dir":".terraform/modules/`+key+`"}`)
 			}
 			manifest := `{"Modules":[{"Key":"","Source":"","Dir":"."},` + strings.Join(entries, ",") + `]}`
@@ -87,7 +89,7 @@ func TestRequireMinimumVersion(t *testing.T) {
 		if err := requireMinimumVersion(dir); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if got := readFile(t, dir, VersionsFileName); !strings.Contains(got, "required_version = "+tt.want) {
+		if got := readFile(t, dir, rootfile.VersionsFileName); !strings.Contains(got, "required_version = "+tt.want) {
 			t.Errorf("%s: got\n%s\nwant required_version = %s", name, got, tt.want)
 		}
 	}

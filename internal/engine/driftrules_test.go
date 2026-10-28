@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // The standards check drift holds its edits to leaves the organisation's
@@ -23,7 +24,7 @@ func TestDriftRulesLeaveOwnModulesToTheirOwners(t *testing.T) {
 	out := t.TempDir()
 	dir, own := filepath.Join(out, "aws", "123", "eu-west-2"), filepath.Join(out, "own")
 	writeConfig(t, mkdir(t, dir), "main.tf", "module \"own\" {\n  source = \"../../../own\"\n}\n")
-	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, rootfile.VersionsFileName, string(rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
 	if err := os.WriteFile(filepath.Join(mkdir(t, own), "main.tf"), []byte("resource \"aws_sqs_queue\" \"this\" {\n  name = \"${\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -31,11 +32,11 @@ type Rejection struct {
 // reject moves the resources errs names out of imports.tf and generated.tf,
 // and appends them, with their errors, to out.
 func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -98,11 +99,11 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 // unconfigured returns, as errors by address, the import blocks in dir
 // that import into a resource generated.tf has no block for.
 func unconfigured(dir string) (map[string][]tfjson.Diagnostic, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}

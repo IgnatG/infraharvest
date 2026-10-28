@@ -19,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -27,7 +28,7 @@ import (
 func existingRoot(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 
@@ -37,16 +38,16 @@ module "logs" {
   bucket  = "logs"
 }
 `)
-	writeConfig(t, dir, ImportsFileName, `import {
+	writeConfig(t, dir, rootfile.ImportsFileName, `import {
   to = module.logs.aws_s3_bucket.this[0]
   id = "logs"
 }
 `)
-	writeConfig(t, dir, DataFileName, `data "aws_security_group" "sg_0def5678" {
+	writeConfig(t, dir, rootfile.DataFileName, `data "aws_security_group" "sg_0def5678" {
   id = "sg-0def5678"
 }
 `)
-	writeConfig(t, dir, LocalsFileName, `locals {
+	writeConfig(t, dir, rootfile.LocalsFileName, `locals {
   tags   = { Project = "shop" }
   vpc_id = "vpc-0abc1234"
 }
@@ -56,7 +57,7 @@ module "logs" {
   sensitive = true
 }
 `)
-	writeConfig(t, dir, ProvidersFileName, `provider "aws" {
+	writeConfig(t, dir, rootfile.ProvidersFileName, `provider "aws" {
   region = "us-east-1"
   default_tags {
     tags = local.tags
@@ -91,7 +92,7 @@ func TestHasConfiguration(t *testing.T) {
 		t.Errorf("a generated root: got %v, %v", has, err)
 	}
 	empty := t.TempDir()
-	writeConfig(t, empty, ProvidersFileName, awsProviders)
+	writeConfig(t, empty, rootfile.ProvidersFileName, awsProviders)
 	if has, err := HasConfiguration(empty); err != nil || has {
 		t.Errorf("a root without resources: got %v, %v", has, err)
 	}
@@ -104,7 +105,7 @@ func TestExisting(t *testing.T) {
 	t.Parallel()
 	dir := existingRoot(t)
 	previous := &Result{
-		Imported: []Import{
+		Imported: []rootfile.Import{
 			{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"},
 			{Type: "aws_s3_bucket", Name: "logs", ID: "logs"}, // moved into module.logs
 		},
@@ -139,7 +140,7 @@ func TestAppliedTags(t *testing.T) {
 	}
 
 	literal := t.TempDir()
-	writeConfig(t, literal, ProvidersFileName, `provider "aws" {
+	writeConfig(t, literal, rootfile.ProvidersFileName, `provider "aws" {
   default_tags {
     tags = { Team = "web" }
   }
@@ -154,7 +155,7 @@ func TestAppliedTags(t *testing.T) {
 	}
 
 	none := t.TempDir()
-	writeConfig(t, none, ProvidersFileName, awsProviders)
+	writeConfig(t, none, rootfile.ProvidersFileName, awsProviders)
 	files, err = hclfile.ConfigFiles(none)
 	if err != nil {
 		t.Fatal(err)
@@ -166,8 +167,8 @@ func TestAppliedTags(t *testing.T) {
 
 func TestLabelledLeavesTakenLabels(t *testing.T) {
 	t.Parallel()
-	got := labelled([]Import{{Type: "aws_vpc", Name: "main", ID: "vpc-2"}, {Type: "aws_subnet", Name: "main", ID: "subnet-1"}}, Names{"aws_vpc.main": true}, false)
-	want := []Import{{Type: "aws_subnet", Name: "main", ID: "subnet-1"}, {Type: "aws_vpc", Name: "main_2", ID: "vpc-2"}}
+	got := labelled([]rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-2"}, {Type: "aws_subnet", Name: "main", ID: "subnet-1"}}, Names{"aws_vpc.main": true}, false)
+	want := []rootfile.Import{{Type: "aws_subnet", Name: "main", ID: "subnet-1"}, {Type: "aws_vpc", Name: "main_2", ID: "vpc-2"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -176,8 +177,8 @@ func TestLabelledLeavesTakenLabels(t *testing.T) {
 func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, networkGenerated)
-	writeConfig(t, dir, ProvidersFileName, awsProviders)
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 	dt := awsDefaultTags
 	dt.Applied = map[string]string{"Project": "shop", "Team": "data"}
 	if err := applyDefaultTags(dir, dt); err != nil {
@@ -187,7 +188,7 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	subnets, group, _ := strings.Cut(generated, `resource "aws_security_group" "web"`)
 	for _, want := range []string{
 		`Team = "web"`, // a value of its own stays
@@ -205,7 +206,7 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	if !strings.Contains(group, `Project = "shop"`) || !strings.Contains(group, "provider = aws.without_default_tags") {
 		t.Errorf("the group without Team doesn't keep its tags on the configuration without default tags:\n%s", generated)
 	}
-	providers := squashed(readFile(t, dir, ProvidersFileName))
+	providers := squashed(readFile(t, dir, rootfile.ProvidersFileName))
 	if !strings.Contains(providers, "default_tags { tags = local.tags }") {
 		t.Errorf("providers.tf doesn't apply the tags:\n%s", providers)
 	}
@@ -216,18 +217,18 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	// The root gets the configuration once, as the root's own provider
 	// without default_tags.
 	root := t.TempDir()
-	writeConfig(t, root, ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n  default_tags {\n    tags = local.tags\n  }\n}\n")
+	writeConfig(t, root, rootfile.ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n  default_tags {\n    tags = local.tags\n  }\n}\n")
 	for i, want := range []bool{true, false} {
 		added, err := addRootAlias(dir, root, dt)
 		if err != nil || added != want {
 			t.Fatalf("run %d: added %v, %v; want %v", i+1, added, err, want)
 		}
 	}
-	rootProviders := squashed(readFile(t, root, ProvidersFileName))
+	rootProviders := squashed(readFile(t, root, rootfile.ProvidersFileName))
 	if !strings.HasSuffix(rootProviders, `provider "aws" { alias = "without_default_tags" region = "eu-west-2" }`) || strings.Count(rootProviders, "alias") != 1 {
 		t.Errorf("root's providers.tf:\n%s", rootProviders)
 	}
-	if locals := squashed(readFile(t, dir, LocalsFileName)); !strings.Contains(locals, `Project = "shop"`) {
+	if locals := squashed(readFile(t, dir, rootfile.LocalsFileName)); !strings.Contains(locals, `Project = "shop"`) {
 		t.Errorf("locals.tf misses the tags:\n%s", locals)
 	}
 }
@@ -235,9 +236,9 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 func TestMerge(t *testing.T) {
 	t.Parallel()
 	root := existingRoot(t)
-	generatedBefore := readFile(t, root, GeneratedFileName)
+	generatedBefore := readFile(t, root, rootfile.GeneratedFileName)
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, `resource "aws_subnet" "a" {
+	writeConfig(t, staging, rootfile.GeneratedFileName, `resource "aws_subnet" "a" {
   cidr_block = "10.0.1.0/24"
   vpc_id     = data.aws_vpc.vpc_0abc1234.id
 }
@@ -248,7 +249,7 @@ resource "aws_instance" "web" {
   ami                    = local.ami
 }
 `)
-	writeConfig(t, staging, DataFileName, `data "aws_vpc" "vpc_0abc1234" {
+	writeConfig(t, staging, rootfile.DataFileName, `data "aws_vpc" "vpc_0abc1234" {
   id = "vpc-0abc1234"
 }
 
@@ -260,7 +261,7 @@ data "aws_security_group" "sg_0aaa1111" {
   id = "sg-0aaa1111"
 }
 `)
-	writeConfig(t, staging, ImportsFileName, `import {
+	writeConfig(t, staging, rootfile.ImportsFileName, `import {
   to = aws_subnet.a
   id = "subnet-1"
 }
@@ -270,12 +271,12 @@ import {
   id = "i-1"
 }
 `)
-	writeConfig(t, staging, LocalsFileName, `locals {
+	writeConfig(t, staging, rootfile.LocalsFileName, `locals {
   ami  = "ami-0123456789abcdef0"
   tags = { Project = "shop" }
 }
 `)
-	writeConfig(t, staging, ProvidersFileName, `provider "aws" {
+	writeConfig(t, staging, rootfile.ProvidersFileName, `provider "aws" {
   default_tags {
     tags = local.tags
   }
@@ -293,7 +294,7 @@ import {
 		t.Fatalf("got %q, %v", written, err)
 	}
 
-	if got := readFile(t, root, GeneratedFileName); got != generatedBefore {
+	if got := readFile(t, root, rootfile.GeneratedFileName); got != generatedBefore {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 	added := squashed(readFile(t, root, AddedFileName(2)))
@@ -306,11 +307,11 @@ import {
 			t.Errorf("%s misses %q:\n%s", AddedFileName(2), want, added)
 		}
 	}
-	data := squashed(readFile(t, root, DataFileName))
+	data := squashed(readFile(t, root, rootfile.DataFileName))
 	if !strings.Contains(data, `data "aws_security_group" "sg_0aaa1111"`) || strings.Count(data, "data ") != 2 {
 		t.Errorf("data.tf: want the root's data source and the new one:\n%s", data)
 	}
-	imports := squashed(readFile(t, root, ImportsFileName))
+	imports := squashed(readFile(t, root, rootfile.ImportsFileName))
 	for _, want := range []string{"to = module.logs.aws_s3_bucket.this[0]", "to = aws_subnet.a", "to = aws_instance.web"} {
 		if !strings.Contains(imports, want) {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
@@ -319,17 +320,17 @@ import {
 	if variables := readFile(t, root, hclfile.VariablesFileName); strings.Count(variables, "variable ") != 2 {
 		t.Errorf("variables.tf: want both variables:\n%s", variables)
 	}
-	locals := squashed(readFile(t, root, LocalsFileName))
+	locals := squashed(readFile(t, root, rootfile.LocalsFileName))
 	if !strings.Contains(locals, `ami = "ami-0123456789abcdef0"`) || strings.Count(locals, "tags") != 1 || strings.Count(locals, "locals") != 1 {
 		t.Errorf("locals.tf: want the new local in the root's block, and the root's tags only:\n%s", locals)
 	}
 
 	// The next addition takes the next file.
-	writeConfig(t, staging, GeneratedFileName, `resource "aws_sqs_queue" "jobs" {
+	writeConfig(t, staging, rootfile.GeneratedFileName, `resource "aws_sqs_queue" "jobs" {
   name = "jobs"
 }
 `)
-	for _, name := range []string{DataFileName, ImportsFileName, LocalsFileName, hclfile.VariablesFileName} {
+	for _, name := range []string{rootfile.DataFileName, rootfile.ImportsFileName, rootfile.LocalsFileName, hclfile.VariablesFileName} {
 		if err := os.Remove(filepath.Join(staging, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +362,7 @@ func dirFiles(t *testing.T, dir string) map[string]string {
 const queueGenerated = "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"jobs\"\n}\n"
 
 // addOptions are Generate's options for the staging directory.
-var addOptions = Options{Config: map[string][]byte{VersionsFileName: []byte("# versions\n"), ProvidersFileName: []byte("# providers\n")}}
+var addOptions = Options{Config: map[string][]byte{rootfile.VersionsFileName: []byte("# versions\n"), rootfile.ProvidersFileName: []byte("# providers\n")}}
 
 func TestAdd(t *testing.T) {
 	t.Parallel()
@@ -371,7 +372,7 @@ func TestAdd(t *testing.T) {
 	rootTF := &fakeTerraform{dir: root}
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +383,7 @@ func TestAdd(t *testing.T) {
 	if got := readFile(t, root, AddedFileName(2)); !strings.Contains(got, `resource "aws_sqs_queue" "jobs"`) {
 		t.Errorf("%s:\n%s", AddedFileName(2), got)
 	}
-	if imports := readFile(t, root, ImportsFileName); !strings.Contains(imports, "to = aws_sqs_queue.jobs") || !strings.Contains(imports, "to = module.logs.aws_s3_bucket.this[0]") {
+	if imports := readFile(t, root, rootfile.ImportsFileName); !strings.Contains(imports, "to = aws_sqs_queue.jobs") || !strings.Contains(imports, "to = module.logs.aws_s3_bucket.this[0]") {
 		t.Errorf("imports.tf:\n%s", imports)
 	}
 	if got := strings.Join(rootTF.calls, ","); got != "init,fmt,validate" {
@@ -412,7 +413,7 @@ func TestAddGatesTheRootWithItsOwnModules(t *testing.T) {
 	opts := addOptions
 	opts.Adapters = []adapters.Adapter{{Source: own}}
 
-	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +457,7 @@ func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
+	_, err = Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
 	if err == nil || !strings.Contains(err.Error(), gate.CheckSecrets+" failed") {
 		t.Errorf("err = %v, want the secrets check failed", err)
 	}
@@ -488,7 +489,7 @@ func TestAddToARootWithLocalState(t *testing.T) {
 	rootTF := &fakeTerraform{dir: root}
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	result, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
+	result, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, existing)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +516,7 @@ func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
 	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
 
-	_, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, nil)
+	_, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, addOptions, nil)
 	if err == nil || !strings.Contains(err.Error(), "terraform init: no provider") {
 		t.Fatalf("want the init error, got %v", err)
 	}
@@ -527,8 +528,8 @@ func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
 
 func TestResultWith(t *testing.T) {
 	t.Parallel()
-	previous := &Result{Imported: []Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat}}}
-	added := &Result{Imported: []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat, Passed: true}}}
+	previous := &Result{Imported: []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat}}}
+	added := &Result{Imported: []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat, Passed: true}}}
 	got := previous.With(added)
 	if len(got.Imported) != 2 || !got.Gate.Passed() || len(previous.Imported) != 1 {
 		t.Errorf("got %+v", got)
@@ -544,7 +545,7 @@ func TestResultWith(t *testing.T) {
 func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeConfig(t, root, LocalsFileName, `locals {
+	writeConfig(t, root, rootfile.LocalsFileName, `locals {
   tags = { env = "prod" }
 }
 `)
@@ -558,8 +559,8 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	}
 
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, azureGenerated)
-	writeConfig(t, staging, ProvidersFileName, "provider \"azurerm\" {\n  features {}\n}\n")
+	writeConfig(t, staging, rootfile.GeneratedFileName, azureGenerated)
+	writeConfig(t, staging, rootfile.ProvidersFileName, "provider \"azurerm\" {\n  features {}\n}\n")
 	dt := azureDefaultTags
 	dt.Applied = applied
 	if err := applyDefaultTags(staging, dt); err != nil {
@@ -569,14 +570,14 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
-	if generated := squashed(readFile(t, staging, GeneratedFileName)); strings.Count(generated, "local.tags") != 3 {
+	if generated := squashed(readFile(t, staging, rootfile.GeneratedFileName)); strings.Count(generated, "local.tags") != 3 {
 		t.Errorf("generated.tf:\n%s", generated)
 	}
-	if providers := readFile(t, staging, ProvidersFileName); strings.Contains(providers, "tags") {
+	if providers := readFile(t, staging, rootfile.ProvidersFileName); strings.Contains(providers, "tags") {
 		t.Errorf("providers.tf:\n%s", providers)
 	}
 
-	writeConfig(t, staging, LocalsFileName, `locals {
+	writeConfig(t, staging, rootfile.LocalsFileName, `locals {
   rg   = "/subscriptions/0000/resourceGroups/app"
   tags = { env = "prod" }
 }
@@ -584,7 +585,7 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	if err := mergeLocals(staging, root); err != nil {
 		t.Fatal(err)
 	}
-	locals := squashed(readFile(t, root, LocalsFileName))
+	locals := squashed(readFile(t, root, rootfile.LocalsFileName))
 	if strings.Count(locals, "tags =") != 1 || !strings.Contains(locals, `rg = "/subscriptions/0000/resourceGroups/app"`) {
 		t.Errorf("locals.tf:\n%s", locals)
 	}
@@ -604,7 +605,7 @@ func TestMergeIntoTheFilesOfTheTypes(t *testing.T) {
 	network := "resource \"aws_vpc\" \"main\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n"
 	writeConfig(t, root, "network.tf", network)
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, `resource "aws_instance" "web" {
+	writeConfig(t, staging, rootfile.GeneratedFileName, `resource "aws_instance" "web" {
   ami = "ami-1"
 }
 
@@ -648,7 +649,7 @@ func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
 	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
 
-	_, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs", File: "sqs.tf"}}, addOptions, nil)
+	_, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs", File: "sqs.tf"}}, addOptions, nil)
 	if err == nil {
 		t.Fatal("want the init error")
 	}
@@ -663,7 +664,7 @@ func TestAddUndoesWhatItAddedToTheFilesOfTheTypes(t *testing.T) {
 // pins it.
 func googleStagingProviders(t *testing.T, staging string) {
 	t.Helper()
-	writeConfig(t, staging, ProvidersFileName, `provider "google" {
+	writeConfig(t, staging, rootfile.ProvidersFileName, `provider "google" {
   project = "acme-prod"
 }
 
@@ -671,7 +672,7 @@ provider "google-beta" {
   project = "acme-prod"
 }
 `)
-	writeConfig(t, staging, VersionsFileName, `terraform {
+	writeConfig(t, staging, rootfile.VersionsFileName, `terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -693,8 +694,8 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	rootProviders := "provider \"google\" {\n  project = \"acme-prod\"\n  region  = \"us-central1\"\n}\n"
-	writeConfig(t, root, ProvidersFileName, rootProviders)
-	writeConfig(t, root, VersionsFileName, `terraform {
+	writeConfig(t, root, rootfile.ProvidersFileName, rootProviders)
+	writeConfig(t, root, rootfile.VersionsFileName, `terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
@@ -703,9 +704,9 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
   }
 }
 `)
-	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	writeConfig(t, root, rootfile.GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, `module "main" {
+	writeConfig(t, staging, rootfile.GeneratedFileName, `module "main" {
   source       = "terraform-google-modules/network/google"
   version      = "13.0.0"
   network_name = "main"
@@ -717,11 +718,11 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
-	providers := squashed(readFile(t, root, ProvidersFileName))
+	providers := squashed(readFile(t, root, rootfile.ProvidersFileName))
 	if !strings.HasPrefix(providers, squashed(rootProviders)) || !strings.Contains(providers, `provider "google-beta" { project = "acme-prod" }`) || strings.Count(providers, "provider ") != 2 {
 		t.Errorf("providers.tf: want the root's provider and google-beta:\n%s", providers)
 	}
-	versions := squashed(readFile(t, root, VersionsFileName))
+	versions := squashed(readFile(t, root, rootfile.VersionsFileName))
 	for _, want := range []string{
 		`google = { source = "hashicorp/google" version = "~> 7.1" }`,
 		`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`,
@@ -737,7 +738,7 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := dirFiles(t, root)
-	for _, name := range []string{ProvidersFileName, VersionsFileName} {
+	for _, name := range []string{rootfile.ProvidersFileName, rootfile.VersionsFileName} {
 		if after[name] != before[name] {
 			t.Errorf("%s changed:\n%s", name, after[name])
 		}
@@ -751,17 +752,17 @@ func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
 	root := t.TempDir()
 	writeConfig(t, root, "main.tf", "provider \"google\" {\n  project = \"acme-prod\"\n}\n")
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, "module \"main\" {\n  source = \"terraform-google-modules/network/google\"\n}\n")
+	writeConfig(t, staging, rootfile.GeneratedFileName, "module \"main\" {\n  source = \"terraform-google-modules/network/google\"\n}\n")
 	googleStagingProviders(t, staging)
 
 	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
-	versions := squashed(readFile(t, root, VersionsFileName))
+	versions := squashed(readFile(t, root, rootfile.VersionsFileName))
 	if !strings.Contains(versions, `terraform { required_providers { google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" } } }`) || strings.Contains(versions, "hashicorp/google\"") {
 		t.Errorf("versions.tf:\n%s", versions)
 	}
-	if providers := squashed(readFile(t, root, ProvidersFileName)); providers != `provider "google-beta" { project = "acme-prod" }` {
+	if providers := squashed(readFile(t, root, rootfile.ProvidersFileName)); providers != `provider "google-beta" { project = "acme-prod" }` {
 		t.Errorf("providers.tf:\n%s", providers)
 	}
 }
@@ -771,17 +772,17 @@ func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
 func TestAddUndoesTheProvidersItAdded(t *testing.T) {
 	t.Parallel()
 	root := existingRoot(t)
-	writeConfig(t, root, VersionsFileName, "terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n  }\n}\n")
+	writeConfig(t, root, rootfile.VersionsFileName, "terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n  }\n}\n")
 	before := dirFiles(t, root)
 	staging := filepath.Join(t.TempDir(), "staging")
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
 	rootTF := &fakeTerraform{dir: root, initErr: errors.New("no provider")}
 	opts := Options{Config: map[string][]byte{
-		VersionsFileName:  []byte("terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n    awscc = {\n      source  = \"hashicorp/awscc\"\n      version = \"~> 1.0\"\n    }\n  }\n}\n"),
-		ProvidersFileName: []byte("provider \"aws\" {\n  region = \"us-east-1\"\n}\n\nprovider \"awscc\" {\n  region = \"us-east-1\"\n}\n"),
+		rootfile.VersionsFileName:  []byte("terraform {\n  required_providers {\n    aws = {\n      source = \"hashicorp/aws\"\n    }\n    awscc = {\n      source  = \"hashicorp/awscc\"\n      version = \"~> 1.0\"\n    }\n  }\n}\n"),
+		rootfile.ProvidersFileName: []byte("provider \"aws\" {\n  region = \"us-east-1\"\n}\n\nprovider \"awscc\" {\n  region = \"us-east-1\"\n}\n"),
 	}}
 
-	if _, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err == nil {
+	if _, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err == nil {
 		t.Fatal("want the init error")
 	}
 	if after := dirFiles(t, root); !reflect.DeepEqual(after, before) {
@@ -791,13 +792,13 @@ func TestAddUndoesTheProvidersItAdded(t *testing.T) {
 	// Initialized, it keeps them.
 	staging = filepath.Join(t.TempDir(), "staging")
 	tf = &fakeTerraform{dir: staging, generated: queueGenerated}
-	if _, err := Add(context.Background(), tf, &fakeTerraform{dir: root}, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
+	if _, err := Add(context.Background(), tf, &fakeTerraform{dir: root}, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
 		t.Fatal(err)
 	}
-	if versions := squashed(readFile(t, root, VersionsFileName)); !strings.Contains(versions, `awscc = { source = "hashicorp/awscc" version = "~> 1.0" }`) {
+	if versions := squashed(readFile(t, root, rootfile.VersionsFileName)); !strings.Contains(versions, `awscc = { source = "hashicorp/awscc" version = "~> 1.0" }`) {
 		t.Errorf("versions.tf:\n%s", versions)
 	}
-	if providers := readFile(t, root, ProvidersFileName); strings.Count(providers, "provider ") != 2 || !strings.Contains(providers, `provider "awscc"`) {
+	if providers := readFile(t, root, rootfile.ProvidersFileName); strings.Count(providers, "provider ") != 2 || !strings.Contains(providers, `provider "awscc"`) {
 		t.Errorf("providers.tf:\n%s", providers)
 	}
 }
@@ -810,8 +811,8 @@ func TestAddUndoesTheProvidersItAdded(t *testing.T) {
 func TestMergeReusesTheRootsLookupsAndVariables(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeConfig(t, root, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
-	writeConfig(t, root, DataFileName, `data "google_compute_network" "main" {
+	writeConfig(t, root, rootfile.GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  name = \"orders\"\n}\n")
+	writeConfig(t, root, rootfile.DataFileName, `data "google_compute_network" "main" {
   name    = "main"
   project = "acme-prod"
 }
@@ -829,7 +830,7 @@ variable "token" {
 }
 `)
 	staging := t.TempDir()
-	writeConfig(t, staging, GeneratedFileName, `resource "google_compute_router" "edge" {
+	writeConfig(t, staging, rootfile.GeneratedFileName, `resource "google_compute_router" "edge" {
   name       = "edge"
   network    = data.google_compute_network.main_2.self_link
   subnetwork = var.app_subnetwork_self_link_2
@@ -837,7 +838,7 @@ variable "token" {
   other      = data.google_compute_network.other.self_link
 }
 `)
-	writeConfig(t, staging, DataFileName, `data "google_compute_network" "main_2" {
+	writeConfig(t, staging, rootfile.DataFileName, `data "google_compute_network" "main_2" {
   name    = "main"
   project = "acme-prod"
 }
@@ -872,7 +873,7 @@ variable "token_2" {
 			t.Errorf("%s misses %q:\n%s", written[0], want, added)
 		}
 	}
-	data := readFile(t, root, DataFileName)
+	data := readFile(t, root, rootfile.DataFileName)
 	if strings.Count(data, "data ") != 2 || strings.Contains(data, "main_2") || !strings.Contains(data, `data "google_compute_network" "other"`) {
 		t.Errorf("data.tf: want the root's lookup and the new one:\n%s", data)
 	}
@@ -949,18 +950,18 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 	}
 	opts := addOptions
 	opts.Config = map[string][]byte{
-		VersionsFileName:  VersionsFile("", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"}),
-		ProvidersFileName: []byte("# providers\n"),
+		rootfile.VersionsFileName:  rootfile.VersionsFile("", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"}),
+		rootfile.ProvidersFileName: []byte("# providers\n"),
 	}
 	tf := &fakeTerraform{dir: staging, generated: queueGenerated}
 	var lockAtInit, versionsAtInit string
 	tf.onInit = func() {
 		lockAtInit = readFile(t, staging, tfrun.LockFileName)
-		versionsAtInit = readFile(t, staging, VersionsFileName)
+		versionsAtInit = readFile(t, staging, rootfile.VersionsFileName)
 	}
 	rootTF := &fakeTerraform{dir: root}
 
-	if _, err := Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
+	if _, err := Add(context.Background(), tf, rootTF, staging, root, []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -970,7 +971,7 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 	if !strings.Contains(versionsAtInit, `"~> 6.30"`) {
 		t.Errorf("versions.tf at init doesn't accept the lock:\n%s", versionsAtInit)
 	}
-	if got := string(opts.Config[VersionsFileName]); !strings.Contains(got, `"~> 6.67"`) {
+	if got := string(opts.Config[rootfile.VersionsFileName]); !strings.Contains(got, `"~> 6.67"`) {
 		t.Errorf("the caller's options changed:\n%s", got)
 	}
 }
@@ -980,7 +981,7 @@ func TestAddGeneratesWithTheLockInStaging(t *testing.T) {
 // rejects a moved block from an address the configuration declares.
 func TestRootNamesHaveWhatMovedBlocksMoveFrom(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), MovesFileName, `moved {
+	f := writeConfig(t, t.TempDir(), rootfile.MovesFileName, `moved {
   from = aws_s3_bucket.logs
   to   = module.logs.aws_s3_bucket.this[0]
 }
@@ -1011,13 +1012,13 @@ removed {
 // were.
 func TestAdding(t *testing.T) {
 	t.Parallel()
-	versions := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
+	versions := rootfile.VersionsFile(">= 1.5, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
 	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
   version     = "6.30.1"
   constraints = "~> 6.30"
 }
 `)
-	pinned := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})
+	pinned := rootfile.VersionsFile(">= 1.5, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})
 	local := adapters.Adapter{Source: "../modules/queue"}
 	absolute := adapters.Adapter{Source: filepath.Join(t.TempDir(), "queue")}
 	vpc := External{Type: "aws_vpc", ID: "vpc-0abc1234"}
@@ -1033,7 +1034,7 @@ func TestAdding(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			opts := Options{
-				Config:     map[string][]byte{VersionsFileName: versions},
+				Config:     map[string][]byte{rootfile.VersionsFileName: versions},
 				Adapters:   []adapters.Adapter{local, absolute},
 				ModulesDir: "modules",
 				SplitFiles: true,
@@ -1046,7 +1047,7 @@ func TestAdding(t *testing.T) {
 			}
 
 			o := r.opts
-			if got := string(o.Config[VersionsFileName]); got != string(tc.versions) {
+			if got := string(o.Config[rootfile.VersionsFileName]); got != string(tc.versions) {
 				t.Errorf("versions.tf: got\n%s\nwant\n%s", got, tc.versions)
 			}
 			if !reflect.DeepEqual(o.Adapters, []adapters.Adapter{local}) {
@@ -1058,7 +1059,7 @@ func TestAdding(t *testing.T) {
 			if want := []External{vpc, subnet}; !reflect.DeepEqual(o.External, want) {
 				t.Errorf("external: got %+v, want %+v", o.External, want)
 			}
-			if string(opts.Config[VersionsFileName]) != string(versions) || !reflect.DeepEqual(opts.Adapters, []adapters.Adapter{local, absolute}) || !reflect.DeepEqual(opts.External, []External{vpc}) || opts.ModulesDir != "modules" || !opts.SplitFiles {
+			if string(opts.Config[rootfile.VersionsFileName]) != string(versions) || !reflect.DeepEqual(opts.Adapters, []adapters.Adapter{local, absolute}) || !reflect.DeepEqual(opts.External, []External{vpc}) || opts.ModulesDir != "modules" || !opts.SplitFiles {
 				t.Errorf("the caller's options changed: %+v", opts)
 			}
 		})

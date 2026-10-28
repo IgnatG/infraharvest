@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -210,7 +211,7 @@ func TestMergeStackAdoptedWithoutAnEnvironment(t *testing.T) {
 	out := t.TempDir()
 	stack := writeAdoptable(t, out)
 	dir := filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")
-	writeRootFiles(t, dir, map[string]string{engine.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
+	writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
 	run := NewRun()
 	run.options = Options{Out: out, Incremental: true}
 	dev := mergeMember{env: "dev", dir: dir, stack: stack, result: &engine.Result{}}

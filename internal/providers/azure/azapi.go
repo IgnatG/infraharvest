@@ -51,7 +51,7 @@ func azapiCandidates(rows []azlist.AzureResource) map[string]bool {
 // than the azapi release, gives a body with all Azure returns, whose
 // location and tags clash with the arguments, so the plan fails, and the
 // engine imports the resource again by its ID alone, the catalogue's next
-// template (see engine.Import.Fallback). Resource Manager leaves secrets,
+// template (see rootfile.Import.Fallback). Resource Manager leaves secrets,
 // such as passwords, out of what it returns, so the body has none, and
 // azapi ignores the properties Azure doesn't return; a secret it does
 // return the engine moves into a sensitive variable, as it does any

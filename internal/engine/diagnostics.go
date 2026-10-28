@@ -10,6 +10,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // byResource assigns each diagnostic to the resource it is about, using, in
@@ -27,9 +28,9 @@ func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (ma
 		switch {
 		case d.Address != "":
 			addr = hclfile.TrimInstanceKey(d.Address)
-		case d.Range != nil && filepath.Base(d.Range.Filename) == GeneratedFileName:
+		case d.Range != nil && filepath.Base(d.Range.Filename) == rootfile.GeneratedFileName:
 			addr = generated.ResourceAt(d.Range.Start.Line)
-		case d.Range != nil && filepath.Base(d.Range.Filename) == ImportsFileName:
+		case d.Range != nil && filepath.Base(d.Range.Filename) == rootfile.ImportsFileName:
 			addr = imports.ImportAt(d.Range.Start.Line)
 		default:
 			addr = onlyMentioned(d.Summary+" "+d.Detail, addresses)

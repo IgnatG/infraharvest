@@ -16,12 +16,9 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// DataFileName holds the data sources of resources the configuration
-// refers to but doesn't manage.
-const DataFileName = "data.tf"
 
 // External is a resource the import listed but doesn't manage, such as one
 // the selection left out: the configuration may still refer to it. Name is
@@ -48,9 +45,6 @@ func dataLabel(e External) string {
 	}
 	return withoutTypeWords(e.Type, hclfile.Label(e.Name))
 }
-
-// dataFileHeader starts data.tf.
-const dataFileHeader = "# What this configuration refers to but doesn't manage: resources the\n# selection left out or other roots manage, and what the cloud or the\n# provider defines.\n"
 
 // DataSource reads one resource of a type: the data source's type, and the
 // argument that takes the resource's ID.
@@ -106,7 +100,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	if len(index) == 0 {
 		return nil, nil
 	}
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +118,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		return nil, err
 	}
 	// Write the data sources the configuration now refers to.
-	saved, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	saved, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +143,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	}
 	sort.Strings(addresses)
 	f := hclwrite.NewEmptyFile()
-	f.Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(dataFileHeader)}})
+	f.Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(rootfile.DataFileHeader)}})
 	for _, address := range addresses {
 		e := blocks[address]
 		typ, name, _ := strings.Cut(address, ".")
@@ -157,5 +151,5 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
-	return edited, fsutil.WriteFile(filepath.Join(dir, DataFileName), hclwrite.Format(f.Bytes()), 0o644)
+	return edited, fsutil.WriteFile(filepath.Join(dir, rootfile.DataFileName), hclwrite.Format(f.Bytes()), 0o644)
 }

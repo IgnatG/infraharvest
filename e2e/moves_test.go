@@ -17,8 +17,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -98,7 +98,7 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	workDev, workProd := filepath.Join(work, "dev"), filepath.Join(work, "prod")
 	copyRootFiles(t, dev, workDev)
 	applyRoot(ctx, t, workDev, execPath, plugins, nil)
-	if err := os.Remove(filepath.Join(workDev, engine.ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(workDev, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,13 +132,13 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	if len(second.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", second.IncompleteHandovers)
 	}
-	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(dev, engine.MovesFileName))), " ")
+	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(dev, rootfile.MovesFileName))), " ")
 	for _, want := range []string{
 		"moved { from = " + renamedFrom + " to = " + renamedTo + " }",
 		"removed { from = " + handedFrom + " lifecycle { destroy = false } }",
 	} {
 		if !strings.Contains(moves, want) {
-			t.Errorf("%s/%s doesn't have %q:\n%s", devRoot, engine.MovesFileName, want, moves)
+			t.Errorf("%s/%s doesn't have %q:\n%s", devRoot, rootfile.MovesFileName, want, moves)
 		}
 	}
 	for _, d := range second.Directories {
@@ -148,8 +148,8 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	}
 	// Each README names the other root, for the order to apply them in.
 	for _, readme := range []struct{ dir, other string }{{dev, prodRoot}, {prod, devRoot}} {
-		if content := readFile(t, filepath.Join(readme.dir, engine.ReadmeFileName)); !strings.Contains(content, readme.other) {
-			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(readme.dir, engine.ReadmeFileName), readme.other, content)
+		if content := readFile(t, filepath.Join(readme.dir, rootfile.ReadmeFileName)); !strings.Contains(content, readme.other) {
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(readme.dir, rootfile.ReadmeFileName), readme.other, content)
 		}
 	}
 

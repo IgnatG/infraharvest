@@ -21,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -28,7 +29,7 @@ import (
 var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
 // moduleFiles are the files every generated local module has.
-var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", VersionsFileName, ReadmeFileName}
+var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", rootfile.VersionsFileName, rootfile.ReadmeFileName}
 
 // checkStandards checks a root, and the local modules it calls, against the
 // output standard: pinned Terraform, providers and modules; typed and

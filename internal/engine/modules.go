@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -25,6 +24,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -101,7 +101,7 @@ type moduleGroup struct {
 // (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
 func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, false, err
 	}
@@ -125,7 +125,7 @@ func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.Provid
 		return nil, false, nil
 	}
 
-	versions, err := moduleVersionsFile(filepath.Join(dir, VersionsFileName))
+	versions, err := moduleVersionsFile(filepath.Join(dir, rootfile.VersionsFileName))
 	if err != nil {
 		return nil, false, err
 	}
@@ -653,11 +653,11 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 	}
 
 	for name, content := range map[string][]byte{
-		"main.tf":        main,
-		"variables.tf":   g.variables,
-		"outputs.tf":     g.outputsFile,
-		"README.md":      []byte(readme.String()),
-		VersionsFileName: versions,
+		"main.tf":                 main,
+		"variables.tf":            g.variables,
+		"outputs.tf":              g.outputsFile,
+		"README.md":               []byte(readme.String()),
+		rootfile.VersionsFileName: versions,
 	} {
 		if err := os.WriteFile(filepath.Join(path, name), content, 0o644); err != nil {
 			return err
@@ -727,7 +727,7 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 	if err := generated.Save(); err != nil {
 		return err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return err
 	}
@@ -753,7 +753,7 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	backup, err := fsutil.BackupFiles(dir, GeneratedFileName, ImportsFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.ImportsFileName)
 	if err != nil {
 		return false, err
 	}
@@ -798,7 +798,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 		}
 		if attr, ok := b.Body.Attributes["required_version"]; ok {
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
-				lower, err := lowerBound(v.AsString())
+				lower, err := rootfile.LowerBound(v.AsString())
 				if err != nil {
 					return nil, fmt.Errorf("%s: required_version: %w", rootVersions, err)
 				}
@@ -825,7 +825,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 					requirement["source"] = v.GetAttr("source")
 				}
 				if v.Type().HasAttribute("version") {
-					lower, err := lowerBound(v.GetAttr("version").AsString())
+					lower, err := rootfile.LowerBound(v.GetAttr("version").AsString())
 					if err != nil {
 						return nil, fmt.Errorf("%s: required_providers.%s: %w", rootVersions, name, err)
 					}
@@ -836,42 +836,6 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 		}
 	}
 	return hclwrite.Format(f.Bytes()), nil
-}
-
-// lowerBound renders a version constraint as its lower bound only, as
-// ">= 6.14": the highest version its =, >=, ~> and > parts require. It
-// fails when the constraint doesn't parse or has no such part.
-func lowerBound(constraint string) (string, error) {
-	cs, err := version.NewConstraint(constraint)
-	if err != nil {
-		return "", err
-	}
-	var bound *version.Version
-	for _, c := range cs {
-		text := strings.TrimSpace(c.String())
-		op := ""
-		for _, candidate := range []string{">=", "<=", "!=", "~>", "=", ">", "<"} {
-			if strings.HasPrefix(text, candidate) {
-				op = candidate
-				break
-			}
-		}
-		switch op {
-		case "<", "<=", "!=":
-			continue
-		}
-		v, err := version.NewVersion(strings.TrimSpace(strings.TrimPrefix(text, op)))
-		if err != nil {
-			return "", err
-		}
-		if bound == nil || v.GreaterThan(bound) {
-			bound = v
-		}
-	}
-	if bound == nil {
-		return "", fmt.Errorf("%q has no lower bound", constraint)
-	}
-	return ">= " + bound.Original(), nil
 }
 
 // aliasedProvider reports whether r uses a configuration of its provider

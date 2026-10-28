@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // writeUnmergeRoot writes a root dev and prod share into a new directory
@@ -34,7 +36,7 @@ variable "queues" {
   default = {}
 }
 `,
-		LocalsFileName: `locals {
+		rootfile.LocalsFileName: `locals {
   naming_prefix  = "shop-${var.env}"
   aws_account_id = data.aws_caller_identity.current.account_id
   aws_region     = data.aws_region.current.region
@@ -42,7 +44,7 @@ variable "queues" {
   other_region   = data.aws_region.other.region
 }
 `,
-		DataFileName: `data "aws_caller_identity" "current" {}
+		rootfile.DataFileName: `data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
 

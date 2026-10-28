@@ -13,13 +13,14 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // inOtherRoots returns, by type and import ID, the root of roots other
 // than dir that each of their resources goes in, by its path relative to
 // out.
-func inOtherRoots(out string, roots map[string][]engine.Import, dir string) map[engine.External]string {
+func inOtherRoots(out string, roots map[string][]rootfile.Import, dir string) map[engine.External]string {
 	other := map[engine.External]string{}
 	for d, imports := range roots {
 		if d == dir {
@@ -39,7 +40,7 @@ type importBlocks struct {
 	// the other providers they may configure (see
 	// engine.Options.ModuleProviders).
 	provider   string
-	configured map[string]engine.Provider
+	configured map[string]rootfile.Provider
 	// cat says what the configuration of a resource leaves out depending
 	// on what its lister recorded, and the ID to import it by should
 	// Terraform reject its own; nil says neither.
@@ -55,8 +56,8 @@ type importBlocks struct {
 // the root dirOf names for each, each block whole, as blocks says (see
 // importBlocks.of). It leaves out, logs and counts by type resources
 // Terraform can't import.
-func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.Resource, dirOf func(service string, r harvest.Resource) string) (map[string][]engine.Import, map[string]int) {
-	byDir := map[string][]engine.Import{}
+func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.Resource, dirOf func(service string, r harvest.Resource) string) (map[string][]rootfile.Import, map[string]int) {
+	byDir := map[string][]rootfile.Import{}
 	skipped := map[string]int{}
 	for service, resources := range resourcesByService {
 		for _, r := range resources {
@@ -90,16 +91,16 @@ func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.R
 // recorded (see catalogue.Catalogue.ResourceOmit), and falls back on the
 // catalogue's next import ID template for r, where that is the same
 // resource by another query alone, as an azapi_resource's ID without
-// ?api-version= is (see engine.Import.Fallback and engine.ResourceKey).
+// ?api-version= is (see rootfile.Import.Fallback and engine.ResourceKey).
 // A resource Terraform's list resources returned is imported by its
-// identity instead (see engine.Import.Identity).
-func (b importBlocks) of(service string, r harvest.Resource) (engine.Import, bool) {
+// identity instead (see rootfile.Import.Identity).
+func (b importBlocks) of(service string, r harvest.Resource) (rootfile.Import, bool) {
 	typ := r.Address.Type
 	id, ok := b.importID(r)
 	if !ok {
-		return engine.Import{}, false
+		return rootfile.Import{}, false
 	}
-	imp := engine.Import{Type: typ, Name: b.nameOf(r), File: b.fileOf(service, r), ID: id, Provider: importProvider(b.provider, typ)}
+	imp := rootfile.Import{Type: typ, Name: b.nameOf(r), File: b.fileOf(service, r), ID: id, Provider: importProvider(b.provider, typ)}
 	implied, _, _ := strings.Cut(typ, "_")
 	// google --beta's roots configure google too, for modules: its own
 	// google_* resources still name google-beta.
@@ -148,7 +149,7 @@ type ofRoot[T any] struct {
 
 // newOtherRoots indexes the roots of byDir, under the output directory
 // out, for the options of each, which start from opts.
-func newOtherRoots(opts engine.Options, byDir map[string][]engine.Import, out string) otherRoots {
+func newOtherRoots(opts engine.Options, byDir map[string][]rootfile.Import, out string) otherRoots {
 	o := otherRoots{opts: opts, several: len(byDir) >= 2}
 	if !o.several {
 		return o
