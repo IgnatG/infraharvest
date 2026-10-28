@@ -168,7 +168,7 @@ func memberEnvironments(members []mergeMember) []string {
 // it was (see keepMerged).
 func (s *stackMerge) previous() (done bool, err error) {
 	r := s.run
-	if s.prev, err = readMergeCheckpoint(s.out, s.stack); err != nil {
+	if s.prev, err = mergeCheckpoints.read(s.out, s.stack); err != nil {
 		return false, err
 	}
 	if s.prev != nil || (!r.options.Incremental && !r.options.Resume && !r.options.Regenerate) {
@@ -518,7 +518,7 @@ func (s *stackMerge) conclude(ctx context.Context) error {
 			}
 		}
 	}
-	return writeMergeCheckpoint(out, s.stack, mergeCheckpoint{Fingerprint: s.fp, Members: checkpointMembers(out, members), Merge: merge, Files: s.result.Files, Imports: s.imports})
+	return mergeCheckpoints.write(out, s.stack, mergeCheckpoint{Fingerprint: s.fp, Members: checkpointMembers(out, members), Merge: merge, Files: s.result.Files, Imports: s.imports})
 }
 
 // restoredMembers returns the members of missing, environments the
@@ -930,56 +930,4 @@ func (b *treeBackup) restore() error {
 		}
 	}
 	return nil
-}
-
-// mergedHolds returns, by type and import ID, the merged root, relative
-// to out, that each resource the merge checkpoints under out record is
-// in, for the merged roots that still have configuration but those of
-// whose roots byDir has one: as heldElsewhere does for roots, a resource
-// goes into one root only.
-func mergedHolds(out string, byDir map[string][]rootfile.Import) (map[engine.External]string, error) {
-	base := filepath.Join(out, CheckpointDir, "merge")
-	held := map[engine.External]string{}
-	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if d.IsDir() || filepath.Ext(path) != ".json" {
-			return nil
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		stack := filepath.Join(out, strings.TrimSuffix(rel, ".json"))
-		c, err := readMergeCheckpoint(out, stack)
-		if err != nil {
-			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(out, stack), err)
-			return nil
-		}
-		if c == nil || !c.Merge.Merged {
-			return nil
-		}
-		if names, err := tfFiles(stack); err != nil || len(names) == 0 {
-			return err
-		}
-		for _, m := range c.Members {
-			if _, own := byDir[filepath.Join(out, filepath.FromSlash(m.Path))]; own {
-				return nil
-			}
-		}
-		for _, ids := range c.Imports {
-			for address, id := range ids {
-				key := engine.External{Type: engine.AddressType(address), ID: id}
-				if _, ok := held[key]; !ok {
-					held[key] = c.Merge.Path
-				}
-			}
-		}
-		return nil
-	})
-	return held, err
 }

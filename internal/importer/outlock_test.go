@@ -122,7 +122,7 @@ func TestLockOutputRefusesLinks(t *testing.T) {
 	}{
 		{name: "the lock", link: outputLockPath},
 		{name: "the checkpoint directory", link: func(out string) string { return filepath.Join(out, CheckpointDir) }, dir: true},
-		{name: "a checkpoint", link: func(out string) string { return checkpointPath(out, filepath.Join(out, "aws", "network")) }},
+		{name: "a checkpoint", link: func(out string) string { return rootCheckpoints.path(out, filepath.Join(out, "aws", "network")) }},
 		{name: "a drift staging directory", link: func(out string) string { return driftStagingDir(out, "aws/network") }, dir: true},
 		{name: "an incremental staging directory's parent", link: func(out string) string {
 			return filepath.Dir(stagingDir(out, filepath.Join(out, "aws", "network")))

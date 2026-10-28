@@ -203,33 +203,6 @@ func TestBackupTreeLeavesOutLocalState(t *testing.T) {
 	}
 }
 
-func TestMergedHolds(t *testing.T) {
-	t.Parallel()
-	out := t.TempDir()
-	stack := filepath.Join(out, "aws", "eu-west-2")
-	writeRootFiles(t, stack, map[string]string{"providers.tf": "# providers\n"})
-	c := mergeCheckpoint{
-		Merge:   report.Merge{Path: "aws/eu-west-2", Merged: true},
-		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/aws/111111111111/eu-west-2"}},
-		Imports: map[string]map[string]string{"dev": {`aws_sqs_queue.this["orders"]`: "q1"}},
-	}
-	if err := writeMergeCheckpoint(out, stack, c); err != nil {
-		t.Fatal(err)
-	}
-	held, err := mergedHolds(out, map[string][]rootfile.Import{filepath.Join(out, "aws", "333333333333", "eu-west-2"): nil})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := held[engine.External{Type: "aws_sqs_queue", ID: "q1"}]; got != "aws/eu-west-2" {
-		t.Errorf("held by %q", got)
-	}
-	// A run that imports one of its roots adds to it.
-	held, err = mergedHolds(out, map[string][]rootfile.Import{filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2"): nil})
-	if err != nil || len(held) != 0 {
-		t.Errorf("held from its own run: %v %v", held, err)
-	}
-}
-
 func TestReaddressNotInCloud(t *testing.T) {
 	t.Parallel()
 	run := NewRun()
@@ -420,7 +393,7 @@ func TestMergeStack(t *testing.T) {
 	if m := run.report.Merges; len(m) != 1 || !m[0].Merged || m[0].Path != "app" || !slices.Equal(m[0].Environments, []string{"dev", "prod"}) {
 		t.Errorf("merges %+v", m)
 	}
-	c, err := readMergeCheckpoint(out, stack)
+	c, err := mergeCheckpoints.read(out, stack)
 	if err != nil || c == nil || !c.Merge.Merged || !slices.Equal(c.Files, []string{"main.tf"}) || len(c.Members) != 2 {
 		t.Errorf("merge checkpoint %+v, %v", c, err)
 	}

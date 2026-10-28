@@ -186,17 +186,13 @@ func inspectRoot(out, dir, files string) (rootOnDisk, error) {
 	if e.names, err = tfFiles(files); err != nil {
 		return e, err
 	}
-	content, err := os.ReadFile(checkpointPath(out, dir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return e, nil
-	}
-	if err != nil {
+	stored, err := rootCheckpoints.stored(out, dir)
+	if err != nil || stored == nil {
 		return e, err
 	}
-	e.checkpointed, e.content = true, content
-	e.readable = json.Unmarshal(content, &e.c) == nil
-	if !e.readable {
-		e.c = checkpoint{}
+	e.checkpointed, e.content = true, stored.content
+	if e.readable = stored.err == nil; e.readable {
+		e.c = stored.c
 	}
 	return e, nil
 }
@@ -248,28 +244,39 @@ type checkpoint struct {
 	PendingRemoved []rootfile.Removal `json:"pending_removed,omitempty"`
 }
 
-// checkpointsDir holds, under out, the checkpoints of the roots, each at
-// its root's path relative to out (see checkpointPath).
-func checkpointsDir(out string) string {
-	return filepath.Join(out, CheckpointDir, "checkpoints")
+// checkpointTree is one of the trees of checkpoints under CheckpointDir,
+// each checkpoint at its root's path relative to out, with .json after
+// it: the roots' (rootCheckpoints), and the merged roots' (mergeCheckpoints).
+type checkpointTree[T any] struct {
+	// name is the directory of the tree under CheckpointDir.
+	name string
 }
 
-// checkpointPath returns where the checkpoint of the root in dir, under
-// out, is.
-func checkpointPath(out, dir string) string {
-	return filepath.Join(checkpointsDir(out), filepath.FromSlash(relativePath(out, dir))+".json")
+var (
+	rootCheckpoints  = checkpointTree[checkpoint]{name: "checkpoints"}
+	mergeCheckpoints = checkpointTree[mergeCheckpoint]{name: "merge"}
+)
+
+// base is where the tree is, under out.
+func (t checkpointTree[T]) base(out string) string {
+	return filepath.Join(out, CheckpointDir, t.name)
 }
 
-// checkpointDirs returns the directories of the roots the checkpoints
-// under out record, sorted.
-func checkpointDirs(out string) ([]string, error) {
-	base := checkpointsDir(out)
-	if _, err := os.Stat(base); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+// path returns where the checkpoint of the root in dir, under out, is.
+func (t checkpointTree[T]) path(out, dir string) string {
+	return filepath.Join(t.base(out), filepath.FromSlash(relativePath(out, dir))+".json")
+}
+
+// dirs returns the directories of the roots the tree's checkpoints under
+// out record, sorted.
+func (t checkpointTree[T]) dirs(out string) ([]string, error) {
+	base := t.base(out)
 	var dirs []string
 	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		if d.IsDir() || filepath.Ext(path) != ".json" {
@@ -286,23 +293,72 @@ func checkpointDirs(out string) ([]string, error) {
 	return dirs, err
 }
 
-// resumed returns the result a checkpoint recorded for dir, if it has the
-// same fingerprint and the root's files are still there (see
-// engine.ResultFiles); nil otherwise.
-// A root its stack's merge set aside counts as there where its set-aside
-// copy is (see premergeDir).
-func resumed(out, dir, fp string) (*engine.Result, error) {
-	content, err := os.ReadFile(checkpointPath(out, dir))
+// write writes c as the checkpoint of the root in dir under out.
+func (t checkpointTree[T]) write(out, dir string, c T) error {
+	path := t.path(out, dir)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	content, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFile(path, append(content, '\n'), 0o644)
+}
+
+// storedCheckpoint is a checkpoint file as it is: its content, and what
+// it records, unless err says it can't be read.
+type storedCheckpoint[T any] struct {
+	content []byte
+	c       T
+	err     error
+}
+
+// stored returns the checkpoint file of the root in dir under out; nil if
+// there is none. A file that isn't a checkpoint is no error here: see err.
+func (t checkpointTree[T]) stored(out, dir string) (*storedCheckpoint[T], error) {
+	content, err := os.ReadFile(t.path(out, dir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var c checkpoint
-	if err := json.Unmarshal(content, &c); err != nil || c.Fingerprint != fp || c.Result == nil {
+	s := &storedCheckpoint[T]{content: content}
+	if s.err = json.Unmarshal(content, &s.c); s.err != nil {
+		var none T
+		s.c = none
+	}
+	return s, nil
+}
+
+// read returns the checkpoint of the root in dir under out; nil if there
+// is none.
+func (t checkpointTree[T]) read(out, dir string) (*T, error) {
+	s, err := t.stored(out, dir)
+	if err != nil || s == nil {
+		return nil, err
+	}
+	if s.err != nil {
+		return nil, fmt.Errorf("%s: %w", t.path(out, dir), s.err)
+	}
+	return &s.c, nil
+}
+
+// resumed returns the result a checkpoint recorded for dir, if it has the
+// same fingerprint and the root's files are still there (see
+// engine.ResultFiles); nil otherwise.
+// A root its stack's merge set aside counts as there where its set-aside
+// copy is (see premergeDir).
+func resumed(out, dir, fp string) (*engine.Result, error) {
+	s, err := rootCheckpoints.stored(out, dir)
+	if err != nil || s == nil {
+		return nil, err
+	}
+	if s.err != nil || s.c.Fingerprint != fp || s.c.Result == nil {
 		return nil, nil // an unreadable checkpoint means generating again
 	}
+	c := s.c
 	// A root its stack's merge set aside is resumed from there.
 	dir = rootSource(out, dir)
 	names, err := engine.ResultFiles(dir, c.Result)
@@ -319,44 +375,13 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 
 // saveCheckpoint records that dir was generated from fp, with result.
 func saveCheckpoint(out, dir, fp string, result *engine.Result) error {
-	return writeCheckpoint(out, dir, checkpoint{Fingerprint: fp, Result: result})
-}
-
-// writeCheckpoint writes c as the checkpoint of dir under out.
-func writeCheckpoint(out, dir string, c checkpoint) error {
-	path := checkpointPath(out, dir)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	content, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.WriteFile(path, append(content, '\n'), 0o644)
-}
-
-// readCheckpoint returns the checkpoint of dir under out; nil if there is
-// none.
-func readCheckpoint(out, dir string) (*checkpoint, error) {
-	path := checkpointPath(out, dir)
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var c checkpoint
-	if err := json.Unmarshal(content, &c); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return &c, nil
+	return rootCheckpoints.write(out, dir, checkpoint{Fingerprint: fp, Result: result})
 }
 
 // checkpointResult returns the result the checkpoint of dir records, from
 // whichever run; nil if there is none.
 func checkpointResult(out, dir string) (*engine.Result, error) {
-	c, err := readCheckpoint(out, dir)
+	c, err := rootCheckpoints.read(out, dir)
 	if err != nil || c == nil {
 		return nil, err
 	}
@@ -370,13 +395,10 @@ func checkpointResult(out, dir string) (*engine.Result, error) {
 // added (see engine.AddedFiles), which the checkpoint names too.
 func clearGenerated(out, dir string) error {
 	names := append(engine.GeneratedFiles(), BackendFileName)
-	if content, err := os.ReadFile(checkpointPath(out, dir)); err == nil {
-		var c checkpoint
-		if json.Unmarshal(content, &c) == nil {
-			names = append(names, c.PendingFiles...)
-			if c.Result != nil {
-				names = append(names, c.Result.Files...)
-			}
+	if s, err := rootCheckpoints.stored(out, dir); err == nil && s != nil && s.err == nil {
+		names = append(names, s.c.PendingFiles...)
+		if s.c.Result != nil {
+			names = append(names, s.c.Result.Files...)
 		}
 	}
 	for _, name := range names {
@@ -405,7 +427,7 @@ func clearGenerated(out, dir string) error {
 // what an unfinished generation left (see engine.Unfinished), where they
 // are (see rootSource).
 func unfinishedRoot(out, dir string) (bool, error) {
-	c, err := readCheckpoint(out, dir)
+	c, err := rootCheckpoints.read(out, dir)
 	if err != nil {
 		return false, err
 	}

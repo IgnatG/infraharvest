@@ -109,7 +109,7 @@ func markMerging(options Options, calls []*listedCall) error {
 		for _, m := range members {
 			envs[m.env] = true
 		}
-		prev, err := readMergeCheckpoint(options.Out, stack)
+		prev, err := mergeCheckpoints.read(options.Out, stack)
 		if err != nil {
 			return err
 		}
@@ -337,7 +337,7 @@ func mergeRefusal(out, stack string, members []mergeMember, adopted bool) string
 	}
 	names, err := tfFiles(stack)
 	if err == nil && len(names) > 0 {
-		c, err := readMergeCheckpoint(out, stack)
+		c, err := mergeCheckpoints.read(out, stack)
 		if err != nil {
 			return fmt.Sprintf("its merge checkpoint can't be read: %v", err)
 		}
@@ -539,44 +539,6 @@ func mergeFingerprint(out string, members []mergeMember) (string, error) {
 	}
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:]), nil
-}
-
-// mergeCheckpointPath is where the checkpoint of the merged root in stack
-// is.
-func mergeCheckpointPath(out, stack string) string {
-	return filepath.Join(out, CheckpointDir, "merge", filepath.FromSlash(relativePath(out, stack))+".json")
-}
-
-// writeMergeCheckpoint writes c as the checkpoint of the merged root in
-// stack.
-func writeMergeCheckpoint(out, stack string, c mergeCheckpoint) error {
-	path := mergeCheckpointPath(out, stack)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	content, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.WriteFile(path, append(content, '\n'), 0o644)
-}
-
-// readMergeCheckpoint returns the checkpoint of the merged root in stack;
-// nil if there is none.
-func readMergeCheckpoint(out, stack string) (*mergeCheckpoint, error) {
-	path := mergeCheckpointPath(out, stack)
-	content, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var c mergeCheckpoint
-	if err := json.Unmarshal(content, &c); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	return &c, nil
 }
 
 // scopeRegion returns the region of a scope as discoveryScope names it

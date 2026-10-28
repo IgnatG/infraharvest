@@ -181,10 +181,9 @@ func (r *Run) warnUnreadEnvTags(provider harvest.Provider, layout callLayout, de
 // never moves, as its state key comes from its path. With --regenerate,
 // such a root hands them over instead, where it can (see split).
 type keptRoots struct {
-	out string
-	// recorded says, by directory, whether a checkpoint records a root
-	// there (see checkpointPath).
-	recorded map[string]bool
+	// index says, by directory, whether a checkpoint records a root there,
+	// and what each has (see outputIndex).
+	index *outputIndex
 	// kept are the roots resources were kept in, each with the
 	// environments of those resources.
 	kept map[string][]string
@@ -196,8 +195,8 @@ type keptRoots struct {
 	shared *shared
 }
 
-func newKeptRoots(out string) *keptRoots {
-	return &keptRoots{out: out, recorded: map[string]bool{}, kept: map[string][]string{}, splits: map[string]bool{}}
+func newKeptRoots(x *outputIndex, s *shared) *keptRoots {
+	return &keptRoots{index: x, kept: map[string][]string{}, splits: map[string]bool{}, shared: s}
 }
 
 // dirs returns dirOf, the root of each resource with environments, but
@@ -261,13 +260,13 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		if !kept[before] {
 			continue // nothing would be kept in it
 		}
-		root := relativePath(k.out, before)
-		c, err := readCheckpoint(k.out, before)
+		root := relativePath(k.index.out, before)
+		c, err := k.index.root(before).checkpoint()
 		if err != nil {
 			log.Printf("%s: %v; it keeps the resources the environments would put under envs/", root, err)
 			continue
 		}
-		previous, err := k.shared.previousAddressesOf(k.out, before)
+		previous, err := k.shared.previousAddressesOf(k.index, before)
 		if err != nil {
 			return err
 		}
@@ -288,7 +287,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		case len(leaving) < len(previous) && !staying[before]:
 			why = []string{fmt.Sprintf("the run lists %d of its %d resources, and it hands them over only when every one goes", len(leaving), len(previous))}
 		default:
-			if _, why, err = handOver(k.out, before, leaving, k.shared); err != nil {
+			if _, why, err = handOver(k.index, before, leaving, k.shared); err != nil {
 				return err
 			}
 		}
@@ -306,14 +305,10 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 
 // isRecorded reports whether a checkpoint records a root in dir.
 func (k *keptRoots) isRecorded(dir string) bool {
-	if recorded, ok := k.recorded[dir]; ok {
-		return recorded
-	}
-	recorded, err := fileExists(checkpointPath(k.out, dir))
+	recorded, err := k.index.root(dir).recorded()
 	if err != nil {
-		log.Printf("%s: %v; its root is taken for one no import generated", relativePath(k.out, dir), err)
+		log.Printf("%s: %v; its root is taken for one no import generated", relativePath(k.index.out, dir), err)
 	}
-	k.recorded[dir] = recorded
 	return recorded
 }
 
@@ -328,7 +323,7 @@ func (k *keptRoots) report(scope string) []report.KeptRoot {
 	kept := make([]report.KeptRoot, 0, len(dirs))
 	for _, dir := range dirs {
 		envs := slices.Sorted(slices.Values(k.kept[dir]))
-		path := relativePath(k.out, dir)
+		path := relativePath(k.index.out, dir)
 		log.Printf("%s: an earlier import generated this root, so it keeps the resources the environments %s would put under envs/: a root's state key comes from its path", path, strings.Join(envs, ", "))
 		kept = append(kept, report.KeptRoot{Path: path, Environments: envs, Scope: scope})
 	}

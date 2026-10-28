@@ -37,29 +37,29 @@ func writeAdoptable(t *testing.T, out string) string {
 	return stack
 }
 
-func TestMergedRootDirs(t *testing.T) {
+func TestDiskOutputMergedRoots(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	stack := writeAdoptable(t, out)
 	writeRoot(t, filepath.Join(out, "aws", "111111111111", "global"), "iam.tf")
 	// Under the checkpoints, a root set aside isn't one.
 	writeAdoptable(t, filepath.Join(out, CheckpointDir, "premerge"))
-	dirs, err := mergedRootDirs(out)
+	dirs, err := diskOutput{out: out}.mergedRoots()
 	if err != nil || !reflect.DeepEqual(dirs, []string{stack}) {
 		t.Errorf("got %v, %v, want %s", dirs, err, stack)
 	}
-	if dirs, err := mergedRootDirs(filepath.Join(out, "missing")); err != nil || len(dirs) != 0 {
+	if dirs, err := (diskOutput{out: filepath.Join(out, "missing")}).mergedRoots(); err != nil || len(dirs) != 0 {
 		t.Errorf("a missing output: %v %v", dirs, err)
 	}
 }
 
 // The states of the environments of a merged root are that root's: each
 // environment's workspace, and the state its backend.hcl names.
-func TestMergedOwnStates(t *testing.T) {
+func TestDiskOutputMergedOwnStates(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	stack := writeAdoptable(t, out)
-	own, err := mergedOwnStates(out, true)
+	own, err := mergedOwnStates(newDiskIndex(out), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,22 +73,22 @@ func TestMergedOwnStates(t *testing.T) {
 	}
 	// Once a merge checkpoint records it, the import adds to the roots it
 	// kept instead, unless asked for every merged root.
-	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Merge: report.Merge{Merged: true}}); err != nil {
+	if err := mergeCheckpoints.write(out, stack, mergeCheckpoint{Merge: report.Merge{Merged: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if own, err := mergedOwnStates(out, true); err != nil || len(own) != 0 {
+	if own, err := mergedOwnStates(newDiskIndex(out), true); err != nil || len(own) != 0 {
 		t.Errorf("recorded: %v %v", own, err)
 	}
-	if own, err := mergedOwnStates(out, false); err != nil || !reflect.DeepEqual(own, want) {
+	if own, err := mergedOwnStates(newDiskIndex(out), false); err != nil || !reflect.DeepEqual(own, want) {
 		t.Errorf("every merged root: %v %v", own, err)
 	}
 	// A checkpoint that can't be read fails, naming it, rather than
 	// reading as none.
-	path := mergeCheckpointPath(out, stack)
+	path := mergeCheckpoints.path(out, stack)
 	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if own, err := mergedOwnStates(out, true); err == nil || !strings.Contains(err.Error(), path) {
+	if own, err := mergedOwnStates(newDiskIndex(out), true); err == nil || !strings.Contains(err.Error(), path) {
 		t.Errorf("a corrupt checkpoint: %v %v", own, err)
 	}
 }
@@ -123,7 +123,7 @@ func TestExcludeManagedKeepsMergedRootsOwn(t *testing.T) {
 	}
 	check("incremental", Options{ManagedState: sources, Out: out, Incremental: true}, false)
 	check("a plain import", Options{ManagedState: sources, Out: out}, true)
-	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Merge: report.Merge{Merged: true}}); err != nil {
+	if err := mergeCheckpoints.write(out, stack, mergeCheckpoint{Merge: report.Merge{Merged: true}}); err != nil {
 		t.Fatal(err)
 	}
 	check("incremental, recorded", Options{ManagedState: sources, Out: out, Incremental: true}, true)

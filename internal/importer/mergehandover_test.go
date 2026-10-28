@@ -17,26 +17,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
-// mergedEarlier records, under out, the merged root fake/stack that an
-// earlier import merged from the roots of dev and prod, which it set
-// aside, with imports, the import IDs of each environment's resources in
-// it by address. It returns the merged root's directory and dev's root.
-func mergedEarlier(t *testing.T, out string, imports map[string]map[string]string) (stack, dev string) {
-	t.Helper()
-	stack = filepath.Join(out, "fake", "stack")
-	dev = filepath.Join(out, "envs", "dev", "fake")
-	writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
-	c := mergeCheckpoint{
-		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/fake"}, {Env: "prod", Path: "envs/prod/fake"}},
-		Merge:   report.Merge{Path: "fake/stack", Merged: true},
-		Imports: imports,
-	}
-	if err := writeMergeCheckpoint(out, stack, c); err != nil {
-		t.Fatal(err)
-	}
-	return stack, dev
-}
-
 // What leaves a merged root for another root of the run is handed over
 // by a removed block of the merged root: a whole resource only one
 // environment has, and, of a for_each another environment keeps, the
@@ -44,14 +24,15 @@ func mergedEarlier(t *testing.T, out string, imports map[string]map[string]strin
 // The root it goes to imports it, knowing where from.
 func TestPlanMergedHandovers(t *testing.T) {
 	out := t.TempDir()
-	stack, dev := mergedEarlier(t, out, map[string]map[string]string{
+	m := newMemoryOutput(out)
+	stack, dev := m.mergedEarlier(map[string]map[string]string{
 		"dev":  {"fake_thing.orders": "o1", "fake_thing.reports_dev[0]": "r1", `fake_thing.this["audit"]`: "a1"},
 		"prod": {"fake_thing.orders": "o2", `fake_thing.this["alerts"]`: "a2"},
 	})
 	shared := filepath.Join(out, "envs", "shared", "fake")
 	c := regenerating(out, map[string][]rootfile.Import{dev: {thingImport("o1")}, shared: {thingImport("r1"), thingImport("a1")}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	h := c.handovers
@@ -81,13 +62,14 @@ func TestPlanMergedHandovers(t *testing.T) {
 // over.
 func TestPlanMergedHandoversKeepsWhatAnotherEnvironmentHas(t *testing.T) {
 	out := t.TempDir()
-	_, dev := mergedEarlier(t, out, map[string]map[string]string{
+	m := newMemoryOutput(out)
+	_, dev := m.mergedEarlier(map[string]map[string]string{
 		"dev":  {"fake_thing.orders": "o1", "fake_thing.events": "e1"},
 		"prod": {"fake_thing.orders": "o2"},
 	})
 	shared := filepath.Join(out, "envs", "shared", "fake")
 	c := regenerating(out, map[string][]rootfile.Import{dev: {thingImport("e1")}, shared: {thingImport("o1"), thingImport("s1")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.handovers.refusal(dev); err == nil || !strings.Contains(err.Error(), "another environment keeps") {
@@ -98,7 +80,7 @@ func TestPlanMergedHandoversKeepsWhatAnotherEnvironmentHas(t *testing.T) {
 	}
 
 	c = regenerating(out, map[string][]rootfile.Import{shared: {thingImport("e1"), thingImport("s1")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if got := excludedIDs(c.run); !slices.Equal(got, []string{"e1 fake/stack"}) {
@@ -210,7 +192,7 @@ func vacatable(t *testing.T, out string) string {
 		Files:   []string{rootfile.ReadmeFileName, "main.tf", "providers.tf", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars", "vars/prod/terraform.tfvars"},
 		Imports: map[string]map[string]string{"dev": {"fake_thing.orders": "o1"}, "prod": {"fake_thing.orders": "o2"}},
 	}
-	if err := writeMergeCheckpoint(out, stack, c); err != nil {
+	if err := mergeCheckpoints.write(out, stack, c); err != nil {
 		t.Fatal(err)
 	}
 	return stack
@@ -239,7 +221,7 @@ func TestVacateMergedRoot(t *testing.T) {
 	c1 := regeneratingIn(out, "111", scopes, map[string][]rootfile.Import{dev: {thingImport("o1")}})
 	c2 := regeneratingIn(out, "222", scopes, map[string][]rootfile.Import{prod: {thingImport("o2")}})
 	for _, c := range []*listedCall{c1, c2} {
-		if err := planHandovers(out, []*listedCall{c}); err != nil {
+		if err := planHandovers(newDiskIndex(out), []*listedCall{c}); err != nil {
 			t.Fatal(err)
 		}
 		if len(c.run.report.Excluded) != 0 || len(c.run.vacating) != 1 {
@@ -270,7 +252,7 @@ func TestVacateMergedRoot(t *testing.T) {
 	if len(r.report.Departed) != 2 || r.report.Departed[0].FromRoot != "fake/stack" {
 		t.Errorf("departed %+v", r.report.Departed)
 	}
-	c, err := readMergeCheckpoint(out, stack)
+	c, err := mergeCheckpoints.read(out, stack)
 	if err != nil || c == nil || len(c.Imports) != 0 || !slices.Contains(c.Files, rootfile.MovesFileName) || slices.Contains(c.Files, "main.tf") {
 		t.Errorf("the checkpoint: %+v, %v", c, err)
 	}
@@ -286,7 +268,7 @@ func TestVacateMergedRootPartly(t *testing.T) {
 	stack := vacatable(t, out)
 	dev := filepath.Join(out, "envs", "dev", "new")
 	c := regeneratingIn(out, "111", []string{"111", "222"}, map[string][]rootfile.Import{dev: {thingImport("o1")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(newDiskIndex(out), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	c.handovers.record(dev, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
@@ -307,7 +289,7 @@ func TestVacateMergedRootPartly(t *testing.T) {
 	}
 
 	c = regeneratingIn(out, "111", []string{"111"}, map[string][]rootfile.Import{dev: {thingImport("o1")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(newDiskIndex(out), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if got := excludedIDs(c.run); !slices.Equal(got, []string{"o1 fake/stack"}) || len(c.run.vacating) != 0 {
