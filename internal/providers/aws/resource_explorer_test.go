@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
@@ -210,6 +211,35 @@ func TestResourceExplorerSkipsServicesTheRegionHasNoneOf(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "aws: sqs: Resource Explorer's index has no sqs:queue in eu-west-2; not listing it") {
 		t.Errorf("no log line for the skipped service:\n%s", logs)
+	}
+}
+
+// An import lists every service through the one provider the command
+// configured, so --resource-explorer reaches the guard of each service's
+// lister.
+func TestResourceExplorerRulesOutServicesOfAnImport(t *testing.T) {
+	f := newFakeExplorer()
+	ctx, _ := useExplorer(t, f)
+	p := &Provider{}
+	p.UseResourceExplorer(true)
+	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
+		t.Fatal(err)
+	}
+	services := []discovery.Discoverer{discovery.Service("sqs", p, harvest.Settings{}), discovery.Service("sfn", p, harvest.Settings{})}
+	results, err := discovery.List(ctx, services, discovery.Options{Parallel: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.Err != nil {
+			t.Errorf("%s: %v", r.Name, r.Err)
+		}
+	}
+	if slices.Contains(f.calls, "ListQueues") {
+		t.Errorf("sqs was listed although Resource Explorer rules it out: %v", f.calls)
+	}
+	if !slices.Contains(f.calls, "ListStateMachines") {
+		t.Errorf("sfn wasn't listed: %v", f.calls)
 	}
 }
 

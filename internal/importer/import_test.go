@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -131,6 +132,65 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 			t.Errorf("want the good and the slow services' resources, got %v", resources)
 		}
 	})
+}
+
+// settingsProvider is fakeProvider whose listers record the settings each
+// is given.
+type settingsProvider struct {
+	fakeProvider
+	mu    sync.Mutex
+	given map[string]harvest.Settings
+}
+
+func (p *settingsProvider) Lister(string) (harvest.Lister, error) {
+	return settingsRecorder{p}, nil
+}
+
+type settingsRecorder struct{ p *settingsProvider }
+
+func (r settingsRecorder) List(_ context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	r.p.mu.Lock()
+	defer r.p.mu.Unlock()
+	r.p.given[s.Service] = s
+	return nil, nil
+}
+
+// Each lister gets the call's --id, --tag and --where filters and the types
+// it leaves out, so that it can skip the calls of what the import won't keep.
+func TestListServicesGivesEachListerTheCallsSettings(t *testing.T) {
+	options := Options{
+		Services:     []string{"s3", "vpc"},
+		Verbose:      true,
+		IDFilters:    []string{"aws_vpc=vpc-1"},
+		TagFilters:   []string{"env=prod"},
+		WhereFilters: []string{"cidr_block=10.0.0.0/16"},
+	}
+	c := callOf(options, "")
+	c.unwanted = func(typ string) bool { return typ == "aws_iam_access_key" }
+	p := &settingsProvider{given: map[string]harvest.Settings{}}
+	if _, failures, err := listServices(t.Context(), p, c, 2); err != nil || len(failures) > 0 {
+		t.Fatalf("listServices: %v %v", failures, err)
+	}
+	filters, err := options.filters()
+	if err != nil || len(filters) != 3 {
+		t.Fatalf("filters: %v %v", filters, err)
+	}
+	for _, service := range options.Services {
+		s, ok := p.given[service]
+		if !ok {
+			t.Errorf("%s: never listed", service)
+			continue
+		}
+		if s.Service != service || s.Provider != "fake" || !s.Verbose {
+			t.Errorf("%s: got service %q, provider %q, verbose %v", service, s.Service, s.Provider, s.Verbose)
+		}
+		if !reflect.DeepEqual(s.Filters, filters) {
+			t.Errorf("%s: filters: got %+v, want %+v", service, s.Filters, filters)
+		}
+		if s.Wants("aws_iam_access_key") || !s.Wants("aws_vpc") {
+			t.Errorf("%s: the settings don't leave out the call's unwanted types", service)
+		}
+	}
 }
 
 // An interrupt stops listing.

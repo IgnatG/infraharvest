@@ -232,7 +232,7 @@ type checkpoint struct {
 	Result      *engine.Result `json:"result"`
 	// Pending are, while a run generates a root an earlier import
 	// generated again, where that import's resources were (see
-	// previousAddresses), and PendingFiles the files its configuration
+	// indexedRoot.previous), and PendingFiles the files its configuration
 	// was in: the checkpoint has no result then, and a run interrupted on
 	// the way would otherwise lose them.
 	Pending      []engine.Managed `json:"pending,omitempty"`
