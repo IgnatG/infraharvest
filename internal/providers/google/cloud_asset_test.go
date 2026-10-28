@@ -545,6 +545,7 @@ func TestGlobalNamesTheOtherRegions(t *testing.T) {
 // global takes them wherever they are, and any import lists in part the
 // types of the asset types its run's search rejected.
 func TestCloudAssetPartialTypes(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("google")
 	global := &Provider{catalogue: cat, caches: testCaches(t)}
 	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}, caches: testCaches(t)}

@@ -375,6 +375,7 @@ func serviceWithContext(ctx context.Context, p *Provider) *Service {
 // callerAccount asks STS once for the credentials of a configuration, and
 // remembers the account for every region that shares them.
 func TestCallerAccountIsAskedOnce(t *testing.T) {
+	t.Parallel()
 	ctx := newRun(t)
 	calls := 0
 	api := &fakeAPI{handle: func(call apiCall) string {
