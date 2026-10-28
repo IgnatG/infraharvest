@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -508,6 +510,47 @@ func TestWithChildImportsAsksInParallelAndKeepsTheOrder(t *testing.T) {
 	}
 	if len(byService["a"]) != 3 {
 		t.Error("the resources given were changed")
+	}
+}
+
+// blockedChildren is fakeProvider whose ChildImports waits until release
+// is closed, counting the calls that started.
+type blockedChildren struct {
+	fakeProvider
+	started atomic.Int32
+	release chan struct{}
+}
+
+func (p *blockedChildren) ChildImports(context.Context, harvest.Resource) ([]harvest.Resource, error) {
+	p.started.Add(1)
+	<-p.release
+	return nil, nil
+}
+
+// Asking many resources for their children takes parallel goroutines, not
+// one for each resource.
+func TestWithChildImportsStartsParallelGoroutines(t *testing.T) {
+	p := &blockedChildren{release: make(chan struct{})}
+	var resources []harvest.Resource
+	for i := range 2000 {
+		resources = append(resources, harvest.RecordBare(fmt.Sprintf("id-%d", i), "r", "fake_thing", "fake"))
+	}
+	before := runtime.NumGoroutine()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		withChildImports(t.Context(), p, map[string][]harvest.Resource{"a": resources}, 4)
+	}()
+	for p.started.Load() < 4 {
+		runtime.Gosched()
+	}
+	if extra := runtime.NumGoroutine() - before; extra > 50 {
+		t.Errorf("%d goroutines while asking 2000 resources 4 at a time", extra)
+	}
+	close(p.release)
+	<-done
+	if got := p.started.Load(); got != 2000 {
+		t.Errorf("asked %d resources, want 2000", got)
 	}
 }
 

@@ -39,22 +39,25 @@ func withChildImports(ctx context.Context, provider harvest.Provider, resourcesB
 			asks = append(asks, ask{service: service, r: r})
 		}
 	}
-	slots := make(chan struct{}, max(parallel, 1))
+	// A fixed number of workers, not one each: a call may list a hundred
+	// thousand resources, most of them of types without children.
+	next := make(chan int)
 	var wg sync.WaitGroup
+	for range min(max(parallel, 1), len(asks)) {
+		wg.Go(func() {
+			for i := range next {
+				asks[i].children, asks[i].err = withChildren.ChildImports(ctx, asks[i].r)
+			}
+		})
+	}
 	for i := range asks {
 		// What Terraform's list resources returned has no children the
 		// provider looks for: they are found by an import ID it lacks.
-		if asks[i].r.Observed.Identity != nil {
-			continue
+		if asks[i].r.Observed.Identity == nil {
+			next <- i
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			slots <- struct{}{}
-			defer func() { <-slots }()
-			asks[i].children, asks[i].err = withChildren.ChildImports(ctx, asks[i].r)
-		}()
 	}
+	close(next)
 	wg.Wait()
 	var failures []error
 	all := make(map[string][]harvest.Resource, len(resourcesByService))
