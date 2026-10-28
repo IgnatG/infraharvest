@@ -17,9 +17,9 @@ import (
 // profile.
 func TestConfigFile(t *testing.T) {
 	google := catalogue.MustBuiltin("google")
-	layouts := map[string]harvest.Layout{}
+	profiles := map[string]harvest.Profile{}
 	for _, p := range []harvest.Provider{&awsprovider.Provider{}, &azureprovider.Provider{}, &googleprovider.Provider{}} {
-		layouts[p.Name()] = p.Profile().Layout
+		profiles[p.Name()] = p.Profile()
 	}
 	for _, tc := range []struct {
 		provider, service, typ string
@@ -63,8 +63,17 @@ func TestConfigFile(t *testing.T) {
 		{"azurerm", "resource_graph", "azurerm_virtual_machine_extension", nil, "virtual_machine.tf"},
 		{"azurerm", "resource_graph", "azurerm_managed_disk", nil, "managed_disk.tf"},
 		{"azurerm", "managed_identity", "azurerm_user_assigned_identity", nil, "managed_identity.tf"},
+		// What the query service lists goes with its family, as the
+		// services that list the family's other types lay them out.
+		{"aws", "query", "aws_s3_bucket_inventory", nil, "s3.tf"},
+		{"aws", "query", "aws_cloudwatch_log_subscription_filter", nil, "logs.tf"},
+		{"aws", "query", "aws_vpc_ipv4_cidr_block_association", nil, "network.tf"},
+		{"aws", "query", "aws_flow_log", nil, "flow_log.tf"},
+		{"google", "query", "google_pubsub_schema", google, "pubsub.tf"},
+		{"google", "query", "google_compute_subnetwork", google, "network.tf"},
+		{"azurerm", "query", "azurerm_storage_sync", nil, "storage.tf"},
 	} {
-		if got := configFile(layouts[tc.provider], tc.service, tc.typ, tc.cat); got != tc.want {
+		if got := configFile(profiles[tc.provider], tc.service, tc.typ, tc.cat); got != tc.want {
 			t.Errorf("configFile(%s, %s, %s) = %s, want %s", tc.provider, tc.service, tc.typ, got, tc.want)
 		}
 	}
@@ -77,12 +86,12 @@ func TestConfigFile(t *testing.T) {
 func TestConfigFileInventoryOfTheProfile(t *testing.T) {
 	layout := harvest.Layout{InventoryServices: []string{"assets"}}
 	for service, want := range map[string]string{"assets": "compute_disk.tf", "cloud_asset": "cloud_asset.tf"} {
-		if got := configFile(layout, service, "google_compute_disk", nil); got != want {
+		if got := configFile(harvest.Profile{Layout: layout}, service, "google_compute_disk", nil); got != want {
 			t.Errorf("%s: %s, want %s", service, got, want)
 		}
 	}
 	layout.TypeNameTrim = "compute_"
-	if got := configFile(layout, "assets", "google_compute_disk", nil); got != "disk.tf" {
+	if got := configFile(harvest.Profile{Layout: layout}, "assets", "google_compute_disk", nil); got != "disk.tf" {
 		t.Errorf("with the trim: %s, want disk.tf", got)
 	}
 }

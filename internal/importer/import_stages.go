@@ -434,7 +434,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 		importID:   c.importID,
 		nameOf:     resourceNames(profile.NameTag, listed, resources.byService),
 		fileOf: func(service string, res harvest.Resource) string {
-			return configFile(profile.Layout, service, res.Address.Type, c.cat)
+			return configFile(profile, service, res.Address.Type, c.cat)
 		},
 	}
 	p.byDir, p.skipped = importsByDir(blocks, resources.byService, dirOf)
