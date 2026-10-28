@@ -85,127 +85,31 @@ func settleDrift(changes []*Change, failed map[*Change]codeSource) ([]*Change, b
 // without refreshing, with vars. Each resource an accepted change is of
 // must then plan no change to it, and no other change than the plan of
 // the code had, code, but on what is secret or kept only in state; every
-// other resource must plan what code has it plan (see tfrun.ChangeSignature),
-// which an edit of a local others use would break. Then the edited files
-// must pass the format, validate, standards, moves and secrets checks
-// (see driftChecks). The edits the plan or a check blames are left out
-// (see judgeDrift and checkBlame; one that blames no file blames them
-// all), and the others planned and checked again, in at most as many
-// rounds as there are edits (see gate.Verifier); a change of shared tags
-// whose edit is blamed, or can't be made, is accepted at each resource
-// it covers instead (see unshare). Only then are the edits made in the
-// root's own files, which are restored if writing one fails. For a root
+// other resource must plan what code has it plan (see
+// tfrun.ChangeSignature), which an edit of a local others use would
+// break. Then the edited files must pass the format, validate, standards,
+// moves and secrets checks (see driftChecks). The edits the plan or a
+// check blames are left out (see judgeDrift and checkBlame; one that
+// blames no file blames them all), and the others planned and checked
+// again, in at most as many rounds as there are edits (see acceptance and
+// editRounds); a change of shared tags whose edit is blamed, or can't be
+// made, is accepted at each resource it covers instead (see unshare).
+// Only then are the edits made in the root's own files, which are
+// restored if writing one fails (see writeAccepted). For a root
 // environments share, root and the copy's files hold the environment's
-// var file too, the only file edited (see variableResolver.env), and a change
-// written gets its source there. Each accepted change ends written,
-// rejected by the plan or a check, a hand edit or a secret.
+// var file too, the only file edited (see variableResolver.env), and a
+// change written gets its source there. Each accepted change ends
+// written, rejected by the plan or a check, a hand edit or a secret.
 func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging string, root map[string][]byte, accepted []*Change, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts Options) error {
-	schemas, err := stf.ProvidersSchema(ctx)
-	if err != nil {
-		return fmt.Errorf("terraform providers schema: %w", err)
-	}
-	editor.schemas = schemas
-	staged, err := driftContents(staging, opts.Environment)
+	a, err := newAcceptance(ctx, stf, staging, root, accepted, code, vars, editor, opts)
 	if err != nil {
 		return err
 	}
-	// The modules' files, which the copy has copies of (see stageModule).
-	for name, content := range root {
-		if isModuleFile(name) {
-			staged[name] = content
-		}
-	}
-	standards, err := opts.Rules.Standards(staging)
-	if err != nil {
-		return err
-	}
-	moves, err := opts.Rules.Moves(staging)
-	if err != nil {
-		return err
-	}
-	planOpts := append(slices.Clone(vars), tfexec.Refresh(false), tfexec.Lock(false))
-	// Each round that fails rejects an edit, or has a change of shared
-	// tags edited at each resource it covers instead: no round makes
-	// progress without dropping an edit, so the rounds can't outnumber
-	// the edits, those of the shared tags' members counted.
-	rounds := 0
-	for _, c := range accepted {
-		rounds++
-		if c.shared != nil {
-			rounds += len(c.shared.members)
-		}
-	}
-	pending := accepted
-	written := map[string]bool{}
-	var edited map[string][]byte
-	var names []string
-	var applied map[*Change]codeSource
+	rounds := editRounds(accepted)
 	passed, err := gate.Verifier[*Change, driftRejection]{
-		Edit: func(context.Context) ([]*Change, error) {
-			// A change of shared tags whose edit can't be made has its
-			// members edited before anything is planned.
-			for unshared := true; unshared && len(pending) > 0; {
-				edited = maps.Clone(staged)
-				var failed map[*Change]codeSource
-				var err error
-				names, applied, failed, err = editor.apply(edited, pending)
-				if err != nil {
-					return nil, err
-				}
-				pending, unshared = settleDrift(pending, failed)
-			}
-			if len(pending) == 0 {
-				return nil, nil
-			}
-			for _, name := range names {
-				written[name] = true
-			}
-			// The files an earlier round edited are as they were, but for
-			// this round's edits.
-			for _, name := range slices.Sorted(maps.Keys(written)) {
-				if err := fsutil.WriteFile(stagedPath(staging, name), edited[name], 0o600); err != nil {
-					return nil, err
-				}
-			}
-			return pending, nil
-		},
-		Verify: func(ctx context.Context) (*gate.Verdict[*Change, driftRejection], error) {
-			p, _, diags, err := tfrun.ShowPlan(ctx, stf, planOpts)
-			if err != nil {
-				return nil, secret.RedactError(err, editor.secretForms)
-			}
-			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.secretForms); len(rejected) > 0 {
-				return planRejection(rejected), nil
-			}
-			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
-			if err != nil || failedCheck == "" {
-				return nil, err
-			}
-			failure := &gate.Verdict[*Change, driftRejection]{
-				Blamed: map[*Change]driftRejection{},
-				Why:    driftRejection{RejectedByCheck, "the edited code fails " + secret.RedactText(failedCheck, editor.secretForms)},
-			}
-			for _, c := range checkBlame(pending, applied, files) {
-				failure.Blamed[c] = failure.Why
-			}
-			return failure, nil
-		},
-		Drop: func(rejected map[*Change]driftRejection) {
-			var left []*Change
-			for _, c := range pending {
-				r, ok := rejected[c]
-				switch {
-				case !ok:
-					left = append(left, c)
-				case c.shared != nil:
-					// Each resource it covers is edited on its own instead.
-					left = append(left, unshare(c, r.reason)...)
-				default:
-					c.Outcome, c.Reason = r.outcome, r.reason
-				}
-			}
-			pending = left
-		},
+		Edit:   a.edit,
+		Verify: a.verify,
+		Drop:   a.drop,
 		// A check that can't tell which edited files fail it fails them
 		// all.
 		BlameAll: true,
@@ -216,14 +120,176 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 	}
 	if !passed {
 		// Only the bound, which no round reaches, leaves changes pending.
-		for _, c := range pending {
+		for _, c := range a.pending {
 			c.Outcome, c.Reason = RejectedByPlan, fmt.Sprintf("the edits weren't settled in %d plans", rounds)
 		}
 		return nil
 	}
+	return writeAccepted(dir, root, a.pending, editor, opts)
+}
 
+// An acceptance is the rounds in which acceptDrift makes the edits of the
+// accepted changes in the staged copy, plans them and checks them (see
+// gate.Verifier).
+type acceptance struct {
+	stf      tfrun.DriftTerraform
+	staging  string
+	code     *tfjson.Plan
+	planOpts []tfexec.PlanOption
+	editor   *driftEditor
+	opts     Options
+	// staged are the copy's files as they were, the modules' among them,
+	// and standards and moves the checks of them, which the edited files
+	// may add no finding to.
+	staged           map[string][]byte
+	standards, moves gate.Check
+	// pending are the changes still in play, and written the files a
+	// round edited.
+	pending []*Change
+	written map[string]bool
+	// edited are the files as the last round's edits left them, names
+	// those it edited, and applied the sources it edited by.
+	edited  map[string][]byte
+	names   []string
+	applied map[*Change]codeSource
+}
+
+// newAcceptance returns the acceptance of accepted (see acceptDrift),
+// with the schemas stf has for the editor, and the checks of the staged
+// copy as it is.
+func newAcceptance(ctx context.Context, stf tfrun.DriftTerraform, staging string, root map[string][]byte, accepted []*Change, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts Options) (*acceptance, error) {
+	schemas, err := stf.ProvidersSchema(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("terraform providers schema: %w", err)
+	}
+	editor.schemas = schemas
+	staged, err := driftContents(staging, opts.Environment)
+	if err != nil {
+		return nil, err
+	}
+	// The modules' files, which the copy has copies of (see stageModule).
+	for name, content := range root {
+		if isModuleFile(name) {
+			staged[name] = content
+		}
+	}
+	standards, err := opts.Rules.Standards(staging)
+	if err != nil {
+		return nil, err
+	}
+	moves, err := opts.Rules.Moves(staging)
+	if err != nil {
+		return nil, err
+	}
+	return &acceptance{
+		stf: stf, staging: staging, code: code, editor: editor, opts: opts,
+		planOpts: append(slices.Clone(vars), tfexec.Refresh(false), tfexec.Lock(false)),
+		staged:   staged, standards: standards, moves: moves,
+		pending: accepted, written: map[string]bool{},
+	}, nil
+}
+
+// editRounds bounds the rounds of accepting accepted: each round that
+// fails rejects an edit, or has a change of shared tags edited at each
+// resource it covers instead, so no round makes progress without
+// dropping an edit, and the rounds can't outnumber the edits, those of
+// the shared tags' members counted.
+func editRounds(accepted []*Change) int {
+	rounds := 0
+	for _, c := range accepted {
+		rounds++
+		if c.shared != nil {
+			rounds += len(c.shared.members)
+		}
+	}
+	return rounds
+}
+
+// edit makes the edits of the pending changes on the copy's files as they
+// were, and writes the files any round edited into the copy, so that
+// those an earlier round edited are as they were, but for this round's
+// edits. It returns the changes it edited; none once every one is
+// settled.
+func (a *acceptance) edit(context.Context) ([]*Change, error) {
+	// A change of shared tags whose edit can't be made has its members
+	// edited before anything is planned.
+	for unshared := true; unshared && len(a.pending) > 0; {
+		a.edited = maps.Clone(a.staged)
+		var failed map[*Change]codeSource
+		var err error
+		a.names, a.applied, failed, err = a.editor.apply(a.edited, a.pending)
+		if err != nil {
+			return nil, err
+		}
+		a.pending, unshared = settleDrift(a.pending, failed)
+	}
+	if len(a.pending) == 0 {
+		return nil, nil
+	}
+	for _, name := range a.names {
+		a.written[name] = true
+	}
+	for _, name := range slices.Sorted(maps.Keys(a.written)) {
+		if err := fsutil.WriteFile(stagedPath(a.staging, name), a.edited[name], 0o600); err != nil {
+			return nil, err
+		}
+	}
+	return a.pending, nil
+}
+
+// verify plans the edited copy and checks its edited files: nil if both
+// take the round's edits, else the verdict that rejects those it blames
+// (see judgeDrift and checkBlame).
+func (a *acceptance) verify(ctx context.Context) (*gate.Verdict[*Change, driftRejection], error) {
+	forms := a.editor.secretForms
+	p, _, diags, err := tfrun.ShowPlan(ctx, a.stf, a.planOpts)
+	if err != nil {
+		return nil, secret.RedactError(err, forms)
+	}
+	if rejected := judgeDrift(p, diags, a.code, a.pending, a.applied, a.opts.StateOnly, a.edited, forms); len(rejected) > 0 {
+		return planRejection(rejected), nil
+	}
+	failedCheck, files, err := driftChecks(ctx, a.stf, a.staging, a.staged, a.edited, a.names, p, a.standards, a.moves, a.editor.sensitive, a.opts)
+	if err != nil || failedCheck == "" {
+		return nil, err
+	}
+	failure := &gate.Verdict[*Change, driftRejection]{
+		Blamed: map[*Change]driftRejection{},
+		Why:    driftRejection{RejectedByCheck, "the edited code fails " + secret.RedactText(failedCheck, forms)},
+	}
+	for _, c := range checkBlame(a.pending, a.applied, files) {
+		failure.Blamed[c] = failure.Why
+	}
+	return failure, nil
+}
+
+// drop takes the changes rejected out of play, each with its outcome and
+// reason, but a change of shared tags, whose resources are each edited on
+// their own instead.
+func (a *acceptance) drop(rejected map[*Change]driftRejection) {
+	var left []*Change
+	for _, c := range a.pending {
+		r, ok := rejected[c]
+		switch {
+		case !ok:
+			left = append(left, c)
+		case c.shared != nil:
+			left = append(left, unshare(c, r.reason)...)
+		default:
+			c.Outcome, c.Reason = r.outcome, r.reason
+		}
+	}
+	a.pending = left
+}
+
+// writeAccepted makes the edits of pending, which the plan and the checks
+// of the copy took, in root, the files of the root in dir, writes them,
+// and sets each change's outcome: written, with, for a root environments
+// share, its source in the environment's var file; or, where the root's
+// files don't take the same edits, rejected by the plan.
+func writeAccepted(dir string, root map[string][]byte, pending []*Change, editor *driftEditor, opts Options) error {
 	out := maps.Clone(root)
-	rootNames, applied, failed, err := editor.apply(out, pending)
+	names, applied, failed, err := editor.apply(out, pending)
 	if err != nil {
 		return err
 	}
@@ -235,7 +301,7 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		}
 		return nil
 	}
-	if err := writeDriftFiles(dir, out, rootNames, opts.writeFile); err != nil {
+	if err := writeDriftFiles(dir, out, names, opts.writeFile); err != nil {
 		return err
 	}
 	var cfg *driftConfig
@@ -284,49 +350,16 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // the plan of the code, code, didn't change, but for what is secret or
 // kept only in state, or a key of its own tags or labels that only the
 // state records (see recordedTagLeaves); or another resource planning
-// other than code has it, which the edits of locals, of shared tags and
-// of module calls' arguments, which reach every resource the module
-// makes from them, are blamed for first, then those of the resources it refers to, else
-// all of them. A change of shared tags is judged on every resource it
-// covers. Reasons have the values of forms redacted.
+// other than code has it (see rejections.blameLeak). A change of shared
+// tags is judged on every resource it covers. Reasons have the values of
+// forms redacted.
 func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*Change, sources map[*Change]codeSource, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*Change]string {
-	rejected := map[*Change]string{}
-	reject := func(c *Change, reason string) {
-		if _, ok := rejected[c]; !ok {
-			rejected[c] = secret.RedactText(reason, forms)
-		}
-	}
+	r := rejections{reasons: map[*Change]string{}, forms: forms}
 	if len(diags) > 0 || p == nil {
-		for _, d := range diags {
-			reason := "the plan of the edited code fails: " + strings.Join(strings.Fields(tfrun.FormatDiagnostic(d)), " ")
-			blamed := false
-			for _, c := range pending {
-				if diagnosticOf(d, c, sources[c], contents) {
-					reject(c, reason)
-					blamed = true
-				}
-			}
-			if !blamed {
-				for _, c := range pending {
-					reject(c, reason)
-				}
-			}
-		}
-		if len(diags) == 0 {
-			for _, c := range pending {
-				reject(c, "terraform plan reported no change summary")
-			}
-		}
-		return rejected
+		r.planFails(diags, pending, sources, contents)
+		return r.reasons
 	}
-	baseline := map[string]*tfjson.ResourceChange{}
-	if code != nil {
-		for _, rc := range code.ResourceChanges {
-			if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil {
-				baseline[rc.Address] = rc
-			}
-		}
-	}
+	baseline := managedChanges(code)
 	byAddress := map[string][]*Change{}
 	for _, c := range pending {
 		if c.shared != nil {
@@ -350,47 +383,126 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 			}
 			continue
 		}
-		if rc.Change.Actions.NoOp() {
+		r.judgeResource(rc, base, cs, stateOnly)
+	}
+	if len(leaked) > 0 {
+		r.blameLeak(leaked, pending, sources, contents)
+	}
+	return r.reasons
+}
+
+// rejections are the changes the plan of edited code rejects, each with
+// the first reason it rejects it for, with the values of forms redacted
+// (see judgeDrift).
+type rejections struct {
+	reasons map[*Change]string
+	forms   []string
+}
+
+// reject rejects c for reason, unless it is rejected already.
+func (r rejections) reject(c *Change, reason string) {
+	if _, ok := r.reasons[c]; !ok {
+		r.reasons[c] = secret.RedactText(reason, r.forms)
+	}
+}
+
+// planFails rejects the changes of pending for the errors of a plan that
+// failed, diags: each error the changes whose edits, made as sources say
+// in contents, it is about (see diagnosticOf), or all of them where it is
+// about none; and every change where the plan reported neither errors nor
+// a change summary.
+func (r rejections) planFails(diags []tfjson.Diagnostic, pending []*Change, sources map[*Change]codeSource, contents map[string][]byte) {
+	for _, d := range diags {
+		reason := "the plan of the edited code fails: " + strings.Join(strings.Fields(tfrun.FormatDiagnostic(d)), " ")
+		blamed := false
+		for _, c := range pending {
+			if diagnosticOf(d, c, sources[c], contents) {
+				r.reject(c, reason)
+				blamed = true
+			}
+		}
+		if !blamed {
+			for _, c := range pending {
+				r.reject(c, reason)
+			}
+		}
+	}
+	if len(diags) == 0 {
+		for _, c := range pending {
+			r.reject(c, "terraform plan reported no change summary")
+		}
+	}
+}
+
+// managedChanges returns the planned changes of the managed resources of
+// p, by address; none for no plan.
+func managedChanges(p *tfjson.Plan) map[string]*tfjson.ResourceChange {
+	changes := map[string]*tfjson.ResourceChange{}
+	if p == nil {
+		return changes
+	}
+	for _, rc := range p.ResourceChanges {
+		if rc.Mode == tfjson.ManagedResourceMode && rc.Change != nil {
+			changes[rc.Address] = rc
+		}
+	}
+	return changes
+}
+
+// judgeResource rejects the changes cs of the resource the plan of the
+// edited code plans rc for: those of an attribute it still changes; all
+// of them where it changes another attribute that base, the resource's
+// change in the plan of the code, didn't, but for what is secret or kept
+// only in state, or a key of its own tags or labels that only the state
+// records (see recordedTagLeaves); and all of them where it replaces the
+// resource and base didn't.
+func (r rejections) judgeResource(rc, base *tfjson.ResourceChange, cs []*Change, stateOnly map[string][]string) {
+	if rc.Change.Actions.NoOp() {
+		return
+	}
+	baseLeaves := map[string]bool{}
+	if base != nil {
+		for _, l := range planLeaves(base, stateOnly) {
+			baseLeaves[l.path] = true
+		}
+	}
+	recorded := recordedTagLeaves(rc)
+	for _, l := range planLeaves(rc, stateOnly) {
+		if l.sensitive || recorded[l.path] {
 			continue
 		}
-		baseLeaves := map[string]bool{}
-		if base != nil {
-			for _, l := range planLeaves(base, stateOnly) {
-				baseLeaves[l.path] = true
+		matched := false
+		for _, c := range cs {
+			if c.Attribute == l.path || within(l.path, c.Attribute) || within(c.Attribute, l.path) {
+				r.reject(c, "the plan of the edited code still changes "+l.path)
+				matched = true
 			}
 		}
-		recorded := recordedTagLeaves(rc)
-		for _, l := range planLeaves(rc, stateOnly) {
-			if l.sensitive || recorded[l.path] {
-				continue
-			}
-			matched := false
+		if !matched && !baseLeaves[l.path] {
 			for _, c := range cs {
-				if c.Attribute == l.path || within(l.path, c.Attribute) || within(c.Attribute, l.path) {
-					reject(c, "the plan of the edited code still changes "+l.path)
-					matched = true
-				}
-			}
-			if !matched && !baseLeaves[l.path] {
-				for _, c := range cs {
-					reject(c, "the plan of the edited code changes "+l.path+" too")
-				}
-			}
-		}
-		if rc.Change.Actions.Replace() && (base == nil || !base.Change.Actions.Replace()) {
-			for _, c := range cs {
-				reject(c, "the plan of the edited code replaces the resource")
+				r.reject(c, "the plan of the edited code changes "+l.path+" too")
 			}
 		}
 	}
-	if len(leaked) == 0 {
-		return rejected
+	if rc.Change.Actions.Replace() && (base == nil || !base.Change.Actions.Replace()) {
+		for _, c := range cs {
+			r.reject(c, "the plan of the edited code replaces the resource")
+		}
 	}
+}
+
+// blameLeak rejects the changes of pending whose edits, made as sources
+// say in contents, the plan of other resources, leaked, changing is
+// blamed on: those of locals, of shared tags and of module calls'
+// arguments, which reach every resource the module makes from them,
+// first, then those of the resources the leaked ones refer to, else all
+// of them.
+func (r rejections) blameLeak(leaked []string, pending []*Change, sources map[*Change]codeSource, contents map[string][]byte) {
 	reason := "the edit changes what the plan does to " + strings.Join(leaked, ", ") + " too"
 	blamed := false
 	for _, c := range pending {
 		if src := sources[c]; src.Kind == sourceLocal || src.Kind == sourceSharedTags || src.Module != "" {
-			reject(c, reason)
+			r.reject(c, reason)
 			blamed = true
 		}
 	}
@@ -398,17 +510,16 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 		referred := referredTo(contents, leaked)
 		for _, c := range pending {
 			if referred[hclfile.TrimInstanceKey(c.Address)] {
-				reject(c, reason)
+				r.reject(c, reason)
 				blamed = true
 			}
 		}
 	}
 	if !blamed {
 		for _, c := range pending {
-			reject(c, reason)
+			r.reject(c, reason)
 		}
 	}
-	return rejected
 }
 
 // sameAsBaseline reports whether rc plans what base, the plan of the
