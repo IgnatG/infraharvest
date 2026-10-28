@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -87,7 +88,9 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 	}
 	result, err := r.tools.add(ctx, tf, rootTF, staging, dir, added, opts, existing)
 	if err != nil {
-		return added, nil, nil, err
+		// What staging generated may hold secrets in the clear: Add removes
+		// it only once it is done.
+		return added, nil, nil, errors.Join(err, os.RemoveAll(staging))
 	}
 	if r.lock == nil {
 		r.lock, _ = os.ReadFile(filepath.Join(dir, tfrun.LockFileName))

@@ -1,9 +1,10 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Package fsutil writes files that must never be left half written, and
+// Package fsutil writes files that must never be left half written,
 // checks that a directory a run writes into holds nothing that would lead
-// those writes elsewhere.
+// those writes elsewhere, and makes directories private to the user
+// running infraharvest.
 package fsutil
 
 import (
@@ -114,4 +115,22 @@ func CheckFile(path string) error {
 		return untrusted(path, info.Mode(), "a regular file")
 	}
 	return nil
+}
+
+// MkdirPrivate creates dir, with its parents, and makes it private (see
+// MakePrivate) as it creates it, so that what is written into it is
+// private too, whatever its parent lets others read. A dir that exists
+// already is left as it is.
+func MkdirPrivate(dir string) error {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return nil
+		}
+		return err
+	}
+	_, err := MakePrivate(dir)
+	return err
 }

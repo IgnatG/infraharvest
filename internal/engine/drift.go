@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
@@ -395,7 +396,7 @@ func stageDrift(dir, staging string, state []byte) error {
 		return err
 	}
 	// The copy is removed once planned: its access needn't be restored.
-	if _, err := makePrivate(staging); err != nil {
+	if _, err := fsutil.MakePrivate(staging); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(dir)
@@ -913,6 +914,78 @@ func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 	}
 	sort.Strings(values)
 	return textForms(values)
+}
+
+// driftSecretForms returns the values a report mustn't show, in the forms
+// text quotes them in (see textForms): those state and plans mark
+// sensitive, and the secrets redactDriftValue replaces in the others.
+// Terraform's diagnostics, which can quote a value a provider rejects,
+// have them replaced, as the changes' values do.
+func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
+	seen := map[string]bool{}
+	if state != nil && state.Values != nil {
+		modules := []*tfjson.StateModule{state.Values.RootModule}
+		for len(modules) > 0 {
+			m := modules[0]
+			modules = modules[1:]
+			if m == nil {
+				continue
+			}
+			modules = append(modules, m.ChildModules...)
+			for _, r := range m.Resources {
+				var mask any
+				_ = json.Unmarshal(r.SensitiveValues, &mask)
+				values := r.AttributeValues
+				collectSensitive(values, mask, seen)
+				collectDriftSecrets(values, "", true, seen)
+			}
+		}
+	}
+	for _, p := range plans {
+		if p == nil {
+			continue
+		}
+		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
+			for _, rc := range rcs {
+				if rc.Change == nil {
+					continue
+				}
+				collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
+				collectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
+				collectDriftSecrets(rc.Change.Before, "", true, seen)
+				collectDriftSecrets(rc.Change.After, "", true, seen)
+			}
+		}
+	}
+	return textForms(sortedKeys(seen))
+}
+
+// collectDriftSecrets adds to out the strings of v, which goes by key,
+// that redactNamed replaces as secrets: a value driftSecret judges one,
+// in a JSON document too, and a map key in a credential format.
+func collectDriftSecrets(v any, key string, named bool, out map[string]bool) {
+	switch v := v.(type) {
+	case string:
+		if !named {
+			key = ""
+		}
+		if driftSecret(key, v) {
+			out[v] = true
+		} else if doc, ok := decodeJSONDocument(v); ok {
+			collectDriftSecrets(doc, key, named, out)
+		}
+	case map[string]any:
+		for k, sub := range v {
+			if credentialFormat(k) != "" {
+				out[k] = true
+			}
+			collectDriftSecrets(sub, entryKey(v, k), named && k != "Condition", out)
+		}
+	case []any:
+		for _, sub := range v {
+			collectDriftSecrets(sub, key, named, out)
+		}
+	}
 }
 
 // redactDriftValue returns v, which goes by key (see entryKey), as a

@@ -643,3 +643,80 @@ func TestDriftChecksTheRootsDigest(t *testing.T) {
 		t.Errorf("checked %v, roots that changed", f.checked)
 	}
 }
+
+// With RootsDigest, Terraform runs on the roots as the user confirmed
+// them: a root rewritten while another runs is checked as it was, from a
+// copy outside the output directory, and what a check writes into its
+// root, such as the lock file its init writes, reaches the output
+// directory.
+func TestDriftRunsTheConfirmedRoots(t *testing.T) {
+	rels := []string{"aws/1/eu-west-1", "aws/1/eu-west-2"}
+	out := driftOutput(t, rels...)
+	mainFile := func(dir string) string { return filepath.Join(dir, "main.tf") }
+	confirmed := "resource \"aws_s3_bucket\" \"logs\" {}\n"
+	rewritten := "data \"external\" \"x\" {\n  program = [\"sh\", \"-c\", \"id\"]\n}\n"
+	for _, rel := range rels {
+		if err := os.WriteFile(mainFile(filepath.Join(out, filepath.FromSlash(rel))), []byte(confirmed), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Local state, which the digest doesn't cover, is copied for drift to
+	// pull.
+	state := filepath.Join(out, "aws", "1", "eu-west-1", "terraform.tfstate")
+	if err := os.WriteFile(state, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := driftpolicy.RootsDigest(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	seen := map[string]string{}
+	options := DriftOptions{Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1, RootsDigest: digest}
+	options.check = func(_ context.Context, dir, staging string, _ engine.DriftOptions) (*engine.RootDrift, error) {
+		for _, path := range []string{dir, staging} {
+			if strings.HasPrefix(path, out+string(filepath.Separator)) {
+				t.Errorf("Terraform runs in %s, in the output directory", path)
+			}
+		}
+		// Whichever root runs first, the others are rewritten before
+		// they run.
+		for _, rel := range rels {
+			if err := os.WriteFile(mainFile(filepath.Join(out, filepath.FromSlash(rel))), []byte(rewritten), 0o644); err != nil {
+				return nil, err
+			}
+		}
+		content, err := os.ReadFile(mainFile(dir))
+		if err != nil {
+			return nil, err
+		}
+		mu.Lock()
+		seen[filepath.Base(dir)] = string(content)
+		mu.Unlock()
+		if _, err := os.Stat(filepath.Join(dir, "terraform.tfstate")); (err == nil) != (filepath.Base(dir) == "eu-west-1") {
+			t.Errorf("%s: the state copied: %v", dir, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), []byte("# "+filepath.Base(dir)+"\n"), 0o644); err != nil {
+			return nil, err
+		}
+		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+	}
+
+	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := map[string]string{"eu-west-1": confirmed, "eu-west-2": confirmed}; !reflect.DeepEqual(seen, want) {
+		t.Errorf("the roots were checked with %q, want them as confirmed", seen)
+	}
+	for _, rel := range rels {
+		dir := filepath.Join(out, filepath.FromSlash(rel))
+		if lock, err := os.ReadFile(filepath.Join(dir, ".terraform.lock.hcl")); err != nil || string(lock) != "# "+filepath.Base(dir)+"\n" {
+			t.Errorf("%s: lock file %q (%v), want the one its check wrote", rel, lock, err)
+		}
+		// Only what the run wrote is written back.
+		if content, err := os.ReadFile(mainFile(dir)); err != nil || string(content) != rewritten {
+			t.Errorf("%s: main.tf %q (%v), want it as it was rewritten", rel, content, err)
+		}
+	}
+}

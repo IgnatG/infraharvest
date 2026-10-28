@@ -425,9 +425,10 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	// into generated.tf, secrets among them, and with the mode it chooses.
 	// The directory stays private until those secrets are moved out of
 	// the file (see hideSecrets); should Generate fail before that, it
-	// stays so. On Windows, where a mode restricts nothing, its access
-	// list does it.
-	if restoreAccess, err = makePrivate(dir); err != nil {
+	// stays so, and the file stays for the caller to remove, as the
+	// importer does with what it wrote of a root that fails. On Windows,
+	// where a mode restricts nothing, its access list does it.
+	if restoreAccess, err = fsutil.MakePrivate(dir); err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{ImportsFileName: importsHCL}

@@ -291,7 +291,8 @@
               "**/internal/logging/*.go",
               "**/internal/version/*.go",
               "**/internal/catalogue/schemameta/*.go",
-              "**/internal/tftypes/*.go"
+              "**/internal/tftypes/*.go",
+              "**/internal/report/mdtext/*.go"
             ],
             "deny": [
               {

@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -86,6 +87,9 @@ type claim struct {
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
 	backup *rootBackup
+	// kept are the files a root without backup had once it was claimed,
+	// which no import wrote, and which discard puts back as they were.
+	kept map[string]savedFile
 	// modules counts the users of the generated modules the root takes
 	// up, which putting it back releases; nil counts none.
 	modules *engine.ModuleRefs
@@ -117,6 +121,10 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 		claimed.modules = &s.modules
 	}
 	if d.mode == rootFresh {
+		var err error
+		if claimed.kept, err = keptFiles(dir); err != nil {
+			return nil, err
+		}
 		return claimed, saveCheckpoint(out, dir, fp, nil)
 	}
 	onDisk := d.onDisk
@@ -156,7 +164,25 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 	if err := writeCheckpoint(out, dir, started); err != nil {
 		return nil, err
 	}
-	return claimed, clearGenerated(out, dir)
+	if err := clearGenerated(out, dir); err != nil {
+		return nil, err
+	}
+	if claimed.backup == nil {
+		if claimed.kept, err = keptFiles(dir); err != nil {
+			return nil, err
+		}
+	}
+	return claimed, nil
+}
+
+// keptFiles returns the files directly in dir, but local state, none if
+// it doesn't exist.
+func keptFiles(dir string) (map[string]savedFile, error) {
+	b, err := backupRoot(dir, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	return b.files, nil
 }
 
 // readRemoved returns the removed blocks of dir's moves.tf, with what
@@ -361,6 +387,67 @@ func (c *claim) putBack(dir string) error {
 		err = errors.Join(err, c.backup.restore())
 	}
 	return err
+}
+
+// discard undoes generating the claimed root in dir, which failed: a root
+// with a backup is put back as it was (see putBack); from any other, every
+// file it didn't have when it was claimed is removed, but local state, and
+// those it had are written back as they were: Terraform writes into
+// generated.tf, in the clear, the secrets Generate moves out of it only
+// later, and the files it splits it into, whatever their names, may still
+// hold one the secrets check found. Its checkpoint stays, recording that
+// its generation didn't finish (see unfinishedRoot).
+func (c *claim) discard(out, dir string) error {
+	err := c.putBack(dir)
+	if c.backup != nil {
+		return err
+	}
+	if clearErr := clearGenerated(out, dir); clearErr != nil {
+		return errors.Join(err, clearErr)
+	}
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		return errors.Join(err, readErr)
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		if saved, ok := c.kept[e.Name()]; ok {
+			if content, readErr := os.ReadFile(path); readErr == nil && bytes.Equal(content, saved.content) {
+				continue
+			}
+		}
+		if rmErr := os.Remove(path); rmErr != nil && !errors.Is(rmErr, fs.ErrNotExist) {
+			err = errors.Join(err, rmErr)
+		}
+	}
+	for name, saved := range c.kept {
+		path := filepath.Join(dir, name)
+		if _, statErr := os.Lstat(path); statErr == nil {
+			continue
+		}
+		if writeErr := fsutil.WriteFile(path, saved.content, saved.mode); writeErr != nil {
+			err = errors.Join(err, writeErr)
+		}
+	}
+	return err
+}
+
+// leakedSecrets returns why the root result is of fails, if its secrets
+// check failed: a file of it holds a secret value, which the output must
+// never keep, so the root is discarded as one that failed.
+func leakedSecrets(result *engine.Result) error {
+	if result == nil {
+		return nil
+	}
+	for _, c := range result.Gate {
+		if c.Name == engine.CheckSecrets && !c.Passed {
+			return fmt.Errorf("%s failed, so the root isn't kept: %s", c.Name, strings.Join(c.Details, "; "))
+		}
+	}
+	return nil
 }
 
 // rootBackup is what a root had before it was generated again: the files

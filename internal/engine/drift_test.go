@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,6 +39,9 @@ type fakeDriftTerraform struct {
 	onInit    func()
 	schemas   *tfjson.ProviderSchemas
 
+	// planOutput, if set, is the output of every plan, which fails.
+	planOutput string
+
 	// unformatted are the files FormatCheck finds unformatted.
 	unformatted []string
 }
@@ -56,6 +60,10 @@ func (f *fakeDriftTerraform) Init(_ context.Context, opts ...tfexec.InitOption) 
 func (f *fakeDriftTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
 	f.record("plan")
 	f.planOpts = append(f.planOpts, opts)
+	if f.planOutput != "" {
+		_, _ = io.WriteString(w, f.planOutput)
+		return false, errors.New("exit status 1")
+	}
 	_, err := io.WriteString(w, `{"type":"change_summary","changes":{"add":0,"change":0,"remove":0,"import":0}}`+"\n")
 	return false, err
 }
@@ -377,6 +385,52 @@ func TestDriftWithoutDriftAppliesNothing(t *testing.T) {
 	}
 	if result.Backend != "local" || len(result.Changes) != 0 || len(result.Placeholders) != 0 {
 		t.Errorf("result %+v", result)
+	}
+}
+
+// A plan's diagnostics can quote a value a provider rejects: the errors of
+// Drift's plans have the state's secrets replaced, those it marks
+// sensitive and those a report hides, as the changes' values have.
+func TestDriftPlanErrorsHideSecrets(t *testing.T) {
+	t.Parallel()
+	dir, staging := driftRoot(t, map[string]string{})
+	var calls []string
+	const marked, token = "marked-secret-value", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	shown := &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{ChildModules: []*tfjson.StateModule{{Resources: []*tfjson.StateResource{{
+		Address:         "module.db.aws_db_instance.db",
+		AttributeValues: map[string]any{"password": marked, "description": token, "name": "db-prod"},
+		SensitiveValues: json.RawMessage(`{"password":true}`),
+	}}}}}}}
+	detail := fmt.Sprintf("expected a different value, got %q and %q for db-prod", marked, token)
+	diag, err := json.Marshal(map[string]any{"type": "diagnostic", "diagnostic": map[string]any{"severity": "error", "summary": "Invalid value", "detail": detail}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
+	copied := &fakeDriftTerraform{name: "staged", calls: &calls, shown: shown, planOutput: string(diag) + "\n"}
+	_, err = Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{})
+	if err == nil {
+		t.Fatal("want the plan's error")
+	}
+	if msg := err.Error(); strings.Contains(msg, marked) || strings.Contains(msg, token) || !strings.Contains(msg, "Invalid value") || !strings.Contains(msg, "db-prod") {
+		t.Errorf("error %q", msg)
+	}
+}
+
+func TestDriftSecretForms(t *testing.T) {
+	t.Parallel()
+	const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	p := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		sensitiveChange(driftResource("aws_db_instance.db", "aws_db_instance", tfjson.Actions{tfjson.ActionUpdate},
+			map[string]any{"password": "old-secret-value", "name": "db-prod"},
+			map[string]any{"password": "new-secret-value", "name": "db-prod"}), map[string]any{"password": true}),
+		driftResource("aws_ecs_task_definition.app", "aws_ecs_task_definition", tfjson.Actions{tfjson.ActionUpdate},
+			map[string]any{"container_definitions": `[{"environment":[{"name":"GITHUB_TOKEN","value":"` + token + `"}]}]`},
+			map[string]any{"tags": map[string]any{token: "x"}}),
+	}}
+	got := redactText("old-secret-value new-secret-value "+token+" db-prod", driftSecretForms(nil, p))
+	if want := "(sensitive value) (sensitive value) (sensitive value) db-prod"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

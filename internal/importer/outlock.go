@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/filelock"
@@ -40,7 +39,11 @@ func lockOutput(out string, force bool) (*filelock.Lock, error) {
 	if err := fsutil.CheckTree(dir, ".terraform"); err != nil {
 		return nil, fmt.Errorf("%w: refusing to write under %s, where a repository could commit one to lead a run's writes to a file elsewhere; remove it", err, dir)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Private, as what runs write there, such as inventories and stack
+	// templates, is as sensitive as state: on Windows, where a mode
+	// restricts nothing, it would otherwise take the output folder's
+	// access list.
+	if err := fsutil.MkdirPrivate(dir); err != nil {
 		return nil, err
 	}
 	path := outputLockPath(out)

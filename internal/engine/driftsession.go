@@ -43,6 +43,11 @@ type driftSession struct {
 	vars []tfexec.PlanOption
 	// varFiles are env's var files in the copy, as absolute paths.
 	varFiles []string
+	// state is the copy's state, once read, and forms the secrets it and
+	// the refresh-only plan hold, which the plans' errors leave out (see
+	// driftSecretForms).
+	state *tfjson.State
+	forms []string
 }
 
 // openDriftSession reads the root in dir to check it as opts say, or
@@ -132,6 +137,7 @@ func (s *driftSession) inState(ctx context.Context) (map[string]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("terraform show: %w", err)
 	}
+	s.state, s.forms = shown, driftSecretForms(shown)
 	return stateAddresses(shown), nil
 }
 
@@ -163,8 +169,9 @@ func (s *driftSession) placeholders() ([]string, error) {
 func (s *driftSession) refresh(ctx context.Context) (*tfjson.Plan, error) {
 	p, err := savedPlan(ctx, s.tf, s.refreshPlan(), s.planOptions(tfexec.RefreshOnly(true))...)
 	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh-only: %w", err)
+		return nil, fmt.Errorf("terraform plan -refresh-only: %w", redactError(err, s.forms))
 	}
+	s.forms = driftSecretForms(s.state, p)
 	return p, nil
 }
 
@@ -175,11 +182,11 @@ func (s *driftSession) refresh(ctx context.Context) (*tfjson.Plan, error) {
 func (s *driftSession) refreshed(ctx context.Context) (*tfjson.Plan, error) {
 	// A saved plan applies without refreshing again.
 	if err := s.tf.Apply(ctx, tfexec.DirOrPlan(s.refreshPlan()), tfexec.Lock(false)); err != nil {
-		return nil, fmt.Errorf("terraform apply of the refresh-only plan to the staged state: %w", err)
+		return nil, fmt.Errorf("terraform apply of the refresh-only plan to the staged state: %w", redactError(err, s.forms))
 	}
 	p, err := savedPlan(ctx, s.tf, filepath.Join(s.staging, "code.tfplan"), s.planOptions(tfexec.Refresh(false))...)
 	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh=false: %w", err)
+		return nil, fmt.Errorf("terraform plan -refresh=false: %w", redactError(err, s.forms))
 	}
 	return p, nil
 }

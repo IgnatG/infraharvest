@@ -170,9 +170,9 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		verify: func(ctx context.Context) (*verdict[*DriftChange, driftRejection], error) {
 			p, _, diags, err := showPlanWithSummary(ctx, stf, planOpts)
 			if err != nil {
-				return nil, err
+				return nil, redactError(err, editor.secretForms)
 			}
-			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.forms); len(rejected) > 0 {
+			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.secretForms); len(rejected) > 0 {
 				return planRejection(rejected), nil
 			}
 			failedCheck, files, err := driftChecks(ctx, stf, staging, staged, edited, names, p, standards, moves, editor.sensitive, opts)
@@ -181,7 +181,7 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			}
 			failure := &verdict[*DriftChange, driftRejection]{
 				blamed: map[*DriftChange]driftRejection{},
-				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + failedCheck},
+				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + redactText(failedCheck, editor.secretForms)},
 			}
 			for _, c := range checkBlame(pending, applied, files) {
 				failure.blamed[c] = failure.why
