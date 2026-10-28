@@ -458,6 +458,31 @@ resource "aws_dynamodb_table" "items" {
   }
 }
 
+# A global table (version 2019.11.21) with a replica in the second
+# region. An import of both regions takes it once, as an
+# aws_dynamodb_table with a replica block, in the root of the first of the
+# two regions by name, and leaves out the other region's copy as a
+# replica. The replica gets the table's tags, the run's among them, so
+# that a sweep finds it.
+resource "aws_dynamodb_table" "global" {
+  name             = "${local.name}-global"
+  billing_mode     = "PAY_PER_REQUEST"
+  hash_key         = "id"
+  stream_enabled   = true
+  stream_view_type = "NEW_AND_OLD_IMAGES"
+  tags             = local.tags
+
+  attribute {
+    name = "id"
+    type = "S"
+  }
+
+  replica {
+    region_name    = var.second_region
+    propagate_tags = true
+  }
+}
+
 resource "aws_sqs_queue" "jobs" {
   name                      = "${local.name}-jobs"
   message_retention_seconds = 86400
