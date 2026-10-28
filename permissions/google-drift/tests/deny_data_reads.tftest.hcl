@@ -31,6 +31,13 @@ run "data_reads_denied_but_objects" {
   }
 
   assert {
+    condition = toset(google_iam_deny_policy.data_reads[0].rules[0].deny_rule[0].denied_permissions) == toset([
+      for permission in jsondecode(file("../google/deny-data-reads.json")) : permission if !startswith(permission, "storage.googleapis.com/")
+    ])
+    error_message = "The deny policy doesn't deny what permissions/google denies, but for Cloud Storage objects."
+  }
+
+  assert {
     condition     = length([for p in google_iam_deny_policy.data_reads[0].rules[0].deny_rule[0].denied_permissions : p if startswith(p, "storage.googleapis.com/")]) == 0
     error_message = "Cloud Storage reads are denied, which drift needs for the state."
   }

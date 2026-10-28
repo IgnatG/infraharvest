@@ -36,37 +36,11 @@ locals {
   # directly, through a log view or copied out of their bucket, table,
   # model, row and entity data, objects, downloads, function source, traces
   # and health records. Reading through a log view takes views.access,
-  # which view-level grants give, so it is denied as well. infraharvest lists through Cloud Asset Inventory
-  # and the services' configuration APIs, and the generated roots import no
-  # data, so none of them needs these.
-  denied_data_reads = [
-    "logging.googleapis.com/logEntries.list",
-    "logging.googleapis.com/views.access",
-    "logging.googleapis.com/buckets.copyLogEntries",
-    "bigquery.googleapis.com/tables.getData",
-    "bigquery.googleapis.com/models.getData",
-    "bigquery.googleapis.com/objectRefs.read",
-    "storage.googleapis.com/objects.get",
-    "storage.googleapis.com/objects.list",
-    "spanner.googleapis.com/databases.read",
-    "spanner.googleapis.com/databases.select",
-    "bigtable.googleapis.com/tables.readRows",
-    "bigtable.googleapis.com/authorizedViews.readRows",
-    "bigtable.googleapis.com/logicalViews.readRows",
-    "bigtable.googleapis.com/materializedViews.readRows",
-    "datastore.googleapis.com/entities.get",
-    "datastore.googleapis.com/entities.list",
-    "artifactregistry.googleapis.com/repositories.downloadArtifacts",
-    "artifactregistry.googleapis.com/files.download",
-    "cloudfunctions.googleapis.com/functions.sourceCodeGet",
-    "cloudtrace.googleapis.com/traces.get",
-    "cloudtrace.googleapis.com/traces.list",
-    "healthcare.googleapis.com/fhirResources.get",
-    "healthcare.googleapis.com/fhirStores.searchResources",
-    "healthcare.googleapis.com/dicomStores.dicomWebRead",
-    "healthcare.googleapis.com/hl7V2Messages.get",
-    "healthcare.googleapis.com/hl7V2Messages.list",
-  ]
+  # which view-level grants give, so it is denied as well. infraharvest
+  # lists through Cloud Asset Inventory and the services' configuration
+  # APIs, and the generated roots import no data, so none of them needs
+  # these. permissions/google-drift reads the same list.
+  denied_data_reads = jsondecode(file("${path.module}/deny-data-reads.json"))
 }
 
 # roles/viewer also reads data, which infraharvest never needs, so deny it

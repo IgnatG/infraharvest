@@ -66,32 +66,7 @@ locals {
   # The data reads permissions/google denies, but for Cloud Storage
   # objects: a deny policy can't spare the state's bucket, as its
   # conditions match resource tags alone, so objects stay readable.
-  denied_data_reads = [
-    "logging.googleapis.com/logEntries.list",
-    "logging.googleapis.com/views.access",
-    "logging.googleapis.com/buckets.copyLogEntries",
-    "bigquery.googleapis.com/tables.getData",
-    "bigquery.googleapis.com/models.getData",
-    "bigquery.googleapis.com/objectRefs.read",
-    "spanner.googleapis.com/databases.read",
-    "spanner.googleapis.com/databases.select",
-    "bigtable.googleapis.com/tables.readRows",
-    "bigtable.googleapis.com/authorizedViews.readRows",
-    "bigtable.googleapis.com/logicalViews.readRows",
-    "bigtable.googleapis.com/materializedViews.readRows",
-    "datastore.googleapis.com/entities.get",
-    "datastore.googleapis.com/entities.list",
-    "artifactregistry.googleapis.com/repositories.downloadArtifacts",
-    "artifactregistry.googleapis.com/files.download",
-    "cloudfunctions.googleapis.com/functions.sourceCodeGet",
-    "cloudtrace.googleapis.com/traces.get",
-    "cloudtrace.googleapis.com/traces.list",
-    "healthcare.googleapis.com/fhirResources.get",
-    "healthcare.googleapis.com/fhirStores.searchResources",
-    "healthcare.googleapis.com/dicomStores.dicomWebRead",
-    "healthcare.googleapis.com/hl7V2Messages.get",
-    "healthcare.googleapis.com/hl7V2Messages.list",
-  ]
+  denied_data_reads = [for permission in jsondecode(file("${path.module}/../google/deny-data-reads.json")) : permission if !startswith(permission, "storage.googleapis.com/")]
 }
 
 # roles/viewer also reads data, which drift never needs, so deny it
