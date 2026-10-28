@@ -15,7 +15,8 @@ import (
 
 // callTools are what an Import call reaches outside the process through,
 // which tests replace (see Run.tools): the engine binary, the
-// registry the root files pin the provider from, and the engine that
+// registry the root files pin the provider from and the modules' releases
+// are looked up in, and the engine that
 // writes each root, whether it generates, adds to or vacates it, or
 // writes the README of a root added to, or merges the roots of a stack's
 // environments, or writes what their merged root no longer finds in the
@@ -29,6 +30,9 @@ type callTools struct {
 	// rootConfig renders the root files, as rootConfig does with the
 	// default registry.
 	rootConfig func(ctx context.Context, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error)
+	// moduleReleases lists the releases of a registry module, as
+	// engine.ModuleReleases does with the default registry.
+	moduleReleases func(ctx context.Context, source string) ([]engine.ModuleRelease, error)
 	// generate generates a root, as generateDir does.
 	generate func(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error)
 	// addTo adds to a root, as engine.Add does.
@@ -77,6 +81,15 @@ func (t *callTools) root(ctx context.Context, registry, execPath string, p engin
 		return t.rootConfig(ctx, registry, execPath, p, constraints)
 	}
 	return rootConfig(ctx, http.DefaultClient, registry, "", execPath, p, constraints)
+}
+
+// listModuleReleases lists the releases of the registry module at source
+// (see engine.ModuleReleases).
+func (t *callTools) listModuleReleases(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
+	if t != nil && t.moduleReleases != nil {
+		return t.moduleReleases(ctx, source)
+	}
+	return engine.ModuleReleases(ctx, http.DefaultClient, "", source)
 }
 
 // generateDir generates the root in dir (see generateDir).

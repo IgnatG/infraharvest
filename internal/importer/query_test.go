@@ -5,14 +5,20 @@ package importer
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
 )
 
@@ -161,6 +167,130 @@ func TestQueryListsWithTheRootsProvider(t *testing.T) {
 	if pins != 1 || tools.root.provider.Version != "~> 6.14" {
 		t.Errorf("pinned %d times, the roots at %q", pins, tools.root.provider.Version)
 	}
+}
+
+// moduleQueryProvider is queryProvider with the curated modules of aws.
+type moduleQueryProvider struct{ queryProvider }
+
+func (*moduleQueryProvider) Profile() harvest.Profile {
+	return harvest.Profile{OptInServices: []string{harvest.QueryService}, ListedTypes: map[string]string{"fake_vpc": "vpc"}, Modules: "aws", Source: "hashicorp/aws"}
+}
+
+// The query service and the toolchain resolve the roots' pin from the
+// same modules, and calls run at once: each module's releases are looked
+// up in the registry once for the command, a module the registry doesn't
+// have too, and every call resolves what it would looking them up itself.
+func TestModuleReleasesLookedUpOncePerCommand(t *testing.T) {
+	t.Parallel()
+	tested := map[string]string{}
+	for _, a := range adapters.For("aws") {
+		module, _, _ := strings.Cut(a.Source, "//")
+		tested["/v1/modules/"+module+"/versions"] = a.Version
+	}
+	missing := "/v1/modules/terraform-aws-modules/s3-bucket/aws/versions"
+	var mu sync.Mutex
+	requests := map[string]int{}
+	answer := func(w http.ResponseWriter, r *http.Request) {
+		version, ok := tested[r.URL.Path]
+		if !ok || r.URL.Path == missing {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"modules":[{"versions":[{"version":"99.0.0"},{"version":%q,"root":{"providers":[{"name":"aws","source":"hashicorp/aws","version":">= 6.0"}]}}]}]}`, version)
+	}
+	// The engine remembers the registry's answers by URL, so what the
+	// calls should resolve comes from a registry of its own.
+	reference := httptest.NewServer(http.HandlerFunc(answer))
+	defer reference.Close()
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests[r.URL.Path]++
+		mu.Unlock()
+		answer(w, r)
+	}))
+	defer registry.Close()
+	lookUpIn := func(server *httptest.Server) func(context.Context, string) ([]engine.ModuleRelease, error) {
+		return func(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
+			return engine.ModuleReleases(ctx, server.Client(), server.URL, source)
+		}
+	}
+	provider := &moduleQueryProvider{}
+	listed := []harvest.Resource{
+		harvest.RecordBare("vpc-1", "main", "aws_vpc", "aws"),
+		harvest.RecordBare("logs", "logs", "aws_s3_bucket", "aws"),
+	}
+	selected := map[string][]harvest.Resource{"vpc": listed}
+	_, wantNewer, wantConstraints := resolveAdapters(t.Context(), lookUpIn(reference), applicableAdapters(adapters.For("aws"), selected), "hashicorp/aws", false)
+	if len(wantConstraints) != 1 || len(wantNewer) != 1 {
+		t.Fatalf("looking up without the memo: %+v, %+v", wantNewer, wantConstraints)
+	}
+
+	var pinned [][]moduleConstraint
+	r := NewRun()
+	r.tools = &callTools{
+		findBinary:     func(context.Context, tfrun.Binary, string, string) (string, error) { return "/opt/terraform", nil },
+		moduleReleases: lookUpIn(registry),
+		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+			mu.Lock()
+			pinned = append(pinned, constraints)
+			mu.Unlock()
+			return &rootFiles{provider: p}, nil
+		},
+		query: func(context.Context, tfquery.Request) ([]harvest.Resource, error) { return nil, nil },
+	}
+	options := Options{Services: []string{"vpc", harvest.QueryService}, QueryTypes: []string{"fake_volume"}, Modules: ModulesRegistry, Out: t.TempDir()}
+	const calls = 4
+	newer := make([][]report.ModuleVersion, calls)
+	errs := make([]error, calls)
+	var wg sync.WaitGroup
+	for i := range calls {
+		wg.Go(func() {
+			c := callOf(options, "")
+			if _, errs[i] = r.query(c, provider, listed)(t.Context()); errs[i] != nil {
+				return
+			}
+			var tools *toolchain
+			if tools, errs[i] = r.toolchain(t.Context(), provider, c, selected); errs[i] == nil {
+				newer[i] = tools.newer
+			}
+		})
+	}
+	wg.Wait()
+
+	for i := range calls {
+		if errs[i] != nil {
+			t.Fatal(errs[i])
+		}
+		if !reflect.DeepEqual(newer[i], wantNewer) {
+			t.Errorf("call %d: newer releases %+v, want %+v", i, newer[i], wantNewer)
+		}
+	}
+	if len(pinned) != calls {
+		t.Errorf("pinned %d times for %d calls", len(pinned), calls)
+	}
+	for _, constraints := range pinned {
+		if got, want := fmt.Sprint(constraintStrings(constraints)), fmt.Sprint(constraintStrings(wantConstraints)); got != want {
+			t.Errorf("pinned with %s, want %s", got, want)
+		}
+	}
+	if len(requests) != 2 {
+		t.Errorf("looked up %v", requests)
+	}
+	for path, n := range requests {
+		if n != 1 {
+			t.Errorf("%s: looked up %d times", path, n)
+		}
+	}
+}
+
+// constraintStrings are the module versions of constraints and what they
+// accept, to compare.
+func constraintStrings(constraints []moduleConstraint) []string {
+	var s []string
+	for _, c := range constraints {
+		s = append(s, c.module+" "+c.version+" "+c.constraint.String())
+	}
+	return s
 }
 
 // A resource Terraform's list resources returned is imported by its
