@@ -5,11 +5,13 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -298,4 +300,26 @@ func plural(n int, one, many string) string {
 // WriteReadme writes the README of dir, a root that holds result.
 func WriteReadme(dir string, result *Result) error {
 	return fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
+}
+
+// checkReadme runs scanSecrets' checks on the README Generate wrote after
+// the gate ran, which the gate couldn't see, with values the secret values
+// no file may contain. Should the README hold one, G6 fails and the README
+// is written again to say so.
+func checkReadme(dir string, result *Result, values []string) error {
+	content, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	if err != nil {
+		return err
+	}
+	found := secret.InFile(secret.NewMatcher(values), ReadmeFileName, string(content))
+	if len(found) == 0 {
+		return nil
+	}
+	for i, c := range result.Gate {
+		if c.Name == CheckSecrets {
+			result.Gate[i].Passed = false
+			result.Gate[i].Details = append(result.Gate[i].Details, found...)
+		}
+	}
+	return WriteReadme(dir, result)
 }

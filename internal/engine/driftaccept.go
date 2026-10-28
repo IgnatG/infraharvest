@@ -19,6 +19,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -168,9 +169,9 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			return pending, nil
 		},
 		verify: func(ctx context.Context) (*verdict[*DriftChange, driftRejection], error) {
-			p, _, diags, err := showPlanWithSummary(ctx, stf, planOpts)
+			p, _, diags, err := tfrun.ShowPlan(ctx, stf, planOpts)
 			if err != nil {
-				return nil, redactError(err, editor.secretForms)
+				return nil, secret.RedactError(err, editor.secretForms)
 			}
 			if rejected := judgeDrift(p, diags, code, pending, applied, opts.StateOnly, edited, editor.secretForms); len(rejected) > 0 {
 				return planRejection(rejected), nil
@@ -181,7 +182,7 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			}
 			failure := &verdict[*DriftChange, driftRejection]{
 				blamed: map[*DriftChange]driftRejection{},
-				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + redactText(failedCheck, editor.secretForms)},
+				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + secret.RedactText(failedCheck, editor.secretForms)},
 			}
 			for _, c := range checkBlame(pending, applied, files) {
 				failure.blamed[c] = failure.why
@@ -291,7 +292,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	rejected := map[*DriftChange]string{}
 	reject := func(c *DriftChange, reason string) {
 		if _, ok := rejected[c]; !ok {
-			rejected[c] = redactText(reason, forms)
+			rejected[c] = secret.RedactText(reason, forms)
 		}
 	}
 	if len(diags) > 0 || p == nil {
@@ -495,7 +496,7 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
 	gate, _, err := gatePolicy{
 		checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
-		sensitive: append(sensitiveValues(p), sensitive...),
+		sensitive: append(secret.InPlan(p), sensitive...),
 		baseline:  Gate{standards, moves},
 		diff:      true,
 		edited:    names,

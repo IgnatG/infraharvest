@@ -16,6 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // outputIndex matches an output with an index into it: public_subnets[0].
@@ -81,7 +82,7 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 				return false, err
 			}
 		}
-		attr := schemaAttribute(schemas, resourceType, path)
+		attr := tfrun.SchemaAttribute(schemas, resourceType, path)
 		return attr != nil && attr.AttributeType.IsSetType(), nil
 	}
 	changed := false

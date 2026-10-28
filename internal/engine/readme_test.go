@@ -6,6 +6,8 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 func TestReadmeFile(t *testing.T) {
@@ -15,7 +17,7 @@ func TestReadmeFile(t *testing.T) {
 			{Type: "aws_ssm_parameter", Name: "token", ID: "/app/token"},
 			{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"},
 		},
-		Secrets:  []Secret{{Variable: "aws_ssm_parameter_token_value", Address: "aws_ssm_parameter.token", Attribute: "value"}},
+		Secrets:  []secret.Variable{{Variable: "aws_ssm_parameter_token_value", Address: "aws_ssm_parameter.token", Attribute: "value"}},
 		Rejected: []Rejection{{Address: "aws_sqs_queue.gone", Errors: []string{"Cannot import non-existent remote object"}}},
 	}
 

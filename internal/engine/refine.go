@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -67,8 +68,8 @@ func refine(ctx context.Context, tf tfrun.Terraform, dir string, result *Result,
 // them too, the edits aren't what fails it: they are put back, and the
 // root goes on with the gate that failed with them, and Refine's warnings.
 // known, if set, has the values of the secrets Generate found (see
-// secretValues).
-func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options, known *secretValues, before map[string][]byte, refineWarnings int) error {
+// secret.Values).
+func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options, known *secret.Values, before map[string][]byte, refineWarnings int) error {
 	gate, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err

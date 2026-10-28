@@ -4,19 +4,16 @@
 package engine
 
 import (
-	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -30,7 +27,7 @@ const stateOnlyChange = "only state-only or secret arguments change"
 // secrets set, to what a secret's placeholder makes unknown, or to the
 // stateOnly arguments of the resource's type. An expected below zero
 // doesn't check the number of imports.
-func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string, expected int) Check {
+func planCheck(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []secret.Variable, stateOnly map[string][]string, expected int) Check {
 	return planCheckWith(p, diags, secrets, stateOnly, expected, nil)
 }
 
@@ -41,7 +38,7 @@ const goneChange = "no longer in the cloud: the plan creates it again"
 // planCheckWith is planCheck, where the plan may also create gone, the
 // addresses of resources no longer in the cloud, whose import it leaves
 // out (see MergeRoot.Gone).
-func planCheckWith(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []Secret, stateOnly map[string][]string, expected int, gone map[string]bool) Check {
+func planCheckWith(p *tfjson.Plan, diags []tfjson.Diagnostic, secrets []secret.Variable, stateOnly map[string][]string, expected int, gone map[string]bool) Check {
 	check := Check{Name: CheckPlan}
 	if len(diags) > 0 || p == nil {
 		for _, d := range diags {
@@ -229,35 +226,4 @@ func withoutIndexes(path string) string {
 // before and after, or that will only be known after apply, sorted.
 func changedAttributes(before, after, afterUnknown any) []string {
 	return topLevel(changedLeaves(before, after, afterUnknown))
-}
-
-// showPlanWithSummary plans with vars into a plan file and returns it as
-// JSON with its change summary, or the errors if the configuration doesn't
-// plan. The plan file holds secret values: it lives in a private temporary
-// directory, removed before showPlanWithSummary returns.
-func showPlanWithSummary(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *tfrun.ChangeSummary, []tfjson.Diagnostic, error) {
-	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	defer os.RemoveAll(tmp)
-	planFile := filepath.Join(tmp, "plan")
-	opts := append(append([]tfexec.PlanOption(nil), vars...), tfexec.Out(planFile))
-	diags, summary, err := tfrun.Plan(ctx, tf, opts...)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("terraform plan: %w", err)
-	}
-	if len(diags) > 0 || summary == nil {
-		return nil, nil, diags, nil
-	}
-	// The directory is private already; this also keeps the file private
-	// where the directory's permissions aren't inherited.
-	if _, err := os.Stat(planFile); err == nil {
-		_ = os.Chmod(planFile, 0o600)
-	}
-	p, err := tf.ShowPlanFile(ctx, planFile)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("terraform show: %w", err)
-	}
-	return p, summary, nil, nil
 }

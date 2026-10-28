@@ -4,164 +4,220 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/hcl/v2"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
-const secretsConfig = `resource "aws_db_instance" "app--main" {
-  identifier = "main"
-  password   = null # sensitive
-  username   = null
-  note       = "x" # sensitive
-  restore {
-    token = null # sensitive
-  }
-  replica {
-    secret = null # sensitive
-  }
-  replica {
-    secret = null # sensitive
-  }
+// fakeSecret makes a 64-character hex secret from seed, like the Lambda
+// environment secrets of the sandbox run. Made at run time, so that secret
+// scanners don't take the source for a leak.
+func fakeSecret(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])
 }
 
-resource "aws_db_instance" "app-main" {
-  password = null # sensitive
-}
-`
-
-func TestFindSecrets(t *testing.T) {
-	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, secretsConfig)
-
-	found := findSecrets(f)
-
-	var got []string
-	for _, addr := range []string{"aws_db_instance.app--main", "aws_db_instance.app-main"} {
-		for _, s := range found[addr] {
-			got = append(got, addr+" "+s.path+" "+strings.Join(s.schemaPath, "/"))
+// assertNotWritten fails if any file under dir holds one of values.
+func assertNotWritten(t *testing.T, dir string, values ...string) {
+	t.Helper()
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
 		}
-	}
-	want := []string{
-		"aws_db_instance.app--main password password",
-		"aws_db_instance.app--main restore.token restore/token",
-		"aws_db_instance.app--main replica[0].secret replica/secret",
-		"aws_db_instance.app--main replica[1].secret replica/secret",
-		"aws_db_instance.app-main password password",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %q, want %q", got, want)
-	}
-}
-
-func TestSecretsToVariables(t *testing.T) {
-	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, secretsConfig)
-
-	secrets := secretsToVariables(f, findSecrets(f), nil)
-
-	var names []string
-	for _, s := range secrets {
-		names = append(names, s.Variable)
-	}
-	// app--main and app-main both become app_main.
-	want := []string{
-		"aws_db_instance_app_main_password",
-		"aws_db_instance_app_main_restore_token",
-		"aws_db_instance_app_main_replica_0_secret",
-		"aws_db_instance_app_main_replica_1_secret",
-		"aws_db_instance_app_main_password_2",
-	}
-	if !reflect.DeepEqual(names, want) {
-		t.Errorf("got %q, want %q", names, want)
-	}
-	if err := f.Save(); err != nil {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, v := range values {
+			if strings.Contains(string(content), v) {
+				t.Errorf("%s holds the secret value %q:\n%s", path, v, content)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	got := readFile(t, filepath.Dir(f.Path), GeneratedFileName)
-	for _, line := range []string{
-		"password   = var.aws_db_instance_app_main_password # sensitive",
-		"secret = var.aws_db_instance_app_main_replica_1_secret # sensitive",
-		"password = var.aws_db_instance_app_main_password_2 # sensitive",
-		"username   = null\n",
-		`note       = "x" # sensitive`,
-	} {
-		if !strings.Contains(got, line) {
-			t.Errorf("missing %q in:\n%s", line, got)
-		}
-	}
 }
 
-func TestAttributeType(t *testing.T) {
-	t.Parallel()
-	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
-		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
-			"aws_db_instance": {Block: &tfjson.SchemaBlock{
-				Attributes: map[string]*tfjson.SchemaAttribute{"password": {AttributeType: cty.String}},
-				NestedBlocks: map[string]*tfjson.SchemaBlockType{"replica": {Block: &tfjson.SchemaBlock{
-					Attributes: map[string]*tfjson.SchemaAttribute{"secrets": {AttributeType: cty.Map(cty.String)}},
-				}}},
-			}},
-		}},
-	}}
-	for _, tc := range []struct {
-		resourceType string
-		path         []string
-		want         cty.Type
-	}{
-		{"aws_db_instance", []string{"password"}, cty.String},
-		{"aws_db_instance", []string{"replica", "secrets"}, cty.Map(cty.String)},
-		{"aws_db_instance", []string{"restore", "token"}, cty.NilType},
-		{"aws_s3_bucket", []string{"password"}, cty.NilType},
-	} {
-		if got := attributeType(schemas, tc.resourceType, tc.path); !got.Equals(tc.want) {
-			t.Errorf("%s %v: got %#v, want %#v", tc.resourceType, tc.path, got, tc.want)
-		}
+// The sandbox run wrote two Lambda environment secrets verbatim: the
+// provider doesn't mark map values sensitive, so Terraform generated them.
+// Moving them changes generated.tf, so Generate says it plans again.
+func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
+	var logged bytes.Buffer
+	writer, flags := log.Writer(), log.Flags()
+	log.SetOutput(&logged)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(writer)
+		log.SetFlags(flags)
+	})
+	dir := t.TempDir()
+	// The engine writes the secrets' var file under the temporary
+	// directory, which the fake then reads it from.
+	secretsTemp := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, secretsTemp)
 	}
-	if got := attributeType(nil, "aws_db_instance", []string{"password"}); got != cty.NilType {
-		t.Errorf("without schemas: got %#v", got)
-	}
+	value := fakeSecret("webhook")
+	tf := &fakeTerraform{dir: dir, secretsTemp: secretsTemp, generated: `resource "aws_lambda_function" "api" {
+  function_name = "api"
+  role          = "arn:aws:iam::123456789012:role/api"
+  environment {
+    variables = {
+      LOG_LEVEL      = "debug"
+      TABLE_ARN      = "arn:aws:dynamodb:eu-west-2:123456789012:table/orders"
+      WEBHOOK_SECRET = "` + value + `"
+    }
+  }
 }
+`}
 
-func TestVariablesFile(t *testing.T) {
-	t.Parallel()
-	secrets := []Secret{
-		{Variable: "a_secrets", Address: "aws_x.a", Attribute: "replica.secrets", schemaPath: []string{"replica", "secrets"}},
-		{Variable: "a_token", Address: "aws_x.a", Attribute: "token", schemaPath: []string{"token"}},
-	}
-	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
-		"registry.terraform.io/hashicorp/x": {ResourceSchemas: map[string]*tfjson.Schema{
-			"aws_x": {Block: &tfjson.SchemaBlock{NestedBlocks: map[string]*tfjson.SchemaBlockType{"replica": {Block: &tfjson.SchemaBlock{
-				Attributes: map[string]*tfjson.SchemaAttribute{"secrets": {AttributeType: cty.Map(cty.String)}},
-			}}}}},
-		}},
-	}}
-
-	got, err := variablesFile(secrets, schemas)
+	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_lambda_function", Name: "api", ID: "api"}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, want := range []string{
-		"variable \"a_secrets\" {\n",
-		"  type        = map(string)\n",
-		// No type for attributes the schemas don't describe.
-		"variable \"a_token\" {\n  description = \"token of aws_x.a. Terraform doesn't write",
-		"  sensitive   = true\n}\n",
-	} {
-		if !strings.Contains(string(got), want) {
-			t.Errorf("missing %q in:\n%s", want, got)
+	want := []secret.Variable{{Variable: "aws_lambda_function_api_webhook_secret", Address: "aws_lambda_function.api", Attribute: "environment.variables.WEBHOOK_SECRET"}}
+	var got []secret.Variable
+	for _, s := range result.Secrets {
+		got = append(got, secret.Variable{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("secrets: got %+v, want %+v", got, want)
+	}
+	if wantLog := dir + ": planning generated.tf again: " + string(replanSecrets) + "\n"; logged.String() != wantLog {
+		t.Errorf("log: got %q, want %q", logged.String(), wantLog)
+	}
+	generated := readFile(t, dir, GeneratedFileName)
+	for _, line := range []string{"WEBHOOK_SECRET = var.aws_lambda_function_api_webhook_secret", `LOG_LEVEL      = "debug"`, `TABLE_ARN      = "arn:aws:dynamodb:`} {
+		if !strings.Contains(generated, line) {
+			t.Errorf("missing %q in:\n%s", line, generated)
 		}
 	}
-	if strings.Count(string(got), "type ") != 1 {
-		t.Errorf("want one type constraint:\n%s", got)
+	variables := readFile(t, dir, VariablesFileName)
+	for _, want := range []string{`variable "aws_lambda_function_api_webhook_secret" {`, "type        = string", "sensitive   = true", "secret store", "TF_VAR_aws_lambda_function_api_webhook_secret"} {
+		if !strings.Contains(variables, want) {
+			t.Errorf("missing %q in variables.tf:\n%s", want, variables)
+		}
+	}
+	if strings.Contains(variables, "default") {
+		t.Errorf("a secret variable has a default:\n%s", variables)
+	}
+	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "`aws_lambda_function_api_webhook_secret`") {
+		t.Errorf("README doesn't list the variable:\n%s", readme)
+	}
+	// Infraharvest's own plans had the value, from outside the output, so
+	// the plan stays clean; the file is gone afterwards.
+	if len(tf.varFiles) == 0 {
+		t.Fatal("no plan was given the secret's value")
+	}
+	for path, content := range tf.varFiles {
+		if !strings.Contains(content, value) {
+			t.Errorf("var file %s lacks the value: %s", path, content)
+		}
+		if strings.HasPrefix(path, dir) {
+			t.Errorf("var file %s is in the output", path)
+		}
+		if _, err := os.Stat(path); err == nil {
+			t.Errorf("var file %s left behind", path)
+		}
+	}
+	if !result.Gate.check(CheckSecrets).Passed {
+		t.Errorf("G6 failed: %+v", result.Gate.check(CheckSecrets))
+	}
+	assertNotWritten(t, dir, value)
+}
+
+// The gate fails a root with a secret value left in it, such as one an
+// edit put back.
+func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "api" {
+  function_name = "api"
+  environment {
+    variables = {
+      API_SECRET = "`+fakeSecret("planted")+`"
+    }
+  }
+}
+`)
+	writeConfig(t, dir, ImportsFileName, `import {
+  to = aws_lambda_function.api
+  id = "api"
+}
+`)
+
+	check, err := scanSecrets(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "generated.tf: environment.variables.API_SECRET of resource.aws_lambda_function.api holds a secret value") {
+		t.Errorf("want G6 to fail on the secret, got %+v", check)
+	}
+}
+
+// The gate ran before Generate wrote the README, which shows its details.
+func TestRedactResultAndCheckReadme(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	value := fakeSecret("readme")
+	// The secret is one Generate found in the configuration: its value
+	// is known.
+	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+  environment {
+    variables = { API_SECRET = "`+value+`" }
+  }
+}
+`)
+	secrets, _, err := secret.LiteralsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	if err != nil || len(secrets) != 1 {
+		t.Fatalf("got %+v, %v; want the secret in a variable", secrets, err)
+	}
+	result := &Result{
+		Gate:    Gate{{Name: CheckPlan, Details: []string{`generated.tf:3: Invalid value: got "` + value + `"`}}, {Name: CheckSecrets, Passed: true}},
+		Modules: []ModuleCall{{Name: "vpc", Declined: "plan error: got " + value}},
+	}
+	redactResult(result, secrets)
+	if err := WriteReadme(dir, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkReadme(dir, result, secret.KnownValues(secrets)); err != nil {
+		t.Fatal(err)
+	}
+	assertNotWritten(t, dir, value)
+	if !result.Gate.check(CheckSecrets).Passed {
+		t.Errorf("G6 failed on a redacted README: %+v", result.Gate.check(CheckSecrets))
+	}
+
+	// Should a value get through, G6 fails and the README says so.
+	leaky := &Result{Gate: Gate{{Name: CheckPlan, Details: []string{"got " + value}}, {Name: CheckSecrets, Passed: true}}}
+	if err := WriteReadme(dir, leaky); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkReadme(dir, leaky, secret.KnownValues(secrets)); err != nil {
+		t.Fatal(err)
+	}
+	g6 := leaky.Gate.check(CheckSecrets)
+	if g6.Passed || len(g6.Details) != 1 || !strings.HasPrefix(g6.Details[0], ReadmeFileName+": ") {
+		t.Errorf("G6 didn't fail on the README: %+v", g6)
+	}
+	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, CheckSecrets+" | **failed**") {
+		t.Errorf("README doesn't show G6 failing:\n%s", readme)
 	}
 }
 
@@ -316,54 +372,5 @@ resource "aws_lightsail_database" "db" {
 	}
 	if !strings.Contains(got, "= var.aws_lightsail_database_db_master_password") {
 		t.Errorf("want the required master_password read from its variable:\n%s", got)
-	}
-}
-
-// valuesAt reads an attribute of an imported object, through every block
-// of a nested block type, whatever their order; allUnset says whether all
-// of what it found is null or empty.
-func TestValuesAt(t *testing.T) {
-	t.Parallel()
-	object := map[string]any{
-		"password": nil,
-		"key_raw":  "",
-		"key_rsa":  []any{map[string]any{"value": ""}, map[string]any{"value": nil}},
-		"replica":  []any{map[string]any{"secret": nil}, map[string]any{"secret": "s"}},
-		"restore":  []any{map[string]any{"token": nil}},
-	}
-	for _, tc := range []struct {
-		path []string
-		null bool
-	}{
-		{[]string{"password"}, true},
-		{[]string{"key_raw"}, true},
-		{[]string{"key_rsa", "value"}, true},
-		{[]string{"restore", "token"}, true},
-		{[]string{"replica", "secret"}, false},
-		{[]string{"missing"}, false},
-		{[]string{"restore", "missing"}, false},
-	} {
-		if got := allUnset(valuesAt(object, tc.path)); got != tc.null {
-			t.Errorf("%v: allUnset %v, want %v", tc.path, got, tc.null)
-		}
-	}
-}
-
-func TestAboutSecret(t *testing.T) {
-	t.Parallel()
-	secrets := []secretAttribute{{address: "aws_ssm_parameter.p", path: "value", schemaPath: []string{"value"}, rng: hcl.Range{Start: hcl.Pos{Line: 4}, End: hcl.Pos{Line: 4}}}}
-	for _, c := range []struct {
-		d    tfjson.Diagnostic
-		want bool
-	}{
-		{errorAt(4, "Invalid value", ""), true},
-		{errorAt(2, "Invalid combination of arguments", `"value": one of insecure_value,value,value_wo must be specified`), true},
-		{tfjson.Diagnostic{Severity: tfjson.DiagnosticSeverityError, Summary: "Missing required argument", Detail: `The argument "value" is required, but no definition was found.`}, true},
-		// Another attribute's error that happens to say value.
-		{errorAt(3, "Invalid value", `expected value of tier to be one of ["Standard" "Advanced"]`), false},
-	} {
-		if got := aboutSecret(c.d, secrets); got != c.want {
-			t.Errorf("%s: %s: got %v, want %v", c.d.Summary, c.d.Detail, got, c.want)
-		}
 	}
 }

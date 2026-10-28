@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 // How a root's code sets an attribute that changed in the cloud
@@ -173,14 +174,14 @@ func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *d
 		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
 			for _, rc := range rcs {
 				if rc.Change != nil {
-					collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-					collectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
+					secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
+					secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
 				}
 			}
 		}
 	}
 	e.sensitive = sortedKeys(seen)
-	e.forms = textForms(e.sensitive)
+	e.forms = secret.TextForms(e.sensitive)
 	e.secretForms = driftSecretForms(nil, refresh, code)
 	return e
 }
@@ -348,7 +349,7 @@ func hasSensitive(mask any) bool {
 // plans mark sensitive, or a credential.
 func (e *driftEditor) writesSecret(text []byte) bool {
 	s := string(text)
-	if credentialFormat(s) != "" || awsKeyPair(s) {
+	if secret.CredentialFormat(s) != "" || secret.AWSKeyPair(s) {
 		return true
 	}
 	for _, form := range e.forms {
@@ -975,9 +976,9 @@ func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]b
 		// add another.
 		var had Check
 		if f, err := hclfile.Parse(name, old); err == nil {
-			had.Details = literalSecrets(f)
+			had.Details = secret.Literals(f)
 		}
-		if len(addedDetails(had, Check{Details: literalSecrets(edited)})) > 0 {
+		if len(addedDetails(had, Check{Details: secret.Literals(edited)})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content
@@ -1022,8 +1023,8 @@ func reportSource(cfg *driftConfig, src codeSource, forms []string) *DriftSource
 		return out
 	}
 	expr := string(f.Src[rng.Start.Byte:rng.End.Byte])
-	if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression && credentialFormat(expr) == "" {
-		out.Expression = redactText(expr, forms)
+	if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression && secret.CredentialFormat(expr) == "" {
+		out.Expression = secret.RedactText(expr, forms)
 	}
 	return out
 }

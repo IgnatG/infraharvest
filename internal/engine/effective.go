@@ -74,7 +74,7 @@ func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et E
 		if len(filled) == 0 {
 			return false, nil, nil
 		}
-		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+		p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {
 			return false, nil, errors.Join(err, backup.restore())
 		}

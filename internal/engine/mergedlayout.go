@@ -23,7 +23,7 @@ import (
 )
 
 // The layout of a merged root (see mergedRootFiles), the one root several
-// environments share: its code at the top, and under varsDirName what
+// environments share: its code at the top, and under hclfile.VarsDir what
 // differs between them, the values every environment shares in
 // vars/common.tfvars, and in vars/<env> each environment's values, import
 // IDs and backend settings. A root without a backend keeps each
@@ -31,12 +31,10 @@ import (
 // writes, plans or reads such a root back takes its paths from here, so
 // that they agree.
 const (
-	// varsDirName is the directory of a merged root's var files.
-	varsDirName = "vars"
 	// workspaceStateDir holds the local state of each workspace but the
 	// default one, in terraform.tfstate.d/<workspace>/terraform.tfstate.
 	workspaceStateDir     = "terraform.tfstate.d"
-	commonVarsPath        = varsDirName + "/common.tfvars"
+	commonVarsPath        = hclfile.VarsDir + "/common.tfvars"
 	envVarsFileName       = "terraform.tfvars"
 	importVarsFileName    = "imports.tfvars"
 	backendConfigFileName = "backend.hcl"
@@ -50,42 +48,33 @@ const (
 // path in the root with forward slashes, as drift's edits and reports
 // name it: vars/<env>/terraform.tfvars.
 func envVarsPath(env string) string {
-	return varsDirName + "/" + env + "/" + envVarsFileName
+	return hclfile.VarsDir + "/" + env + "/" + envVarsFileName
 }
 
 // importVarsPath returns the var file of the import IDs of environment
 // env's resources, which imports.tf reads, by path in the root with
 // forward slashes: vars/<env>/imports.tfvars.
 func importVarsPath(env string) string {
-	return varsDirName + "/" + env + "/" + importVarsFileName
+	return hclfile.VarsDir + "/" + env + "/" + importVarsFileName
 }
 
 // backendConfigPath returns environment env's backend settings, which
 // terraform init -backend-config reads, by path in the root with forward
 // slashes: vars/<env>/backend.hcl.
 func backendConfigPath(env string) string {
-	return varsDirName + "/" + env + "/" + backendConfigFileName
+	return hclfile.VarsDir + "/" + env + "/" + backendConfigFileName
 }
 
 // isBackendConfig reports whether name, a path in the root with forward
 // slashes, is an environment's backend settings (see backendConfigPath),
 // whether or not the environment still has values of its own.
 func isBackendConfig(name string) bool {
-	env, ok := strings.CutPrefix(name, varsDirName+"/")
+	env, ok := strings.CutPrefix(name, hclfile.VarsDir+"/")
 	if !ok {
 		return false
 	}
 	env, ok = strings.CutSuffix(env, "/"+backendConfigFileName)
 	return ok && env != "" && !strings.Contains(env, "/")
-}
-
-// isMergedVarFile reports whether rel, a file of a root by its path in it
-// with forward slashes, is one of the var files a merged root keeps under
-// vars, such as vars/prod/terraform.tfvars or vars/prod/backend.hcl,
-// whose arguments set variables or backend settings: a .tfvars or .hcl
-// file, the only kinds that belong there (see checkVarFiles).
-func isMergedVarFile(rel string) bool {
-	return strings.HasPrefix(rel, varsDirName+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
 }
 
 // workspaceStateFile returns where the merged root in dir, without a
@@ -224,7 +213,7 @@ func loadMergedVars(dir string, envs []string) (mergedVars, error) {
 func (v mergedVars) environments() []string {
 	var envs []string
 	for name := range v {
-		rest, ok := strings.CutPrefix(name, varsDirName+"/")
+		rest, ok := strings.CutPrefix(name, hclfile.VarsDir+"/")
 		if !ok {
 			continue
 		}
@@ -355,7 +344,7 @@ func backendConfigFile(dir, env string) (string, error) {
 // vars directory that hold a terraform.tfvars, sorted; none for another
 // root.
 func MergedEnvironments(dir string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(dir, varsDirName))
+	entries, err := os.ReadDir(filepath.Join(dir, hclfile.VarsDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

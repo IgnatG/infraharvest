@@ -25,6 +25,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -349,7 +351,7 @@ func (g *mergeGate) clear() error {
 	}
 	g.written = nil
 	errs = append(errs, g.removeOverride(), os.RemoveAll(filepath.Join(g.dir, ".terraform")))
-	removeEmptyDirs(filepath.Join(g.dir, varsDirName))
+	removeEmptyDirs(filepath.Join(g.dir, hclfile.VarsDir))
 	removeEmptyDirs(g.dir)
 	return errors.Join(errs...)
 }
@@ -460,13 +462,13 @@ func (g *mergeGate) plan(ctx context.Context, tf tfrun.Terraform, m *stackMerge,
 	if err != nil {
 		return Check{}, nil, err
 	}
-	p, _, diags, err := showPlanWithSummary(ctx, tf, append(vars, placeholders(secrets)...))
+	p, _, diags, err := tfrun.ShowPlan(ctx, tf, append(vars, secret.Placeholders(secrets)...))
 	if err := errors.Join(err, restore()); err != nil {
 		return Check{}, nil, err
 	}
 	check := planCheckWith(p, diags, g.secretsIn(m, env), g.opts.StateOnly, len(g.imports(m, env))-len(gone), gone)
 	check.Details = append([]string{"environment " + m.envs[env]}, check.Details...)
-	return check, sensitiveValues(p), nil
+	return check, secret.InPlan(p), nil
 }
 
 // leaveOutGone writes, for the plan of the merged root m wrote with w as
@@ -556,14 +558,14 @@ func (g *mergeGate) addresses(m *stackMerge, env int) map[string]string {
 // secretsIn returns the secrets of environment env's root at their
 // addresses in the merged root, whose arguments its plan may change: they
 // have placeholder values.
-func (g *mergeGate) secretsIn(m *stackMerge, env int) []Secret {
-	var out []Secret
+func (g *mergeGate) secretsIn(m *stackMerge, env int) []secret.Variable {
+	var out []secret.Variable
 	for _, s := range g.roots[env].Secrets {
 		member, ok := m.index[env][s.Address]
 		if !ok || member.stack == nil {
 			continue
 		}
-		out = append(out, Secret{Variable: s.Variable, Address: addressText(member.stack.instance()), Attribute: s.Attribute})
+		out = append(out, secret.Variable{Variable: s.Variable, Address: addressText(member.stack.instance()), Attribute: s.Attribute})
 	}
 	return out
 }
@@ -656,11 +658,11 @@ func (g *mergeGate) result(m *stackMerge, w *rootWriter, files map[string][]byte
 // take (see placeholders): those of the model where the environment has
 // what they are for, and those the roots declare, as rootSecrets, the
 // secrets of env's root, name them.
-func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
-	var out []Secret
+func (w *rootWriter) sensitiveIn(env int, rootSecrets []secret.Variable) []secret.Variable {
+	var out []secret.Variable
 	for _, v := range w.variables() {
 		if _, ok := v.values[env]; ok && v.sensitive {
-			out = append(out, Secret{Variable: v.name, ty: v.ty})
+			out = append(out, secret.Variable{Variable: v.name, Type: v.ty})
 		}
 	}
 	for _, b := range w.copied {
@@ -672,7 +674,7 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
 		if s, ok := literalValue(attr.Expr().BuildTokens(nil)); !ok || s.Type() != cty.Bool || !s.True() {
 			continue
 		}
-		if !slices.ContainsFunc(rootSecrets, func(s Secret) bool { return s.Variable == name }) {
+		if !slices.ContainsFunc(rootSecrets, func(s secret.Variable) bool { return s.Variable == name }) {
 			continue
 		}
 		ty := cty.String
@@ -683,7 +685,7 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []Secret) []Secret {
 				}
 			}
 		}
-		out = append(out, Secret{Variable: name, ty: ty})
+		out = append(out, secret.Variable{Variable: name, Type: ty})
 	}
 	return out
 }

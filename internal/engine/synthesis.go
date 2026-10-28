@@ -145,7 +145,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 			if err := write(tried); err != nil {
 				return nil, baseline, nil, errors.Join(err, backup.restore())
 			}
-			p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 			if err != nil {
 				return nil, baseline, nil, errors.Join(err, backup.restore())
 			}

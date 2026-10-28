@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -83,19 +84,19 @@ func (g Gate) check(name string) Check {
 // values in the plan, so the arguments they set may change; so may the
 // arguments opts.StateOnly names per type, which providers keep only in
 // state and import can't set. known, if set, has the values of the
-// secrets Generate found (see secretValues).
-func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
+// secrets Generate found (see secret.Values).
+func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []secret.Variable, opts Options, known *secret.Values) (Gate, error) {
 	expected, err := countImportBlocks(dir)
 	if err != nil {
 		return nil, err
 	}
 	policy := fullGate(opts)
 	policy.plan = func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
+		p, _, diags, err := tfrun.ShowPlan(ctx, tf, append(secret.Placeholders(secrets), known.Options()...))
 		if err != nil {
 			return Check{}, nil, err
 		}
-		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(sensitiveValues(p), knownValues(secrets)...), nil
+		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(secret.InPlan(p), secret.KnownValues(secrets)...), nil
 	}
 	gate, _, err := policy.run(ctx, tf, dir)
 	return gate, err
@@ -396,11 +397,10 @@ func (p gatePolicy) secrets(dir string, sensitive []string) (Check, error) {
 	if !p.diff {
 		return scanSecrets(dir, sensitive)
 	}
-	values := newValueMatcher(sensitive)
+	values := secret.NewMatcher(sensitive)
 	for _, name := range p.edited {
-		var before, after Check
-		scanFile(&before, values, name, string(p.before[name]))
-		scanFile(&after, values, name, string(p.after[name]))
+		before := Check{Details: secret.InFile(values, name, string(p.before[name]))}
+		after := Check{Details: secret.InFile(values, name, string(p.after[name]))}
 		if len(addedDetails(before, after)) > 0 {
 			// What it found is a secret's whereabouts, not for a report.
 			return Check{Name: CheckSecrets, Details: []string{name + " would hold a secret"}, files: []string{name}}, nil
@@ -450,4 +450,20 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// scanSecrets checks every file Generate wrote into dir, and into the
+// local modules it calls (see walkOutputAndModules), for the plan's
+// sensitive values and the secret values Generate found, for credential
+// formats, for provider blocks that set a credential argument to a
+// constant (see secret.IsCredential), and for any secret value written in
+// the configuration (see secret.Literals).
+func scanSecrets(dir string, sensitive []string) (Check, error) {
+	check := Check{Name: CheckSecrets}
+	values := secret.NewMatcher(sensitive)
+	err := walkOutputAndModules(dir, func(rel string, content string) {
+		check.Details = append(check.Details, secret.InFile(values, rel, content)...)
+	})
+	check.Passed = len(check.Details) == 0
+	return check, err
 }

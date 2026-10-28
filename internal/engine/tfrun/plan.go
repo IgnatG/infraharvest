@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -139,4 +140,35 @@ func DiagnosticMessage(d tfjson.Diagnostic) string {
 		return d.Summary + ": " + detail
 	}
 	return d.Summary
+}
+
+// ShowPlan plans with vars into a plan file and returns it as
+// JSON with its change summary, or the errors if the configuration doesn't
+// plan. The plan file holds secret values: it lives in a private temporary
+// directory, removed before ShowPlan returns.
+func ShowPlan(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *ChangeSummary, []tfjson.Diagnostic, error) {
+	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer os.RemoveAll(tmp)
+	planFile := filepath.Join(tmp, "plan")
+	opts := append(append([]tfexec.PlanOption(nil), vars...), tfexec.Out(planFile))
+	diags, summary, err := Plan(ctx, tf, opts...)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("terraform plan: %w", err)
+	}
+	if len(diags) > 0 || summary == nil {
+		return nil, nil, diags, nil
+	}
+	// The directory is private already; this also keeps the file private
+	// where the directory's permissions aren't inherited.
+	if _, err := os.Stat(planFile); err == nil {
+		_ = os.Chmod(planFile, 0o600)
+	}
+	p, err := tf.ShowPlanFile(ctx, planFile)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("terraform show: %w", err)
+	}
+	return p, summary, nil, nil
 }

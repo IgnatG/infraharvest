@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -100,4 +101,37 @@ func (s *schemaStore) cached(key string) (*tfjson.ProviderSchemas, bool) {
 	defer s.mu.Unlock()
 	schemas, ok := s.schemas[key]
 	return schemas, ok
+}
+
+// AttributeType returns the type of the attribute at path in resourceType's
+// schema, or cty.NilType if the schemas don't describe it.
+func AttributeType(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
+	if attr := SchemaAttribute(schemas, resourceType, path); attr != nil {
+		return attr.AttributeType
+	}
+	return cty.NilType
+}
+
+// SchemaAttribute returns the attribute at path in resourceType's schema,
+// or nil if the schemas don't describe it.
+func SchemaAttribute(schemas *tfjson.ProviderSchemas, resourceType string, path []string) *tfjson.SchemaAttribute {
+	if schemas == nil || len(path) == 0 {
+		return nil
+	}
+	for _, provider := range schemas.Schemas {
+		resource, ok := provider.ResourceSchemas[resourceType]
+		if !ok || resource.Block == nil {
+			continue
+		}
+		block := resource.Block
+		for _, name := range path[:len(path)-1] {
+			nested, ok := block.NestedBlocks[name]
+			if !ok || nested.Block == nil {
+				return nil
+			}
+			block = nested.Block
+		}
+		return block.Attributes[path[len(path)-1]]
+	}
+	return nil
 }

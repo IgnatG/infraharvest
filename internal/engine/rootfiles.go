@@ -5,13 +5,14 @@ package engine
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 // Import is one existing resource to bring under Terraform.
@@ -126,20 +127,8 @@ func VersionsFile(requiredVersion string, p Provider) []byte {
 	return hclwrite.Format(f.Bytes())
 }
 
-// credentialArgument matches provider arguments that hold a credential,
-// such as token, api_key, access_token, password or client_secret. The
-// generated configuration never sets them: the provider reads them from
-// its environment when the user plans.
-var credentialArgument = regexp.MustCompile(`(?i)(^|_)(token|password|passwd|secret|secret_key|api_?key|access_key|private_key|credentials?)$`)
-
-// isCredential reports whether a provider argument holds a credential, by
-// its name.
-func isCredential(name string) bool {
-	return credentialArgument.MatchString(name)
-}
-
 // withoutCredentials returns args without the arguments that hold
-// credentials (see isCredential), at any depth, and the names it
+// credentials (see secret.IsCredential), at any depth, and the names it
 // left out, sorted.
 func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []string) {
 	if args == nil {
@@ -148,7 +137,7 @@ func withoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 	var dropped []string
 	kept := make(map[string]interface{}, len(args))
 	for k, v := range args {
-		if isCredential(k) {
+		if secret.IsCredential(k) {
 			dropped = append(dropped, k)
 			continue
 		}

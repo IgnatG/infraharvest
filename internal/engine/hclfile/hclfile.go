@@ -344,3 +344,60 @@ func SortResources(path string) (bool, error) {
 	}
 	return true, f.Save()
 }
+
+// LiteralString returns the value of expr if it is a string literal.
+func LiteralString(expr *hclsyntax.TemplateExpr) (string, bool) {
+	if !expr.IsStringLiteral() {
+		return "", false
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.Type().Equals(cty.String) {
+		return "", false
+	}
+	return v.AsString(), true
+}
+
+// AttributeExpr returns the expression of body's attribute name, or nil
+// if body doesn't set it.
+func AttributeExpr(body *hclsyntax.Body, name string) hclsyntax.Expression {
+	if attr, ok := body.Attributes[name]; ok {
+		return attr.Expr
+	}
+	return nil
+}
+
+// StringLiteral returns the value of a string literal, "" for anything
+// else (see LiteralString).
+func StringLiteral(expr hclsyntax.Expression) string {
+	t, ok := expr.(*hclsyntax.TemplateExpr)
+	if !ok {
+		return ""
+	}
+	s, _ := LiteralString(t)
+	return s
+}
+
+// ObjectKey returns the key of an object constructor's item, "" if it
+// isn't a constant.
+func ObjectKey(expr hclsyntax.Expression) string {
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
+		return ""
+	}
+	return v.AsString()
+}
+
+// VarsDir is the directory of a merged root's var files: the root
+// several environments share keeps what differs between them under it
+// (see the engine's mergedlayout.go). The secrets and standards checks
+// read those files too.
+const VarsDir = "vars"
+
+// IsMergedVarFile reports whether rel, a file of a root by its path in it
+// with forward slashes, is one of the var files a merged root keeps under
+// VarsDir, such as vars/prod/terraform.tfvars or vars/prod/backend.hcl,
+// whose arguments set variables or backend settings: a .tfvars or .hcl
+// file, the only kinds that belong there.
+func IsMergedVarFile(rel string) bool {
+	return strings.HasPrefix(rel, VarsDir+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
+}

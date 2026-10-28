@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/sentence"
@@ -591,7 +592,7 @@ func placeholderFor(typ string) string {
 	case strings.HasPrefix(typ, "map(") || strings.HasPrefix(typ, "object("):
 		return "{}"
 	}
-	return placeholderString
+	return secret.PlaceholderValue
 }
 
 // tfvarsNames returns the variables that terraform.tfvars and the
@@ -701,7 +702,7 @@ func diffValues(path, key string, before, after, unknown, bs, as any, sensitive 
 			// The name the cloud's value goes by, or the state's where
 			// the cloud has none or the state's names a secret.
 			name := entryKey(am, k)
-			if b := entryKey(bm, k); !aok || secretKeyName(b) {
+			if b := entryKey(bm, k); !aok || secret.IsName(b) {
 				name = b
 			}
 			diffValues(sub, name, bm[k], am[k], um[k], maskKey(bs, k), maskKey(as, k), sensitive, out)
@@ -896,7 +897,7 @@ func forcesReplacement(paths []any, path string) bool {
 }
 
 // driftSensitiveForms returns the values the plans mark sensitive, in
-// the forms text quotes them in (see textForms): no report may hold one.
+// the forms text quotes them in (see secret.TextForms): no report may hold one.
 func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 	seen := map[string]bool{}
 	for _, p := range plans {
@@ -908,8 +909,8 @@ func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 				if rc.Change == nil {
 					continue
 				}
-				collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-				collectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
+				secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
+				secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
 			}
 		}
 	}
@@ -918,11 +919,11 @@ func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 		values = append(values, v)
 	}
 	sort.Strings(values)
-	return textForms(values)
+	return secret.TextForms(values)
 }
 
 // driftSecretForms returns the values a report mustn't show, in the forms
-// text quotes them in (see textForms): those state and plans mark
+// text quotes them in (see secret.TextForms): those state and plans mark
 // sensitive, and the secrets redactDriftValue replaces in the others.
 // Terraform's diagnostics, which can quote a value a provider rejects,
 // have them replaced, as the changes' values do.
@@ -941,7 +942,7 @@ func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
 				var mask any
 				_ = json.Unmarshal(r.SensitiveValues, &mask)
 				values := r.AttributeValues
-				collectSensitive(values, mask, seen)
+				secret.CollectSensitive(values, mask, seen)
 				collectDriftSecrets(values, "", true, seen)
 			}
 		}
@@ -955,14 +956,14 @@ func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
 				if rc.Change == nil {
 					continue
 				}
-				collectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-				collectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
+				secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
+				secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
 				collectDriftSecrets(rc.Change.Before, "", true, seen)
 				collectDriftSecrets(rc.Change.After, "", true, seen)
 			}
 		}
 	}
-	return textForms(sortedKeys(seen))
+	return secret.TextForms(sortedKeys(seen))
 }
 
 // collectDriftSecrets adds to out the strings of v, which goes by key,
@@ -981,7 +982,7 @@ func collectDriftSecrets(v any, key string, named bool, out map[string]bool) {
 		}
 	case map[string]any:
 		for k, sub := range v {
-			if credentialFormat(k) != "" {
+			if secret.CredentialFormat(k) != "" {
 				out[k] = true
 			}
 			collectDriftSecrets(sub, entryKey(v, k), named && k != "Condition", out)
@@ -1000,7 +1001,7 @@ func collectDriftSecrets(v any, key string, named bool, out map[string]bool) {
 // format too, and every sensitive value of forms in the others.
 func redactDriftValue(v any, key string, sensitive bool, forms []string) any {
 	if sensitive {
-		return redacted
+		return secret.Redacted
 	}
 	return redactNamed(v, key, true, forms)
 }
@@ -1015,7 +1016,7 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 			key = ""
 		}
 		if driftSecret(key, v) {
-			return redacted
+			return secret.Redacted
 		}
 		// A JSON document, such as a container definition, is looked
 		// into as import looks into one, and written again only if a
@@ -1023,12 +1024,12 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 		if doc, ok := decodeJSONDocument(v); ok {
 			if out := redactNamed(doc, key, named, forms); !reflect.DeepEqual(out, doc) {
 				if b, err := json.Marshal(out); err == nil {
-					return redactText(string(b), forms)
+					return secret.RedactText(string(b), forms)
 				}
-				return redacted
+				return secret.Redacted
 			}
 		}
-		return redactText(v, forms)
+		return secret.RedactText(v, forms)
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		// A key in a credential format, such as a map keyed by tokens,
@@ -1037,10 +1038,10 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 		// apart and a report is the same each time.
 		hidden := 0
 		for _, k := range sortedKeys(v) {
-			shown := redactText(k, forms)
-			if credentialFormat(k) != "" {
+			shown := secret.RedactText(k, forms)
+			if secret.CredentialFormat(k) != "" {
 				hidden++
-				shown = fmt.Sprintf("%s #%d", redacted, hidden)
+				shown = fmt.Sprintf("%s #%d", secret.Redacted, hidden)
 			}
 			out[shown] = redactNamed(v[k], entryKey(v, k), named && k != "Condition", forms)
 		}
@@ -1058,11 +1059,11 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 // driftSecret reports whether value, which goes by key, is a secret a
 // report mustn't show: one in a credential format, or one whose key names
 // a secret and that holds one, as import decides for a map key (see
-// secretReason). Looking random alone, which import takes for a secret only
+// secret.Reason). Looking random alone, which import takes for a secret only
 // in a map, doesn't make it one here: a report can't tell a map key from a
 // provider's argument, whose IDs and digests look random.
 func driftSecret(key, value string) bool {
-	return secretReason(key, value, secretKeyName(key)) != ""
+	return secret.Reason(key, value, secret.IsName(key)) != ""
 }
 
 // entryKey returns the name the entry k of m goes by, as import has it
@@ -1077,7 +1078,7 @@ func entryKey(m map[string]any, k string) string {
 	switch {
 	case name == "":
 		return k
-	case isReferenceType(firstString(m, "type", "Type")):
+	case secret.IsReferenceType(firstString(m, "type", "Type")):
 		return ""
 	}
 	return name

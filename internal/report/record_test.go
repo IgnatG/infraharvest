@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 // Each kind of exclusion gives its reason and owner, and Finish counts
@@ -93,7 +94,7 @@ func TestAddDirectoryOutcome(t *testing.T) {
 		Imported: []engine.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"}},
 		Rejected: []engine.Rejection{{Address: "aws_lb.web", ID: "arn:lb", Errors: []string{"invalid"}}},
 		Modules:  []engine.ModuleCall{{Name: "jobs", Source: "terraform-aws-modules/sqs/aws", Version: "5.0.0", Resources: []string{"aws_sqs_queue.jobs"}}},
-		Secrets:  []engine.Secret{{Variable: "token", Address: "aws_ssm_parameter.token", Attribute: "value"}},
+		Secrets:  []secret.Variable{{Variable: "token", Address: "aws_ssm_parameter.token", Attribute: "value"}},
 		Warnings: []string{"a tag named after an access key"},
 		Gate:     engine.Gate{{Name: "valid", Passed: false, Details: []string{"bad"}}},
 	})

@@ -56,7 +56,7 @@ func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []
 	}
 	changed := false
 	for _, c := range candidates {
-		s := schemaAttribute(schemas, AddressType(c.r.Address), []string{c.name})
+		s := tfrun.SchemaAttribute(schemas, AddressType(c.r.Address), []string{c.name})
 		if s == nil || !s.Optional || !s.Computed || s.Required {
 			continue
 		}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // Roots share schemas only when the engine and their lock files are the
@@ -116,5 +117,36 @@ func TestSchemaStoreReadsOnceForConcurrentCallers(t *testing.T) {
 		if _, ok := s.cached("k"); ok == fail {
 			t.Errorf("fail %v: kept %v", fail, ok)
 		}
+	}
+}
+
+func TestAttributeType(t *testing.T) {
+	t.Parallel()
+	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
+		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+			"aws_db_instance": {Block: &tfjson.SchemaBlock{
+				Attributes: map[string]*tfjson.SchemaAttribute{"password": {AttributeType: cty.String}},
+				NestedBlocks: map[string]*tfjson.SchemaBlockType{"replica": {Block: &tfjson.SchemaBlock{
+					Attributes: map[string]*tfjson.SchemaAttribute{"secrets": {AttributeType: cty.Map(cty.String)}},
+				}}},
+			}},
+		}},
+	}}
+	for _, tc := range []struct {
+		resourceType string
+		path         []string
+		want         cty.Type
+	}{
+		{"aws_db_instance", []string{"password"}, cty.String},
+		{"aws_db_instance", []string{"replica", "secrets"}, cty.Map(cty.String)},
+		{"aws_db_instance", []string{"restore", "token"}, cty.NilType},
+		{"aws_s3_bucket", []string{"password"}, cty.NilType},
+	} {
+		if got := AttributeType(schemas, tc.resourceType, tc.path); !got.Equals(tc.want) {
+			t.Errorf("%s %v: got %#v, want %#v", tc.resourceType, tc.path, got, tc.want)
+		}
+	}
+	if got := AttributeType(nil, "aws_db_instance", []string{"password"}); got != cty.NilType {
+		t.Errorf("without schemas: got %#v", got)
 	}
 }

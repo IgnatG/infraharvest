@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -51,13 +52,13 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 	}
 	policy := fullGate(opts)
 	policy.plan = func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, vars)
+		p, _, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {
 			return Check{}, nil, err
 		}
 		check := planCheck(p, diags, nil, opts.StateOnly, expected)
 		check.Details = append([]string{"environment " + env}, check.Details...)
-		return check, sensitiveValues(p), nil
+		return check, secret.InPlan(p), nil
 	}
 	gate, _, err := policy.run(ctx, tf, dir)
 	return gate, err

@@ -226,7 +226,7 @@ func isNull(expr hclsyntax.Expression) bool {
 // .tfvars and .hcl files, each of which parses, and none that sets a
 // variable the root declares sensitive.
 func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {
-	vars := filepath.Join(dir, varsDirName)
+	vars := filepath.Join(dir, hclfile.VarsDir)
 	if info, err := os.Stat(vars); err != nil || !info.IsDir() {
 		return nil
 	}
@@ -239,8 +239,8 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 			return err
 		}
 		name := rel(dir, path)
-		if !isMergedVarFile(name) {
-			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
+		if !hclfile.IsMergedVarFile(name) {
+			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, hclfile.VarsDir)
 			return nil
 		}
 		f, err := hclfile.Load(path)

@@ -7,11 +7,32 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
+
+// fuzzToken makes a credential in a format secret.CredentialFormat knows, a
+// GitHub fine-grained token, from seed. Made at run time, as fakeSecret's
+// values are, so that secret scanners don't take the source for a leak.
+func fuzzToken(seed string) string {
+	return "github_pat_" + fakeSecret(seed)[:40]
+}
+
+// hclQuoted writes s as the content of an HCL quoted string, with the
+// characters HCL reads specially escaped. It reports false for a string a
+// quoted string can't hold as written: invalid UTF-8 or control
+// characters.
+func hclQuoted(s string) (string, bool) {
+	if !utf8.ValidString(s) || strings.ContainsFunc(s, unicode.IsControl) {
+		return "", false
+	}
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "${", "$${", "%{", "%%{").Replace(s), true
+}
 
 // Accepting a change to a credential, whatever key it goes by and whether
 // the code has the key yet, never writes it: the change is a secret, and
@@ -88,7 +109,7 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 			t.Skip()
 		}
 		for _, v := range []string{value, fuzzToken(value)} {
-			if credentialFormat(v) == "" && (!secretKeyName(key) || secretReason(key, v, true) == "") {
+			if secret.CredentialFormat(v) == "" && (!secret.IsName(key) || secret.Reason(key, v, true) == "") {
 				continue
 			}
 			quoted, err := json.Marshal(v)
@@ -98,7 +119,7 @@ func FuzzDriftReportsNoSecrets(f *testing.F) {
 			escaped := string(quoted[1 : len(quoted)-1])
 			// What a report shows besides the value mustn't hold it, as it
 			// is or as JSON has it.
-			if shown := key + string(quotedKey) + redacted + ` #1 keyed {"name":"value":"pairs":[]}`; strings.Contains(shown, v) || strings.Contains(shown, escaped) {
+			if shown := key + string(quotedKey) + secret.Redacted + ` #1 keyed {"name":"value":"pairs":[]}`; strings.Contains(shown, v) || strings.Contains(shown, escaped) {
 				continue
 			}
 			pairs := []any{map[string]any{"name": key, "value": v}}

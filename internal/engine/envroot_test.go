@@ -493,7 +493,7 @@ func TestMergedRootFiles(t *testing.T) {
 			t.Error("the provider assumes a role")
 		}
 		for name, content := range files {
-			if strings.HasPrefix(name, varsDirName+"/") && strings.Contains(string(content), "password") {
+			if strings.HasPrefix(name, hclfile.VarsDir+"/") && strings.Contains(string(content), "password") {
 				t.Errorf("%s sets the password:\n%s", name, content)
 			}
 		}

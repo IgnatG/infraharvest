@@ -175,7 +175,7 @@ func parseWritable(path string) (*hclwrite.File, error) {
 // backend settings, if backend, or else in its workspace.
 func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check Check) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest merged this root before, for %s. Its resources, in every environment, now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s`, and each environment's settings in `%s/<env>/`.\n", strings.Join(envs, ", "), ProvidersFileName, MovesFileName, varsDirName)
+	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest merged this root before, for %s. Its resources, in every environment, now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s`, and each environment's settings in `%s/<env>/`.\n", strings.Join(envs, ", "), ProvidersFileName, MovesFileName, hclfile.VarsDir)
 	b.WriteString("\n## Next steps\n\n")
 	env := "<env>"
 	if len(envs) > 0 {
