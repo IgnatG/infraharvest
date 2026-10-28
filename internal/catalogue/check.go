@@ -39,7 +39,35 @@ func (c *Catalogue) check() error {
 	return errors.Join(errs...)
 }
 
+// checkEntry reports what's wrong with a type's entry: its type and
+// import IDs, the argument names it lists, for every provider version and
+// for some, its placeholder and generation settings, its skip rules, and
+// the types, data sources and APIs it refers to.
 func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
+	errs := c.checkType(typ, e)
+	lists, defaults, versionErrs := argumentLists(typ, e)
+	errs = append(errs, versionErrs...)
+	errs = append(errs, checkArgumentNames(lists)...)
+	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
+		errs = append(errs, errors.New("lifecycle: set create_before_destroy: true, with a reason"))
+	}
+	if p := e.Placeholder; p != nil {
+		errs = append(errs, checkPlaceholder(p)...)
+	}
+	errs = append(errs, checkGeneration(typ, e)...)
+	if len(e.Remove) > 0 {
+		errs = append(errs, errors.New("remove: only an overlay of a built-in entry takes remove"))
+	}
+	errs = append(errs, checkDefaults(defaults)...)
+	errs = append(errs, checkSkipRules(e.Skip)...)
+	errs = append(errs, c.checkReferences(typ, e)...)
+	return errs
+}
+
+// checkType reports an entry whose type isn't the provider's, or, for
+// the entry for every type, which sets what only a type's entry takes,
+// and an entry whose service or import IDs are wrong.
+func (c *Catalogue) checkType(typ string, e *Entry) []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
@@ -61,12 +89,23 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			fail("import_id %q has no field: every resource would import with the same ID", t)
 		}
 	}
-	type argumentList struct {
-		name  string
-		names []string
-	}
-	lists := []argumentList{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"keep_empty", e.KeepEmpty}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}}
-	defaults := []argumentList{{"defaults", e.Defaults}}
+	return errs
+}
+
+// argumentList is a list of an entry's argument names, or of its
+// defaults, with the name errors call it by.
+type argumentList struct {
+	name  string
+	names []string
+}
+
+// argumentLists returns the lists of argument names an entry has, and its
+// lists of defaults, for every provider version and for those of each
+// constraint, and what's wrong with its provider_versions.
+func argumentLists(typ string, e *Entry) (lists, defaults []argumentList, errs []error) {
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	lists = []argumentList{{"omit", e.Omit}, {"state_only", e.StateOnly}, {"keep_empty", e.KeepEmpty}, {"placeholder.one_of", placeholderList(e, func(p *Placeholder) []string { return p.OneOf })}, {"placeholder.ignore", placeholderList(e, func(p *Placeholder) []string { return p.Ignore })}}
+	defaults = []argumentList{{"defaults", e.Defaults}}
 	for _, constraint := range slices.Sorted(maps.Keys(e.ProviderVersions)) {
 		if _, err := version.NewConstraint(constraint); err != nil {
 			fail("provider_versions: %q isn't a version constraint, such as \">= 5.0\": %v", constraint, err)
@@ -95,6 +134,14 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			}
 		}
 	}
+	return lists, defaults, errs
+}
+
+// checkArgumentNames reports names in lists that aren't argument names,
+// or for omit lists, omissions, and names a list has twice.
+func checkArgumentNames(lists []argumentList) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	for _, list := range lists {
 		seen := map[string]bool{}
 		for _, name := range list.names {
@@ -111,16 +158,14 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			seen[name] = true
 		}
 	}
-	if l := e.Lifecycle; l != nil && (!l.CreateBeforeDestroy || strings.TrimSpace(l.Reason) == "") {
-		fail("lifecycle: set create_before_destroy: true, with a reason")
-	}
-	if p := e.Placeholder; p != nil {
-		errs = append(errs, checkPlaceholder(p)...)
-	}
-	errs = append(errs, checkGeneration(typ, e)...)
-	if len(e.Remove) > 0 {
-		fail("remove: only an overlay of a built-in entry takes remove")
-	}
+	return errs
+}
+
+// checkDefaults reports defaults that aren't path=value, whose path has a
+// part that isn't a name, or whose path a list has twice.
+func checkDefaults(defaults []argumentList) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	for _, list := range defaults {
 		seen := map[string]bool{}
 		for _, entry := range list.names {
@@ -139,7 +184,15 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			seen[path] = true
 		}
 	}
-	for i, rule := range e.Skip {
+	return errs
+}
+
+// checkSkipRules reports skip rules without a reason, with conditions as
+// well as all or with neither, or with empty prefixes or suffixes.
+func checkSkipRules(rules []SkipRule) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
+	for i, rule := range rules {
 		if strings.TrimSpace(rule.Reason) == "" {
 			fail("skip[%d]: missing a reason", i)
 		}
@@ -168,6 +221,15 @@ func (c *Catalogue) checkEntry(typ string, e *Entry) []error {
 			}
 		}
 	}
+	return errs
+}
+
+// checkReferences reports what's wrong with what an entry refers to: its
+// children, its data source, its ARN, and the Cloud Control and inventory
+// types that list it.
+func (c *Catalogue) checkReferences(typ string, e *Entry) []error {
+	var errs []error
+	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	for _, child := range e.Children {
 		if child == typ {
 			fail("children: is its own child")
