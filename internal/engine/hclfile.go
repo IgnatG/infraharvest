@@ -18,8 +18,10 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // hclFile is a configuration file: a syntax tree with source positions,
@@ -178,7 +180,7 @@ func (f *hclFile) resourceAt(line int) string {
 // importBlock is a top-level import block in both trees.
 type importBlock struct {
 	to     string // address of the resource it imports into
-	id     string // the import ID, if a literal
+	id     string // the import ID, if a literal (see importIDOf)
 	write  *hclwrite.Block
 	syntax *hclsyntax.Block
 }
@@ -203,15 +205,50 @@ func (f *hclFile) imports() []importBlock {
 		if !ok {
 			continue
 		}
-		id := ""
-		if idAttr, ok := b.Body.Attributes["id"]; ok {
-			if v, diags := idAttr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
-				id = v.AsString()
-			}
-		}
+		id, _ := importIDOf(b.Body)
 		imports = append(imports, importBlock{to: traversal.RootName() + "." + step.Name, id: id, write: blocks[i], syntax: b})
 	}
 	return imports
+}
+
+// importIDOf returns the import ID of an import block's body: its id, if
+// a literal, or, for a block that imports by identity, the identity's ID
+// (see tftypes.IdentityID), if it is an object of literal strings,
+// numbers and bools, as ImportsFile writes it. The engine tells a
+// resource imported by identity by that ID, as the importer does (see
+// Import.Identity).
+func importIDOf(body *hclsyntax.Body) (string, bool) {
+	if attr, ok := body.Attributes["id"]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
+			return "", false
+		}
+		return v.AsString(), true
+	}
+	attr, ok := body.Attributes["identity"]
+	if !ok {
+		return "", false
+	}
+	v, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
+		return "", false
+	}
+	identity := map[string]string{}
+	for it := v.ElementIterator(); it.Next(); {
+		k, e := it.Element()
+		if e.IsNull() {
+			continue
+		}
+		s, err := convert.Convert(e, cty.String)
+		if err != nil {
+			return "", false
+		}
+		identity[k.AsString()] = s.AsString()
+	}
+	if len(identity) == 0 {
+		return "", false
+	}
+	return tftypes.IdentityID(identity), true
 }
 
 // importAt returns the address the import block spanning line imports into.

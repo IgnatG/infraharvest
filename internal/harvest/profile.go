@@ -40,6 +40,12 @@ type Profile struct {
 	// providers what the others listed first (see
 	// ProviderWithListedByOthers).
 	DependentServices []string
+	// ListedTypes are the resource types the provider's services list, by
+	// type, with the service that lists each (the first by name, of
+	// several), as the services reference has them: the query service
+	// leaves those types to their services (see QueryService). A provider
+	// without the query service needs none.
+	ListedTypes map[string]string
 	// Source is the Terraform provider's registry source address, such as
 	// DataDog/datadog, for the required_providers block; hashicorp/<Name>
 	// without it.

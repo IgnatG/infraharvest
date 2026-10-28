@@ -60,6 +60,9 @@ type record struct {
 	Tags map[string]string `json:"tags,omitempty"`
 	// Attributes are what the lister recorded about it.
 	Attributes map[string]string `json:"attributes,omitempty"`
+	// Identity is the identity Terraform imports it by, for what
+	// Terraform's list resources returned (see harvest.Observation).
+	Identity map[string]string `json:"identity,omitempty"`
 }
 
 // listing is what a provider call listed: resources by service, and their
@@ -95,6 +98,7 @@ func (l listing) records() []record {
 				Name:       r.RawName,
 				Tags:       l.tagsOf(r),
 				Attributes: r.Observed.Attributes,
+				Identity:   r.Observed.Identity,
 			})
 		}
 	}
@@ -121,7 +125,7 @@ func listingOf(records []record, services []string) listing {
 		}
 		r := harvest.Resource{
 			Address:  &harvest.Address{Type: rec.Type},
-			Observed: &harvest.Observation{ID: rec.ID, Attributes: attributes},
+			Observed: &harvest.Observation{ID: rec.ID, Attributes: attributes, Identity: rec.Identity},
 			RawName:  rec.Name,
 			Provider: rec.Provider,
 		}
@@ -239,6 +243,7 @@ func listResources(ctx context.Context, provider harvest.Provider, c *callContex
 		return listing{}, nil, err
 	}
 	listed := listing{resources: registry.ByService()}
+	leaveOutQueryOverlap(provider.Name(), listed.resources)
 	var tagsErr error
 	listed.tags, tagsErr = readTags(ctx, provider, listed.resources)
 	if tagsErr != nil {

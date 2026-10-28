@@ -507,15 +507,15 @@ func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 	}
 }
 
-// cloud_asset is one of the services * lists, and gets the import's
-// catalogue.
+// cloud_asset is one of the services * lists, which leaves out only the
+// query service, and gets the import's catalogue.
 func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	p := &Provider{}
 	if _, ok := p.Services()[cloudAssetService]; !ok {
 		t.Fatal("cloud_asset isn't a service")
 	}
-	if optIn := p.Profile().OptInServices; len(optIn) > 0 {
-		t.Error("google has opt-in services, which * leaves out")
+	if optIn := p.Profile().OptInServices; !slices.Equal(optIn, []string{harvest.QueryService}) {
+		t.Errorf("google's opt-in services, which * leaves out, are %v", optIn)
 	}
 	cat := catalogue.MustBuiltin("google")
 	p.SetCatalogue(cat)

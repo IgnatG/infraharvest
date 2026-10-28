@@ -29,6 +29,7 @@ var (
 	_ harvest.ProviderWithStackMapper       = (*Provider)(nil)
 	_ harvest.ProviderWithTags              = (*Provider)(nil)
 	_ harvest.ProviderWithTerraformEnv      = (*Provider)(nil)
+	_ harvest.ProviderWithQueryScope        = (*Provider)(nil)
 )
 
 // providerName is the provider's name, in the generated configuration and
@@ -94,7 +95,9 @@ func (*Provider) Name() string {
 // 12-digit ID; the services of AWS services at end of support, WAF
 // Classic and MediaStore, which only old estates still hold, are listed
 // only when --services names them, so that every import of * doesn't ask
-// their retired APIs in every region; terraform-aws-modules are its
+// their retired APIs in every region, as is the query service, which lists
+// the types --query-types names and leaves the listed ones to their
+// services; terraform-aws-modules are its
 // curated modules; a resource's block label comes from its Name tag; the
 // services of a region may list at once, as each has its own lister and
 // they share only the SDK configuration, which is safe to share;
@@ -116,7 +119,8 @@ func (*Provider) Profile() harvest.Profile {
 		},
 		Modules:           providerName,
 		ModulesName:       "terraform-aws-modules",
-		OptInServices:     []string{"media_store", "waf", "waf_regional"},
+		OptInServices:     []string{"media_store", "waf", "waf_regional", harvest.QueryService},
+		ListedTypes:       listedTypes,
 		NameTag:           "Name",
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"},
@@ -228,7 +232,8 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 // for every service: those of serviceTable, and one Cloud Control
 // lister per service of the cloud_control entries of the catalogue of the
 // import (see SetCatalogue), which takes the place of a lister of the same
-// name.
+// name; and the query service's, which lists through Terraform and asks
+// AWS nothing itself.
 func (p *Provider) Services() map[string]harvest.Lister {
 	supported := make(map[string]harvest.Lister, len(serviceTable))
 	for _, s := range serviceTable {
@@ -237,14 +242,18 @@ func (p *Provider) Services() map[string]harvest.Lister {
 	for name, types := range p.cloudControl() {
 		supported[name] = &guardedLister{lister: &CloudControlLister{types: types}}
 	}
+	supported[harvest.QueryService] = &harvest.QueryLister{}
 	return supported
 }
 
 // newServiceLister returns a new lister, wrapped in a guardedLister, for
 // the service called name, as Services has it, or nil when there is no
 // such service: a Cloud Control service takes the place of a lister of the
-// same name.
+// same name. The query service's lister isn't wrapped.
 func (p *Provider) newServiceLister(name string) harvest.Lister {
+	if name == harvest.QueryService {
+		return &harvest.QueryLister{}
+	}
 	if types, ok := p.cloudControl()[name]; ok {
 		return &guardedLister{lister: p.withUnwanted(&CloudControlLister{types: types})}
 	}

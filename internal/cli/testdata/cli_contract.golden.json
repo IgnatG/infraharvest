@@ -292,6 +292,12 @@
         "persistent": true
       },
       {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
@@ -542,6 +548,12 @@
       },
       {
         "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true
@@ -809,6 +821,12 @@
       },
       {
         "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true
@@ -1227,6 +1245,12 @@
         "persistent": true
       },
       {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
@@ -1477,6 +1501,12 @@
       },
       {
         "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true
@@ -1744,6 +1774,12 @@
       },
       {
         "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true

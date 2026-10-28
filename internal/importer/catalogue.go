@@ -60,9 +60,14 @@ func catalogueName(provider string) string {
 
 // importIDFunc returns how to get a resource's import ID: from the
 // catalogue's templates, else the ID its lister recorded. It returns
-// false for resources Terraform can't import.
+// false for resources Terraform can't import. A resource imported by its
+// identity (see harvest.RecordIdentity) is told by the identity's ID,
+// which no template applies to.
 func importIDFunc(cat *catalogue.Catalogue) func(harvest.Resource) (string, bool) {
 	return func(r harvest.Resource) (string, bool) {
+		if r.Observed.Identity != nil {
+			return r.Observed.ID, true
+		}
 		id, ok, _ := cat.ImportID(r.Address.Type, r.Observed.ID, r.Observed.Attributes)
 		return id, ok
 	}

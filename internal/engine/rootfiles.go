@@ -19,6 +19,13 @@ type Import struct {
 	Type string // resource type, e.g. aws_sqs_queue
 	Name string // resource name in the configuration
 	ID   string // the provider's import ID
+	// Identity, if set, is the resource's identity, which Terraform
+	// imports it by instead of an import ID, from 1.12: what Terraform's
+	// own list resources return (see terraform query). ID is then the
+	// identity's ID (see tftypes.IdentityID), which the engine tells the
+	// resource by, as it reads it back from the import block (see
+	// importIDOf).
+	Identity map[string]string `json:",omitempty"`
 	// Provider is the local name of the provider to import with, when it
 	// isn't the one the type implies: google-beta for a google_* resource.
 	// Empty otherwise.
@@ -47,7 +54,8 @@ type Provider struct {
 	Config  map[string]interface{} // provider block arguments
 }
 
-// ImportsFile renders one import block per resource, sorted by address.
+// ImportsFile renders one import block per resource, sorted by address:
+// by its identity where it has one, by its import ID otherwise.
 // Only the catalogue's golden test calls it outside the engine, which is
 // why it is exported.
 func ImportsFile(imports []Import) ([]byte, error) {
@@ -74,7 +82,11 @@ func ImportsFile(imports []Import) ([]byte, error) {
 			hcl.TraverseRoot{Name: imp.Type},
 			hcl.TraverseAttr{Name: imp.Name},
 		})
-		block.SetAttributeValue("id", cty.StringVal(imp.ID))
+		if len(imp.Identity) > 0 {
+			block.SetAttributeValue("identity", identityValue(imp.Identity))
+		} else {
+			block.SetAttributeValue("id", cty.StringVal(imp.ID))
+		}
 		if imp.Provider != "" {
 			if !hclsyntax.ValidIdentifier(imp.Provider) {
 				return nil, fmt.Errorf("invalid provider name %q for %s.%s", imp.Provider, imp.Type, imp.Name)
@@ -83,6 +95,18 @@ func ImportsFile(imports []Import) ([]byte, error) {
 		}
 	}
 	return hclwrite.Format(f.Bytes()), nil
+}
+
+// identityValue is an identity as the object of an import block's
+// identity argument. Its values are strings, as Terraform's list
+// resources return them (see tftypes.IdentityValues): Terraform converts
+// them to the types of the identity's schema.
+func identityValue(identity map[string]string) cty.Value {
+	attrs := make(map[string]cty.Value, len(identity))
+	for k, v := range identity {
+		attrs[k] = cty.StringVal(v)
+	}
+	return cty.ObjectVal(attrs)
 }
 
 // VersionsFile renders the terraform block: the Terraform versions the

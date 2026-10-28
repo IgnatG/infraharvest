@@ -33,3 +33,28 @@ func TestAliases(t *testing.T) {
 		t.Errorf("Canonical: got %s", got)
 	}
 }
+
+// An identity's ID lists its attributes sorted by key, whatever order
+// they come in, and its values read from JSON keep their meaning.
+func TestIdentityID(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		identity map[string]any
+		want     string
+		ok       bool
+	}{
+		{map[string]any{"region": "eu-west-2", "name": "/app/logs", "account_id": "123456789012"}, "account_id=123456789012,name=/app/logs,region=eu-west-2", true},
+		{map[string]any{"name": "web", "port": float64(443), "global": true, "zone": nil}, "global=true,name=web,port=443", true},
+		{map[string]any{}, "", true},
+		{map[string]any{"names": []any{"a"}}, "", false},
+	} {
+		values, ok := IdentityValues(tt.identity)
+		if ok != tt.ok {
+			t.Errorf("%v: ok %v, want %v", tt.identity, ok, tt.ok)
+			continue
+		}
+		if got := IdentityID(values); got != tt.want {
+			t.Errorf("%v: got %q, want %q", tt.identity, got, tt.want)
+		}
+	}
+}

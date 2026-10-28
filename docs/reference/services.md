@@ -4,11 +4,11 @@
 
 The services each provider lists, as `--services` and `--skip` name them, and the Terraform resource types each one lists. The types are those named in the service's lister code, those the [catalogue](../catalogue.md) assigns to the service, and the child resources the catalogue imports with them. A service lists only the types an account has, and a few services decide the type of a resource from what the cloud returns, so the cloud can add types not shown here.
 
-`--services=*` lists every service except the opt-in ones: name them to use them. Azure's list through the cloud's inventory API what other services already list, and AWS's list services that have reached end of support. `infraharvest services <provider>` prints a provider's services.
+`--services=*` lists every service except the opt-in ones: name them to use them. Azure's list through the cloud's inventory API what other services already list, and AWS's list services that have reached end of support. Every provider's `query` service lists through Terraform's own list resources the types `--query-types` names (see [Listing through Terraform](../usage.md#listing-through-terraform)). `infraharvest services <provider>` prints a provider's services.
 
 ## AWS
 
-`infraharvest import aws` has 97 services, and 3 opt-in.
+`infraharvest import aws` has 97 services, and 4 opt-in.
 
 | Service | Terraform types |
 |---|---|
@@ -110,12 +110,13 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `workspaces` | `aws_workspaces_directory`, `aws_workspaces_ip_group`, `aws_workspaces_workspace` |
 | `xray` | `aws_xray_sampling_rule` |
 | `media_store` (opt-in) | `aws_media_store_container` |
+| `query` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |
 | `waf` (opt-in) | `aws_waf_byte_match_set`, `aws_waf_geo_match_set`, `aws_waf_ipset`, `aws_waf_rate_based_rule`, `aws_waf_regex_match_set`, `aws_waf_regex_pattern_set`, `aws_waf_rule`, `aws_waf_rule_group`, `aws_waf_size_constraint_set`, `aws_waf_sql_injection_match_set`, `aws_waf_web_acl`, `aws_waf_xss_match_set` |
 | `waf_regional` (opt-in) | `aws_wafregional_byte_match_set`, `aws_wafregional_geo_match_set`, `aws_wafregional_ipset`, `aws_wafregional_rate_based_rule`, `aws_wafregional_regex_match_set`, `aws_wafregional_regex_pattern_set`, `aws_wafregional_rule`, `aws_wafregional_rule_group`, `aws_wafregional_size_constraint_set`, `aws_wafregional_sql_injection_match_set`, `aws_wafregional_web_acl`, `aws_wafregional_web_acl_association`, `aws_wafregional_xss_match_set` |
 
 ## Azure
 
-`infraharvest import azure` has 5 services, and 8 opt-in.
+`infraharvest import azure` has 5 services, and 9 opt-in.
 
 | Service | Terraform types |
 |---|---|
@@ -129,13 +130,14 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `network_interface` (opt-in) | `azurerm_network_interface` |
 | `network_security_group` (opt-in) | `azurerm_network_security_group`, `azurerm_network_security_rule` |
 | `public_ip` (opt-in) | `azurerm_public_ip`, `azurerm_public_ip_prefix` |
+| `query` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |
 | `resource_group` (opt-in) | `azurerm_resource_group` |
 | `subnet` (opt-in) | `azurerm_subnet`, `azurerm_subnet_nat_gateway_association`, `azurerm_subnet_network_security_group_association`, `azurerm_subnet_route_table_association`, `azurerm_subnet_service_endpoint_storage_policy` |
 | `virtual_network` (opt-in) | `azurerm_virtual_network` |
 
 ## Google Cloud
 
-`infraharvest import google` has 5 services.
+`infraharvest import google` has 5 services, and 1 opt-in.
 
 | Service | Terraform types |
 |---|---|
@@ -144,3 +146,4 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `dns` | `google_dns_record_set` |
 | `iam` | `google_project_iam_member` |
 | `schedulerJobs` | `google_cloud_scheduler_job` |
+| `query` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |

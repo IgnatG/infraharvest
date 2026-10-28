@@ -3,7 +3,8 @@
 
 // Package tftypes holds what infraharvest knows of Terraform resource types
 // that more than one package needs, such as the engine and the reading of
-// managed state: which types are other names of each other. It is a leaf:
+// managed state: which types are other names of each other, and the ID of
+// a resource imported by its identity (see IdentityID). It is a leaf:
 // it imports none of infraharvest's packages, so that any can import it.
 package tftypes
 

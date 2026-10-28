@@ -179,3 +179,7 @@ See [Filtering](usage.md#filtering) for the syntax.
 ## Services listed through Cloud Control
 
 Some services have no lister of their own: they list their types through the [Cloud Control API](https://docs.aws.amazon.com/cloudcontrolapi/latest/userguide/what-is-cloudcontrolapi.html), which lists the resources of any CloudFormation type. They are the catalogue's types with a `cloud_control` entry, grouped by service, such as `eventbridge`, `backup` and `guardduty` (see [Catalogue](catalogue.md)). Adding a type that way takes a catalogue entry, not code.
+
+## Types listed through Terraform
+
+A type no service lists, and that has a list resource in the AWS provider, can be listed through Terraform with the `query` service: `--services=query --query-types=aws_flow_log` (see [Listing through Terraform](usage.md#listing-through-terraform)). Each region's import takes the resources whose identity has a region, and the global import those without one, such as IAM's. Terraform reads them with the credentials the import uses, so the role needs the same read access as the provider's own plan.

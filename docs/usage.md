@@ -73,6 +73,22 @@ infraharvest discover aws --services='*' --skip=iam,organization --regions=eu-we
 
 Services are listed several at a time (`--list-parallel`, 4 by default). One that fails, or takes longer than `--list-timeout` (30 minutes by default), is left out of the output and reported, and the run exits with 1, or with 3 under `--allow-partial` (see [Exit codes](output.md#exit-codes)). One that listed but failed on a part, such as `route53` when the records of a hosted zone fail to list, keeps what it listed, and is reported and sets the exit code the same way. So do tags that fail to read, as when `tag:GetResources` is denied: selection rules by tag, owner detection, `{env}` layouts and the report's counts by tag would miss them, so the run goes on with what it has but doesn't pass as complete.
 
+## Listing through Terraform
+
+Every provider has an opt-in `query` service that lists resource types no other service lists through Terraform's own list resources (`terraform query`, Terraform 1.14 or later). `--query-types` names the types, and `--services` must name `query`:
+
+```sh
+infraharvest discover aws --services=query --query-types=aws_flow_log,aws_dsql_cluster --regions=eu-west-2
+```
+
+The types must be the provider's, and have a list resource in the provider's newest release (`terraform providers schema -json` lists them under `list_resource_schemas`). A type another service lists, as the [services reference](reference/services.md) has it, is refused, with the service to name instead: that service reads what the generated configuration needs, such as tags. Where another service of the same run lists a type after all, as Azure's `resource_graph` can list any type Resource Graph returns, the `query` service's resources of that type are left out, and the log says so. A type whose list resource needs arguments infraharvest has no value for, such as `aws_api_gateway_resource`'s `rest_api_id`, is refused too, and so is the `query` service with `--engine=tofu`, as OpenTofu has no `terraform query`.
+
+The `query` service lists in the same account and region, subscription or project as the other services, with the credentials Terraform is given for the import, and keeps only what belongs there: on AWS, the global import takes the resources whose identity has no region; on Google Cloud, a region's import takes those in the region or its zones, and the global one the others; on Azure, `--resource-group` keeps that group's. Terraform runs in a private directory under `<out>/.infraharvest`, removed when the listing is done.
+
+Terraform is asked for identities only, not the resources' attributes, and the import brings each resource in by its identity (`import { identity = { ... } }`), which needs Terraform 1.12: the plan reads each resource anyway. The run then uses Terraform 1.14 or later throughout, from `PATH`, `--terraform-path` or a download. A resource listed this way has its identity's attributes as its ID in the selection file, such as `account_id=123456789012,name=/app/logs,region=eu-west-2`, and `--where` filters on those attributes; it has no tags until it is imported, so `--tag` leaves it in, and tag-based selection rules don't see it. `--managed-state` leaves it out when a state, written by Terraform 1.12 or later, has its identity.
+
+Each list returns at most 10,000 resources. A list that reaches the limit, or fails, such as one Terraform is refused, is reported for its type, and the run doesn't pass as complete, as with a service that listed in part; the other types' resources are kept.
+
 ## Running in parallel
 
 Two flags set how much of an import runs at once:
@@ -168,6 +184,7 @@ Once the roots are applied (see [Applying the roots](output.md#applying-the-root
 | `--selection`, `--all` | `import` needs exactly one of them |
 | `discover` with `--all` | Refused: `discover` lists everything, and its `--selection` names the file it writes (default `selection.yaml`) |
 | `--services`, `--skip` | `--services` is required, on the command line or in the configuration file; `--skip` leaves services out of it. Both must name services the provider has, or `*` |
+| `--query-types`, the `query` service | One needs the other; not with `--engine=tofu` (see [Listing through Terraform](#listing-through-terraform)) |
 | `--incremental` with `--resume` | A root whose import didn't finish is generated again, then added to; with `--incremental` alone, such a root is reported as failed |
 | `--regenerate`, `--incremental` | One or the other: `--regenerate` generates the roots again, `--incremental` only adds to them |
 | `--regenerate` with `--resume` | The roots generated from the same resources and options are kept, the others generated again |
