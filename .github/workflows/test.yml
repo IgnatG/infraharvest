@@ -36,7 +36,9 @@ concurrency:
 # required checks still report: test, e2e and checks gather the jobs below
 # them and pass when each passed or was skipped, and a skipped job such as
 # test-windows counts as passed. A push to main and workflow_dispatch run
-# everything.
+# everything. The e2e jobs run with Terraform alone, but for
+# workflow_dispatch, which runs them with OpenTofu too: a run with each
+# engine would double the jobs every push queues for runners.
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -393,7 +395,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [terraform, tofu]
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
         shard: [round-trip, selection, incremental, options-output, options-input, drift, mcp, environments, regenerate, others]
         include:
         - shard: round-trip
@@ -485,7 +487,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [terraform, tofu]
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
         shard: [round-trip, incremental, drift, environments, others]
         include:
         - shard: round-trip
@@ -554,7 +556,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [terraform, tofu]
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
         shard: [round-trip, incremental, drift, environments, others]
         include:
         - shard: round-trip

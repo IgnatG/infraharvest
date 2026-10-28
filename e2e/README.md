@@ -66,7 +66,7 @@ AWS_ENDPOINT_URL=http://localhost:4566 go test -tags e2e,minimal,aws -timeout 40
 docker compose -f e2e/compose.yaml down
 ```
 
-Set `E2E_ENGINE=tofu` to run the same test with OpenTofu >= 1.6 (`--engine=tofu`). CI runs it with both engines, because the output must work on both.
+Set `E2E_ENGINE=tofu` to run the same test with OpenTofu >= 1.6 (`--engine=tofu`). CI runs it with Terraform, and with OpenTofu too when the Tests workflow is run by hand (workflow_dispatch), because the output must work on both.
 
 The tests don't delete what they create, so restart Floci (`down`, then `up`) before running them again.
 

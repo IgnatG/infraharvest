@@ -6,9 +6,10 @@ name: Action test
 # Runs the GitHub Action (action/) with a binary built from this commit
 # against the Floci emulators of AWS, Azure and Google Cloud: no cloud account is
 # involved. It also runs when the Go code changes, since the action relies on
-# the binary's flags, report path and exit codes. It imports with Terraform and
-# OpenTofu, through a selection file, with environments that share roots,
-# and with managed-state; checks drift on the roots once they're applied,
+# the binary's flags, report path and exit codes. It imports with Terraform,
+# and with OpenTofu too when run by hand (workflow_dispatch), through a
+# selection file, with environments that share roots, and with
+# managed-state; checks drift on the roots once they're applied,
 # per environment for roots environments share; and checks what the action
 # would open its pull request with. On main, once the repository lets
 # workflows open pull requests, it opens a real one too (see the
@@ -75,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [terraform, tofu]
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
     env:
       AWS_ENDPOINT_URL: http://localhost:4566
       AWS_ACCESS_KEY_ID: test
