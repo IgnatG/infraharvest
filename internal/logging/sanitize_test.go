@@ -18,7 +18,8 @@ func TestPrintable(t *testing.T) {
 		"a carriage":      {"ok\rfail", `ok\x0dfail`},
 		"a delete":        {"a\x7fb", `a\x7fb`},
 		"a C1 control":    {"a\u009bb\u0085", `a\u009bb\u0085`},
-		"an invalid byte": {"a\xffb", "a\xffb"},
+		"an invalid byte": {"a\xffb", `a\xffb`},
+		"a lone C1 byte":  {"a\x9bb", `a\x9bb`},
 		"a null":          {"a\x00b", `a\x00b`},
 		"nothing":         {"", ""},
 	} {

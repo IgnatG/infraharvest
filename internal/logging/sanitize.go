@@ -38,11 +38,12 @@ func (s sanitizer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// hasControl reports whether p holds a control character Printable escapes.
+// hasControl reports whether p holds what Printable escapes: a control
+// character or a byte that isn't UTF-8.
 func hasControl(p []byte) bool {
 	for i := 0; i < len(p); {
 		r, size := utf8.DecodeRune(p[i:])
-		if r != utf8.RuneError && isControl(r) {
+		if (r == utf8.RuneError && size == 1) || isControl(r) {
 			return true
 		}
 		i += size
@@ -58,7 +59,9 @@ func Printable(s string) string {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		switch {
 		case r == utf8.RuneError && size == 1:
-			b.WriteByte(s[i])
+			// Not UTF-8: a terminal that reads 8-bit characters would take a
+			// byte such as 0x9b as a control.
+			fmt.Fprintf(&b, `\x%02x`, s[i])
 		case isControl(r) && r < 0x80:
 			fmt.Fprintf(&b, `\x%02x`, r)
 		case isControl(r):
