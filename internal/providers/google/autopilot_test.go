@@ -63,9 +63,6 @@ func clustersAndAssets(t *testing.T, search *fakeAssetSearch, clusters *fakeClus
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
-	testCaches().autopilotClusters.forget()
-	t.Cleanup(testCaches().autopilotClusters.forget)
 }
 
 func nodePool(cluster, name, location string) map[string]any {

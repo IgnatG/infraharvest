@@ -70,8 +70,8 @@ type Provider struct {
 	caches *runCaches
 }
 
-// runCaches returns the caches of the run Init was given, or those of the
-// calls outside any run (see ratelimit.Default) before Init.
+// runCaches returns the caches of the run Init was given, or, before
+// Init, caches of no run, which hold nothing (see cachesOf).
 func (p *Provider) runCaches() *runCaches {
 	if p.caches == nil {
 		return cachesOf(context.Background())

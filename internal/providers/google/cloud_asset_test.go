@@ -187,24 +187,7 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 	return listAssetsIn(t, cat, region)
-}
-
-// forgetSearches drops the searches and the rejected asset types the
-// tests' run has kept (see testCaches), now and when the test ends, so
-// that a test's search doesn't reach another's.
-func forgetSearches(t *testing.T) {
-	t.Helper()
-	forget := func() {
-		caches := testCaches()
-		caches.searches.forget()
-		caches.mu.Lock()
-		caches.rejectedTypes = map[string]bool{}
-		caches.mu.Unlock()
-	}
-	forget()
-	t.Cleanup(forget)
 }
 
 // listAssetsIn lists region (global for "") of the project acme-prod from
@@ -225,7 +208,7 @@ func listAssetsIn(t *testing.T, cat *catalogue.Catalogue, region string) []harve
 func assetLister(t *testing.T, cat *catalogue.Catalogue, region string) *CloudAssetLister {
 	t.Helper()
 	g := &CloudAssetLister{}
-	g.SetContext(t.Context())
+	g.SetContext(testRun(t))
 	g.Configure(harvest.ListerConfig{Provider: "google"})
 	g.SetSettings(listerSettings{project: "acme-prod", region: compute.Region{Name: region}, catalogue: cat})
 	return g
@@ -323,7 +306,6 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 
 	regions := []string{"", "us-central1", "europe-west1", "us-central1", ""}
 	listers := make([]*CloudAssetLister, len(regions))
@@ -380,7 +362,6 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 
 	for range 2 {
 		if err := assetLister(t, nil, "").List(); err == nil {
@@ -393,7 +374,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	if failures != 1 || len(search.requests) != 0 {
 		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
 	}
-	testCaches().searches.forget()
+	testCaches(t).searches.forget()
 	if got := listAssetsIn(t, nil, ""); len(got) != 7 || len(search.requests) != 1 {
 		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
@@ -423,7 +404,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
 	}
 
-	testCaches().searches.forget()
+	testCaches(t).searches.forget()
 	before := len(search.requests)
 	if got := listAssetsIn(t, cat, ""); len(got) != 7 {
 		t.Errorf("searching again: got %v", byID(got))
@@ -441,7 +422,6 @@ func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 	if err := assetLister(t, nil, "").List(); err == nil || !strings.Contains(err.Error(), "every asset type") {
 		t.Errorf("error %v, want one saying every type is rejected", err)
 	}
@@ -565,10 +545,9 @@ func TestGlobalNamesTheOtherRegions(t *testing.T) {
 // global takes them wherever they are, and any import lists in part the
 // types of the asset types its run's search rejected.
 func TestCloudAssetPartialTypes(t *testing.T) {
-	forgetSearches(t)
 	cat := catalogue.MustBuiltin("google")
-	global := &Provider{catalogue: cat}
-	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}}
+	global := &Provider{catalogue: cat, caches: testCaches(t)}
+	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}, caches: testCaches(t)}
 
 	if got := global.PartialTypes(); len(got) != 0 {
 		t.Errorf("global: got %v, want none", got)
@@ -577,7 +556,7 @@ func TestCloudAssetPartialTypes(t *testing.T) {
 		t.Errorf("a region: got %v, want %v", got, want)
 	}
 
-	caches := testCaches()
+	caches := testCaches(t)
 	caches.mu.Lock()
 	caches.rejectedTypes["pubsub.googleapis.com/Topic"] = true
 	caches.mu.Unlock()
