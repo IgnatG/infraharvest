@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // queuesForEach is the code of a merged root's queues of one shape: one

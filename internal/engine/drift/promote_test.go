@@ -12,8 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // bucketModuleDir is where bucketCalls call the bucket module from.
