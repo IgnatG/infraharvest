@@ -34,7 +34,10 @@ jobs:
           persist-credentials: false
       # The same exclusions as MegaLinter's (.mega-linter.yml). The token
       # (the action's default) keeps github.com from rate-limiting the
-      # runner.
+      # runner. Links to this repository's own files on main are checked
+      # against the checkout instead, so a pull request that adds a file and
+      # links it the way the published site needs passes, and one that
+      # renames a linked file fails.
       - name: Check the links
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
@@ -46,4 +49,5 @@ jobs:
             --retry-wait-time 5
             --timeout 30
             --exclude '(\$\{|\$%7B|\{\{)'
+            --remap 'https://github\.com/IgnatG/infraharvest/(?:blob|tree)/main/([^#?]*).* file://${{ github.workspace }}/$1'
             './**/*.md'
