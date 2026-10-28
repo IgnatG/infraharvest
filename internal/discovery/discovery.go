@@ -32,7 +32,8 @@ type Discoverer interface {
 }
 
 // ErrDeadline is the error of a discoverer that was still listing when
-// its deadline passed: what it found may be incomplete.
+// its deadline passed: what it found may be incomplete. List returns it
+// as partial (see harvest.Partial), with what was found.
 var ErrDeadline = errors.New("listing took longer than its deadline; its resources may be incomplete")
 
 // Options bound a listing.
@@ -48,19 +49,21 @@ type Result struct {
 	Name      string
 	Resources []harvest.Resource
 	// Err is why the discoverer failed: what it found is left out, unless
-	// Err is partial (see harvest.IsPartial), when Resources holds what it
-	// listed.
+	// Err is partial (see harvest.IsPartial), as when its deadline passed,
+	// when Resources holds what it listed.
 	Err error
 }
 
 // List runs the discoverers, at most opts.Parallel at a time and each
 // within opts.Timeout, and returns their results in the discoverers'
-// order. A discoverer whose deadline passed fails with ErrDeadline, also
-// if it returned no error, as listers that log a failed call and go on
-// do, or a partial one, and what it found is left out. A discoverer that
-// fails with a partial error keeps what it found. Once ctx is done List
-// starts no more discoverers, waits for those running, and returns ctx's
-// error.
+// order. A discoverer whose deadline passed fails in part with
+// ErrDeadline, whatever it returned, as listers that log a failed call
+// and go on return no error, and keeps what it found by then: a long
+// listing of a large estate isn't lost for its last minutes. A
+// discoverer that fails with a partial error keeps what it found too.
+// Either is a failure of the import all the same, after which what is
+// gone from the cloud is unknown. Once ctx is done List starts no more
+// discoverers, waits for those running, and returns ctx's error.
 func List(ctx context.Context, discoverers []Discoverer, opts Options) ([]Result, error) {
 	parallel := max(opts.Parallel, 1)
 	results := make([]Result, len(discoverers))
@@ -117,7 +120,7 @@ func discover(ctx context.Context, d Discoverer, timeout time.Duration) Result {
 	defer cancel()
 	resources, err := safely(listCtx, d)
 	if ctx.Err() == nil && listCtx.Err() != nil {
-		err = ErrDeadline
+		err = harvest.Partial(ErrDeadline)
 	}
 	if err != nil && !harvest.IsPartial(err) {
 		return Result{Name: d.Name(), Err: err}

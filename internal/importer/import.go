@@ -434,10 +434,10 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 
 // listServices lists the resources of every service of the call c into
 // registry, parallel services at once, each service with a provider of
-// its own initialised with args. A service that fails to list, or that
-// takes longer than --list-timeout, is left out of the registry and
-// returned among the failures; one that lists in part (see
-// harvest.Partial) keeps what it listed, and is among the failures too.
+// its own initialised with args. A service that fails to list is left out
+// of the registry and returned among the failures; one that lists in part
+// (see harvest.Partial), or takes longer than --list-timeout, keeps what
+// it listed, and is among the failures too.
 // The error is for what stops the whole listing: a provider that can't be
 // initialised, a filter that doesn't parse, or an interrupt.
 //
@@ -519,7 +519,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		cause := result.Err
 		if errors.Is(cause, discovery.ErrDeadline) {
 			// Name the flag that sets the deadline, so the fix is plain.
-			cause = fmt.Errorf("listing took longer than --list-timeout %s; its resources may be incomplete", options.ListTimeout)
+			cause = harvest.Partial(fmt.Errorf("listing took longer than --list-timeout %s, so it stopped: what it listed by then is imported, but more may be missing", options.ListTimeout))
 		}
 		if !harvest.IsPartial(cause) {
 			failed = append(failed, result.Name)

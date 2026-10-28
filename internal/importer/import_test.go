@@ -122,11 +122,15 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a slow service must not abort the run: %v", err)
 		}
-		if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms") {
-			t.Errorf("want the slow service reported, got %v", failures)
+		if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms, so it stopped: what it listed by then is imported") || !harvest.IsPartial(failures[0]) {
+			t.Errorf("want the slow service reported as listed in part, got %v", failures)
 		}
-		if got := len(registry.Resources); got != 1 {
-			t.Errorf("want the good service's resource only, got %d resources", got)
+		// What the slow service listed before its deadline is kept.
+		if got := registry.ByService()["slow"]; len(got) != 1 || got[0].Observed.ID != "id-3" {
+			t.Errorf("want the slow service's resource kept, got %v", got)
+		}
+		if got := len(registry.Resources); got != 2 {
+			t.Errorf("want the good and the slow services' resources, got %d resources", got)
 		}
 	})
 }
@@ -144,8 +148,8 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 }
 
 // fakeProvider lists one resource per service, fails for service "bad",
-// lists one and fails in part for service "partial", and lists service
-// "slow" until its context is done.
+// lists one and fails in part for service "partial", and lists one for
+// service "slow", then fails when its context is done.
 // fakeScope is a provider command's scope (see Options.ProviderScope)
 // with each capability harvest declares for one.
 type fakeScope struct {
@@ -193,9 +197,11 @@ func (s *fakeService) List() error {
 		s.Resources = []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}
 		return harvest.Partial(errors.New("a zone's records: access denied"))
 	case "slow":
-		// Like listers that log a failed call and go on.
+		// Lists one, then waits on a call that fails when its context is
+		// done.
+		s.Resources = []harvest.Resource{harvest.RecordBare("id-3", "three", "fake_thing", "fake")}
 		<-s.Context().Done()
-		return nil
+		return s.Context().Err()
 	}
 	s.Resources = []harvest.Resource{
 		harvest.RecordBare("id-1", "one", "fake_thing", "fake"),

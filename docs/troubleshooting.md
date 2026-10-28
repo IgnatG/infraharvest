@@ -44,7 +44,7 @@ A service fails with the cloud's denial in its message, `service <name>: ...`, a
 
 ## A service took too long
 
-`service <name>: listing took longer than --list-timeout 30m0s; its resources may be incomplete` means the service didn't finish listing one account and region, subscription or project in time. Raise `--list-timeout` (`0` for no limit), name fewer `--services`, or on AWS skip services a region doesn't use with [`--resource-explorer`](aws.md#resource-explorer).
+`service <name>: listing took longer than --list-timeout 30m0s, so it stopped: what it listed by then is imported, but more may be missing` means the service didn't finish listing one account and region, subscription or project in time. What it listed is in the output, but the run doesn't pass as complete. Raise `--list-timeout` (`0` for no limit), name fewer `--services`, or on AWS skip services a region doesn't use with [`--resource-explorer`](aws.md#resource-explorer).
 
 ## A Terraform command took too long
 
