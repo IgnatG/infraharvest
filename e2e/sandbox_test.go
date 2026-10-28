@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
@@ -41,6 +43,11 @@ type sandboxEstate struct {
 // to apply with vars and env, the fixture identity's credentials, on top
 // of the process's environment. The test's cleanup destroys what it
 // creates.
+//
+// The variables of the estate that the process's environment sets as
+// TF_VAR_<name>, such as the sandbox-aws workflow's run_id and
+// permissions_boundary_arn, come before vars: tfexec drops TF_VAR_
+// variables from the environment it runs Terraform with.
 func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins string, env map[string]string, vars ...string) *sandboxEstate {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join("testdata", "sandbox", name, "main.tf"))
@@ -53,6 +60,7 @@ func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	vars = append(environmentVars(t, name, content), vars...)
 	tf, err := tfrun.New(dir, execPath, plugins, env, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +83,28 @@ func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins
 		t.Fatalf("seed: init: %v", err)
 	}
 	return &sandboxEstate{tf: tf, vars: vars}
+}
+
+// environmentVars returns the variables content declares that the
+// process's environment sets as TF_VAR_<name>, as name=value, in the order
+// content declares them. A variable it doesn't declare is left out, as
+// -var refuses one.
+func environmentVars(t *testing.T, name string, content []byte) []string {
+	t.Helper()
+	f, diags := hclsyntax.ParseConfig(content, name+"/main.tf", hcl.InitialPos)
+	if diags.HasErrors() {
+		t.Fatal(diags)
+	}
+	var vars []string
+	for _, b := range f.Body.(*hclsyntax.Body).Blocks {
+		if b.Type != "variable" || len(b.Labels) != 1 {
+			continue
+		}
+		if v, ok := os.LookupEnv("TF_VAR_" + b.Labels[0]); ok {
+			vars = append(vars, b.Labels[0]+"="+v)
+		}
+	}
+	return vars
 }
 
 // apply applies the estate with its vars and opts, such as more variables
