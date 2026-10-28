@@ -388,9 +388,10 @@ func TestMergedOwnStates(t *testing.T) {
 	stack := filepath.Join("out", "aws", "eu-west-2")
 	r := m.root(stack)
 	r.configured, r.envs = true, []string{"dev", "prod"}
-	r.locations = map[string][]string{"dev": {"/state/dev"}, "prod": {"/state/prod", "s3://state/prod"}}
+	dev, prod := stateLocation("/state/dev"), stateLocation("/state/prod")
+	r.locations = map[string][]string{"dev": {dev}, "prod": {prod, "s3://state/prod"}}
 	want := map[string]mergedState{
-		"/state/dev": {stack, "dev"}, "/state/prod": {stack, "prod"}, "s3://state/prod": {stack, "prod"},
+		dev: {stack, "dev"}, prod: {stack, "prod"}, "s3://state/prod": {stack, "prod"},
 	}
 	if own, err := mergedOwnStates(m.index(), true); err != nil || !reflect.DeepEqual(own, want) {
 		t.Errorf("got %v, %v, want %v", own, err, want)
