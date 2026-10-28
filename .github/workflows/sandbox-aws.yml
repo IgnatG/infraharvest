@@ -187,8 +187,9 @@ jobs:
           exit 1
         fi
     # The last resort, whatever the destroy did: deletes what still carries
-    # this run's tag (TF_VAR_run_id) and costs the most while it exists, and
-    # warns about the rest. It touches nothing without the tag.
+    # this run's tag (TF_VAR_run_id), in the order its dependencies allow,
+    # and warns about what is still tagged. It touches nothing without the
+    # tag (see the script).
     - name: Sweep what the run left
       if: always()
       timeout-minutes: 30
