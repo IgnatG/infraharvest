@@ -684,8 +684,12 @@ jobs:
             terraform -chdir="$dir" test
           fi
         done
+    # The deny lists, which the Permission names workflow checks against
+    # the clouds' references.
     - name: Policy JSON
-      run: jq empty permissions/aws/deny-data-reads.json
+      run: |
+        jq empty permissions/aws/deny-data-reads.json
+        jq -e 'type == "array" and all(.[]; type == "string")' permissions/google/deny-data-reads.json > /dev/null
 
   # The built-in catalogue's types, arguments, nested blocks and defaults
   # must be in the schemas of the providers' newest releases, the ones
