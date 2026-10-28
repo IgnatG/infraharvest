@@ -101,3 +101,11 @@ type ProviderWithQueryScope interface {
 	QueryConfig() map[string]string
 	InQueryScope(identity map[string]string) bool
 }
+
+// ListedByIdentity reports whether r was listed by its identity, through
+// Terraform's list resources (see RecordIdentity), which return no tags:
+// what tags decide, such as a selection file's rules on tags or the
+// environment tags, can't be told for it.
+func ListedByIdentity(r Resource) bool {
+	return r.Observed != nil && r.Observed.Identity != nil
+}

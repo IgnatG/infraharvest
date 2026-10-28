@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -176,7 +177,7 @@ func TestMergeKeepsUnlisted(t *testing.T) {
 	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
 		t.Fatalf("added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
-	if d := f.decideIn("aws/222233334444/global", "aws_iam_role", "admin", "", nil); d.Include {
+	if d := f.decideIn("aws/222233334444/global", "aws_iam_role", "admin", "", nil, false); d.Include {
 		t.Errorf("the unlisted role's exclusion was lost: %+v", d)
 	}
 }
@@ -199,7 +200,7 @@ func TestMergeKeepsWhatItDidNotCover(t *testing.T) {
 	if !f.hasIn(a, "aws_vpc", "vpc-a") || f.hasIn(b, "aws_vpc", "vpc-gone") {
 		t.Errorf("resources %+v", f.Resources)
 	}
-	if d := f.decideIn(a, "aws_vpc", "vpc-a", "", nil); d.Include {
+	if d := f.decideIn(a, "aws_vpc", "vpc-a", "", nil, false); d.Include {
 		t.Errorf("region %s lost its decision: %+v", a, d)
 	}
 }
@@ -220,10 +221,10 @@ func TestScopes(t *testing.T) {
 	if f.hasIn("aws/777788889999/global", "aws_iam_role", "admin") {
 		t.Error("an entry of another scope must not count")
 	}
-	if d := f.decideIn(a, "aws_iam_role", "admin", "", nil); !d.Include {
+	if d := f.decideIn(a, "aws_iam_role", "admin", "", nil, false); !d.Include {
 		t.Errorf("scope %s: %+v", a, d)
 	}
-	if d := f.decideIn(b, "aws_iam_role", "admin", "", nil); d.Include || d.Reason != "excluded in the selection file" {
+	if d := f.decideIn(b, "aws_iam_role", "admin", "", nil, false); d.Include || d.Reason != "excluded in the selection file" {
 		t.Errorf("scope %s: %+v", b, d)
 	}
 
@@ -235,7 +236,7 @@ func TestScopes(t *testing.T) {
 	if added != 0 || dropped != 0 || len(f.Resources) != 2 {
 		t.Errorf("merge: added %d, dropped %d, resources %+v", added, dropped, f.Resources)
 	}
-	if d := f.decideIn(b, "aws_iam_role", "admin", "", nil); d.Include {
+	if d := f.decideIn(b, "aws_iam_role", "admin", "", nil, false); d.Include {
 		t.Errorf("the decision for scope %s was lost: %+v", b, d)
 	}
 
@@ -248,7 +249,7 @@ func TestScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Resources) != 2 || loaded.decideIn(b, "aws_iam_role", "admin", "", nil).Include {
+	if len(loaded.Resources) != 2 || loaded.decideIn(b, "aws_iam_role", "admin", "", nil, false).Include {
 		t.Errorf("round trip: %+v", loaded.Resources)
 	}
 }
@@ -261,7 +262,7 @@ func TestScopelessEntryApplies(t *testing.T) {
 	}}
 	const scope = "aws/111122223333/eu-west-2"
 
-	if !f.hasIn(scope, "aws_vpc", "vpc-1") || f.decideIn(scope, "aws_vpc", "vpc-1", "", nil).Include {
+	if !f.hasIn(scope, "aws_vpc", "vpc-1") || f.decideIn(scope, "aws_vpc", "vpc-1", "", nil, false).Include {
 		t.Error("the scope-less entry must decide")
 	}
 	added, dropped := f.Merge([]Resource{{Type: "aws_vpc", ID: "vpc-1", Scope: scope, Include: true}}, nil)
@@ -346,8 +347,38 @@ func TestRulesMatchTags(t *testing.T) {
 		{"aws_vpc", map[string]string{"env": "dev", "keep": "yes"}, true},
 		{"aws_vpc", map[string]string{"env": "dev", "keep": "no"}, false},
 	} {
-		if got := f.decideIn("", tc.resourceType, "id", "", tc.tags); got.Include != tc.include {
+		if got := f.decideIn("", tc.resourceType, "id", "", tc.tags, false); got.Include != tc.include {
 			t.Errorf("%s %v: got %+v, want include %v", tc.resourceType, tc.tags, got, tc.include)
+		}
+	}
+}
+
+// A rule on tags can't decide a resource the query service lists, whose
+// tags Terraform's list resources don't return: one that would match it
+// otherwise excludes it, saying so, until its entry includes it; a rule
+// without tags, and a later one, decide it as any other.
+func TestRulesOnUnreadTags(t *testing.T) {
+	t.Parallel()
+	f, err := Load(write(t, strings.Replace(byTag, "resources:", "  - include: { type: aws_flow_log, id: \"id=fl-keep*\" }\nresources:", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		resource Resource
+		want     Decision
+	}{
+		{Resource{Type: "aws_flow_log", ID: "id=fl-1", Service: harvest.QueryService, Include: true}, Decision{Reason: report.ReasonSelectionTagsUnread}},
+		{Resource{Type: "aws_flow_log", ID: "id=fl-keep", Service: harvest.QueryService, Include: true}, Decision{Include: true}},
+		// Its tags are read: none match the exclusions.
+		{Resource{Type: "aws_flow_log", ID: "id=fl-1", Service: "vpc", Include: true}, Decision{Include: true}},
+	} {
+		f := &File{Version: Version, Defaults: f.Defaults, Rules: f.Rules}
+		f.Merge([]Resource{tc.resource}, nil)
+		if got := f.Resources[0]; got.Include != tc.want.Include || got.Reason != tc.want.Reason {
+			t.Errorf("%+v: got include %v, %q, want %+v", tc.resource, got.Include, got.Reason, tc.want)
+		}
+		if got := report.OwnerOf(f.Resources[0].Reason); got != "" && got != report.OwnerSelection {
+			t.Errorf("%+v: the reason is %s's, want the selection file's", tc.resource, got)
 		}
 	}
 }

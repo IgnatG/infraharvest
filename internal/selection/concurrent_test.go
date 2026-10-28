@@ -20,10 +20,10 @@ func TestDecideConcurrently(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if !f.hasIn("aws/1/eu-west-2", "aws_vpc", "vpc-1") || !f.decideIn("aws/1/eu-west-2", "aws_vpc", "vpc-1", "main", nil).Include {
+			if !f.hasIn("aws/1/eu-west-2", "aws_vpc", "vpc-1") || !f.decideIn("aws/1/eu-west-2", "aws_vpc", "vpc-1", "main", nil, false).Include {
 				t.Error("vpc-1 is included")
 			}
-			if f.decideIn("aws/2/eu-west-2", "aws_vpc", "vpc-2", "main", nil).Include {
+			if f.decideIn("aws/2/eu-west-2", "aws_vpc", "vpc-2", "main", nil, false).Include {
 				t.Error("vpc-2 is excluded")
 			}
 		}()

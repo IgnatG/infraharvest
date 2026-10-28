@@ -152,6 +152,30 @@ func (r *Run) warnUnscoped(provider harvest.Provider, scope string) {
 	}
 }
 
+// warnUnreadEnvTags warns, in the log and the report, when tags say which
+// environment's roots a resource goes to, by --env-tags or the
+// configuration file's environments, and the query service listed some:
+// Terraform's list resources return no tags, so those go where resources
+// without environment tags do, which the warning names, rather than
+// where their tags would put them.
+func (r *Run) warnUnreadEnvTags(provider harvest.Provider, layout callLayout, defaultEnv string, queried []harvest.Resource) {
+	var untagged string
+	switch {
+	case len(queried) == 0, len(layout.envNames) == 1:
+		return
+	case len(layout.envNames) > 1:
+		untagged = sharedEnv
+	case strings.Contains(layout.root, "{env}"):
+		untagged = untaggedEnv(defaultEnv)
+	default:
+		return
+	}
+	w := fmt.Sprintf("%s: the %d resources the %s service listed have no tags, as Terraform's list resources return none, so environment tags can't place them: they go where resources without them do, to %s unless their import ID names a resource of another environment", provider.Name(), len(queried), harvest.QueryService, untagged)
+	if r.report.AddWarning(w) {
+		log.Printf("warning: %s", w)
+	}
+}
+
 // keptRoots keeps resources in the roots earlier imports generated for
 // them, where environments would now lay them out elsewhere: a root
 // never moves, as its state key comes from its path. With --regenerate,

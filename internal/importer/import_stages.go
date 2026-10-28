@@ -415,6 +415,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 	if len(layout.envNames) > 0 {
 		envOf = configuredEnvOf(r.environments, layout.envNames, resources.byService, listed.tags, resources.parents, c.importID)
 	}
+	r.warnUnreadEnvTags(provider, layout, options.DefaultEnv, resources.byService[harvest.QueryService])
 	dirOf := layoutDirs(layout.root, options.Out, providerDir(provider), envOf)
 	p := &placement{}
 	if len(layout.envNames) > 0 {
