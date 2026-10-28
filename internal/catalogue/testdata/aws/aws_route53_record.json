@@ -4,5 +4,6 @@
   {"id": "Z0123456789ABCDEFGHIJ_example.internal._MX_", "name": "example_internal_MX", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "MX", "set_identifier": "", "apex": "true"}},
   {"id": "Z0123456789ABCDEFGHIJ_dev.example.internal._NS_", "name": "dev_NS", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "dev.example.internal", "type": "NS", "set_identifier": "", "apex": "false"}},
   {"id": "Z0123456789ABCDEFGHIJ_example.internal._NS_", "name": "example_internal_NS", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "NS", "set_identifier": "", "apex": "true"}},
-  {"id": "Z0123456789ABCDEFGHIJ_example.internal._SOA_", "name": "example_internal_SOA", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "SOA", "set_identifier": "", "apex": "true"}}
+  {"id": "Z0123456789ABCDEFGHIJ_example.internal._SOA_", "name": "example_internal_SOA", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "SOA", "set_identifier": "", "apex": "true"}},
+  {"id": "Z9876543210ABCDEFGHIJ_api.svc.local._A_", "name": "api_A", "attributes": {"zone_id": "Z9876543210ABCDEFGHIJ", "name": "api.svc.local", "type": "A", "set_identifier": "", "apex": "false", "linked_service": "servicediscovery.amazonaws.com"}}
 ]}

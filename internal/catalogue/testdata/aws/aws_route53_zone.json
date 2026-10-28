@@ -1,1 +1,4 @@
-{"resources": [{"id": "Z0123456789ABCDEFGHIJ", "name": "internal", "attributes": {"name": "example.internal."}}]}
+{"resources": [
+  {"id": "Z0123456789ABCDEFGHIJ", "name": "internal", "attributes": {"name": "example.internal."}},
+  {"id": "Z9876543210ABCDEFGHIJ", "name": "svc_local", "attributes": {"name": "svc.local.", "linked_service": "servicediscovery.amazonaws.com"}}
+]}

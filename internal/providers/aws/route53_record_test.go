@@ -132,3 +132,44 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 		assertIDs(t, g.Resources, "aws_route53_health_check")
 	})
 }
+
+// A zone and a health check another service created, here Cloud Map for a
+// namespace, record that service as linked_service, and so do the zone's
+// records; the others record none.
+func TestRecordRoute53RecordsLinkedService(t *testing.T) {
+	t.Parallel()
+	const linked = `<LinkedService><ServicePrincipal>servicediscovery.amazonaws.com</ServicePrincipal><Description>arn:aws:servicediscovery:eu-west-2:123456789012:namespace/ns-1</Description></LinkedService>`
+	ctx := useFakeAPI(t, func(call apiCall) string {
+		switch call.Path {
+		case "/2013-04-01/hostedzone":
+			return `<ListHostedZonesResponse ` + recordRoute53NS + `><HostedZones>
+				<HostedZone><Id>/hostedzone/Z3</Id><Name>svc.local.</Name><CallerReference>c-3</CallerReference><Config><PrivateZone>true</PrivateZone></Config>` + linked + `</HostedZone>
+				</HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesResponse>`
+		case "/2013-04-01/hostedzone/Z3/rrset":
+			return `<ListResourceRecordSetsResponse ` + recordRoute53NS + `><ResourceRecordSets>
+				<ResourceRecordSet><Name>api.svc.local.</Name><Type>A</Type><TTL>60</TTL><ResourceRecords><ResourceRecord><Value>10.0.0.1</Value></ResourceRecord></ResourceRecords></ResourceRecordSet>
+				</ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>300</MaxItems></ListResourceRecordSetsResponse>`
+		case "/2013-04-01/healthcheck":
+			return `<ListHealthChecksResponse ` + recordRoute53NS + `><HealthChecks>
+				<HealthCheck><Id>hc-linked</Id><CallerReference>c-l</CallerReference>` + linked + `<HealthCheckConfig><Type>HTTP</Type><IPAddress>10.0.0.1</IPAddress></HealthCheckConfig><HealthCheckVersion>1</HealthCheckVersion></HealthCheck>
+				<HealthCheck><Id>hc-own</Id><CallerReference>c-o</CallerReference><HealthCheckConfig><Type>HTTPS</Type><FullyQualifiedDomainName>example.com</FullyQualifiedDomainName></HealthCheckConfig><HealthCheckVersion>1</HealthCheckVersion></HealthCheck>
+				</HealthChecks><IsTruncated>false</IsTruncated><Marker></Marker><MaxItems>100</MaxItems></ListHealthChecksResponse>`
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &Route53Lister{}
+	g.SetContext(ctx)
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	const principal = "servicediscovery.amazonaws.com"
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_route53_zone", "Z3", "svc.local", map[string]string{"name": "svc.local.", "force_destroy": "false", "linked_service": principal}},
+		recordedResource{"aws_route53_record", "Z3_api.svc.local._A_", "api A", map[string]string{
+			"name": "api.svc.local", "zone_id": "Z3", "type": "A", "set_identifier": "", "apex": "false", "linked_service": principal}},
+		recordedResource{"aws_route53_health_check", "hc-linked", "10.0.0.1 HTTP", map[string]string{"linked_service": principal}},
+		recordedResource{"aws_route53_health_check", "hc-own", "example.com HTTPS", nil},
+	)
+}

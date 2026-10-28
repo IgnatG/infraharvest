@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "0b1c2d3e-0000-4000-8000-000000000001", "name": "example_com_HTTPS"},
+  {"id": "0b1c2d3e-0000-4000-8000-000000000002", "name": "api_HTTP", "attributes": {"linked_service": "servicediscovery.amazonaws.com"}}
+]}

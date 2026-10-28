@@ -19,7 +19,9 @@ import (
 
 // Route53Lister lists the global service "route53": the hosted zones,
 // public and private, each with all its record sets, and the health
-// checks.
+// checks. A zone or health check another service created, such as Cloud
+// Map for a namespace, records that service as linked_service, and so do
+// the records of such a zone (see recordLinkedService).
 type Route53Lister struct {
 	Service
 }
@@ -61,14 +63,16 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, lis
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
 			domain := aws.ToString(zone.Name)
-			g.Resources = append(g.Resources, harvest.Record(zoneID, strings.TrimSuffix(domain, "."), "aws_route53_zone", "aws", map[string]string{
+			attributes := map[string]string{
 				"name":          domain,
 				"force_destroy": "false",
-			}))
+			}
+			recordLinkedService(attributes, zone.LinkedService)
+			g.Resources = append(g.Resources, harvest.Record(zoneID, strings.TrimSuffix(domain, "."), "aws_route53_zone", "aws", attributes))
 			// A call or more per zone, for records the import may not
 			// keep.
 			if g.wants("aws_route53_record") {
-				errs = append(errs, g.listRecords(client, zoneID, domain))
+				errs = append(errs, g.listRecords(client, zoneID, domain, zone.LinkedService))
 			}
 		}
 	}
@@ -82,10 +86,11 @@ type recordPosition struct {
 }
 
 // listRecords records every record set of the zone zoneID, whose domain
-// is domain, NS and SOA included. The pages are walked by hand, from the
-// name, type and set identifier that each truncated page gives for the
-// next, and stop should a page point at the position it was asked for.
-func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain string) error {
+// is domain and which linked, when not nil, says another service created,
+// NS and SOA included. The pages are walked by hand, from the name, type
+// and set identifier that each truncated page gives for the next, and stop
+// should a page point at the position it was asked for.
+func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain string, linked *types.LinkedService) error {
 	input := &route53.ListResourceRecordSetsInput{HostedZoneId: aws.String(zoneID)}
 	for {
 		page, err := client.ListResourceRecordSets(g.Context(), input)
@@ -93,7 +98,7 @@ func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain strin
 			return fmt.Errorf("route53: records of zone %s: %w", zoneID, err)
 		}
 		for _, recordSet := range page.ResourceRecordSets {
-			g.addRecord(zoneID, domain, recordSet)
+			g.addRecord(zoneID, domain, linked, recordSet)
 		}
 		if !page.IsTruncated {
 			return nil
@@ -117,24 +122,27 @@ func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain strin
 // The record set is named after its name within the zone's domain, its
 // type and its set identifier (see recordName). It records whether the set
 // is at the zone's apex (apex), where Route 53 creates the zone's NS and
-// SOA sets with the zone and won't delete them.
-func (g *Route53Lister) addRecord(zoneID, domain string, recordSet types.ResourceRecordSet) {
+// SOA sets with the zone and won't delete them, and the service that
+// created the zone, linked, if another did.
+func (g *Route53Lister) addRecord(zoneID, domain string, linked *types.LinkedService, recordSet types.ResourceRecordSet) {
 	name := strings.Replace(aws.ToString(recordSet.Name), `\052`, "*", 1)
 	recordType := string(recordSet.Type)
 	setIdentifier := aws.ToString(recordSet.SetIdentifier)
 	id := zoneID + "_" + name + "_" + recordType + "_" + setIdentifier
-	g.Resources = append(g.Resources, harvest.Record(id, recordName(name, domain, recordType, setIdentifier), "aws_route53_record", "aws", map[string]string{
+	attributes := map[string]string{
 		"name":           strings.TrimSuffix(name, "."),
 		"zone_id":        zoneID,
 		"type":           recordType,
 		"set_identifier": setIdentifier,
 		"apex":           strconv.FormatBool(name == domain),
-	}))
+	}
+	recordLinkedService(attributes, linked)
+	g.Resources = append(g.Resources, harvest.Record(id, recordName(name, domain, recordType, setIdentifier), "aws_route53_record", "aws", attributes))
 }
 
 // listHealthChecks records every health check by ID, named after what it
 // checks, its domain name or IP address, and its type: "example.com
-// HTTPS".
+// HTTPS", with the service that created it, if another did.
 func (g *Route53Lister) listHealthChecks(client *route53.Client) error {
 	p := route53.NewListHealthChecksPaginator(client, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -148,7 +156,9 @@ func (g *Route53Lister) listHealthChecks(client *route53.Client) error {
 			if config := check.HealthCheckConfig; config != nil {
 				name = strings.TrimSpace(cmp.Or(aws.ToString(config.FullyQualifiedDomainName), aws.ToString(config.IPAddress)) + " " + string(config.Type))
 			}
-			g.Resources = append(g.Resources, harvest.RecordBare(id, cmp.Or(name, id), "aws_route53_health_check", "aws"))
+			attributes := map[string]string{}
+			recordLinkedService(attributes, check.LinkedService)
+			g.Resources = append(g.Resources, harvest.Record(id, cmp.Or(name, id), "aws_route53_health_check", "aws", attributes))
 		}
 	}
 	return nil
@@ -167,4 +177,15 @@ func recordName(name, domain, recordType, setIdentifier string) string {
 		relative = "wildcard"
 	}
 	return strings.TrimSpace(relative + " " + recordType + " " + setIdentifier)
+}
+
+// recordLinkedService records, as linked_service, the principal of the
+// service that created a hosted zone or health check, linked, when another
+// service did, such as servicediscovery.amazonaws.com for a Cloud Map
+// namespace. Route 53 can't change or delete what another service created,
+// which changes it as it pleases: the catalogue leaves it out.
+func recordLinkedService(attributes map[string]string, linked *types.LinkedService) {
+	if linked != nil {
+		attributes["linked_service"] = aws.ToString(linked.ServicePrincipal)
+	}
 }
