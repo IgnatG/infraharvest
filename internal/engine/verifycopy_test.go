@@ -78,10 +78,9 @@ func verifiedRoot(t *testing.T) (string, map[string]string) {
 func TestVerifyChecksACopyWithoutTheBackend(t *testing.T) {
 	t.Parallel()
 	dir, files := verifiedRoot(t)
-	var calls []string
 	var inspector *copyInspector
 	newTF := func(d string) (tfrun.Terraform, error) {
-		inspector = &copyInspector{Terraform: &fakeDriftTerraform{name: "verify", calls: &calls}, dir: d}
+		inspector = &copyInspector{Terraform: &fakeTerraform{dir: d}, dir: d}
 		return inspector, nil
 	}
 	if _, err := Verify(context.Background(), newTF, dir, Options{}); err != nil {

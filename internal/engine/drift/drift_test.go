@@ -1,14 +1,18 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,11 +25,13 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// fakeDriftTerraform is a tfrun.DriftTerraform for Drift's tests: it records
+// fakeDriftTerraform is a tfrun.DriftTerraform for Check's tests: it records
 // its calls, prefixed with its name, into calls, which the root's and the
 // staged copy's share, and returns plans in order from ShowPlanFile.
 type fakeDriftTerraform struct {
@@ -123,6 +129,113 @@ func hasOption[T any](opts []T, want T) bool {
 	return slices.ContainsFunc(opts, func(o T) bool { return reflect.DeepEqual(o, want) })
 }
 
+// testRules are the rules Check's tests hold edits to: the standards and
+// moves checks, the engine's, find nothing, no value is a default, and
+// nothing refers to another resource.
+var testRules = Rules{
+	Standards: func(string) (gate.Check, error) { return gate.Check{Name: gate.CheckStandards, Passed: true}, nil },
+	Moves:     func(string) (gate.Check, error) { return gate.Check{Name: gate.CheckMoves, Passed: true}, nil },
+}
+
+// accepting is opts accepting every change, with testRules.
+func accepting(opts Options) Options {
+	opts.Accept = func(Change) bool { return true }
+	opts.Rules = testRules
+	return opts
+}
+
+var updateGolden = flag.Bool("update", false, "rewrite the golden files in testdata")
+
+// goldenFiles compares files with the golden file at path, each file
+// after a -- path -- line, or rewrites it under -update.
+func goldenFiles(t *testing.T, path string, files map[string][]byte) {
+	t.Helper()
+	var b strings.Builder
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		fmt.Fprintf(&b, "-- %s --\n%s", name, files[name])
+		if !strings.HasSuffix(string(files[name]), "\n") {
+			b.WriteString("\n")
+		}
+	}
+	if *updateGolden {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v: record it with go test ./internal/engine/drift -run Golden -update (or the remote workflow's golden task)", err)
+	}
+	want := strings.ReplaceAll(string(content), "\r\n", "\n")
+	if got := b.String(); got != want {
+		wantLines, gotLines := strings.Split(want, "\n"), strings.Split(got, "\n")
+		for i := 0; i < len(wantLines) || i < len(gotLines); i++ {
+			w, g := "<end of file>", "<end of file>"
+			if i < len(wantLines) {
+				w = wantLines[i]
+			}
+			if i < len(gotLines) {
+				g = gotLines[i]
+			}
+			if w != g {
+				t.Errorf("%s doesn't match what the code writes now, first at line %d:\n  golden: %s\n  now:    %s\nif the change is intended, rewrite it with -update and review the diff", path, i+1, w, g)
+				return
+			}
+		}
+	}
+}
+
+// fakeSecret makes a 64-character hex secret from seed, like the Lambda
+// environment secrets of the sandbox run. Made at run time, so that secret
+// scanners don't take the source for a leak.
+func fakeSecret(seed string) string {
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:])
+}
+
+func readFile(t *testing.T, dir, name string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+// dirFiles returns the contents of the files in dir, by name.
+func dirFiles(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			files[e.Name()] = readFile(t, dir, e.Name())
+		}
+	}
+	return files
+}
+
+// writeFiles writes files, by path with forward slashes, into dir.
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for name, content := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 const driftState = `{"version":4,"resources":[{"mode":"managed","type":"aws_s3_bucket","name":"logs","instances":[{"attributes":{"bucket":"logs","secret":"in-state-only"}}]}]}`
 
 const driftMain = `resource "aws_s3_bucket" "logs" {
@@ -147,7 +260,7 @@ module "data" {
 
 // driftRoot writes a root at aws/123/eu-west-2 of an output directory
 // with modules/bucket, with files besides main.tf, and returns the root
-// and where Drift stages it.
+// and where Check stages it.
 func driftRoot(t *testing.T, files map[string]string) (dir, staging string) {
 	t.Helper()
 	out := t.TempDir()
@@ -236,10 +349,10 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		}
 	}
 	var stagedDir string
-	result, err := Drift(context.Background(), root, dir, staging, func(d string) (tfrun.DriftTerraform, error) {
+	result, err := Check(context.Background(), root, dir, staging, func(d string) (tfrun.DriftTerraform, error) {
 		stagedDir = d
 		return copied, nil
-	}, DriftOptions{StateOnly: map[string][]string{"aws_s3_bucket": {"force_destroy"}}, Backends: cloudBackends})
+	}, Options{StateOnly: map[string][]string{"aws_s3_bucket": {"force_destroy"}}, Backends: cloudBackends})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,18 +424,18 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		gots = append(gots, got{c.Address, c.Attribute, c.Kind, c.Outcome})
 	}
 	want := []got{
-		{"aws_db_instance.db", "password", DriftChanged, DriftNotAssessable},
-		{"aws_s3_bucket.logs", "arn", DriftChanged, DriftAbsorbed},
-		{"aws_s3_bucket.logs", "tags.Env", DriftChanged, DriftKept},
-		{"aws_security_group.web", "description", DriftChanged, DriftAbsorbed},
-		{"aws_security_group.web", "ingress[0].cidr_blocks[0]", DriftChanged, DriftKept},
-		{"aws_sqs_queue.gone", "", DriftDeleted, DriftKept},
-		{"module.data.aws_s3_bucket.this", "tags.Team", DriftChanged, DriftAbsorbed},
+		{"aws_db_instance.db", "password", Changed, NotAssessable},
+		{"aws_s3_bucket.logs", "arn", Changed, Absorbed},
+		{"aws_s3_bucket.logs", "tags.Env", Changed, Kept},
+		{"aws_security_group.web", "description", Changed, Absorbed},
+		{"aws_security_group.web", "ingress[0].cidr_blocks[0]", Changed, Kept},
+		{"aws_sqs_queue.gone", "", Deleted, Kept},
+		{"module.data.aws_s3_bucket.this", "tags.Team", Changed, Absorbed},
 	}
 	if !reflect.DeepEqual(gots, want) {
 		t.Errorf("changes:\n%v\nwant:\n%v", gots, want)
 	}
-	byKey := map[string]DriftChange{}
+	byKey := map[string]Change{}
 	for _, c := range result.Changes {
 		byKey[c.Address+" "+c.Attribute] = c
 	}
@@ -335,10 +448,10 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	if c := byKey["aws_security_group.web ingress[0].cidr_blocks[0]"]; !strings.Contains(c.Reason, "replaces") {
 		t.Errorf("a change the next apply replaces the resource for has the reason %q", c.Reason)
 	}
-	if c := byKey["aws_s3_bucket.logs tags.Env"]; c.Before != "prod" || c.After != "dev" || c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 4, Expression: `"prod"`}) {
+	if c := byKey["aws_s3_bucket.logs tags.Env"]; c.Before != "prod" || c.After != "dev" || c.Source == nil || *c.Source != (Source{File: "main.tf", Line: 4, Expression: `"prod"`}) {
 		t.Errorf("tags.Env: %v -> %v at %+v", c.Before, c.After, c.Source)
 	}
-	if c := byKey["aws_security_group.web description"]; c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 10, Expression: `"a"`}) {
+	if c := byKey["aws_security_group.web description"]; c.Source == nil || *c.Source != (Source{File: "main.tf", Line: 10, Expression: `"a"`}) {
 		t.Errorf("description at %+v", c.Source)
 	}
 	if c := byKey["aws_security_group.web ingress[0].cidr_blocks[0]"]; c.Source == nil || c.Source.Line != 11 {
@@ -348,11 +461,11 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		t.Errorf("an argument the code leaves out at %+v, want the block's line 1", c.Source)
 	}
 	// Without the modules.json of an init, the source is the call.
-	if c := byKey["module.data.aws_s3_bucket.this tags.Team"]; c.Source == nil || *c.Source != (DriftSource{File: "main.tf", Line: 16}) || c.ModuleAddress != "module.data" {
+	if c := byKey["module.data.aws_s3_bucket.this tags.Team"]; c.Source == nil || *c.Source != (Source{File: "main.tf", Line: 16}) || c.ModuleAddress != "module.data" {
 		t.Errorf("a module's resource has source %+v and module %q", c.Source, c.ModuleAddress)
 	}
 	for _, c := range result.Changes {
-		if c.Decision != DriftKeep {
+		if c.Decision != Keep {
 			t.Errorf("%s %s: decision %q without --accept", c.Address, c.Attribute, c.Decision)
 		}
 	}
@@ -376,7 +489,7 @@ func TestDriftWithoutDriftAppliesNothing(t *testing.T) {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{{}}}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{})
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +503,7 @@ func TestDriftWithoutDriftAppliesNothing(t *testing.T) {
 }
 
 // A plan's diagnostics can quote a value a provider rejects: the errors of
-// Drift's plans have the state's secrets replaced, those it marks
+// Check's plans have the state's secrets replaced, those it marks
 // sensitive and those a report hides, as the changes' values have.
 func TestDriftPlanErrorsHideSecrets(t *testing.T) {
 	t.Parallel()
@@ -409,7 +522,7 @@ func TestDriftPlanErrorsHideSecrets(t *testing.T) {
 	}
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, shown: shown, planOutput: string(diag) + "\n"}
-	_, err = Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{})
+	_, err = Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, Options{})
 	if err == nil {
 		t.Fatal("want the plan's error")
 	}
@@ -440,10 +553,10 @@ func TestDriftOfARootNeverAppliedPlansNothing(t *testing.T) {
 	dir, staging := driftRoot(t, map[string]string{"imports.tf": "import {\n  to = aws_s3_bucket.logs\n  id = \"logs\"\n}\n"})
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) {
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) {
 		t.Error("staged a root without state")
 		return nil, errors.New("staged")
-	}, DriftOptions{})
+	}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +593,7 @@ func TestDriftHoldsTheRootLock(t *testing.T) {
 		}
 		lock.Unlock()
 	}}
-	if _, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{WithRootLock: func(f func() error) error {
+	if _, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, Options{WithRootLock: func(f func() error) error {
 		lock.Lock()
 		defer lock.Unlock()
 		return f()
@@ -488,7 +601,7 @@ func TestDriftHoldsTheRootLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !lock.TryLock() {
-		t.Error("Drift returned with the lock held")
+		t.Error("Check returned with the lock held")
 	}
 }
 
@@ -508,7 +621,7 @@ func TestDriftRefusesRemoteBackends(t *testing.T) {
 			dir, staging := driftRoot(t, map[string]string{"backend.tf": backend})
 			var calls []string
 			root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
-			_, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return root, nil }, DriftOptions{Backends: cloudBackends})
+			_, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return root, nil }, Options{Backends: cloudBackends})
 			var unsupported *UnsupportedBackendError
 			if !errors.As(err, &unsupported) || unsupported.Backend != name {
 				t.Fatalf("got %v, want the %s backend refused", err, name)
@@ -523,7 +636,7 @@ func TestDriftRefusesRemoteBackends(t *testing.T) {
 	}
 }
 
-// The backends Drift reads state from are those its options name, and
+// The backends Check reads state from are those its options name, and
 // local state: the s3 backend of a build without it is refused, and the
 // error says what is supported.
 func TestDriftReadsTheBackendsItIsGiven(t *testing.T) {
@@ -544,7 +657,7 @@ func TestDriftReadsTheBackendsItIsGiven(t *testing.T) {
 			files["backend.tf"] = c.backend
 		}
 		dir, _ := driftRoot(t, files)
-		parsed, err := configFiles(dir)
+		parsed, err := hclfile.ConfigFiles(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -598,7 +711,7 @@ func TestStageDriftRemovesBackendBlocksAnywhere(t *testing.T) {
 
 func TestVariablePlaceholders(t *testing.T) {
 	dir := t.TempDir()
-	writeConfig(t, dir, "variables.tf", `variable "with_default" {
+	writeFiles(t, dir, map[string]string{"variables.tf": `variable "with_default" {
   type    = string
   default = "x"
 }
@@ -622,12 +735,12 @@ variable "settings" {
 variable "enabled" {
   type = bool
 }
-`)
+`})
 	if err := os.WriteFile(filepath.Join(dir, "values.auto.tfvars"), []byte("from_tfvars = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TF_VAR_from_env", "set")
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

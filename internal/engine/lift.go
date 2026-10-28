@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -292,7 +291,7 @@ func taggedResources(f *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSc
 			}
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok {
 			return nil, false
 		}
@@ -400,7 +399,7 @@ func removeTags(f *hclfile.File, attribute string, remove map[string]string, ski
 		if !ok || skip[r.Address] {
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok {
 			continue
 		}
@@ -436,7 +435,7 @@ func referTags(f *hclfile.File, attribute string, shared map[string]string) bool
 		if !ok {
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok || len(tags) == 0 {
 			continue
 		}
@@ -493,29 +492,6 @@ func addAliasProvider(providers *hclfile.File, provider *hclwrite.Body, dt Defau
 	file.AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# For the resources without the tags that %s applies to the others.\n", dt.Block))}})
 	file.AppendBlock(block)
 	return nil
-}
-
-// stringMap evaluates a literal map of strings; null is an empty map.
-func stringMap(expr hclsyntax.Expression) (map[string]string, bool) {
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || !v.IsWhollyKnown() {
-		return nil, false
-	}
-	m := map[string]string{}
-	if v.IsNull() {
-		return m, true
-	}
-	if !v.Type().IsMapType() && !v.Type().IsObjectType() {
-		return nil, false
-	}
-	for it := v.ElementIterator(); it.Next(); {
-		k, val := it.Element()
-		if val.IsNull() || val.Type() != cty.String {
-			return nil, false
-		}
-		m[k.AsString()] = val.AsString()
-	}
-	return m, true
 }
 
 func mapValue(m map[string]string) cty.Value {
@@ -595,9 +571,9 @@ func liftLiterals(dir string, taken Names) (bool, error) {
 				best = u.attr
 			}
 		}
-		name := Label(best)
+		name := hclfile.Label(best)
 		for n := 2; hasLocal(locals, name) || taken["local."+name]; n++ {
-			name = fmt.Sprintf("%s_%d", Label(best), n)
+			name = fmt.Sprintf("%s_%d", hclfile.Label(best), n)
 		}
 		locals[name] = cty.StringVal(value)
 		for _, u := range uses[value] {
@@ -667,43 +643,4 @@ func writeLocals(dir string, locals map[string]cty.Value) error {
 		body.SetAttributeValue(name, locals[name])
 	}
 	return fsutil.WriteFile(filepath.Join(dir, LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
-}
-
-// fileBackup holds files' contents to restore; nil for files that didn't
-// exist.
-type fileBackup struct {
-	dir   string
-	files map[string][]byte
-}
-
-func backupFiles(dir string, names ...string) (*fileBackup, error) {
-	b := &fileBackup{dir: dir, files: map[string][]byte{}}
-	for _, name := range names {
-		content, err := os.ReadFile(filepath.Join(dir, name))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			b.files[name] = nil
-		case err != nil:
-			return nil, err
-		default:
-			b.files[name] = content
-		}
-	}
-	return b, nil
-}
-
-func (b *fileBackup) restore() error {
-	for name, content := range b.files {
-		path := filepath.Join(b.dir, name)
-		if content == nil {
-			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			continue
-		}
-		if err := fsutil.WriteFile(path, content, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
 }

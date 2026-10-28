@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"maps"
@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
@@ -18,7 +20,7 @@ import (
 // testEditor is a driftEditor for the resources at their addresses, each
 // with the cloud's values after.
 func testEditor(after map[string]map[string]any) *driftEditor {
-	e := &driftEditor{resources: map[string]refreshedResource{}, refs: map[string][]referenceTarget{}}
+	e := &driftEditor{resources: map[string]refreshedResource{}}
 	for address, values := range after {
 		e.resources[address] = refreshedResource{after: values}
 	}
@@ -27,9 +29,9 @@ func testEditor(after map[string]map[string]any) *driftEditor {
 
 // driftAt is a change, the next apply would revert, to the attribute of
 // the resource at address, whose new value in the cloud is value.
-func driftAt(address, attribute string, value any) *DriftChange {
+func driftAt(address, attribute string, value any) *Change {
 	typ, _, _ := strings.Cut(address, ".")
-	return &DriftChange{Address: address, Type: typ, Attribute: attribute, Kind: DriftChanged, Outcome: DriftReverts, value: value}
+	return &Change{Address: address, Type: typ, Attribute: attribute, Kind: Changed, Outcome: Reverts, value: value}
 }
 
 func byteFiles(files map[string]string) map[string][]byte {
@@ -56,7 +58,7 @@ func TestDriftSourceMapping(t *testing.T) {
 		name   string
 		files  map[string]string
 		after  map[string]any
-		change *DriftChange
+		change *Change
 		setup  func(e *driftEditor)
 		kind   string
 		// want are the files the edit changes, as it leaves them; none
@@ -244,8 +246,13 @@ func TestDriftSourceMapping(t *testing.T) {
 `},
 			after:  map[string]any{"name": "jobs", "delay_seconds": float64(0)},
 			change: driftAt("aws_sqs_queue.jobs", "delay_seconds", float64(0)),
-			setup:  func(e *driftEditor) { e.defaults = map[string][]string{"aws_sqs_queue": {"delay_seconds=0"}} },
-			kind:   sourceLiteral,
+			setup: func(e *driftEditor) {
+				e.isDefault = func(typ, path string, expr hclsyntax.Expression) bool {
+					v, diags := expr.Value(nil)
+					return !diags.HasErrors() && typ == "aws_sqs_queue" && path == "delay_seconds" && v.RawEquals(cty.NumberIntVal(0))
+				}
+			},
+			kind: sourceLiteral,
 			want: map[string]string{"main.tf": `resource "aws_sqs_queue" "jobs" {
   name = "jobs"
 }
@@ -379,7 +386,13 @@ resource "aws_security_group_rule" "b" {
 			after:  map[string]any{"vpc_id": "vpc-0bbb2222"},
 			change: driftAt("aws_subnet.a", "vpc_id", "vpc-0bbb2222"),
 			setup: func(e *driftEditor) {
-				e.refs = referenceIndex(map[string]map[string]any{"aws_vpc.main": {"id": "vpc-0aaa1111"}, "aws_vpc.other": {"id": "vpc-0bbb2222"}})
+				// The engine's, which refers to the one resource with the value.
+				e.refer = func(_, value string) (string, hcl.Traversal, bool) {
+					if value != "vpc-0bbb2222" {
+						return "", nil, false
+					}
+					return "aws_vpc.other", hcl.Traversal{hcl.TraverseRoot{Name: "aws_vpc"}, hcl.TraverseAttr{Name: "other"}, hcl.TraverseAttr{Name: "id"}}, true
+				}
 			},
 			kind: sourceReference,
 			want: map[string]string{"main.tf": `resource "aws_subnet" "a" {
@@ -502,7 +515,7 @@ resource "aws_security_group_rule" "b" {
 			name:   "a resource in a module call",
 			files:  map[string]string{"main.tf": "module \"data\" {\n  source = \"./data\"\n}\n"},
 			after:  map[string]any{"tags": map[string]any{"Team": "b"}},
-			change: &DriftChange{Address: "module.data.aws_s3_bucket.this", Type: "aws_s3_bucket", ModuleAddress: "module.data", Attribute: "tags.Team", Kind: DriftChanged, Outcome: DriftReverts, value: "b"},
+			change: &Change{Address: "module.data.aws_s3_bucket.this", Type: "aws_s3_bucket", ModuleAddress: "module.data", Attribute: "tags.Team", Kind: Changed, Outcome: Reverts, value: "b"},
 			kind:   sourceModule,
 			reason: "module.data",
 		},
@@ -513,7 +526,7 @@ resource "aws_security_group_rule" "b" {
 }
 `},
 			after: map[string]any{"value": "rotated-secret-value"},
-			change: func() *DriftChange {
+			change: func() *Change {
 				c := driftAt("aws_ssm_parameter.p", "value", "rotated-secret-value")
 				c.sensitive = true
 				return c
@@ -563,7 +576,7 @@ resource "aws_security_group_rule" "b" {
 			}
 			contents := byteFiles(tc.files)
 			before := maps.Clone(contents)
-			names, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
+			names, applied, failed, err := e.apply(contents, []*Change{tc.change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -642,7 +655,7 @@ resource "aws_s3_bucket" "data" {
 		"aws_s3_bucket.data": {"tags": map[string]any{"Env": "prod", "Team": "data"}},
 	})
 	contents := map[string][]byte{"main.tf": []byte(before)}
-	changes := []*DriftChange{driftAt("aws_s3_bucket.logs", "tags.Env", "dev"), driftAt("aws_s3_bucket.data", "tags.Team", "data")}
+	changes := []*Change{driftAt("aws_s3_bucket.logs", "tags.Env", "dev"), driftAt("aws_s3_bucket.data", "tags.Team", "data")}
 	names, _, failed, err := e.apply(contents, changes)
 	if err != nil {
 		t.Fatal(err)

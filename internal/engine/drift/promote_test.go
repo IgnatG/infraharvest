@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"maps"
@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
@@ -54,10 +55,10 @@ func TestGoldenDriftPromotedLiterals(t *testing.T) {
 			m := testModule(t, bucketModuleDir, tc.calls, bucketModule)
 			e.modules = map[string]*driftModule{"logs": m, "data": m}
 			if tc.env != "" {
-				e.env, e.envVars = tc.env, envVarsPath(tc.env)
+				e.env, e.envVars = tc.env, hclfile.EnvVarsPath(tc.env)
 			}
 			contents := withBucketModule(tc.files)
-			names, applied, failed, err := e.apply(contents, []*DriftChange{change})
+			names, applied, failed, err := e.apply(contents, []*Change{change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +73,7 @@ func TestGoldenDriftPromotedLiterals(t *testing.T) {
 			for _, name := range names {
 				edited[name] = contents[name]
 			}
-			goldenFiles(t, filepath.Join("testdata", "driftpromote", tc.name+".golden.txt"), edited)
+			goldenFiles(t, filepath.Join("testdata", "promote", tc.name+".golden.txt"), edited)
 		})
 	}
 }
@@ -97,7 +98,7 @@ func TestDriftKeepsLiteralsOfOtherModules(t *testing.T) {
 			e := testEditor(map[string]map[string]any{change.Address: {"force_destroy": true}})
 			m := testModule(t, tc.dir, tc.calls, bucketModule)
 			e.modules = map[string]*driftModule{"logs": m, "data": m}
-			_, applied, failed, err := e.apply(tc.files, []*DriftChange{change})
+			_, applied, failed, err := e.apply(tc.files, []*Change{change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,11 +130,11 @@ func TestDriftAcceptsByPromotingALiteral(t *testing.T) {
 		bucket("module.logs.aws_s3_bucket.this", noop, true, true),
 		bucket("module.data.aws_s3_bucket.this", noop, false, false),
 	}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := outcomes(result)["module.logs.aws_s3_bucket.this force_destroy"]; c.Outcome != DriftWritten {
+	if c := outcomes(result)["module.logs.aws_s3_bucket.this force_destroy"]; c.Outcome != Written {
 		t.Fatalf("%s: %s", c.Outcome, c.Reason)
 	}
 	flat := func(s string) string { return strings.Join(strings.Fields(s), " ") }

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -135,7 +136,7 @@ func (m *stackMerge) dataGates(byAddress map[string][]*envResource) map[string]*
 // (type.name), sorted.
 func dataReferences(body *hclsyntax.Body) []string {
 	var addresses []string
-	for _, t := range allTraversals(body) {
+	for _, t := range hclfile.Traversals(body) {
 		if t.RootName() != "data" || len(t) < 3 {
 			continue
 		}

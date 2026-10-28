@@ -320,7 +320,7 @@ resource "aws_subnet" "a" {
 	clean := plannedImports(values)
 	changes := map[string]string{}
 	for _, rc := range clean.ResourceChanges {
-		changes[rc.Address] = changeSignature(rc)
+		changes[rc.Address] = tfrun.ChangeSignature(rc)
 	}
 	changed := plannedImports(values)
 	for _, rc := range changed.ResourceChanges {

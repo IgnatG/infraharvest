@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
@@ -119,7 +120,7 @@ func TestListCallKeepsTheLayoutAsGiven(t *testing.T) {
 // otherwise.
 func TestToolchainFollowsTheModulesMode(t *testing.T) {
 	out := "out"
-	local := filepath.Join(out, engine.ModulesDirName)
+	local := filepath.Join(out, hclfile.ModulesDirName)
 	for _, tc := range []struct {
 		name       string
 		options    Options

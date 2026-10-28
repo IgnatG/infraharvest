@@ -86,7 +86,7 @@ type MergeRoot struct {
 // root doesn't carry.
 func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 	root := envRoot{env: r.Env, tokens: r.Tokens, scope: r.Scope, region: r.Region, group: r.Group, provider: r.Provider, importIDs: map[string]string{}, identities: map[string]map[string]string{}, files: map[string]string{}, arrivals: r.Arrivals}
-	files, err := configFiles(r.Dir)
+	files, err := hclfile.ConfigFiles(r.Dir)
 	if err != nil {
 		return root, "", err
 	}
@@ -151,13 +151,13 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 	if providerBlock != nil {
 		root.defaultTags, root.defaultLabels = defaultTagsIn(providerBlock, values)
 	}
-	if root.backend, err = os.ReadFile(filepath.Join(r.Dir, backendFileName)); err != nil {
+	if root.backend, err = os.ReadFile(filepath.Join(r.Dir, hclfile.BackendFileName)); err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			return root, "", err
 		}
 		root.backend = nil
 	}
-	if root.variables, err = hclfile.LoadOptional(filepath.Join(r.Dir, VariablesFileName)); err != nil {
+	if root.variables, err = hclfile.LoadOptional(filepath.Join(r.Dir, hclfile.VariablesFileName)); err != nil {
 		return root, "", err
 	}
 	return root, "", nil

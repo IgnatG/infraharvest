@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
@@ -49,7 +49,7 @@ const (
 )
 
 // sharedDriftRoot writes a root dev and prod share, with main and dev's var file,
-// and dev's local state, and returns it and where Drift stages it.
+// and dev's local state, and returns it and where Check stages it.
 func sharedDriftRoot(t *testing.T, main, dev string) (dir, staging string) {
 	t.Helper()
 	return acceptRoot(t, map[string]string{
@@ -115,22 +115,22 @@ func TestDriftWritesAVariableIntoTheEnvironmentsVarFile(t *testing.T) {
 	// The edited plan takes the timeout; the tag still reverts, as the code
 	// did.
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(90, "dev"))
-	result, copied, _, err := acceptAll(t, dir, staging, envPlans(verified), DriftOptions{Environment: "dev"})
+	result, copied, _, err := acceptAll(t, dir, staging, envPlans(verified), Options{Environment: "dev"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
 	timeout := got["aws_sqs_queue.orders visibility_timeout_seconds"]
-	if timeout.Outcome != DriftWritten {
+	if timeout.Outcome != Written {
 		t.Errorf("the timeout: %s: %s", timeout.Outcome, timeout.Reason)
 	}
 	if s := timeout.Source; s == nil || s.File != "vars/dev/terraform.tfvars" || s.Line != 3 {
 		t.Errorf("the timeout's source: %+v, want vars/dev/terraform.tfvars:3", s)
 	}
-	if c := got["aws_sqs_queue.orders tags.Environment"]; c.Outcome != DriftManual || !strings.Contains(c.Reason, "other arguments use too") {
+	if c := got["aws_sqs_queue.orders tags.Environment"]; c.Outcome != Manual || !strings.Contains(c.Reason, "other arguments use too") {
 		t.Errorf("the tag: %s: %s", c.Outcome, c.Reason)
 	}
-	if c := got["aws_sqs_queue.jobs delay_seconds"]; c.Outcome != DriftManual || !strings.Contains(c.Reason, "environments share this root's code") {
+	if c := got["aws_sqs_queue.jobs delay_seconds"]; c.Outcome != Manual || !strings.Contains(c.Reason, "environments share this root's code") {
 		t.Errorf("the delay: %s: %s", c.Outcome, c.Reason)
 	}
 	if got, want := readFile(t, dir, filepath.Join("vars", "dev", "terraform.tfvars")), strings.Replace(devVars, "= 30", "= 90", 1); got != want {
@@ -160,12 +160,12 @@ func TestDriftAddsAVariableToTheEnvironmentsVarFile(t *testing.T) {
 	main := strings.Replace(envMain, "  type        = number\n", "  type        = number\n  default     = 30\n", 1)
 	dir, staging := sharedDriftRoot(t, main, `env = "dev"`)
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(90, "dev"))
-	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), DriftOptions{Environment: "dev"})
+	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), Options{Environment: "dev"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	timeout := outcomes(result)["aws_sqs_queue.orders visibility_timeout_seconds"]
-	if timeout.Outcome != DriftWritten {
+	if timeout.Outcome != Written {
 		t.Errorf("the timeout: %s: %s", timeout.Outcome, timeout.Reason)
 	}
 	if s := timeout.Source; s == nil || s.File != "vars/dev/terraform.tfvars" || s.Line != 2 {
@@ -185,11 +185,11 @@ func TestDriftRejectsAVarFileEditThePlanDoesntTake(t *testing.T) {
 	t.Parallel()
 	dir, staging := sharedDriftRoot(t, envMain, devVars)
 	verified := queueUpdate("aws_sqs_queue.orders", ordersQueue(90, "qa"), ordersQueue(30, "dev"))
-	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), DriftOptions{Environment: "dev"})
+	result, _, _, err := acceptAll(t, dir, staging, envPlans(verified), Options{Environment: "dev"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := outcomes(result)["aws_sqs_queue.orders visibility_timeout_seconds"]; c.Outcome != DriftRejectedByPlan || !strings.Contains(c.Reason, "still changes visibility_timeout_seconds") {
+	if c := outcomes(result)["aws_sqs_queue.orders visibility_timeout_seconds"]; c.Outcome != RejectedByPlan || !strings.Contains(c.Reason, "still changes visibility_timeout_seconds") {
 		t.Errorf("the timeout: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, filepath.Join("vars", "dev", "terraform.tfvars")); got != devVars {
@@ -201,7 +201,8 @@ func TestDriftRejectsAVarFileEditThePlanDoesntTake(t *testing.T) {
 // says so, and initialises nothing.
 func TestPullDriftStateWithoutBackendSettings(t *testing.T) {
 	t.Parallel()
-	dir := mergedRootDir(t, map[string]string{"vars/prod/backend.hcl": "bucket = \"acme-state\"\n"})
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"vars/prod/backend.hcl": "bucket = \"acme-state\"\n"})
 	var calls []string
 	tf := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 

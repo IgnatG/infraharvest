@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -39,13 +40,13 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	vars, _, err := mergedVarFiles(dir, env)
+	vars, _, err := tfrun.VarFileOptions(dir, hclfile.ExistingVarFiles(dir, env))
 	if err != nil {
 		return nil, err
 	}
 	expected := 0
 	if _, err := os.Stat(filepath.Join(dir, ImportsFileName)); err == nil {
-		ids, err := MergedImportIDs(dir, env)
+		ids, err := hclfile.MergedImportIDs(dir, env)
 		if err != nil {
 			return nil, err
 		}

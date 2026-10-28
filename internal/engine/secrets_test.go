@@ -19,6 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -108,7 +109,7 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", line, generated)
 		}
 	}
-	variables := readFile(t, dir, VariablesFileName)
+	variables := readFile(t, dir, hclfile.VariablesFileName)
 	for _, want := range []string{`variable "aws_lambda_function_api_webhook_secret" {`, "type        = string", "sensitive   = true", "secret store", "TF_VAR_aws_lambda_function_api_webhook_secret"} {
 		if !strings.Contains(variables, want) {
 			t.Errorf("missing %q in variables.tf:\n%s", want, variables)
@@ -267,7 +268,7 @@ func TestGenerateWritesStringParameterValues(t *testing.T) {
 			}
 
 			got := readFile(t, dir, GeneratedFileName)
-			_, statErr := os.Stat(filepath.Join(dir, VariablesFileName))
+			_, statErr := os.Stat(filepath.Join(dir, hclfile.VariablesFileName))
 			if tc.variable {
 				if len(result.Secrets) != 1 || statErr != nil || !strings.Contains(got, "value = var.aws_ssm_parameter_app_env_value") {
 					t.Errorf("want the value in a variable, got secrets %+v:\n%s", result.Secrets, got)

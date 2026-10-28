@@ -74,7 +74,7 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 		}
 		// variables.tf declares only the variables of the resources kept.
 		if vars := variablesIn(resources[addr]); len(vars) > 0 {
-			fmt.Fprintf(out, "# Before moving it back, declare the sensitive variables it reads in %s: %s.\n", VariablesFileName, strings.Join(vars, ", "))
+			fmt.Fprintf(out, "# Before moving it back, declare the sensitive variables it reads in %s: %s.\n", hclfile.VariablesFileName, strings.Join(vars, ", "))
 		}
 		for _, moved := range []struct {
 			file  *hclfile.File

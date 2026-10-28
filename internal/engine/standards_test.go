@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const pinnedVersions = `terraform {
@@ -48,7 +50,7 @@ module "artifacts" {
   version = "5.16.1"
 }
 `)
-	writeConfig(t, root, VariablesFileName, `variable "suffix" {
+	writeConfig(t, root, hclfile.VariablesFileName, `variable "suffix" {
   description = "A secret."
   type        = string
   sensitive   = true
@@ -133,7 +135,7 @@ func TestCheckStandardsFindings(t *testing.T) {
 			writeConfig(t, module, "outputs.tf", "output {\n  value = aws_s3_bucket.this.id\n}\n")
 		},
 		"secret-persisted-to-state": func(t *testing.T, root, _ string) {
-			writeConfig(t, root, VariablesFileName, "variable \"suffix\" {\n  description = \"A secret.\"\n  type        = string\n  sensitive   = true\n  default     = \"x\"\n}\n")
+			writeConfig(t, root, hclfile.VariablesFileName, "variable \"suffix\" {\n  description = \"A secret.\"\n  type        = string\n  sensitive   = true\n  default     = \"x\"\n}\n")
 		},
 		"legacy-interpolation": func(t *testing.T, root, _ string) {
 			writeConfig(t, root, "locals.tf", "locals {\n  name = \"${var.suffix}\"\n}\n")

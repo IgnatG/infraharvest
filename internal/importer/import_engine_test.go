@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -495,7 +496,7 @@ func TestImportsLeaveOutWhatTheListerSays(t *testing.T) {
 func TestModuleOptions(t *testing.T) {
 	out := filepath.Join("out", "aws")
 	resolved := []adapters.Adapter{{Source: "acme/bucket/aws", Version: "1.0.0"}}
-	local := filepath.Join(out, engine.ModulesDirName)
+	local := filepath.Join(out, hclfile.ModulesDirName)
 	for _, tc := range []struct {
 		mode       string
 		registry   bool

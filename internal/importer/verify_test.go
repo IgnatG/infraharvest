@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -25,7 +26,7 @@ func TestGeneratedRoots(t *testing.T) {
 		"aws/111122223333/global/" + engine.ProvidersFileName,
 		"aws/111122223333/eu-west-2/.terraform/modules/state/" + engine.ProvidersFileName,
 		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + engine.ProvidersFileName,
-		engine.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
+		hclfile.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
 		"report/report.md",
 	} {
 		path := filepath.Join(out, filepath.FromSlash(file))

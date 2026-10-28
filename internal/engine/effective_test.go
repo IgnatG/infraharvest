@@ -11,6 +11,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 var googleLabels = EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"}
@@ -103,7 +104,7 @@ func TestFillEffectiveTags(t *testing.T) {
 	stateOnly := map[string][]string{"*": {"labels", "terraform_labels"}}
 	noChanges := map[string]string{}
 	for _, a := range []string{"google_pubsub_topic.orders", "google_pubsub_topic.events", "google_pubsub_topic.owned", "google_pubsub_topic.google", "google_dns_record_set.app"} {
-		noChanges[a] = changeSignature(resourceChange(a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		noChanges[a] = tfrun.ChangeSignature(resourceChange(a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	for _, tc := range []struct {
 		name    string

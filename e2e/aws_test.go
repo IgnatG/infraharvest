@@ -31,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -250,9 +251,9 @@ func TestAWSRoundTrip(t *testing.T) {
 			}
 		}
 	}
-	modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "iam_role_*", "main.tf"))
+	modules, err := filepath.Glob(filepath.Join(out, hclfile.ModulesDirName, "iam_role_*", "main.tf"))
 	if err != nil || len(modules) == 0 {
-		t.Errorf("no generated IAM role module under %s (%v)", engine.ModulesDirName, err)
+		t.Errorf("no generated IAM role module under %s (%v)", hclfile.ModulesDirName, err)
 	}
 	seeded := map[string]int{}
 	for _, r := range state {

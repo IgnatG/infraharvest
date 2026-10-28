@@ -62,7 +62,7 @@ func TestWithoutNullAttributes(t *testing.T) {
 		if tokens == nil {
 			t.Fatalf("%s doesn't parse", tc.in)
 		}
-		out := withoutNullAttributes(tokens).Bytes()
+		out := hclfile.WithoutNullAttributes(tokens).Bytes()
 		if strings.Contains(string(out), "null") {
 			t.Errorf("%s: still has nulls: %s", tc.in, out)
 		}

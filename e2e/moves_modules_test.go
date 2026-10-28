@@ -19,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -251,7 +252,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 // replacing what that had.
 func copyModules(t *testing.T, out, work string) {
 	t.Helper()
-	src, dst := filepath.Join(out, engine.ModulesDirName), filepath.Join(work, engine.ModulesDirName)
+	src, dst := filepath.Join(out, hclfile.ModulesDirName), filepath.Join(work, hclfile.ModulesDirName)
 	if err := os.RemoveAll(dst); err != nil {
 		t.Fatal(err)
 	}

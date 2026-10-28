@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"fmt"
@@ -151,7 +151,7 @@ func (v variableResolver) resolve(w *driftWalk, x *hclsyntax.ScopeTraversalExpr,
 		return v.secret(w, x)
 	case w.e.env != "":
 		return v.env(w, x, path, i)
-	case hasDefault(v.block):
+	case hclfile.HasDefault(v.block):
 		return v.hand(w, x, "var."+v.name+" sets it, with another root's value as its default: update it from that root")
 	}
 	return v.given(w, x)
@@ -203,9 +203,9 @@ func (v variableResolver) moreThanCloud(w *driftWalk, x *hclsyntax.ScopeTraversa
 // environment (see variableUses).
 func (v variableResolver) env(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	file := w.e.envVars
-	vars := mergedVars(w.cfg.files)
+	vars := hclfile.MergedVars(w.cfg.files)
 	switch {
-	case vars.own(w.e.env) == nil:
+	case vars.Own(w.e.env) == nil:
 		return v.noVarFile(w, x)
 	case w.mod != nil:
 		return v.moreThanCloud(w, x)
@@ -223,9 +223,9 @@ func (v variableResolver) env(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, pat
 	if err != nil {
 		return v.hand(w, x, fmt.Sprintf("the cloud's value can't be written: change var.%s in %s by hand", v.name, file))
 	}
-	edit, _ := vars.set(w.e.env, v.name, text)
+	edit, _ := vars.Set(w.e.env, v.name, text)
 	if val, ok := w.envValue(v.name); ok {
-		return codeSource{File: file, Range: val.attr.Expr.Range(), Kind: sourceVariable, Edit: &edit}
+		return codeSource{File: file, Range: val.Attr.Expr.Range(), Kind: sourceVariable, Edit: &edit}
 	}
 	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, Edit: &edit}
 }
@@ -243,7 +243,7 @@ func (v variableResolver) envKey(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 	switch {
 	case !ok:
 		return v.hand(w, x, fmt.Sprintf("var.%s sets more than the cloud's value, and %s doesn't set it: add it to the file by hand", v.name, file))
-	case !literalExpr(val.attr.Expr) || !literalKeys(val.attr.Expr, w.steps[i:]):
+	case !literalExpr(val.Attr.Expr) || !literalKeys(val.Attr.Expr, w.steps[i:]):
 		return v.moreThanCloud(w, x)
 	}
 	if w.cfg.varUses[v.name] > 1 {
@@ -252,8 +252,8 @@ func (v variableResolver) envKey(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 		}
 	}
 	inner := *w
-	inner.file, inner.f = val.file, val.f
-	src := inner.expr(val.attr.Expr, holder{}, path, i)
+	inner.file, inner.f = val.Path, val.File
+	src := inner.expr(val.Attr.Expr, holder{}, path, i)
 	src.Kind = sourceVariable
 	if src.Edit == nil && src.Reason != "" {
 		src.Reason = fmt.Sprintf("var.%s sets it, in %s: %s", v.name, file, src.Reason)
@@ -265,9 +265,9 @@ func (v variableResolver) envKey(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 // var.name to, in a root environments share; false where it doesn't, as
 // where vars/common.tfvars or the variable's default holds the value,
 // which drift doesn't edit for one environment.
-func (w *driftWalk) envValue(name string) (varValue, bool) {
-	v, ok := mergedVars(w.cfg.files).value(w.e.env, name)
-	return v, ok && v.file == w.e.envVars
+func (w *driftWalk) envValue(name string) (hclfile.VarValue, bool) {
+	v, ok := hclfile.MergedVars(w.cfg.files).Value(w.e.env, name)
+	return v, ok && v.Path == w.e.envVars
 }
 
 // referenceResolver is another resource, or a data source, an argument
@@ -277,9 +277,9 @@ type referenceResolver struct{}
 
 func (referenceResolver) resolve(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, path []string, i int) codeSource {
 	ref := w.text(x.Range())
-	if value, ok := w.c.value.(string); ok && value != "" && i == len(w.steps) {
-		if target, ok := uniqueTarget(path[len(path)-1], value, w.e.refs[value]); ok && target.address != w.address {
-			text := hclwrite.TokensForTraversal(target.traversal()).Bytes()
+	if value, ok := w.c.value.(string); ok && value != "" && i == len(w.steps) && w.e.refer != nil {
+		if address, target, ok := w.e.refer(path[len(path)-1], value); ok && address != w.address {
+			text := hclwrite.TokensForTraversal(target).Bytes()
 			if string(text) != ref {
 				return codeSource{File: w.file, Range: x.Range(), Kind: sourceReference, Edit: &hclfile.Edit{File: w.file, Start: x.Range().Start.Byte, End: x.Range().End.Byte, Text: text}}
 			}

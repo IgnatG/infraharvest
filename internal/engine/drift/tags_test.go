@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
@@ -122,7 +122,7 @@ func TestDriftSharesDefaultTags(t *testing.T) {
 		tagUpdate("aws_s3_bucket.logs", awsLogs("dev"), awsTags(nil, tagMap("Env", "dev", "Team", "data"))),
 		tagUpdate("aws_sqs_queue.jobs", awsJobs("dev"), awsTags(tagMap("Name", "jobs"), tagMap("Env", "dev", "Name", "jobs", "Team", "data"))),
 	}}
-	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestDriftSharesDefaultTags(t *testing.T) {
 		t.Fatalf("changes %+v, want one of local.tags", result.Changes)
 	}
 	c := result.Changes[0]
-	if c.Address != "local.tags" || c.Attribute != "tags.Env" || c.Outcome != DriftWritten || c.Before != "prod" || c.After != "dev" {
+	if c.Address != "local.tags" || c.Attribute != "tags.Env" || c.Outcome != Written || c.Before != "prod" || c.After != "dev" {
 		t.Errorf("change %s %s: %s (%s), %v → %v", c.Address, c.Attribute, c.Outcome, c.Reason, c.Before, c.After)
 	}
 	if want := []string{"aws_s3_bucket.logs", "aws_sqs_queue.jobs"}; !reflect.DeepEqual(c.Covers, want) {
@@ -163,12 +163,12 @@ func TestDriftDefaultTagsSomeResources(t *testing.T) {
 		tagNoop("aws_sqs_queue.jobs", awsJobs("prod")),
 	}}
 	edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagNoop("aws_s3_bucket.logs", awsLogs("dev")), tagNoop("aws_sqs_queue.jobs", awsJobs("prod"))}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
-	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten || len(c.Covers) > 0 {
+	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != Written || len(c.Covers) > 0 {
 		t.Errorf("logs: %s (%s), covers %v", c.Outcome, c.Reason, c.Covers)
 	}
 	if len(result.Changes) != 1 {
@@ -200,11 +200,11 @@ func TestDriftDefaultTagsRemoved(t *testing.T) {
 			tagUpdate("aws_sqs_queue.jobs", awsJobs(""), awsJobs("prod")),
 		}}
 		edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagNoop("aws_s3_bucket.logs", awsLogs("")), tagNoop("aws_sqs_queue.jobs", awsJobs(""))}}
-		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(result.Changes) != 1 || result.Changes[0].Address != "local.tags" || result.Changes[0].Outcome != DriftWritten || result.Changes[0].After != nil {
+		if len(result.Changes) != 1 || result.Changes[0].Address != "local.tags" || result.Changes[0].Outcome != Written || result.Changes[0].After != nil {
 			t.Fatalf("changes %+v", result.Changes)
 		}
 		want := "locals {\n  tags = {\n    Team = \"data\"\n  }\n}\n"
@@ -220,12 +220,12 @@ func TestDriftDefaultTagsRemoved(t *testing.T) {
 			tagUpdate("aws_s3_bucket.logs", awsLogs(""), awsLogs("prod")),
 			tagNoop("aws_sqs_queue.jobs", awsJobs("prod")),
 		}}
-		result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, DriftOptions{})
+		result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		c := outcomes(result)["aws_s3_bucket.logs tags.Env"]
-		if c.Outcome != DriftManual || !strings.Contains(c.Reason, "default_tags") || !strings.Contains(c.Reason, "local.tags") {
+		if c.Outcome != Manual || !strings.Contains(c.Reason, "default_tags") || !strings.Contains(c.Reason, "local.tags") {
 			t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 		}
 		if len(copied.planOpts) != 2 {
@@ -264,7 +264,7 @@ func TestDriftSharedEditLeaks(t *testing.T) {
 		tagNoop("aws_sqs_queue.jobs", awsJobs("dev")),
 		tagNoop("aws_s3_bucket.extra", extra),
 	}}
-	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, shared, each}, DriftOptions{})
+	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, shared, each}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +273,7 @@ func TestDriftSharedEditLeaks(t *testing.T) {
 		t.Fatalf("changes %+v, want each resource's", result.Changes)
 	}
 	for _, key := range []string{"aws_s3_bucket.logs tags.Env", "aws_sqs_queue.jobs tags.Env"} {
-		if c := got[key]; c.Outcome != DriftWritten || c.Decision != DriftAccept || !strings.Contains(c.Reason, "aws_s3_bucket.extra") {
+		if c := got[key]; c.Outcome != Written || c.Decision != Accept || !strings.Contains(c.Reason, "aws_s3_bucket.extra") {
 			t.Errorf("%s: %s (%s): %s", key, c.Outcome, c.Decision, c.Reason)
 		}
 	}
@@ -303,19 +303,19 @@ func TestDriftKeepsSharedTags(t *testing.T) {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code}}
-	var seen []DriftChange
-	accept := func(c DriftChange) bool {
+	var seen []Change
+	accept := func(c Change) bool {
 		seen = append(seen, c)
 		return len(c.Covers) == 0
 	}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, Options{Accept: accept, Rules: testRules})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) != 1 || seen[0].Address != "local.tags" {
 		t.Errorf("the rules saw %+v", seen)
 	}
-	if len(result.Changes) != 1 || result.Changes[0].Outcome != DriftKept || result.Changes[0].Decision != DriftKeep {
+	if len(result.Changes) != 1 || result.Changes[0].Outcome != Kept || result.Changes[0].Decision != Keep {
 		t.Errorf("changes %+v", result.Changes)
 	}
 	if got := readFile(t, dir, "locals.tf"); got != awsLocals {
@@ -368,7 +368,7 @@ func TestDriftSharesLocalTags(t *testing.T) {
 			own,
 		}}
 		edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagNoop("azurerm_resource_group.app", app("dev")), tagNoop("azurerm_storage_account.logs", logs("dev")), own}}
-		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -376,7 +376,7 @@ func TestDriftSharesLocalTags(t *testing.T) {
 			t.Fatalf("changes %+v", result.Changes)
 		}
 		c := result.Changes[0]
-		if c.Address != "local.tags" || c.Outcome != DriftWritten || !reflect.DeepEqual(c.Covers, []string{"azurerm_resource_group.app", "azurerm_storage_account.logs"}) {
+		if c.Address != "local.tags" || c.Outcome != Written || !reflect.DeepEqual(c.Covers, []string{"azurerm_resource_group.app", "azurerm_storage_account.logs"}) {
 			t.Errorf("change %s: %s (%s), covers %v", c.Address, c.Outcome, c.Reason, c.Covers)
 		}
 		if got, want := readFile(t, dir, "locals.tf"), strings.Replace(azureLocals, "prod", "dev", 1); got != want {
@@ -396,11 +396,11 @@ func TestDriftSharesLocalTags(t *testing.T) {
 			own,
 		}}
 		edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagNoop("azurerm_resource_group.app", app("dev")), tagNoop("azurerm_storage_account.logs", logs("prod")), own}}
-		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c := outcomes(result)["azurerm_resource_group.app tags.Env"]; c.Outcome != DriftWritten {
+		if c := outcomes(result)["azurerm_resource_group.app tags.Env"]; c.Outcome != Written {
 			t.Errorf("app: %s: %s", c.Outcome, c.Reason)
 		}
 		if main := readFile(t, dir, "main.tf"); !strings.Contains(main, `merge(local.tags, { Env = "dev" })`) {
@@ -490,14 +490,14 @@ func TestDriftSharesDefaultLabels(t *testing.T) {
 			tagNoop("google_storage_bucket.a", googleLabelValues(nil, tagMap("env", "dev"))),
 			tagNoop("google_storage_bucket.b", googleLabelValues(nil, tagMap("env", "dev"))),
 		}}
-		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(result.Changes) != 1 {
 			t.Fatalf("changes %+v", result.Changes)
 		}
-		if c := result.Changes[0]; c.Address != "local.labels" || c.Attribute != "labels.env" || c.Outcome != DriftWritten || len(c.Covers) != 2 {
+		if c := result.Changes[0]; c.Address != "local.labels" || c.Attribute != "labels.env" || c.Outcome != Written || len(c.Covers) != 2 {
 			t.Errorf("change %+v", c)
 		}
 		if got, want := readFile(t, dir, "locals.tf"), strings.Replace(googleLocals, "prod", "dev", 1); got != want {
@@ -518,11 +518,11 @@ func TestDriftSharesDefaultLabels(t *testing.T) {
 			tagUpdate("google_storage_bucket.a", googleLabelValues(nil, tagMap("env", "dev")), googleLabelValues(tagMap("env", "dev"), tagMap("env", "dev"))),
 			tagNoop("google_storage_bucket.b", googleLabelValues(nil, tagMap("env", "prod"))),
 		}}
-		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+		result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c := outcomes(result)["google_storage_bucket.a labels.env"]; c.Outcome != DriftWritten {
+		if c := outcomes(result)["google_storage_bucket.a labels.env"]; c.Outcome != Written {
 			t.Errorf("a: %s: %s", c.Outcome, c.Reason)
 		}
 		if main := readFile(t, dir, "main.tf"); !strings.Contains(main, `env = "dev"`) {
@@ -580,7 +580,7 @@ func TestDriftSharedTagsCoverModuleResources(t *testing.T) {
 		moduleTags("azurerm_resource_group.app", "azurerm_resource_group", noop, "dev", "dev"),
 		moduleTags("module.store.azurerm_storage_account.this", "azurerm_storage_account", noop, "dev", "dev"),
 	}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +588,7 @@ func TestDriftSharedTagsCoverModuleResources(t *testing.T) {
 		t.Fatalf("changes %+v", result.Changes)
 	}
 	c := result.Changes[0]
-	if c.Address != "local.tags" || c.Outcome != DriftWritten || !reflect.DeepEqual(c.Covers, []string{"azurerm_resource_group.app", "module.store.azurerm_storage_account.this"}) {
+	if c.Address != "local.tags" || c.Outcome != Written || !reflect.DeepEqual(c.Covers, []string{"azurerm_resource_group.app", "module.store.azurerm_storage_account.this"}) {
 		t.Errorf("change %s: %s (%s), covers %v", c.Address, c.Outcome, c.Reason, c.Covers)
 	}
 	if got, want := readFile(t, dir, "locals.tf"), strings.Replace(storeLocals, "prod", "dev", 1); got != want {
@@ -627,7 +627,7 @@ func TestSharedTagSourcesWithModules(t *testing.T) {
 	e.modules = direct
 	contents := byteFiles(map[string]string{"main.tf": storeMain, "locals.tf": storeLocals})
 	c := moduleDrift("module.store.azurerm_storage_account.this", "azurerm_storage_account", "tags.Env", "dev")
-	if _, _, failed, err := e.apply(contents, []*DriftChange{c}); err != nil || len(failed) > 0 {
+	if _, _, failed, err := e.apply(contents, []*Change{c}); err != nil || len(failed) > 0 {
 		t.Fatalf("%v, %+v", err, failed)
 	}
 	if got := string(contents["main.tf"]); !strings.Contains(got, `tags = merge(local.tags, { Env = "dev" })`) || strings.Count(got, "merge(") != 1 {
@@ -688,15 +688,15 @@ func TestDriftAcceptRoundsBlamingOneEditEach(t *testing.T) {
 			tagNoop("aws_s3_bucket.extra", extra),
 		}},
 	}
-	result, copied, _, err := acceptAll(t, dir, staging, plans, DriftOptions{})
+	result, copied, _, err := acceptAll(t, dir, staging, plans, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
 	for key, want := range map[string]string{
-		"aws_s3_bucket.logs tags.Env":  DriftRejectedByPlan,
-		"aws_sqs_queue.jobs tags.Name": DriftRejectedByPlan,
-		"aws_sqs_queue.jobs tags.Env":  DriftWritten,
+		"aws_s3_bucket.logs tags.Env":  RejectedByPlan,
+		"aws_sqs_queue.jobs tags.Name": RejectedByPlan,
+		"aws_sqs_queue.jobs tags.Env":  Written,
 	} {
 		if c := got[key]; c.Outcome != want {
 			t.Errorf("%s: %s (%s), want %s", key, c.Outcome, c.Reason, want)

@@ -145,7 +145,7 @@ func TestMergeRootsByIdentity(t *testing.T) {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
 		}
 	}
-	if variables := readFile(t, dir, VariablesFileName); !strings.Contains(variables, "variable \"import_identities\" {") || !strings.Contains(variables, "map(map(string))") {
+	if variables := readFile(t, dir, hclfile.VariablesFileName); !strings.Contains(variables, "variable \"import_identities\" {") || !strings.Contains(variables, "map(map(string))") {
 		t.Errorf("variables.tf doesn't declare import_identities:\n%s", variables)
 	}
 	prod := readFile(t, dir, "vars/prod/imports.tfvars")
@@ -161,7 +161,7 @@ func TestMergeRootsByIdentity(t *testing.T) {
 	if got := result.Environments[1].Imports["aws_cloudwatch_log_group.app"]; got != id {
 		t.Errorf("prod's import of the log group: %q", got)
 	}
-	ids, err := MergedImportIDs(dir, "prod")
+	ids, err := hclfile.MergedImportIDs(dir, "prod")
 	if err != nil || ids["aws_cloudwatch_log_group.app"] != id || ids["aws_sqs_queue.orders"] == "" {
 		t.Errorf("MergedImportIDs: %v %v", ids, err)
 	}

@@ -7,78 +7,12 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
-
-var notInLabel = regexp.MustCompile(`[^a-z0-9]+`)
-
-// wordBoundaries are the word boundaries inside a camelCase or PascalCase
-// name: the end of an acronym before a capitalised word (HTTPApi), a
-// lower-case letter before an upper-case one (allowHttp), and a digit
-// before a capitalised word (Ipv4Address).
-var wordBoundaries = []*regexp.Regexp{
-	regexp.MustCompile(`([A-Z])([A-Z][a-z])`),
-	regexp.MustCompile(`([a-z])([A-Z])`),
-	regexp.MustCompile(`([0-9])([A-Z][a-z])`),
-}
-
-// Label turns a resource's name into a resource block label: snake_case,
-// with the words of a camelCase name kept apart (AllowHttpApi becomes
-// allow_http_api), and a run of words that repeats the run before it
-// written once (shop_shop_web becomes shop_web). It puts "r_" in front if
-// the label would start with a digit, and gives "resource" if nothing is
-// left.
-func Label(name string) string {
-	label := strings.Join(labelWords(name), "_")
-	switch {
-	case label == "":
-		return "resource"
-	case startsWithDigit(label):
-		return "r_" + label
-	}
-	return label
-}
-
-// labelWords returns the lower-case words of name that Label joins.
-func labelWords(name string) []string {
-	for _, boundary := range wordBoundaries {
-		name = boundary.ReplaceAllString(name, "${1}_${2}")
-	}
-	words := strings.FieldsFunc(notInLabel.ReplaceAllString(strings.ToLower(name), "_"), func(r rune) bool { return r == '_' })
-	return withoutRepeats(words)
-}
-
-// withoutRepeats drops each run of words that repeats the run right before
-// it, longest runs first, so that a name made of a parent's name and a
-// child's that starts with it (cluster shop, service shop-web) says it
-// once. Runs of numbers only are kept, as in an IP address (10_0_0_1).
-func withoutRepeats(words []string) []string {
-	for n := len(words) / 2; n >= 1; n-- {
-		for i := 0; i+2*n <= len(words); {
-			run := words[i : i+n]
-			if slices.Equal(run, words[i+n:i+2*n]) && !slices.ContainsFunc(run, isNumber) {
-				words = slices.Delete(words, i+n, i+2*n)
-				continue
-			}
-			i++
-		}
-	}
-	return words
-}
-
-// isNumber reports whether word is digits only.
-func isNumber(word string) bool {
-	return word != "" && strings.Trim(word, "0123456789") == ""
-}
-
-// startsWithDigit reports whether s starts with a digit, which a label
-// can't.
-func startsWithDigit(s string) bool {
-	return s != "" && s[0] >= '0' && s[0] <= '9'
-}
 
 // Names are names a root already uses, which Generate gives nothing it
 // adds: resources as type.name, and data.type.name, module.name, var.name
@@ -109,7 +43,7 @@ func relabelled(imports []Import, taken Names, tidy bool, previous *Previous) []
 	sorted := make([]Import, len(imports))
 	bases := map[External]string{}
 	for i, imp := range imports {
-		imp.Name = Label(imp.Name)
+		imp.Name = hclfile.Label(imp.Name)
 		if tidy {
 			bases[ResourceKey(imp.Type, imp.ID)] = withoutTypeWords(imp.Type, imp.Name)
 		} else {
@@ -195,7 +129,7 @@ func keepsLabel(old, base string, tidy bool) bool {
 		return true
 	}
 	i := strings.LastIndexByte(old, '_')
-	return i > 0 && isNumber(old[i+1:]) && fits(old[:i])
+	return i > 0 && hclfile.IsNumber(old[i+1:]) && fits(old[:i])
 }
 
 // mainLabel labels a resource whose type a root has no other of, as the
@@ -243,7 +177,7 @@ func withoutTypeWords(resourceType, label string) string {
 	typeWords := strings.Split(rest, "_")
 	words := strings.Split(label, "_")
 	for k := len(typeWords); k >= 1; k-- {
-		if tail := typeWords[len(typeWords)-k:]; len(words) > k && slices.Equal(words[:k], tail) && !startsWithDigit(words[k]) {
+		if tail := typeWords[len(typeWords)-k:]; len(words) > k && slices.Equal(words[:k], tail) && !hclfile.StartsWithDigit(words[k]) {
 			words = words[k:]
 			break
 		}
@@ -268,7 +202,7 @@ func stripPrefix(imports []Import, taken Names) {
 	}
 	stripped := make([]string, len(imports))
 	for i, imp := range imports {
-		if rest, ok := strings.CutPrefix(imp.Name, prefix); ok && rest != "" && !startsWithDigit(rest) {
+		if rest, ok := strings.CutPrefix(imp.Name, prefix); ok && rest != "" && !hclfile.StartsWithDigit(rest) {
 			stripped[i] = rest
 		}
 	}

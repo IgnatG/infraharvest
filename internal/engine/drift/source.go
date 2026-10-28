@@ -1,13 +1,14 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -107,11 +108,12 @@ type driftEditor struct {
 	resources map[string]refreshedResource
 	// schemas type the values written; nil writes them as their JSON has
 	// them.
-	schemas  *tfjson.ProviderSchemas
-	defaults map[string][]string
-	// refs are the managed resources' IDs, ARNs and other identifiers, to
-	// refer to (see referenceIndex).
-	refs map[string][]referenceTarget
+	schemas *tfjson.ProviderSchemas
+	// isDefault is the engine's (see Rules.IsDefault).
+	isDefault func(typ, path string, expr hclsyntax.Expression) bool
+	// refer refers to the managed resources by their IDs, ARNs and other
+	// identifiers (see Rules.Referrer); nil to none.
+	refer Referrer
 	// sensitive are the values the plans mark sensitive, and forms the
 	// forms text quotes them in: no edit may write one.
 	sensitive, forms []string
@@ -126,13 +128,13 @@ type driftEditor struct {
 	// modules.json (see loadDriftModules), to trace changes of their
 	// resources to the calls.
 	modules map[string]*driftModule
-	// adapters are the run's (see DriftOptions.Adapters), whose Inverse
+	// adapters are the run's (see Options.Adapters), whose Inverse
 	// traces a change of a curated module's resource to its call (see
 	// curatedAdapter).
 	adapters []adapters.Adapter
 	// env is, for a root environments share, the environment checked:
 	// its code is every environment's, so only env's var file, envVars
-	// (see envVarsPath), is edited, for a value a variable sets, or a
+	// (see hclfile.EnvVarsPath), is edited, for a value a variable sets, or a
 	// block only env has (see ownBlock).
 	env, envVars string
 	// ownFlags are, for a root environments share, the bool variables
@@ -144,8 +146,8 @@ type driftEditor struct {
 	current map[string]any
 }
 
-func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *driftEditor {
-	e := &driftEditor{resources: map[string]refreshedResource{}, defaults: defaults, providerTagged: map[string]string{}, current: map[string]any{}}
+func newDriftEditor(refresh, code *tfjson.Plan, rules Rules) *driftEditor {
+	e := &driftEditor{resources: map[string]refreshedResource{}, isDefault: rules.IsDefault, providerTagged: map[string]string{}, current: map[string]any{}}
 	if code != nil {
 		for _, rc := range code.ResourceChanges {
 			if rc.Mode == tfjson.ManagedResourceMode && rc.ModuleAddress == "" && rc.Change != nil {
@@ -167,7 +169,9 @@ func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *d
 	case refresh != nil:
 		state = refresh.PriorState
 	}
-	e.refs = referenceIndex(rootStateValues(state))
+	if rules.Referrer != nil {
+		e.refer = rules.Referrer(rootStateValues(state))
+	}
 	seen := map[string]bool{}
 	for _, p := range []*tfjson.Plan{refresh, code} {
 		if p == nil {
@@ -182,7 +186,7 @@ func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *d
 			}
 		}
 	}
-	e.sensitive = sortedKeys(seen)
+	e.sensitive = slices.Sorted(maps.Keys(seen))
 	e.forms = secret.TextForms(e.sensitive)
 	e.secretForms = driftSecretForms(nil, refresh, code)
 	return e
@@ -297,9 +301,9 @@ func valueAt(v any, steps []pathStep) (any, bool) {
 // the cloud's value (see codeSource). A secret, whether the plans mark it
 // sensitive, a sensitive variable sets it, or the edit would write one,
 // has no edit.
-func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) codeSource {
+func (e *driftEditor) resolve(cfg *driftConfig, c *Change) codeSource {
 	src := e.locate(cfg, c)
-	if reason, ok := e.providerTagged[c.Address+" "+c.Attribute]; ok && src.Edit == nil && c.value == nil && c.Kind == DriftChanged {
+	if reason, ok := e.providerTagged[c.Address+" "+c.Attribute]; ok && src.Edit == nil && c.value == nil && c.Kind == Changed {
 		src.Reason = reason
 	}
 	switch {
@@ -362,20 +366,20 @@ func (e *driftEditor) writesSecret(text []byte) bool {
 	return false
 }
 
-func (e *driftEditor) locate(cfg *driftConfig, c *DriftChange) codeSource {
+func (e *driftEditor) locate(cfg *driftConfig, c *Change) codeSource {
 	if c.shared != nil {
 		return e.locateShared(cfg, c)
 	}
 	if c.ModuleAddress != "" {
 		return e.locateInModule(cfg, c)
 	}
-	address := trimInstanceKey(c.Address)
+	address := hclfile.TrimInstanceKey(c.Address)
 	b, ok := cfg.blocks[address]
 	if !ok {
 		return codeSource{Kind: sourceNoBlock, Reason: "the root's code has no block for it"}
 	}
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: b.file, f: b.f, address: address, res: e.resources[c.Address]}
-	if c.Kind == DriftDeleted {
+	if c.Kind == Deleted {
 		return w.manual(sourceResource, b.b.DefRange(), "deleted in the cloud: remove the resource from the code by hand, or apply to create it again")
 	}
 	if reason := w.instances(b.b); reason != "" {
@@ -413,7 +417,7 @@ func (e *driftEditor) pathValues(address string) []any {
 type driftWalk struct {
 	e       *driftEditor
 	cfg     *driftConfig
-	c       *DriftChange
+	c       *Change
 	file    string // of the expression walked
 	f       *hclfile.File
 	address string
@@ -564,7 +568,7 @@ func (w *driftWalk) expr(e hclsyntax.Expression, h holder, path []string, i int)
 		if !s.isIndex {
 			for j := range x.Items {
 				item := &x.Items[j]
-				if keyName(item.KeyExpr) == s.name {
+				if hclfile.KeyName(item.KeyExpr) == s.name {
 					return w.expr(item.ValueExpr, holder{obj: x, item: item}, path, i+1)
 				}
 			}
@@ -676,7 +680,7 @@ func (w *driftWalk) replace(x hclsyntax.Expression, h holder, path []string, i i
 }
 
 // isDefault reports whether text is the value the catalogue names as the
-// default of the argument at path (see Options.Defaults).
+// default of the argument at path (see Rules.IsDefault).
 func (w *driftWalk) isDefault(path []string, text []byte) bool {
 	if w.mod != nil {
 		// A call's argument: the default its adapter names, if curated.
@@ -689,12 +693,11 @@ func (w *driftWalk) isDefault(path []string, text []byte) bool {
 		}
 		return w.mod.adapter.IsDefault(path[0], tokens)
 	}
-	want, ok := defaultValues(w.e.defaults[w.c.Type])[strings.Join(path, ".")]
-	if !ok {
+	if w.e.isDefault == nil {
 		return false
 	}
 	expr, diags := hclsyntax.ParseExpression(text, "", hcl.InitialPos)
-	return !diags.HasErrors() && matchesValue(expr, want, nil)
+	return !diags.HasErrors() && w.e.isDefault(w.c.Type, strings.Join(path, "."), expr)
 }
 
 // literalKeys reports whether expr, an object or map literal, has the
@@ -707,7 +710,7 @@ func literalKeys(expr hclsyntax.Expression, steps []pathStep) bool {
 		}
 		var next hclsyntax.Expression
 		for j := range obj.Items {
-			if keyName(obj.Items[j].KeyExpr) == s.name {
+			if hclfile.KeyName(obj.Items[j].KeyExpr) == s.name {
 				next = obj.Items[j].ValueExpr
 				break
 			}
@@ -762,7 +765,7 @@ func typedValueText(value any, ty cty.Type) ([]byte, error) {
 	if !v.IsWhollyKnown() {
 		return nil, errors.New("the value isn't known")
 	}
-	return withoutNullAttributes(hclwrite.TokensForValue(v)).Bytes(), nil
+	return hclfile.WithoutNullAttributes(hclwrite.TokensForValue(v)).Bytes(), nil
 }
 
 // typeAt returns the type of the argument at path, then of what the
@@ -771,7 +774,7 @@ func (w *driftWalk) typeAt(path []string, sub []pathStep) cty.Type {
 	if w.mod != nil {
 		return w.mod.typeAt(w, w.attrAt+len(sub))
 	}
-	return descendType(schemaType(w.e.schemas, "resource", w.c.Type, path), sub)
+	return descendType(tfrun.AttributeType(w.e.schemas, w.c.Type, path), sub)
 }
 
 // schemaBlockType reports whether the schemas have a nested block type at
@@ -910,11 +913,11 @@ func (w *driftWalk) removeItem(obj *hclsyntax.ObjectConsExpr, item *hclsyntax.Ob
 // It returns the names of the files it edited, sorted, the sources it
 // edited by, and the sources of the changes it couldn't edit: a hand
 // edit, or a secret, which includes an edit that would add a value the
-// literal secrets check takes for one (see literalSecrets).
-func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) ([]string, map[*DriftChange]codeSource, map[*DriftChange]codeSource, error) {
+// literal secrets check takes for one (see secret.Literals).
+func (e *driftEditor) apply(contents map[string][]byte, changes []*Change) ([]string, map[*Change]codeSource, map[*Change]codeSource, error) {
 	edited := map[string]bool{}
-	applied := map[*DriftChange]codeSource{}
-	failed := map[*DriftChange]codeSource{}
+	applied := map[*Change]codeSource{}
+	failed := map[*Change]codeSource{}
 	var cfg *driftConfig
 	for _, c := range changes {
 		// Only the files the change before edited are parsed again.
@@ -940,7 +943,7 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*DriftChange) 
 		}
 		applied[c] = src
 	}
-	return sortedKeys(edited), applied, failed, nil
+	return slices.Sorted(maps.Keys(edited)), applied, failed, nil
 }
 
 // editFiles returns the files of contents edits change, as they edit
@@ -953,7 +956,7 @@ func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]b
 		byFile[edit.File] = append(byFile[edit.File], edit)
 	}
 	next := map[string][]byte{}
-	for _, name := range sortedKeys(byFile) {
+	for _, name := range slices.Sorted(maps.Keys(byFile)) {
 		old := contents[name]
 		fileEdits := byFile[name]
 		// From the last, so that the offsets of the others hold.
@@ -1011,11 +1014,11 @@ func layoutResource(src []byte, address string) []byte {
 // reportSource is src as a report shows it: the file and line, the
 // expression if on one line, with secrets left out, and how a module gets
 // the value from the call; nil without a file.
-func reportSource(cfg *driftConfig, src codeSource, forms []string) *DriftSource {
+func reportSource(cfg *driftConfig, src codeSource, forms []string) *Source {
 	if src.File == "" {
 		return nil
 	}
-	out := &DriftSource{File: src.File, Line: src.Range.Start.Line, ModulePath: src.Module}
+	out := &Source{File: src.File, Line: src.Range.Start.Line, ModulePath: src.Module}
 	f := cfg.files[src.File]
 	if f == nil || src.Kind == sourceAbsent || src.Kind == sourceResource || src.Kind == sourceModule {
 		return out

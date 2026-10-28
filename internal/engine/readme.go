@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -66,7 +67,7 @@ func readmeFile(result *Result) []byte {
 	b.WriteString("\n## Next steps\n\n")
 	step := 1
 	if len(result.Secrets) > 0 {
-		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n", step, VariablesFileName)
+		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n", step, hclfile.VariablesFileName)
 		for _, s := range result.Secrets {
 			fmt.Fprintf(&b, "   - `%s`: %s of `%s`\n", s.Variable, s.Attribute, s.Address)
 		}

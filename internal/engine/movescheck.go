@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // refactorAddress is the address a moved or removed block names, as in
@@ -85,7 +86,7 @@ func checkMoves(dir string) (gate.Check, error) {
 		check.Passed = false
 		check.Details = append(check.Details, fmt.Sprintf(format, args...))
 	}
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return check, err
 	}

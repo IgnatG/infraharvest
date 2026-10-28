@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -293,7 +294,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		}
 	}
 	if len(result.Secrets) > 0 {
-		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
+		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), hclfile.VariablesFileName)
 	}
 	if len(result.Moves) > 0 {
 		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), engine.MovesFileName)

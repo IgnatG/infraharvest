@@ -12,6 +12,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // claimFor claims the root in dir, under out, for generating it from the
@@ -148,14 +149,14 @@ func TestClaimRoot(t *testing.T) {
 
 	// An unrelated root keeps its files, whatever the flags.
 	unrelated := filepath.Join(out, "aws", "111", "eu-west-2")
-	writeRoot(t, unrelated, "main.tf", engine.VariablesFileName, engine.ReadmeFileName)
+	writeRoot(t, unrelated, "main.tf", hclfile.VariablesFileName, engine.ReadmeFileName)
 	for _, flags := range [][2]bool{{false, false}, {true, false}, {false, true}} {
 		_, err := claimFor(out, unrelated, flags[0], flags[1])
 		if err == nil || !strings.Contains(err.Error(), unrelated) || !strings.Contains(err.Error(), "main.tf") {
 			t.Errorf("resume, regenerate=%v: want an error naming the directory and main.tf, got %v", flags, err)
 		}
 	}
-	for _, name := range []string{"main.tf", engine.VariablesFileName, engine.ReadmeFileName} {
+	for _, name := range []string{"main.tf", hclfile.VariablesFileName, engine.ReadmeFileName} {
 		if !exists(filepath.Join(unrelated, name)) {
 			t.Errorf("%s was removed from the unrelated root", name)
 		}
@@ -184,11 +185,11 @@ func TestClaimRoot(t *testing.T) {
 	}
 
 	// --resume clears what the import wrote there, and only that.
-	writeRoot(t, fresh, engine.VariablesFileName, engine.ReadmeFileName, "notes.md")
+	writeRoot(t, fresh, hclfile.VariablesFileName, engine.ReadmeFileName, "notes.md")
 	if _, err := claimFor(out, fresh, true, false); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{engine.ImportsFileName: false, engine.GeneratedFileName: false, engine.VariablesFileName: false, engine.ReadmeFileName: false, "notes.md": true} {
+	for name, want := range map[string]bool{engine.ImportsFileName: false, engine.GeneratedFileName: false, hclfile.VariablesFileName: false, engine.ReadmeFileName: false, "notes.md": true} {
 		if got := exists(filepath.Join(fresh, name)); got != want {
 			t.Errorf("after --resume, %s: exists=%v, want %v", name, got, want)
 		}

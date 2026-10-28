@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"encoding/json"
@@ -67,7 +67,7 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
 			if _, err := hclfile.Parse("main.tf", []byte(src)); err != nil {
 				t.Skipf("%q doesn't make valid HCL: %v", key, err)
 			}
-			for _, c := range []*DriftChange{
+			for _, c := range []*Change{
 				driftAt("aws_lambda_function.fuzz", "environment[0].variables."+key, token),
 				driftAt("aws_lambda_function.fuzz", "description", "rotated "+token),
 			} {
@@ -76,7 +76,7 @@ func FuzzDriftNeverWritesSecrets(f *testing.F) {
 					"environment": []any{map[string]any{"variables": map[string]any{key: token}}},
 				}})
 				contents := map[string][]byte{"main.tf": []byte(src)}
-				_, _, failed, err := e.apply(contents, []*DriftChange{c})
+				_, _, failed, err := e.apply(contents, []*Change{c})
 				if err != nil {
 					t.Fatal(err)
 				}

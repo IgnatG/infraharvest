@@ -51,7 +51,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 	if len(moved) > 0 {
 		return nil, gate.Check{}, fmt.Errorf("%s still moves resources: plan and apply every environment, and delete %s, before generating it again", MovesFileName, MovesFileName)
 	}
-	envs, err := MergedEnvironments(dir)
+	envs, err := hclfile.MergedEnvironments(dir)
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
@@ -68,18 +68,18 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 	// the var files of its values, the shared ones even with no
 	// environment left, but not those of its import IDs, as the root
 	// imports nothing now.
-	values := map[string]bool{commonVarsPath: true}
+	values := map[string]bool{hclfile.CommonVarsPath: true}
 	for _, env := range envs {
-		values[envVarsPath(env)] = true
+		values[hclfile.EnvVarsPath(env)] = true
 	}
 	var left []string
 	for _, name := range files {
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		keep := false
 		switch {
-		case name == ProvidersFileName, name == ".gitignore", name == tfrun.LockFileName, isBackendConfig(name):
+		case name == ProvidersFileName, name == ".gitignore", name == tfrun.LockFileName, hclfile.IsBackendConfig(name):
 			keep = true
-		case name == VariablesFileName:
+		case name == hclfile.VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
 				return nil, gate.Check{}, err
 			}
@@ -107,7 +107,7 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
-	backend := slices.ContainsFunc(left, isBackendConfig)
+	backend := slices.ContainsFunc(left, hclfile.IsBackendConfig)
 	if err := fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
 		return nil, gate.Check{}, err
 	}
@@ -184,7 +184,7 @@ func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check g
 	}
 	fmt.Fprintf(&b, "1. Plan each environment with its own credentials. For %s, and likewise for the others:\n\n   ```sh\n", env)
 	if backend {
-		fmt.Fprintf(&b, "   terraform init -reconfigure -backend-config=%s\n", backendConfigPath(env))
+		fmt.Fprintf(&b, "   terraform init -reconfigure -backend-config=%s\n", hclfile.BackendConfigPath(env))
 	} else {
 		fmt.Fprintf(&b, "   terraform init\n   terraform workspace select %s\n", env)
 	}

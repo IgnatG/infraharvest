@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"maps"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -123,7 +124,7 @@ func TestDriftEditsInstances(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		files  map[string]string
-		change *DriftChange
+		change *Change
 		setup  func(e *driftEditor)
 		// want are the files the edit changes; none means there is no
 		// edit, for reason.
@@ -199,7 +200,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			files:  map[string]string{"main.tf": alertsFeature, "vars/prod/terraform.tfvars": "deploy_alerts = true\n"},
 			change: driftAt("aws_sqs_queue.alerts[0]", "delay_seconds", float64(30)),
 			setup: func(e *driftEditor) {
-				e.env, e.envVars, e.ownFlags = "prod", envVarsPath("prod"), map[string]bool{"deploy_alerts": true}
+				e.env, e.envVars, e.ownFlags = "prod", hclfile.EnvVarsPath("prod"), map[string]bool{"deploy_alerts": true}
 			},
 			kind: sourceLiteral,
 			want: map[string]string{"main.tf": formatted(strings.Replace(alertsFeature, "delay_seconds = 0", "delay_seconds = 30", 1))},
@@ -209,7 +210,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			files:  map[string]string{"main.tf": alertsFeature, "vars/prod/terraform.tfvars": "deploy_alerts = true\n"},
 			change: driftAt("aws_sqs_queue.alerts[0]", "delay_seconds", float64(30)),
 			setup: func(e *driftEditor) {
-				e.env, e.envVars = "prod", envVarsPath("prod")
+				e.env, e.envVars = "prod", hclfile.EnvVarsPath("prod")
 			},
 			kind:   sourceLiteral,
 			reason: "the environments share this root's code",
@@ -282,7 +283,7 @@ func TestDriftEditsInstances(t *testing.T) {
 			}
 			contents := byteFiles(tc.files)
 			before := maps.Clone(contents)
-			names, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
+			names, applied, failed, err := e.apply(contents, []*Change{tc.change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -349,7 +350,7 @@ func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		files  map[string]string
-		change *DriftChange
+		change *Change
 		// after is the cloud's tags of the group.
 		after map[string]any
 		// current are the values the plan of the code has, by address.
@@ -413,7 +414,7 @@ func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
 			}
 			contents := byteFiles(tc.files)
 			before := maps.Clone(contents)
-			names, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
+			names, applied, failed, err := e.apply(contents, []*Change{tc.change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -450,7 +451,7 @@ func TestDriftEditsEnvironmentMapKeys(t *testing.T) {
 }
 
 func devEnvironment(e *driftEditor) {
-	e.env, e.envVars = "dev", envVarsPath("dev")
+	e.env, e.envVars = "dev", hclfile.EnvVarsPath("dev")
 }
 
 // The bool variables only one environment sets true, by its var files or
@@ -487,7 +488,7 @@ variable "name" {
 		"vars/prod/terraform.tfvars": "deploy_alerts = true\ndeploy_unset = true\n",
 		"vars/qa/terraform.tfvars":   "deploy_default = false\n",
 	})
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +524,7 @@ sqs_queues = {
 }
 `
 
-// Drift as prod of a merged root takes a change of a key of the for_each
+// Check as prod of a merged root takes a change of a key of the for_each
 // into prod's var file, and one of the feature only prod has into its
 // block; dev's var file stays as it was.
 func TestDriftAcceptsMergedShapes(t *testing.T) {
@@ -557,20 +558,20 @@ func TestDriftAcceptsMergedShapes(t *testing.T) {
 		driftResource(`aws_sqs_queue.this["b"]`, "aws_sqs_queue", noop, queue(9000), queue(9000)),
 		driftResource("aws_sqs_queue.alerts[0]", "aws_sqs_queue", noop, alerts(30), alerts(30)),
 	}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, verified}, DriftOptions{Environment: "prod"})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, verified}, Options{Environment: "prod"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
 	retention := got[`aws_sqs_queue.this["b"] message_retention_seconds`]
-	if retention.Outcome != DriftWritten {
+	if retention.Outcome != Written {
 		t.Errorf("the retention: %s: %s", retention.Outcome, retention.Reason)
 	}
 	if s := retention.Source; s == nil || s.File != "vars/prod/terraform.tfvars" || s.Line != 8 {
 		t.Errorf("the retention's source: %+v, want vars/prod/terraform.tfvars:8", s)
 	}
 	delay := got["aws_sqs_queue.alerts[0] delay_seconds"]
-	if delay.Outcome != DriftWritten {
+	if delay.Outcome != Written {
 		t.Errorf("the alerts' delay: %s: %s", delay.Outcome, delay.Reason)
 	}
 	if s := delay.Source; s == nil || s.File != "main.tf" {

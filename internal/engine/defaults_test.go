@@ -56,7 +56,7 @@ func thingRoot(t *testing.T) (string, map[string]string) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
-	return dir, map[string]string{"aws_thing.a": changeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	return dir, map[string]string{"aws_thing.a": tfrun.ChangeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
 // Nulls, constant defaults and the blocks they leave empty go; a constant
@@ -214,7 +214,7 @@ func roleRoot(t *testing.T, content string) (string, map[string]string) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(imports))
-	return dir, map[string]string{"aws_role.a": changeSignature(resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	return dir, map[string]string{"aws_role.a": tfrun.ChangeSignature(resourceChange("aws_role.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
 // Any constant can be an optional argument's default, not only false, 0
@@ -470,7 +470,7 @@ func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(imports))
-	changes := map[string]string{"aws_lambda_function.a": changeSignature(resourceChange("aws_lambda_function.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	changes := map[string]string{"aws_lambda_function.a": tfrun.ChangeSignature(resourceChange("aws_lambda_function.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	alternatives := errorAt(1, "Invalid combination of arguments", `"filename": one of `+"`filename,image_uri,s3_bucket`"+` must be specified`)
 	tf := &fakeTerraform{
 		dir:         dir,
@@ -542,7 +542,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(imports))
-	changes := map[string]string{"aws_lb.a": changeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	changes := map[string]string{"aws_lb.a": tfrun.ChangeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
 
 	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{keepEmpty: map[string][]string{"aws_lb": {"route"}}})
@@ -596,7 +596,7 @@ resource "google_storage_bucket" "b" {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
-	noChange := changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+	noChange := tfrun.ChangeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	changes := map[string]string{"google_storage_bucket.a": noChange, "google_storage_bucket.b": noChange}
 	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
 		"registry.terraform.io/hashicorp/google": {ResourceSchemas: map[string]*tfjson.Schema{

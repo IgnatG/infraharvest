@@ -1,11 +1,13 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 
 	"github.com/hashicorp/hcl/v2"
@@ -75,7 +77,7 @@ type tagRef struct {
 type tagShare struct {
 	source  *sharedSource
 	key     string
-	members []*DriftChange
+	members []*Change
 	// dropped says why the edit of the shared tags was left out, once it
 	// is: its members are then accepted, and reported, on their own.
 	dropped string
@@ -103,7 +105,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 		}
 		return s
 	}
-	for _, name := range sortedKeys(cfg.files) {
+	for _, name := range slices.Sorted(maps.Keys(cfg.files)) {
 		for _, b := range cfg.files[name].Syntax.Blocks {
 			switch {
 			case b.Type == "provider" && len(b.Labels) == 1:
@@ -128,7 +130,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 					if aliased || !ok {
 						continue
 					}
-					values, ok := stringMap(obj)
+					values, ok := hclfile.StringMap(obj)
 					if !ok || len(values) == 0 {
 						continue
 					}
@@ -148,7 +150,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 					}
 				}
 			case b.Type == "module" && len(b.Labels) == 1 && !hasInstances(b):
-				for _, name := range sortedKeys(b.Body.Attributes) {
+				for _, name := range slices.Sorted(maps.Keys(b.Body.Attributes)) {
 					n, ref := tagReference(b.Body.Attributes[name].Expr)
 					if n == "" {
 						continue
@@ -169,7 +171,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 			}
 		}
 	}
-	for _, name := range sortedKeys(byLocal) {
+	for _, name := range slices.Sorted(maps.Keys(byLocal)) {
 		s := byLocal[name]
 		def, ok := cfg.locals[name]
 		if unsound[name] || !ok || (s.provider == "" && len(s.refs) < 2) {
@@ -189,7 +191,7 @@ func sharedTagSources(cfg *driftConfig, modules map[string]*driftModule) []*shar
 		if !ok {
 			continue
 		}
-		values, ok := stringMap(obj)
+		values, ok := hclfile.StringMap(obj)
 		if !ok || len(values) == 0 {
 			continue
 		}
@@ -253,7 +255,7 @@ func tagReference(expr hclsyntax.Expression) (string, tagRef) {
 			continue
 		}
 		for _, item := range obj.Items {
-			k := keyName(item.KeyExpr)
+			k := hclfile.KeyName(item.KeyExpr)
 			if k == "" {
 				ref.opaque = true
 			}
@@ -273,7 +275,7 @@ func (s *sharedSource) object(cfg *driftConfig) (*hclsyntax.ObjectConsExpr, stri
 		obj, ok := def.attr.Expr.(*hclsyntax.ObjectConsExpr)
 		return obj, def.file, ok
 	}
-	for _, name := range sortedKeys(cfg.files) {
+	for _, name := range slices.Sorted(maps.Keys(cfg.files)) {
 		for _, b := range cfg.files[name].Syntax.Blocks {
 			if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != s.provider {
 				continue
@@ -325,7 +327,7 @@ func (s *sharedSource) covers(k string, before map[string]map[string]any, instan
 			covered[address] = true
 		}
 	}
-	return sortedKeys(covered), true
+	return slices.Sorted(maps.Keys(covered)), true
 }
 
 // priorValues returns each managed resource's values as the state had
@@ -364,7 +366,7 @@ func priorValues(refresh, code *tfjson.Plan) map[string]map[string]any {
 // stay as they are, each accepted at its resource. It also tells editor,
 // for the resources the provider's default tags give a key, that one
 // can't leave the key out.
-func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code *tfjson.Plan, editor *driftEditor) ([]DriftChange, error) {
+func shareTags(changes []Change, contents map[string][]byte, refresh, code *tfjson.Plan, editor *driftEditor) ([]Change, error) {
 	cfg, err := parseDriftConfig(contents)
 	if err != nil {
 		return nil, err
@@ -375,7 +377,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 	}
 	before := priorValues(refresh, code)
 	instances := map[string][]string{}
-	for _, address := range sortedKeys(before) {
+	for _, address := range slices.Sorted(maps.Keys(before)) {
 		block := unkeyedAddress(address)
 		instances[block] = append(instances[block], address)
 	}
@@ -384,9 +386,9 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 		index[c.Address+" "+c.Attribute] = i
 	}
 	used := map[int]bool{}
-	var folded []DriftChange
+	var folded []Change
 	for _, s := range shared {
-		for _, k := range sortedKeys(s.values) {
+		for _, k := range slices.Sorted(maps.Keys(s.values)) {
 			attribute := s.attribute + "." + k
 			if s.provider != "" {
 				for address, values := range before {
@@ -410,7 +412,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 					break
 				}
 				c := changes[i]
-				if c.Kind != DriftChanged || c.Outcome != DriftReverts || c.sensitive || (len(members) > 0 && !reflect.DeepEqual(c.value, changes[members[0]].value)) {
+				if c.Kind != Changed || c.Outcome != Reverts || c.sensitive || (len(members) > 0 && !reflect.DeepEqual(c.value, changes[members[0]].value)) {
 					members = nil
 					break
 				}
@@ -420,8 +422,8 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 				continue
 			}
 			first := changes[members[0]]
-			c := DriftChange{
-				Address: s.address, Attribute: attribute, Kind: DriftChanged, Outcome: DriftReverts,
+			c := Change{
+				Address: s.address, Attribute: attribute, Kind: Changed, Outcome: Reverts,
 				Before: redactDriftValue(s.values[k], k, false, editor.forms), After: first.After,
 				Covers: covered, value: first.value,
 				shared: &tagShare{source: s, key: k},
@@ -437,7 +439,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 	if len(folded) == 0 {
 		return changes, nil
 	}
-	out := make([]DriftChange, 0, len(changes)-len(used)+len(folded))
+	out := make([]Change, 0, len(changes)-len(used)+len(folded))
 	for i, c := range changes {
 		if !used[i] {
 			out = append(out, c)
@@ -456,7 +458,7 @@ func shareTags(changes []DriftChange, contents map[string][]byte, refresh, code 
 // locateShared finds c's key in the shared tags it is of, and the edit
 // that takes the cloud's value: the key's value replaced, or the key
 // removed if the cloud has none.
-func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource {
+func (e *driftEditor) locateShared(cfg *driftConfig, c *Change) codeSource {
 	s := c.shared.source
 	obj, file, ok := s.object(cfg)
 	if !ok {
@@ -465,7 +467,7 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource 
 	w := &driftWalk{e: e, cfg: cfg, c: c, file: file, f: cfg.files[file]}
 	for j := range obj.Items {
 		item := &obj.Items[j]
-		if keyName(item.KeyExpr) != c.shared.key {
+		if hclfile.KeyName(item.KeyExpr) != c.shared.key {
 			continue
 		}
 		rng := item.ValueExpr.Range()
@@ -489,7 +491,7 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *DriftChange) codeSource 
 // unshare leaves out the edit of c, a change of shared tags, for why,
 // and returns its members, accepted as c is, to be edited each at its
 // resource instead.
-func unshare(c *DriftChange, why string) []*DriftChange {
+func unshare(c *Change, why string) []*Change {
 	c.shared.dropped = why
 	for _, m := range c.shared.members {
 		m.Decision = c.Decision
@@ -500,8 +502,8 @@ func unshare(c *DriftChange, why string) []*DriftChange {
 // unsharedChanges returns changes, with each change of shared tags whose
 // edit was left out replaced by its members, sorted by address and
 // attribute.
-func unsharedChanges(changes []DriftChange) []DriftChange {
-	var out []DriftChange
+func unsharedChanges(changes []Change) []Change {
+	var out []Change
 	expanded := false
 	for _, c := range changes {
 		if c.shared == nil || c.shared.dropped == "" {
@@ -511,7 +513,7 @@ func unsharedChanges(changes []DriftChange) []DriftChange {
 		expanded = true
 		for _, m := range c.shared.members {
 			mc := *m
-			if mc.Outcome == DriftWritten {
+			if mc.Outcome == Written {
 				mc.Reason = "written at the resource, as editing " + c.Address + " for every resource it covers wasn't taken: " + c.shared.dropped
 			}
 			out = append(out, mc)
@@ -537,8 +539,8 @@ func moduleTagTargets(m *driftModule, variable string) (string, []string, bool) 
 		return "", nil, false
 	}
 	uses := 0
-	for _, name := range sortedKeys(m.cfg.files) {
-		for _, t := range allTraversals(m.cfg.files[name].Syntax) {
+	for _, name := range slices.Sorted(maps.Keys(m.cfg.files)) {
+		for _, t := range hclfile.Traversals(m.cfg.files[name].Syntax) {
 			if t.RootName() != "var" || len(t) < 2 {
 				continue
 			}
@@ -549,7 +551,7 @@ func moduleTagTargets(m *driftModule, variable string) (string, []string, bool) 
 	}
 	attribute := ""
 	var targets []string
-	for _, address := range sortedKeys(m.cfg.blocks) {
+	for _, address := range slices.Sorted(maps.Keys(m.cfg.blocks)) {
 		b := m.cfg.blocks[address].b
 		for _, name := range []string{"tags", "labels"} {
 			attr, ok := b.Body.Attributes[name]

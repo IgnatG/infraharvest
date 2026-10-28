@@ -134,7 +134,7 @@ func (f *mergeFake) ProvidersSchema(context.Context) (*tfjson.ProviderSchemas, e
 }
 
 func (f *mergeFake) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
-	path := filepath.Join(f.dir, filepath.FromSlash(importVarsPath(f.env)))
+	path := filepath.Join(f.dir, filepath.FromSlash(hclfile.ImportVarsPath(f.env)))
 	src, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func (f *mergeFake) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) 
 		return nil, diags
 	}
 	attrs := file.Body.(*hclsyntax.Body).Attributes
-	ids, diags := attrs[importIDsVariableName].Expr.Value(nil)
+	ids, diags := attrs[hclfile.ImportIDsVariableName].Expr.Value(nil)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -153,7 +153,7 @@ func (f *mergeFake) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) 
 		address, id := it.Element()
 		importing[address.AsString()] = &tfjson.Importing{ID: id.AsString()}
 	}
-	if attr, ok := attrs[importIdentitiesVariableName]; ok {
+	if attr, ok := attrs[hclfile.ImportIdentitiesVariableName]; ok {
 		identities, diags := attr.Expr.Value(nil)
 		if diags.HasErrors() {
 			return nil, diags
@@ -287,7 +287,7 @@ func TestMergeRoots(t *testing.T) {
 	if result.Shared != 2 || len(result.Residue) != 0 {
 		t.Errorf("shared %d, residue %+v", result.Shared, result.Residue)
 	}
-	for _, name := range []string{ProvidersFileName, VariablesFileName, ImportsFileName, "sqs.tf", "s3.tf", DataFileName, tfrun.LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
+	for _, name := range []string{ProvidersFileName, hclfile.VariablesFileName, ImportsFileName, "sqs.tf", "s3.tf", DataFileName, tfrun.LockFileName, "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars"} {
 		if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(name))); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -1010,7 +1010,7 @@ func TestMergeRootsPlansWithoutTheBackend(t *testing.T) {
 	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, `backend "s3"`) {
 		t.Errorf("providers.tf has no backend once merged:\n%s", got)
 	}
-	if got := readFile(t, dir, filepath.FromSlash(backendConfigPath("prod"))); !strings.Contains(got, "222222222222") {
+	if got := readFile(t, dir, filepath.FromSlash(hclfile.BackendConfigPath("prod"))); !strings.Contains(got, "222222222222") {
 		t.Errorf("prod's backend.hcl:\n%s", got)
 	}
 }

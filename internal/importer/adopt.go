@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -25,7 +26,7 @@ import (
 // checkpoints (see mergeCheckpoint), which the output's .gitignore leaves
 // out: a fresh checkout of the output, such as the GitHub Action's, has
 // the merged root without them. Such a root is told from its own files
-// (see engine.MergedEnvironments), and an import with --incremental,
+// (see hclfile.MergedEnvironments), and an import with --incremental,
 // --resume or --regenerate merges its stack again from the environments'
 // roots it generates afresh, as if a checkpoint made from those files
 // recorded the merge (see adoptedCheckpoint).
@@ -37,7 +38,7 @@ type mergedState struct {
 }
 
 // mergedRootDirs returns the directories under out that hold a root
-// environments share (see engine.MergedEnvironments), sorted: outside
+// environments share (see hclfile.MergedEnvironments), sorted: outside
 // the checkpoints, Terraform's working directories and local workspaces.
 func mergedRootDirs(out string) ([]string, error) {
 	var dirs []string
@@ -57,7 +58,7 @@ func mergedRootDirs(out string) ([]string, error) {
 				return filepath.SkipDir
 			}
 		}
-		envs, err := engine.MergedEnvironments(path)
+		envs, err := hclfile.MergedEnvironments(path)
 		if err != nil || len(envs) == 0 {
 			return err
 		}
@@ -92,7 +93,7 @@ func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error
 				continue
 			}
 		}
-		envs, err := engine.MergedEnvironments(dir)
+		envs, err := hclfile.MergedEnvironments(dir)
 		if err != nil {
 			return nil, err
 		}
@@ -134,7 +135,7 @@ func (s *shared) loadedState() managed.Resources {
 // what the merged root has of one.
 func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeCheckpoint, string, error) {
 	out := r.options.Out
-	envs, err := engine.MergedEnvironments(stack)
+	envs, err := hclfile.MergedEnvironments(stack)
 	if err != nil || len(envs) == 0 {
 		return nil, "", err
 	}
@@ -164,7 +165,7 @@ func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeChec
 			continue
 		}
 		c.Members = append(c.Members, mergeCheckpointMember{Env: env, Path: relativePath(out, m.dir)})
-		ids, err := engine.MergedImportIDs(stack, env)
+		ids, err := hclfile.MergedImportIDs(stack, env)
 		if err != nil {
 			return nil, "", err
 		}

@@ -1,13 +1,19 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package drift finds what changed in the cloud since a root was last
+// applied, and takes the changes it is told to accept into the root's code
+// where it can be told how, held to the plan of the edited code and to the
+// checks of the verification gate. It plans a staged copy of the root, and
+// never writes the root's state.
+package drift
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -29,92 +37,82 @@ import (
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
-// What changed in the cloud (DriftChange.Kind).
+// What changed in the cloud (Change.Kind).
 const (
-	// DriftChanged: an attribute has another value in the cloud than in
+	// Changed: an attribute has another value in the cloud than in
 	// the state.
-	DriftChanged = "changed"
-	// DriftDeleted: the resource is in the state but no longer in the
+	Changed = "changed"
+	// Deleted: the resource is in the state but no longer in the
 	// cloud.
-	DriftDeleted = "deleted"
+	Deleted = "deleted"
 )
 
-// What the code makes of a change (DriftChange.Outcome).
+// What the code makes of a change (Change.Outcome).
 const (
-	// DriftReverts: the code still has the value of the state, so the
-	// next apply puts it back in the cloud. Drift reports such a change
-	// as DriftKept, or as what accepting it did.
-	DriftReverts = "reverts"
-	// DriftAbsorbed: the code doesn't set what changed, such as an
+	// Reverts: the code still has the value of the state, so the
+	// next apply puts it back in the cloud. Check reports such a change
+	// as Kept, or as what accepting it did.
+	Reverts = "reverts"
+	// Absorbed: the code doesn't set what changed, such as an
 	// attribute the provider computes or one ignore_changes names, so the
 	// next apply keeps the cloud's value.
-	DriftAbsorbed = "absorbed"
-	// DriftNotAssessable: whether the next apply puts the value back
+	Absorbed = "absorbed"
+	// NotAssessable: whether the next apply puts the value back
 	// can't be told, such as for a secret whose variable has no value.
-	DriftNotAssessable = "not_assessable"
-	// DriftKept: the code keeps its value, so the next apply puts it back
+	NotAssessable = "not_assessable"
+	// Kept: the code keeps its value, so the next apply puts it back
 	// in the cloud.
-	DriftKept = "kept"
-	// DriftWritten: the cloud's value was accepted and written into the
+	Kept = "kept"
+	// Written: the cloud's value was accepted and written into the
 	// code.
-	DriftWritten = "written"
-	// DriftRejectedByPlan: the cloud's value was accepted, but the plan
+	Written = "written"
+	// RejectedByPlan: the cloud's value was accepted, but the plan
 	// of the edited code didn't take it as it should, so the edit wasn't
 	// written.
-	DriftRejectedByPlan = "rejected_by_plan"
-	// DriftRejectedByCheck: the cloud's value was accepted, and the plan
+	RejectedByPlan = "rejected_by_plan"
+	// RejectedByCheck: the cloud's value was accepted, and the plan
 	// of the edited code took it, but the edit fails a check of the
 	// verification gate, such as format or secrets, so it wasn't written.
-	DriftRejectedByCheck = "rejected_by_check"
-	// DriftManual: the cloud's value was accepted, but where the code
+	RejectedByCheck = "rejected_by_check"
+	// Manual: the cloud's value was accepted, but where the code
 	// sets it takes a hand edit, as Reason says.
-	DriftManual = "manual"
-	// DriftSecret: the cloud's value was accepted, but it is a secret,
+	Manual = "manual"
+	// Secret: the cloud's value was accepted, but it is a secret,
 	// which is never written into the code.
-	DriftSecret = "secret"
+	Secret = "secret"
 )
 
-// What is decided for a change (DriftChange.Decision).
+// What is decided for a change (Change.Decision).
 const (
-	// DriftAccept: take the cloud's value into the code.
-	DriftAccept = "accept"
-	// DriftKeep: keep the code's value, which the next apply puts back.
-	DriftKeep = "keep"
+	// Accept: take the cloud's value into the code.
+	Accept = "accept"
+	// Keep: keep the code's value, which the next apply puts back.
+	Keep = "keep"
 )
 
-// backendFileName is the file of a generated root that configures its
-// backend; the staged copy leaves it out.
-const backendFileName = "backend.tf"
-
-// DriftOptions configure Drift.
-type DriftOptions struct {
+// Options configure Check.
+type Options struct {
 	// StateOnly names, per resource type, arguments the provider keeps
-	// only in state: their changes aren't drift (see Options.StateOnly).
+	// only in state: their changes aren't drift (see
+	// engine.Options.StateOnly).
 	StateOnly map[string][]string
 	// CommandTimeout bounds each Terraform command (see
-	// Options.CommandTimeout).
+	// engine.Options.CommandTimeout).
 	CommandTimeout time.Duration
 	// Accept says whether to take the cloud's value into the code for a
 	// change the next apply would revert; nil keeps every change, as
 	// detection alone does.
-	Accept func(DriftChange) bool
-	// Defaults name, per resource type, the values the provider gives
-	// arguments it isn't told (see Options.Defaults): a change accepted
-	// to one of them leaves the argument out rather than writing it.
-	Defaults map[string][]string
-	// Omit names, per resource type, the arguments the output leaves out
-	// (see Options.Omit), which the standards check of the edited code
-	// looks for.
-	Omit map[string][]string
+	Accept func(Change) bool
+	// Rules are the engine's rules for its output, which the edits that
+	// accept changes are held to (see Rules).
+	Rules Rules
 	// Adapters are the adapters of the modules the root may call, as
-	// generation had them (see Options.Adapters): a change of a resource
-	// in a call of a curated module is traced to the call through its
-	// adapter (see curatedAdapter), and the standards check of the edited
-	// code leaves the organisation's modules in their directories to
-	// their owners, as the verification gate does.
+	// generation had them (see engine.Options.Adapters): a change of a
+	// resource in a call of a curated module is traced to the call through
+	// its adapter (see curatedAdapter).
 	Adapters []adapters.Adapter
 	// Environment is, for a root environments share (see
-	// MergedEnvironments), the environment to check it as: with its
+	// hclfile.MergedEnvironments), the environment to check it as: with its
 	// backend settings, vars/<env>/backend.hcl, or, for a root without a
 	// backend, the local state of the workspace named after it, and with
 	// its var files. The environments share the root's code, so a change
@@ -125,7 +123,7 @@ type DriftOptions struct {
 	// instead; in a block only the environment has, counted by a variable
 	// only it sets true, the block is edited; else it needs a hand edit.
 	Environment string
-	// WithRootLock, for a root environments share, runs what Drift does
+	// WithRootLock, for a root environments share, runs what Check does
 	// in the root's own directory, initialise it with Environment's
 	// backend settings, pull its state and stage its files, holding a lock
 	// the checks of the root's other environments share: run at once,
@@ -133,8 +131,8 @@ type DriftOptions struct {
 	// between another's init and its own would read that environment's
 	// state. nil runs it as it is.
 	WithRootLock func(func() error) error
-	// DataDir is where the Terraform Drift is given for the root keeps its
-	// working files, the TF_DATA_DIR it runs with, which Drift reads the
+	// DataDir is where the Terraform Check is given for the root keeps its
+	// working files, the TF_DATA_DIR it runs with, which Check reads the
 	// modules its init installed from; "" for .terraform in the root.
 	DataDir string
 	// OutDir is the output directory the root is in: an accepted change
@@ -142,7 +140,7 @@ type DriftOptions struct {
 	// module is in it too (see addModuleFiles). "" takes the directory the
 	// module's modules directory is in for it.
 	OutDir string
-	// Backends are the types of the backends Drift reads state from,
+	// Backends are the types of the backends Check reads state from,
 	// besides local state: those the clouds keep state in whose
 	// providers infraharvest is built with (see harvest.Profile.Backend).
 	// A root with another backend, such as one whose plans run remotely,
@@ -154,14 +152,40 @@ type DriftOptions struct {
 	writeFile func(path string, content []byte, perm os.FileMode) error
 }
 
-// RootDrift is what Drift found in one root.
-type RootDrift struct {
+// Rules are what the engine knows of the code it generates that the
+// edits accepting changes are held to, so that they write what
+// generation would (see engine.DriftRules).
+type Rules struct {
+	// Standards and Moves run the verification gate's standards and moves
+	// checks on a directory (see gate.Policy.Standards), which an edit may
+	// add no finding to. Both must be set.
+	Standards, Moves func(dir string) (gate.Check, error)
+	// IsDefault reports whether expr is the value the provider gives the
+	// argument at path, such as storage_class, of a resource of type typ
+	// when it isn't told: a change accepted to it leaves the argument out
+	// rather than writing it. nil knows no defaults.
+	IsDefault func(typ, path string, expr hclsyntax.Expression) bool
+	// Referrer returns, for the values of a root's resources in its
+	// state, by address, what refers to a resource by a value it has
+	// (see Referrer). nil refers to none.
+	Referrer func(values map[string]map[string]any) Referrer
+}
+
+// A Referrer returns, for value, the cloud's value of an argument named
+// argument, such as vpc_id, the resource that has it as an identifier,
+// by address, and the reference to the attribute that has it, such as
+// aws_vpc.main.id, which takes the value in the code; false if no
+// resource's value is the one the argument names.
+type Referrer func(argument, value string) (address string, ref hcl.Traversal, ok bool)
+
+// Result is what Check found in one root.
+type Result struct {
 	// Backend is the type of the root's backend, local for none.
 	Backend string
 	// Resources counts the managed resources in the root's state.
 	Resources int
 	// NotApplied are the resources the root's import blocks import that
-	// the state doesn't have yet: Drift can't check them.
+	// the state doesn't have yet: their drift can't be told.
 	NotApplied []string
 	// Placeholders are the root's variables without a value, from a
 	// default, TF_VAR_ or a tfvars file, that got a placeholder value:
@@ -169,12 +193,12 @@ type RootDrift struct {
 	Placeholders []string
 	// Changes are what changed in the cloud, sorted by address and
 	// attribute.
-	Changes []DriftChange
+	Changes []Change
 }
 
-// DriftChange is one attribute, or one resource, that changed in the
+// Change is one attribute, or one resource, that changed in the
 // cloud since the state last recorded it.
-type DriftChange struct {
+type Change struct {
 	// Address is the resource's, or, for a change of tags several
 	// resources get from one place (see Covers), that place's: local.tags,
 	// or the provider's map literal, such as provider.aws.default_tags.
@@ -191,13 +215,13 @@ type DriftChange struct {
 	// Before is the state's value, After the cloud's, with secrets
 	// replaced by "(sensitive value)".
 	Before, After any
-	Kind          string // DriftChanged or DriftDeleted
-	// Decision is DriftAccept or DriftKeep.
+	Kind          string // Changed or Deleted
+	// Decision is Accept or Keep.
 	Decision string
-	// Outcome is DriftAbsorbed or DriftNotAssessable, or, for a change the
-	// next apply would revert, DriftKept, DriftWritten,
-	// DriftRejectedByPlan, DriftRejectedByCheck, DriftManual or
-	// DriftSecret.
+	// Outcome is Absorbed or NotAssessable, or, for a change the
+	// next apply would revert, Kept, Written,
+	// RejectedByPlan, RejectedByCheck, Manual or
+	// Secret.
 	Outcome string
 	Reason  string
 	// ForcesReplacement says the next apply would replace the resource
@@ -206,7 +230,7 @@ type DriftChange struct {
 	// Source is where the root's configuration sets the attribute, as
 	// best it can be told: for a resource in a module call, the call's
 	// argument the module gets it from; nil when it can't be told.
-	Source *DriftSource
+	Source *Source
 
 	// Covers are, for a change of tags several resources get from one
 	// place, the resources it is of, sorted: each changed the key to the
@@ -222,8 +246,8 @@ type DriftChange struct {
 	shared *tagShare
 }
 
-// DriftSource is where a root's configuration sets an attribute.
-type DriftSource struct {
+// Source is where a root's configuration sets an attribute.
+type Source struct {
 	File       string // relative to the root
 	Line       int
 	Expression string // the expression that sets it, if on one line
@@ -236,12 +260,12 @@ type DriftSource struct {
 	ModulePath string
 }
 
-// UnsupportedBackendError is the error of a root whose backend Drift
+// UnsupportedBackendError is the error of a root whose backend Check
 // doesn't read state from.
 type UnsupportedBackendError struct {
 	Backend string // the backend's type, or "cloud" for HCP Terraform
-	// Supported are the backends Drift reads state from, besides local
-	// state (see DriftOptions.Backends).
+	// Supported are the backends Check reads state from, besides local
+	// state (see Options.Backends).
 	Supported []string
 }
 
@@ -259,7 +283,7 @@ func (e *UnsupportedBackendError) Error() string {
 	return fmt.Sprintf("the %q backend isn't supported, as drift plans locally against the state it pulls: %s", e.Backend, supported)
 }
 
-// Drift finds what changed in the cloud since the root in dir was last
+// Check finds what changed in the cloud since the root in dir was last
 // applied, with one refresh of the cloud. It initialises the root with
 // its backend, through tf, and pulls the state; then, in staging, a
 // private directory it creates and removes, it plans a copy of the root
@@ -282,13 +306,13 @@ func (e *UnsupportedBackendError) Error() string {
 //
 // A root with an unsupported backend fails with an
 // UnsupportedBackendError before Terraform runs.
-func Drift(ctx context.Context, tf tfrun.DriftTerraform, dir, staging string, staged func(dir string) (tfrun.DriftTerraform, error), opts DriftOptions) (*RootDrift, error) {
+func Check(ctx context.Context, tf tfrun.DriftTerraform, dir, staging string, staged func(dir string) (tfrun.DriftTerraform, error), opts Options) (*Result, error) {
 	s, err := openDriftSession(dir, staging, opts)
 	if err != nil {
 		return nil, err
 	}
 	defer s.close()
-	result := &RootDrift{Backend: s.backend}
+	result := &Result{Backend: s.backend}
 	applied, err := s.stage(ctx, tfrun.DriftWithTimeout(tf, opts.CommandTimeout))
 	if err != nil {
 		return nil, err
@@ -412,7 +436,7 @@ func stageDrift(dir, staging string, state []byte) error {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if !e.Type().IsRegular() || name == backendFileName || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" {
+		if !e.Type().IsRegular() || name == hclfile.BackendFileName || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" {
 			continue
 		}
 		path := filepath.Join(dir, name)
@@ -477,7 +501,7 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 					continue
 				}
 			}
-			source, err := callSource(staging, abs)
+			source, err := hclfile.CallSource(staging, abs)
 			if err != nil {
 				return nil, err
 			}
@@ -802,7 +826,7 @@ func within(path, parent string) bool {
 // doesn't. Resources the code still imports are left out. With
 // placeholders, a sensitive attribute the code changes may only be the
 // placeholder's: it is not assessable.
-func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, placeholders bool) []DriftChange {
+func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, placeholders bool) []Change {
 	if refresh == nil {
 		return nil
 	}
@@ -823,19 +847,19 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 		planned[rc.Address] = &plannedChange{actions: rc.Change.Actions, leaves: driftLeaves(rc.Type, leaves, stateOnly), replacePaths: rc.Change.ReplacePaths}
 	}
 	forms := driftSensitiveForms(refresh, code)
-	var changes []DriftChange
+	var changes []Change
 	for _, rc := range refresh.ResourceDrift {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil || importing[rc.Address] {
 			continue
 		}
-		base := DriftChange{Address: rc.Address, Type: rc.Type, ModuleAddress: rc.ModuleAddress}
+		base := Change{Address: rc.Address, Type: rc.Type, ModuleAddress: rc.ModuleAddress}
 		p := planned[rc.Address]
 		if rc.Change.Actions.Delete() {
 			c := base
-			c.Kind, c.Outcome = DriftDeleted, DriftAbsorbed
+			c.Kind, c.Outcome = Deleted, Absorbed
 			c.Reason = "the code no longer has the resource"
 			if p != nil && (p.actions.Create() || p.actions.Replace()) {
-				c.Outcome, c.Reason = DriftReverts, "the next apply creates the resource again"
+				c.Outcome, c.Reason = Reverts, "the next apply creates the resource again"
 			}
 			changes = append(changes, c)
 			continue
@@ -846,19 +870,19 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 		leaves := valueLeaves(rc.Change.Before, rc.Change.After, nil, rc.Change.BeforeSensitive, rc.Change.AfterSensitive)
 		for _, l := range driftLeaves(rc.Type, leaves, stateOnly) {
 			c := base
-			c.Kind, c.Attribute = DriftChanged, l.path
+			c.Kind, c.Attribute = Changed, l.path
 			c.Before, c.After = redactDriftValue(l.before, l.key, l.sensitive, forms), redactDriftValue(l.after, l.key, l.sensitive, forms)
 			c.value, c.sensitive = l.after, l.sensitive
-			c.Outcome = DriftAbsorbed
+			c.Outcome = Absorbed
 			if p != nil {
 				if cl, ok := p.find(l.path); ok {
 					switch {
 					case cl.unknown:
-						c.Outcome, c.Reason = DriftNotAssessable, "the code's value is known only after apply"
+						c.Outcome, c.Reason = NotAssessable, "the code's value is known only after apply"
 					case cl.sensitive && placeholders:
-						c.Outcome, c.Reason = DriftNotAssessable, "a sensitive value whose variable has no value here: set its TF_VAR_ variable to assess it"
+						c.Outcome, c.Reason = NotAssessable, "a sensitive value whose variable has no value here: set its TF_VAR_ variable to assess it"
 					default:
-						c.Outcome = DriftReverts
+						c.Outcome = Reverts
 						if p.actions.Replace() {
 							c.Reason = "the next apply replaces the resource to put the code's value back"
 							c.ForcesReplacement = forcesReplacement(p.replacePaths, l.path)
@@ -964,7 +988,7 @@ func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
 			}
 		}
 	}
-	return secret.TextForms(sortedKeys(seen))
+	return secret.TextForms(slices.Sorted(maps.Keys(seen)))
 }
 
 // collectDriftSecrets adds to out the strings of v, which goes by key,
@@ -1038,7 +1062,7 @@ func redactNamed(v any, key string, named bool, forms []string) any {
 		// counting them in the order of the keys, so that they stay
 		// apart and a report is the same each time.
 		hidden := 0
-		for _, k := range sortedKeys(v) {
+		for _, k := range slices.Sorted(maps.Keys(v)) {
 			shown := secret.RedactText(k, forms)
 			if secret.CredentialFormat(k) != "" {
 				hidden++
@@ -1068,7 +1092,7 @@ func driftSecret(key, value string) bool {
 }
 
 // entryKey returns the name the entry k of m goes by, as import has it
-// (see secretsInPolicy): k, but for the value of a name/value pair, such as
+// (see the secret package's literal check): k, but for the value of a name/value pair, such as
 // a container's environment variable, the pair's name, and "" if the
 // pair's type says the value names a secret kept elsewhere.
 func entryKey(m map[string]any, k string) string {
@@ -1096,13 +1120,13 @@ func firstString(m map[string]any, keys ...string) string {
 	return ""
 }
 
-// maxSourceExpression is the longest expression a DriftSource quotes.
+// maxSourceExpression is the longest expression a Source quotes.
 const maxSourceExpression = 120
 
 // addDriftSources sets, as best it can, where the root's code, contents
 // by file name, sets each change's attribute (see driftEditor.resolve),
 // and returns the sources it found, by change.
-func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *driftEditor) ([]codeSource, error) {
+func addDriftSources(changes []Change, contents map[string][]byte, editor *driftEditor) ([]codeSource, error) {
 	cfg, err := parseDriftConfig(contents)
 	if err != nil {
 		return nil, err

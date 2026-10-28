@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -66,7 +67,7 @@ func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []secr
 // countImportBlocks counts the import blocks in dir's configuration: how
 // many resources its plan must import.
 func countImportBlocks(dir string) (int, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return 0, err
 	}

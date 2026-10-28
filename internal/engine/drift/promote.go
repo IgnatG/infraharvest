@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"encoding/json"
@@ -28,14 +28,14 @@ import (
 const stagedModulesDir = ".modules"
 
 // generatedModuleName matches the directory name of a generated local
-// module (see modularize): its kind and the hash of its shape.
+// module, as the engine names it: its kind and the hash of its shape.
 var generatedModuleName = regexp.MustCompile(`^[a-z0-9_]+_[0-9a-f]{8}$`)
 
 // generatedModuleDir reports whether dir is a generated local module's,
 // <out>/modules/<kind>_<hash>.
 func generatedModuleDir(dir string) bool {
 	dir = filepath.ToSlash(filepath.Clean(dir))
-	return generatedModuleName.MatchString(path.Base(dir)) && path.Base(path.Dir(dir)) == ModulesDirName
+	return generatedModuleName.MatchString(path.Base(dir)) && path.Base(path.Dir(dir)) == hclfile.ModulesDirName
 }
 
 // isModuleFile reports whether name, a file of the contents drift edits,
@@ -229,7 +229,7 @@ func (e *driftEditor) syncModules(contents map[string][]byte) {
 // that calls modules, or that no other call or environment shares; of a
 // call with count or for_each; or outside the resource's block, as in a
 // local of the module.
-func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call driftBlock, callName string, m *driftModule, res driftBlock, t traced, steps []pathStep) (codeSource, bool) {
+func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *Change, call driftBlock, callName string, m *driftModule, res driftBlock, t traced, steps []pathStep) (codeSource, bool) {
 	inBlock := t.file == res.file && res.b.Range().Start.Byte <= t.rng.Start.Byte && t.rng.End.Byte <= res.b.Range().End.Byte
 	if !m.inContents || !generatedModuleDir(m.dir) || len(m.cfg.calls) > 0 || (m.calls < 2 && e.env == "") || hasInstances(call.b) || !inBlock || t.at == 0 {
 		return codeSource{}, false
@@ -261,7 +261,7 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 			words = append(words, s.name)
 		}
 	}
-	name := uniqueVariable(Label(strings.Join(words, "_")), m.cfg.variables)
+	name := uniqueVariable(hclfile.Label(strings.Join(words, "_")), m.cfg.variables)
 	typeLine := "type = " + variableType(value, ty) + "\n"
 	resource := res.b.Labels[0] + "." + res.b.Labels[1]
 
@@ -269,8 +269,8 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 	moduleFile := path.Join(m.dir, t.file)
 	edits := []hclfile.Edit{{File: moduleFile, Start: t.rng.Start.Byte, End: t.rng.End.Byte, Text: []byte("var." + name)}}
 	variablesFile := t.file
-	if m.cfg.files[VariablesFileName] != nil {
-		variablesFile = VariablesFileName
+	if m.cfg.files[hclfile.VariablesFileName] != nil {
+		variablesFile = hclfile.VariablesFileName
 	}
 	description := fmt.Sprintf("The %s of %s, the same for every call that doesn't set it.", pathText(at), resource)
 	edits = append(edits, hclfile.AppendEdit(m.cfg.files[variablesFile], path.Join(m.dir, variablesFile), variableBlock(name, description, typeLine, literal), true))
@@ -288,23 +288,23 @@ func (e *driftEditor) promoteLiteral(cfg *driftConfig, c *DriftChange, call drif
 	}
 	// The call sets a variable of the root, whose default is the literal
 	// too, and the environment's var file sets that.
-	vars := mergedVars(cfg.files)
-	if vars.own(e.env) == nil {
+	vars := hclfile.MergedVars(cfg.files)
+	if vars.Own(e.env) == nil {
 		return manual("the root has no " + e.envVars + ": edit it by hand")
 	}
-	rootName := uniqueVariable(Label(callName+"_"+name), cfg.variables)
+	rootName := uniqueVariable(hclfile.Label(callName+"_"+name), cfg.variables)
 	edit := w.insertArgument(call.b, name, []byte("var."+rootName))
 	if edit == nil {
 		return manual("the call is on one line: edit it by hand")
 	}
 	edits = append(edits, *edit)
 	rootFile := call.file
-	if cfg.files[VariablesFileName] != nil {
-		rootFile = VariablesFileName
+	if cfg.files[hclfile.VariablesFileName] != nil {
+		rootFile = hclfile.VariablesFileName
 	}
 	description = fmt.Sprintf("The %s of module.%s, which an environment's terraform.tfvars sets where it differs from the default.", name, callName)
 	edits = append(edits, hclfile.AppendEdit(cfg.files[rootFile], rootFile, variableBlock(rootName, description, typeLine, literal), true))
-	set, _ := vars.set(e.env, rootName, text)
+	set, _ := vars.Set(e.env, rootName, text)
 	src.Edit, src.Also = &set, edits
 	return src, true
 }

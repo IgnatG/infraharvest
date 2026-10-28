@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"fmt"
@@ -37,7 +37,7 @@ func driftConfigShape(cfg *driftConfig) map[string]any {
 	}
 }
 
-// Drift edits one change at a time, each found in the files as the edits
+// Check edits one change at a time, each found in the files as the edits
 // before left them: only the files an edit changed are parsed again, and
 // the configuration is the one a parse of every file gives.
 func TestDriftConfigReparsesOnlyEditedFiles(t *testing.T) {
@@ -103,7 +103,7 @@ func BenchmarkDriftApply(b *testing.B) {
 	const files = 200
 	contents := map[string][]byte{}
 	after := map[string]map[string]any{}
-	var changes []*DriftChange
+	var changes []*Change
 	for i := range files {
 		name := fmt.Sprintf("bucket_%d", i)
 		contents[name+".tf"] = fmt.Appendf(nil, "resource \"aws_s3_bucket\" %q {\n  bucket = %q\n  tags = {\n    Env = \"prod\"\n  }\n}\n", name, name)

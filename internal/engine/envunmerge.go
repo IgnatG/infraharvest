@@ -82,7 +82,7 @@ var unmergeFunctions = map[string]function.Function{
 // reads what the var files don't set, such as a data source with
 // arguments of its own, or what env doesn't give.
 func UnmergedBlocks(dir string, env UnmergeEnv, ids map[string]string) (map[string]UnmergedBlock, string, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return nil, "", err
 	}

@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -24,7 +23,7 @@ import (
 
 // acceptRoot writes files, by slash-separated paths, as a root at
 // aws/123/eu-west-2 of an output directory, and returns the root and
-// where Drift stages it.
+// where Check stages it.
 func acceptRoot(t *testing.T, files map[string]string) (dir, staging string) {
 	t.Helper()
 	out := t.TempDir()
@@ -56,21 +55,21 @@ func noChange(address string) *tfjson.ResourceChange {
 	return tagChange(address, tfjson.Actions{tfjson.ActionNoop}, "dev", "dev")
 }
 
-// acceptAll runs Drift on the root in dir accepting every change, with
+// acceptAll runs Check on the root in dir accepting every change, with
 // the staged copy's plans: the refresh, the code's, then one per round of
 // verification.
-func acceptAll(t *testing.T, dir, staging string, plans []*tfjson.Plan, opts DriftOptions) (*RootDrift, *fakeDriftTerraform, []string, error) {
+func acceptAll(t *testing.T, dir, staging string, plans []*tfjson.Plan, opts Options) (*Result, *fakeDriftTerraform, []string, error) {
 	t.Helper()
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: plans}
-	opts.Accept = func(DriftChange) bool { return true }
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, opts)
+	opts = accepting(opts)
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, opts)
 	return result, copied, calls, err
 }
 
-func outcomes(result *RootDrift) map[string]DriftChange {
-	got := map[string]DriftChange{}
+func outcomes(result *Result) map[string]Change {
+	got := map[string]Change{}
 	for _, c := range result.Changes {
 		got[c.Address+" "+c.Attribute] = c
 	}
@@ -110,15 +109,15 @@ func TestDriftAcceptDropsAnEditThePlanRejects(t *testing.T) {
 	// edit, data plans what the code did.
 	first := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs"), dataReverts}}
 	second := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs"), dataReverts}}
-	result, copied, calls, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, first, second}, DriftOptions{})
+	result, copied, calls, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, first, second}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
-	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten || c.Decision != DriftAccept {
+	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != Written || c.Decision != Accept {
 		t.Errorf("logs: %s (%s): %s", c.Outcome, c.Decision, c.Reason)
 	}
-	if c := got["aws_s3_bucket.data tags.Env"]; c.Outcome != DriftRejectedByPlan || !strings.Contains(c.Reason, "still changes tags.Env") {
+	if c := got["aws_s3_bucket.data tags.Env"]; c.Outcome != RejectedByPlan || !strings.Contains(c.Reason, "still changes tags.Env") {
 		t.Errorf("data: %s: %s", c.Outcome, c.Reason)
 	}
 	want := strings.Replace(taggedBuckets, `Env = "prod"`, `Env = "dev"`, 1)
@@ -191,15 +190,15 @@ resource "aws_sqs_queue" "jobs" {
 		noChange("aws_sqs_queue.jobs"),
 	}}
 	second := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{logsReverts, data, noChange("aws_sqs_queue.jobs")}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, first, second}, DriftOptions{})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, first, second}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
-	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByPlan || !strings.Contains(c.Reason, "aws_s3_bucket.data") {
+	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != RejectedByPlan || !strings.Contains(c.Reason, "aws_s3_bucket.data") {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
-	if c := got["aws_sqs_queue.jobs tags.Env"]; c.Outcome != DriftWritten {
+	if c := got["aws_sqs_queue.jobs tags.Env"]; c.Outcome != Written {
 		t.Errorf("jobs: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "locals.tf"); got != locals {
@@ -244,7 +243,7 @@ resource "aws_sqs_queue" "jobs" {
 	}}
 	edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs"), noChange("aws_sqs_queue.jobs")}}
 	var wrote []string
-	opts := DriftOptions{writeFile: func(path string, content []byte, perm os.FileMode) error {
+	opts := Options{writeFile: func(path string, content []byte, perm os.FileMode) error {
 		wrote = append(wrote, filepath.Base(path))
 		if filepath.Base(path) == "main.tf" {
 			return errors.New("disk full")
@@ -275,11 +274,11 @@ func TestDriftAcceptChecksTheEditedCode(t *testing.T) {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, edited}, unformatted: []string{"main.tf"}}
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, accepting(Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, gate.CheckFormat) {
+	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != RejectedByCheck || !strings.Contains(c.Reason, gate.CheckFormat) {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "main.tf"); got != taggedBuckets {
@@ -323,16 +322,16 @@ func TestDriftAcceptChecksBlameTheEditsOfTheFilesTheyFailOn(t *testing.T) {
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, both, logsOnly}, unformatted: []string{"data.tf"}}
 
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: func(DriftChange) bool { return true }})
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, accepting(Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got := outcomes(result)
-	if c := got["aws_s3_bucket.data tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, "data.tf") {
+	if c := got["aws_s3_bucket.data tags.Env"]; c.Outcome != RejectedByCheck || !strings.Contains(c.Reason, "data.tf") {
 		t.Errorf("data: %s: %s", c.Outcome, c.Reason)
 	}
-	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten {
+	if c := got["aws_s3_bucket.logs tags.Env"]; c.Outcome != Written {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "data.tf"); got != data {
@@ -384,16 +383,16 @@ resource "aws_db_instance" "db" {
 	var calls []string
 	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
 	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code}}
-	accept := func(c DriftChange) bool { return c.Attribute != "tags.Env" }
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, DriftOptions{Accept: accept})
+	accept := func(c Change) bool { return c.Attribute != "tags.Env" }
+	result, err := Check(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, Options{Accept: accept, Rules: testRules})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := outcomes(result)
 	for key, want := range map[string][2]string{
-		"aws_s3_bucket.logs bucket":   {DriftAccept, DriftManual},
-		"aws_s3_bucket.logs tags.Env": {DriftKeep, DriftKept},
-		"aws_db_instance.db password": {DriftAccept, DriftSecret},
+		"aws_s3_bucket.logs bucket":   {Accept, Manual},
+		"aws_s3_bucket.logs tags.Env": {Keep, Kept},
+		"aws_db_instance.db password": {Accept, Secret},
 	} {
 		if c := got[key]; c.Decision != want[0] || c.Outcome != want[1] {
 			t.Errorf("%s: %s, %s (%s), want %s, %s", key, c.Decision, c.Outcome, c.Reason, want[0], want[1])
@@ -439,66 +438,31 @@ func TestRecordedTagLeaves(t *testing.T) {
 	}
 }
 
-// The standards check of the edited code leaves the organisation's own
-// modules to their owners, as the verification gate does: it doesn't
-// read them, even where they hold what it couldn't parse.
-func TestDriftAcceptLeavesOwnModulesToTheirOwners(t *testing.T) {
-	t.Parallel()
-	dir, staging := acceptRoot(t, map[string]string{"main.tf": taggedBuckets + `
-module "own" {
-  source = "../../../own"
-}
-`})
-	own := filepath.Join(dir, "..", "..", "..", "own")
-	if err := os.MkdirAll(own, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(own, "main.tf"), []byte("resource \"aws_sqs_queue\" \"this\" {\n  name = \"${\n}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "prod", "dev")}}
-	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{tagChange("aws_s3_bucket.logs", tfjson.Actions{tfjson.ActionUpdate}, "dev", "prod")}}
-	edited := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{noChange("aws_s3_bucket.logs")}}
-	var calls []string
-	root := &fakeDriftTerraform{name: "root", calls: &calls, state: driftState}
-	copied := &fakeDriftTerraform{name: "staged", calls: &calls, plans: []*tfjson.Plan{refresh, code, edited}}
-	opts := DriftOptions{Accept: func(DriftChange) bool { return true }, Adapters: []adapters.Adapter{{Source: own}}}
-
-	result, err := Drift(context.Background(), root, dir, staging, func(string) (tfrun.DriftTerraform, error) { return copied, nil }, opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftWritten {
-		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
-	}
-}
-
 // A plan that rejects none of a round's edits, run as drift's verifier
 // runs it, rejects them all by the plan, with a reason.
 func TestPlanRejectionBlamesTheRoundsEdits(t *testing.T) {
 	t.Parallel()
-	a, b, other := &DriftChange{Address: "aws_s3_bucket.a"}, &DriftChange{Address: "aws_s3_bucket.b"}, &DriftChange{Address: "aws_s3_bucket.other"}
-	dropped := map[*DriftChange]driftRejection{}
-	passed, err := verifier[*DriftChange, driftRejection]{
-		edit: func(context.Context) ([]*DriftChange, error) {
+	a, b, other := &Change{Address: "aws_s3_bucket.a"}, &Change{Address: "aws_s3_bucket.b"}, &Change{Address: "aws_s3_bucket.other"}
+	dropped := map[*Change]driftRejection{}
+	passed, err := gate.Verifier[*Change, driftRejection]{
+		Edit: func(context.Context) ([]*Change, error) {
 			if len(dropped) > 0 {
 				return nil, nil
 			}
-			return []*DriftChange{a, b}, nil
+			return []*Change{a, b}, nil
 		},
-		verify: func(context.Context) (*verdict[*DriftChange, driftRejection], error) {
-			return planRejection(map[*DriftChange]string{other: "the plan of the edited code still changes tags.Env"}), nil
+		Verify: func(context.Context) (*gate.Verdict[*Change, driftRejection], error) {
+			return planRejection(map[*Change]string{other: "the plan of the edited code still changes tags.Env"}), nil
 		},
-		drop:     func(blamed map[*DriftChange]driftRejection) { maps.Copy(dropped, blamed) },
-		blameAll: true,
-		rounds:   2,
-	}.run(context.Background())
+		Drop:     func(blamed map[*Change]driftRejection) { maps.Copy(dropped, blamed) },
+		BlameAll: true,
+		Rounds:   2,
+	}.Run(context.Background())
 	if err != nil || passed {
 		t.Fatalf("passed %v, err %v", passed, err)
 	}
-	want := driftRejection{DriftRejectedByPlan, "the plan of the edited code doesn't take the edits"}
-	if !reflect.DeepEqual(dropped, map[*DriftChange]driftRejection{a: want, b: want}) {
+	want := driftRejection{RejectedByPlan, "the plan of the edited code doesn't take the edits"}
+	if !reflect.DeepEqual(dropped, map[*Change]driftRejection{a: want, b: want}) {
 		t.Errorf("dropped %+v, want a and b with %+v", dropped, want)
 	}
 }

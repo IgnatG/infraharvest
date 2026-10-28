@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // GeneratedFiles returns the names of the files Generate may write
@@ -15,7 +17,7 @@ import (
 // (see Result.Files) and versions.tf: what generating the root again
 // replaces.
 func GeneratedFiles() []string {
-	return []string{GeneratedFileName, ImportsFileName, RejectedFileName, LocalsFileName, VariablesFileName, DataFileName, ReadmeFileName, MovesFileName}
+	return []string{GeneratedFileName, ImportsFileName, RejectedFileName, LocalsFileName, hclfile.VariablesFileName, DataFileName, ReadmeFileName, MovesFileName}
 }
 
 // AddedFiles returns the paths of the files of resources incremental

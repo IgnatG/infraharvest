@@ -44,9 +44,9 @@ func sameResource(a, b External) bool {
 // shop-vpc; or, without a name, its ID, as in data.aws_vpc.vpc_0abc1234.
 func dataLabel(e External) string {
 	if e.Name == "" || e.Name == e.ID {
-		return Label(e.ID)
+		return hclfile.Label(e.ID)
 	}
-	return withoutTypeWords(e.Type, Label(e.Name))
+	return withoutTypeWords(e.Type, hclfile.Label(e.Name))
 }
 
 // dataFileHeader starts data.tf.
@@ -130,7 +130,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	}
 	referred := map[string]bool{}
 	for _, res := range saved.Resources() {
-		for _, t := range allTraversals(res.Syntax.Body) {
+		for _, t := range hclfile.Traversals(res.Syntax.Body) {
 			if t.RootName() != "data" || len(t) < 3 {
 				continue
 			}

@@ -23,6 +23,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -68,7 +70,7 @@ type DriftOptions struct {
 	DetailedExitCode bool
 	ForceUnlock      bool // check even when another run holds the output directory's lock
 	// Environments are, for the roots environments share (see
-	// engine.MergedEnvironments), the environments to check each as, with
+	// hclfile.MergedEnvironments), the environments to check each as, with
 	// its backend settings and var files, or config.AllEnvironments for
 	// every one under its vars/. None checks the one environment the
 	// roots have, and fails on roots of more than one (see driftTargets).
@@ -78,12 +80,12 @@ type DriftOptions struct {
 	Provider func(name string) harvest.Provider
 	Names    []string
 	// Backends are the types of the backends drift reads state from,
-	// besides local state (see engine.DriftOptions.Backends).
+	// besides local state (see drift.Options.Backends).
 	Backends []string
 	// Modules are the organisation's own modules, as the import's
 	// configuration file lists them: the checks of an accepted change's
 	// edited code leave those in directories to their owners, as the
-	// import's verification gate does (see engine.DriftOptions.Adapters).
+	// import's verification gate does (see drift.Options.Adapters).
 	Modules []config.Module
 	// UntrustedRoots says the roots may come from someone else, as the
 	// MCP server's runs take them: Terraform ignores the .terraform
@@ -104,10 +106,10 @@ type DriftOptions struct {
 }
 
 // driftCheck checks the root in dir, staging it in staging.
-type driftCheck func(ctx context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error)
+type driftCheck func(ctx context.Context, dir, staging string, opts drift.Options) (*drift.Result, error)
 
 // Drift checks the roots an import generated in options.Out for what
-// changed in the cloud since they were applied (see engine.Drift), writes
+// changed in the cloud since they were applied (see drift.Check), writes
 // report/drift.json and report/drift.md, and prints a summary, or with
 // --format json drift.json. It changes no state; it changes the code only
 // to take the cloud's values of the changes options.Decisions and
@@ -356,7 +358,7 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 		return nil, err
 	}
 	plugins := filepath.Join(cacheDir, "plugins")
-	return func(ctx context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+	return func(ctx context.Context, dir, staging string, opts drift.Options) (*drift.Result, error) {
 		var env map[string]string
 		var rootEnv map[string]string
 		if options.UntrustedRoots {
@@ -383,7 +385,7 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 		if err != nil {
 			return nil, err
 		}
-		return engine.Drift(ctx, tf, dir, staging, newTF, opts)
+		return drift.Check(ctx, tf, dir, staging, newTF, opts)
 	}, nil
 }
 
@@ -393,7 +395,7 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 // their registries alone, which verify what they download against the
 // lock file and their signatures, never from a filesystem mirror, such as
 // a terraform.d directory the roots could carry. The root's own init
-// keeps its working files in private too (see engine.DriftOptions.DataDir),
+// keeps its working files in private too (see drift.Options.DataDir),
 // rather than in the root's .terraform, whose providers and modules it
 // would use as they are. The plugin cache is the user's, as ever.
 func untrustedTerraform(private string) (map[string]string, error) {
@@ -406,7 +408,7 @@ func untrustedTerraform(private string) (map[string]string, error) {
 
 // driftTarget is a root drift checks, and, for a root environments
 // share, the environment it checks it as, and the lock the checks of its
-// environments share (see engine.DriftOptions.WithRootLock).
+// environments share (see drift.Options.WithRootLock).
 type driftTarget struct {
 	dir, env string
 	lock     *sync.Mutex
@@ -434,7 +436,7 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 	var targets []driftTarget
 	found := map[string]bool{}
 	for _, dir := range roots {
-		merged, err := engine.MergedEnvironments(dir)
+		merged, err := hclfile.MergedEnvironments(dir)
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +470,7 @@ func driftTargets(roots, envs []string) ([]driftTarget, error) {
 // driftAdapters returns the adapters of those of modules, the
 // organisation's own, that are directories (see fetchAdapters): the
 // checks of the edited code leave only those to their owners (see
-// engine.DriftOptions.Adapters), so drift doesn't fetch the others, from
+// drift.Options.Adapters), so drift doesn't fetch the others, from
 // git or a registry, as the import does.
 func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adapter {
 	var local []config.Module
@@ -492,20 +494,24 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 	dir, env := target.dir, target.env
 	rel := relativePath(options.Out, dir)
 	root := report.DriftRoot{Path: rel, Environment: env}
-	var opts engine.DriftOptions
+	var engineOpts engine.Options
 	if provider := rootProvider(options.Out, dir, VerifyOptions{Provider: options.Provider, Names: options.Names}); provider != nil {
 		cat, err := providerCatalogue(provider, options.Catalogue)
 		if err != nil {
 			root.Error = err.Error()
 			return root, nil
 		}
-		opts = catalogueDriftOptions(cat, lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		engineOpts = catalogueDriftOptions(cat, lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
 		// As the import passes its provider's modules alone, its own
 		// first, then the curated ones of its family (see Run.toolchain),
 		// whose adapters trace changes into their calls.
 		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
 	}
-	opts.CommandTimeout, opts.Environment, opts.Adapters, opts.Backends, opts.OutDir = options.EngineTimeout, env, own, options.Backends, options.Out
+	engineOpts.Adapters = own
+	opts := drift.Options{
+		StateOnly: engineOpts.StateOnly, Rules: engine.DriftRules(engineOpts), Adapters: own,
+		CommandTimeout: options.EngineTimeout, Environment: env, Backends: options.Backends, OutDir: options.Out,
+	}
 	if target.lock != nil {
 		opts.WithRootLock = target.withRootLock
 	}
@@ -513,7 +519,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 	// came from. Accept is called for one change at a time.
 	decided := newDecidedDrift()
 	if decider.Active() {
-		opts.Accept = func(c engine.DriftChange) bool {
+		opts.Accept = func(c drift.Change) bool {
 			d := decider.Decide(reportDriftChange(rel, env, c))
 			decided.record(c, d)
 			return d.Accept
@@ -529,7 +535,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 	changes := make([]report.DriftChange, 0, len(result.Changes))
 	for _, c := range result.Changes {
 		decision := report.DriftKeep
-		if c.Decision == engine.DriftAccept {
+		if c.Decision == drift.Accept {
 			decision = report.DriftAccept
 		}
 		rc := reportDriftChange(rel, env, c)
@@ -546,7 +552,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 
 // reportDriftChange is c, a change of the root at rel as environment env,
 // as the report has it, before it is decided.
-func reportDriftChange(rel, env string, c engine.DriftChange) report.DriftChange {
+func reportDriftChange(rel, env string, c drift.Change) report.DriftChange {
 	return report.DriftChange{
 		Root: rel, Environment: env, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
 		Before: c.Before, After: c.After, Kind: c.Kind, Covers: c.Covers,

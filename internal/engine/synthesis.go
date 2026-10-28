@@ -25,6 +25,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // ModuleCall is a module call Generate made, or a cluster of resources it
@@ -74,7 +75,7 @@ func (t *trial) moduleAddress(member string) string {
 // for each anchor resource, the first adapter that maps its cluster. It
 // writes every call, installs the modules and plans, and takes back the
 // calls whose resources would plan differently than baseline, which has
-// each resource's planned change (see changeSignature), until the plan
+// each resource's planned change (see tfrun.ChangeSignature), until the plan
 // matches; when the plan fails in a way it can't pin on a call, it plans
 // half of the calls at a time to find the calls that fail. A module may set the arguments opts.StateOnly names, which
 // import can't. Calls are named other than the names r takes.
@@ -85,7 +86,7 @@ func (t *trial) moduleAddress(member string) string {
 // their list outputs (see outputLists).
 func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, tfrun.ChangeSummary, map[string]int, error) {
 	opts := r.opts
-	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName, ProvidersFileName, VersionsFileName)
+	backup, err := fsutil.BackupFiles(dir, GeneratedFileName, ImportsFileName, ProvidersFileName, VersionsFileName)
 	if err != nil {
 		return nil, baseline, nil, err
 	}
@@ -101,7 +102,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 		}
 	}
 	if err := writeCalls(dir, trials, opts.ModuleProviders, opts.DefaultTags); err != nil {
-		return nil, baseline, nil, errors.Join(err, backup.restore())
+		return nil, baseline, nil, errors.Join(err, backup.Restore())
 	}
 	if err := tfrun.Init(ctx, tf); err != nil {
 		// Typically: the registry can't be reached.
@@ -116,7 +117,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 		if slices.Equal(ts, written) {
 			return nil
 		}
-		if err := backup.restore(); err != nil {
+		if err := backup.Restore(); err != nil {
 			return err
 		}
 		written = ts
@@ -144,11 +145,11 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 		if g.failsAfter == nil || g.failsAfter != passed {
 			tried := inOrder(trials, kept, g.trials)
 			if err := write(tried); err != nil {
-				return nil, baseline, nil, errors.Join(err, backup.restore())
+				return nil, baseline, nil, errors.Join(err, backup.Restore())
 			}
 			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 			if err != nil {
-				return nil, baseline, nil, errors.Join(err, backup.restore())
+				return nil, baseline, nil, errors.Join(err, backup.Restore())
 			}
 			ok, why := judge(tried, p, summary, diags, baseline, changes, opts.StateOnly)
 			switch {
@@ -185,7 +186,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 		pending = append([]*callGroup{first, second}, pending...)
 	}
 	if len(kept) == 0 {
-		if err := backup.restore(); err != nil {
+		if err := backup.Restore(); err != nil {
 			return nil, baseline, nil, err
 		}
 		return append(declined, rejections(trials)...), baseline, nil, nil
@@ -193,7 +194,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 	// The last plan may have tried calls declined since: the root has the
 	// calls the plan of kept accepted, which planning again would show.
 	if err := write(kept); err != nil {
-		return nil, baseline, nil, errors.Join(err, backup.restore())
+		return nil, baseline, nil, errors.Join(err, backup.Restore())
 	}
 	if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
 		return nil, baseline, nil, err
@@ -286,13 +287,13 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 			switch {
 			case member == "":
 				if !rc.Change.Actions.NoOp() && !rc.Change.Actions.Read() {
-					t.rejected = fmt.Sprintf("the module would also %s %s", strings.Join(actionNames(rc.Change.Actions), " and "), strings.TrimPrefix(rc.Address, "module."+t.name+"."))
+					t.rejected = fmt.Sprintf("the module would also %s %s", strings.Join(tfrun.ActionNames(rc.Change.Actions), " and "), strings.TrimPrefix(rc.Address, "module."+t.name+"."))
 					ok = false
 				}
-			case changeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(changeSignature(rc), changes[member], gate.StateOnlyOf(stateOnly, rc.Type))
+			case tfrun.ChangeSignature(rc) != changes[member]:
+				updates, same := sameButStateOnly(tfrun.ChangeSignature(rc), changes[member], gate.StateOnlyOf(stateOnly, rc.Type))
 				if !same {
-					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
+					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(tfrun.ChangeSignature(rc)), describeSignature(changes[member]))
 					ok = false
 				}
 				if updates {
@@ -326,12 +327,6 @@ func trialOf(active []*trial, d tfjson.Diagnostic) *trial {
 		}
 	}
 	return nil
-}
-
-// changeSignature describes a resource's planned change: its actions and
-// the attributes that change.
-func changeSignature(rc *tfjson.ResourceChange) string {
-	return strings.Join(actionNames(rc.Change.Actions), ",") + ":" + strings.Join(tfrun.ChangedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown), ",")
 }
 
 // sameButStateOnly reports whether the change signatures in and root
@@ -373,14 +368,6 @@ func describeSignature(s string) string {
 		return actions
 	}
 	return actions + " (" + attributes + ")"
-}
-
-func actionNames(actions tfjson.Actions) []string {
-	names := make([]string, 0, len(actions))
-	for _, a := range actions {
-		names = append(names, string(a))
-	}
-	return names
 }
 
 // rejections lists the trials the plan rejected.
@@ -545,13 +532,13 @@ type reference struct {
 }
 
 // indexReferences reads the references of resources (see
-// referencedAddresses and allTraversals).
+// referencedAddresses and hclfile.Traversals).
 func indexReferences(resources []hclfile.Resource) clusterReferences {
 	idx := clusterReferences{refers: map[string]map[string]bool{}, incoming: map[string][]reference{}, position: map[string]int{}}
 	for i, r := range resources {
 		idx.position[r.Address] = i
 		refers := map[string]bool{}
-		for _, tr := range allTraversals(r.Syntax.Body) {
+		for _, tr := range hclfile.Traversals(r.Syntax.Body) {
 			target := resourceAddress(tr)
 			if target == "" {
 				continue
@@ -698,7 +685,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 	}
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
-		source, err := callSource(dir, t.adapter.Source)
+		source, err := hclfile.CallSource(dir, t.adapter.Source)
 		if err != nil {
 			return err
 		}
@@ -737,28 +724,6 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]Provider
 		}
 	}
 	return retargetImports(dir, importTo, added)
-}
-
-// callSource is how a root in dir calls a module from source: a module in
-// a directory, at an absolute path, by its path relative to dir, as
-// Terraform requires; any other source as it is.
-func callSource(dir, source string) (string, error) {
-	if !filepath.IsAbs(source) {
-		return source, nil
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(abs, source)
-	if err != nil {
-		return "", fmt.Errorf("module %s: %w", source, err)
-	}
-	rel = filepath.ToSlash(rel)
-	if !strings.HasPrefix(rel, "../") {
-		rel = "./" + rel
-	}
-	return rel, nil
 }
 
 // moduleImport is an import a module call adds, into to.
@@ -901,7 +866,7 @@ func moduleCalls(dir string, moved map[string]string, declined []ModuleCall) ([]
 		if b.Type != "module" || len(b.Labels) != 1 {
 			continue
 		}
-		call := ModuleCall{Name: b.Labels[0], Source: stringAttribute(b.Body, "source"), Version: stringAttribute(b.Body, "version")}
+		call := ModuleCall{Name: b.Labels[0], Source: hclfile.StringAttribute(b.Body, "source"), Version: hclfile.StringAttribute(b.Body, "version")}
 		for from, to := range moved {
 			if strings.HasPrefix(to, "module."+call.Name+".") {
 				call.Resources = append(call.Resources, from)
@@ -912,19 +877,6 @@ func moduleCalls(dir string, moved map[string]string, declined []ModuleCall) ([]
 	}
 	sort.Slice(calls, func(i, j int) bool { return calls[i].Name < calls[j].Name })
 	return append(calls, declined...), nil
-}
-
-// stringAttribute returns an attribute's literal string value, or "".
-func stringAttribute(body *hclsyntax.Body, name string) string {
-	attr, ok := body.Attributes[name]
-	if !ok {
-		return ""
-	}
-	v, diags := attr.Expr.Value(nil)
-	if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
-		return ""
-	}
-	return v.AsString()
 }
 
 // outputTokens returns the reference to a module output: output is an
@@ -1255,7 +1207,7 @@ func lockedVersion(lock *hclfile.File, source string) *version.Version {
 		if b.Type != "provider" || len(b.Labels) != 1 || !strings.HasSuffix(strings.ToLower(b.Labels[0]), suffix) {
 			continue
 		}
-		if v, err := version.NewVersion(stringAttribute(b.Body, "version")); err == nil {
+		if v, err := version.NewVersion(hclfile.StringAttribute(b.Body, "version")); err == nil {
 			return v
 		}
 	}

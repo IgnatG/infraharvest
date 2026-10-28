@@ -1,10 +1,11 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"fmt"
+	"maps"
 	"math/big"
 	"path"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // driftModule is a module a root calls, as Terraform installed it, read
@@ -46,17 +48,17 @@ type driftModule struct {
 // dataDir, or .terraform in dir for "", such as logs, or net.vpc for a
 // call inside a module: none if it calls none, or if they can't be read.
 func loadDriftModules(dir, dataDir string) map[string]*driftModule {
-	installed, err := installedModulesIn(dir, dataDir)
+	installed, err := tfrun.InstalledModules(dir, dataDir)
 	if err != nil {
 		return nil
 	}
 	calls := map[string]int{}
 	for _, m := range installed {
-		calls[filepath.Clean(m.dir)]++
+		calls[filepath.Clean(m.Dir)]++
 	}
 	modules := map[string]*driftModule{}
 	for _, m := range installed {
-		contents, err := tfContents(m.dir)
+		contents, err := tfContents(m.Dir)
 		if err != nil || len(contents) == 0 {
 			continue
 		}
@@ -65,12 +67,12 @@ func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 			continue
 		}
 		mod := newDriftModule(cfg)
-		mod.dir = filepath.ToSlash(m.dir)
-		if rel, err := filepath.Rel(dir, m.dir); err == nil {
+		mod.dir = filepath.ToSlash(m.Dir)
+		if rel, err := filepath.Rel(dir, m.Dir); err == nil {
 			mod.dir = filepath.ToSlash(rel)
 		}
-		mod.calls = calls[filepath.Clean(m.dir)]
-		modules[m.key] = mod
+		mod.calls = calls[filepath.Clean(m.Dir)]
+		modules[m.Key] = mod
 	}
 	return modules
 }
@@ -200,7 +202,7 @@ func moduleKey(calls []moduleStep) string {
 func unkeyedAddress(address string) string {
 	calls, resource, _, ok := splitModuleAddress(address)
 	if !ok {
-		return trimInstanceKey(address)
+		return hclfile.TrimInstanceKey(address)
 	}
 	var b strings.Builder
 	for _, c := range calls {
@@ -210,14 +212,14 @@ func unkeyedAddress(address string) string {
 }
 
 // curatedAdapter returns a copy of the adapter of list, the run's (see
-// DriftOptions.Adapters), whose module a module call calls, or nil. It
+// Options.Adapters), whose module a module call calls, or nil. It
 // matches a call as generation writes it: the adapter's source, at the
 // adapter's version, or a newer one, which --modules latest-untested
 // calls with the same adapter. Only an adapter with an Inverse traces a
 // change into its call: the others, such as those of the organisation's
 // own modules, leave the call to the module's code (see moduleTracer).
 func curatedAdapter(b *hclsyntax.Block, list []adapters.Adapter) *adapters.Adapter {
-	source, called := stringAttribute(b.Body, "source"), stringAttribute(b.Body, "version")
+	source, called := hclfile.StringAttribute(b.Body, "source"), hclfile.StringAttribute(b.Body, "version")
 	if source == "" {
 		return nil
 	}
@@ -332,7 +334,7 @@ func (t *moduleTracer) expr(file string, e hclsyntax.Expression, i, depth int) t
 	case *hclsyntax.ObjectConsExpr:
 		if i < len(t.steps) && !t.steps[i].isIndex {
 			for _, item := range x.Items {
-				if keyName(item.KeyExpr) == t.steps[i].name {
+				if hclfile.KeyName(item.KeyExpr) == t.steps[i].name {
 					return t.expr(file, item.ValueExpr, i+1, depth)
 				}
 			}
@@ -491,7 +493,7 @@ func literalKey(e hclsyntax.Expression) string {
 // without instance keys, whose instance key is key.
 func inverseTrace(a *adapters.Adapter, inner string, key instanceKey, steps []pathStep) traced {
 	best, input, from := -1, "", ""
-	for _, k := range sortedKeys(a.Inverse) {
+	for _, k := range slices.Sorted(maps.Keys(a.Inverse)) {
 		target, attribute, ok := a.InverseTarget(k)
 		if !ok || target != inner {
 			continue
@@ -555,7 +557,7 @@ func (w *driftWalk) known(n int) bool {
 // says; then as for a resource's argument (see driftWalk) in that
 // argument. Nothing under the modules is edited, but a literal of a
 // generated module that calls or environments share (see promoteLiteral).
-func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) codeSource {
+func (e *driftEditor) locateInModule(cfg *driftConfig, c *Change) codeSource {
 	manual := func(reason string) codeSource {
 		return codeSource{Kind: sourceModule, Reason: "in the module call " + c.ModuleAddress + ": " + reason}
 	}
@@ -584,7 +586,7 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) codeSourc
 		src.File, src.Range = blocks[0].file, blocks[0].b.DefRange()
 		return src
 	}
-	if c.Kind == DriftDeleted {
+	if c.Kind == Deleted {
 		return callSource("deleted in the cloud: change the call by hand, or apply to create it again")
 	}
 	steps := splitPath(c.Attribute, e.pathValues(c.Address)...)
@@ -669,7 +671,7 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *DriftChange) codeSourc
 
 // moduleManual is the source of a change whose value the module m sets
 // in a way t says, that can't be traced back to the call.
-func (e *driftEditor) moduleManual(c *DriftChange, m *driftModule, t traced) codeSource {
+func (e *driftEditor) moduleManual(c *Change, m *driftModule, t traced) codeSource {
 	src := codeSource{Range: t.rng, Kind: sourceModule}
 	if t.file != "" {
 		src.File = path.Join(m.dir, t.file)
@@ -826,7 +828,7 @@ func (w *driftWalk) callLiteral(block *hclsyntax.Block, e hclsyntax.Expression) 
 			if v == nil || sensitiveVariable(v) || !ok || w.cfg.varUses[name] > blockUses(block, root, name) {
 				return instanceLiteral{}, false
 			}
-			lit = instanceLiteral{expr: val.attr.Expr, file: val.file, f: val.f}
+			lit = instanceLiteral{expr: val.Attr.Expr, file: val.Path, f: val.File}
 		}
 	}
 	switch lit.expr.(type) {
@@ -840,7 +842,7 @@ func (w *driftWalk) callLiteral(block *hclsyntax.Block, e hclsyntax.Expression) 
 // local.queues.
 func blockUses(block *hclsyntax.Block, root, name string) int {
 	n := 0
-	for _, t := range allTraversals(block.Body) {
+	for _, t := range hclfile.Traversals(block.Body) {
 		if t.RootName() != root || len(t) < 2 {
 			continue
 		}
@@ -854,7 +856,7 @@ func blockUses(block *hclsyntax.Block, root, name string) int {
 // objectItem returns the value of obj's item at key, or nil.
 func objectItem(obj *hclsyntax.ObjectConsExpr, key string) hclsyntax.Expression {
 	for _, item := range obj.Items {
-		if keyName(item.KeyExpr) == key {
+		if hclfile.KeyName(item.KeyExpr) == key {
 			return item.ValueExpr
 		}
 	}
@@ -955,7 +957,7 @@ func resourceTypeAt(schemas *tfjson.ProviderSchemas, typ string, steps []pathSte
 		if schemaBlockType(schemas, typ, names) {
 			continue
 		}
-		return descendType(schemaType(schemas, "resource", typ, names), steps[i+1:])
+		return descendType(tfrun.AttributeType(schemas, typ, names), steps[i+1:])
 	}
 	return cty.NilType
 }

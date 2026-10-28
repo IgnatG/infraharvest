@@ -62,7 +62,7 @@ func importedPlan(addresses ...string) *tfjson.Plan {
 func rootChanges() map[string]string {
 	changes := map[string]string{}
 	for _, a := range []string{"aws_iam_policy.read", "aws_s3_bucket.logs", "aws_s3_bucket.state", "aws_s3_bucket_versioning.logs", "aws_s3_bucket_versioning.state"} {
-		changes[a] = changeSignature(resourceChange("x."+a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[a] = tfrun.ChangeSignature(resourceChange("x."+a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	return changes
 }
@@ -307,7 +307,7 @@ func bucketRoot(n int) (string, map[string]string) {
 	for i := range n {
 		name := fmt.Sprintf("b%d", i)
 		blocks = append(blocks, fmt.Sprintf("resource \"aws_s3_bucket\" %q {\n  bucket = %q\n}\n", name, name))
-		changes["aws_s3_bucket."+name] = changeSignature(resourceChange("x.aws_s3_bucket."+name, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes["aws_s3_bucket."+name] = tfrun.ChangeSignature(resourceChange("x.aws_s3_bucket."+name, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	return strings.Join(blocks, "\n"), changes
 }
@@ -603,7 +603,7 @@ variable "name" {
 	const rootProviders = "provider \"google-beta\" {\n  project = \"acme\"\n}\n"
 	config := map[string]interface{}{"project": "acme"}
 	moduleProviders := map[string]Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
-	changes := map[string]string{"google_storage_bucket.logs": changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	changes := map[string]string{"google_storage_bucket.logs": tfrun.ChangeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	for _, tc := range []struct {
 		requires   string
 		wantGoogle bool
@@ -733,7 +733,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	changes := map[string]string{}
 	addresses := []string{"aws_eip.other", "aws_security_group.web", "module.vpc.aws_route.this[0]"}
 	for _, m := range members {
-		changes[m] = changeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[m] = tfrun.ChangeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 		addresses = append(addresses, trials[0].moduleAddress(m))
 	}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Import: 1}}}, showns: []*tfjson.Plan{importedPlan(addresses...)}}
@@ -771,7 +771,7 @@ func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 	changes := map[string]string{}
 	addresses := []string{"aws_eip.other", "aws_security_group.web"}
 	for _, m := range trials[0].members() {
-		changes[m] = changeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[m] = tfrun.ChangeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 		addresses = append(addresses, trials[0].moduleAddress(m))
 	}
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(addresses...)}}
@@ -922,8 +922,8 @@ func TestCallSource(t *testing.T) {
 		"git::https://example.com/m.git?ref=v1": "git::https://example.com/m.git?ref=v1",
 		"terraform-aws-modules/vpc/aws":         "terraform-aws-modules/vpc/aws",
 	} {
-		if got, err := callSource(root, source); err != nil || got != want {
-			t.Errorf("callSource(%s) = %s, %v; want %s", source, got, err, want)
+		if got, err := hclfile.CallSource(root, source); err != nil || got != want {
+			t.Errorf("hclfile.CallSource(%s) = %s, %v; want %s", source, got, err, want)
 		}
 	}
 }

@@ -1,19 +1,22 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -31,7 +34,7 @@ func TestDriftSessionOfAnEnvironment(t *testing.T) {
 		"terraform.tfstate.d/dev/terraform.tfstate": driftState,
 	})
 	ctx := context.Background()
-	s, err := openDriftSession(dir, staging, DriftOptions{Environment: "dev"})
+	s, err := openDriftSession(dir, staging, Options{Environment: "dev"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +76,14 @@ func TestDriftSessionOfAnEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := root[envVarsPath("dev")]; !ok {
-		t.Errorf("the files drift edits lack dev's var file: %v", sortedKeys(root))
+	if _, ok := root[hclfile.EnvVarsPath("dev")]; !ok {
+		t.Errorf("the files drift edits lack dev's var file: %v", slices.Sorted(maps.Keys(root)))
 	}
 	e, err := s.editor(&tfjson.Plan{}, &tfjson.Plan{}, root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.env != "dev" || e.envVars != envVarsPath("dev") {
+	if e.env != "dev" || e.envVars != hclfile.EnvVarsPath("dev") {
 		t.Errorf("the editor edits %q in %q", e.env, e.envVars)
 	}
 	s.close()
@@ -97,7 +100,7 @@ func TestDriftSessionWithoutState(t *testing.T) {
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	s, err := openDriftSession(dir, staging, DriftOptions{})
+	s, err := openDriftSession(dir, staging, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
