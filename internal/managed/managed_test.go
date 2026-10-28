@@ -538,3 +538,27 @@ func TestLoadWorkspaces(t *testing.T) {
 		}
 	}
 }
+
+// A resource whose state has its identity is found by the identity's ID
+// too, as what Terraform's list resources return is listed; an identity
+// with a value IdentityID can't write adds no key.
+func TestParseKeysByIdentity(t *testing.T) {
+	r := Resources{}
+	err := r.Parse([]byte(`{"version": 4, "resources": [
+	  {"mode": "managed", "type": "aws_cloudwatch_log_group", "name": "app", "instances": [{"identity": {"account_id": "123456789012", "name": "/app", "region": "eu-west-2"}, "attributes": {"id": "/app", "arn": "arn:aws:logs:eu-west-2:123456789012:log-group:/app"}}]},
+	  {"mode": "managed", "type": "aws_thing", "name": "odd", "instances": [{"identity": {"names": ["a"]}, "attributes": {"id": "odd"}}]}
+	]}`), "prod.tfstate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, ok := r.Find("aws_cloudwatch_log_group", "account_id=123456789012,name=/app,region=eu-west-2")
+	if !ok || res.Address != "aws_cloudwatch_log_group.app" || res.ID != "/app" {
+		t.Errorf("by identity: got %+v, %v", res, ok)
+	}
+	if _, ok := r.Find("aws_cloudwatch_log_group", "/app"); !ok {
+		t.Error("by id: not found")
+	}
+	if len(r) != 4 {
+		t.Errorf("got %d keys, want 4: %v", len(r), r)
+	}
+}

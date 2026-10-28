@@ -34,7 +34,9 @@ type ObjectStore interface {
 }
 
 // Resources are managed resources, by "type id" (and "type arn", where a
-// resource has an ARN), as key makes them.
+// resource has an ARN, and "type identity", where its state has the
+// resource identity, by its ID, see tftypes.IdentityID), as key makes
+// them.
 type Resources map[string]Resource
 
 // Resource is a managed resource: Where its state is, and its Type and
@@ -555,7 +557,8 @@ func (r Resources) Parse(content []byte, where string) error {
 			Type      string `json:"type"`
 			Name      string `json:"name"`
 			Instances []struct {
-				IndexKey   any `json:"index_key"`
+				IndexKey   any            `json:"index_key"`
+				Identity   map[string]any `json:"identity"`
 				Attributes struct {
 					ID  string `json:"id"`
 					ARN string `json:"arn"`
@@ -582,7 +585,14 @@ func (r Resources) Parse(content []byte, where string) error {
 			if stateID == "" {
 				stateID = i.Attributes.ARN
 			}
-			for _, id := range []string{i.Attributes.ID, i.Attributes.ARN} {
+			ids := []string{i.Attributes.ID, i.Attributes.ARN}
+			// What Terraform's list resources return is listed by its
+			// identity's ID, which the state of a resource has from
+			// Terraform 1.12 on, whatever it was imported by.
+			if identity, ok := tftypes.IdentityValues(i.Identity); ok {
+				ids = append(ids, tftypes.IdentityID(identity))
+			}
+			for _, id := range ids {
 				if id != "" {
 					r[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey), ID: stateID}
 				}
