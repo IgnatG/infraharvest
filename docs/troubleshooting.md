@@ -102,6 +102,8 @@ An import also needs the registry: `look up registry.terraform.io/hashicorp/aws 
 - Each new provider release adds a version; deleting `infraharvest/plugins` frees them all, and the next import downloads what it needs again.
 - On Linux, `XDG_CACHE_HOME` moves the cache to a larger disk.
 
+The lock file a root gets, `.terraform.lock.hcl`, holds the provider's checksums for every platform, so the root initialises on Linux, macOS and Windows alike. If you set `TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE`, or a provider mirror in your CLI configuration, Terraform and OpenTofu record the current platform's checksum only, and say so; run `terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=windows_amd64` (with the platforms your team uses) in the root before you commit it.
+
 ## Emulators
 
 infraharvest can list a local emulator instead of a cloud, as its end-to-end tests do:

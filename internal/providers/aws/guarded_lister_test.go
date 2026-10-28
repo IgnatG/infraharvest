@@ -13,8 +13,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/smithy-go"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // failingService is a service whose listing fails with err.

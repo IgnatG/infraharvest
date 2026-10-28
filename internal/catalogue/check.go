@@ -188,7 +188,8 @@ func checkDefaults(defaults []argumentList) []error {
 }
 
 // checkSkipRules reports skip rules without a reason, with conditions as
-// well as all or with neither, or with empty prefixes or suffixes.
+// well as all or with neither, or with empty prefixes, suffixes or
+// attribute names.
 func checkSkipRules(rules []SkipRule) []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -196,17 +197,20 @@ func checkSkipRules(rules []SkipRule) []error {
 		if strings.TrimSpace(rule.Reason) == "" {
 			fail("skip[%d]: missing a reason", i)
 		}
-		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributePrefixes) > 0 || len(rule.AttributeSuffixes) > 0
+		conditions := len(rule.IDs) > 0 || len(rule.IDPrefixes) > 0 || len(rule.Attributes) > 0 || len(rule.AttributesPresent) > 0 || len(rule.AttributePrefixes) > 0 || len(rule.AttributeSuffixes) > 0
 		switch {
 		case rule.All && conditions:
-			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes", i)
+			fail("skip[%d]: all matches every resource, so it takes no ids, id_prefixes, attributes, attributes_present, attribute_prefixes or attribute_suffixes", i)
 		case !rule.All && !conditions:
-			fail("skip[%d]: set ids, id_prefixes, attributes, attribute_prefixes or attribute_suffixes, or all: true for every resource", i)
+			fail("skip[%d]: set ids, id_prefixes, attributes, attributes_present, attribute_prefixes or attribute_suffixes, or all: true for every resource", i)
 		}
 		for _, p := range rule.IDPrefixes {
 			if p == "" {
 				fail("skip[%d]: empty ID prefix", i)
 			}
+		}
+		if slices.Contains(rule.AttributesPresent, "") {
+			fail("skip[%d]: attributes_present: empty attribute name", i)
 		}
 		for _, k := range slices.Sorted(maps.Keys(rule.AttributePrefixes)) {
 			prefixes := rule.AttributePrefixes[k]

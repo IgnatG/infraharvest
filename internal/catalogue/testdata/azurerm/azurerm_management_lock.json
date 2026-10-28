@@ -1,5 +1,6 @@
 {"resources": [
   {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/app/providers/Microsoft.Authorization/locks/keep", "name": "keep", "attributes": {"name": "keep", "resource_group_name": "app"}},
   {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/app/providers/Microsoft.Storage/storageAccounts/data/providers/Microsoft.Authorization/locks/AzureBackupProtectionLock", "name": "azure_backup_protection_lock", "attributes": {"name": "AzureBackupProtectionLock", "resource_group_name": "app"}},
-  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/DefaultResourceGroup-WEU/providers/Microsoft.Authorization/locks/workspace", "name": "workspace", "attributes": {"name": "workspace", "resource_group_name": "DefaultResourceGroup-WEU"}}
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/DefaultResourceGroup-WEU/providers/Microsoft.Authorization/locks/workspace", "name": "workspace", "attributes": {"name": "workspace", "resource_group_name": "DefaultResourceGroup-WEU"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/MC_rg-aks_aks_eastus/providers/Microsoft.Network/loadBalancers/kubernetes/providers/Microsoft.Authorization/locks/nodes", "name": "nodes", "attributes": {"name": "nodes", "resource_group_name": "MC_rg-aks_aks_eastus", "resource_group_managed_by": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"}}
 ]}

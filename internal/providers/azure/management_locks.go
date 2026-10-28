@@ -15,10 +15,12 @@ import (
 // those in --resource-group when it is set, else every lock in the
 // subscription. Locks are extension resources (Microsoft.Authorization/locks)
 // that Resource Graph doesn't index, so resource_graph can't list them.
-// Each records its name and the resource group of what it locks (see
-// lockAttributes), so that the catalogue's rules leave out the locks Azure
-// Backup adds and those on what is in a group they leave out, such as a
-// DefaultResourceGroup-<region>.
+// Each records its name, the resource group of what it locks (see
+// lockAttributes) and what manages that group (see withGroupManagers, asked
+// only when a lock is in a group), so that the catalogue's rules leave out
+// the locks Azure Backup adds and those on what is in a group they leave
+// out, such as a DefaultResourceGroup-<region> or an AKS cluster's MC_*
+// node resource group.
 type ManagementLockLister struct {
 	Service
 }
@@ -28,6 +30,10 @@ type ManagementLockLister struct {
 // the locks on its resources, and the subscription's list every lock.
 func (az *ManagementLockLister) List() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
+	predicate, err := graphPredicate(subscriptionID, resourceGroup)
+	if err != nil {
+		return err
+	}
 	client, err := armlocks.NewManagementLocksClient(subscriptionID, credential, options)
 	if err != nil {
 		return err
@@ -48,12 +54,17 @@ func (az *ManagementLockLister) List() error {
 	if err != nil {
 		return err
 	}
+	var listed []harvest.Resource
 	for _, lock := range locks {
 		if lock.ID == nil || lock.Name == nil {
 			continue
 		}
-		az.Resources = append(az.Resources, harvest.Record(*lock.ID, *lock.Name, "azurerm_management_lock", az.Provider(), lockAttributes(*lock.ID, *lock.Name)))
+		listed = append(listed, harvest.Record(*lock.ID, *lock.Name, "azurerm_management_lock", az.Provider(), lockAttributes(*lock.ID, *lock.Name)))
 	}
+	if err := withGroupManagers(ctx, credential, options, subscriptionID, predicate, listed); err != nil {
+		return err
+	}
+	az.Resources = append(az.Resources, listed...)
 	return nil
 }
 

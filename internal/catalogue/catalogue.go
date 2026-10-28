@@ -212,6 +212,10 @@ type SkipRule struct {
 	IDPrefixes []string `yaml:"id_prefixes,omitempty"`
 	// Attributes matches resources whose attributes have these values.
 	Attributes map[string]string `yaml:"attributes,omitempty"`
+	// AttributesPresent matches resources that have these attributes,
+	// whatever their value, such as a label a service sets on what it
+	// creates with a value that differs for each.
+	AttributesPresent []string `yaml:"attributes_present,omitempty"`
 	// AttributePrefixes matches resources whose attributes start with one
 	// of these, such as a name the cloud gives what it creates.
 	AttributePrefixes map[string][]string `yaml:"attribute_prefixes,omitempty"`
@@ -750,6 +754,11 @@ func (r SkipRule) matches(id string, attributes map[string]string) bool {
 			return false
 		}
 	}
+	for _, k := range r.AttributesPresent {
+		if _, ok := attributes[k]; !ok {
+			return false
+		}
+	}
 	for k, prefixes := range r.AttributePrefixes {
 		value, ok := attributes[k]
 		if !ok || !slices.ContainsFunc(prefixes, func(p string) bool { return hasPrefix(value, p) }) {
@@ -818,6 +827,7 @@ func (e *Entry) copy() *Entry {
 		copied.Skip = make([]SkipRule, len(e.Skip))
 		for i, r := range e.Skip {
 			r.IDs, r.IDPrefixes, r.Attributes = slices.Clone(r.IDs), slices.Clone(r.IDPrefixes), maps.Clone(r.Attributes)
+			r.AttributesPresent = slices.Clone(r.AttributesPresent)
 			r.AttributePrefixes, r.AttributeSuffixes = cloneLists(r.AttributePrefixes), cloneLists(r.AttributeSuffixes)
 			copied.Skip[i] = r
 		}

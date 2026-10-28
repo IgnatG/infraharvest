@@ -6,9 +6,10 @@ package aws
 import (
 	"strconv"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // VpcLister lists the VPCs of a region as aws_vpc, each by its ID.

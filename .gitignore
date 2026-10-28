@@ -16,8 +16,11 @@ vendor/
 dist/
 # mkdocs build output
 /site/
+# Claude Code and MCP settings stay on each machine
 .claude/
 .mcp.json
+# GitNexus code-graph index
+.gitnexus/
 # Secrets and keys, never committed
 .env
 *.pem

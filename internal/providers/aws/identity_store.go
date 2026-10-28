@@ -4,11 +4,12 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/identitystore"
 	idstypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssoadmin"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // IdentityStoreLister lists the users, groups and group memberships of

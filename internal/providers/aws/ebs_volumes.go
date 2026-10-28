@@ -11,10 +11,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // EbsLister lists the EBS volumes of a region as aws_ebs_volume, each by

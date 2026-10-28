@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/ecr/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // EcrLister lists the service "ecr": the private ECR repositories, each

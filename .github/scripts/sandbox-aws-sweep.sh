@@ -16,13 +16,13 @@
 #      gateways, load balancers, ECS services, RDS instances and clusters,
 #      Redshift clusters, ElastiCache replication groups and EKS clusters.
 #   3. What uses nothing else of the estate: Lambda functions, REST and
-#      HTTP APIs, Step Functions state machines, DynamoDB tables, Kinesis
-#      streams, SQS queues, SNS topics, S3 buckets, Secrets Manager
-#      secrets, CloudWatch log groups and alarms, EventBridge rules, SSM
-#      parameters named /ih-sbx-..., which would fail the next run's
-#      create, ECS task definitions, CloudFormation stacks, and KMS keys,
-#      which are scheduled for deletion after the shortest wait, 7 days,
-#      with their aliases.
+#      HTTP APIs, Step Functions state machines, DynamoDB tables, with
+#      their replicas in other regions, Kinesis streams, SQS queues, SNS
+#      topics, S3 buckets, Secrets Manager secrets, CloudWatch log groups
+#      and alarms, EventBridge rules, SSM parameters named /ih-sbx-...,
+#      which would fail the next run's create, ECS task definitions,
+#      CloudFormation stacks, and KMS keys, which are scheduled for
+#      deletion after the shortest wait, 7 days, with their aliases.
 #   4. What the first waited for: ECS clusters, load balancers' target
 #      groups and WAF web ACLs and IP sets, Elastic IPs, and the RDS,
 #      ElastiCache and Redshift subnet and parameter groups.
@@ -156,6 +156,34 @@ delete_distribution() {
   try aws cloudfront wait distribution-deployed --id "$1"
   etag=$(aws cloudfront get-distribution --id "$1" --query ETag --output text) || return 1
   try aws cloudfront delete-distribution --id "$1" --if-match "$etag"
+}
+
+# delete_table deletes DynamoDB table $1 in region $2. A replica of a
+# global table is deleted as any table is, but the table its replicas were
+# added from can't be deleted while they are there, for a day after: so
+# when the delete fails, the table's replicas in other regions are removed,
+# one at a time as UpdateTable allows, and it is deleted once they are
+# gone, up to ten minutes for each.
+delete_table() {
+  local table=$1 region=$2 replicas replica
+  if aws dynamodb delete-table --region "$region" --table-name "$table" > /dev/null 2>&1; then
+    return 0
+  fi
+  replicas=$(aws dynamodb describe-table --region "$region" --table-name "$table" \
+    --query "Table.Replicas[?RegionName != '$region'].RegionName" --output text) || { echo "failed: deleting DynamoDB table $table in $region"; return 1; }
+  for replica in $(words "$replicas"); do
+    echo "removing its replica in $replica"
+    again aws dynamodb update-table --region "$region" --table-name "$table" \
+      --replica-updates "[{\"Delete\": {\"RegionName\": \"$replica\"}}]"
+    for _ in $(seq 60); do
+      if [ -z "$(aws dynamodb describe-table --region "$region" --table-name "$table" \
+        --query "Table.Replicas[?RegionName == '$replica'].RegionName" --output text)" ]; then
+        break
+      fi
+      sleep 10
+    done
+  done
+  again aws dynamodb delete-table --region "$region" --table-name "$table"
 }
 
 # Each region once.
@@ -293,7 +321,7 @@ for region in "${regions[@]}"; do
           ;;
         dynamodb:table/*)
           echo "deleting DynamoDB table ${resource#table/}"
-          try aws dynamodb delete-table --region "$region" --table-name "${resource#table/}"
+          delete_table "${resource#table/}" "$region"
           ;;
         kinesis:stream/*)
           echo "deleting Kinesis stream ${resource#stream/}"

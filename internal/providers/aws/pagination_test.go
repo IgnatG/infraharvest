@@ -14,9 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // Each fake API below serves two pages. The second page is returned when the

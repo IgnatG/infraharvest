@@ -7,10 +7,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // TransitGatewayLister lists the transit gateways of a region, their

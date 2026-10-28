@@ -4,9 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // BudgetsLister lists the AWS Budgets budgets of the account (service

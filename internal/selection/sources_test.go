@@ -285,3 +285,30 @@ func TestUnwanted(t *testing.T) {
 		}
 	}
 }
+
+// A management lock in a resource group another resource manages, such as
+// an AKS cluster's node resource group, is left out with the catalogue's
+// reason, as what is in the group is; one in a group of the user's is
+// kept.
+func TestSourcesReasonManagedGroupLock(t *testing.T) {
+	t.Parallel()
+	const (
+		sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
+		aks = sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
+	)
+	nodes := Listed{Resource: harvest.Record(sub+"/resourceGroups/MC_rg-aks_aks_uksouth/providers/Microsoft.Authorization/locks/nodes", "nodes", "azurerm_management_lock", "azurerm",
+		map[string]string{"name": "nodes", "resource_group_name": "MC_rg-aks_aks_uksouth", "resource_group_managed_by": aks})}
+	keep := Listed{Resource: harvest.Record(sub+"/resourceGroups/app/providers/Microsoft.Authorization/locks/keep", "keep", "azurerm_management_lock", "azurerm",
+		map[string]string{"name": "keep", "resource_group_name": "app"})}
+	s, err := NewSources(t.Context(), catalogue.MustBuiltin("azurerm"), nil, []Listed{nodes, keep}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const managed = "in a resource group another resource manages, such as an AKS cluster's node resource group (MC_*); that resource creates and deletes what is in it"
+	if got := s.Reason(nodes.Resource); got != managed {
+		t.Errorf("lock in the node resource group: got %q, want %q", got, managed)
+	}
+	if got := s.Reason(keep.Resource); got != "" {
+		t.Errorf("lock in a group of the user's: got %q, want it kept", got)
+	}
+}

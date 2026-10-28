@@ -33,6 +33,10 @@ func TestGitignoreChangedRules(t *testing.T) {
 		{"cmd/tmp/fixture.go", false},
 		{"init.tf", false},
 		{"examples/init.tf", false},
+		{".claude/settings.json", true},
+		{".claude/settings.local.json", true},
+		{".mcp.json", true},
+		{".gitnexus/meta.json", true},
 	} {
 		// The fixture fails the test through the outer t, so the cases run in
 		// turn rather than as subtests; a failure names the path it checked.

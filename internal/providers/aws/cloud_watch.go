@@ -4,10 +4,11 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // CloudWatchLister lists the service "cloudwatch": the CloudWatch

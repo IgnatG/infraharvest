@@ -120,7 +120,6 @@ func (az *RoleAssignmentLister) List() error {
 		}
 	}
 	var assignments []harvest.Resource
-	inGroups := false
 	for _, row := range rows {
 		if !strings.EqualFold(row.typ, roleAssignmentGraphType) {
 			continue
@@ -154,21 +153,12 @@ func (az *RoleAssignmentLister) List() error {
 			attributes["inherited"] = "true"
 		} else if rg := scopeResourceGroup(scope); rg != "" {
 			attributes["resource_group_name"] = rg
-			inGroups = true
 		}
 		id := strings.TrimSuffix(scope, "/") + roleAssignmentsSegment + name
 		assignments = append(assignments, harvest.Record(id, assignmentName(scope, subscription, role.roleName, name), "azurerm_role_assignment", az.Provider(), attributes))
 	}
-	if inGroups {
-		clientOptions := arm.ClientOptions{}
-		if options != nil {
-			clientOptions = *options
-		}
-		groups, err := graphResourceGroups(az.Context(), credential, &clientOptions, subscriptionID, predicate)
-		if err != nil {
-			return err
-		}
-		withGroupManagers(assignments, subscription, managedResourceGroups(groups))
+	if err := withGroupManagers(az.Context(), credential, options, subscriptionID, predicate, assignments); err != nil {
+		return err
 	}
 	if az.Verbose() {
 		log.Printf("azurerm: role_assignment: %d role assignments and %d custom roles from %d rows of Resource Graph", len(assignments), len(az.Resources), len(rows))
@@ -270,22 +260,6 @@ func assignmentName(scope, subscription, roleName, name string) string {
 		roleName, _, _ = strings.Cut(name, "-")
 	}
 	return on + " " + roleName
-}
-
-// withGroupManagers records, of each resource of the subscription whose
-// resource group another resource manages (managed, see
-// managedResourceGroups), what manages the group, as
-// resource_group_managed_by.
-func withGroupManagers(resources []harvest.Resource, subscription string, managed map[string]string) {
-	for _, r := range resources {
-		rg := r.Observed.Attributes["resource_group_name"]
-		if rg == "" {
-			continue
-		}
-		if by := managed[strings.ToUpper(subscription+"/resourceGroups/"+rg)]; by != "" {
-			r.Observed.Attributes["resource_group_managed_by"] = by
-		}
-	}
 }
 
 // PartialTypes names the types a listing of the run's scope can leave out
