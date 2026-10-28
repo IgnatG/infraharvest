@@ -1,4 +1,8 @@
 # yaml-language-server: $schema=../../schema.json
+# The sg service records a VPC's default security group with as_created
+# "true" while it is as AWS creates it with the VPC: no tags, and no rules
+# but the one allowing all inbound traffic from the group itself and the
+# ones allowing all outbound traffic. Its rules record as_created too.
 provider: aws
 service: sg
 types:
@@ -8,8 +12,20 @@ types:
     # The lister imports each rule as a resource of its own, which the
     # provider recommends: inline, the group would manage them too.
     omit: [ingress, egress]
+    skip:
+      # One that is tagged or has rules of its own is configuration's, as
+      # the terraform-aws-vpc module's, which adopts the default group by
+      # default, and is imported.
+      - reason: the default security group AWS creates with every VPC, unchanged, with only its default rules; select it and its rules to import them
+        attributes: { group_name: default, as_created: "true" }
   aws_security_group_rule: {}
   aws_vpc_security_group_ingress_rule:
     arn: { service: ec2, resource_type: "security-group-rule" }
+    skip:
+      - reason: a rule AWS gives the default security group of every VPC, which is unchanged; select it with its group to import it
+        attributes: { as_created: "true" }
   aws_vpc_security_group_egress_rule:
     arn: { service: ec2, resource_type: "security-group-rule" }
+    skip:
+      - reason: a rule AWS gives the default security group of every VPC, which is unchanged; select it with its group to import it
+        attributes: { as_created: "true" }
