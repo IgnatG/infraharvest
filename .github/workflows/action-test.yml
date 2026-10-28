@@ -34,8 +34,8 @@ on:
       - .github/workflows/action-test.yml
       - .github/scripts/free-disk-space.sh
       - .github/actions/setup-engines/**
-  # Only the pull-request and commit jobs run on a push: a pull request ran
-  # the rest.
+  # Only the pull-request and commit jobs, which a pull request can't run,
+  # run on a push: a pull request ran the rest.
   push:
     branches: [main]
     paths:
@@ -1068,6 +1068,7 @@ jobs:
   # request, peter-evans/create-pull-request, only passes it on. The
   # pull-request job opens one for an import only.
   pull-request-details:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1214,6 +1215,7 @@ jobs:
   # that has moved on. The commit job runs it through the action, on
   # GitHub.
   commit-script:
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

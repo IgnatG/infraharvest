@@ -4,14 +4,15 @@
 name: Tests
 
 # Every pull request, whatever its base: a pull request stacked on another
-# one gets the same signal as one against main. After each merge, main runs
-# everything too: two pull requests that each passed against an older main
-# can still break it together, and main's runs keep the caches pull
-# requests restore current.
+# one gets the same signal as one against main. A merge to main doesn't
+# run them again, but for one that changes go.mod or go.sum: the caches
+# pull requests restore are keyed on those, and only main's runs save
+# them.
 on:
   pull_request:
   push:
     branches: [main]
+    paths: [go.mod, go.sum]
   workflow_dispatch:
 
 permissions:
@@ -25,8 +26,8 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A newer push makes a pull request's run moot; every merge to main
-  # gets a result of its own.
+  # A newer push makes a pull request's run moot; a run on main saves
+  # caches, so it finishes.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # A pull request that changes no core code (documentation, Markdown,
