@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -424,9 +423,6 @@ func TestConfigText(t *testing.T) {
 // hard link to a file outside it, which the checks of its path can't
 // see, is refused before anything runs or the user is asked.
 func TestHardLinkedFilesRefused(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows' file info doesn't count hard links")
-	}
 	outside := filepath.Join(t.TempDir(), "file.yaml")
 	if err := writeSelection(outside); err != nil {
 		t.Fatal(err)

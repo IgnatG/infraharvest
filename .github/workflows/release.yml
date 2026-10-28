@@ -10,8 +10,11 @@ name: Release
 # dependency code runs where the token can write the repository or packages
 # or mint the OIDC token cosign signs with. GoReleaser publishes a draft
 # release; the release job makes it public only once the provenance is
-# attested, and takes the draft and the tag back if any step after the tag
-# fails, so the version can be released again.
+# attested. When a step after the tag fails before GoReleaser runs, it
+# takes the tag back, so that the version can be released again; once
+# GoReleaser has run, which signs the checksum file and pushes and signs
+# the image, the tag and the draft stay, and the version can't be
+# released again (see the last two steps).
 on:
   workflow_dispatch:
     inputs:
@@ -117,6 +120,7 @@ jobs:
           password: ${{ github.token }}
       # Publishes a draft release (release.draft in .goreleaser.yaml).
       - name: Publish the draft release
+        id: goreleaser
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
@@ -132,16 +136,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release edit "$VERSION" --draft=false
-      # The tag was pushed before GoReleaser ran: when a later step failed,
-      # take back the draft release and the tag, so the version can be
-      # released again. Images GoReleaser already pushed stay in ghcr.io;
-      # the next run of the same version pushes over their tags.
-      - name: Delete the draft and the tag of the failed release
-        if: failure() && steps.tag.outcome == 'success'
+      # The tag was pushed before GoReleaser ran: when a step after it
+      # failed before GoReleaser ran, nothing was signed or published, so
+      # take the tag back, and the version can be released again.
+      - name: Delete the tag of the failed release
+        if: failure() && steps.tag.outcome == 'success' && (steps.goreleaser.outcome == 'skipped' || steps.goreleaser.outcome == '')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh release view "$VERSION" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
-            gh release delete "$VERSION" --yes
-          fi
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
+      # Once GoReleaser has run, even when it failed, the checksum file may
+      # be signed and the image pushed to ghcr.io and signed: a run of the
+      # same version from another commit would then leave two validly
+      # signed builds of it. The tag stays, so that the version can't be
+      # released again (Tag fails on it), and the draft stays, unpublished,
+      # as a record of what was built.
+      - name: Keep the tag of the failed release
+        if: failure() && steps.goreleaser.outcome != 'skipped' && steps.goreleaser.outcome != ''
+        run: echo "::error::$VERSION failed after GoReleaser ran, which may have signed or published part of it; its tag and draft release stay, so that the version isn't released again from another commit. Release the next version."

@@ -8,6 +8,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,22 @@ func TestCfnConvert(t *testing.T) {
 		t.Errorf("err = %v, want exit %d", err, report.ExitCouldNotRun)
 	}
 
+	// Nor follows a link of that name out of the directory, dangling or
+	// not.
+	linked := t.TempDir()
+	escaped := filepath.Join(t.TempDir(), "escaped.tf")
+	if err := os.Symlink(escaped, filepath.Join(linked, "main.tf")); err != nil {
+		t.Logf("no symbolic links here: %v", err)
+	} else {
+		err = convertTemplate("-", linked, cfn.Options{}, false, strings.NewReader(template), &diags)
+		if !errors.As(err, &exit) || exit.Code != report.ExitCouldNotRun {
+			t.Errorf("through a dangling link: err = %v, want exit %d", err, report.ExitCouldNotRun)
+		}
+		if _, err := os.Lstat(escaped); err == nil {
+			t.Error("wrote the file a dangling link led to")
+		}
+	}
+
 	// What can't be converted exits 1, or 3 with --allow-partial.
 	custom := "Resources:\n  Hook:\n    Type: Custom::Hook\n"
 	for allow, want := range map[bool]int{false: report.ExitIncomplete, true: report.ExitPartial} {
@@ -54,6 +71,39 @@ func TestCfnConvert(t *testing.T) {
 
 	if err := convertTemplate(filepath.Join(t.TempDir(), "missing.yaml"), out, cfn.Options{}, false, nil, &diags); !errors.As(err, &exit) || exit.Code != report.ExitCouldNotRun {
 		t.Errorf("missing template: err = %v", err)
+	}
+}
+
+// A symbolic link at a file's path in --out, even one that leads nowhere
+// yet, isn't written through: the file there exists already.
+func TestCfnConvertDoesNotFollowLinks(t *testing.T) {
+	out := t.TempDir()
+	target := filepath.Join(t.TempDir(), "elsewhere.tf")
+	if err := os.Symlink(target, filepath.Join(out, "main.tf")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	template := "Resources:\n  Logs:\n    Type: AWS::S3::Bucket\n"
+	var diags bytes.Buffer
+	err := convertTemplate("-", out, cfn.Options{}, false, strings.NewReader(template), &diags)
+	var exit *importer.ExitError
+	if !errors.As(err, &exit) || exit.Code != report.ExitCouldNotRun || !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("err = %v, want the link refused", err)
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("wrote through the link to %s (%v)", target, err)
+	}
+
+	// Nor one put there after the check: the file is created anew or not
+	// at all.
+	path := filepath.Join(t.TempDir(), "main.tf")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNewFile(path, []byte("x")); err == nil {
+		t.Error("wrote through a link")
+	}
+	if _, err := os.Lstat(target); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("wrote through the link to %s (%v)", target, err)
 	}
 }
 

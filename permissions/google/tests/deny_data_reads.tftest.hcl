@@ -89,11 +89,11 @@ run "workload_identity_denied_as_given" {
   command = plan
 
   variables {
-    member = "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github/attribute.repository/acme/infra"
+    member = "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github/attribute.repository_id/456789"
   }
 
   assert {
-    condition     = local.denied_principal == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github/attribute.repository/acme/infra"
+    condition     = local.denied_principal == "principalSet://iam.googleapis.com/projects/123456789012/locations/global/workloadIdentityPools/github/attribute.repository_id/456789"
     error_message = "A workload identity principal set isn't named as given."
   }
 }

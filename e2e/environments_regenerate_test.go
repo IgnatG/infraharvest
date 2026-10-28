@@ -36,7 +36,7 @@ environments:
     tokens: [prd]
 `
 
-// checkMergedRegenerate goes on from TestAWSEnvironments, whose merged
+// checkMergedRegenerate goes on from TestAWSEnvironmentsRegenerate, whose merged
 // root in out, aws/us-east-1, each environment has applied into its
 // workspace, with fixture applied with the audit, reports and billing
 // queues and dev's orders timeout of 90; prod's workspace doesn't have

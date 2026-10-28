@@ -4,8 +4,11 @@
 package engine
 
 import (
+	"maps"
+	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -145,5 +148,68 @@ func TestDriftAcceptsByPromotingALiteral(t *testing.T) {
 	logs, data, _ := strings.Cut(main, "module \"data\"")
 	if !strings.Contains(flat(logs), "force_destroy = true") || strings.Contains(data, "force_destroy") {
 		t.Errorf("main.tf:\n%s", main)
+	}
+}
+
+// Only a generated module in the output directory with the root, reached
+// from it through directories alone, has its files edited: a root, or the
+// modules.json of its init, could name one elsewhere, or one through a
+// symbolic link, which an accepted change would be written into.
+func TestAddModuleFilesStaysInTheOutputDirectory(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	out := filepath.Join(base, "out")
+	dir := filepath.Join(out, "aws", "1", "eu-west-2")
+	elsewhere := filepath.Join(base, "elsewhere")
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(dir, "main.tf"), bucketCalls)
+	for _, m := range []string{
+		filepath.Join(out, "modules", "s3_0a1b2c3d"),
+		filepath.Join(elsewhere, "modules", "s3_0a1b2c3d"),
+		filepath.Join(elsewhere, "linked", "s3_0a1b2c3d"),
+		filepath.Join(out, "modules", "s3_1a1b2c3d"),
+	} {
+		for name, content := range bucketModule {
+			write(filepath.Join(m, name), content)
+		}
+	}
+	links := true
+	if err := os.Symlink(filepath.Join(elsewhere, "linked"), filepath.Join(out, "aws", "modules")); err != nil {
+		links = false
+	} else if err := os.Symlink(filepath.Join(elsewhere, "modules", "s3_0a1b2c3d", "main.tf"), filepath.Join(out, "modules", "s3_1a1b2c3d", "linked.tf")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, moduleDir, out string
+		links, want          bool
+	}{
+		{name: "in the output directory", moduleDir: "../../../modules/s3_0a1b2c3d", out: out, want: true},
+		{name: "in the output directory, by its modules directory", moduleDir: "../../../modules/s3_0a1b2c3d", want: true},
+		{name: "out of the output directory", moduleDir: "../../../../elsewhere/modules/s3_0a1b2c3d", out: out},
+		{name: "out of the root's output directory", moduleDir: "../../../../elsewhere/modules/s3_0a1b2c3d"},
+		{name: "through a link", moduleDir: "../../modules/s3_0a1b2c3d", out: out, links: true},
+		{name: "a file that is a link", moduleDir: "../../../modules/s3_1a1b2c3d", out: out, links: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.links && !links {
+				t.Skip("no symbolic links here")
+			}
+			m := testModule(t, tc.moduleDir, 2, bucketModule)
+			contents := map[string][]byte{}
+			if err := addModuleFiles(contents, dir, tc.out, map[string]*driftModule{"logs": m}); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(contents) > 0; got != tc.want {
+				t.Errorf("added %v, want the module's files added: %v", slices.Collect(maps.Keys(contents)), tc.want)
+			}
+		})
 	}
 }

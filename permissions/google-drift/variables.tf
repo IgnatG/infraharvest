@@ -28,4 +28,21 @@ variable "deny_data_reads" {
 variable "state_bucket" {
   description = "The GCS bucket of the roots' state (the backend's bucket)."
   type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$", var.state_bucket))
+    error_message = "Use a GCS bucket name."
+  }
+}
+
+variable "state_prefix" {
+  description = "The prefix of the roots' state (the backend's prefix, see docs/configuration.md); empty for the whole bucket. With one, the member reads only the objects under it, through an IAM condition, which takes uniform bucket-level access on the bucket; it still lists every object's name in the bucket."
+  type        = string
+  default     = ""
+
+  # The prefix goes into the condition's expression, as a string.
+  validation {
+    condition     = !can(regex("[\"\\\\]", var.state_prefix))
+    error_message = "Use an object name prefix without \" or \\."
+  }
 }
