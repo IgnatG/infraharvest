@@ -18,11 +18,13 @@ import (
 )
 
 // terraformRun is how a root's Terraform runs: the binary, the plugin cache
-// every root shares, and what the provider adds to its environment, such
-// as fresh credentials (see terraformEnv), and, when the provider adds
-// any, how to get them again before each plan.
+// every root shares, the run's providers' schemas cache, which its roots
+// share (see tfrun.SchemaCache), and what the provider adds to its
+// environment, such as fresh credentials (see terraformEnv), and, when the
+// provider adds any, how to get them again before each plan.
 type terraformRun struct {
 	execPath, pluginCacheDir string
+	schemas                  *tfrun.SchemaCache
 	env                      map[string]string
 	freshEnv                 func(context.Context) (map[string]string, error)
 }
@@ -32,9 +34,9 @@ type terraformRun struct {
 // tfrun.NewFreshEnv).
 func (t terraformRun) in(dir string) (tfrun.Terraform, error) {
 	if t.freshEnv != nil {
-		return tfrun.NewFreshEnv(dir, t.execPath, t.pluginCacheDir, t.env, t.freshEnv)
+		return tfrun.NewFreshEnv(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas, t.freshEnv)
 	}
-	tf, err := tfrun.New(dir, t.execPath, t.pluginCacheDir, t.env)
+	tf, err := tfrun.New(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas)
 	if err != nil {
 		return nil, err
 	}

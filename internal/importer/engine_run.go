@@ -21,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -143,6 +144,11 @@ type shared struct {
 	outMu     sync.Mutex
 	outLock   *filelock.Lock
 	outLocked bool
+
+	// schemas are the providers' schemas the command's roots have read,
+	// which every root of the same engine and providers shares (see
+	// tfrun.SchemaCache).
+	schemas tfrun.SchemaCache
 
 	// calls bounds how many Import calls of the command list or generate
 	// at once, over every account and region (see callSlots).

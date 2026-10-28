@@ -59,7 +59,7 @@ func TestNewTerraformDataDir(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := New(filepath.Join(dir, "root"), fake, filepath.Join(dir, "plugins"), map[string]string{"TF_DATA_DIR": "/private"})
+	tf, err := New(filepath.Join(dir, "root"), fake, filepath.Join(dir, "plugins"), map[string]string{"TF_DATA_DIR": "/private"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestFreshEnvTerraformAsksBeforeEachPlan(t *testing.T) {
 	base := t.TempDir()
 	refused := errors.New("the SSO session has expired")
 	asked := 0
-	tf, err := NewFreshEnv(filepath.Join(base, "root"), os.Args[0], filepath.Join(base, "plugins"), map[string]string{"AWS_ACCESS_KEY_ID": "AKIDFIRST"},
+	tf, err := NewFreshEnv(filepath.Join(base, "root"), os.Args[0], filepath.Join(base, "plugins"), map[string]string{"AWS_ACCESS_KEY_ID": "AKIDFIRST"}, nil,
 		func(context.Context) (map[string]string, error) {
 			asked++
 			return nil, refused
@@ -117,7 +117,7 @@ func TestNewTerraformCreatesDirs(t *testing.T) {
 	dir := filepath.Join(base, "generated", "aws", "sqs")
 	cache := filepath.Join(base, "cache", "plugins")
 
-	if _, err := New(dir, os.Args[0], cache, nil); err != nil {
+	if _, err := New(dir, os.Args[0], cache, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

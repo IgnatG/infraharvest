@@ -171,7 +171,7 @@ func TestGoogleEnvironments(t *testing.T) {
 
 	// 2. Each environment applies the merged root into its workspace.
 	for _, env := range envs {
-		tf, err := tfrun.New(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

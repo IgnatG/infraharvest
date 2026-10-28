@@ -230,7 +230,7 @@ func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out 
 		stackDir := filepath.Join(out, filepath.FromSlash(stack))
 		for _, env := range []string{"dev", "prod"} {
 			credentials(env)
-			tf, err := tfrun.New(stackDir, execPath, plugins, nil)
+			tf, err := tfrun.New(stackDir, execPath, plugins, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

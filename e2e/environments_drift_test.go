@@ -220,7 +220,7 @@ func checkEnvironmentsDrift(ctx context.Context, t *testing.T, fixture *appliedF
 // initialised with environment env's backend settings.
 func backendTerraform(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *tfrun.Runner {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
