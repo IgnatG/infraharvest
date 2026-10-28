@@ -31,11 +31,14 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     # The licences and the NOTICE: the binary embeds MPL-2.0 data read out
     # of the Terraform providers (internal/catalogue/schemameta), whose
-    # licence and source MPL-2.0 section 3.2 asks it to name.
+    # licence and source MPL-2.0 section 3.2 asks it to name, and OPA's
+    # Apache-2.0 capabilities file (internal/engine), whose licence and
+    # NOTICE Apache-2.0 section 4 asks it to carry.
     files:
       - LICENSE
       - NOTICE
       - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
       - README.md
 
 checksum:
@@ -64,13 +67,14 @@ dockers_v2:
       org.opencontainers.image.source: "{{ .GitURL }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.version: "v{{ .Version }}"
-      org.opencontainers.image.licenses: AGPL-3.0-only AND MPL-2.0
+      org.opencontainers.image.licenses: AGPL-3.0-only AND MPL-2.0 AND Apache-2.0
     # The licences and the NOTICE, as the archives have them (see above),
     # copied into the image by the Dockerfile.
     extra_files:
       - LICENSE
       - NOTICE
       - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
 
 docker_signs:
   - args: ["sign", "${artifact}@${digest}", "--yes"]

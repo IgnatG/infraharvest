@@ -13,7 +13,8 @@ import (
 // opaCapabilities are the capabilities of OPA 1.21.1, the release
 // conftest 0.71.1 is built with, as OPA publishes them
 // (capabilities/v1.21.1.json in its repository): its built-in
-// functions, keywords and features.
+// functions, keywords and features. The file is copied unchanged and is
+// OPA's, under Apache-2.0, as REUSE.toml and NOTICE say.
 //
 //go:embed conftest_capabilities.json
 var opaCapabilities []byte
