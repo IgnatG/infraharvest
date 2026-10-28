@@ -387,10 +387,10 @@ jobs:
   # TestAWSEnvironments leaves it, on two more; and the
   # tests of --regenerate's moved and removed blocks
   # (TestAWSRegenerate*), which each apply roots and generate them again
-  # in accounts of their own. The other tests (TestAWSParallelAccounts
-  # and TestAWSParallelRegions, which create their resources in other
-  # accounts, and TestAWSRegistryModuleMoves, which only plans) share a
-  # last one.
+  # in accounts of their own. The other tests (TestAWSParallelAccounts,
+  # TestAWSParallelRegions and TestAWSQuery, which create their resources
+  # in other accounts, and TestAWSRegistryModuleMoves, which only plans)
+  # share a last one.
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
