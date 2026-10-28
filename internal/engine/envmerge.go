@@ -20,9 +20,10 @@ import (
 
 // The variables a merged root always has, or has for its placeholders.
 const (
-	envVariableName           = "env"
-	importIDsVariableName     = "import_ids"
-	resourceGroupVariableName = "resource_group_name"
+	envVariableName              = "env"
+	importIDsVariableName        = "import_ids"
+	importIdentitiesVariableName = "import_identities"
+	resourceGroupVariableName    = "resource_group_name"
 )
 
 // stackMerge is how the roots of one stack, one per environment, become
@@ -702,7 +703,7 @@ func (m *stackMerge) nameVariables() {
 	for _, d := range m.rootData {
 		collect(d.body)
 	}
-	used := map[string]bool{importIDsVariableName: true, resourceGroupVariableName: true}
+	used := map[string]bool{importIDsVariableName: true, importIdentitiesVariableName: true, resourceGroupVariableName: true}
 	for _, v := range variables {
 		v.name = uniqueEnvName(used, v.name, v.resourceType)
 		if !v.hasDefault {
@@ -1606,6 +1607,98 @@ func (m *stackMerge) imports(env int) map[string]string {
 		}
 	}
 	return ids
+}
+
+// identities returns the identities of the resources environment env
+// imports by identity, by the address of their instance in the merged
+// root, which var.import_identities gives import blocks; imports has
+// their identities' IDs.
+func (m *stackMerge) identities(env int) map[string]map[string]string {
+	identities := map[string]map[string]string{}
+	for _, r := range m.resources {
+		member := r.members[env]
+		if member == nil {
+			continue
+		}
+		if member.identity != nil {
+			identities[string(hclwrite.TokensForTraversal(r.instance()).Bytes())] = member.identity
+		}
+		if r.resourceType == moduleType {
+			call := addressText(r.instance())
+			for rest, identity := range member.moduleIdentities {
+				identities[call+"."+rest] = identity
+			}
+		}
+	}
+	return identities
+}
+
+// importsByIdentity reports whether any environment imports a resource
+// by identity: whether the merged root has var.import_identities.
+func (m *stackMerge) importsByIdentity() bool {
+	for e := range m.envs {
+		if len(m.identities(e)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// importBy is what the merged root's import blocks import a resource by:
+// its import ID, from var.import_ids, or its identity, from
+// var.import_identities, as the environments' roots imported it.
+type importBy struct{ argument, variable string }
+
+var (
+	importByID       = importBy{"id", importIDsVariableName}
+	importByIdentity = importBy{"identity", importIdentitiesVariableName}
+)
+
+// value is the argument of an import block that imports the instance
+// whose address key, an expression, gives.
+func (b importBy) value(key string) string {
+	return fmt.Sprintf("%s = var.%s[%s]", b.argument, b.variable, key)
+}
+
+// importKinds returns what the environments import each instance of the
+// merged root by, by its address. One import block can't import an
+// instance by ID in one environment and by identity in another, so it
+// fails where they differ.
+func (m *stackMerge) importKinds() (map[string]importBy, error) {
+	kinds := map[string]importBy{}
+	for e := range m.envs {
+		identities := m.identities(e)
+		for address := range m.imports(e) {
+			kind := importByID
+			if identities[address] != nil {
+				kind = importByIdentity
+			}
+			if had, ok := kinds[address]; ok && had != kind {
+				return nil, fmt.Errorf("%s: some environments import it by ID and others by identity, which one import block can't do; import it the same way in each", address)
+			}
+			kinds[address] = kind
+		}
+	}
+	return kinds, nil
+}
+
+// importKindOf returns what kinds says the import block of addresses, the
+// instances of one resource block or module resource, imports them by:
+// by ID unless they are imported by identity. It fails where some are
+// imported by ID and others by identity.
+func importKindOf(kinds map[string]importBy, owner string, addresses ...string) (importBy, error) {
+	kind, seen := importByID, false
+	for _, address := range addresses {
+		k, ok := kinds[address]
+		if !ok {
+			continue
+		}
+		if seen && k != kind {
+			return importBy{}, fmt.Errorf("%s: some of its instances are imported by ID and others by identity, which one import block can't do; import them the same way", owner)
+		}
+		kind, seen = k, true
+	}
+	return kind, nil
 }
 
 // visit calls attr for each argument of b and its nested blocks, and

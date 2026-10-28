@@ -39,6 +39,9 @@ type envRoot struct {
 	scope, region, group string
 	file                 *hclFile          // generated.tf
 	importIDs            map[string]string // by resource address
+	// identities are the identities of the resources it imports by
+	// identity, by address; their import IDs are the identities' IDs.
+	identities map[string]map[string]string
 	// data are the data sources the root reads, nil for none.
 	data *hclFile
 
@@ -329,9 +332,14 @@ type envResource struct {
 	// isolated keeps it apart from the other environments' resources (see
 	// mergeControls.isolated).
 	isolated bool
+	// identity is what it is imported by, if by identity, rather than
+	// by id (see envRoot.identities).
+	identity map[string]string
 	// moduleIDs are, for a module call, the import IDs of the resources in
-	// it, by their addresses in it, such as aws_s3_bucket.this[0].
-	moduleIDs map[string]string
+	// it, by their addresses in it, such as aws_s3_bucket.this[0], and
+	// moduleIdentities the identities of those it imports by identity.
+	moduleIDs        map[string]string
+	moduleIdentities map[string]map[string]string
 }
 
 // stackResource is a resource of a stack's merged root: the resources it
@@ -416,9 +424,11 @@ func matchResourcesWith(roots []envRoot, norms []*normaliser, isolated map[strin
 			}
 			if typ == moduleType {
 				r.moduleIDs = moduleImportIDs(root.importIDs, label)
+				r.moduleIdentities = moduleImportIDs(root.identities, label)
 			}
 			if id := root.importIDs[b.address]; id != "" {
 				r.id, r.normalID = id, norms[e].value(id)
+				r.identity = root.identities[b.address]
 			}
 			if !r.isolated {
 				labels[e][typ+"."+r.normalLabel]++

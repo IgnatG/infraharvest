@@ -213,9 +213,8 @@ func (f *hclFile) imports() []importBlock {
 
 // importIDOf returns the import ID of an import block's body: its id, if
 // a literal, or, for a block that imports by identity, the identity's ID
-// (see tftypes.IdentityID), if it is an object of literal strings,
-// numbers and bools, as ImportsFile writes it. The engine tells a
-// resource imported by identity by that ID, as the importer does (see
+// (see tftypes.IdentityID and identityOf). The engine tells a resource
+// imported by identity by that ID, as the importer does (see
 // Import.Identity).
 func importIDOf(body *hclsyntax.Body) (string, bool) {
 	if attr, ok := body.Attributes["id"]; ok {
@@ -225,13 +224,35 @@ func importIDOf(body *hclsyntax.Body) (string, bool) {
 		}
 		return v.AsString(), true
 	}
-	attr, ok := body.Attributes["identity"]
+	identity, ok := identityOf(body)
 	if !ok {
 		return "", false
 	}
+	return tftypes.IdentityID(identity), true
+}
+
+// identityOf returns the identity an import block's body imports by, as
+// strings (see literalIdentity), if it is a literal, as ImportsFile
+// writes it; false for a block that imports by ID, or by an identity it
+// can't read.
+func identityOf(body *hclsyntax.Body) (map[string]string, bool) {
+	attr, ok := body.Attributes["identity"]
+	if !ok {
+		return nil, false
+	}
 	v, diags := attr.Expr.Value(nil)
-	if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
-		return "", false
+	if diags.HasErrors() {
+		return nil, false
+	}
+	return literalIdentity(v)
+}
+
+// literalIdentity returns an identity, a value, as strings (see
+// tftypes.IdentityValues), if it is an object or map of known strings,
+// numbers and bools, with at least one that isn't null.
+func literalIdentity(v cty.Value) (map[string]string, bool) {
+	if !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
+		return nil, false
 	}
 	identity := map[string]string{}
 	for it := v.ElementIterator(); it.Next(); {
@@ -241,14 +262,14 @@ func importIDOf(body *hclsyntax.Body) (string, bool) {
 		}
 		s, err := convert.Convert(e, cty.String)
 		if err != nil {
-			return "", false
+			return nil, false
 		}
 		identity[k.AsString()] = s.AsString()
 	}
 	if len(identity) == 0 {
-		return "", false
+		return nil, false
 	}
-	return tftypes.IdentityID(identity), true
+	return identity, true
 }
 
 // importAt returns the address the import block spanning line imports into.

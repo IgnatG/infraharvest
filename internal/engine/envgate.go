@@ -637,6 +637,9 @@ func (g *mergeGate) result(m *stackMerge, w *rootWriter, files map[string][]byte
 		result.Variables = append(result.Variables, b.Labels()[0])
 	}
 	result.Variables = append(result.Variables, importIDsVariableName)
+	if m.importsByIdentity() {
+		result.Variables = append(result.Variables, importIdentitiesVariableName)
+	}
 	sort.Strings(result.Variables)
 	sort.Slice(result.Residue, func(i, j int) bool {
 		if result.Residue[i].Env != result.Residue[j].Env {

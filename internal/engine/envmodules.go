@@ -29,11 +29,11 @@ const moduleType = "module"
 // root writes first: what the call calls.
 var moduleMetaArguments = []string{"source", "version"}
 
-// moduleImportIDs returns the import IDs of ids, by address, of the
-// resources in the module call name, by their addresses in it:
-// aws_s3_bucket.this[0] for module.logs.aws_s3_bucket.this[0].
-func moduleImportIDs(ids map[string]string, name string) map[string]string {
-	out := map[string]string{}
+// moduleImportIDs returns the import IDs, or identities, of ids, by
+// address, of the resources in the module call name, by their addresses
+// in it: aws_s3_bucket.this[0] for module.logs.aws_s3_bucket.this[0].
+func moduleImportIDs[V any](ids map[string]V, name string) map[string]V {
+	out := map[string]V{}
 	prefix := "module." + name + "."
 	for address, id := range ids {
 		if rest, ok := strings.CutPrefix(address, prefix); ok {
@@ -113,8 +113,10 @@ func moduleText(label string, meta []string, body *mergedBody) string {
 // call of the merged root, by address: a plain one for a resource every
 // environment that has the call has, where no deploy_ variable counts
 // the call; else one each environment that has it imports, through
-// for_each on its import IDs (see forEachImport).
-func moduleImports(r *stackResource) (map[string]string, error) {
+// for_each on its import IDs (see forEachImport). Each imports its
+// resource by ID or by identity, as kinds says (see
+// stackMerge.importKinds).
+func moduleImports(r *stackResource, kinds map[string]importBy) (map[string]string, error) {
 	call := addressText(r.instance())
 	envs := map[string]int{}
 	having := 0
@@ -130,25 +132,30 @@ func moduleImports(r *stackResource) (map[string]string, error) {
 	blocks := map[string]string{}
 	for _, rest := range slices.Sorted(maps.Keys(envs)) {
 		address := call + "." + rest
-		id := fmt.Sprintf("var.%s[%s]", importIDsVariableName, string(hclwrite.TokensForValue(cty.StringVal(address)).Bytes()))
+		kind, err := importKindOf(kinds, address, address)
+		if err != nil {
+			return nil, err
+		}
+		id := kind.value(string(hclwrite.TokensForValue(cty.StringVal(address)).Bytes()))
 		if r.deploy == nil && envs[rest] == having {
-			blocks[address] = fmt.Sprintf("import {\nto = %s\nid = %s\n}\n", address, id)
+			blocks[address] = fmt.Sprintf("import {\nto = %s\n%s\n}\n", address, id)
 			continue
 		}
-		forEach, to, ok := forEachImport(address)
+		forEach, to, ok := forEachImport(address, kind)
 		if !ok {
 			return nil, fmt.Errorf("%s: only some environments import %s, and its address has no instance key to import it by", r.address(), address)
 		}
-		blocks[address] = fmt.Sprintf("import {\nfor_each = %s\n\nto = %s\nid = %s\n}\n", forEach, to, id)
+		blocks[address] = fmt.Sprintf("import {\nfor_each = %s\n\nto = %s\n%s\n}\n", forEach, to, id)
 	}
 	return blocks, nil
 }
 
 // forEachImport returns, for address, the for_each of an import block
-// that imports it only where the environment's import IDs have it, and
-// its to, with the last instance key of address made each.value; false
-// where address has no instance key.
-func forEachImport(address string) (forEach, to string, ok bool) {
+// that imports it only where the environment's import IDs, or
+// identities, as kind says, have it, and its to, with the last instance
+// key of address made each.value; false where address has no instance
+// key.
+func forEachImport(address string, kind importBy) (forEach, to string, ok bool) {
 	open := strings.LastIndexByte(address, '[')
 	if open < 0 {
 		return "", "", false
@@ -159,7 +166,7 @@ func forEachImport(address string) (forEach, to string, ok bool) {
 	}
 	end := open + closing
 	key := address[open+1 : end]
-	forEach = fmt.Sprintf("[for k in [%s] : k if contains(keys(var.%s), %s)]", key, importIDsVariableName, string(hclwrite.TokensForValue(cty.StringVal(address)).Bytes()))
+	forEach = fmt.Sprintf("[for k in [%s] : k if contains(keys(var.%s), %s)]", key, kind.variable, string(hclwrite.TokensForValue(cty.StringVal(address)).Bytes()))
 	return forEach, address[:open] + "[each.value]" + address[end+1:], true
 }
 
