@@ -77,8 +77,11 @@ type Scanner struct {
 }
 
 // DefaultScanners returns the scanners installed on PATH: tflint (blocking),
-// trivy and checkov.
-func DefaultScanners() []Scanner {
+// trivy and checkov; and, with policies, conftest, which checks the
+// configuration against the user's OPA policies in those directories,
+// absolute paths. The caller checks conftest is installed when there are
+// policies: asked for, it is never left out quietly.
+func DefaultScanners(policies []string) []Scanner {
 	var scanners []Scanner
 	if path, err := exec.LookPath("tflint"); err == nil {
 		scanners = append(scanners, Scanner{Name: "tflint", Blocking: true, Run: func(ctx context.Context, dir string) ([]Finding, error) {
@@ -129,7 +132,46 @@ func DefaultScanners() []Scanner {
 			return parseCheckov(out)
 		}})
 	}
+	if path, err := exec.LookPath(ConftestBinary); err == nil && len(policies) > 0 {
+		scanners = append(scanners, conftestScanner(path, policies))
+	}
 	return scanners
+}
+
+// ConftestBinary is the scanner that checks configuration against OPA
+// policies.
+const ConftestBinary = "conftest"
+
+// conftestScanner returns the scanner that runs conftest, at path, with
+// the policies in the directories policies, on the .tf files of the
+// directory it scans, read with its HCL2 parser, in every namespace the
+// policies have. Its findings are listed, never blocking, as trivy's are:
+// a policy says what the infrastructure should be, which the
+// configuration mirrors as it is. The policies are local directories
+// only, and nothing is fetched: no --update, which downloads policies
+// before the test.
+func conftestScanner(path string, policies []string) Scanner {
+	return Scanner{Name: ConftestBinary, Run: func(ctx context.Context, dir string) ([]Finding, error) {
+		files, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+		if err != nil || len(files) == 0 {
+			return nil, err
+		}
+		args := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail"}
+		for _, p := range policies {
+			args = append(args, "--policy="+p)
+		}
+		// Named relative to dir, where it runs, so that findings name the
+		// file as the other scanners do.
+		args = append(args, "--")
+		for _, f := range files {
+			args = append(args, filepath.Base(f))
+		}
+		out, err := runTool(ctx, dir, path, args...)
+		if err != nil {
+			return nil, err
+		}
+		return parseConftest(out)
+	}}
 }
 
 // tflintConfig is the configuration tflint runs with: its bundled
@@ -357,6 +399,34 @@ func parseCheckov(out []byte) ([]Finding, error) {
 				location = fmt.Sprintf("%s:%d", location, c.Lines[0])
 			}
 			findings = append(findings, Finding{Rule: c.CheckID, Severity: c.Severity, Location: location, Message: c.CheckName})
+		}
+	}
+	return findings, nil
+}
+
+// parseConftest reads conftest's report: a result per file and namespace,
+// whose failures (deny rules) and warnings (warn rules) are findings, of
+// the namespace's rule, at the file, saying the policy's message.
+func parseConftest(out []byte) ([]Finding, error) {
+	type result struct {
+		Msg string `json:"msg"`
+	}
+	var results []struct {
+		Filename  string   `json:"filename"`
+		Namespace string   `json:"namespace"`
+		Warnings  []result `json:"warnings"`
+		Failures  []result `json:"failures"`
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		return nil, fmt.Errorf("conftest output: %w", err)
+	}
+	var findings []Finding
+	for _, r := range results {
+		for _, f := range r.Failures {
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "failure", Location: r.Filename, Message: f.Msg})
+		}
+		for _, w := range r.Warnings {
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "warning", Location: r.Filename, Message: w.Msg})
 		}
 	}
 	return findings, nil

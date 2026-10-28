@@ -18,10 +18,10 @@ import (
 // configUse is what a tool takes of a configuration file: the settings
 // its command applies from one, less those that would take an agent past
 // the checks the tools' parameters have, such as terraform-path, which
-// names a binary to run, catalogue and modules, which name directories,
-// or managed-state, which names files, and less modeSettings. A file that
-// sets anything else is refused, so that what the user confirms is what
-// applies, and nothing the run ignores.
+// names a binary to run, catalogue, modules and policy, which name
+// directories, or managed-state, which names files, and less
+// modeSettings. A file that sets anything else is refused, so that what
+// the user confirms is what applies, and nothing the run ignores.
 type configUse struct {
 	// tool names the tool, for the errors.
 	tool string

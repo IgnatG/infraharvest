@@ -93,6 +93,10 @@ type Options struct {
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue.
 	Catalogue string
+	// Policies are directories of OPA policies, written in Rego, that
+	// conftest checks the generated roots against in the verification
+	// gate, absolute paths (see ResolvePolicies).
+	Policies []string
 	// Engine is EngineTerraform or EngineTofu; empty means Terraform.
 	Engine string
 	// TerraformPath is the engine's binary; empty finds or installs it.

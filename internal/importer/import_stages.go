@@ -339,7 +339,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 // of l leaves out, or keeps although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
 	opts := catalogueEngineOptions(c.cat, t.root.version)
-	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(), true, true
+	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(c.options.Policies), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout
 	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID)

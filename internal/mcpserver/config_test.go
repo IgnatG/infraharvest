@@ -150,9 +150,9 @@ func TestConfig(t *testing.T) {
 // the root, as written or where a link under the root leads, or sets what
 // the tools don't take: a binary to run, such as terraform-path, which the
 // read-only drift would run too, in any provider's section, a directory,
-// such as a catalogue outside the root, or the organisation's modules; or
-// a mode, such as regenerate, which only the tool's inputs set, as the
-// confirmation describes the run from them.
+// such as a catalogue outside the root or the policies conftest runs, or
+// the organisation's modules; or a mode, such as regenerate, which only
+// the tool's inputs set, as the confirmation describes the run from them.
 func TestConfigRefused(t *testing.T) {
 	outside := t.TempDir()
 	outsideConfig := filepath.Join(outside, "infraharvest.yaml")
@@ -170,6 +170,8 @@ func TestConfigRefused(t *testing.T) {
 		"a provider's binary":       {content: "version: 1\nproviders:\n  aws:\n    terraform-path: /bin/sh\n", want: "providers: aws: terraform-path isn't a setting the"},
 		"another provider's binary": {content: "version: 1\nproviders:\n  google:\n    terraform-path: /bin/sh\n", want: "providers: google: terraform-path isn't a setting the"},
 		"a catalogue outside":       {content: "version: 1\nsettings:\n  catalogue: " + outside + "\n", want: "settings: catalogue isn't a setting the"},
+		"a policy directory":        {content: "version: 1\nsettings:\n  policy: [" + outside + "]\n", want: "settings: policy isn't a setting the"},
+		"a provider's policies":     {content: "version: 1\nproviders:\n  aws:\n    policy: " + outside + "\n", want: "providers: aws: policy isn't a setting the"},
 		"the organisation modules":  {content: "version: 1\nmodules:\n  - source: " + outside + "\n", want: "modules"},
 		"regenerate":                {content: "version: 1\nsettings:\n  regenerate: true\n", want: "settings: regenerate isn't a setting the"},
 		"incremental":               {content: "version: 1\nproviders:\n  aws:\n    incremental: true\n", want: "providers: aws: incremental isn't a setting the"},

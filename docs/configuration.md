@@ -6,6 +6,7 @@
 version: 1
 settings:                # flags of every provider command
   selection: selection.yaml
+  policy: [policies]     # your own OPA policies, checked in G5 (see Output)
 providers:               # flags of one provider command
   aws:
     profile: prod
@@ -27,7 +28,7 @@ environments:            # roots per environment (see Environments below)
     aws: { accounts: ["222222222222"] }
 ```
 
-A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. `drift --config` takes the settings under `settings` that mean the same for it, `engine`, `terraform-path`, `engine-timeout` and `catalogue`, and your own modules under `modules`, whose directories the checks of the code it edits leave to their owners, as the import's verification gate does. It leaves the rest to the import; one of its settings under `providers` is an error for drift, which checks every provider's roots with one. The keys under `providers`, and an environment's provider keys (see [Environments](#environments)), are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error, and so is one of a provider the build leaves out, which names the build tag that adds it (see [Install](install.md#from-source)). A list gives a flag several values: comma-separated for `regions` and `services`, and one value per item for `id`, `tag`, `where`, `cfn-stack` and `cfn-ignore`, which the command line takes once per value, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]` or, under `providers: { aws: ... }`, `cfn-stack: [app, network]`.
+A setting is named after its flag, without the leading dashes, as in `managed-state: backend` or `list-parallel: 8`. `drift --config` takes the settings under `settings` that mean the same for it, `engine`, `terraform-path`, `engine-timeout` and `catalogue`, and your own modules under `modules`, whose directories the checks of the code it edits leave to their owners, as the import's verification gate does. It leaves the rest to the import; one of its settings under `providers` is an error for drift, which checks every provider's roots with one. The keys under `providers`, and an environment's provider keys (see [Environments](#environments)), are the commands, `aws`, `azure` and `google`; any other, such as `azurerm`, is an error, and so is one of a provider the build leaves out, which names the build tag that adds it (see [Install](install.md#from-source)). A list gives a flag several values: comma-separated for `regions` and `services`, and one value per item for `id`, `tag`, `where`, `cfn-stack` and `cfn-ignore`, which the command line takes once per value, as in `id: ["vpc=vpc-1,vpc-2", subnet=subnet-1]` or, under `providers: { aws: ... }`, `cfn-stack: [app, network]`. `policy` takes directories of your own OPA policies, relative to the directory infraharvest runs in, as `--policy` does, which conftest checks each generated root against (see [Your own policies](output.md#your-own-policies)); `infraharvest verify` takes them as `--policy` on its command line.
 
 Each root gets a `backend.tf` with its own state key, made of the prefix and the root's path under `--out` (`imported/aws/<account>/<region>/terraform.tfstate` above). The backends take:
 

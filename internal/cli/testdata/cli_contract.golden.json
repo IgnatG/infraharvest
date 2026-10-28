@@ -280,6 +280,12 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "profile",
         "type": "string",
         "default": "default",
@@ -535,6 +541,12 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "rate-limit",
         "type": "float64",
         "default": "20",
@@ -787,6 +799,12 @@
         "name": "parallel",
         "type": "int",
         "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -1197,6 +1215,12 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "profile",
         "type": "string",
         "default": "default",
@@ -1449,6 +1473,12 @@
         "name": "parallel",
         "type": "int",
         "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -1707,6 +1737,12 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "projects",
         "type": "stringSlice",
         "default": "[]",
@@ -1902,6 +1938,12 @@
         "name": "format",
         "type": "string",
         "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": false
       },
       {
