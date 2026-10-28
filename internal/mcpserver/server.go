@@ -640,21 +640,16 @@ type ImportResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+// importSelection runs an import of a selection the user confirms: it
+// checks the paths and the configuration, reads the selection once, asks
+// the user to confirm it, and imports from a private copy of what they
+// confirmed.
 func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, in ImportInput) (*mcp.CallToolResult, *ImportResult, error) {
 	args, err := t.providers.commandArgs("import", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
 	}
-	if in.Selection == "" || in.Out == "" {
-		return nil, nil, errors.New("selection and out are required")
-	}
-	if in.Selection, err = t.within("selection", in.Selection); err != nil {
-		return nil, nil, err
-	}
-	if in.Out, err = t.within("out", in.Out); err != nil {
-		return nil, nil, err
-	}
-	if err := t.linksStayUnder("out", in.Out); err != nil {
+	if err := t.importPaths(&in); err != nil {
 		return nil, nil, err
 	}
 	// The check reads the private copy of it that the run reads.
@@ -705,21 +700,10 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, nil, err
 	}
-	message := fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
-		summary.Included, in.Selection, summary.Excluded, in.Out, reads)
-	if in.Incremental {
-		message = fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, after the blocks of the file of their type? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
-			in.Selection, summary.Excluded, in.Out, reads)
-	}
-	if in.Regenerate {
-		message = fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
-			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
-	}
-	message += config.message()
 	if asked := t.confirm(req, userConfirmation{
 		name:      confirmation,
 		state:     confirmationState(args, content, config.sum()),
-		message:   message,
+		message:   importMessage(in, summary, reads) + config.message(),
 		command:   args,
 		cannotAsk: "The user has to confirm an import",
 		declined:  "The user didn't confirm the import, so nothing was imported.",
@@ -744,23 +728,66 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 		}
 		return errorResult(fmt.Sprintf("The import couldn't run (exit code %d):\n%s", code, tail(stderr))), nil, nil
 	}
-	result := &ImportResult{
+	result := importResult(in.Out, &r, code)
+	return textResult(importText(in.Out, &r, result, code)), result, nil
+}
+
+// importPaths checks that an import has a selection and an output
+// directory, both under the root, and sets them to the paths to use.
+func (t *tools) importPaths(in *ImportInput) error {
+	if in.Selection == "" || in.Out == "" {
+		return errors.New("selection and out are required")
+	}
+	var err error
+	if in.Selection, err = t.within("selection", in.Selection); err != nil {
+		return err
+	}
+	if in.Out, err = t.within("out", in.Out); err != nil {
+		return err
+	}
+	return t.linksStayUnder("out", in.Out)
+}
+
+// importMessage returns the question that asks the user to confirm an
+// import, an incremental one or one that generates the roots again.
+func importMessage(in ImportInput, summary *SelectionSummary, reads string) string {
+	switch {
+	case in.Regenerate:
+		return fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
+			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
+	case in.Incremental:
+		return fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, after the blocks of the file of their type? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+			in.Selection, summary.Excluded, in.Out, reads)
+	}
+	return fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
+		summary.Included, in.Selection, summary.Excluded, in.Out, reads)
+}
+
+// importResult returns the tool's structured result of the import into
+// out that wrote r and exited with code.
+func importResult(out string, r *report.Report, code int) *ImportResult {
+	return &ImportResult{
 		ExitCode:      code,
 		Totals:        r.Totals,
 		FailedChecks:  r.FailedChecks(),
 		SkippedChecks: r.SkippedChecks(),
 		Failures:      r.Failures,
-		Report:        filepath.Join(in.Out, report.Dir, "report.md"),
+		Report:        filepath.Join(out, report.Dir, "report.md"),
 		NotInCloud:    r.NotInCloud,
 		Moved:         r.Moved,
 		Departed:      r.Departed,
 
 		IncompleteHandovers: r.IncompleteHandovers,
 		KeptRoots:           r.KeptRoots,
-		Warnings:            warnings(&r),
+		Warnings:            warnings(r),
 	}
+}
+
+// importText returns the tool's text result: the import's totals, and
+// what to look at before applying.
+func importText(out string, r *report.Report, result *ImportResult, code int) string {
 	text := fmt.Sprintf("Imported %d of %d resources into %s (exit code %d); %d left out, %d excluded, %d failed checks. The report is in %s.",
-		r.Totals.Imported, r.Totals.Discovered, in.Out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
+		r.Totals.Imported, r.Totals.Discovered, out, code, r.Totals.LeftOut, r.Totals.Excluded, len(result.FailedChecks), result.Report)
 	if n := len(r.NotInCloud); n > 0 {
 		text += fmt.Sprintf(" %d resources the roots have are no longer in the cloud (see not_in_cloud and the report): their next plan would create them again.", n)
 	}
@@ -779,7 +806,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 	if stopped(code) {
 		text = "The import was stopped before it finished. " + text
 	}
-	return textResult(text), result, nil
+	return text
 }
 
 // warnings returns the warnings of r: about the run, then about each
