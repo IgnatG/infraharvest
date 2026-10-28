@@ -173,12 +173,40 @@ func (f *File) Resources() []Resource {
 	return resources
 }
 
-// ResourceAt returns the address of the resource block spanning line.
-func (f *File) ResourceAt(line int) string {
+// ResourceIndex returns the addresses of the file's resource blocks by
+// the lines they span (see LineIndex).
+func (f *File) ResourceIndex() LineIndex {
+	var x LineIndex
 	for _, r := range f.Resources() {
-		if Spans(r.Syntax.Range(), line) {
-			return r.Address
-		}
+		x.add(r.Syntax.Range(), r.Address)
+	}
+	return x
+}
+
+// LineIndex finds the top-level block spanning a line of a file, built
+// once for the many lines a plan's diagnostics point at: a search in the
+// blocks, not a walk of them per line.
+type LineIndex struct {
+	blocks []lineBlock // in the file's order
+}
+
+type lineBlock struct {
+	start, end int
+	address    string
+}
+
+func (x *LineIndex) add(rng hcl.Range, address string) {
+	x.blocks = append(x.blocks, lineBlock{rng.Start.Line, rng.End.Line, address})
+}
+
+// At returns the address of the first block spanning line, "" if none
+// does. Top-level blocks don't overlap, so in the file's order the lines
+// they end on never go down: the first that ends on line or after is the
+// only one that may span it before a later one starts.
+func (x LineIndex) At(line int) string {
+	i := sort.Search(len(x.blocks), func(i int) bool { return x.blocks[i].end >= line })
+	if i < len(x.blocks) && x.blocks[i].start <= line {
+		return x.blocks[i].address
 	}
 	return ""
 }
@@ -278,14 +306,14 @@ func LiteralIdentity(v cty.Value) (map[string]string, bool) {
 	return identity, true
 }
 
-// ImportAt returns the address the import block spanning line imports into.
-func (f *File) ImportAt(line int) string {
+// ImportIndex returns the addresses the file's import blocks import into,
+// by the lines the blocks span (see LineIndex).
+func (f *File) ImportIndex() LineIndex {
+	var x LineIndex
 	for _, imp := range f.Imports() {
-		if Spans(imp.Syntax.Range(), line) {
-			return imp.To
-		}
+		x.add(imp.Syntax.Range(), imp.To)
 	}
-	return ""
+	return x
 }
 
 // ImportAddresses returns the addresses the file imports into.

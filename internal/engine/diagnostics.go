@@ -6,6 +6,7 @@ package engine
 import (
 	"path/filepath"
 	"regexp"
+	"sync"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
@@ -21,6 +22,9 @@ import (
 // configuration.
 func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic) {
 	addresses := imports.ImportAddresses()
+	// Each built once, if a diagnostic points into its file: a repair
+	// round may have an error for every resource.
+	resourceAt, importAt := sync.OnceValue(generated.ResourceIndex), sync.OnceValue(imports.ImportIndex)
 	assigned := map[string][]tfjson.Diagnostic{}
 	var unassigned []tfjson.Diagnostic
 	for _, d := range diags {
@@ -29,9 +33,9 @@ func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (ma
 		case d.Address != "":
 			addr = hclfile.TrimInstanceKey(d.Address)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == rootfile.GeneratedFileName:
-			addr = generated.ResourceAt(d.Range.Start.Line)
+			addr = resourceAt().At(d.Range.Start.Line)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == rootfile.ImportsFileName:
-			addr = imports.ImportAt(d.Range.Start.Line)
+			addr = importAt().At(d.Range.Start.Line)
 		default:
 			addr = onlyMentioned(d.Summary+" "+d.Detail, addresses)
 		}
