@@ -8,7 +8,12 @@
 # identity, which has what permissions/azure grants, and destroyed at the
 # end, whatever happened. The identities and the resource group come from
 # a one-time bootstrap (e2e/testdata/sandbox/azure-bootstrap); see
-# e2e/README.md.
+# e2e/README.md. The main estate (TestSandboxAzure) is the usual one;
+# environments (TestSandboxAzureEnvironments) puts dev in the subscription
+# and prod in a second one, which the same bootstrap sets up with
+# slot=second, and the import merges them into one root: the first merge
+# as the first subscription's read-only identity, then each environment's
+# steps as its own.
 #
 # A cancelled job gets five minutes for its always() steps before GitHub
 # stops it, too few for the destroy, and a job that times out or whose
@@ -23,6 +28,11 @@ name: Sandbox (Azure)
 on:
   workflow_dispatch:
     inputs:
+      estate:
+        description: Estate to create and import (environments is a network security group of dev in the subscription and one of prod in the second, merged into one root)
+        type: choice
+        options: [main, environments]
+        default: main
       engine:
         description: Engine to import with
         type: choice
@@ -31,8 +41,9 @@ on:
 
 permissions: {}
 
-# One run at a time: each imports the whole of the estate's resource group,
-# so another run's estate would show up in its import.
+# One run at a time, whatever its estate: each imports the whole of the
+# estate's resource group, so another run's estate would show up in its
+# import.
 # The group holds the whole run, its clean-up job too, so the next run
 # starts only once this one's estate is swept.
 concurrency:
@@ -41,7 +52,7 @@ concurrency:
 
 jobs:
   round-trip:
-    name: round-trip (${{ inputs.engine }})
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
@@ -49,6 +60,7 @@ jobs:
       id-token: write # OpenID Connect, for the identities
     timeout-minutes: 120
     env:
+      SANDBOX_ESTATE: ${{ inputs.estate }}
       E2E_ENGINE: ${{ inputs.engine }}
       # Terraform, OpenTofu and infraharvest sign in with the job's GitHub
       # ID token, as the identity ARM_CLIENT_ID names: the test sets it to
@@ -60,6 +72,11 @@ jobs:
       SANDBOX_AZURE_FIXTURE_CLIENT_ID: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
       SANDBOX_AZURE_READONLY_CLIENT_ID: ${{ vars.AZURE_READONLY_CLIENT_ID }}
       SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP || 'infraharvest-sandbox' }}
+      # The second subscription, which the environments estate puts prod in.
+      SANDBOX_AZURE_SECOND_SUBSCRIPTION_ID: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+      SANDBOX_AZURE_SECOND_FIXTURE_CLIENT_ID: ${{ vars.AZURE_SECOND_FIXTURE_CLIENT_ID }}
+      SANDBOX_AZURE_SECOND_READONLY_CLIENT_ID: ${{ vars.AZURE_SECOND_READONLY_CLIENT_ID }}
+      SANDBOX_AZURE_SECOND_RESOURCE_GROUP: ${{ vars.AZURE_SECOND_RESOURCE_GROUP || 'infraharvest-sandbox' }}
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
@@ -95,29 +112,50 @@ jobs:
         client-id: ${{ vars.AZURE_FIXTURE_CLIENT_ID }}
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-    # What an earlier run may have left: the resource group holds nothing
-    # between runs. What it holds is swept at the end of the run.
+    # The CLI keeps both sign-ins, each for its own subscription.
+    - name: Azure CLI as the second subscription's fixture identity
+      if: inputs.estate == 'environments'
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_SECOND_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+    # What an earlier run may have left: the resource groups hold nothing
+    # between runs. What they hold is swept at the end of the run.
     - name: Leftovers
       id: leftovers
       run: |
-        left=$(az resource list --subscription "$ARM_SUBSCRIPTION_ID" -g "$SANDBOX_AZURE_RESOURCE_GROUP" --query '[].id' -o tsv)
-        if [ -n "$left" ]; then
-          echo "::warning::Resources in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $left"
-          echo "found=true" >> "$GITHUB_OUTPUT"
+        groups=("$ARM_SUBSCRIPTION_ID $SANDBOX_AZURE_RESOURCE_GROUP")
+        if [ "$SANDBOX_ESTATE" = environments ]; then
+          groups+=("$SANDBOX_AZURE_SECOND_SUBSCRIPTION_ID $SANDBOX_AZURE_SECOND_RESOURCE_GROUP")
         fi
-        # Role assignments and custom roles aren't resources of the group,
-        # and take no tags: the estate's start with its prefix.
-        scope="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$SANDBOX_AZURE_RESOURCE_GROUP"
-        roles=$(az role definition list --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].roleName" -o tsv)
-        if [ -n "$roles" ]; then
-          echo "::warning::Custom roles in $SANDBOX_AZURE_RESOURCE_GROUP before the run: $roles"
-          echo "found=true" >> "$GITHUB_OUTPUT"
-        fi
+        for g in "${groups[@]}"; do
+          read -r sub group <<< "$g"
+          left=$(az resource list --subscription "$sub" -g "$group" --query '[].id' -o tsv)
+          if [ -n "$left" ]; then
+            echo "::warning::Resources in $group of $sub before the run: $left"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+          # Role assignments and custom roles aren't resources of the group,
+          # and take no tags: the estate's start with its prefix.
+          scope="/subscriptions/$sub/resourceGroups/$group"
+          roles=$(az role definition list --subscription "$sub" --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].roleName" -o tsv)
+          if [ -n "$roles" ]; then
+            echo "::warning::Custom roles in $group of $sub before the run: $roles"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+        done
     - name: Round trip
       env:
         # Fail, rather than skip, if the test has nothing to run against.
         INFRAHARVEST_E2E_REQUIRED: "1"
-      run: go test -tags e2e,sandbox,minimal,azure -run '^TestSandboxAzure$' -timeout 90m -v ./e2e/
+      run: |
+        case "$SANDBOX_ESTATE" in
+          main) test=TestSandboxAzure ;;
+          environments) test=TestSandboxAzureEnvironments ;;
+          *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
+        esac
+        go test -tags e2e,sandbox,minimal,azure -run "^${test}\$" -timeout 90m -v ./e2e/
     - name: Destroy the estate
       if: always()
       env:
@@ -129,6 +167,10 @@ jobs:
         fi
         cd "$SANDBOX_FIXTURE_DIR"
         vars=(-var "suffix=$E2E_ENGINE" -var "resource_group=$SANDBOX_AZURE_RESOURCE_GROUP")
+        if [ "$SANDBOX_ESTATE" = environments ]; then
+          vars+=(-var "dev_subscription_id=$ARM_SUBSCRIPTION_ID" -var "dev_client_id=$SANDBOX_AZURE_FIXTURE_CLIENT_ID")
+          vars+=(-var "prod_subscription_id=$SANDBOX_AZURE_SECOND_SUBSCRIPTION_ID" -var "prod_client_id=$SANDBOX_AZURE_SECOND_FIXTURE_CLIENT_ID")
+        fi
         "$E2E_ENGINE" init -input=false
         # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
         # still deletes, is tried twice more before what is left counts.
@@ -157,6 +199,19 @@ jobs:
     - name: Sweep the resource group
       if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       run: .github/scripts/sandbox-azure-sweep.sh
+    - name: Azure CLI as the second subscription's fixture identity, again
+      if: inputs.estate == 'environments' && (failure() || cancelled() || steps.leftovers.outputs.found == 'true')
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_SECOND_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+    - name: Sweep the second subscription's resource group
+      if: inputs.estate == 'environments' && (failure() || cancelled() || steps.leftovers.outputs.found == 'true')
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+        SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_SECOND_RESOURCE_GROUP || 'infraharvest-sandbox' }}
+      run: .github/scripts/sandbox-azure-sweep.sh
     # The generated configuration, encrypted to the OpenPGP key in the
     # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
     # artifacts of a public repository are public. Without the variable,
@@ -181,7 +236,7 @@ jobs:
       if: always() && vars.SANDBOX_OUTPUT_KEY != ''
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: sandbox-azure-${{ inputs.engine }}-output
+        name: sandbox-azure-${{ inputs.estate }}-${{ inputs.engine }}-output
         path: ${{ runner.temp }}/output.tar.gz.gpg
         if-no-files-found: ignore
         retention-days: 7
@@ -192,7 +247,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: sandbox-azure-${{ inputs.engine }}
+        name: sandbox-azure-${{ inputs.estate }}-${{ inputs.engine }}
         path: |
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/report.md
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
@@ -205,7 +260,8 @@ jobs:
   # again; a reviewer of the sandbox environment approves it first, as for
   # the round trip, or rejects it to skip it. The state was on the round
   # trip's runner, and is never uploaded (the artifacts of a public
-  # repository are public), so it sweeps by tag and name alone.
+  # repository are public), so it sweeps by tag and name alone, in both
+  # subscriptions for the environments estate.
   clean-up:
     needs: round-trip
     if: always() && needs.round-trip.result != 'success'
@@ -235,4 +291,19 @@ jobs:
         tenant-id: ${{ vars.AZURE_TENANT_ID }}
         subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
     - name: Sweep the resource group
+      run: .github/scripts/sandbox-azure-sweep.sh
+    # The environments estate's prod is in the second subscription. Swept
+    # whatever the first sweep found.
+    - name: Azure CLI as the second subscription's fixture identity
+      if: always() && inputs.estate == 'environments'
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.AZURE_SECOND_FIXTURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        subscription-id: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+    - name: Sweep the second subscription's resource group
+      if: always() && inputs.estate == 'environments'
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SECOND_SUBSCRIPTION_ID }}
+        SANDBOX_AZURE_RESOURCE_GROUP: ${{ vars.AZURE_SECOND_RESOURCE_GROUP || 'infraharvest-sandbox' }}
       run: .github/scripts/sandbox-azure-sweep.sh
