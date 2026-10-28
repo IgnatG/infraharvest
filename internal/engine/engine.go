@@ -713,10 +713,12 @@ func (g *generation) tidy(ctx context.Context) error {
 		return err
 	}
 	// The last plan of planUntilValid is postProcess's first if nothing
-	// changed since: the same files, and no secret variables, whose values
-	// its plans get otherwise.
+	// changed since: the same files, and the same values of the secret
+	// variables, which planUntilValid's plans got from the secrets
+	// hideSecrets found, and postProcess's get from those the root keeps,
+	// with placeholders for the secrets without a value.
 	last := g.last
-	if last != nil && (g.r.secrets != nil || len(g.result.Secrets) > 0) {
+	if last != nil && (len(secret.Placeholders(g.result.Secrets)) > 0 || !secret.SameValues(g.literal, g.result.Secrets)) {
 		last = nil
 	}
 	if last != nil {

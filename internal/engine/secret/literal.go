@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"net/url"
 	"os"
@@ -815,12 +816,7 @@ func removeStaleSecretValues(parent string, before time.Time) {
 
 // Write replaces the file with the values of the secrets that have one.
 func (s *Values) Write(secrets []Variable) error {
-	values := map[string]string{}
-	for _, secret := range secrets {
-		if secret.value != "" {
-			values[secret.Variable] = secret.value
-		}
-	}
+	values := valuesByVariable(secrets)
 	if len(values) == 0 {
 		s.path = ""
 		return nil
@@ -835,6 +831,25 @@ func (s *Values) Write(secrets []Variable) error {
 	}
 	s.path = path
 	return nil
+}
+
+// valuesByVariable returns the values of the secrets that have one, by
+// variable: what Values.Write writes.
+func valuesByVariable(secrets []Variable) map[string]string {
+	values := map[string]string{}
+	for _, secret := range secrets {
+		if secret.value != "" {
+			values[secret.Variable] = secret.value
+		}
+	}
+	return values
+}
+
+// SameValues reports whether a and b have the same values, by variable,
+// for the secrets that have one: plans that read Values written with
+// either get the same variables.
+func SameValues(a, b []Variable) bool {
+	return maps.Equal(valuesByVariable(a), valuesByVariable(b))
 }
 
 // Options are the plan options that set the variables, if any.

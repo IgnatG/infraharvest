@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // fakeSecret makes a 64-character hex secret from seed, like the Lambda
@@ -435,4 +436,42 @@ resource "aws_redshift_cluster" "dw" {
 	if !strings.Contains(got, `value = "eu-west-2-primary"`) || strings.Contains(got, "master_password") {
 		t.Errorf("want the parameter's value written and the cluster's unset password left out:\n%s", got)
 	}
+}
+
+// Post-processing starts from the last plan before it where nothing
+// changed since, the secret variables' values included: a root whose
+// secrets Generate found in the configuration, and kept as they were,
+// plans them with the same values throughout, so post-processing doesn't
+// plan the same configuration again.
+func TestGenerateTidiesFromTheLastPlanWithSecretVariables(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	value := fakeSecret("webhook")
+	tf := &fakeTerraform{dir: dir, generated: `resource "aws_lambda_function" "api" {
+  function_name = "api"
+  environment {
+    variables = {
+      WEBHOOK_SECRET = "` + value + `"
+    }
+  }
+}
+`}
+
+	result, err := Generate(context.Background(), tf, dir, []rootfile.Import{{Type: "aws_lambda_function", Name: "api", ID: "api"}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Generate's plan, the plan after the secrets moved, which
+	// post-processing starts from, then the gate's.
+	if want := "init,plan,plan,show,schema,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
+		t.Errorf("calls: got %v, want %s", tf.calls, want)
+	}
+	if want := []tfrun.StepPlans{{Step: stepGenerate, Plans: 1}, {Step: stepPrepare, Plans: 1, Shows: 1}, {Step: stepGate, Plans: 1, Shows: 1}}; !reflect.DeepEqual(result.Plans, want) {
+		t.Errorf("plans: got %+v, want %+v", result.Plans, want)
+	}
+	if len(result.Secrets) != 1 || result.Secrets[0].Variable != "aws_lambda_function_api_webhook_secret" {
+		t.Errorf("want the secret read from its variable, got %+v", result.Secrets)
+	}
+	assertNotWritten(t, dir, value)
 }
