@@ -774,8 +774,10 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		return err
 	}
 	ids := map[string]string{}
+	byIdentity := map[string]bool{}
 	for _, imp := range imports.imports() {
 		ids[imp.to] = imp.id
+		_, byIdentity[imp.to] = imp.syntax.Body.Attributes["identity"]
 		address, ok := to[imp.to]
 		if !ok {
 			continue
@@ -788,6 +790,9 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 	}
 	body := imports.edit().Body()
 	for _, imp := range added {
+		if byIdentity[imp.Of] {
+			return fmt.Errorf("import into %s: %s is imported by its identity, which has no import ID to start one from", imp.to, imp.Of)
+		}
 		id := ids[imp.Of]
 		if id == "" {
 			return fmt.Errorf("import into %s: %s has no import ID", imp.to, imp.Of)
@@ -815,22 +820,22 @@ func importTargets(dir string) (map[string]string, error) {
 	return importTargetsIn(imports), nil
 }
 
-// importTargetsIn returns where each import block of f with a literal ID
-// imports into, by resource type and import ID.
+// importTargetsIn returns where each import block of f with a literal ID,
+// or identity, imports into, by resource type and import ID (see
+// importIDOf).
 func importTargetsIn(f *hclFile) map[string]string {
 	targets := map[string]string{}
 	for _, b := range f.syntax.Blocks {
 		to, ok := b.Body.Attributes["to"]
-		id, hasID := b.Body.Attributes["id"]
-		if b.Type != "import" || !ok || !hasID {
+		if b.Type != "import" || !ok {
 			continue
 		}
-		v, diags := id.Expr.Value(nil)
-		if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
+		id, ok := importIDOf(b.Body)
+		if !ok {
 			continue
 		}
 		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.src)))
-		targets[AddressType(address)+"\x00"+v.AsString()] = address
+		targets[AddressType(address)+"\x00"+id] = address
 	}
 	return targets
 }
