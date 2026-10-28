@@ -25,7 +25,7 @@ const schedulerJobService = "schedulerJobs"
 // cloudscheduler.jobs.list on the project, which roles/cloudscheduler.viewer
 // and roles/viewer grant.
 type SchedulerJobsLister struct {
-	harvest.ListerBase
+	harvest.ListerOf[listerSettings]
 }
 
 // List lists the jobs, from every page. A project without the
@@ -33,11 +33,11 @@ type SchedulerJobsLister struct {
 // has no jobs to list: that is logged, and lists nothing. Any other
 // failure is an error.
 func (g *SchedulerJobsLister) List() error {
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	if region.Name == "" {
 		return nil
 	}
-	project, err := projectSetting(g.Settings())
+	project, err := g.Settings().projectID()
 	if err != nil {
 		return err
 	}

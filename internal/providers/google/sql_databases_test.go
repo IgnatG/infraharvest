@@ -82,7 +82,8 @@ func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 // ctx.
 func cloudSQLLister(ctx context.Context, region string) *CloudSQLLister {
 	g := &CloudSQLLister{}
-	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
+	g.Configure(harvest.ListerConfig{Provider: "google"})
+	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: region}})
 	g.SetContext(ctx)
 	return g
 }

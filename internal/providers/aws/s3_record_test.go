@@ -99,7 +99,7 @@ func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
 	err := g.List()
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") || !strings.Contains(err.Error(), "policy of bucket denied-policy") {
@@ -125,7 +125,7 @@ func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1"}})
+	g.SetSettings(serviceSettings{region: "us-east-1"})
 
 	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
 		t.Errorf("want a partial error for the location of locked, got %v", err)
@@ -157,7 +157,7 @@ func TestRecordS3UsesTheListedRegions(t *testing.T) {
 	})
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -173,7 +173,7 @@ func TestRecordS3WithoutRegion(t *testing.T) {
 	ctx := useRecordS3API(t, "eu-west-1", "")
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": ProfileRegion}})
+	g.SetSettings(serviceSettings{region: ProfileRegion})
 
 	if err := g.List(); !harvest.IsPartial(err) {
 		t.Errorf("want a partial error, got %v", err)
@@ -187,7 +187,7 @@ func TestRecordS3ReturnsListBucketsError(t *testing.T) {
 	ctx := useRecordS3API(t, "us-east-1", `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`)
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
 	assertRecordedError(t, g.List(), "AccessDenied")
 }
@@ -217,7 +217,7 @@ func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
 	})
 	g := &S3Lister{}
 	g.SetContext(ctx)
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
+	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

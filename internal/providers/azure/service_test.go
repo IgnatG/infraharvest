@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -97,38 +96,21 @@ func TestListAllStopsAtAFailingPage(t *testing.T) {
 	}
 }
 
-// clientSettings reads what Select passes, and gives zero values for
-// arguments that are missing or of another type rather than panicking.
+// clientSettings reads what Select passes, and gives zero values without
+// settings.
 func TestClientSettings(t *testing.T) {
 	t.Parallel()
 	options := &arm.ClientOptions{}
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{
-		"subscription_id": "sub",
-		"resource_group":  "rg1",
-		"credential":      azcore.TokenCredential(fakeCredential{}),
-		"client_options":  options,
-	}})
+	s.SetSettings(serviceSettings{subscriptionID: "sub", resourceGroup: "rg1", credential: fakeCredential{}, clientOptions: options})
 	subscriptionID, resourceGroup, credential, gotOptions := s.clientSettings()
 	if subscriptionID != "sub" || resourceGroup != "rg1" || credential == nil || gotOptions != options {
 		t.Errorf("got %q, %q, %v, %v", subscriptionID, resourceGroup, credential, gotOptions)
 	}
 
-	for name, args := range map[string]map[string]interface{}{
-		"no arguments": nil,
-		"other types": {
-			"subscription_id": 1,
-			"resource_group":  true,
-			"credential":      "token",
-			"client_options":  arm.ClientOptions{},
-		},
-	} {
-		s := &Service{}
-		s.Configure(harvest.ListerConfig{Settings: args})
-		subscriptionID, resourceGroup, credential, options := s.clientSettings()
-		if subscriptionID != "" || resourceGroup != "" || credential != nil || options != nil {
-			t.Errorf("%s: got %q, %q, %v, %v", name, subscriptionID, resourceGroup, credential, options)
-		}
+	subscriptionID, resourceGroup, credential, options = (&Service{}).clientSettings()
+	if subscriptionID != "" || resourceGroup != "" || credential != nil || options != nil {
+		t.Errorf("no settings: got %q, %q, %v, %v", subscriptionID, resourceGroup, credential, options)
 	}
 }
 

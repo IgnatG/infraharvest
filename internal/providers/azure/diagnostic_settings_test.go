@@ -52,7 +52,7 @@ func (f *diagnosticTransport) Do(r *http.Request) (*http.Response, error) {
 // diagnosticArgs are the settings of diagnostic_setting for subscription
 // "sub" and resourceGroup, after the other services listed listed, with
 // every request answered by transport, once.
-func diagnosticArgs(transport *diagnosticTransport, resourceGroup string, listed []harvest.Resource) map[string]interface{} {
+func diagnosticArgs(transport *diagnosticTransport, resourceGroup string, listed []harvest.Resource) serviceSettings {
 	return serviceSettings{
 		subscriptionID: "sub",
 		resourceGroup:  resourceGroup,
@@ -62,7 +62,7 @@ func diagnosticArgs(transport *diagnosticTransport, resourceGroup string, listed
 			Retry:     policy.RetryOptions{MaxRetries: -1},
 		}},
 		listed: listed,
-	}.args()
+	}
 }
 
 // The settings of a resource are listed at its ID.
@@ -106,7 +106,8 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 		settingsPath(accountID + "/blobServices/default"): armList(armItem(settingsPath(accountID+"/blobServices/default")+"/blob-logs", "blob-logs", "")),
 	}}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm", Settings: diagnosticArgs(transport, "", listedByOthers())})
+	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
+	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -142,7 +143,8 @@ func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 	t.Parallel()
 	transport := &diagnosticTransport{}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm", Settings: diagnosticArgs(transport, "app", listedByOthers()[:1])})
+	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
+	g.SetSettings(diagnosticArgs(transport, "app", listedByOthers()[:1]))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -171,7 +173,8 @@ func TestDiagnosticSettingFailures(t *testing.T) {
 		},
 	}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm", Settings: diagnosticArgs(transport, "", listedByOthers())})
+	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
+	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 
 	err := g.List()
 

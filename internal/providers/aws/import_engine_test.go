@@ -63,8 +63,8 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 	if !ok || role["role_arn"] != "arn:aws:iam::111122223333:role/infraharvest-readonly" || config["region"] != "eu-west-2" {
 		t.Errorf("provider config: %v", config)
 	}
-	if got := p.serviceArgs()["role_arn"]; got != "arn:aws:iam::111122223333:role/infraharvest-readonly" {
-		t.Errorf("service args: %v", got)
+	if got := p.settings().roleARN; got != "arn:aws:iam::111122223333:role/infraharvest-readonly" {
+		t.Errorf("service settings: %v", got)
 	}
 
 	single := &Provider{}

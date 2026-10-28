@@ -10,12 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The subscription the role assignment tests list, and its scope.
@@ -113,12 +111,12 @@ var roleGroups = graphRows(
 // roleArgs are the arguments Select hands role_assignment for the tests'
 // subscription and resourceGroup, with every request answered by
 // transport.
-func roleArgs(transport *graphTransport, resourceGroup string) map[string]interface{} {
-	return map[string]interface{}{
-		"subscription_id": roleSubscriptionID,
-		"resource_group":  resourceGroup,
-		"credential":      azcore.TokenCredential(fakeCredential{}),
-		"client_options":  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+func roleArgs(transport *graphTransport, resourceGroup string) serviceSettings {
+	return serviceSettings{
+		subscriptionID: roleSubscriptionID,
+		resourceGroup:  resourceGroup,
+		credential:     fakeCredential{},
+		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
 	}
 }
 
@@ -131,7 +129,7 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 	t.Parallel()
 	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "")})
+	g.SetSettings(roleArgs(transport, ""))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -192,7 +190,7 @@ func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 	t.Parallel()
 	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "app")})
+	g.SetSettings(roleArgs(transport, "app"))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -215,7 +213,7 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 		assignmentRow(roleSubscription+roleAssignmentsSegment+"22222222-2222-2222-2222-222222222222", roleSubscription, readerRole, "User"),
 	)}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "")})
+	g.SetSettings(roleArgs(transport, ""))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -237,9 +235,9 @@ func TestRoleAssignmentRejectsAMalformedSubscription(t *testing.T) {
 	t.Parallel()
 	transport := &graphTransport{}
 	args := roleArgs(transport, "")
-	args["subscription_id"] = "sub' or 1==1"
+	args.subscriptionID = "sub' or 1==1"
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: args})
+	g.SetSettings(args)
 	if err := g.List(); err == nil || len(transport.sent) != 0 {
 		t.Errorf("err %v, queries %v", err, transport.sent)
 	}

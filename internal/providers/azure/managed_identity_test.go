@@ -96,7 +96,7 @@ func TestManagedIdentityLister(t *testing.T) {
 	} {
 		transport := &routedTransport{bodies: tc.bodies, refused: tc.refused}
 		lister := &ManagedIdentityLister{}
-		lister.Configure(harvest.ListerConfig{Settings: routedArgs(transport, tc.resourceGroup)})
+		lister.SetSettings(routedArgs(transport, tc.resourceGroup))
 
 		err := lister.List()
 		switch {

@@ -45,7 +45,7 @@ func (s *guardedLister) List() error {
 
 // where names the region the service lists, for a log.
 func (s *guardedLister) where() string {
-	region := regionSetting(s.Settings())
+	region := s.Settings().region
 	if region == ProfileRegion {
 		return "the default region"
 	}
@@ -83,6 +83,15 @@ func (s *guardedLister) SetContext(ctx context.Context) {
 	s.lister.SetContext(ctx)
 }
 
+// SetSettings sets the settings of the guard, which where and explorerSkip
+// read, and of the lister, when it takes them.
+func (s *guardedLister) SetSettings(settings serviceSettings) {
+	s.Service.SetSettings(settings)
+	if l, ok := s.lister.(harvest.SettingsTaker[serviceSettings]); ok {
+		l.SetSettings(settings)
+	}
+}
+
 // The other methods of harvest.Lister are the lister's.
 
 func (s *guardedLister) Listed() []harvest.Resource {
@@ -95,10 +104,6 @@ func (s *guardedLister) SetListed(resources []harvest.Resource) {
 
 func (s *guardedLister) SetFilters(filters []harvest.Filter) {
 	s.lister.SetFilters(filters)
-}
-
-func (s *guardedLister) Settings() map[string]interface{} {
-	return s.lister.Settings()
 }
 
 func (s *guardedLister) Configure(config harvest.ListerConfig) {

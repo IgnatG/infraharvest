@@ -10,8 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	orgtypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
-
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // OrganizationAccounts lists the active accounts of the organization the
@@ -20,7 +18,7 @@ import (
 // delegated administrator) has.
 func OrganizationAccounts(ctx context.Context, profile string) ([]string, error) {
 	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: serviceSettings{profile: profile}.args()})
+	service.SetSettings(serviceSettings{profile: profile})
 	service.SetContext(ctx)
 	config, err := service.sdkConfig()
 	if err != nil {

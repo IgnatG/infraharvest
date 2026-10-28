@@ -16,7 +16,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
@@ -43,7 +42,7 @@ func TestGenerateConfigPerRegion(t *testing.T) {
 	for _, region := range []string{GlobalPseudoRegion, "us-east-1", GlobalPseudoRegion} {
 		s := &Service{}
 		s.SetContext(ctx)
-		s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": region, "profile": ""}})
+		s.SetSettings(serviceSettings{region: region})
 
 		cfg, err := s.sdkConfig()
 		if err != nil {
@@ -69,7 +68,7 @@ func TestGenerateConfigWithoutSharedConfig(t *testing.T) {
 
 	s := &Service{}
 	s.SetContext(ctx)
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1", "profile": "default"}})
+	s.SetSettings(serviceSettings{region: "us-east-1", profile: "default"})
 	if _, err := s.sdkConfig(); err != nil {
 		t.Errorf("want the environment's credentials used, got %v", err)
 	}
@@ -151,7 +150,7 @@ func useEnvironmentCredentials(t *testing.T, keyID string) {
 func serviceIn(ctx context.Context, region string) *Service {
 	s := &Service{}
 	s.SetContext(ctx)
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": region, "profile": ""}})
+	s.SetSettings(serviceSettings{region: region})
 	return s
 }
 
@@ -240,7 +239,7 @@ func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 	inRole := func(role string) *Service {
 		s := &Service{}
 		s.SetContext(ctx)
-		s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1", "profile": "", "role_arn": role}})
+		s.SetSettings(serviceSettings{region: "eu-west-1", roleARN: role})
 		return s
 	}
 	services := []*Service{inRole(roleA), inRole(roleA), inRole(roleB), inRole(roleA)}
@@ -368,7 +367,7 @@ func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 // as the importer gives each service its listing's context.
 func serviceWithContext(ctx context.Context, p *Provider) *Service {
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	s.SetSettings(p.settings())
 	s.SetContext(ctx)
 	return s
 }
@@ -404,38 +403,21 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	}
 }
 
-// What the provider passes each service is what picks its SDK
-// configuration and region.
-func TestServiceReadsTheProviderArgs(t *testing.T) {
+// Select passes the service the provider's settings, which pick its SDK
+// configuration and region: both the guard and the lister it guards get
+// them.
+func TestSelectPassesTheSettings(t *testing.T) {
 	t.Parallel()
 	p := &Provider{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	if err := p.Select("sqs", false); err != nil {
+		t.Fatal(err)
+	}
+	guard := p.Selected().(*guardedLister)
 	want := configKey{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	if got := s.cacheKey(); got != want {
-		t.Errorf("cacheKey: got %+v, want %+v", got, want)
+	if got := guard.cacheKey(); got != want {
+		t.Errorf("the guard's cacheKey: got %+v, want %+v", got, want)
 	}
-	if got := regionSetting(s.Settings()); got != "eu-west-2" {
-		t.Errorf("regionSetting: got %q", got)
-	}
-	if got := regionSetting(map[string]interface{}{regionKey: 1}); got != "" {
-		t.Errorf("regionSetting of another type: got %q, want none", got)
-	}
-}
-
-// The settings a service gets come back as they went in, and those of
-// another type as none.
-func TestServiceSettingsRoundTrip(t *testing.T) {
-	t.Parallel()
-	want := serviceSettings{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	args := want.args()
-	if got := settingsOf(args); got != want {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-	if args[skipRegionValidationKey] != true {
-		t.Errorf("skip_region_validation: got %v", args[skipRegionValidationKey])
-	}
-	if got := settingsOf(map[string]interface{}{regionKey: 1, profileKey: true}); got != (serviceSettings{}) {
-		t.Errorf("settings of other types: got %+v", got)
+	if got := guard.lister.(*SqsLister).cacheKey(); got != want {
+		t.Errorf("the lister's cacheKey: got %+v, want %+v", got, want)
 	}
 }

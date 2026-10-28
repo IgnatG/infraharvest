@@ -20,7 +20,7 @@ func TestSelectPassesUnwantedTypes(t *testing.T) {
 	if err := p.Select("subnet", false); err != nil {
 		t.Fatal(err)
 	}
-	s := settingsOf(p.Selected().Settings())
+	s := p.Selected().(*SubnetLister).Settings()
 	if s.wants("azurerm_subnet") || !s.wants("azurerm_virtual_network") {
 		t.Errorf("subnets wanted %v, networks %v; want false, true", s.wants("azurerm_subnet"), s.wants("azurerm_virtual_network"))
 	}
@@ -41,7 +41,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 	)
 	for _, tc := range []struct {
 		name     string
-		lister   func() harvest.Lister
+		lister   func() settledLister
 		bodies   map[string]string
 		unwanted []string
 		// wanted and unwanted are the paths asked for with every type
@@ -51,7 +51,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 	}{
 		{
 			name:   "federated identity credentials",
-			lister: func() harvest.Lister { return &ManagedIdentityLister{} },
+			lister: func() settledLister { return &ManagedIdentityLister{} },
 			bodies: map[string]string{
 				ids:                                      armList(armItem(ids+"/ci", "ci", "")),
 				ids + "/ci/federatedIdentityCredentials": armList(armItem(ids+"/ci/federatedIdentityCredentials/gh", "gh", "")),
@@ -63,7 +63,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		},
 		{
 			name:   "security rules",
-			lister: func() harvest.Lister { return &NetworkSecurityGroupLister{} },
+			lister: func() settledLister { return &NetworkSecurityGroupLister{} },
 			bodies: map[string]string{
 				groups:                        armList(armItem(groups+"/web", "web", "")),
 				groups + "/web/securityRules": armList(armItem(groups+"/web/securityRules/ssh", "ssh", "")),
@@ -75,7 +75,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		},
 		{
 			name:   "subnets and their associations",
-			lister: func() harvest.Lister { return &SubnetLister{} },
+			lister: func() settledLister { return &SubnetLister{} },
 			bodies: map[string]string{
 				networks:                   armList(armItem(networks+"/net1", "net1", "")),
 				networks + "/net1/subnets": armList(armItem(networks+"/net1/subnets/app", "app", "")),
@@ -91,10 +91,10 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			transport := &routedTransport{bodies: tc.bodies}
 			args := routedArgs(transport, "rg1")
 			if unwanted {
-				args[unwantedKey] = func(typ string) bool { return slices.Contains(tc.unwanted, typ) }
+				args.unwanted = func(typ string) bool { return slices.Contains(tc.unwanted, typ) }
 			}
 			lister := tc.lister()
-			lister.Configure(harvest.ListerConfig{Settings: args})
+			lister.SetSettings(args)
 			if err := lister.List(); err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -127,9 +127,10 @@ func TestDiagnosticSettingSkipsUnwantedSettings(t *testing.T) {
 	t.Parallel()
 	transport := &diagnosticTransport{}
 	args := diagnosticArgs(transport, "", listedByOthers())
-	args[unwantedKey] = func(typ string) bool { return typ == diagnosticSettingType }
+	args.unwanted = func(typ string) bool { return typ == diagnosticSettingType }
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm", Settings: args})
+	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
+	g.SetSettings(args)
 	if err := g.List(); err != nil {
 		t.Fatal(err)
 	}

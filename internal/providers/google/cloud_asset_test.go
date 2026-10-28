@@ -226,11 +226,8 @@ func assetLister(t *testing.T, cat *catalogue.Catalogue, region string) *CloudAs
 	t.Helper()
 	g := &CloudAssetLister{}
 	g.SetContext(t.Context())
-	args := map[string]interface{}{"project": "acme-prod", "region": compute.Region{Name: region}}
-	if cat != nil {
-		args["catalogue"] = cat
-	}
-	g.Configure(harvest.ListerConfig{Provider: "google", Settings: args})
+	g.Configure(harvest.ListerConfig{Provider: "google"})
+	g.SetSettings(listerSettings{project: "acme-prod", region: compute.Region{Name: region}, catalogue: cat})
 	return g
 }
 
@@ -530,7 +527,7 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	if err := p.Select(cloudAssetService, false); err != nil {
 		t.Fatal(err)
 	}
-	if p.Selected().Settings()["catalogue"] != cat {
+	if selectedSettings(t, p).catalogue != cat {
 		t.Error("the service doesn't get the import's catalogue")
 	}
 }

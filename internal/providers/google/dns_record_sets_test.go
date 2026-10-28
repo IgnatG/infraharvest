@@ -56,7 +56,8 @@ func cloudDNS(t *testing.T) *httptest.Server {
 func newDNSRecordSets(t *testing.T, region string) *DNSRecordSetsLister {
 	t.Helper()
 	g := &DNSRecordSetsLister{}
-	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
+	g.Configure(harvest.ListerConfig{Provider: "google"})
+	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: region}})
 	g.SetContext(fastRetries(t))
 	return g
 }

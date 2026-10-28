@@ -83,7 +83,7 @@ type diagnosticTarget struct {
 }
 
 func (az *DiagnosticSettingLister) List() error {
-	s := settingsOf(az.Settings())
+	s := az.Settings()
 	// Every target takes a call, for settings the import may not keep.
 	if !s.wants(diagnosticSettingType) {
 		return nil

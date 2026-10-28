@@ -25,19 +25,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
-// The keys of the settings each service gets (see Provider.serviceArgs),
-// written only by serviceSettings.args and read only by settingsOf, so
-// that the two can't drift apart.
-const (
-	regionKey               = "region"
-	profileKey              = "profile"
-	roleARNKey              = "role_arn"
-	skipRegionValidationKey = "skip_region_validation"
-)
-
-// serviceSettings are the settings each service gets, typed: the service
-// gets them as a map (see harvest.ListerConfig), which args makes and
-// settingsOf reads back. They pick the service's SDK configuration (see
+// serviceSettings are the settings each service gets (see
+// Provider.settings). They pick the service's SDK configuration (see
 // Service.sdkConfig).
 type serviceSettings struct {
 	// region is the region to list: a region's name, GlobalPseudoRegion or
@@ -47,34 +36,6 @@ type serviceSettings struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
-}
-
-// args returns the settings as a service's settings map. It also sets
-// skip_region_validation, as the services have always been given it.
-func (s serviceSettings) args() map[string]interface{} {
-	return map[string]interface{}{
-		regionKey:               s.region,
-		profileKey:              s.profile,
-		roleARNKey:              s.roleARN,
-		skipRegionValidationKey: true,
-	}
-}
-
-// settingsOf returns the settings in a service's settings map, as args
-// makes it. A setting that is missing, or of another type, comes back as
-// "".
-func settingsOf(settings map[string]interface{}) serviceSettings {
-	var s serviceSettings
-	s.region, _ = settings[regionKey].(string)
-	s.profile, _ = settings[profileKey].(string)
-	s.roleARN, _ = settings[roleARNKey].(string)
-	return s
-}
-
-// regionSetting returns the region in a service's settings, "" when there
-// is none.
-func regionSetting(settings map[string]interface{}) string {
-	return settingsOf(settings).region
 }
 
 // roleSessionName names the sessions of the roles the provider assumes, as
@@ -93,10 +54,10 @@ const defaultMaxAttempts = 10
 const credentialsExpiryWindow = 5 * time.Minute
 
 // Service is what every service of the provider embeds: the harvest
-// state, and the SDK configuration its arguments pick (region, profile
-// and role_arn, see Provider.serviceArgs).
+// state, and the SDK configuration its settings pick (the region, the
+// profile and the role, see Provider.settings).
 type Service struct {
-	harvest.ListerBase
+	harvest.ListerOf[serviceSettings]
 	// unwanted reports the types the import leaves out whatever is listed
 	// (see Provider.SetUnwantedTypes); nil wants every type.
 	unwanted func(typ string) bool
@@ -235,9 +196,9 @@ func configsOf(l *ratelimit.Limiter) *runConfigs {
 }
 
 // cacheKey returns the key of the service's configuration, from its
-// arguments.
+// settings.
 func (s *Service) cacheKey() configKey {
-	return configKey(settingsOf(s.Settings()))
+	return configKey(s.Settings())
 }
 
 // configs returns the configurations of the service's run: those kept

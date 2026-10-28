@@ -345,17 +345,16 @@ func TestSelect(t *testing.T) {
 	if s.Name() != "virtual_network" || !s.Verbose() || s.Provider() != "azurerm" {
 		t.Errorf("name %q, verbose %v, provider %q", s.Name(), s.Verbose(), s.Provider())
 	}
-	want := map[string]interface{}{
-		"subscription_id": "sub",
-		"credential":      credential,
-		"client_options":  options,
-		"resource_group":  "rg1",
-		"catalogue":       cat,
-		"listed":          listed,
-		"azapi":           false,
+	want := serviceSettings{
+		subscriptionID: "sub",
+		credential:     credential,
+		clientOptions:  options,
+		resourceGroup:  "rg1",
+		catalogue:      cat,
+		listed:         listed,
 	}
 	if got := s.Settings(); !reflect.DeepEqual(got, want) {
-		t.Errorf("args %#v, want %#v", got, want)
+		t.Errorf("settings %#v, want %#v", got, want)
 	}
 
 	previous := p.Selected()

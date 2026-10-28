@@ -35,9 +35,9 @@ func TestSelectPassesUnwantedTypes(t *testing.T) {
 	if err := p.Select(cloudSQLService, false); err != nil {
 		t.Fatal(err)
 	}
-	settings := p.Selected().Settings()
-	if wants(settings, sqlDatabaseType) || !wants(settings, dnsRecordSetType) {
-		t.Errorf("databases wanted %v, record sets %v; want false, true", wants(settings, sqlDatabaseType), wants(settings, dnsRecordSetType))
+	settings := selectedSettings(t, p)
+	if settings.wants(sqlDatabaseType) || !settings.wants(dnsRecordSetType) {
+		t.Errorf("databases wanted %v, record sets %v; want false, true", settings.wants(sqlDatabaseType), settings.wants(dnsRecordSetType))
 	}
 }
 
@@ -47,7 +47,10 @@ func TestSelectPassesUnwantedTypes(t *testing.T) {
 func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		lister harvest.Lister
+		lister interface {
+			harvest.Lister
+			harvest.SettingsTaker[listerSettings]
+		}
 		typ    string
 		region string
 	}{
@@ -64,11 +67,12 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		}))
 		t.Setenv(EndpointEnv, server.URL)
 
-		tc.lister.Configure(harvest.ListerConfig{Provider: "google", Settings: listerSettings{
+		tc.lister.Configure(harvest.ListerConfig{Provider: "google"})
+		tc.lister.SetSettings(listerSettings{
 			region:   compute.Region{Name: tc.region},
 			project:  "acme",
 			unwanted: unwantedOnly(tc.typ),
-		}.args()})
+		})
 		// A run of its own keeps no other test's instance lists.
 		tc.lister.SetContext(fastRetries(t))
 		if err := tc.lister.List(); err != nil {
@@ -89,8 +93,8 @@ func TestCloudAssetMarksNoUnwantedTypes(t *testing.T) {
 	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets, perPage: 500}, instances)
 	g := assetLister(t, nil, "us-central1")
 	settings := g.Settings()
-	settings[unwantedKey] = unwantedOnly("google_compute_instance", "google_compute_disk", "google_compute_region_disk")
-	g.Configure(harvest.ListerConfig{Provider: "google", Settings: settings})
+	settings.unwanted = unwantedOnly("google_compute_instance", "google_compute_disk", "google_compute_region_disk")
+	g.SetSettings(settings)
 	if err := g.List(); err != nil {
 		t.Fatal(err)
 	}

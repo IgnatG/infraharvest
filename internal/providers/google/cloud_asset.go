@@ -42,7 +42,7 @@ const searchReadMask = "name,assetType,project,displayName,description,location,
 // roles/cloudasset.viewer grants, and the Cloud Asset API enabled in the
 // project that the credentials' quota goes to.
 type CloudAssetLister struct {
-	harvest.ListerBase
+	harvest.ListerOf[listerSettings]
 }
 
 // List searches the project, or takes the search an import of another of
@@ -66,7 +66,7 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	project, err := projectSetting(g.Settings())
+	project, err := g.Settings().projectID()
 	if err != nil {
 		return err
 	}
@@ -74,12 +74,12 @@ func (g *CloudAssetLister) List() error {
 	if err != nil {
 		return err
 	}
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	resources := assetResources(results, cat, g.Provider(), project, region.Name)
 	// Marking takes a list of the instances or the clusters, which those
 	// of types the import leaves out alone don't need.
 	wanted := slices.DeleteFunc(slices.Clone(resources), func(r harvest.Resource) bool {
-		return !wants(g.Settings(), r.Address.Type)
+		return !g.Settings().wants(r.Address.Type)
 	})
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
@@ -458,7 +458,7 @@ func lastSegment(id string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *CloudAssetLister) catalogue() *catalogue.Catalogue {
-	if cat := settingsOf(g.Settings()).catalogue; cat != nil {
+	if cat := g.Settings().catalogue; cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("google")

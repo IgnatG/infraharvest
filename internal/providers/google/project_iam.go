@@ -33,16 +33,16 @@ const conditionalPolicyVersion = 3
 // needs resourcemanager.projects.getIamPolicy on the project, which
 // roles/viewer and roles/iam.securityReviewer grant.
 type IamLister struct {
-	harvest.ListerBase
+	harvest.ListerOf[listerSettings]
 }
 
 // List reads the policy. A failure to read it is an error.
 func (g *IamLister) List() error {
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	if region.Name != "" {
 		return nil
 	}
-	project, err := projectSetting(g.Settings())
+	project, err := g.Settings().projectID()
 	if err != nil {
 		return err
 	}
