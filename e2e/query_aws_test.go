@@ -14,10 +14,12 @@ import (
 )
 
 // queryAccount is the account testdata/aws-query creates its resources in,
-// which no other test uses, and queryRegion the region.
+// which no other test uses, queryRegion the region and queryProfile the
+// profile the test signs in to queryAccount as.
 const (
 	queryAccount = "131313131313"
 	queryRegion  = "ap-southeast-2"
+	queryProfile = "infraharvest-e2e-query"
 )
 
 // TestAWSQuery creates a VPC flow log in an account of the emulator of its
@@ -43,8 +45,9 @@ func TestAWSQuery(t *testing.T) {
 	}
 	plugins := filepath.Join(cache, "plugins")
 	created := seed(ctx, t, "aws-query", execPath, plugins)
-	// Discover and the import sign in to the account of the estate.
-	t.Setenv("AWS_ACCESS_KEY_ID", queryAccount)
+	// Discover and the import sign in to the account of the estate, as a
+	// profile of its own (see useAWSAccount).
+	useAWSAccount(t, queryAccount, queryProfile)
 
 	flowLog := ""
 	for _, r := range created {
@@ -57,7 +60,7 @@ func TestAWSQuery(t *testing.T) {
 	}
 	checkQueryRoundTrip(ctx, t, queryRoundTrip{
 		command:  "aws",
-		scope:    []string{"--regions=" + queryRegion},
+		scope:    []string{"--regions=" + queryRegion, "--profile=" + queryProfile},
 		typ:      "aws_flow_log",
 		identity: map[string]string{"account_id": queryAccount, "region": queryRegion, "id": flowLog},
 		file:     "flow_log.tf",
