@@ -20,7 +20,6 @@ import (
 const (
 	reasonDefaultVPC     = "default VPC, which AWS creates in every region"
 	reasonDefaultNetwork = "part of the default VPC, which AWS creates in every region"
-	reasonDefaultSG      = "default security group, which AWS creates with every VPC"
 	reasonEKSClusterSG   = "security group EKS creates for a cluster and deletes with it"
 )
 
@@ -30,18 +29,18 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 
 // ExcludedByDefault names the resources the default selection leaves out,
 // by "type id", with the reason, that it takes asking AWS to find: the
-// default VPC and its subnets, route tables and internet gateways, default
-// security groups and the security groups EKS creates for clusters, with
-// their rules, the KMS grants AWS services make for themselves, and the
-// Auto Scaling groups and launch templates of EKS managed node groups,
-// which AWS creates itself; the replicas of a DynamoDB global table in
+// default VPC and its subnets, route tables and internet gateways, the
+// security groups EKS creates for clusters, with their rules, the KMS
+// grants AWS services make for themselves, and the Auto Scaling groups and
+// launch templates of EKS managed node groups, which AWS creates itself; the replicas of a DynamoDB global table in
 // every region but the one that imports the table with its replicas; what
 // CloudFormation stacks manage, which would otherwise have two owners,
 // matched by physical ID and, where cloudFormationTypes knows it, by type;
 // what other accounts share; and the targets Auto Scaling groups and ECS
 // services register in their target groups, which they register and
 // deregister themselves. The catalogue's skip rules leave out what IDs
-// tell, such as service-linked roles.
+// and attributes tell, such as service-linked roles, and default security
+// groups as AWS creates them, which the sg lister records as_created.
 func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Resource) (map[string]string, error) {
 	excluded := map[string]string{}
 	network := false
@@ -109,16 +108,11 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 				reason = reasonDefaultNetwork
 			}
 		case "aws_security_group":
-			if defaults.securityGroups[id] {
-				reason = reasonDefaultSG
-			} else if eksGroups[id] {
+			if eksGroups[id] {
 				reason = reasonEKSClusterSG
 			}
 		case "aws_security_group_rule", "aws_vpc_security_group_ingress_rule", "aws_vpc_security_group_egress_rule":
-			group := r.Observed.Attributes["security_group_id"]
-			if defaults.securityGroups[group] {
-				reason = reasonDefaultSG
-			} else if eksGroups[group] {
+			if eksGroups[r.Observed.Attributes["security_group_id"]] {
 				reason = reasonEKSClusterSG
 			}
 		}
@@ -222,11 +216,10 @@ func excludeServiceGrants(resources []harvest.Resource, excluded map[string]stri
 	}
 }
 
-// defaultNetwork is what AWS creates on its own: default VPCs, their
-// subnets, main route tables and internet gateways, and the default
-// security group of every VPC.
+// defaultNetwork is what AWS creates on its own: default VPCs, and their
+// subnets, main route tables and internet gateways.
 type defaultNetwork struct {
-	vpcs, parts, securityGroups map[string]bool
+	vpcs, parts map[string]bool
 }
 
 // config returns the AWS configuration the provider's services list with.
@@ -235,42 +228,27 @@ func (p *Provider) config(ctx context.Context) (aws.Config, error) {
 }
 
 // defaultNetwork finds which of resources are part of the default network.
-// It works it out from what the listers recorded: a VPC's is_default, the
-// vpc_id of a subnet, route table or internet gateway, and a security
-// group's group_name, AWS reserving the name default for the group it
-// creates with every VPC. It asks AWS only for what that leaves open: the
-// default VPCs, when a VPC or the VPC of a part wasn't listed with them,
-// the parts of the default VPCs, when a part wasn't listed with its VPC,
-// and the default security groups, when a group, or the group of a rule,
-// wasn't listed with its name.
+// It works it out from what the listers recorded: a VPC's is_default and the
+// vpc_id of a subnet, route table or internet gateway. It asks AWS only
+// for what that leaves open: the default VPCs, when a VPC or the VPC of a
+// part wasn't listed with them, and the parts of the default VPCs, when a
+// part wasn't listed with its VPC.
 func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resources []harvest.Resource) (defaultNetwork, error) {
-	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}, securityGroups: map[string]bool{}}
+	d := defaultNetwork{vpcs: map[string]bool{}, parts: map[string]bool{}}
 	listedVPCs := map[string]bool{}
-	listedGroups := map[string]bool{}
-	var describeVPCs, describeParts, describeGroups bool
+	var describeVPCs, describeParts bool
 	for _, r := range resources {
-		attributes := r.Observed.Attributes
-		switch r.Address.Type {
-		case "aws_vpc":
-			value, ok := attributes["is_default"]
-			if !ok {
-				describeVPCs = true
-				continue
-			}
-			listedVPCs[r.Observed.ID] = true
-			if value == "true" {
-				d.vpcs[r.Observed.ID] = true
-			}
-		case "aws_security_group":
-			name, ok := attributes["group_name"]
-			if !ok {
-				describeGroups = true
-				continue
-			}
-			listedGroups[r.Observed.ID] = true
-			if name == "default" {
-				d.securityGroups[r.Observed.ID] = true
-			}
+		if r.Address.Type != "aws_vpc" {
+			continue
+		}
+		value, ok := r.Observed.Attributes["is_default"]
+		if !ok {
+			describeVPCs = true
+			continue
+		}
+		listedVPCs[r.Observed.ID] = true
+		if value == "true" {
+			d.vpcs[r.Observed.ID] = true
 		}
 	}
 	// pending has, by part, the VPC it is in, of the parts whose VPC
@@ -293,10 +271,6 @@ func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resour
 			default:
 				pending[r.Observed.ID] = vpc
 				describeVPCs = true
-			}
-		case "aws_security_group_rule", "aws_vpc_security_group_ingress_rule", "aws_vpc_security_group_egress_rule":
-			if !listedGroups[attributes["security_group_id"]] {
-				describeGroups = true
 			}
 		}
 	}
@@ -325,19 +299,6 @@ func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resour
 		}
 		if describeParts && len(described) > 0 {
 			errs = append(errs, d.describeParts(ctx, svc, described))
-		}
-	}
-	if describeGroups {
-		groups := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{Filters: []ec2types.Filter{ec2Filter("group-name", "default")}}, stopOnDuplicateToken)
-		for groups.HasMorePages() {
-			page, err := groups.NextPage(ctx)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("default security groups: %w", err))
-				break
-			}
-			for _, g := range page.SecurityGroups {
-				d.securityGroups[aws.ToString(g.GroupId)] = true
-			}
 		}
 	}
 	return d, errors.Join(errs...)
