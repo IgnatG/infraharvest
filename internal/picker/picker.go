@@ -17,6 +17,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -232,9 +233,11 @@ func (m *Model) layout() []row {
 			}
 			for _, i := range indexes {
 				r := m.file.Resources[i]
-				label := r.ID
+				// Drawn as the cloud names them, which may hold an escape
+				// sequence the terminal would act on.
+				label := logging.Printable(r.ID)
 				if r.Name != "" && r.Name != r.ID {
-					label += "  " + r.Name
+					label += "  " + logging.Printable(r.Name)
 				}
 				rows = append(rows, row{depth: depth + 1, label: label, resources: []int{i}})
 			}
@@ -508,7 +511,7 @@ func (m *Model) renderRow(r row) string {
 		line += " " + newStyle.Render("new")
 	}
 	if res.Reason != "" {
-		line += " " + faintStyle.Render("· "+res.Reason)
+		line += " " + faintStyle.Render("· "+logging.Printable(res.Reason))
 	}
 	return line
 }

@@ -20,7 +20,8 @@ const BootstrapDir = "bootstrap"
 // name: versions.tf, main.tf, variables.tf (if it needs inputs) and a
 // README. People apply it once, with rights to create storage, before
 // planning the generated roots. The storage is versioned, encrypted, not
-// public, only reachable over TLS, and protected from terraform destroy.
+// public, only reachable over TLS (1.2 or later, for S3), and protected
+// from terraform destroy.
 func (b *Backend) Bootstrap() (map[string][]byte, error) {
 	var files map[string]string
 	switch {
@@ -130,14 +131,24 @@ resource "aws_s3_bucket_policy" "state" {
   bucket = aws_s3_bucket.state.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "DenyInsecureTransport"
-      Effect    = "Deny"
-      Principal = "*"
-      Action    = "s3:*"
-      Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
-      Condition = { Bool = { "aws:SecureTransport" = "false" } }
-    }]
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+        Condition = { Bool = { "aws:SecureTransport" = "false" } }
+      },
+      {
+        Sid       = "DenyOldTLS"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
+        Condition = { NumericLessThan = { "s3:TlsVersion" = "1.2" } }
+      },
+    ]
   })
 
   depends_on = [aws_s3_bucket_public_access_block.state]

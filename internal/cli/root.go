@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
 
@@ -61,7 +62,13 @@ func Execute() error {
 	if err != nil {
 		return err
 	}
-	err = NewCmdRoot().Execute()
+	// Names and values read from a cloud reach the terminal in what the
+	// commands print: escape sequences in them are shown, not sent (see
+	// logging.Sanitize).
+	root := NewCmdRoot()
+	root.SetOut(logging.Sanitize(os.Stdout))
+	root.SetErr(logging.Sanitize(os.Stderr))
+	err = root.Execute()
 	if stopErr := stop(); stopErr != nil {
 		if err == nil {
 			return stopErr

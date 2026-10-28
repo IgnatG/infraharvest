@@ -25,7 +25,7 @@ func TestBootstrap(t *testing.T) {
 				"versions.tf": {`required_version = ">= 1.10, < 2.0"`, `source  = "hashicorp/aws"`, `version = "~> 6.0"`},
 				"main.tf": {
 					`bucket = "acme-state"`, `region = "eu-west-2"`, "prevent_destroy = true", `status = "Enabled"`,
-					`kms_master_key_id = "alias/state"`, "restrict_public_buckets = true", `"aws:SecureTransport" = "false"`,
+					`kms_master_key_id = "alias/state"`, "restrict_public_buckets = true", `"aws:SecureTransport" = "false"`, `"s3:TlsVersion" = "1.2"`,
 				},
 			},
 		},

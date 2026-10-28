@@ -34,3 +34,14 @@ func TestFilterHidesOnlyDebugAndTraceMessages(t *testing.T) {
 		}
 	}
 }
+
+// A log entry holding a terminal escape sequence, such as a name read from
+// a cloud, reaches the writer with it shown, not sent.
+func TestFilterEscapesControlCharacters(t *testing.T) {
+	var out bytes.Buffer
+	logger := log.New(Filter(&out), "", 0)
+	logger.Print("bucket \x1b[2Jevil")
+	if want := `bucket \x1b[2Jevil` + "\n"; out.String() != want {
+		t.Errorf("got %q, want %q", out.String(), want)
+	}
+}

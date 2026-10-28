@@ -17,9 +17,10 @@ import (
 var logPrefix = regexp.MustCompile(`^(\d{4}/\d{2}/\d{2} )?(\d{2}:\d{2}:\d{2}(\.\d+)? )?`)
 
 // Filter returns a writer for log.SetOutput that writes each log entry to
-// w, except the debug and trace messages of client libraries.
+// w, with its control characters escaped (see Sanitize), except the debug
+// and trace messages of client libraries.
 func Filter(w io.Writer) io.Writer {
-	return filter{w: w}
+	return filter{w: Sanitize(w)}
 }
 
 // filter is the writer Filter returns.
