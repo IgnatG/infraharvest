@@ -40,3 +40,18 @@ path = "internal/engine/conftest_capabilities.json"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright The OPA Authors"
 SPDX-License-Identifier = "Apache-2.0"
+
+# The opacapabilities command's test data: conftest's go.mod at a release,
+# recorded unchanged, and capabilities files cut down from OPA's, the newer
+# with functions added. Both projects are Apache-2.0.
+[[annotations]]
+path = "internal/engine/cmd/opacapabilities/testdata/*-go.mod"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright The Conftest Authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "internal/engine/cmd/opacapabilities/testdata/v*.json"
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright The OPA Authors"
+SPDX-License-Identifier = "Apache-2.0"

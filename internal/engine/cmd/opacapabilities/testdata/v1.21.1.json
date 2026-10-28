@@ -1,0 +1,114 @@
+{
+  "builtins": [
+    {
+      "name": "abs",
+      "decl": {
+        "args": [
+          {
+            "type": "number"
+          }
+        ],
+        "result": {
+          "type": "number"
+        },
+        "type": "function"
+      }
+    },
+    {
+      "name": "http.send",
+      "decl": {
+        "args": [
+          {
+            "dynamic": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "any"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "result": {
+          "dynamic": {
+            "key": {
+              "type": "any"
+            },
+            "value": {
+              "type": "any"
+            }
+          },
+          "type": "object"
+        },
+        "type": "function"
+      },
+      "nondeterministic": true
+    },
+    {
+      "name": "net.cidr_contains",
+      "decl": {
+        "args": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "result": {
+          "type": "boolean"
+        },
+        "type": "function"
+      }
+    },
+    {
+      "name": "opa.runtime",
+      "decl": {
+        "result": {
+          "dynamic": {
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "type": "any"
+            }
+          },
+          "type": "object"
+        },
+        "type": "function"
+      },
+      "nondeterministic": true
+    },
+    {
+      "name": "time.now_ns",
+      "decl": {
+        "result": {
+          "type": "number"
+        },
+        "type": "function"
+      },
+      "nondeterministic": true
+    }
+  ],
+  "future_keywords": [
+    "and",
+    "not",
+    "or"
+  ],
+  "features": [
+    "keywords_in_refs",
+    "rego_v1",
+    "template_strings"
+  ],
+  "wasm_abi_versions": [
+    {
+      "version": 1,
+      "minor_version": 1
+    },
+    {
+      "version": 1,
+      "minor_version": 2
+    }
+  ]
+}
