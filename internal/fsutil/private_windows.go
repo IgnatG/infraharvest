@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package fsutil
 
 import (
 	"errors"
@@ -11,14 +11,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// makePrivate makes dir private to the user running infraharvest: its
+// MakePrivate makes dir private to the user running infraharvest: its
 // access list grants full control to that user, SYSTEM and the
 // Administrators group only, and inherits nothing from the parent, so
 // that whatever the output folder lets others read, they can't read what
 // is written into dir. Files created in dir inherit the same access. It
 // returns the function that gives dir its access list back, inherited
 // entries and all, and passes it on to what dir holds.
-func makePrivate(dir string) (restore func() error, err error) {
+func MakePrivate(dir string) (restore func() error, err error) {
 	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
 	if err != nil {
 		return nil, fmt.Errorf("read the access list of %s: %w", dir, err)

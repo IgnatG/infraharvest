@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -44,6 +45,14 @@ func TestLockOutput(t *testing.T) {
 	}
 	if err := again.Unlock(); err != nil {
 		t.Fatal(err)
+	}
+	// What runs write there is as sensitive as state.
+	info, err := os.Stat(filepath.Join(out, CheckpointDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		t.Errorf("%s: mode %v, want it private", CheckpointDir, info.Mode())
 	}
 }
 
