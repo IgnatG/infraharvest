@@ -1,16 +1,39 @@
 # yaml-language-server: $schema=../../schema.json
+# The route53 service lists each hosted zone's record sets and records
+# whether a set is at the zone's apex (apex), where Route 53 creates the
+# zone's SOA and NS sets with the zone. A zone or health check another
+# service created, such as Cloud Map for a namespace, records that service
+# (linked_service), and so do the zone's records: Route 53 can't change or
+# delete them, and the service changes them as it registers and
+# deregisters what it serves.
 provider: aws
 service: route53
 types:
+  aws_route53_health_check:
+    skip:
+      - reason: a health check another AWS service created, which only that service can change; select it to import it
+        attributes_present: [linked_service]
   aws_route53_record:
     # The record's set identifier, when it has one, distinguishes records
     # of a routing policy.
     import_id:
       - "{zone_id}_{name}_{type}_{set_identifier}"
       - "{zone_id}_{name}_{type}"
+    # Route 53 refuses to delete the SOA and apex NS records, so a root
+    # that manages them can't be destroyed.
+    skip:
+      - reason: a record of a hosted zone another AWS service created, which only that service can change; select it to import it
+        attributes_present: [linked_service]
+      - reason: the zone's SOA record, which Route 53 creates and deletes with the zone; select it to import it
+        attributes: { type: SOA }
+      - reason: the zone's own name servers, which Route 53 creates and deletes with the zone; select it to import it
+        attributes: { type: NS, apex: "true" }
   aws_route53_zone:
     arn: { service: route53, resource_type: "hostedzone" }
     data_source: { type: aws_route53_zone, argument: zone_id }
     # What AWS, and the provider for the comment, give a zone that doesn't
     # set them.
     defaults: ["comment=Managed by Terraform", enable_accelerated_recovery=false]
+    skip:
+      - reason: a hosted zone another AWS service created, such as Cloud Map for a namespace, which only that service can change; select it to import it
+        attributes_present: [linked_service]

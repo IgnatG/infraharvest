@@ -93,7 +93,8 @@ func TestGraphResourcesMapsTypes(t *testing.T) {
 	}
 }
 
-// What aztft can't map, or can't choose a type for, is left out.
+// What aztft can't map, or can't choose a type for, or maps to a type
+// azurerm doesn't have, is left out.
 func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
 	t.Parallel()
 	const id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Web/sites/app"
@@ -104,15 +105,20 @@ func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
 			rid, _ := armid.ParseResourceId(id)
 			return []aztft.Type{{AzureId: rid, TFType: "azurerm_linux_web_app"}, {AzureId: rid, TFType: "azurerm_windows_web_app"}}, []string{id, id}, false, nil
 		},
+		"missing": func(string) ([]aztft.Type, []string, bool, error) {
+			rid, _ := armid.ParseResourceId(id)
+			return []aztft.Type{{AzureId: rid, TFType: "azurerm_postgresql_active_directory_administrator"}}, []string{id}, true, nil
+		},
 	} {
 		if got := graphResources([]azlist.AzureResource{listed(t, id, nil)}, catalogue.MustBuiltin("azurerm"), query, nil); len(got) != 0 {
 			t.Errorf("%s: got %+v", name, got)
 		}
-		// With --azapi, only what azurerm has no type for at all comes
-		// through azapi: not what aztft fails on or can't choose for.
+		// With --azapi, only what azurerm has no type for at all, or only
+		// one its release line lacks, comes through azapi: not what aztft
+		// fails on or can't choose for.
 		viaAzapi := azapiCandidates([]azlist.AzureResource{listed(t, id, nil)})
 		got := graphResources([]azlist.AzureResource{listed(t, id, nil)}, catalogue.MustBuiltin("azurerm"), query, viaAzapi)
-		if want := map[string]int{"none": 1}[name]; len(got) != want {
+		if want := map[string]int{"none": 1, "missing": 1}[name]; len(got) != want {
 			t.Errorf("%s with --azapi: got %+v", name, got)
 		}
 	}

@@ -1,10 +1,16 @@
 # yaml-language-server: $schema=../../schema.json
+# The nacl service records a VPC's default ACL with as_created "true"
+# while it is as AWS creates it with the VPC: no tags, and no rules but
+# the allow-all ones.
 provider: aws
 service: nacl
 types:
   aws_default_network_acl:
     skip:
-      - reason: default network ACL, which AWS creates with every VPC
-        all: true
+      # One that is tagged or has rules of its own is configuration's, as
+      # the terraform-aws-vpc module's, which adopts the default ACL by
+      # default, and is imported: adopting it never deletes it.
+      - reason: the default network ACL AWS creates with every VPC, unchanged, with only its allow-all rules; select it to import it
+        attributes: { as_created: "true" }
   aws_network_acl:
     arn: { service: ec2, resource_type: "network-acl" }

@@ -20,9 +20,12 @@ type LogsLister struct {
 
 // List records every log group as an aws_cloudwatch_log_group,
 // imported by its name, with its retention in days and its KMS key when it
-// has them. The groups Lambda creates for its functions are listed too: the
-// catalogue's skip rules leave them out later. Any listing error fails the
-// service.
+// has them, and as_created "true" when it has neither, as a service such as
+// Lambda creates a group it logs to. The groups Lambda creates for its
+// functions are listed too: the catalogue's skip rules leave them out later,
+// but not a group of the same name that sets retention or encryption, as
+// configuration that creates the group before the function does. Any
+// listing error fails the service.
 func (g *LogsLister) List() error {
 	config, err := g.sdkConfig()
 	if err != nil {
@@ -41,6 +44,9 @@ func (g *LogsLister) List() error {
 			}
 			if group.KmsKeyId != nil {
 				attributes["kms_key_id"] = *group.KmsKeyId
+			}
+			if len(attributes) == 0 {
+				attributes["as_created"] = "true"
 			}
 			name := aws.ToString(group.LogGroupName)
 			g.Resources = append(g.Resources, harvest.Record(name, name, "aws_cloudwatch_log_group", "aws", attributes))
