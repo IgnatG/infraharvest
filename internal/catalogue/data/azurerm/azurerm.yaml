@@ -111,9 +111,10 @@ types:
         attributes: { tier: Free }
   azurerm_management_lock:
     service: management_lock
-    # The lister records each lock's name and the resource group of what
-    # it locks, so the rules for every type leave out the locks in the
-    # groups they leave out. Azure Backup adds a delete lock to each storage
+    # The lister records each lock's name, the resource group of what it
+    # locks and what manages that group, so the rules for every type leave
+    # out the locks in the groups they leave out, such as an AKS cluster's
+    # MC_* node resource group. Azure Backup adds a delete lock to each storage
     # account whose file shares it protects.
     skip:
       - reason: the delete lock Azure Backup adds to a storage account whose file shares it protects, and expects to stay; select it to import it

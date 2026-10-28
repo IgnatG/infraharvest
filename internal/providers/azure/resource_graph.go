@@ -433,6 +433,47 @@ func managedResourceGroups(listed []azlist.AzureResource) map[string]string {
 	return groups
 }
 
+// withGroupManagers records, of each of resources whose resource group
+// (resource_group_name) another resource manages, such as an AKS
+// cluster's node resource group, what manages the group, as
+// resource_group_managed_by, so that the catalogue's rules for every type
+// leave it out. It is for the services that list extension resources,
+// which resource_graph doesn't: it asks Resource Graph for the run's
+// resource groups (predicate, see graphPredicate) once, and only when one
+// of resources is in a group.
+func withGroupManagers(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, subscriptionID, predicate string, resources []harvest.Resource) error {
+	inGroups := false
+	for _, r := range resources {
+		if r.Observed.Attributes["resource_group_name"] != "" {
+			inGroups = true
+			break
+		}
+	}
+	if !inGroups {
+		return nil
+	}
+	clientOptions := arm.ClientOptions{}
+	if options != nil {
+		clientOptions = *options
+	}
+	groups, err := graphResourceGroups(ctx, credential, &clientOptions, subscriptionID, predicate)
+	if err != nil {
+		return err
+	}
+	managed := managedResourceGroups(groups)
+	subscription := "/subscriptions/" + subscriptionID
+	for _, r := range resources {
+		rg := r.Observed.Attributes["resource_group_name"]
+		if rg == "" {
+			continue
+		}
+		if by := managed[strings.ToUpper(subscription+"/resourceGroups/"+rg)]; by != "" {
+			r.Observed.Attributes["resource_group_managed_by"] = by
+		}
+	}
+	return nil
+}
+
 // The Resource Manager types of a virtual machine, a managed disk and a
 // network interface.
 const (
