@@ -18,6 +18,18 @@ name: Adapters
 # lister lists, in the run's summary and the artifact list-coverage. It
 # opens no issue: the counts are for watching, not for acting on.
 #
+# The opa-capabilities job checks the OPA capabilities infraharvest gives
+# conftest (internal/engine/conftest_capabilities.json) against the OPA
+# release the newest conftest is built with
+# (internal/engine/cmd/opacapabilities). When they are behind, it bumps
+# them, says in the run's summary what the newer release adds, and the
+# opa-capabilities-pr job opens a pull request with the bump, or updates
+# the one already open, on the branch opa-capabilities/update, as the
+# schema-metadata workflow does with its files: see there for the
+# repository setting it needs and the checks it starts. A person reads the
+# new built-in functions in its body before merging it, as one that
+# reaches the network or reads files belongs in deniedBuiltins.
+#
 # Run on a branch with write set (gh workflow run adapters.yml --ref <branch>
 # -f write=true), it fetches the interface of each version the adapters
 # pin instead, into internal/adapters/testdata/interfaces, and uploads the files as
@@ -158,3 +170,123 @@ jobs:
           name: interfaces
           path: internal/adapters/testdata/interfaces/
           retention-days: 1
+
+  opa-capabilities:
+    if: ${{ !inputs.write }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      behind: ${{ steps.check.outputs.behind }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The report goes into the summary even when the check fails after
+      # writing it: a denied function the newer OPA release dropped.
+      - name: Check the OPA capabilities against the newest conftest
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # a higher rate limit on GitHub's API
+        run: |
+          mkdir -p "$RUNNER_TEMP/opa-capabilities/files"
+          status=0
+          go run ./internal/engine/cmd/opacapabilities -write > "$RUNNER_TEMP/opa-capabilities/report.md" || status=$?
+          cat "$RUNNER_TEMP/opa-capabilities/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+          if [ ! -s "$RUNNER_TEMP/opa-capabilities/report.md" ]; then
+            echo "The OPA capabilities are of the release the newest conftest is built with." >> "$GITHUB_STEP_SUMMARY"
+            echo "behind=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only -z | xargs -0 cp --parents -t "$RUNNER_TEMP/opa-capabilities/files"
+          git status --short
+          echo "behind=true" >> "$GITHUB_OUTPUT"
+      - name: Upload the bump
+        if: ${{ steps.check.outputs.behind == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: opa-capabilities
+          path: ${{ runner.temp }}/opa-capabilities/
+          retention-days: 7
+
+  opa-capabilities-pr:
+    needs: opa-capabilities
+    # Not in a fork, whatever the repository is called.
+    if: needs.opa-capabilities.outputs.behind == 'true' && github.event.repository.fork != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: opa-capabilities
+      cancel-in-progress: false
+    permissions:
+      contents: write # push the branch
+      pull-requests: write # open and update the pull request
+      actions: write # start its checks (see schema-metadata.yml)
+    env:
+      BRANCH: opa-capabilities/update
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the bump
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: opa-capabilities
+          path: ${{ runner.temp }}/opa-capabilities
+      - name: Commit it
+        run: |
+          cp -R "$RUNNER_TEMP/opa-capabilities/files/." .
+          opa=$(sed -n 's/^const opaVersion = "\([^"]*\)"$/\1/p' internal/engine/conftest_capabilities.go)
+          title="chore(engine): bump the OPA capabilities to OPA $opa"
+          echo "TITLE=$title" >> "$GITHUB_ENV"
+          {
+            echo "The nightly adapters workflow found the OPA capabilities behind the newest conftest and bumped them ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID))."
+            echo
+            cat "$RUNNER_TEMP/opa-capabilities/report.md"
+            echo
+            echo "Before merging, read the new built-in functions: one that reaches the network, reads files or the environment, or loads a schema goes into \`deniedBuiltins\` in \`internal/engine/conftest_capabilities.go\`, and into the list in docs/output.md."
+            echo
+            echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
+          } > "$RUNNER_TEMP/body.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -A
+          git commit -m "$title"
+      - name: Push it and open the pull request
+        run: |
+          remote="https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git"
+          # Each night finds the same bump until it is merged: push it, and
+          # start the checks again, only when the branch differs.
+          if git fetch --quiet "$remote" "refs/heads/$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "SAME=true" >> "$GITHUB_ENV"
+          else
+            git push --force "$remote" "HEAD:refs/heads/$BRANCH"
+          fi
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          fi
+      - name: Start its checks
+        # What github.token pushes starts no workflow (see schema-metadata.yml).
+        if: ${{ env.SAME != 'true' }}
+        run: |
+          for workflow in test.yml megalinter.yml docs.yml; do
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          done
