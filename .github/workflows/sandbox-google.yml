@@ -8,7 +8,13 @@
 # what permissions/google grants, and destroyed at the end, whatever
 # happened. The service accounts, the workload identity provider they
 # trust and the project's APIs come from a one-time bootstrap
-# (e2e/testdata/sandbox/google-bootstrap); see e2e/README.md.
+# (e2e/testdata/sandbox/google-bootstrap); see e2e/README.md. The main
+# estate (TestSandboxGoogle) is the usual one; environments
+# (TestSandboxGoogleEnvironments) puts dev in the project and prod in a
+# second one, which the same bootstrap sets up with slot=second, and the
+# import merges them into one root: the first merge as the first
+# project's read-only service account, then each environment's steps as
+# its own.
 #
 # A cancelled job gets five minutes for its always() steps before GitHub
 # stops it, too few for the destroy, and a job that times out or whose
@@ -23,6 +29,11 @@ name: Sandbox (Google Cloud)
 on:
   workflow_dispatch:
     inputs:
+      estate:
+        description: Estate to create and import (environments is a Pub/Sub topic of dev in the project and one of prod in the second, merged into one root)
+        type: choice
+        options: [main, environments]
+        default: main
       engine:
         description: Engine to import with
         type: choice
@@ -31,8 +42,8 @@ on:
 
 permissions: {}
 
-# One run at a time: each imports the whole project, so another run's
-# estate would show up in its import.
+# One run at a time, whatever its estate: each imports the whole project,
+# so another run's estate would show up in its import.
 # The group holds the whole run, its clean-up job too, so the next run
 # starts only once this one's estate is swept.
 concurrency:
@@ -41,7 +52,7 @@ concurrency:
 
 jobs:
   round-trip:
-    name: round-trip (${{ inputs.engine }})
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
@@ -49,10 +60,13 @@ jobs:
       id-token: write # OpenID Connect, for the service accounts
     timeout-minutes: 120
     env:
+      SANDBOX_ESTATE: ${{ inputs.estate }}
       E2E_ENGINE: ${{ inputs.engine }}
       SANDBOX_GOOGLE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
       SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
       SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
+      # The second project, which the environments estate puts prod in.
+      SANDBOX_GOOGLE_SECOND_PROJECT: ${{ vars.GOOGLE_SECOND_PROJECT_ID }}
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
@@ -102,8 +116,27 @@ jobs:
         service_account: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}
         create_credentials_file: true
         export_environment_variables: false
-    # What an earlier run may have left: the project holds nothing named
-    # after the sandbox between runs. One search, as the read-only account,
+    - name: Credentials of the second project's fixture service account
+      id: second-fixture
+      if: inputs.estate == 'environments'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_SECOND_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_SECOND_FIXTURE_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    - name: Credentials of the second project's read-only service account
+      id: second-readonly
+      if: inputs.estate == 'environments'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_SECOND_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_SECOND_READONLY_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    # What an earlier run may have left: the project, and the second one for
+    # the environments estate, hold nothing named after the sandbox between
+    # runs. One search of each, as the read-only account, which reads both,
     # with the gcloud CLI of the runner image; it may still list what an
     # earlier run deleted minutes ago. What it finds is swept at the end of
     # the run.
@@ -116,30 +149,50 @@ jobs:
         types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
         types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
         types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk,compute.googleapis.com/FirewallPolicy
-        left=$(gcloud asset search-all-resources --scope "projects/$SANDBOX_GOOGLE_PROJECT" --asset-types "$types" \
-          --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
-        if [ -n "$left" ]; then
-          echo "::warning::Sandbox resources in $SANDBOX_GOOGLE_PROJECT before the run: $left"
-          echo "found=true" >> "$GITHUB_OUTPUT"
+        projects=("$SANDBOX_GOOGLE_PROJECT")
+        if [ "$SANDBOX_ESTATE" = environments ]; then
+          projects+=("$SANDBOX_GOOGLE_SECOND_PROJECT")
         fi
+        for project in "${projects[@]}"; do
+          left=$(gcloud asset search-all-resources --scope "projects/$project" --asset-types "$types" \
+            --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
+          if [ -n "$left" ]; then
+            echo "::warning::Sandbox resources in $project before the run: $left"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+        done
     - name: Round trip
       env:
         # Fail, rather than skip, if the test has nothing to run against.
         INFRAHARVEST_E2E_REQUIRED: "1"
         SANDBOX_GOOGLE_FIXTURE_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
         SANDBOX_GOOGLE_READONLY_CREDENTIALS: ${{ steps.readonly.outputs.credentials_file_path }}
-      run: go test -tags e2e,sandbox,minimal,google -run '^TestSandboxGoogle$' -timeout 90m -v ./e2e/
+        SANDBOX_GOOGLE_SECOND_FIXTURE_CREDENTIALS: ${{ steps.second-fixture.outputs.credentials_file_path }}
+        SANDBOX_GOOGLE_SECOND_READONLY_CREDENTIALS: ${{ steps.second-readonly.outputs.credentials_file_path }}
+      run: |
+        case "$SANDBOX_ESTATE" in
+          main) test=TestSandboxGoogle ;;
+          environments) test=TestSandboxGoogleEnvironments ;;
+          *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
+        esac
+        go test -tags e2e,sandbox,minimal,google -run "^${test}\$" -timeout 90m -v ./e2e/
     - name: Destroy the estate
       if: always()
       env:
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.fixture.outputs.credentials_file_path }}
+        SECOND_FIXTURE_CREDENTIALS: ${{ steps.second-fixture.outputs.credentials_file_path }}
       run: |
         if [ ! -f "$SANDBOX_FIXTURE_DIR/terraform.tfstate" ]; then
           echo "No estate state: nothing was created."
           exit 0
         fi
         cd "$SANDBOX_FIXTURE_DIR"
-        vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
+        if [ "$SANDBOX_ESTATE" = environments ]; then
+          vars=(-var "suffix=$E2E_ENGINE" -var "dev_project=$SANDBOX_GOOGLE_PROJECT" -var "dev_credentials=$GOOGLE_APPLICATION_CREDENTIALS")
+          vars+=(-var "prod_project=$SANDBOX_GOOGLE_SECOND_PROJECT" -var "prod_credentials=$SECOND_FIXTURE_CREDENTIALS")
+        else
+          vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
+        fi
         "$E2E_ENGINE" init -input=false
         # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
         # still deletes, is tried twice more before what is left counts.
@@ -162,6 +215,12 @@ jobs:
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      run: .github/scripts/sandbox-google-sweep.sh
+    - name: Sweep the second project
+      if: inputs.estate == 'environments' && (failure() || cancelled() || steps.leftovers.outputs.found == 'true')
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.second-fixture.outputs.credentials_file_path }}
+        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_SECOND_PROJECT_ID }}
       run: .github/scripts/sandbox-google-sweep.sh
     # The generated configuration, encrypted to the OpenPGP key in the
     # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
@@ -187,7 +246,7 @@ jobs:
       if: always() && vars.SANDBOX_OUTPUT_KEY != ''
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: sandbox-google-${{ inputs.engine }}-output
+        name: sandbox-google-${{ inputs.estate }}-${{ inputs.engine }}-output
         path: ${{ runner.temp }}/output.tar.gz.gpg
         if-no-files-found: ignore
         retention-days: 7
@@ -198,7 +257,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
-        name: sandbox-google-${{ inputs.engine }}
+        name: sandbox-google-${{ inputs.estate }}-${{ inputs.engine }}
         path: |
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/report.md
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
@@ -211,7 +270,8 @@ jobs:
   # again; a reviewer of the sandbox environment approves it first, as for
   # the round trip, or rejects it to skip it. The state was on the round
   # trip's runner, and is never uploaded (the artifacts of a public
-  # repository are public), so it sweeps by name alone.
+  # repository are public), so it sweeps by name alone, in both
+  # projects for the environments estate.
   clean-up:
     needs: round-trip
     if: always() && needs.round-trip.result != 'success'
@@ -243,4 +303,21 @@ jobs:
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
+      run: .github/scripts/sandbox-google-sweep.sh
+    # The environments estate's prod is in the second project. Swept
+    # whatever the first sweep found.
+    - name: Credentials of the second project's fixture service account
+      id: second-fixture
+      if: always() && inputs.estate == 'environments'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_SECOND_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.GOOGLE_SECOND_FIXTURE_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: false
+    - name: Sweep the second project
+      if: always() && inputs.estate == 'environments'
+      env:
+        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.second-fixture.outputs.credentials_file_path }}
+        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_SECOND_PROJECT_ID }}
       run: .github/scripts/sandbox-google-sweep.sh

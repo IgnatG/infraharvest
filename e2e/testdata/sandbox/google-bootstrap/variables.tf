@@ -43,3 +43,31 @@ variable "pool_id" {
   type        = string
   default     = "infraharvest-github"
 }
+
+variable "slot" {
+  description = "Which sandbox project this is: \"\" for the first, which every estate uses, or \"second\", where the environments estate (TestSandboxGoogleEnvironments) puts prod. It changes only the names of the variables the gh commands set, GOOGLE_SECOND_ for the second; the region is the first's."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = contains(["", "second"], var.slot)
+    error_message = "Use \"\" for the first project or \"second\"."
+  }
+}
+
+variable "first_readonly_service_account" {
+  description = "With slot = \"second\": the email of the first project's infraharvest-ci-readonly, its bootstrap's readonly_service_account output. It gets what permissions/google grants on this project too, for the environments estate's first import, which reads both projects with one sign-in."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.first_readonly_service_account == "" || can(regex("^[a-z][a-z0-9-]+@[a-z0-9-]+[.]iam[.]gserviceaccount[.]com$", var.first_readonly_service_account))
+    error_message = "Use the service account's email."
+  }
+}
+
+variable "deny_data_reads" {
+  description = "Whether the read-only service accounts' data reads are denied in the project, as permissions/google denies them. Managing deny policies takes Deny Admin (roles/iam.denyAdmin), which is granted on the organization: set false for a project outside an organization."
+  type        = bool
+  default     = true
+}
