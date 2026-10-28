@@ -391,6 +391,8 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 		return nil, err
 	}
 	plugins := filepath.Join(cacheDir, "plugins")
+	// The roots' checks share the providers' schemas they read.
+	schemas := &tfrun.SchemaCache{}
 	return func(ctx context.Context, dir, staging string, opts drift.Options) (*drift.Result, error) {
 		var env map[string]string
 		var rootEnv map[string]string
@@ -408,13 +410,13 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 			rootEnv["TF_DATA_DIR"] = opts.DataDir
 		}
 		newTF := func(dir string) (tfrun.DriftTerraform, error) {
-			tf, err := tfrun.New(dir, execPath, plugins, env)
+			tf, err := tfrun.New(dir, execPath, plugins, env, schemas)
 			if err != nil {
 				return nil, err
 			}
 			return tf, nil
 		}
-		tf, err := tfrun.New(dir, execPath, plugins, rootEnv)
+		tf, err := tfrun.New(dir, execPath, plugins, rootEnv, schemas)
 		if err != nil {
 			return nil, err
 		}

@@ -120,7 +120,7 @@ func applyWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plugins s
 	t.Helper()
 	for _, env := range []string{"dev", "prod"} {
 		credentials(env)
-		tf, err := tfrun.New(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -97,7 +97,7 @@ func request(t *testing.T, types ...string) Request {
 // fakeRunner runs tf at version v.
 func fakeRunner(t *testing.T, tf *fakeTerraform, v string) runner {
 	return runner{
-		newTerraform: func(dir, _, _ string, _ map[string]string) (terraform, error) {
+		newTerraform: func(dir, _, _ string, _ map[string]string, _ *tfrun.SchemaCache) (terraform, error) {
 			tf.dir = dir
 			for _, name := range []string{rootfile.VersionsFileName, rootfile.ProvidersFileName} {
 				if _, err := os.Stat(filepath.Join(dir, name)); err != nil {

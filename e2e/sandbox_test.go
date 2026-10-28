@@ -50,7 +50,7 @@ func seedSandbox(ctx context.Context, t *testing.T, name, dir, execPath, plugins
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := tfrun.New(dir, execPath, plugins, env)
+	tf, err := tfrun.New(dir, execPath, plugins, env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 			t.Fatal(err)
 		}
 		root := filepath.Join(copied, rel)
-		applier, err := tfrun.New(root, execPath, plugins, env)
+		applier, err := tfrun.New(root, execPath, plugins, env, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +208,7 @@ func checkApplied(ctx context.Context, t *testing.T, out string, dirs []string, 
 		if managed == 0 {
 			t.Errorf("%s: the apply left nothing in state", rel)
 		}
-		planner, err := tfrun.New(root, execPath, plugins, nil)
+		planner, err := tfrun.New(root, execPath, plugins, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

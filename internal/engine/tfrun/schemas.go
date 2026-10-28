@@ -17,17 +17,18 @@ import (
 )
 
 // ProvidersSchema returns the schemas of the providers the root uses,
-// read once for the process for each engine binary and dependency lock
-// file: every root of an import pins the same providers, and reading the
-// schemas starts each provider and decodes tens of MB for some, such as
-// AWS. A root without a lock file, as before its first init, reads them
-// itself.
+// read once for each engine binary and dependency lock file in the
+// runner's schema cache (see New), which the run's roots share: every
+// root of an import pins the same providers, and reading the schemas
+// starts each provider and decodes tens of MB for some, such as AWS. A
+// runner without a cache, or a root without a lock file, as before its
+// first init, reads them itself.
 func (r *Runner) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error) {
 	key, ok := schemaKey(r.ExecPath(), r.WorkingDir())
-	if !ok {
+	if !ok || r.schemas == nil {
 		return r.Terraform.ProvidersSchema(ctx)
 	}
-	return processSchemas.get(key, func() (*tfjson.ProviderSchemas, error) {
+	return r.schemas.get(key, func() (*tfjson.ProviderSchemas, error) {
 		return r.Terraform.ProvidersSchema(ctx)
 	})
 }
@@ -46,14 +47,18 @@ func schemaKey(execPath, dir string) (key string, ok bool) {
 	return hex.EncodeToString(sum[:]), true
 }
 
-// maxCachedSchemas bounds how many sets of schemas schemaStore keeps:
+// maxCachedSchemas bounds how many sets of schemas a SchemaCache keeps:
 // a run has one set per provider version, and another per set of module
 // providers, such as google-beta.
 const maxCachedSchemas = 4
 
-// schemaStore keeps providers' schemas by schemaKey. Callers only read
-// them, so roots that generate in parallel share them.
-type schemaStore struct {
+// SchemaCache keeps providers' schemas by schemaKey for one run, whose
+// roots share it (see Runner.ProvidersSchema): the run that creates it
+// owns it, so another run, such as an MCP server's next call, reads the
+// schemas again rather than keep them for the life of the process.
+// Callers only read the schemas, so roots that generate in parallel share
+// them. The zero value is an empty cache.
+type SchemaCache struct {
 	mu      sync.Mutex
 	schemas map[string]*tfjson.ProviderSchemas
 	// reads makes the callers that miss a key together, as roots that
@@ -61,14 +66,10 @@ type schemaStore struct {
 	reads singleflight.Group
 }
 
-// processSchemas are the schemas the process has read (see
-// Runner.ProvidersSchema).
-var processSchemas = &schemaStore{}
-
 // get returns the schemas kept under key, or reads them with read and
 // keeps them; the callers that miss key while it is read get that read's
 // result. A failed read isn't kept: the next caller reads again.
-func (s *schemaStore) get(key string, read func() (*tfjson.ProviderSchemas, error)) (*tfjson.ProviderSchemas, error) {
+func (s *SchemaCache) get(key string, read func() (*tfjson.ProviderSchemas, error)) (*tfjson.ProviderSchemas, error) {
 	if schemas, ok := s.cached(key); ok {
 		return schemas, nil
 	}
@@ -96,7 +97,7 @@ func (s *schemaStore) get(key string, read func() (*tfjson.ProviderSchemas, erro
 }
 
 // cached returns the schemas kept under key.
-func (s *schemaStore) cached(key string) (*tfjson.ProviderSchemas, bool) {
+func (s *SchemaCache) cached(key string) (*tfjson.ProviderSchemas, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	schemas, ok := s.schemas[key]
