@@ -26,6 +26,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
@@ -86,6 +87,7 @@ func TestSandboxAWS(t *testing.T) {
 	coverage, imported := s.checkImport(ctx, t, state)
 	checkModuleCalls(t, coverage)
 	checkRegions(t, coverage, state, s.region, secondRegion)
+	checkGlobalTable(t, coverage, s.out, state, s.region, secondRegion)
 	checkSandboxAWSQuery(ctx, t, s, state)
 
 	created := checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
@@ -552,6 +554,86 @@ func checkRegions(t *testing.T, coverage report.Report, created []*tfjson.StateR
 		if !placed[scope] {
 			t.Errorf("none of the estate's %v is in %s", slices.Sorted(maps.Keys(sandboxPlacedTypes)), scope)
 		}
+	}
+}
+
+// checkGlobalTable checks that the import of region and secondRegion into
+// out took the estate's global table, created in region with a replica in
+// secondRegion, once: as one aws_dynamodb_table, in the root of the first
+// of the two regions by name, with a replica block for the other alone,
+// and that it left the table out of the other region's root as a replica
+// of the one it imports.
+func checkGlobalTable(t *testing.T, coverage report.Report, out string, created []*tfjson.StateResource, region, secondRegion string) {
+	t.Helper()
+	name := ""
+	for _, r := range created {
+		if r.Type == "aws_dynamodb_table" && r.Name == "global" {
+			name, _ = r.AttributeValues["name"].(string)
+		}
+	}
+	if name == "" {
+		t.Fatal("the estate has no global table")
+	}
+	home, other := min(region, secondRegion), max(region, secondRegion)
+
+	var roots []report.Directory
+	address := ""
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			if engine.AddressType(r.Address) == "aws_dynamodb_table" && r.ID == name {
+				roots = append(roots, d)
+				address = r.Address
+			}
+		}
+	}
+	if len(roots) != 1 || path.Base(roots[0].Path) != home {
+		paths := make([]string, len(roots))
+		for i, d := range roots {
+			paths[i] = d.Path
+		}
+		t.Fatalf("the global table %s is imported in %v, want once, in %s's root", name, paths, home)
+	}
+
+	excluded := false
+	for _, e := range coverage.Excluded {
+		if e.Type == "aws_dynamodb_table" && e.ID == name {
+			t.Logf("%s left out in %s: %s", name, e.Scope, e.Reason)
+			excluded = path.Base(e.Scope) == other && strings.Contains(e.Reason, home)
+		}
+	}
+	if !excluded {
+		t.Errorf("the import doesn't leave out %s in %s as a replica of the global table in %s", name, other, home)
+	}
+
+	var replicas []string
+	found := false
+	for _, b := range configBlocks(t, filepath.Join(out, filepath.FromSlash(roots[0].Path))) {
+		if b.Type != "resource" || len(b.Labels) != 2 || b.Labels[0]+"."+b.Labels[1] != address {
+			continue
+		}
+		found = true
+		for _, nested := range b.Body.Blocks {
+			if nested.Type != "replica" {
+				continue
+			}
+			attr, ok := nested.Body.Attributes["region_name"]
+			if !ok {
+				t.Errorf("%s: a replica block without region_name", address)
+				continue
+			}
+			v, diags := attr.Expr.Value(nil)
+			if diags.HasErrors() || !v.Type().Equals(cty.String) || v.IsNull() {
+				t.Errorf("%s: a replica's region_name isn't a literal string", address)
+				continue
+			}
+			replicas = append(replicas, v.AsString())
+		}
+	}
+	if !found {
+		t.Fatalf("%s: no resource block %s", roots[0].Path, address)
+	}
+	if !slices.Equal(replicas, []string{other}) {
+		t.Errorf("%s has replica blocks for %v, want %s alone", address, replicas, other)
 	}
 }
 
