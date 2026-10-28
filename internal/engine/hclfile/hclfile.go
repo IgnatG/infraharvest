@@ -361,9 +361,11 @@ func SortResources(path string) (bool, error) {
 	}
 	key := func(b *hclwrite.Block) string { return b.Type() + " " + strings.Join(b.Labels(), ".") }
 	sort.SliceStable(blocks, func(i, j int) bool { return key(blocks[i]) < key(blocks[j]) })
+	// The blocks go to a new file, which replaces the old one whole:
+	// removing each from the old file first would search its body for
+	// every block.
 	sorted := hclwrite.NewEmptyFile()
 	for i, b := range blocks {
-		f.write.Body().RemoveBlock(b)
 		if i > 0 {
 			sorted.Body().AppendNewline()
 		}

@@ -66,12 +66,18 @@ func splitFiles(dir string, imports []rootfile.Import, calls []ModuleCall) ([]st
 		return nil, err
 	}
 	files := map[string]*hclwrite.File{}
-	for _, b := range generated.Edit().Body().Blocks() {
+	blocks := generated.Edit().Body().Blocks()
+	// Where every block moves, generated.tf goes whole: removing each
+	// from it would search its body for every block.
+	stays := slices.ContainsFunc(blocks, func(b *hclwrite.Block) bool { return fileOf[blockAddress(b)] == "" })
+	for _, b := range blocks {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			continue
 		}
-		generated.Edit().Body().RemoveBlock(b)
+		if stays {
+			generated.Edit().Body().RemoveBlock(b)
+		}
 		out, ok := files[name]
 		if !ok {
 			out = hclwrite.NewEmptyFile()
@@ -89,7 +95,7 @@ func splitFiles(dir string, imports []rootfile.Import, calls []ModuleCall) ([]st
 		names = append(names, name)
 	}
 	slices.Sort(names)
-	if len(generated.Edit().Body().Blocks()) > 0 {
+	if stays {
 		return names, generated.Save()
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
