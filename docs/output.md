@@ -206,22 +206,22 @@ import rego.v1
 
 # Every bucket has an aws_s3_bucket_versioning that refers to it.
 deny contains {"msg": msg, "resource": address} if {
-	some name, _ in input.resource.aws_s3_bucket
-	not versioned(name)
-	address := sprintf("aws_s3_bucket.%s", [name])
-	msg := sprintf("%s has no aws_s3_bucket_versioning", [address])
+    some name, _ in input.resource.aws_s3_bucket
+    not versioned(name)
+    address := sprintf("aws_s3_bucket.%s", [name])
+    msg := sprintf("%s has no aws_s3_bucket_versioning", [address])
 }
 
 versioned(name) if {
-	some _, blocks in input.resource.aws_s3_bucket_versioning
-	contains(blocks[_].bucket, sprintf("aws_s3_bucket.%s.", [name]))
+    some _, blocks in input.resource.aws_s3_bucket_versioning
+    contains(blocks[_].bucket, sprintf("aws_s3_bucket.%s.", [name]))
 }
 
 # Every bucket says who owns it.
 warn contains msg if {
-	some name, blocks in input.resource.aws_s3_bucket
-	not blocks[0].tags.owner
-	msg := sprintf("aws_s3_bucket.%s has no owner tag", [name])
+    some name, blocks in input.resource.aws_s3_bucket
+    not blocks[0].tags.owner
+    msg := sprintf("aws_s3_bucket.%s has no owner tag", [name])
 }
 ```
 
