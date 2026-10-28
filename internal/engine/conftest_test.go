@@ -160,8 +160,8 @@ func TestConftestScanner(t *testing.T) {
 }
 
 // checkCapabilities checks the capabilities conftest runs with have
-// OPA's built-in functions and conftest's, but none that reaches the
-// network, and no host to reach.
+// OPA's built-in functions, but none of those deniedCalls calls, and no
+// host to reach.
 func checkCapabilities(t *testing.T, content []byte) {
 	t.Helper()
 	var capabilities struct {
@@ -178,14 +178,14 @@ func checkCapabilities(t *testing.T, content []byte) {
 	for _, b := range capabilities.Builtins {
 		names = append(names, b.Name)
 	}
-	for _, name := range []string{"sprintf", "contains", "net.cidr_contains", "parse_config", "parse_config_file", "parse_combined_config_files"} {
+	for _, name := range []string{"sprintf", "contains", "net.cidr_contains", "json.unmarshal", "print", "trace", "io.jwt.decode_verify"} {
 		if !slices.Contains(names, name) {
 			t.Errorf("capabilities lack %s", name)
 		}
 	}
-	for _, name := range []string{"http.send", "net.lookup_ip_addr"} {
+	for name := range deniedCalls {
 		if slices.Contains(names, name) {
-			t.Errorf("capabilities have %s, which reaches the network", name)
+			t.Errorf("capabilities have %s, which reaches the network or reads files", name)
 		}
 	}
 	if capabilities.AllowNet == nil || len(*capabilities.AllowNet) != 0 {
@@ -196,8 +196,56 @@ func checkCapabilities(t *testing.T, content []byte) {
 	}
 }
 
-// With conftest installed, a policy that reaches the network doesn't
-// compile, and one that doesn't runs, with conftest's own functions.
+// Every denied function is OPA's, or one of conftest's own, which OPA's
+// capabilities don't have, so that none is denied by a name nothing has,
+// and has a call to check; the capabilities conftest runs with have none
+// of the functions those calls call.
+func TestDeniedBuiltins(t *testing.T) {
+	t.Parallel()
+	var opa struct {
+		Builtins []struct {
+			Name string `json:"name"`
+		} `json:"builtins"`
+	}
+	if err := json.Unmarshal(opaCapabilities, &opa); err != nil {
+		t.Fatal(err)
+	}
+	conftests := []string{"parse_config", "parse_config_file", "parse_combined_config_files"}
+	for _, name := range deniedBuiltins {
+		isOPA := slices.ContainsFunc(opa.Builtins, func(b struct {
+			Name string `json:"name"`
+		}) bool {
+			return b.Name == name
+		})
+		if isOPA == slices.Contains(conftests, name) {
+			t.Errorf("%s is neither OPA's nor conftest's own", name)
+		}
+		if _, ok := deniedCalls[name]; !ok {
+			t.Errorf("no call of %s to check", name)
+		}
+	}
+	content, err := conftestCapabilities()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCapabilities(t, content)
+}
+
+// deniedCalls call each of deniedBuiltins as a policy would to send the
+// configuration somewhere, or to read a file conftest wasn't given.
+var deniedCalls = map[string]string{
+	"http.send":                   `http.send({"method": "POST", "url": "http://127.0.0.1:9/", "body": input, "raise_error": false})`,
+	"net.lookup_ip_addr":          `net.lookup_ip_addr("example.com")`,
+	"json.match_schema":           `json.match_schema({}, {"$ref": "file:///etc/hostname"})`,
+	"json.verify_schema":          `json.verify_schema({"$ref": "http://127.0.0.1:9/schema.json"})`,
+	"opa.runtime":                 `opa.runtime()`,
+	"parse_config":                `parse_config("jsonnet", "importstr '/etc/hostname'")`,
+	"parse_config_file":           `parse_config_file("/etc/hostname")`,
+	"parse_combined_config_files": `parse_combined_config_files(["/etc/hostname"])`,
+}
+
+// With conftest installed, a policy that calls a denied function doesn't
+// compile, and one that doesn't runs.
 func TestConftestPoliciesOffTheNetwork(t *testing.T) {
 	path, err := exec.LookPath(ConftestBinary)
 	if err != nil {
@@ -218,19 +266,16 @@ import rego.v1
 deny contains {"msg": sprintf("%s has no owner tag", [name]), "resource": sprintf("aws_s3_bucket.%s", [name])} if {
 	some name, blocks in input.resource.aws_s3_bucket
 	not blocks[0].tags.owner
-	parse_config("json", "{}") == {}
+	json.unmarshal("{}") == {}
 }
 `)
 	findings, err := conftestScanner(path, offline).Run(t.Context(), dir)
 	if err != nil || len(findings) != 1 || findings[0].Resource != "aws_s3_bucket.logs" {
 		t.Errorf("got %+v, %v, want the bucket's finding", findings, err)
 	}
-	for name, call := range map[string]string{
-		"http.send":          `http.send({"method": "POST", "url": "http://127.0.0.1:9/", "body": input, "raise_error": false})`,
-		"net.lookup_ip_addr": `net.lookup_ip_addr("example.com")`,
-	} {
-		online := policy("package p\n\nimport rego.v1\n\ndeny contains \"sent\" if {\n\tx := " + call + "\n\tx\n}\n")
-		if _, err := conftestScanner(path, online).Run(t.Context(), dir); err == nil || !strings.Contains(err.Error(), "undefined function "+name) {
+	for name, call := range deniedCalls {
+		denied := policy("package p\n\nimport rego.v1\n\ndeny contains sprintf(\"%v\", [x]) if {\n\tx := " + call + "\n}\n")
+		if _, err := conftestScanner(path, denied).Run(t.Context(), dir); err == nil || !strings.Contains(err.Error(), "undefined function "+name) {
 			t.Errorf("a policy that calls %s: got %v, want it not to compile", name, err)
 		}
 	}
