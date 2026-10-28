@@ -4,9 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // EcrPublicLister lists the global service "ecrpublic": the public ECR

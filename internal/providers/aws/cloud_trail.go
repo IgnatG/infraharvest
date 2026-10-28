@@ -4,9 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // CloudTrailLister lists the CloudTrail trails a region reports

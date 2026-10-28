@@ -11,9 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
-	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 // apiCall is an AWS API request as seen by a fake handler.

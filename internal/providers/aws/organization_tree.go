@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/organizations"
 	orgtypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // OrganizationLister lists the organization of AWS Organizations, its

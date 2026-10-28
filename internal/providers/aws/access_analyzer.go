@@ -4,9 +4,10 @@
 package aws
 
 import (
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // AccessAnalyzerLister lists the IAM Access Analyzer analyzers of a

@@ -17,6 +17,13 @@
     ],
     "exclusions": {
       "generated": "lax"
+    },
+    "settings": {
+      "goimports": {
+        "local-prefixes": [
+          "github.com/IgnatG/infraharvest"
+        ]
+      }
     }
   },
   "linters": {

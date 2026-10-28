@@ -10,10 +10,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // EcsLister lists the service "ecs": the ECS clusters, each with its

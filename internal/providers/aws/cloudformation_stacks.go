@@ -6,10 +6,11 @@ package aws
 import (
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // CloudFormationLister lists the CloudFormation stacks, stack sets and
