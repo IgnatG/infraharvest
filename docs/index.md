@@ -22,4 +22,13 @@ infraharvest generates Terraform configuration for infrastructure that already e
 
 AWS, Azure and Google Cloud are the supported providers: inventory APIs, the catalogue, curated modules and end-to-end tests on an emulator for each.
 
+## infraharvest and Terraform's own import
+
+Terraform 1.14 and later can find resources itself: [`terraform query`](https://developer.hashicorp.com/terraform/cli/commands/query) runs the `list` blocks of a `.tfquery.hcl` file against the resource types whose provider has a list resource, and with `-generate-config-out` writes an `import` and a `resource` block for each result. HCP Terraform's Search & Import puts a UI on this and, in preview, shows policy results before the import. Both write each resource's arguments as literal values, as `plan -generate-config-out` does.
+
+| Use | When |
+|---|---|
+| `terraform query`, or Search & Import | A handful of resources, brought into a workspace you already run in HCP Terraform or with Terraform |
+| infraharvest | Whole accounts, subscriptions and projects, on Terraform or OpenTofu, run locally: references between resources, locals, modules, secrets as variables, a plan with no changes for every root, environments sharing one root, and [drift](drift.md) accepted into the code |
+
 infraharvest is licensed under [AGPL-3.0-only](https://github.com/IgnatG/infraharvest/blob/main/LICENSE).
