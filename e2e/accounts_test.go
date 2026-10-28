@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -203,18 +203,18 @@ func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName
 			continue
 		}
 		old := filepath.Join(out, filepath.FromSlash(oldRoot))
-		if moves := strings.Join(strings.Fields(readFile(t, filepath.Join(old, engine.MovesFileName))), " "); !strings.Contains(moves, "removed { from = "+handed[0].From+" lifecycle { destroy = false } }") {
-			t.Errorf("%s/%s doesn't remove %s:\n%s", oldRoot, engine.MovesFileName, handed[0].From, moves)
+		if moves := strings.Join(strings.Fields(readFile(t, filepath.Join(old, rootfile.MovesFileName))), " "); !strings.Contains(moves, "removed { from = "+handed[0].From+" lifecycle { destroy = false } }") {
+			t.Errorf("%s/%s doesn't remove %s:\n%s", oldRoot, rootfile.MovesFileName, handed[0].From, moves)
 		}
-		if _, err := os.Stat(filepath.Join(old, engine.GeneratedFileName)); err == nil {
-			t.Errorf("%s keeps its %s", oldRoot, engine.GeneratedFileName)
+		if _, err := os.Stat(filepath.Join(old, rootfile.GeneratedFileName)); err == nil {
+			t.Errorf("%s keeps its %s", oldRoot, rootfile.GeneratedFileName)
 		}
 		dir := filepath.Join(out, filepath.FromSlash(newRoot))
 		if imported := checkNoChanges(ctx, t, dir, execPath, plugins, nil); imported["aws_sqs_queue"] != 1 {
 			t.Errorf("%s: imported %v, want the queue handed over", dir, imported)
 		}
-		if readme := readFile(t, filepath.Join(dir, engine.ReadmeFileName)); !strings.Contains(readme, oldRoot) {
-			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(newRoot, engine.ReadmeFileName), oldRoot, readme)
+		if readme := readFile(t, filepath.Join(dir, rootfile.ReadmeFileName)); !strings.Contains(readme, oldRoot) {
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(newRoot, rootfile.ReadmeFileName), oldRoot, readme)
 		}
 	}
 }

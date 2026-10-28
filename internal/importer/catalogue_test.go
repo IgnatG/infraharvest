@@ -100,7 +100,7 @@ func TestCatalogueEngineOptions(t *testing.T) {
 func TestCatalogueVerifyAndDriftOptions(t *testing.T) {
 	cat := widgetCatalogue(t)
 	v6 := goversion.Must(goversion.NewVersion("6.2.0"))
-	verify, drift := catalogueVerifyOptions(cat, v6), catalogueDriftOptions(cat, v6)
+	verify, forDrift := catalogueVerifyOptions(cat, v6), catalogueDriftOptions(cat, v6)
 	for _, tt := range []struct {
 		name      string
 		got, want any
@@ -109,11 +109,11 @@ func TestCatalogueVerifyAndDriftOptions(t *testing.T) {
 		{"verify: state_only", verify.StateOnly, cat.StateOnly(v6)},
 		{"verify: the release's omit", verify.Omit["aws_widget"], []string{"legacy", "renamed"}},
 		{"verify: nothing else", engine.Options{Omit: verify.Omit, StateOnly: verify.StateOnly}, verify},
-		{"drift: omit", drift.Omit, cat.Omit(v6)},
-		{"drift: defaults", drift.Defaults, cat.Defaults(v6)},
-		{"drift: state_only", drift.StateOnly, cat.StateOnly(v6)},
-		{"drift: the release's state_only", drift.StateOnly["aws_widget"], []string{"force_destroy", "skip_destroy"}},
-		{"drift: nothing else", engine.DriftOptions{Omit: drift.Omit, Defaults: drift.Defaults, StateOnly: drift.StateOnly}, drift},
+		{"drift: omit", forDrift.Omit, cat.Omit(v6)},
+		{"drift: defaults", forDrift.Defaults, cat.Defaults(v6)},
+		{"drift: state_only", forDrift.StateOnly, cat.StateOnly(v6)},
+		{"drift: the release's state_only", forDrift.StateOnly["aws_widget"], []string{"force_destroy", "skip_destroy"}},
+		{"drift: nothing else", engine.Options{Omit: forDrift.Omit, Defaults: forDrift.Defaults, StateOnly: forDrift.StateOnly}, forDrift},
 	} {
 		if !reflect.DeepEqual(tt.got, tt.want) {
 			t.Errorf("%s: got %#v, want %#v", tt.name, tt.got, tt.want)

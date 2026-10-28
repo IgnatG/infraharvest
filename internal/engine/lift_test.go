@@ -16,6 +16,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -63,18 +64,18 @@ var awsDefaultTags = DefaultTags{Provider: "aws", Attribute: "tags", Block: "def
 func TestLiftLiterals(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, networkGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 
 	lifted, err := liftLiterals(dir, nil)
 	if err != nil || !lifted {
 		t.Fatalf("want a lift, got lifted=%v err=%v", lifted, err)
 	}
 
-	locals := readFile(t, dir, LocalsFileName)
+	locals := readFile(t, dir, rootfile.LocalsFileName)
 	if !strings.Contains(locals, `vpc_id = "vpc-0abc1234"`) {
 		t.Errorf("locals.tf:\n%s", locals)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readFile(t, dir, rootfile.GeneratedFileName)
 	if strings.Count(generated, "vpc_id = local.vpc_id") != 3 {
 		t.Errorf("want 3 uses of local.vpc_id:\n%s", generated)
 	}
@@ -90,7 +91,7 @@ func TestLiftLiterals(t *testing.T) {
 func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, strings.Repeat(`resource "aws_iam_role_policy_attachment" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, strings.Repeat(`resource "aws_iam_role_policy_attachment" "a" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 `, 3))
@@ -103,7 +104,7 @@ func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
 func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, strings.Repeat(`resource "aws_subnet" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, strings.Repeat(`resource "aws_subnet" "a" {
   vpc_id = "vpc-0abc1234"
 }
 `, 3)+strings.Repeat(`resource "aws_subnet" "b" {
@@ -115,7 +116,7 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	locals := readFile(t, dir, LocalsFileName)
+	locals := readFile(t, dir, rootfile.LocalsFileName)
 	for _, want := range []string{`vpc_id   = "vpc-0abc1234"`, `vpc_id_2 = "vpc-0def5678"`} {
 		if !strings.Contains(locals, want) {
 			t.Errorf("missing %s in:\n%s", want, locals)
@@ -125,7 +126,7 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 
 func TestCommonTags(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, networkGenerated)
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, networkGenerated)
 	resources, ok := taggedResources(f, awsDefaultTags, nil)
 	if !ok || len(resources) != 3 {
 		t.Fatalf("got %+v, %v, want the 3 resources with tags", resources, ok)
@@ -162,14 +163,14 @@ func TestCommonTags(t *testing.T) {
 // baseline.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
 	return verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) },
-		GeneratedFileName, ProvidersFileName, LocalsFileName)
+		rootfile.GeneratedFileName, rootfile.ProvidersFileName, rootfile.LocalsFileName)
 }
 
 func liftTagsDir(t *testing.T) (string, *fakeTerraform) {
 	t.Helper()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, networkGenerated)
-	writeConfig(t, dir, ProvidersFileName, awsProviders)
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 	return dir, &fakeTerraform{dir: dir}
 }
 
@@ -182,13 +183,13 @@ func TestLiftTags(t *testing.T) {
 		t.Fatalf("want the lift kept, got kept=%v err=%v", kept, err)
 	}
 
-	if got := readFile(t, dir, LocalsFileName); !strings.Contains(got, `Project = "shop"`) {
+	if got := readFile(t, dir, rootfile.LocalsFileName); !strings.Contains(got, `Project = "shop"`) {
 		t.Errorf("locals.tf:\n%s", got)
 	}
-	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, "default_tags {\n    tags = local.tags\n  }") {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); !strings.Contains(got, "default_tags {\n    tags = local.tags\n  }") {
 		t.Errorf("providers.tf:\n%s", got)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readFile(t, dir, rootfile.GeneratedFileName)
 	if strings.Contains(generated, `Project = "shop"`) {
 		t.Errorf("shared tag left on resources:\n%s", generated)
 	}
@@ -215,13 +216,13 @@ func TestLiftTagsRevertsWhenThePlanChanges(t *testing.T) {
 		t.Fatalf("want the lift undone, got kept=%v err=%v", kept, err)
 	}
 
-	if got := readFile(t, dir, GeneratedFileName); got != networkGenerated {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != awsProviders {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != awsProviders {
 		t.Errorf("providers.tf not restored:\n%s", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, LocalsFileName)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.LocalsFileName)); err == nil {
 		t.Error("locals.tf not removed")
 	}
 }
@@ -238,11 +239,11 @@ func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if strings.Contains(readFile(t, dir, ProvidersFileName), "default_tags") {
+	if strings.Contains(readFile(t, dir, rootfile.ProvidersFileName), "default_tags") {
 		t.Error("tags lifted without a plan to compare with")
 	}
 	// The literal lift doesn't need one.
-	if !strings.Contains(readFile(t, dir, GeneratedFileName), "local.vpc_id") {
+	if !strings.Contains(readFile(t, dir, rootfile.GeneratedFileName), "local.vpc_id") {
 		t.Error("literals not lifted")
 	}
 }
@@ -250,7 +251,7 @@ func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 func TestOmitArgumentsForEveryType(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := writeConfig(t, dir, GeneratedFileName, `resource "aws_sqs_queue" "a" {
+	path := writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_sqs_queue" "a" {
   name     = "a"
   region   = "us-east-1"
   tags_all = {}
@@ -262,7 +263,7 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
 
-	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, "region") || strings.Contains(got, "tags_all") {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, "region") || strings.Contains(got, "tags_all") {
 		t.Errorf("not left out:\n%s", got)
 	}
 }
@@ -289,7 +290,7 @@ resource "google_storage_bucket" "b" {
   name     = "b"
 }
 `
-	for name, content := range map[string]string{GeneratedFileName: generated, ProvidersFileName: "provider \"google\" {\n  project = \"p\"\n}\n"} {
+	for name, content := range map[string]string{rootfile.GeneratedFileName: generated, rootfile.ProvidersFileName: "provider \"google\" {\n  project = \"p\"\n}\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -299,19 +300,19 @@ resource "google_storage_bucket" "b" {
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
-	if got := readFile(t, dir, ProvidersFileName); !strings.Contains(got, "default_labels = local.labels") || strings.Contains(got, "default_labels {") {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); !strings.Contains(got, "default_labels = local.labels") || strings.Contains(got, "default_labels {") {
 		t.Errorf("providers.tf:\n%s", got)
 	}
-	if got := readFile(t, dir, LocalsFileName); !strings.Contains(got, `env = "prod"`) {
+	if got := readFile(t, dir, rootfile.LocalsFileName); !strings.Contains(got, `env = "prod"`) {
 		t.Errorf("locals.tf:\n%s", got)
 	}
-	if got := readFile(t, dir, GeneratedFileName); strings.Contains(got, `env`) || !strings.Contains(got, `team`) || !strings.Contains(got, "goog-managed-by") {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, `env`) || !strings.Contains(got, `team`) || !strings.Contains(got, "goog-managed-by") {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 
 	// An incremental import reads them back.
 	files := []*hclfile.File{}
-	for _, name := range []string{ProvidersFileName, LocalsFileName} {
+	for _, name := range []string{rootfile.ProvidersFileName, rootfile.LocalsFileName} {
 		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -367,17 +368,17 @@ var azureDefaultTags = DefaultTags{Provider: "azurerm", Attribute: "tags", Reser
 func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, azureGenerated)
+	writeConfig(t, dir, rootfile.GeneratedFileName, azureGenerated)
 
 	changed, err := applyTagLift(dir, azureDefaultTags, nil)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
 
-	if got := squashed(readFile(t, dir, LocalsFileName)); !strings.Contains(got, `tags = { env = "prod" }`) {
+	if got := squashed(readFile(t, dir, rootfile.LocalsFileName)); !strings.Contains(got, `tags = { env = "prod" }`) {
 		t.Errorf("locals.tf:\n%s", got)
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`tags = merge(local.tags, { team = "web" })`,
 		`resource_group_name = "app" tags = local.tags }`,
@@ -390,7 +391,7 @@ func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 	if strings.Count(generated, "tags =") != 3 {
 		t.Errorf("the untagged subnet got tags:\n%s", generated)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ProvidersFileName)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.ProvidersFileName)); err == nil {
 		t.Error("providers.tf written")
 	}
 }
@@ -399,7 +400,7 @@ func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 func TestLiftTagsLeavesReservedTags(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_resource_group" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_resource_group" "a" {
   location = "westeurope"
   name     = "a"
   tags     = { "hidden-title" = "A" }
@@ -444,7 +445,7 @@ var taggedSchemas = &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.Provider
 func TestLiftTagsMostResourcesShare(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "ci" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_iam_user" "ci" {
   name = "ci"
 }
 
@@ -473,16 +474,16 @@ resource "aws_subnet" "c" {
   }
 }
 `)
-	writeConfig(t, dir, ProvidersFileName, awsProviders)
+	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 
 	changed, err := applyTagLift(dir, awsDefaultTags, taggedSchemas)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
-	if got := squashed(readFile(t, dir, LocalsFileName)); !strings.Contains(got, `Project = "shop"`) || !strings.Contains(got, `Team = "web"`) {
+	if got := squashed(readFile(t, dir, rootfile.LocalsFileName)); !strings.Contains(got, `Project = "shop"`) || !strings.Contains(got, `Team = "web"`) {
 		t.Errorf("locals.tf:\n%s", got)
 	}
-	providers := squashed(readFile(t, dir, ProvidersFileName))
+	providers := squashed(readFile(t, dir, rootfile.ProvidersFileName))
 	for _, want := range []string{
 		`provider "aws" { region = "us-east-1" default_tags { tags = local.tags } }`,
 		`provider "aws" { alias = "without_default_tags" region = "us-east-1" }`,
@@ -491,7 +492,7 @@ resource "aws_subnet" "c" {
 			t.Errorf("providers.tf misses %q:\n%s", want, providers)
 		}
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`name = "ci" provider = aws.without_default_tags }`,
 		`resource "aws_subnet" "c" { tags = { Project = "legacy" } }`,
@@ -508,7 +509,7 @@ resource "aws_subnet" "c" {
 
 	// An incremental import reads the default configuration's tags.
 	files := []*hclfile.File{}
-	for _, name := range []string{ProvidersFileName, LocalsFileName} {
+	for _, name := range []string{rootfile.ProvidersFileName, rootfile.LocalsFileName} {
 		f, err := hclfile.Load(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatal(err)
@@ -526,7 +527,7 @@ resource "aws_subnet" "c" {
 func TestLiftTagsIntoTheLocalAsTheFallback(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_iam_user" "a" {
   name = "a"
 }
 
@@ -547,7 +548,7 @@ resource "aws_subnet" "b" {
   }
 }
 `)
-	writeConfig(t, dir, ProvidersFileName, awsProviders)
+	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 
 	local := awsDefaultTags
 	local.Block = ""
@@ -555,10 +556,10 @@ resource "aws_subnet" "b" {
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != awsProviders {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != awsProviders {
 		t.Errorf("providers.tf changed:\n%s", got)
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`tags = local.tags`, `tags = merge(local.tags, { Team = "web" })`} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("generated.tf misses %q:\n%s", want, generated)

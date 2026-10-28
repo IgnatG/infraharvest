@@ -19,7 +19,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/mcpserver"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -152,7 +152,7 @@ func TestAWSMCPImport(t *testing.T) {
 	importBlocks := func() string {
 		var b strings.Builder
 		for _, dir := range generatedDirs(t, out) {
-			b.WriteString(readFile(t, filepath.Join(dir, engine.ImportsFileName)))
+			b.WriteString(readFile(t, filepath.Join(dir, rootfile.ImportsFileName)))
 		}
 		return b.String()
 	}

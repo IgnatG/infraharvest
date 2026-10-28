@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 func TestReadmeFile(t *testing.T) {
 	t.Parallel()
 	result := &Result{
-		Imported: []Import{
+		Imported: []rootfile.Import{
 			{Type: "aws_ssm_parameter", Name: "token", ID: "/app/token"},
 			{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"},
 		},
@@ -49,7 +50,7 @@ func TestReadmeFile(t *testing.T) {
 func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
 	t.Parallel()
 	checks := gate.Gate{{Name: gate.CheckPlan, Passed: true, Details: []string{"google_pubsub_topic.orders: " + gate.StateOnlyChange + " (labels, terraform_labels)"}}}
-	got := string(readmeFile(&Result{Imported: []Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: checks}))
+	got := string(readmeFile(&Result{Imported: []rootfile.Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: checks}))
 	if !strings.Contains(got, "with no changes but the updates the checks below list") || strings.Contains(got, "with no changes.\n") {
 		t.Errorf("got:\n%s", got)
 	}
@@ -60,8 +61,8 @@ func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
 func TestReadmeFileListsWhatIsNoLongerInTheCloud(t *testing.T) {
 	t.Parallel()
 	result := &Result{
-		Imported:   []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "https://sqs.eu-west-2.amazonaws.com/123/jobs"}},
-		NotInCloud: []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs.eu-west-2.amazonaws.com/123/orders"}},
+		Imported:   []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "https://sqs.eu-west-2.amazonaws.com/123/jobs"}},
+		NotInCloud: []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs.eu-west-2.amazonaws.com/123/orders"}},
 	}
 
 	got := string(readmeFile(result))

@@ -44,6 +44,31 @@ const (
 	LockFileName = ".terraform.lock.hcl"
 )
 
+// WorkspaceStateFile returns where the local backend of the root in dir
+// keeps the state of the workspace named workspace:
+// terraform.tfstate.d/<workspace>/terraform.tfstate.
+func WorkspaceStateFile(dir, workspace string) string {
+	return filepath.Join(dir, WorkspaceStateDir, workspace, LocalStateFileName)
+}
+
+// VarFileOptions returns names, var files of the root in dir by path in
+// it with forward slashes, as -var-file options and as absolute paths.
+// Terraform fails the plan on one that isn't there.
+func VarFileOptions(dir string, names []string) ([]tfexec.PlanOption, []string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	var vars []tfexec.PlanOption
+	var paths []string
+	for _, name := range names {
+		path := filepath.Join(abs, filepath.FromSlash(name))
+		vars = append(vars, tfexec.VarFile(path))
+		paths = append(paths, path)
+	}
+	return vars, paths, nil
+}
+
 // Binary describes an engine binary: Terraform or OpenTofu, which run the
 // same configuration through the same CLI.
 type Binary struct {

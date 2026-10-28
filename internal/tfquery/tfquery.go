@@ -29,7 +29,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -70,7 +70,7 @@ type Request struct {
 	Parent string
 	// Provider is the provider whose list resources list, with the block
 	// that configures it for the scope.
-	Provider engine.Provider
+	Provider rootfile.Provider
 	// ProviderName is the provider's short name the resources are
 	// recorded with (see harvest.Resource.Provider).
 	ProviderName string
@@ -139,13 +139,13 @@ func (r runner) list(ctx context.Context, req Request) ([]harvest.Resource, erro
 			log.Printf("%s: query: removing %s: %v", req.ProviderName, dir, err)
 		}
 	}()
-	providers, err := engine.ProvidersFile(req.Provider)
+	providers, err := rootfile.ProvidersFile(req.Provider)
 	if err != nil {
 		return nil, err
 	}
 	for name, content := range map[string][]byte{
-		engine.VersionsFileName:  engine.VersionsFile("", req.Provider),
-		engine.ProvidersFileName: providers,
+		rootfile.VersionsFileName:  rootfile.VersionsFile("", req.Provider),
+		rootfile.ProvidersFileName: providers,
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
 			return nil, err

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -25,7 +26,7 @@ func TestEngineRunCombinesImports(t *testing.T) {
 			run.used = true
 			run.options = options
 			run.discovered["aws_vpc"]++
-			result := &engine.Result{Imported: []engine.Import{{Type: "aws_vpc", Name: dir, ID: dir}}}
+			result := &engine.Result{Imported: []rootfile.Import{{Type: "aws_vpc", Name: dir, ID: dir}}}
 			if dir == "us-east-1" {
 				result.Rejected = []engine.Rejection{{Address: "aws_vpc.extra", ID: "vpc-2", Errors: []string{"invalid"}}}
 				run.discovered["aws_vpc"]++

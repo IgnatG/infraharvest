@@ -20,7 +20,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -30,7 +31,7 @@ func driftOutput(t *testing.T, rels ...string) string {
 	t.Helper()
 	out := t.TempDir()
 	for _, rel := range rels {
-		path := filepath.Join(out, filepath.FromSlash(rel), engine.ProvidersFileName)
+		path := filepath.Join(out, filepath.FromSlash(rel), rootfile.ProvidersFileName)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -45,17 +46,17 @@ func driftOutput(t *testing.T, rels ...string) string {
 // and records the roots it checked and where it staged them.
 type fakeDriftCheck struct {
 	out     string
-	results map[string]*engine.RootDrift
+	results map[string]*drift.Result
 	errs    map[string]error
 	mu      sync.Mutex
 	checked []string
 	staged  []string
-	// accepted is the outcome of each change a rule accepts, as engine.Drift
+	// accepted is the outcome of each change a rule accepts, as drift.Check
 	// would give it.
 	accepted string
 }
 
-func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, opts drift.Options) (*drift.Result, error) {
 	rel := relativePath(f.out, dir)
 	f.mu.Lock()
 	f.checked = append(f.checked, rel)
@@ -71,30 +72,30 @@ func (f *fakeDriftCheck) check(_ context.Context, dir, staging string, opts engi
 		decided := *r
 		decided.Changes = slices.Clone(r.Changes)
 		for i, c := range decided.Changes {
-			if c.Outcome == engine.DriftKept && opts.Accept(c) {
-				decided.Changes[i].Decision, decided.Changes[i].Outcome = engine.DriftAccept, f.accepted
+			if c.Outcome == drift.Kept && opts.Accept(c) {
+				decided.Changes[i].Decision, decided.Changes[i].Outcome = drift.Accept, f.accepted
 			}
 		}
 		return &decided, nil
 	}
-	return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+	return &drift.Result{Backend: "s3", Resources: 1}, nil
 }
 
 func driftOptions(out string, f *fakeDriftCheck) DriftOptions {
 	return DriftOptions{Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 2, check: f.check}
 }
 
-var reverting = &engine.RootDrift{Backend: "s3", Resources: 2, Changes: []engine.DriftChange{
-	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: engine.DriftChanged, Outcome: engine.DriftKept, Source: &engine.DriftSource{File: "main.tf", Line: 3}},
-	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "arn", Before: "a", After: "b", Kind: engine.DriftChanged, Outcome: engine.DriftAbsorbed},
+var reverting = &drift.Result{Backend: "s3", Resources: 2, Changes: []drift.Change{
+	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: drift.Changed, Outcome: drift.Kept, Source: &drift.Source{File: "main.tf", Line: 3}},
+	{Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "arn", Before: "a", After: "b", Kind: drift.Changed, Outcome: drift.Absorbed},
 }}
 
 func TestDriftReportsEachRoot(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-1", "aws/1/eu-west-2", "aws/1/global")
 	f := &fakeDriftCheck{out: out,
-		results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting},
-		errs:    map[string]error{"aws/1/global": &engine.UnsupportedBackendError{Backend: "remote", Supported: []string{"s3", "gcs", "azurerm"}}},
+		results: map[string]*drift.Result{"aws/1/eu-west-2": reverting},
+		errs:    map[string]error{"aws/1/global": &drift.UnsupportedBackendError{Backend: "remote", Supported: []string{"s3", "gcs", "azurerm"}}},
 	}
 	var stdout bytes.Buffer
 	err := Drift(context.Background(), driftOptions(out, f), &stdout)
@@ -178,19 +179,19 @@ func TestDriftExitCodes(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name     string
-		result   *engine.RootDrift
+		result   *drift.Result
 		detailed bool
 		want     int
 	}{
 		{"drift", reverting, false, report.ExitOK},
 		{"drift, detailed", reverting, true, report.ExitDrift},
-		{"none, detailed", &engine.RootDrift{Resources: 1}, true, report.ExitOK},
-		{"absorbed only, detailed", &engine.RootDrift{Resources: 1, Changes: reverting.Changes[1:]}, true, report.ExitOK},
+		{"none, detailed", &drift.Result{Resources: 1}, true, report.ExitOK},
+		{"absorbed only, detailed", &drift.Result{Resources: 1, Changes: reverting.Changes[1:]}, true, report.ExitOK},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := driftOutput(t, "aws/1/eu-west-2")
-			f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": tc.result}}
+			f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": tc.result}}
 			options := driftOptions(out, f)
 			options.DetailedExitCode = tc.detailed
 			err := Drift(context.Background(), options, &bytes.Buffer{})
@@ -204,7 +205,7 @@ func TestDriftExitCodes(t *testing.T) {
 func TestDriftJSONOnStdout(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-2")
-	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}}
+	f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": reverting}}
 	options := driftOptions(out, f)
 	options.Format = FormatJSON
 	var stdout bytes.Buffer
@@ -306,7 +307,7 @@ func TestDriftAcceptsByRule(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := driftOutput(t, "aws/1/eu-west-2")
-			f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: tc.accepted}
+			f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": reverting}, accepted: tc.accepted}
 			options := driftOptions(out, f)
 			options.Rules = tc.rules
 			options.DetailedExitCode = true
@@ -361,7 +362,7 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 	locked := map[string]bool{}
 	inside := map[string]int{}
 	var overlapped []string
-	check := func(_ context.Context, dir, staging string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+	check := func(_ context.Context, dir, staging string, opts drift.Options) (*drift.Result, error) {
 		name := report.DriftRoot{Path: relativePath(out, dir), Environment: opts.Environment}.Name()
 		mu.Lock()
 		checked = append(checked, name)
@@ -389,7 +390,7 @@ func TestDriftChecksEachEnvironment(t *testing.T) {
 			return nil, err
 		}
 		if opts.Environment == "" {
-			return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+			return &drift.Result{Backend: "s3", Resources: 1}, nil
 		}
 		return reverting, nil
 	}
@@ -468,11 +469,11 @@ func TestDriftUsesTheCatalogueOverlay(t *testing.T) {
 	}
 	var mu sync.Mutex
 	var stateOnly []map[string][]string
-	check := func(_ context.Context, _, _ string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+	check := func(_ context.Context, _, _ string, opts drift.Options) (*drift.Result, error) {
 		mu.Lock()
 		stateOnly = append(stateOnly, opts.StateOnly)
 		mu.Unlock()
-		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+		return &drift.Result{Backend: "s3", Resources: 1}, nil
 	}
 	options := DriftOptions{
 		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1, Catalogue: dir,
@@ -557,11 +558,11 @@ func TestDriftPassesTheRootsModules(t *testing.T) {
 	storage := module("resource \"google_storage_bucket\" \"this\" {\n  name     = \"b\"\n  location = \"EU\"\n}\n")
 	var mu sync.Mutex
 	var got [][]adapters.Adapter
-	check := func(_ context.Context, _, _ string, opts engine.DriftOptions) (*engine.RootDrift, error) {
+	check := func(_ context.Context, _, _ string, opts drift.Options) (*drift.Result, error) {
 		mu.Lock()
 		got = append(got, opts.Adapters)
 		mu.Unlock()
-		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+		return &drift.Result{Backend: "s3", Resources: 1}, nil
 	}
 	options := DriftOptions{
 		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1,
@@ -673,7 +674,7 @@ func TestDriftRunsTheConfirmedRoots(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]string{}
 	options := DriftOptions{Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1, RootsDigest: digest}
-	options.check = func(_ context.Context, dir, staging string, _ engine.DriftOptions) (*engine.RootDrift, error) {
+	options.check = func(_ context.Context, dir, staging string, _ drift.Options) (*drift.Result, error) {
 		for _, path := range []string{dir, staging} {
 			if strings.HasPrefix(path, out+string(filepath.Separator)) {
 				t.Errorf("Terraform runs in %s, in the output directory", path)
@@ -699,7 +700,7 @@ func TestDriftRunsTheConfirmedRoots(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, ".terraform.lock.hcl"), []byte("# "+filepath.Base(dir)+"\n"), 0o644); err != nil {
 			return nil, err
 		}
-		return &engine.RootDrift{Backend: "s3", Resources: 1}, nil
+		return &drift.Result{Backend: "s3", Resources: 1}, nil
 	}
 
 	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil {

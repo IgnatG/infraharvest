@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 var awsDataSources = map[string]DataSource{
@@ -27,7 +29,7 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 func TestAddDataSources(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lb" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lb" "web" {
   security_groups = [aws_security_group.web.id, "sg-0def5678"]
 }
 
@@ -53,7 +55,7 @@ resource "aws_lambda_function" "f" {
 		t.Fatalf("want data sources, got %v, %v", changed, err)
 	}
 
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"security_groups = [aws_security_group.web.id, data.aws_security_group.sg_0def5678.id]",
 		"vpc_id = data.aws_vpc.vpc_0abc1234.id",
@@ -64,7 +66,7 @@ resource "aws_lambda_function" "f" {
 			t.Errorf("generated.tf misses %q:\n%s", want, generated)
 		}
 	}
-	data := squashed(readFile(t, dir, DataFileName))
+	data := squashed(readFile(t, dir, rootfile.DataFileName))
 	for _, want := range []string{
 		`data "aws_security_group" "sg_0def5678" { id = "sg-0def5678" }`,
 		`data "aws_vpc" "vpc_0abc1234" { id = "vpc-0abc1234" }`,
@@ -85,7 +87,7 @@ func TestAddDataSourcesNamesInOneOrder(t *testing.T) {
 	t.Parallel()
 	for _, reversed := range []bool{false, true} {
 		dir := t.TempDir()
-		writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+		writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "a" {
   role = "admin-x"
 }
 
@@ -103,7 +105,7 @@ resource "aws_lambda_function" "b" {
 			t.Fatalf("reversed=%v: want data sources, got %v, %v", reversed, changed, err)
 		}
 
-		data := squashed(readFile(t, dir, DataFileName))
+		data := squashed(readFile(t, dir, rootfile.DataFileName))
 		for _, want := range []string{
 			`data "aws_iam_role" "admin_x" { name = "admin-x" }`,
 			`data "aws_iam_role" "admin_x_2" { name = "admin_x" }`,
@@ -122,7 +124,7 @@ resource "aws_lambda_function" "b" {
 func TestAddDataSourcesNamedByResourceName(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_security_group" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_security_group" "web" {
   vpc_id = "vpc-0abc1234"
 }
 
@@ -141,7 +143,7 @@ resource "aws_security_group_rule" "web" {
 		t.Fatalf("want data sources, got %v, %v", changed, err)
 	}
 
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"vpc_id = data.aws_vpc.shop_2.id",
 		"security_group_id = data.aws_security_group.sg_0def5678.id",
@@ -150,7 +152,7 @@ resource "aws_security_group_rule" "web" {
 			t.Errorf("generated.tf misses %q:\n%s", want, generated)
 		}
 	}
-	data := squashed(readFile(t, dir, DataFileName))
+	data := squashed(readFile(t, dir, rootfile.DataFileName))
 	if want := `data "aws_vpc" "shop_2" { id = "vpc-0abc1234" }`; !strings.Contains(data, want) {
 		t.Errorf("data.tf misses %q:\n%s", want, data)
 	}
@@ -181,13 +183,13 @@ func TestDataLabel(t *testing.T) {
 func TestAddDataSourcesWithoutReferences(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")
+	writeConfig(t, dir, rootfile.GeneratedFileName, "resource \"aws_vpc\" \"a\" {\n  cidr_block = \"10.0.0.0/16\"\n}\n")
 
 	changed, err := addDataSources(dir, []External{{Type: "aws_vpc", ID: "vpc-0abc1234"}}, awsDataSources, nil)
 	if err != nil || changed {
 		t.Fatalf("want no change, got %v, %v", changed, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, DataFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.DataFileName)); !os.IsNotExist(err) {
 		t.Errorf("data.tf written: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -165,7 +166,7 @@ func checkRefactorBlocks(ctx context.Context, t *testing.T, execPath, plugins st
 	// quoted string without templates.
 	id := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "${", "$${", "%{", "%%{").Replace(value)
 	writeRefactorRoot(t, dir, strings.Replace(refactorAfter, "%s", id, 1), "x")
-	check, err := checkMoves(dir)
+	check, err := gate.MovesCheck(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

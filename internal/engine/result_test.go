@@ -6,11 +6,13 @@ package engine
 import (
 	"reflect"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func TestResultBlocks(t *testing.T) {
 	addressed := &Result{
-		Imported: []Import{{Type: "aws_s3_bucket", Name: "logs", ID: "logs"}, {Type: "aws_sqs_queue", Name: "orders", ID: "q1"}},
+		Imported: []rootfile.Import{{Type: "aws_s3_bucket", Name: "logs", ID: "logs"}, {Type: "aws_sqs_queue", Name: "orders", ID: "q1"}},
 		Addresses: []Managed{
 			{Type: "aws_s3_bucket", ID: "logs", Address: `module.logs["a.b"].aws_s3_bucket.this[0]`},
 			{Type: "aws_sqs_queue", ID: "q1", Address: `aws_sqs_queue.orders["a"]`},
@@ -24,20 +26,20 @@ func TestResultBlocks(t *testing.T) {
 		t.Errorf("with addresses: got %+v, want %+v", got, want)
 	}
 	// An older checkpoint's result has only the labels.
-	labelled := &Result{Imported: []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}}}
+	labelled := &Result{Imported: []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}}}
 	if got := labelled.Blocks(); !reflect.DeepEqual(got, []Managed{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.orders"}}) {
 		t.Errorf("without addresses: got %+v", got)
 	}
 }
 
 func TestResultWithKept(t *testing.T) {
-	kept := []Import{{Type: "aws_sqs_queue", Name: "audit", ID: "q3"}}
+	kept := []rootfile.Import{{Type: "aws_sqs_queue", Name: "audit", ID: "q3"}}
 	r := &Result{
-		Imported:  []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}},
+		Imported:  []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}},
 		Addresses: []Managed{{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.orders"}},
 	}
 	with := r.WithKept(kept)
-	if want := []Import{r.Imported[0], kept[0]}; !reflect.DeepEqual(with.Imported, want) {
+	if want := []rootfile.Import{r.Imported[0], kept[0]}; !reflect.DeepEqual(with.Imported, want) {
 		t.Errorf("imported: got %+v, want %+v", with.Imported, want)
 	}
 	if want := []Managed{r.Addresses[0], {Type: "aws_sqs_queue", ID: "q3", Address: "aws_sqs_queue.audit"}}; !reflect.DeepEqual(with.Addresses, want) {

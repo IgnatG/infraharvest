@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // Resources go into their imports' files, module calls into their first
@@ -16,7 +18,7 @@ import (
 func TestSplitFiles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_role" "app" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_iam_role" "app" {
   name = "app"
 }
 
@@ -28,7 +30,7 @@ module "main" {
   source = "terraform-aws-modules/vpc/aws"
 }
 `)
-	imports := []Import{
+	imports := []rootfile.Import{
 		{Type: "aws_iam_role", Name: "app", File: "iam.tf"},
 		{Type: "aws_subnet", Name: "a", File: "network.tf"},
 		{Type: "aws_vpc", Name: "main", File: "network.tf"},
@@ -49,7 +51,7 @@ module "main" {
 	if !strings.Contains(network, `resource "aws_subnet" "a"`) || !strings.Contains(network, `module "main"`) {
 		t.Errorf("network.tf:\n%s", network)
 	}
-	if _, err := os.Stat(filepath.Join(dir, GeneratedFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, rootfile.GeneratedFileName)); !os.IsNotExist(err) {
 		t.Errorf("generated.tf is still there: %v", err)
 	}
 }
@@ -58,12 +60,12 @@ module "main" {
 func TestSplitFilesKeepsWhatNamesNoFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, "resource \"aws_iam_role\" \"app\" {\n}\n\nresource \"aws_sqs_queue\" \"jobs\" {\n}\n")
-	files, err := splitFiles(dir, []Import{{Type: "aws_iam_role", Name: "app", File: "iam.tf"}, {Type: "aws_sqs_queue", Name: "jobs", File: ImportsFileName}}, nil)
+	writeConfig(t, dir, rootfile.GeneratedFileName, "resource \"aws_iam_role\" \"app\" {\n}\n\nresource \"aws_sqs_queue\" \"jobs\" {\n}\n")
+	files, err := splitFiles(dir, []rootfile.Import{{Type: "aws_iam_role", Name: "app", File: "iam.tf"}, {Type: "aws_sqs_queue", Name: "jobs", File: rootfile.ImportsFileName}}, nil)
 	if err != nil || len(files) != 1 {
 		t.Fatalf("files=%v err=%v", files, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); !strings.Contains(got, `"aws_sqs_queue" "jobs"`) || strings.Contains(got, "aws_iam_role") {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); !strings.Contains(got, `"aws_sqs_queue" "jobs"`) || strings.Contains(got, "aws_iam_role") {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }

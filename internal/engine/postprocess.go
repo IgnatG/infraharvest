@@ -15,9 +15,12 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // postProcess improves the configuration once it plans, with the passes of
@@ -155,7 +158,7 @@ func (t *tidying) passes() []tidyPass {
 		// Next, so the passes below see only the arguments that matter.
 		{name: passDefaults, after: []string{passEffectiveTags}, run: t.stripDefaults},
 		{name: passReferences, after: []string{passDefaults}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addReferencesSkipping(dir, t.values, skip)
 			}}, nil
 		}},
@@ -165,7 +168,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.External) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
 			}}, nil
 		}},
@@ -174,13 +177,13 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.OtherRoots) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName, VariablesFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, hclfile.VariablesFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
 			}}, nil
 		}},
 		// Lookups are for what nothing the import lists has.
 		{name: passLookups, after: []string{passReferences, passDataSources, passRootVariables}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName, DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
 				return addLookups(dir, taken, skip)
 			}}, nil
 		}},
@@ -188,7 +191,7 @@ func (t *tidying) passes() []tidyPass {
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
 		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{GeneratedFileName, LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
 		}},
 		// After the steps above, as clusters reach the modules through the
 		// references.
@@ -198,7 +201,7 @@ func (t *tidying) passes() []tidyPass {
 				return nil, nil
 			}
 			lists := t.lists
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) {
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) {
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
 			}}, nil
 		}},
@@ -206,7 +209,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
 		}},
 		// After the curated modules, whose calls take the project from the
 		// resources.
@@ -214,7 +217,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Inherited) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }}, nil
+			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }}, nil
 		}},
 		// Last: curated modules first, and the resources left no longer
 		// repeat what the provider sets.
@@ -301,7 +304,7 @@ func (t *tidying) tagLift() (*tidyStep, error) {
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	tags := &tidyStep{files: []string{GeneratedFileName, ProvidersFileName, LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+	tags := &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.ProvidersFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
 	if dt.Block != "" && dt.Applied == nil {
 		// Where the provider can't apply the tags without changing a
 		// resource's, the resources still share them through the local.
@@ -337,7 +340,7 @@ func (t *tidying) liftModules() error {
 // liftLiteralsValidated lifts repeated identifiers when the configuration
 // can't be planned, and undoes the lift if it doesn't validate.
 func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, taken Names) error {
-	backup, err := backupFiles(dir, GeneratedFileName, LocalsFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.LocalsFileName)
 	if err != nil {
 		return err
 	}
@@ -347,10 +350,10 @@ func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, 
 	}
 	validation, err := tf.Validate(ctx)
 	if err != nil {
-		return errors.Join(fmt.Errorf("terraform validate: %w", err), backup.restore())
+		return errors.Join(fmt.Errorf("terraform validate: %w", err), backup.Restore())
 	}
 	if !validation.Valid {
-		return backup.restore()
+		return backup.Restore()
 	}
 	return nil
 }
@@ -427,7 +430,7 @@ func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baselin
 			}
 		}
 	}
-	backup, err := backupFiles(dir, files...)
+	backup, err := fsutil.BackupFiles(dir, files...)
 	if err != nil {
 		return false, err
 	}
@@ -437,53 +440,53 @@ func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baselin
 		if err != nil {
 			// The step may fail only on top of another's edit: let the
 			// steps one at a time tell.
-			return false, backup.restore()
+			return false, backup.Restore()
 		}
 		changed = changed || edited
 	}
 	if !changed {
-		return true, backup.restore()
+		return true, backup.Restore()
 	}
 	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil {
-		return false, errors.Join(err, backup.restore())
+		return false, errors.Join(err, backup.Restore())
 	}
 	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
 	}
-	return false, backup.restore()
+	return false, backup.Restore()
 }
 
 // verify makes edit, which changes files in dir, and keeps it only if the
 // configuration then plans, with vars, without errors, with the same
 // change summary as baseline, and with each resource changes has planning
-// the same change it had (see changeSignature): the same actions, on the
+// the same change it had (see tfrun.ChangeSignature): the same actions, on the
 // same attributes. Totals alone would let an edit hide a real change in a
 // resource that already has an expected update, such as a label-only one
 // after an import. Resources changes doesn't have, such as those moved
 // into module calls since, are judged by the totals. It reports whether
 // it kept the edit.
 func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
-	backup, err := backupFiles(dir, files...)
+	backup, err := fsutil.BackupFiles(dir, files...)
 	if err != nil {
 		return false, err
 	}
 	changed, err := edit()
 	if err != nil {
 		// The edit may have changed some of the files before failing.
-		return false, errors.Join(err, backup.restore())
+		return false, errors.Join(err, backup.Restore())
 	}
 	if !changed {
 		return false, nil
 	}
 	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil {
-		return false, errors.Join(err, backup.restore())
+		return false, errors.Join(err, backup.Restore())
 	}
 	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
 		return true, nil
 	}
-	return false, backup.restore()
+	return false, backup.Restore()
 }
 
 // maxEditRounds bounds how often verifyEach plans an edit.
@@ -492,24 +495,24 @@ const maxEditRounds = 3
 // verifyEach makes edit, which changes files in dir by resource, and
 // keeps what the plan accepts of it: where a resource then plans
 // differently from changes, its planned change before the edit (see
-// changeSignature), or an error is about it, it makes edit again on the
+// tfrun.ChangeSignature), or an error is about it, it makes edit again on the
 // files as they were, with that resource's level in skip raised, until
 // the plan, with vars, matches baseline, every resource planning the
 // change it had (see sameChanges), in at most maxEditRounds plans (see
-// verifier). edit returns the resources it changed. It undoes the edit
+// gate.Verifier). edit returns the resources it changed. It undoes the edit
 // if the plan still differs then, or differs in a way no resource it
 // changed explains, and reports whether it kept any of it.
 func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
-	backup, err := backupFiles(dir, files...)
+	backup, err := fsutil.BackupFiles(dir, files...)
 	if err != nil {
 		return false, err
 	}
 	skip := map[string]int{}
 	retry := false
-	kept, err := verifier[string, bool]{
-		edit: func(context.Context) ([]string, error) {
+	kept, err := gate.Verifier[string, bool]{
+		Edit: func(context.Context) ([]string, error) {
 			if retry {
-				if err := backup.restore(); err != nil {
+				if err := backup.Restore(); err != nil {
 					return nil, err
 				}
 			}
@@ -517,7 +520,7 @@ func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tf
 			resources, err := edit(skip)
 			return sortedKeys(resources), err
 		},
-		verify: func(ctx context.Context) (*verdict[string, bool], error) {
+		Verify: func(ctx context.Context) (*gate.Verdict[string, bool], error) {
 			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 			if err != nil {
 				return nil, err
@@ -526,21 +529,21 @@ func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tf
 				return nil, nil
 			}
 			blamed, err := blame(dir, p, diags, changes)
-			return &verdict[string, bool]{blamed: blamed}, err
+			return &gate.Verdict[string, bool]{Blamed: blamed}, err
 		},
-		drop: func(blamed map[string]bool) {
+		Drop: func(blamed map[string]bool) {
 			for address := range blamed {
 				skip[address]++
 			}
 		},
-		rounds: maxEditRounds,
-	}.run(ctx)
+		Rounds: maxEditRounds,
+	}.Run(ctx)
 	if err != nil {
 		// The edit may have changed some of the files before failing.
-		return false, errors.Join(err, backup.restore())
+		return false, errors.Join(err, backup.Restore())
 	}
 	if !kept {
-		return false, backup.restore()
+		return false, backup.Restore()
 	}
 	return true, nil
 }
@@ -555,7 +558,7 @@ func dataReaders(generated *hclfile.File, address string) []string {
 	}
 	var readers []string
 	for _, r := range generated.Resources() {
-		for _, t := range allTraversals(r.Syntax.Body) {
+		for _, t := range hclfile.Traversals(r.Syntax.Body) {
 			if len(t) < 3 || t.RootName() != "data" {
 				continue
 			}
@@ -576,11 +579,11 @@ func dataReaders(generated *hclfile.File, address string) []string {
 func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
-		generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+		generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 		if err != nil {
 			return nil, err
 		}
-		imports, err := hclfile.LoadOptional(filepath.Join(dir, ImportsFileName))
+		imports, err := hclfile.LoadOptional(filepath.Join(dir, rootfile.ImportsFileName))
 		if err != nil || imports == nil {
 			return nil, err
 		}
@@ -588,7 +591,7 @@ func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[st
 		// An error about a data source, such as an alias the account
 		// lacks, is the resources' that read it.
 		for _, d := range unassigned {
-			readers := dataReaders(generated, trimInstanceKey(d.Address))
+			readers := dataReaders(generated, hclfile.TrimInstanceKey(d.Address))
 			if len(readers) == 0 {
 				return nil, nil
 			}
@@ -627,7 +630,7 @@ func sameChanges(p *tfjson.Plan, changes map[string]string) bool {
 }
 
 // changedFrom reports whether a resource a plan has plans another change
-// than the one changes has for it (see changeSignature). A resource changes
+// than the one changes has for it (see tfrun.ChangeSignature). A resource changes
 // doesn't have, such as one moved into a module call since, is judged by
 // the plan's totals instead.
 func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
@@ -635,12 +638,12 @@ func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
 		return false
 	}
 	want, ok := changes[rc.Address]
-	return ok && changeSignature(rc) != want
+	return ok && tfrun.ChangeSignature(rc) != want
 }
 
 // planValues plans with vars and returns the plan's change summary, and
 // each resource's imported attribute values and planned change (see
-// changeSignature), by address. It returns no summary if the
+// tfrun.ChangeSignature), by address. It returns no summary if the
 // configuration doesn't plan.
 func planValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
 	p, summary, _, err := tfrun.ShowPlan(ctx, tf, vars)
@@ -673,7 +676,7 @@ func replanValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOpt
 }
 
 // valuesOf returns each resource's imported attribute values and planned
-// change (see changeSignature) in p, by address.
+// change (see tfrun.ChangeSignature) in p, by address.
 func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
 	values := map[string]map[string]any{}
 	changes := map[string]string{}
@@ -687,7 +690,7 @@ func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
 			attrs, _ = rc.Change.After.(map[string]any)
 		}
 		values[rc.Address] = attrs
-		changes[rc.Address] = changeSignature(rc)
+		changes[rc.Address] = tfrun.ChangeSignature(rc)
 	}
 	return values, changes
 }

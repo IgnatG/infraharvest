@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -33,7 +33,7 @@ func decidedKey(address, attribute string) string {
 }
 
 // record records d, decided for c.
-func (r decidedDrift) record(c engine.DriftChange, d driftpolicy.Decision) {
+func (r decidedDrift) record(c drift.Change, d driftpolicy.Decision) {
 	r.own[decidedKey(c.Address, c.Attribute)] = d
 	for _, a := range c.Covers {
 		r.covered[decidedKey(a, c.Attribute)] = d
@@ -43,7 +43,7 @@ func (r decidedDrift) record(c engine.DriftChange, d driftpolicy.Decision) {
 // of returns the decision taken for c: its own, else that of the change
 // of shared tags that covered it, else, for a change nothing decided,
 // what decide says.
-func (r decidedDrift) of(c engine.DriftChange, decide func() driftpolicy.Decision) driftpolicy.Decision {
+func (r decidedDrift) of(c drift.Change, decide func() driftpolicy.Decision) driftpolicy.Decision {
 	k := decidedKey(c.Address, c.Attribute)
 	if d, ok := r.own[k]; ok {
 		return d

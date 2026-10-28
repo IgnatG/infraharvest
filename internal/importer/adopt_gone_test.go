@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 )
@@ -55,7 +56,7 @@ func goneMember(t *testing.T, out, env, account string, ids map[string]string, l
 		fmt.Fprintf(&imports, "import {\n  to = aws_sqs_queue.%s\n  id = %q\n}\n\n", label, ids[label])
 		result.Addresses = append(result.Addresses, engine.Managed{Type: "aws_sqs_queue", ID: ids[label], Address: "aws_sqs_queue." + label})
 	}
-	writeRootFiles(t, dir, map[string]string{engine.VersionsFileName: "# versions\n", "sqs.tf": queues.String(), engine.ImportsFileName: imports.String()})
+	writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "# versions\n", "sqs.tf": queues.String(), rootfile.ImportsFileName: imports.String()})
 	here := &listedHere{ids: map[string]bool{}, types: map[string]bool{"aws_sqs_queue": true}}
 	for _, id := range listed {
 		here.ids[strings.ToLower(id)] = true
@@ -72,7 +73,7 @@ func checkKeptGone(t *testing.T, run *Run, out string, m mergeMember, label, id,
 	if !strings.Contains(sqs, `resource "aws_sqs_queue" "`+label+`"`) || !strings.Contains(sqs, `"`+name+`"`) || strings.Contains(sqs, "count") || strings.Contains(sqs, "var.") || strings.Contains(sqs, "local.") {
 		t.Errorf("%s's sqs.tf:\n%s", m.env, sqs)
 	}
-	if imports := readTestFile(t, filepath.Join(m.dir, engine.ImportsFileName)); !strings.Contains(imports, "aws_sqs_queue."+label+"\n") || !strings.Contains(imports, `"`+id+`"`) {
+	if imports := readTestFile(t, filepath.Join(m.dir, rootfile.ImportsFileName)); !strings.Contains(imports, "aws_sqs_queue."+label+"\n") || !strings.Contains(imports, `"`+id+`"`) {
 		t.Errorf("%s's imports.tf:\n%s", m.env, imports)
 	}
 	if got := run.goneFrom(m.dir); !reflect.DeepEqual(got, []string{"aws_sqs_queue." + label}) {

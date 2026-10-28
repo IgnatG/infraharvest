@@ -85,14 +85,14 @@ func (g Gate) Named(name string) Check {
 	return Check{Name: name, Details: []string{"didn't run"}}
 }
 
-// Policy is how a run of the verification gate checks a directory:
-// which of the gate's checks run, and what they judge by. The import
-// gate, Verify's and VerifyMerged's run every check; Add's holds the
-// scanners back on the secrets staging's plan found (see Withheld); a
-// stack's merged root is planned as each environment, and its scanners
-// run once, if none of them finds a secret (see Others); and drift judges
-// its edits by what they add to the findings the root had, blaming the
-// files they are in (see Baseline and Diff).
+// Policy is how a run of the verification gate checks a directory: which
+// of the gate's checks run, and what they judge by. The import gate,
+// engine.Verify's and envmerge.VerifyMerged's run every check; Add's holds
+// the scanners back on the secrets staging's plan found (see Withheld); a
+// stack's merged root is planned as each environment, and its scanners run
+// once, if none of them finds a secret (see Others); and drift judges its
+// edits by what they add to the findings the root had, blaming the files
+// they are in (see Baseline and Diff).
 type Policy struct {
 	// Checks are the names of the checks that run; none runs them all.
 	Checks []string
@@ -414,4 +414,32 @@ func scanSecrets(dir string, sensitive []string) (Check, error) {
 	})
 	check.Passed = len(check.Details) == 0
 	return check, err
+}
+
+// ChecksSection lists the verification gate's checks, with their details.
+func ChecksSection(checks Gate) string {
+	var b strings.Builder
+	if len(checks) > 0 {
+		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
+		for _, c := range checks {
+			status := "passed"
+			switch {
+			case !c.Passed:
+				status = "**failed**"
+			case c.Skipped:
+				status = "skipped"
+			}
+			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
+		}
+		var details []string
+		for _, c := range checks {
+			for _, d := range c.Details {
+				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
+			}
+		}
+		if len(details) > 0 {
+			fmt.Fprintf(&b, "\n%s\n", strings.Join(details, "\n"))
+		}
+	}
+	return b.String()
 }

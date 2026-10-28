@@ -6,6 +6,8 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 var lambdaPlaceholder = map[string]Placeholder{"aws_lambda_function": {
@@ -20,7 +22,7 @@ var lambdaPlaceholder = map[string]Placeholder{"aws_lambda_function": {
 func TestSetPlaceholders(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	f := writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "zip" {
+	f := writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "zip" {
   filename      = null
   function_name = "orders"
   image_uri     = null
@@ -35,7 +37,7 @@ resource "aws_lambda_function" "image" {
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	want := `resource "aws_lambda_function" "zip" {
   filename      = "lambda/orders.zip"
   function_name = "orders"

@@ -6,7 +6,7 @@ package importer
 import (
 	"maps"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // scopeRoots returns the roots the Import calls of one scope generate,
@@ -15,14 +15,14 @@ import (
 // each refers to the others (see otherRoots), the regional roots of an
 // AWS account to its global root and the global root to the regional ones.
 // A directory of call own is its own, whatever another call puts there.
-func scopeRoots(byDirs []map[string][]engine.Import, own int) map[string][]engine.Import {
+func scopeRoots(byDirs []map[string][]rootfile.Import, own int) map[string][]rootfile.Import {
 	if len(byDirs) < 2 {
 		if own < len(byDirs) {
 			return byDirs[own]
 		}
 		return nil
 	}
-	all := map[string][]engine.Import{}
+	all := map[string][]rootfile.Import{}
 	for i, byDir := range byDirs {
 		if i != own {
 			maps.Copy(all, byDir)

@@ -16,6 +16,9 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -25,7 +28,7 @@ import (
 // checkpoints (see mergeCheckpoint), which the output's .gitignore leaves
 // out: a fresh checkout of the output, such as the GitHub Action's, has
 // the merged root without them. Such a root is told from its own files
-// (see engine.MergedEnvironments), and an import with --incremental,
+// (see hclfile.MergedEnvironments), and an import with --incremental,
 // --resume or --regenerate merges its stack again from the environments'
 // roots it generates afresh, as if a checkpoint made from those files
 // recorded the merge (see adoptedCheckpoint).
@@ -37,7 +40,7 @@ type mergedState struct {
 }
 
 // mergedRootDirs returns the directories under out that hold a root
-// environments share (see engine.MergedEnvironments), sorted: outside
+// environments share (see hclfile.MergedEnvironments), sorted: outside
 // the checkpoints, Terraform's working directories and local workspaces.
 func mergedRootDirs(out string) ([]string, error) {
 	var dirs []string
@@ -57,7 +60,7 @@ func mergedRootDirs(out string) ([]string, error) {
 				return filepath.SkipDir
 			}
 		}
-		envs, err := engine.MergedEnvironments(path)
+		envs, err := hclfile.MergedEnvironments(path)
 		if err != nil || len(envs) == 0 {
 			return err
 		}
@@ -73,7 +76,7 @@ func mergedRootDirs(out string) ([]string, error) {
 
 // mergedOwnStates returns, by state location (see stateLocation), the
 // environment of a root environments share under out whose own state
-// each is (see engine.MergedStateLocations): what such a state has is
+// each is (see envmerge.MergedStateLocations): what such a state has is
 // the merged root's, not another state's. With unrecorded, only the
 // roots no merge checkpoint records count (see adoptedCheckpoint).
 func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error) {
@@ -92,12 +95,12 @@ func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error
 				continue
 			}
 		}
-		envs, err := engine.MergedEnvironments(dir)
+		envs, err := hclfile.MergedEnvironments(dir)
 		if err != nil {
 			return nil, err
 		}
 		for _, env := range envs {
-			locations, err := engine.MergedStateLocations(dir, env)
+			locations, err := envmerge.MergedStateLocations(dir, env)
 			if err != nil {
 				return nil, err
 			}
@@ -125,7 +128,7 @@ func (s *shared) loadedState() managed.Resources {
 // that no merge checkpoint records, a checkpoint made from its own files
 // for members, the roots of its stack the import generated: its
 // environments, from vars/<env>/; the files a merge writes (see
-// engine.MergedRootFiles); and each environment's import IDs by address,
+// envmerge.MergedRootFiles); and each environment's import IDs by address,
 // from vars/<env>/imports.tfvars, or, once that is deleted after the
 // first apply, from the environment's own state, which --managed-state
 // read (see stateImports). It returns nil if stack holds no such root,
@@ -134,14 +137,14 @@ func (s *shared) loadedState() managed.Resources {
 // what the merged root has of one.
 func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeCheckpoint, string, error) {
 	out := r.options.Out
-	envs, err := engine.MergedEnvironments(stack)
+	envs, err := hclfile.MergedEnvironments(stack)
 	if err != nil || len(envs) == 0 {
 		return nil, "", err
 	}
 	if names, err := tfFiles(stack); err != nil || len(names) == 0 {
 		return nil, "", err
 	}
-	files, err := engine.MergedRootFiles(stack)
+	files, err := envmerge.MergedRootFiles(stack)
 	if err != nil {
 		return nil, "", err
 	}
@@ -164,7 +167,7 @@ func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeChec
 			continue
 		}
 		c.Members = append(c.Members, mergeCheckpointMember{Env: env, Path: relativePath(out, m.dir)})
-		ids, err := engine.MergedImportIDs(stack, env)
+		ids, err := hclfile.MergedImportIDs(stack, env)
 		if err != nil {
 			return nil, "", err
 		}
@@ -192,13 +195,13 @@ func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeChec
 // stateImports returns the import IDs, by address in the root
 // environments share in stack, of what result, the root of environment
 // env the import generated, has that env's own state has (see
-// engine.MergedStateLocations), as --managed-state read it; none without
+// envmerge.MergedStateLocations), as --managed-state read it; none without
 // it.
 func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string]string, error) {
 	if result == nil || len(r.options.ManagedState) == 0 {
 		return nil, nil
 	}
-	locations, err := engine.MergedStateLocations(stack, env)
+	locations, err := envmerge.MergedStateLocations(stack, env)
 	if err != nil {
 		return nil, err
 	}
@@ -284,7 +287,7 @@ func goneFromMerged(m mergeMember, ids map[string]string) map[string]string {
 // merged root in stack, told from its files as prev, has, generated
 // afresh by an incremental import, what the merged root has of its
 // environment that is no longer in the cloud (see goneFromMerged), as
-// that environment's root would have it (see engine.UnmergedBlocks), so
+// that environment's root would have it (see envmerge.UnmergedBlocks), so
 // that merging again keeps it as it was, as with a stack whose roots were
 // set aside (see Run.goneFrom), and records it in the report. It returns
 // why it can't, where it can't.
@@ -292,16 +295,16 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 	out := r.options.Out
 	// Each member's, all told before any is written.
 	goneOf := make([]map[string]string, len(members))
-	blocksOf := make([]map[string]engine.UnmergedBlock, len(members))
+	blocksOf := make([]map[string]envmerge.UnmergedBlock, len(members))
 	for i, m := range members {
 		if goneOf[i] = goneFromMerged(m, prev.Imports[m.env]); len(goneOf[i]) == 0 {
 			continue
 		}
-		env := engine.UnmergeEnv{Name: m.env}
+		env := envmerge.UnmergeEnv{Name: m.env}
 		if m.profile.EnvironmentData != nil {
 			env.Data = m.profile.EnvironmentData(m.account, m.region)
 		}
-		blocks, why, err := engine.UnmergedBlocks(stack, env, goneOf[i])
+		blocks, why, err := envmerge.UnmergedBlocks(stack, env, goneOf[i])
 		if err != nil {
 			return "", err
 		}
@@ -322,17 +325,17 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 		if len(blocks) == 0 {
 			continue
 		}
-		var kept []engine.Import
+		var kept []rootfile.Import
 		for _, address := range slices.Sorted(maps.Keys(blocks)) {
 			b := blocks[address]
 			if err := appendFile(filepath.Join(m.dir, b.File), b.Text); err != nil {
 				return "", err
 			}
-			if err := appendFile(filepath.Join(m.dir, engine.ImportsFileName), b.Import); err != nil {
+			if err := appendFile(filepath.Join(m.dir, rootfile.ImportsFileName), b.Import); err != nil {
 				return "", err
 			}
 			typ := engine.AddressType(b.Address)
-			kept = append(kept, engine.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
+			kept = append(kept, rootfile.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
 		}
 		members[i].result = m.result.WithKept(kept)
 		r.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
@@ -420,7 +423,7 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 // is of: shop_audit for aws_sqs_queue.shop_audit[0], and logs for
 // module.logs[0].aws_s3_bucket.this.
 func mergedLabel(address string) string {
-	block := engine.RemovedFrom(address)
+	block := rootfile.RemovedFrom(address)
 	if name, ok := strings.CutPrefix(block, "module."); ok {
 		return name
 	}

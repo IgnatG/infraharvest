@@ -17,7 +17,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -253,8 +253,8 @@ func TestAWSOptionsExitCodes(t *testing.T) {
 			t.Errorf("%s: left out %v (totals %+v), want the topics %v", flags, leftOut, r.Totals, topics)
 		}
 		dir := filepath.Join(out, filepath.FromSlash(optionsRoot))
-		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err != nil || !strings.Contains(string(rejected), "aws_sns_topic") {
-			t.Errorf("%s: %s doesn't hold the topics (%v):\n%s", flags, engine.RejectedFileName, err, rejected)
+		if rejected, err := os.ReadFile(filepath.Join(dir, rootfile.RejectedFileName)); err != nil || !strings.Contains(string(rejected), "aws_sns_topic") {
+			t.Errorf("%s: %s doesn't hold the topics (%v):\n%s", flags, rootfile.RejectedFileName, err, rejected)
 		}
 		if got, want := optionsImports(t, out), map[string][]string{"aws_sqs_queue": queues}; !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: the roots import %v, want %v", flags, got, want)

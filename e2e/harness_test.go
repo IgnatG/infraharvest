@@ -26,7 +26,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
@@ -95,7 +96,7 @@ func generatedDirs(t *testing.T, out string) []string {
 		if d.IsDir() && d.Name() == ".terraform" {
 			return filepath.SkipDir
 		}
-		if !d.IsDir() && d.Name() == engine.ImportsFileName {
+		if !d.IsDir() && d.Name() == rootfile.ImportsFileName {
 			dirs = append(dirs, filepath.Dir(path))
 		}
 		return nil
@@ -104,7 +105,7 @@ func generatedDirs(t *testing.T, out string) []string {
 		t.Fatal(err)
 	}
 	if len(dirs) == 0 {
-		t.Fatalf("no %s under %s", engine.ImportsFileName, out)
+		t.Fatalf("no %s under %s", rootfile.ImportsFileName, out)
 	}
 	return dirs
 }
@@ -118,7 +119,7 @@ func configPaths(t *testing.T, dir string) []string {
 		t.Fatal(err)
 	}
 	sort.Strings(paths)
-	return slices.DeleteFunc(paths, func(p string) bool { return filepath.Base(p) == engine.ImportsFileName })
+	return slices.DeleteFunc(paths, func(p string) bool { return filepath.Base(p) == rootfile.ImportsFileName })
 }
 
 // configuration returns the configuration of the root in dir, its files
@@ -337,7 +338,7 @@ func generatedTimes(t *testing.T, out string) map[string]int64 {
 	t.Helper()
 	times := map[string]int64{}
 	for _, dir := range generatedDirs(t, out) {
-		info, err := os.Stat(filepath.Join(dir, engine.ImportsFileName))
+		info, err := os.Stat(filepath.Join(dir, rootfile.ImportsFileName))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -348,7 +349,7 @@ func generatedTimes(t *testing.T, out string) map[string]int64 {
 
 // growingFiles are the files of a root whose blocks an incremental import
 // may add to anywhere, not only after the root's own.
-var growingFiles = []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
+var growingFiles = []string{rootfile.ImportsFileName, rootfile.DataFileName, hclfile.VariablesFileName, rootfile.LocalsFileName}
 
 // addedConfiguration returns, by file, the configuration an incremental
 // import added to the .tf files of the output, from before to after: a new

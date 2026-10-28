@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,7 +15,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -25,12 +23,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// ModulesDirName is the directory of the output that holds generated local
-// modules, next to the roots.
-const ModulesDirName = "modules"
 
 // moduleOutputs are the attributes a generated module outputs for each of
 // its resources, where the resource has them: the ones references between
@@ -104,7 +100,7 @@ type moduleGroup struct {
 // (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
 func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, false, err
 	}
@@ -128,7 +124,7 @@ func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.Provid
 		return nil, false, nil
 	}
 
-	versions, err := moduleVersionsFile(filepath.Join(dir, VersionsFileName))
+	versions, err := moduleVersionsFile(filepath.Join(dir, rootfile.VersionsFileName))
 	if err != nil {
 		return nil, false, err
 	}
@@ -192,7 +188,7 @@ func findClusters(f *hclfile.File) []*cluster {
 		parentType := AddressType(r.Address)
 		used := map[string]bool{"this": true}
 		for _, k := range kids {
-			base := Label(strings.TrimPrefix(AddressType(k.Address), parentType+"_"))
+			base := hclfile.Label(strings.TrimPrefix(AddressType(k.Address), parentType+"_"))
 			slot := base
 			for n := 2; used[slot]; n++ {
 				slot = fmt.Sprintf("%s_%d", base, n)
@@ -239,7 +235,7 @@ func referencedAddresses(body *hclsyntax.Body) []string {
 func collectReferencedAddresses(body *hclsyntax.Body, addresses []string) []string {
 	for _, attr := range body.Attributes {
 		for _, t := range attr.Expr.Variables() {
-			if a := resourceAddress(t); a != "" {
+			if a := hclfile.ResourceAddress(t); a != "" {
 				addresses = append(addresses, a)
 			}
 		}
@@ -248,22 +244,6 @@ func collectReferencedAddresses(body *hclsyntax.Body, addresses []string) []stri
 		addresses = collectReferencedAddresses(b.Body, addresses)
 	}
 	return addresses
-}
-
-// resourceAddress returns the resource a traversal refers to, or "".
-func resourceAddress(t hcl.Traversal) string {
-	switch t.RootName() {
-	case "var", "local", "module", "data", "path", "count", "each", "self", "terraform":
-		return ""
-	}
-	if len(t) < 2 {
-		return ""
-	}
-	step, ok := t[1].(hcl.TraverseAttr)
-	if !ok {
-		return ""
-	}
-	return t.RootName() + "." + step.Name
 }
 
 // buildModule renders the module of a group: the first cluster's resources
@@ -275,7 +255,7 @@ func buildModule(g *moduleGroup, schemas *tfjson.ProviderSchemas) (bool, error) 
 	renamed := make([][]*hclwrite.Block, len(g.clusters))
 	for ci, c := range g.clusters {
 		for i, m := range c.members {
-			block, err := copyBlock(m.Write)
+			block, err := hclfile.CopyBlock(m.Write)
 			if err != nil {
 				return false, err
 			}
@@ -388,7 +368,7 @@ func makeInputs(g *moduleGroup, bodies []*hclwrite.Body, first *cluster, resourc
 		}
 		g.inputs = append(g.inputs, moduleInput{
 			variable:  variable,
-			ty:        attributeTypeOrAny(schemas, resourceType, append(append([]string(nil), schemaPath...), name)),
+			ty:        tfrun.AttributeTypeOrAny(schemas, resourceType, append(append([]string(nil), schemaPath...), name)),
 			what:      fmt.Sprintf("%s of the module's %s", strings.Join(append(append([]string(nil), schemaPath...), name), "."), resourceType),
 			values:    values,
 			sensitive: sensitive,
@@ -461,50 +441,13 @@ func references(tokens hclwrite.Tokens, internal map[string]bool) (inside, outsi
 		return false, true
 	}
 	for _, t := range expr.Variables() {
-		if a := resourceAddress(t); a != "" && internal[a] {
+		if a := hclfile.ResourceAddress(t); a != "" && internal[a] {
 			inside = true
 		} else {
 			outside = true
 		}
 	}
 	return inside, outside
-}
-
-func attributeTypeOrAny(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
-	if ty := tfrun.AttributeType(schemas, resourceType, path); ty != cty.NilType {
-		return ty
-	}
-	return cty.DynamicPseudoType
-}
-
-// copyBlock returns an unattached copy of block, without the comments
-// above it (Terraform's, naming the resource's import ID).
-func copyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
-	src := block.BuildTokens(nil).Bytes()
-	for {
-		trimmed := bytes.TrimLeft(src, " \t\r\n")
-		if !bytes.HasPrefix(trimmed, []byte("#")) && !bytes.HasPrefix(trimmed, []byte("//")) {
-			src = trimmed
-			break
-		}
-		_, rest, found := bytes.Cut(trimmed, []byte("\n"))
-		if !found {
-			src = nil
-			break
-		}
-		src = rest
-	}
-	parsed, diags := hclfile.ParseDiagnostics("", src)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("copy a block: %w", diags)
-	}
-	f := parsed.Edit()
-	if len(f.Body().Blocks()) != 1 {
-		return nil, errors.New("copy a block: not one block")
-	}
-	copied := f.Body().Blocks()[0]
-	f.Body().RemoveBlock(copied)
-	return copied, nil
 }
 
 // prefixRename makes the references that begin with search begin with
@@ -549,8 +492,8 @@ func externalReferencesFollowable(f *hclfile.File, moved map[string]string, grou
 	}
 	for _, r := range f.Resources() {
 		_, isMoved := moved[r.Address]
-		for _, t := range allTraversals(r.Syntax.Body) {
-			target := resourceAddress(t)
+		for _, t := range hclfile.Traversals(r.Syntax.Body) {
+			target := hclfile.ResourceAddress(t)
 			call, ok := moved[target]
 			if !ok || (isMoved && sameCall(moved[r.Address], call)) {
 				continue
@@ -577,17 +520,6 @@ func sameCall(a, b string) bool {
 	return ca == cb
 }
 
-func allTraversals(body *hclsyntax.Body) []hcl.Traversal {
-	var ts []hcl.Traversal
-	for _, attr := range body.Attributes {
-		ts = append(ts, attr.Expr.Variables()...)
-	}
-	for _, b := range body.Blocks {
-		ts = append(ts, allTraversals(b.Body)...)
-	}
-	return ts
-}
-
 // moduleVariablesFile renders a group's variables.tf: a variable per
 // input, sensitive where the input is.
 func moduleVariablesFile(g *moduleGroup) ([]byte, error) {
@@ -598,7 +530,7 @@ func moduleVariablesFile(g *moduleGroup) ([]byte, error) {
 		}
 		body := variables.Body().AppendNewBlock("variable", []string{in.variable}).Body()
 		body.SetAttributeValue("description", cty.StringVal("The "+in.what+"."))
-		tokens, err := optionalTypeTokens(in.ty)
+		tokens, err := hclfile.OptionalTypeTokens(in.ty)
 		if err != nil {
 			return nil, err
 		}
@@ -667,11 +599,11 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 	}
 
 	for name, content := range map[string][]byte{
-		"main.tf":        main,
-		"variables.tf":   g.variables,
-		"outputs.tf":     g.outputsFile,
-		"README.md":      []byte(readme.String()),
-		VersionsFileName: versions,
+		"main.tf":                 main,
+		"variables.tf":            g.variables,
+		"outputs.tf":              g.outputsFile,
+		"README.md":               []byte(readme.String()),
+		rootfile.VersionsFileName: versions,
 	} {
 		if err := os.WriteFile(filepath.Join(path, name), content, 0o644); err != nil {
 			return err
@@ -697,9 +629,9 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 	used := map[string]bool{}
 	for _, g := range groups {
 		for ci, c := range g.clusters {
-			// Named after the parent (see callName); unique across the root's
-			// module calls.
-			base := callName(c.members[0].Address)
+			// Named after the parent (see hclfile.CallName); unique across
+			// the root's module calls.
+			base := hclfile.CallName(c.members[0].Address)
 			call := base
 			for n := 2; used[call]; n++ {
 				call = fmt.Sprintf("%s_%d", base, n)
@@ -717,8 +649,8 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 			callBlock.Body().SetAttributeValue("source", cty.StringVal(localSource(source, g.name)))
 			for _, in := range g.inputs {
 				value := in.values[ci]
-				if hasObjects(in.ty) {
-					value = withoutNullAttributes(value)
+				if hclfile.HasObjects(in.ty) {
+					value = hclfile.WithoutNullAttributes(value)
 				}
 				callBlock.Body().SetAttributeRaw(in.variable, value)
 			}
@@ -741,7 +673,7 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 	if err := generated.Save(); err != nil {
 		return err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return err
 	}
@@ -767,14 +699,14 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.ImportsFileName)
 	if err != nil {
 		return false, err
 	}
 	_, changed, err := modularize(dir, modulesDir, refs, schemas)
 	undo := func() error {
 		// What another root calls stays (see ModuleRefs).
-		return errors.Join(refs.Release(dir), backup.restore())
+		return errors.Join(refs.Release(dir), backup.Restore())
 	}
 	if err != nil {
 		return false, errors.Join(err, undo())
@@ -812,7 +744,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 		}
 		if attr, ok := b.Body.Attributes["required_version"]; ok {
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
-				lower, err := lowerBound(v.AsString())
+				lower, err := rootfile.LowerBound(v.AsString())
 				if err != nil {
 					return nil, fmt.Errorf("%s: required_version: %w", rootVersions, err)
 				}
@@ -839,7 +771,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 					requirement["source"] = v.GetAttr("source")
 				}
 				if v.Type().HasAttribute("version") {
-					lower, err := lowerBound(v.GetAttr("version").AsString())
+					lower, err := rootfile.LowerBound(v.GetAttr("version").AsString())
 					if err != nil {
 						return nil, fmt.Errorf("%s: required_providers.%s: %w", rootVersions, name, err)
 					}
@@ -850,42 +782,6 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 		}
 	}
 	return hclwrite.Format(f.Bytes()), nil
-}
-
-// lowerBound renders a version constraint as its lower bound only, as
-// ">= 6.14": the highest version its =, >=, ~> and > parts require. It
-// fails when the constraint doesn't parse or has no such part.
-func lowerBound(constraint string) (string, error) {
-	cs, err := version.NewConstraint(constraint)
-	if err != nil {
-		return "", err
-	}
-	var bound *version.Version
-	for _, c := range cs {
-		text := strings.TrimSpace(c.String())
-		op := ""
-		for _, candidate := range []string{">=", "<=", "!=", "~>", "=", ">", "<"} {
-			if strings.HasPrefix(text, candidate) {
-				op = candidate
-				break
-			}
-		}
-		switch op {
-		case "<", "<=", "!=":
-			continue
-		}
-		v, err := version.NewVersion(strings.TrimSpace(strings.TrimPrefix(text, op)))
-		if err != nil {
-			return "", err
-		}
-		if bound == nil || v.GreaterThan(bound) {
-			bound = v
-		}
-	}
-	if bound == nil {
-		return "", fmt.Errorf("%q has no lower bound", constraint)
-	}
-	return ">= " + bound.Original(), nil
 }
 
 // aliasedProvider reports whether r uses a configuration of its provider

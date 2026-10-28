@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -31,7 +32,7 @@ import (
 // result is set if nothing is new. On an error, the resources returned
 // are those the error failed: every one of imports until it knows which
 // are new.
-func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import, opts engine.Options, tr terraformRun) ([]engine.Import, *engine.Result, *engine.Result, error) {
+func (r *Run) addToRoot(ctx context.Context, dir string, imports []rootfile.Import, opts engine.Options, tr terraformRun) ([]rootfile.Import, *engine.Result, *engine.Result, error) {
 	out := r.options.Out
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
@@ -49,7 +50,7 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []engine.Import
 		return imports, nil, nil, fmt.Errorf("%s has configuration, but neither its import blocks nor a checkpoint of the import that generated it say which resources it has: pass --managed-state with its state, so that the import leaves them out", dir)
 	}
 	owned := previouslyOwned(previous, opts)
-	var added []engine.Import
+	var added []rootfile.Import
 	for _, imp := range imports {
 		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
@@ -156,7 +157,7 @@ func stagingDir(out, dir string) string {
 // checkpoint records them importing (see previousAddresses): a resource
 // one left out may be generated in another. A checkpoint that can't be
 // read is logged and passed over.
-func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.External]string, error) {
+func heldElsewhere(out string, byDir map[string][]rootfile.Import) (map[engine.External]string, error) {
 	dirs, err := checkpointDirs(out)
 	if err != nil {
 		return nil, err
@@ -214,7 +215,7 @@ func heldElsewhere(out string, byDir map[string][]engine.Import) (map[engine.Ext
 // leaveOutHeld removes from byDir the imports of what another root holds
 // (see heldElsewhere), recording each as excluded, with the root, and
 // drops the roots it leaves with nothing to import.
-func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.External]string) {
+func (r *Run) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) {
 	if len(held) == 0 {
 		return
 	}
@@ -224,7 +225,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]engine.Import, held map[engine.Ext
 	}
 	sort.Strings(dirs)
 	for _, dir := range dirs {
-		var kept []engine.Import
+		var kept []rootfile.Import
 		for _, imp := range byDir[dir] {
 			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Exclude(r.scope, imp.Type, imp.ID, report.InOtherRoot(root))

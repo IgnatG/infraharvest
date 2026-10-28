@@ -6,6 +6,7 @@ package engine
 import (
 	"slices"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -18,7 +19,7 @@ func (r *Result) Blocks() []Managed {
 	var blocks []Managed
 	if len(r.Addresses) > 0 {
 		for _, a := range r.Addresses {
-			blocks = append(blocks, Managed{Type: a.Type, ID: a.ID, Address: RemovedFrom(a.Address)})
+			blocks = append(blocks, Managed{Type: a.Type, ID: a.ID, Address: rootfile.RemovedFrom(a.Address)})
 		}
 		return blocks
 	}
@@ -34,7 +35,7 @@ func (r *Result) Blocks() []Managed {
 // imported after its own resources, at their labels. Its addresses gain
 // them only where r records addresses, as a result without any has only
 // labels (see Blocks). r stays as it is.
-func (r *Result) WithKept(kept []Import) *Result {
+func (r *Result) WithKept(kept []rootfile.Import) *Result {
 	with := *r
 	with.Imported = append(slices.Clone(r.Imported), kept...)
 	if len(r.Addresses) > 0 {

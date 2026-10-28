@@ -14,6 +14,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -24,7 +25,7 @@ import (
 type rootFiles struct {
 	files         map[string][]byte // versions.tf and providers.tf
 	engineVersion string
-	provider      engine.Provider // Version is the constraint
+	provider      rootfile.Provider // Version is the constraint
 	// version is the provider version the constraint pins the release
 	// line of, which decides the catalogue entries that depend on it.
 	version *goversion.Version
@@ -38,7 +39,7 @@ type rootFiles struct {
 
 // rootConfig renders versions.tf and providers.tf for every output
 // directory: required_version from the oldest Terraform release generated
-// configuration works with (engine.MinimumVersion; Generate raises it for
+// configuration works with (rootfile.MinimumVersion; Generate raises it for
 // what a root uses), and the provider pinned to its newest minor release
 // line in registry (the engine's default registry), unless its source names
 // another: the newest release the module versions the import may call
@@ -46,7 +47,7 @@ type rootFiles struct {
 // provider's newest major release line doesn't hold the provider back: it
 // is refused, and the import doesn't call it (see newestMajor). A
 // registryURL replaces the registry, for tests.
-func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+func rootConfig(ctx context.Context, client *http.Client, registry, registryURL, execPath string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 	engineVersion, err := tfrun.BinaryVersion(ctx, execPath)
 	if err != nil {
 		return nil, err
@@ -76,15 +77,15 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 			log.Printf("%s: pinning %s: %s", p.Source, v, held)
 		}
 	}
-	p.Version = engine.ProviderConstraint(chosen)
-	providers, err := engine.ProvidersFile(p)
+	p.Version = rootfile.ProviderConstraint(chosen)
+	providers, err := rootfile.ProvidersFile(p)
 	if err != nil {
 		return nil, err
 	}
 	return &rootFiles{
 		files: map[string][]byte{
-			engine.VersionsFileName:  engine.VersionsFile(engine.RequiredVersion(engine.MinimumVersion()), p),
-			engine.ProvidersFileName: providers,
+			rootfile.VersionsFileName:  rootfile.VersionsFile(rootfile.RequiredVersion(rootfile.MinimumVersion()), p),
+			rootfile.ProvidersFileName: providers,
 		},
 		engineVersion: engineVersion.String(),
 		provider:      p,
@@ -109,7 +110,7 @@ func writeGitignore(outputDir string) error {
 }
 
 // engineProvider describes the provider for the generated configuration.
-func engineProvider(provider harvest.Provider) engine.Provider {
+func engineProvider(provider harvest.Provider) rootfile.Provider {
 	name := provider.Name()
 	source := provider.Profile().Source
 	if source == "" {
@@ -119,7 +120,7 @@ func engineProvider(provider harvest.Provider) engine.Provider {
 	if providers, ok := provider.ProviderBlock()["provider"].(map[string]interface{}); ok {
 		config, _ = providers[name].(map[string]interface{})
 	}
-	return engine.Provider{Name: name, Source: source, Config: config}
+	return rootfile.Provider{Name: name, Source: source, Config: config}
 }
 
 // qualifiedSource adds registry to a provider source without a host:

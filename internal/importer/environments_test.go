@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -90,7 +91,7 @@ func TestEnvironments(t *testing.T) {
 // Each root's resources in other roots are external to it, those a data
 // source can read.
 func TestOtherRoots(t *testing.T) {
-	byDir := map[string][]engine.Import{
+	byDir := map[string][]rootfile.Import{
 		"envs/prod":    {{Type: "aws_s3_bucket", ID: "logs-prod"}},
 		"envs/staging": {{Type: "aws_s3_bucket", ID: "logs-staging"}, {Type: "aws_sqs_queue", ID: "https://sqs/jobs"}, {Type: "aws_s3_bucket_versioning", ID: "logs-staging"}},
 	}
@@ -118,7 +119,7 @@ func TestOtherRoots(t *testing.T) {
 	if len(opts.External) != 1 {
 		t.Error("opts changed")
 	}
-	if one := newOtherRoots(opts, map[string][]engine.Import{"a": nil}, "").of("a"); len(one.External) != 1 {
+	if one := newOtherRoots(opts, map[string][]rootfile.Import{"a": nil}, "").of("a"); len(one.External) != 1 {
 		t.Errorf("one root: %v", one.External)
 	}
 }

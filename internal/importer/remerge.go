@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -56,7 +58,7 @@ func (c *listedCall) recordAdded(dir, fp string, holds *engine.Result, opts engi
 // mergeStack merges members, the roots of the stack whose merged root is
 // stack, of two environments or more, recording the outcome in the
 // report: into the merged root, checked once per environment (see
-// engine.MergeRoots). A stack whose members are as they were when it
+// envmerge.MergeRoots). A stack whose members are as they were when it
 // merged, as with --resume, keeps its merged root, or its separate
 // roots, without planning again. A stack
 // merged before is merged again from its members' set-aside roots, with
@@ -134,15 +136,15 @@ type stackMerge struct {
 	// blocks of its moves.tf, while it is there: those of an earlier merge
 	// with --regenerate, not yet applied and deleted.
 	backup      *treeBackup
-	kept        []engine.Move
-	keptRemoved []engine.Removal
+	kept        []rootfile.Move
+	keptRemoved []rootfile.Removal
 	// result is what the merge did, and imports what the merged root
 	// imports, by environment, then address.
-	result  *engine.MergeResult
+	result  *envmerge.MergeResult
 	imports map[string]map[string]string
 	// removed are what the merged root hands over to other roots (see
 	// planMergedHandovers), and incomplete the handovers it can't finish.
-	removed    []engine.Removal
+	removed    []rootfile.Removal
 	incomplete []report.IncompleteHandover
 }
 
@@ -289,10 +291,10 @@ func (s *stackMerge) clearPrevious() error {
 		return err
 	}
 	s.backup = b
-	if s.kept, err = engine.ReadMoves(s.stack); err != nil {
+	if s.kept, err = rootfile.ReadMoves(s.stack); err != nil {
 		return err
 	}
-	if s.keptRemoved, err = engine.ReadRemoved(s.stack); err != nil {
+	if s.keptRemoved, err = rootfile.ReadRemoved(s.stack); err != nil {
 		return err
 	}
 	for _, name := range s.prev.Files {
@@ -323,7 +325,7 @@ func (s *stackMerge) restorePrevious() error {
 func (s *stackMerge) mergeRoots(ctx context.Context) error {
 	r, prev := s.run, s.prev
 	log.Printf("merging the roots of %s into %s", strings.Join(s.envs, ", "), s.merge.Path)
-	roots := make([]engine.MergeRoot, len(s.members))
+	roots := make([]envmerge.MergeRoot, len(s.members))
 	for i, m := range s.members {
 		root, err := s.mergeRoot(ctx, m)
 		if err != nil {
@@ -334,7 +336,7 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 	// A restored member has no engine options or profile of its own.
 	imported := s.members[slices.IndexFunc(s.members, func(m mergeMember) bool { return !m.restored })]
 	opts := imported.opts
-	mergeOptions := engine.MergeOptions{Profile: imported.profile, Omit: opts.Omit, StateOnly: opts.StateOnly, Scanners: opts.Scanners, ScannerSlots: opts.ScannerSlots, Adapters: opts.Adapters, CommandTimeout: opts.CommandTimeout}
+	mergeOptions := envmerge.MergeOptions{Profile: imported.profile, Gate: engine.FullGate(opts), StateOnly: opts.StateOnly, CommandTimeout: opts.CommandTimeout}
 	result, err := r.tools.mergeRoots(ctx, s.stack, roots, mergeOptions)
 	// What the merged root matched across environments isn't kept apart:
 	// it would get another address all the same.
@@ -367,11 +369,11 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 // mergeRoot sets m's root aside, unless it is already, and returns it as
 // the merge takes it, with how to run Terraform in it, unless it was
 // restored, unplanned.
-func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (engine.MergeRoot, error) {
+func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (envmerge.MergeRoot, error) {
 	premerge := premergeDir(s.out, m.dir)
 	if !m.premerged {
 		if err := copyRoot(m.dir, premerge); err != nil {
-			return engine.MergeRoot{}, err
+			return envmerge.MergeRoot{}, err
 		}
 	}
 	var runner func(string) (tfrun.Terraform, error)
@@ -379,12 +381,12 @@ func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (engine.Merge
 		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
 		var err error
 		if tr.env, err = terraformEnv(ctx, m.provider); err != nil {
-			return engine.MergeRoot{}, err
+			return envmerge.MergeRoot{}, err
 		}
 		tr.freshEnv = freshTerraformEnv(m.provider)
 		runner = tr.in
 	}
-	return engine.MergeRoot{
+	return envmerge.MergeRoot{
 		Env:       m.env,
 		Tokens:    m.tokens,
 		Scope:     m.account,
@@ -407,7 +409,7 @@ func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (engine.Merge
 // for it, with the label it has there, but for shared, the addresses it
 // matched across environments (see movedApart). It reports whether it
 // kept any apart, so that the stack merges again.
-func (s *stackMerge) keepApart(roots []engine.MergeRoot, result *engine.MergeResult, shared map[string]bool) bool {
+func (s *stackMerge) keepApart(roots []envmerge.MergeRoot, result *envmerge.MergeResult, shared map[string]bool) bool {
 	members := s.members
 	now := map[string]map[string]string{}
 	for _, env := range result.Environments {
@@ -542,7 +544,7 @@ func (r *Run) restoredMembers(stack string, prev *mergeCheckpoint, missing []str
 		if err != nil || result == nil {
 			return nil, "the root of " + pm.Env + " has no checkpoint"
 		}
-		provider, err := engine.RootProvider(premergeDir(out, dir), present[0].engineProvider.Name)
+		provider, err := rootfile.ReadProvider(premergeDir(out, dir), present[0].engineProvider.Name)
 		if err != nil {
 			return nil, err.Error()
 		}
@@ -711,7 +713,7 @@ func keptAsMerged(stack string, prev *mergeCheckpoint, members []mergeMember) bo
 		return true
 	}
 	for _, name := range prev.Files {
-		if name == engine.MovesFileName {
+		if name == rootfile.MovesFileName {
 			continue // deleted once applied, as the README says
 		}
 		if _, err := os.Stat(filepath.Join(stack, filepath.FromSlash(name))); err != nil {
@@ -750,13 +752,13 @@ func readdressed(before, now map[string]map[string]string) []string {
 // can't take out of a module package; or one that moves in some
 // environments and stays in others, as the environments share the merged
 // root's code, so a moved block moves it in every environment's state.
-func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) ([]engine.Move, string) {
+func mergedMoves(before, now map[string]map[string]string, kept []rootfile.Move) ([]rootfile.Move, string) {
 	to := map[string]string{}
 	// The environment each address moves in, and one it stays in.
 	movedIn, staysIn := map[string]string{}, map[string]string{}
 	for _, m := range kept {
 		to[m.From] = m.To
-		movedIn[m.From] = engine.MovesFileName
+		movedIn[m.From] = rootfile.MovesFileName
 	}
 	moves := slices.Clone(kept)
 	for _, env := range slices.Sorted(maps.Keys(before)) {
@@ -788,7 +790,7 @@ func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) (
 				continue
 			}
 			to[address] = after
-			moves = append(moves, engine.Move{From: address, To: after})
+			moves = append(moves, rootfile.Move{From: address, To: after})
 		}
 	}
 	for _, m := range moves {
@@ -810,7 +812,7 @@ func mergedMoves(before, now map[string]map[string]string, kept []engine.Move) (
 // there, or the moves check of them fails. With them go removed, the
 // removed blocks of what it hands over to other roots (see
 // mergedHandovers), and those of its moves.tf from before.
-func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now map[string]map[string]string, kept []engine.Move, removed []engine.Removal) (string, error) {
+func (r *Run) moveMerged(stack string, result *envmerge.MergeResult, before, now map[string]map[string]string, kept []rootfile.Move, removed []rootfile.Removal) (string, error) {
 	moved := readdressed(before, now)
 	if len(moved) > 0 && !r.options.Regenerate {
 		return "merging it again would give what the merged root has other addresses: " + strings.Join(moved, "; "), nil
@@ -822,7 +824,7 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 	if len(moves) == 0 && len(removed) == 0 {
 		return "", nil
 	}
-	result.Files = append(result.Files, engine.MovesFileName)
+	result.Files = append(result.Files, rootfile.MovesFileName)
 	sort.Strings(result.Files)
 	check, err := r.tools.writeMergedMoves(stack, moves, removed)
 	if err != nil {
@@ -832,12 +834,12 @@ func (r *Run) moveMerged(stack string, result *engine.MergeResult, before, now m
 		return "merging it again would give what the merged root has other addresses, or hand it over to other roots, and the moved and removed blocks fail the moves check: " + strings.Join(check.Details, "; "), nil
 	}
 	if len(moved) > 0 {
-		log.Printf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(r.options.Out, stack), engine.MovesFileName, strings.Join(moved, "; "))
+		log.Printf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(r.options.Out, stack), rootfile.MovesFileName, strings.Join(moved, "; "))
 	}
 	return "", nil
 }
 
-// clearMerged removes files, those engine.MergeRoots wrote in stack, with
+// clearMerged removes files, those envmerge.MergeRoots wrote in stack, with
 // Terraform's working directory, and the directories they leave empty.
 func clearMerged(stack string, files []string) error {
 	for _, name := range files {
@@ -855,7 +857,7 @@ func clearMerged(stack string, files []string) error {
 // address there, as imports, the import IDs of each environment's
 // resources in it by address, has it. It returns them, by environment,
 // with their addresses in the merged root.
-func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports map[string]map[string]string) map[string][]engine.Import {
+func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports map[string]map[string]string) map[string][]rootfile.Import {
 	envOf := map[string]string{}
 	for _, m := range members {
 		envOf[relativePath(r.options.Out, m.dir)] = m.env
@@ -866,7 +868,7 @@ func (r *Run) readdressNotInCloud(path string, members []mergeMember, imports ma
 // goneFrom returns the addresses of the resources of the root in dir an
 // incremental import found no longer in the cloud (see addToRoot), sorted:
 // merged again, its stack keeps them as the root has them, and plans
-// without importing them (see engine.MergeRoot.Gone).
+// without importing them (see envmerge.MergeRoot.Gone).
 func (r *Run) goneFrom(dir string) []string {
 	return r.report.NotInCloudAt(relativePath(r.options.Out, dir))
 }
@@ -935,7 +937,7 @@ func (b *treeBackup) restore() error {
 // in, for the merged roots that still have configuration but those of
 // whose roots byDir has one: as heldElsewhere does for roots, a resource
 // goes into one root only.
-func mergedHolds(out string, byDir map[string][]engine.Import) (map[engine.External]string, error) {
+func mergedHolds(out string, byDir map[string][]rootfile.Import) (map[engine.External]string, error) {
 	base := filepath.Join(out, CheckpointDir, "merge")
 	held := map[engine.External]string{}
 	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {

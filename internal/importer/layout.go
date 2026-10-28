@@ -18,7 +18,7 @@ import (
 var camelWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
 // configFile names the file of a root that a resource listed by service
-// goes in (see engine.Import.File), as the provider's profile lays out
+// goes in (see rootfile.Import.File), as the provider's profile lays out
 // its resources: network.tf for the network, else the service's, such as
 // s3.tf or scheduler_jobs.tf. For a service whose name says nothing of a
 // resource, one that lists through an inventory API (see

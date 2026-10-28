@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -29,7 +30,7 @@ func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []
 	if err != nil || len(defaults) == 0 {
 		return false, err
 	}
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -73,7 +74,7 @@ func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []
 // the provider blocks in providers.tf set to a string, but for aliased
 // blocks.
 func providerValues(dir string, names []string) (map[string]map[string]string, error) {
-	providers, err := hclfile.Load(filepath.Join(dir, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

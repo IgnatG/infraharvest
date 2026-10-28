@@ -19,7 +19,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -150,7 +150,7 @@ func checkQueryRoundTrip(ctx context.Context, t *testing.T, q queryRoundTrip) {
 // id.
 func checkIdentityImport(t *testing.T, dir string, q queryRoundTrip) {
 	t.Helper()
-	path := filepath.Join(dir, engine.ImportsFileName)
+	path := filepath.Join(dir, rootfile.ImportsFileName)
 	parsed, diags := hclsyntax.ParseConfig([]byte(readFile(t, path)), path, hcl.InitialPos)
 	if diags.HasErrors() {
 		t.Fatal(diags)

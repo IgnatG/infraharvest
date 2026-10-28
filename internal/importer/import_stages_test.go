@@ -17,6 +17,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
@@ -119,7 +121,7 @@ func TestListCallKeepsTheLayoutAsGiven(t *testing.T) {
 // otherwise.
 func TestToolchainFollowsTheModulesMode(t *testing.T) {
 	out := "out"
-	local := filepath.Join(out, engine.ModulesDirName)
+	local := filepath.Join(out, hclfile.ModulesDirName)
 	for _, tc := range []struct {
 		name       string
 		options    Options
@@ -158,7 +160,7 @@ func TestEngineOptionsOfTheStages(t *testing.T) {
 	v := goversion.Must(goversion.NewVersion("6.0.0"))
 	c := &callContext{options: Options{IncludeOwned: true, EngineTimeout: time.Minute}, cat: cat, importID: listerID}
 	external := []engine.External{{Type: "aws_vpc", ID: "vpc-1"}}
-	files := map[string][]byte{engine.VersionsFileName: []byte("terraform {}\n")}
+	files := map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")}
 	own := []adapters.Adapter{{Source: "/modules/bucket"}}
 	tools := &toolchain{root: &rootFiles{files: files, version: v}, adapters: own, modulesDir: "modules"}
 
@@ -189,11 +191,11 @@ func TestPlaceWritesWholeImportsIntoEachRoot(t *testing.T) {
 	layout := callLayout{pattern: "{out}/{provider}/{env}/", root: "{out}/{provider}/{env}/"}
 	resources := callResources{byService: map[string][]harvest.Resource{"ec2_instance": {prod, dev}}}
 
-	p, err := NewRun().place(t.Context(), &rootsProvider{}, c, layout, listed, resources, map[string]engine.Provider{"aws": {Name: "aws"}})
+	p, err := NewRun().place(t.Context(), &rootsProvider{}, c, layout, listed, resources, map[string]rootfile.Provider{"aws": {Name: "aws"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string][]engine.Import{
+	want := map[string][]rootfile.Import{
 		filepath.Join("out", "fake", "prod"): {{Type: "aws_instance", Name: "app", File: "ec2_instance.tf", ID: "i-1", Omit: []string{"cpu_options"}}},
 		filepath.Join("out", "fake", "dev"):  {{Type: "aws_instance", Name: "db", File: "ec2_instance.tf", ID: "i-2"}},
 	}
@@ -223,7 +225,7 @@ func TestPlaceWarnsOfUnreadEnvTags(t *testing.T) {
 			layout := callLayout{pattern: tc.root, root: tc.root}
 			resources := callResources{byService: map[string][]harvest.Resource{harvest.QueryService: {queried}}}
 			run := NewRun()
-			if _, err := run.place(t.Context(), &rootsProvider{}, c, layout, listing{}, resources, map[string]engine.Provider{"aws": {Name: "aws"}}); err != nil {
+			if _, err := run.place(t.Context(), &rootsProvider{}, c, layout, listing{}, resources, map[string]rootfile.Provider{"aws": {Name: "aws"}}); err != nil {
 				t.Fatal(err)
 			}
 			got := strings.Join(run.report.Warnings, "\n")

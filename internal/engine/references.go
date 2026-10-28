@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // referenceTarget is a resource attribute a literal can refer to instead.
@@ -76,7 +77,7 @@ func (t referenceTarget) node() string {
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see verifyEach). It returns the resources it changed.
 func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -439,7 +440,7 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		}
 		if tmpl, ok := item.ValueExpr.(*hclsyntax.TemplateExpr); ok {
 			if v, ok := hclfile.LiteralString(tmpl); ok {
-				if tokens, ok := target(keyName(item.KeyExpr), v); ok {
+				if tokens, ok := target(hclfile.KeyName(item.KeyExpr), v); ok {
 					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: tokens})
 					replaced = true
 					continue
@@ -456,18 +457,6 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		return nil, false
 	}
 	return hclwrite.TokensForObject(attrs), true
-}
-
-// keyName returns an object key as written: an identifier, or a string.
-func keyName(expr hclsyntax.Expression) string {
-	if name := hcl.ExprAsKeyword(expr); name != "" {
-		return name
-	}
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
-		return ""
-	}
-	return v.AsString()
 }
 
 // dependencies are the references between resources, from referrer to

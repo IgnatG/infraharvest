@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // RootResource is a resource another root of the same import manages.
@@ -126,7 +127,7 @@ func rootLookup(v rootValue) (lookup, bool) {
 	if name == "" {
 		name = found.Label
 	}
-	return lookup{typ: found.Type, name: Label(name), args: found.Arguments, attribute: found.Attribute}, true
+	return lookup{typ: found.Type, name: hclfile.Label(name), args: found.Arguments, attribute: found.Attribute}, true
 }
 
 // byARN returns the resources whose ARN value is: by the catalogue's ARN
@@ -210,11 +211,11 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return a.Type+"\x00"+a.Name+"\x00"+a.ID < b.Type+"\x00"+b.Name+"\x00"+b.ID
 	})
 	values := newRootValues(others, arns)
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, VariablesFileName)
+	path := filepath.Join(dir, hclfile.VariablesFileName)
 	variables, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return nil, err
@@ -243,7 +244,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		if label == "" {
 			label = v.resource.ID
 		}
-		label = Label(label)
+		label = hclfile.Label(label)
 		if word := v.resource.Type[strings.LastIndex(v.resource.Type, "_")+1:]; !slices.Contains(strings.Split(label, "_"), word) && !strings.HasPrefix(v.attribute, word+"_") {
 			label += "_" + word
 		}

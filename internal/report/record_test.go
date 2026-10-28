@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -68,7 +69,7 @@ func TestExclude(t *testing.T) {
 func TestAddDirectoryAddresses(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
-	imported := []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "web", ID: "web"}}
+	imported := []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "web", ID: "web"}}
 	r.AddDirectory("aws", "aws/1/global", &engine.Result{Imported: imported, Addresses: []engine.Managed{
 		{Type: "aws_iam_role", ID: "app", Address: "module.app.aws_iam_role.this"},
 		{Type: "aws_iam_role", ID: "web", Address: "aws_iam_role.web"},
@@ -92,7 +93,7 @@ func TestAddDirectoryOutcome(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
 	r.AddDirectory("aws", "", &engine.Result{
-		Imported: []engine.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"}},
+		Imported: []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"}},
 		Rejected: []engine.Rejection{{Address: "aws_lb.web", ID: "arn:lb", Errors: []string{"invalid"}}},
 		Modules:  []engine.ModuleCall{{Name: "jobs", Source: "terraform-aws-modules/sqs/aws", Version: "5.0.0", Resources: []string{"aws_sqs_queue.jobs"}}},
 		Secrets:  []secret.Variable{{Variable: "token", Address: "aws_ssm_parameter.token", Attribute: "value"}},
@@ -120,13 +121,13 @@ func TestAddDirectoryMoves(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
 	r.AddDirectory("aws/eu-west-2", "", &engine.Result{
-		Moves: []engine.Move{{From: "aws_s3_bucket.logs", To: `module.logs["a.b"].aws_s3_bucket.this`}},
-		Removed: []engine.Removal{{Resources: []engine.Departure{
+		Moves: []rootfile.Move{{From: "aws_s3_bucket.logs", To: `module.logs["a.b"].aws_s3_bucket.this`}},
+		Removed: []rootfile.Removal{{Resources: []rootfile.Departure{
 			{Type: "aws_sqs_queue", ID: "q1", Address: "aws_sqs_queue.jobs", Root: "aws/global"},
 		}}},
 	})
 	r.AddDirectory("aws/global", "", &engine.Result{
-		Arrived: []engine.Arrival{{Type: "aws_sqs_queue", ID: "q1", Root: "aws/eu-west-2", From: "aws_sqs_queue.jobs", To: "aws_sqs_queue.orders"}},
+		Arrived: []rootfile.Arrival{{Type: "aws_sqs_queue", ID: "q1", Root: "aws/eu-west-2", From: "aws_sqs_queue.jobs", To: "aws_sqs_queue.orders"}},
 	})
 	r.Finish(nil, nil, false)
 	if len(r.Moved) != 1 || r.Moved[0].Type != "aws_s3_bucket" {
@@ -145,7 +146,7 @@ func TestAddMergedMoves(t *testing.T) {
 	r := &Report{}
 	before := map[string]map[string]string{"dev": {"aws_sqs_queue.a": "q1", "aws_sqs_queue.b": "q2"}}
 	now := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.b": "q2"}}
-	removed := []engine.Removal{{Resources: []engine.Departure{{Type: "aws_sqs_queue", ID: "q3", Address: "aws_sqs_queue.c", Root: "aws/dev"}}}}
+	removed := []rootfile.Removal{{Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q3", Address: "aws_sqs_queue.c", Root: "aws/dev"}}}}
 	r.AddMergedMoves("aws", before, now, removed)
 	if want := []Move{{Type: "aws_sqs_queue", ID: "q1", FromRoot: "aws", From: "aws_sqs_queue.a", ToRoot: "aws", To: "aws_sqs_queue.orders"}}; !reflect.DeepEqual(r.Moved, want) {
 		t.Errorf("moved %+v, want %+v", r.Moved, want)
@@ -160,12 +161,12 @@ func TestAddMergedMoves(t *testing.T) {
 func TestReaddressNotInCloud(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
-	r.AddNotInCloud("aws/dev", "aws/1/eu-west-2", []engine.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}, {Type: "aws_sqs_queue", Name: "audit", ID: "q3"}})
+	r.AddNotInCloud("aws/dev", "aws/1/eu-west-2", []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}, {Type: "aws_sqs_queue", Name: "audit", ID: "q3"}})
 	if got := r.NotInCloudAt("aws/dev"); !reflect.DeepEqual(got, []string{"aws_sqs_queue.audit", "aws_sqs_queue.orders"}) {
 		t.Errorf("gone %v", got)
 	}
 	gone := r.ReaddressNotInCloud("aws", map[string]string{"aws/dev": "dev"}, map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "Q1", "aws_sqs_queue.audit[0]": "q3"}})
-	if want := map[string][]engine.Import{"dev": {{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}, {Type: "aws_sqs_queue", Name: "audit[0]", ID: "q3"}}}; !reflect.DeepEqual(gone, want) {
+	if want := map[string][]rootfile.Import{"dev": {{Type: "aws_sqs_queue", Name: "orders", ID: "q1"}, {Type: "aws_sqs_queue", Name: "audit[0]", ID: "q3"}}}; !reflect.DeepEqual(gone, want) {
 		t.Errorf("readdressed %+v, want %+v", gone, want)
 	}
 	if got := r.NotInCloudAt("aws/dev"); len(got) != 0 {

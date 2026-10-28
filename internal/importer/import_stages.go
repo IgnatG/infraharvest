@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
@@ -38,7 +39,7 @@ type listedCall struct {
 	// what is gone (see listedInScope); only for --incremental.
 	here *listedHere
 	// byDir are the imports of each root the call generates.
-	byDir map[string][]engine.Import
+	byDir map[string][]rootfile.Import
 	// places are where each root of one of the configuration file's
 	// environments goes when its stack merges (see mergePlaces), and
 	// region is the scope's region.
@@ -376,7 +377,7 @@ func (r *Run) moduleReleases(ctx context.Context, source string) ([]engine.Modul
 // the roots import with: it resolves the pin first, from the modules of
 // what the call's other services listed, and the toolchain then takes
 // it as it is.
-func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 	c.root.once.Do(func() {
 		c.root.files, c.root.err = r.tools.root(ctx, registry, execPath, p, constraints)
 	})
@@ -406,10 +407,10 @@ func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t 
 	}
 	opts.Inherited = profile.InheritedArguments
 	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
-		opts.ModuleProviders = map[string]engine.Provider{}
+		opts.ModuleProviders = map[string]rootfile.Provider{}
 		for name, p := range withModuleProviders.ModuleProviders() {
 			if name != provider.Name() {
-				opts.ModuleProviders[name] = engine.Provider{Name: name, Source: p.Source, Config: p.Config}
+				opts.ModuleProviders[name] = rootfile.Provider{Name: name, Source: p.Source, Config: p.Config}
 			}
 		}
 	}
@@ -428,7 +429,7 @@ type callResources struct {
 type placement struct {
 	// byDir are the imports of each root, and skipped counts by type the
 	// resources Terraform can't import.
-	byDir   map[string][]engine.Import
+	byDir   map[string][]rootfile.Import
 	skipped map[string]int
 	// kept are, with the configuration file's environments, the roots an
 	// earlier import generated without them, which keep their resources
@@ -444,7 +445,7 @@ type placement struct {
 // that keep theirs; its import block (see importsByDir), which leaves
 // out the provider where its type implies one of configured; and where
 // each root goes when its stack merges.
-func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callContext, layout callLayout, listed listing, resources callResources, configured map[string]engine.Provider) (*placement, error) {
+func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callContext, layout callLayout, listed listing, resources callResources, configured map[string]rootfile.Provider) (*placement, error) {
 	options := c.options
 	unplaced := func(harvest.Resource) string { return "" }
 	byEnvTags := func(pattern string) func(harvest.Resource) string {

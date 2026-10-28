@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -259,7 +260,7 @@ func conflictDiagnostics(syntax *hclsyntax.Body, h schemaHints, filename string)
 func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, filename string) []tfjson.Diagnostic {
 	set := func(name string) bool {
 		if attr, ok := body.Attributes[name]; ok {
-			return !isNullLiteral(attr.Expr)
+			return !hclfile.IsNullLiteral(attr.Expr)
 		}
 		for _, b := range body.Blocks {
 			if b.Type == name {
@@ -282,7 +283,7 @@ func bodyConflicts(body *hclsyntax.Body, r *schemameta.Resource, filename string
 	for _, name := range names {
 		attr := body.Attributes[name]
 		a := r.Arguments[name]
-		if a == nil || isNullLiteral(attr.Expr) {
+		if a == nil || hclfile.IsNullLiteral(attr.Expr) {
 			continue
 		}
 		at := func(detail string) {

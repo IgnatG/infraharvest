@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // moduleTarget is a type whose resources module calls name by an
@@ -37,7 +38,7 @@ type moduleTarget struct {
 // same value, such as a bucket's name, isn't the project. It reports
 // whether it changed generated.tf.
 func referModulesToResources(dir string) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}

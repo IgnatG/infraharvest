@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -32,9 +32,9 @@ func saved(t *testing.T, f *driftpolicy.Decisions) *driftpolicy.Decisions {
 func TestDecisionPrecedence(t *testing.T) {
 	t.Parallel()
 	const root = "aws/1/eu-west-2"
-	env := report.DriftChange{Root: root, Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: engine.DriftChanged}
-	owner := report.DriftChange{Root: root, Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Owner", Before: "a", After: "b", Kind: engine.DriftChanged}
-	cidr := report.DriftChange{Root: root, Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "ingress[0].cidr_blocks", Before: []any{"10.0.0.0/8"}, After: []any{"0.0.0.0/0"}, Kind: engine.DriftChanged}
+	env := report.DriftChange{Root: root, Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Env", Before: "prod", After: "dev", Kind: drift.Changed}
+	owner := report.DriftChange{Root: root, Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Attribute: "tags.Owner", Before: "a", After: "b", Kind: drift.Changed}
+	cidr := report.DriftChange{Root: root, Address: "aws_security_group.web", Type: "aws_security_group", Attribute: "ingress[0].cidr_blocks", Before: []any{"10.0.0.0/8"}, After: []any{"0.0.0.0/0"}, Kind: drift.Changed}
 	file := func(defaults string, entries ...driftpolicy.Entry) *driftpolicy.Decisions {
 		rules := []driftpolicy.DecisionRule{{Accept: &driftpolicy.Match{Attribute: []string{"tags.*"}}}, {Keep: &driftpolicy.Match{Attribute: []string{"tags.Owner"}, Type: []string{"aws_s3_*"}}}}
 		return saved(t, &driftpolicy.Decisions{Version: 1, Defaults: driftpolicy.Defaults{Decision: defaults}, Rules: rules, Changes: entries})

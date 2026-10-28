@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -61,7 +63,7 @@ func importInto(ctx context.Context, run *Run, provider harvest.Provider, option
 // otherRoots): it decides what to do with each root (see decideRoot),
 // then does it (see applyRoot). It returns an error only if the import
 // couldn't run; what couldn't be imported goes into the run.
-func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Import) error {
+func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.Import) error {
 	run := c.run
 	// What the call records is counted in its own scope, and what its
 	// roots have is looked for in what it listed.
@@ -106,7 +108,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]engine.Imp
 // untemplated says the root's stack template is left out as its stack's
 // merge is to take it. It returns an error only if the import can't go
 // on.
-func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]engine.Import, untemplated bool) error {
+func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]rootfile.Import, untemplated bool) error {
 	run, out := c.run, c.options.Out
 	if d.restore {
 		if err := copyRoot(premergeDir(out, dir), dir); err != nil {
@@ -199,7 +201,7 @@ func (c *listedCall) addTo(ctx context.Context, dir, fp string, d rootDecision, 
 // result, or why the root failed; fatal is set only if the import can't
 // go on. A root that hands every resource it had over to other roots
 // keeps only the removed blocks that do (see engine.Vacate).
-func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]engine.Import, untemplated bool) (result *engine.Result, err, fatal error) {
+func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]rootfile.Import, untemplated bool) (result *engine.Result, err, fatal error) {
 	run, options, imports := c.run, c.options, c.byDir[dir]
 	tr, err := c.terraformRun(ctx)
 	if err != nil {
@@ -267,7 +269,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 }
 
 // addDirectory records what Generate did in dir, or err if it failed.
-func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.Result, err error) {
+func (r *Run) addDirectory(dir string, imports []rootfile.Import, result *engine.Result, err error) {
 	path := relativePath(r.options.Out, dir)
 	if err != nil {
 		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
@@ -279,7 +281,7 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 	}
 	r.report.AddDirectory(path, r.scope, result)
 	for _, rej := range result.Rejected {
-		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, engine.RejectedFileName, strings.Join(rej.Errors, "; ")))
+		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, rootfile.RejectedFileName, strings.Join(rej.Errors, "; ")))
 	}
 	for _, o := range result.Owned {
 		r.report.Exclude(r.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
@@ -293,16 +295,16 @@ func (r *Run) addDirectory(dir string, imports []engine.Import, result *engine.R
 		}
 	}
 	if len(result.Secrets) > 0 {
-		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), engine.VariablesFileName)
+		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), hclfile.VariablesFileName)
 	}
 	if len(result.Moves) > 0 {
-		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), engine.MovesFileName)
+		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), rootfile.MovesFileName)
 	}
 	if len(result.Removed) > 0 {
-		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), engine.MovesFileName)
+		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), rootfile.MovesFileName)
 	}
 	if len(result.Retyped) > 0 {
-		log.Printf("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), engine.MovesFileName)
+		log.Printf("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), rootfile.MovesFileName)
 	}
 	if len(result.Arrived) > 0 {
 		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))

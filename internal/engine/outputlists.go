@@ -16,6 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -69,7 +70,7 @@ func outputLists(trials []*trial) map[string]int {
 // catalogue.BlocksAsList) become the argument that takes them. It reports
 // whether it changed anything.
 func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -242,9 +243,9 @@ type checkpoint struct {
 	PendingFiles []string         `json:"pending_files,omitempty"`
 	// PendingMoves are the moved blocks the root's moves.tf had then,
 	// which the run removed with the rest.
-	PendingMoves []engine.Move `json:"pending_moves,omitempty"`
+	PendingMoves []rootfile.Move `json:"pending_moves,omitempty"`
 	// PendingRemoved are the removed blocks it had then.
-	PendingRemoved []engine.Removal `json:"pending_removed,omitempty"`
+	PendingRemoved []rootfile.Removal `json:"pending_removed,omitempty"`
 }
 
 // checkpointsDir holds, under out, the checkpoints of the roots, each at
@@ -418,7 +419,7 @@ func unfinishedRoot(out, dir string) (bool, error) {
 // stack's merge set aside (see premergeDir): its files are there, and dir
 // has no configuration of its own.
 func premerged(out, dir string) (bool, error) {
-	set, err := fileExists(filepath.Join(premergeDir(out, dir), engine.VersionsFileName))
+	set, err := fileExists(filepath.Join(premergeDir(out, dir), rootfile.VersionsFileName))
 	if err != nil || !set {
 		return false, err
 	}

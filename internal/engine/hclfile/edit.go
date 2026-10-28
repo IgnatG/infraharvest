@@ -3,7 +3,12 @@
 
 package hclfile
 
-import "slices"
+import (
+	"bytes"
+	"slices"
+
+	"github.com/hashicorp/hcl/v2/hclwrite"
+)
 
 // Edit replaces the bytes from Start to End of File, relative to
 // the root, with Text.
@@ -35,4 +40,46 @@ func AppendEdit(f *File, name string, text []byte, blank bool) Edit {
 		}
 	}
 	return Edit{File: name, Start: len(src), End: len(src), Text: slices.Concat(before, text)}
+}
+
+// DropBackend returns src, a configuration file, without the backend and
+// cloud blocks of its terraform blocks, cut out of it, with their lines
+// where nothing else is on them: the rest stays byte for byte, so that the
+// format check finds what it would in the root, but where src was
+// formatted, which it stays. It returns src as it is where it has none,
+// or doesn't parse.
+func DropBackend(src []byte) []byte {
+	f, err := Parse("", src)
+	if err != nil {
+		return src
+	}
+	var cuts [][2]int
+	for _, b := range f.Syntax.Blocks {
+		if b.Type != "terraform" {
+			continue
+		}
+		for _, inner := range b.Body.Blocks {
+			if inner.Type != "backend" && inner.Type != "cloud" {
+				continue
+			}
+			rng := inner.Range()
+			start, end := rng.Start.Byte, rng.End.Byte
+			if ls, le := LineStart(src, start), LineEnd(src, end); len(bytes.TrimSpace(src[ls:start])) == 0 && len(bytes.TrimSpace(src[end:le])) == 0 {
+				start, end = ls, le
+			}
+			cuts = append(cuts, [2]int{start, end})
+		}
+	}
+	if len(cuts) == 0 {
+		return src
+	}
+	formatted := bytes.Equal(hclwrite.Format(src), src)
+	out := slices.Clone(src)
+	for i := len(cuts) - 1; i >= 0; i-- {
+		out = slices.Concat(out[:cuts[i][0]], out[cuts[i][1]:])
+	}
+	if formatted {
+		return hclwrite.Format(out)
+	}
+	return out
 }

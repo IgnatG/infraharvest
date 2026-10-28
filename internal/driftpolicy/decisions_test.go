@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -140,7 +140,7 @@ func TestNewDecisions(t *testing.T) {
 func TestDecisionsMerge(t *testing.T) {
 	t.Parallel()
 	change := func(root, address, attribute, outcome string, after any) report.DriftChange {
-		return report.DriftChange{Root: root, Address: address, Attribute: attribute, Kind: engine.DriftChanged, Before: "a", After: after, Outcome: outcome}
+		return report.DriftChange{Root: root, Address: address, Attribute: attribute, Kind: drift.Changed, Before: "a", After: after, Outcome: outcome}
 	}
 	fp := func(after any) string { return fingerprint(change("r1", "x", "tags.A", report.DriftKept, after)) }
 	f := &driftpolicy.Decisions{Version: 1, Changes: []driftpolicy.Entry{
@@ -186,27 +186,27 @@ func TestFingerprint(t *testing.T) {
 	of := func(kind string, before, after any, covers []string) string {
 		return fingerprint(report.DriftChange{Root: "r", Address: "a", Attribute: "tags.Env", Kind: kind, Before: before, After: after, Covers: covers})
 	}
-	base := of(engine.DriftChanged, "prod", "dev", nil)
-	if len(base) != 64 || base != of(engine.DriftChanged, "prod", "dev", nil) {
+	base := of(drift.Changed, "prod", "dev", nil)
+	if len(base) != 64 || base != of(drift.Changed, "prod", "dev", nil) {
 		t.Fatalf("fingerprint %q isn't a stable SHA-256", base)
 	}
-	if base != of(engine.DriftChanged, "prod", "dev", []string{}) {
+	if base != of(drift.Changed, "prod", "dev", []string{}) {
 		t.Error("no resources covered and none differ")
 	}
 	for name, other := range map[string]string{
-		"before": of(engine.DriftChanged, "test", "dev", nil),
-		"after":  of(engine.DriftChanged, "prod", "qa", nil),
-		"kind":   of(engine.DriftDeleted, "prod", "dev", nil),
-		"covers": of(engine.DriftChanged, "prod", "dev", []string{"aws_s3_bucket.logs"}),
-		"type":   of(engine.DriftChanged, "prod", []any{"dev"}, nil),
+		"before": of(drift.Changed, "test", "dev", nil),
+		"after":  of(drift.Changed, "prod", "qa", nil),
+		"kind":   of(drift.Deleted, "prod", "dev", nil),
+		"covers": of(drift.Changed, "prod", "dev", []string{"aws_s3_bucket.logs"}),
+		"type":   of(drift.Changed, "prod", []any{"dev"}, nil),
 	} {
 		if other == base {
 			t.Errorf("another %s, the same fingerprint", name)
 		}
 	}
 	// Map keys are marshalled in order.
-	a := of(engine.DriftChanged, nil, map[string]any{"a": 1.0, "b": 2.0}, nil)
-	b := of(engine.DriftChanged, nil, map[string]any{"b": 2.0, "a": 1.0}, nil)
+	a := of(drift.Changed, nil, map[string]any{"a": 1.0, "b": 2.0}, nil)
+	b := of(drift.Changed, nil, map[string]any{"b": 2.0, "a": 1.0}, nil)
 	if a != b {
 		t.Error("the same map, another fingerprint")
 	}

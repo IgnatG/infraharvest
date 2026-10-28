@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -70,7 +70,7 @@ func ImportCalls(ctx context.Context, run *Run, calls []Call) error {
 		list: func(ctx context.Context, run *Run, c Call) (*listedCall, error) {
 			return listCall(ctx, run, c.Provider, c.Options, c.Args)
 		},
-		generate: func(ctx context.Context, c *listedCall, roots map[string][]engine.Import) error {
+		generate: func(ctx context.Context, c *listedCall, roots map[string][]rootfile.Import) error {
 			return c.generate(ctx, roots)
 		},
 	}
@@ -100,7 +100,7 @@ func (c Call) logStep(step string) {
 // those of the scope's other calls.
 type callSteps struct {
 	list     func(ctx context.Context, run *Run, c Call) (*listedCall, error)
-	generate func(ctx context.Context, c *listedCall, roots map[string][]engine.Import) error
+	generate func(ctx context.Context, c *listedCall, roots map[string][]rootfile.Import) error
 }
 
 // importCalls makes calls into run, as ImportCalls says, with steps.
@@ -162,7 +162,7 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 		return err
 	}
 
-	byDirs := make([]map[string][]engine.Import, len(calls))
+	byDirs := make([]map[string][]rootfile.Import, len(calls))
 	for i, c := range listed {
 		if c != nil {
 			byDirs[i] = c.byDir

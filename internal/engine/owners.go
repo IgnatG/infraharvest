@@ -14,6 +14,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // Owner is the tool a resource's tags or labels say manages it, and the
@@ -120,11 +121,11 @@ type OwnedResource struct {
 // them, but those keep names by "<type> <import ID>": the listing doesn't
 // read the tags of every type, such as IAM roles'.
 func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,8 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // A module call names the project the root manages by a reference, alone
@@ -14,7 +16,7 @@ import (
 func TestReferToProjects(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_project" "main" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_project" "main" {
   name       = "Acme"
   project_id = "acme-prod"
 }
@@ -44,7 +46,7 @@ module "logs" {
 	if err != nil || !changed {
 		t.Fatalf("want the calls changed, got %v, %v", changed, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`network_name = "acme-prod" project_id = google_project.main.project_id`,
 		`projects = [google_project.main.project_id, "acme-shared"]`,
@@ -68,12 +70,12 @@ func TestReferToProjectsWithoutAProject(t *testing.T) {
   project_id   = "acme-prod"
 }
 `
-	writeConfig(t, dir, GeneratedFileName, content)
+	writeConfig(t, dir, rootfile.GeneratedFileName, content)
 	changed, err := referModulesToResources(dir)
 	if err != nil || changed {
 		t.Fatalf("want nothing changed, got %v, %v", changed, err)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != content {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != content {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 var googleLabels = EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"}
@@ -58,7 +60,7 @@ func labelledValues() map[string]map[string]any {
 func TestFillTags(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, labelledTopics)
+	writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 
 	filled, err := fillTags(dir, googleLabels, labelledValues(), map[string]bool{"google_pubsub_topic.events": true})
 	if err != nil {
@@ -67,7 +69,7 @@ func TestFillTags(t *testing.T) {
 	if got := strings.Join(filled, ","); got != "google_pubsub_topic.orders" {
 		t.Errorf("filled %s, want google_pubsub_topic.orders: events is skipped, owned has labels, google only Google's", got)
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`resource "google_pubsub_topic" "orders" { name = "orders" labels = { env = "prod" } }`,
 		`labels = { team = "web" }`,
@@ -103,7 +105,7 @@ func TestFillEffectiveTags(t *testing.T) {
 	stateOnly := map[string][]string{"*": {"labels", "terraform_labels"}}
 	noChanges := map[string]string{}
 	for _, a := range []string{"google_pubsub_topic.orders", "google_pubsub_topic.events", "google_pubsub_topic.owned", "google_pubsub_topic.google", "google_dns_record_set.app"} {
-		noChanges[a] = changeSignature(resourceChange(a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		noChanges[a] = tfrun.ChangeSignature(resourceChange(a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	for _, tc := range []struct {
 		name    string
@@ -145,7 +147,7 @@ func TestFillEffectiveTags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, labelledTopics)
+			writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 			tf := &fakeTerraform{dir: dir, plans: tc.plans, showns: tc.showns}
 
 			filled, last, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), noChanges, stateOnly, nil)
@@ -160,7 +162,7 @@ func TestFillEffectiveTags(t *testing.T) {
 			if (last != nil) != tc.want {
 				t.Errorf("plan handed back: %v, want one: %v", last != nil, tc.want)
 			}
-			generated := squashed(readFile(t, dir, GeneratedFileName))
+			generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 			for _, name := range []string{"orders", "events"} {
 				labeled := strings.Contains(generated, `name = "`+name+`" labels = { env = "prod" }`)
 				if want := strings.Contains(strings.Join(tc.labeled, ","), name); labeled != want {
@@ -192,7 +194,7 @@ func TestStateOnlyOf(t *testing.T) {
 func TestFillTagsBeforeBlocks(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_pubsub_subscription" "orders" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_pubsub_subscription" "orders" {
   name = "orders"
   expiration_policy {
     ttl = "86400s"
@@ -204,7 +206,7 @@ func TestFillTagsBeforeBlocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `resource "google_pubsub_subscription" "orders" { name = "orders" labels = { env = "prod" } expiration_policy { ttl = "86400s" } }`
-	if got := squashed(readFile(t, dir, GeneratedFileName)); got != want {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); got != want {
 		t.Errorf("got %s\nwant %s", got, want)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -28,7 +29,7 @@ import (
 var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 
 // moduleFiles are the files every generated local module has.
-var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", VersionsFileName, ReadmeFileName}
+var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", rootfile.VersionsFileName, rootfile.ReadmeFileName}
 
 // checkStandards checks a root, and the local modules it calls, against the
 // output standard: pinned Terraform, providers and modules; typed and
@@ -187,7 +188,7 @@ func checkTerraformBlock(b *hclsyntax.Block, root bool, where func(hcl.Range) st
 
 // checkVariable: typed, described, and no default for a sensitive one but
 // null, which persists no secret: a merged root's, for the environments
-// that don't set it (see mergedRootFiles).
+// that don't set it (see envmerge.MergeRoots).
 func checkVariable(b *hclsyntax.Block, where func(hcl.Range) string, fail func(rule, format string, args ...any)) {
 	name := b.Labels[0]
 	if _, ok := b.Body.Attributes["type"]; !ok {
@@ -212,7 +213,7 @@ func isNull(expr hclsyntax.Expression) bool {
 }
 
 // checkVarFiles checks the vars directory of dir, where a merged root
-// keeps the values each environment sets (see mergedRootFiles): only
+// keeps the values each environment sets (see envmerge.MergeRoots): only
 // .tfvars and .hcl files, each of which parses, and none that sets a
 // variable the root declares sensitive.
 func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {
@@ -253,7 +254,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 // sensitiveVariables returns the variables the root in dir declares
 // sensitive.
 func sensitiveVariables(dir string) (map[string]bool, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return nil, err
 	}

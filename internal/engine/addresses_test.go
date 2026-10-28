@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // The addresses come from the import blocks, module calls and index keys
@@ -33,7 +35,7 @@ import {
   id = "https://sqs.eu-west-2.amazonaws.com/111122223333/jobs"
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, ImportsFileName), []byte(imports), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte(imports), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ImportedAddresses(dir)
@@ -55,7 +57,7 @@ import {
 func TestInferredAddresses(t *testing.T) {
 	t.Parallel()
 	result := &Result{
-		Imported: []Import{{Type: "aws_s3_bucket", Name: "logs", ID: "logs"}, {Type: "aws_sqs_queue", Name: "jobs", ID: "q"}, {Type: "aws_s3_bucket", Name: "state", ID: "state"}},
+		Imported: []rootfile.Import{{Type: "aws_s3_bucket", Name: "logs", ID: "logs"}, {Type: "aws_sqs_queue", Name: "jobs", ID: "q"}, {Type: "aws_s3_bucket", Name: "state", ID: "state"}},
 		Modules: []ModuleCall{
 			{Name: "logs", Resources: []string{"aws_s3_bucket.logs"}},
 			{Name: "state", Resources: []string{"aws_s3_bucket.state"}, Declined: "the plan changed"},
@@ -98,7 +100,7 @@ func TestReaddressed(t *testing.T) {
 		t.Errorf("the same addresses: %q", got)
 	}
 	// A moved block follows a resource to its new address.
-	moved := []Move{{From: "aws_sqs_queue.main", To: "aws_sqs_queue.jobs"}}
+	moved := []rootfile.Move{{From: "aws_sqs_queue.main", To: "aws_sqs_queue.jobs"}}
 	if got, want := Readdressed(previous, now, moved), []string{"module.state is now aws_s3_bucket.state"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("with moved blocks: got %q, want %q", got, want)
 	}
@@ -133,11 +135,11 @@ func TestRetyped(t *testing.T) {
 func TestResultWithAddresses(t *testing.T) {
 	t.Parallel()
 	added := &Result{
-		Imported:  []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}},
+		Imported:  []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}},
 		Addresses: []Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}},
 	}
 	previous := &Result{
-		Imported:  []Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}},
+		Imported:  []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}},
 		Addresses: []Managed{{Type: "aws_vpc", ID: "vpc-1", Address: "aws_vpc.main"}},
 	}
 	want := []Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}, {Type: "aws_vpc", ID: "vpc-1", Address: "aws_vpc.main"}}

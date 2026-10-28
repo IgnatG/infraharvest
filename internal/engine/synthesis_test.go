@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -62,7 +63,7 @@ func importedPlan(addresses ...string) *tfjson.Plan {
 func rootChanges() map[string]string {
 	changes := map[string]string{}
 	for _, a := range []string{"aws_iam_policy.read", "aws_s3_bucket.logs", "aws_s3_bucket.state", "aws_s3_bucket_versioning.logs", "aws_s3_bucket_versioning.state"} {
-		changes[a] = changeSignature(resourceChange("x."+a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[a] = tfrun.ChangeSignature(resourceChange("x."+a, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	return changes
 }
@@ -87,7 +88,7 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 		t.Fatalf("want every cluster moved, got declined=%v err=%v", declined, err)
 	}
 
-	root := readFile(t, dir, GeneratedFileName)
+	root := readFile(t, dir, rootfile.GeneratedFileName)
 	for _, want := range []string{
 		`module "logs" {`,
 		`source  = "example/bucket/aws"`,
@@ -103,7 +104,7 @@ func TestSynthesizeKeepsCallsThatPlanTheSame(t *testing.T) {
 	if strings.Contains(root, `resource "aws_s3_bucket`) {
 		t.Errorf("moved resources left in the root:\n%s", root)
 	}
-	if imports := readFile(t, dir, ImportsFileName); !strings.Contains(imports, "to = module.state.aws_s3_bucket_versioning.this[0]") {
+	if imports := readFile(t, dir, rootfile.ImportsFileName); !strings.Contains(imports, "to = module.state.aws_s3_bucket_versioning.this[0]") {
 		t.Errorf("imports.tf not retargeted:\n%s", imports)
 	}
 	if got := strings.Join(tf.calls, ","); got != "init,plan,show" {
@@ -139,7 +140,7 @@ func TestSynthesizeLeavesOutModuleDefaults(t *testing.T) {
 	if _, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{withDefaults}}), nil, tfrun.ChangeSummary{}, rootChanges(), nil); err != nil {
 		t.Fatal(err)
 	}
-	root := squashed(readFile(t, dir, GeneratedFileName))
+	root := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Contains(root, `bucket = "logs"`) || !strings.Contains(root, `bucket = "state"`) {
 		t.Errorf("want the default left out of logs's call alone:\n%s", root)
 	}
@@ -162,7 +163,7 @@ func TestSynthesizeTakesBackCallsThatChangeThePlan(t *testing.T) {
 	if len(declined) != 1 || !strings.Contains(declined[0].Declined, "aws_s3_bucket.state would plan differently: update (tags)") {
 		t.Fatalf("declined: %+v", declined)
 	}
-	root := readFile(t, dir, GeneratedFileName)
+	root := readFile(t, dir, rootfile.GeneratedFileName)
 	if !strings.Contains(root, `module "logs" {`) || !strings.Contains(root, `resource "aws_s3_bucket" "state" {`) || strings.Contains(root, `module "state"`) {
 		t.Errorf("want logs moved and state kept:\n%s", root)
 	}
@@ -192,7 +193,7 @@ func TestSynthesizeAllowsStateOnlyUpdates(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			kept := !strings.Contains(squashed(readFile(t, dir, GeneratedFileName)), `resource "aws_s3_bucket" "logs"`)
+			kept := !strings.Contains(squashed(readFile(t, dir, rootfile.GeneratedFileName)), `resource "aws_s3_bucket" "logs"`)
 			if kept != tc.kept {
 				t.Errorf("logs moved: %v, want %v; declined %+v", kept, tc.kept, declined)
 			}
@@ -232,7 +233,7 @@ func TestSynthesizeWithoutTheModules(t *testing.T) {
 	if len(declined) != 2 || !strings.Contains(declined[0].Declined, "registry unreachable") {
 		t.Errorf("declined: %+v", declined)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != twoBuckets {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }
@@ -243,7 +244,7 @@ func callsTerraform(t *testing.T, dir string, planFor func(calls map[string]bool
 	t.Helper()
 	tf := &fakeTerraform{dir: dir}
 	tf.onPlan = func() {
-		f, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+		f, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -293,7 +294,7 @@ func TestSynthesizeOnAPlanError(t *testing.T) {
 	if got := strings.Join(tf.calls, ","); got != "init,plan,plan,show" {
 		t.Errorf("calls: %s", got)
 	}
-	root := readFile(t, dir, GeneratedFileName)
+	root := readFile(t, dir, rootfile.GeneratedFileName)
 	if !strings.Contains(root, `module "logs" {`) || !strings.Contains(root, `resource "aws_s3_bucket" "state" {`) || strings.Contains(root, `module "state"`) {
 		t.Errorf("want logs moved and state kept:\n%s", root)
 	}
@@ -307,7 +308,7 @@ func bucketRoot(n int) (string, map[string]string) {
 	for i := range n {
 		name := fmt.Sprintf("b%d", i)
 		blocks = append(blocks, fmt.Sprintf("resource \"aws_s3_bucket\" %q {\n  bucket = %q\n}\n", name, name))
-		changes["aws_s3_bucket."+name] = changeSignature(resourceChange("x.aws_s3_bucket."+name, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes["aws_s3_bucket."+name] = tfrun.ChangeSignature(resourceChange("x.aws_s3_bucket."+name, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 	}
 	return strings.Join(blocks, "\n"), changes
 }
@@ -380,7 +381,7 @@ func TestSynthesizeFindsTheCallsAPlanFailsFor(t *testing.T) {
 			if plans := planCount(tf); plans > tc.maxPlans {
 				t.Errorf("%d plans, want at most %d", plans, tc.maxPlans)
 			}
-			generated := readFile(t, dir, GeneratedFileName)
+			generated := readFile(t, dir, rootfile.GeneratedFileName)
 			if len(tc.declined) == n {
 				if generated != root {
 					t.Errorf("generated.tf not restored:\n%s", generated)
@@ -417,7 +418,7 @@ func TestSynthesizeWhenThePlanReportsNothing(t *testing.T) {
 	if got := strings.Join(tf.calls, ","); got != "init,plan,show" {
 		t.Errorf("calls: %s", got)
 	}
-	if got := readFile(t, dir, GeneratedFileName); got != twoBuckets {
+	if got := readFile(t, dir, rootfile.GeneratedFileName); got != twoBuckets {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }
@@ -462,7 +463,7 @@ func TestMapClustersWritesStringsWithoutOutputs(t *testing.T) {
 	if err := writeCalls(dir, trials, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(got, `policy = "eu-west-2"`) {
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, `policy = "eu-west-2"`) {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
@@ -480,7 +481,7 @@ func TestSpliceTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_compute_instance" "vm" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_compute_instance" "vm" {
   subnetwork = google_compute_subnetwork.app.self_link
   labels     = { link = "${google_compute_subnetwork.app.self_link}/x" }
   other      = google_compute_subnetwork.app.self_link_2
@@ -490,7 +491,7 @@ func TestSpliceTraversal(t *testing.T) {
   }
 }
 `)
-	f, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	f, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,30 +518,30 @@ func TestSynthesizeConfiguresModuleProviders(t *testing.T) {
 	t.Parallel()
 	withBeta := testAdapter
 	withBeta.Providers = []string{"google-beta"}
-	moduleProviders := map[string]Provider{"google-beta": {Name: "google-beta", Source: "hashicorp/google-beta", Config: map[string]interface{}{"project": "acme"}}}
+	moduleProviders := map[string]rootfile.Provider{"google-beta": {Name: "google-beta", Source: "hashicorp/google-beta", Config: map[string]interface{}{"project": "acme"}}}
 
 	dir, _ := moduleRoot(t, twoBuckets)
-	writeConfig(t, dir, ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n}\n")
+	writeConfig(t, dir, rootfile.ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n}\n")
 	// What init selected, which pins the provider as the root's is.
 	writeConfig(t, dir, tfrun.LockFileName, "provider \"registry.terraform.io/hashicorp/google-beta\" {\n  version = \"8.6.0\"\n}\n")
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
 	if _, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{withBeta}, ModuleProviders: moduleProviders}), nil, tfrun.ChangeSummary{}, rootChanges(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := squashed(readFile(t, dir, ProvidersFileName)); !strings.Contains(got, squashed(`provider "google-beta" { project = "acme" }`)) || !strings.Contains(got, `provider "aws"`) {
+	if got := squashed(readFile(t, dir, rootfile.ProvidersFileName)); !strings.Contains(got, squashed(`provider "google-beta" { project = "acme" }`)) || !strings.Contains(got, `provider "aws"`) {
 		t.Errorf("providers.tf:\n%s", got)
 	}
-	if got := squashed(readFile(t, dir, VersionsFileName)); !strings.Contains(got, squashed(`google-beta = { source = "hashicorp/google-beta" version = "~> 8.6" }`)) {
+	if got := squashed(readFile(t, dir, rootfile.VersionsFileName)); !strings.Contains(got, squashed(`google-beta = { source = "hashicorp/google-beta" version = "~> 8.6" }`)) {
 		t.Errorf("versions.tf:\n%s", got)
 	}
 
 	dir, _ = moduleRoot(t, twoBuckets)
-	writeConfig(t, dir, ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n}\n")
+	writeConfig(t, dir, rootfile.ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n}\n")
 	failing := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{nil}}
 	if _, _, _, err := synthesize(context.Background(), failing, dir, generating(Options{Adapters: []adapters.Adapter{withBeta}, ModuleProviders: moduleProviders}), nil, tfrun.ChangeSummary{}, rootChanges(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, dir, ProvidersFileName) + readFile(t, dir, VersionsFileName); strings.Contains(got, "google-beta") {
+	if got := readFile(t, dir, rootfile.ProvidersFileName) + readFile(t, dir, rootfile.VersionsFileName); strings.Contains(got, "google-beta") {
 		t.Errorf("a provider of no kept call:\n%s", got)
 	}
 }
@@ -554,23 +555,23 @@ func TestSynthesizeConfiguresTheRootsCounterpartUnderBeta(t *testing.T) {
 	withGoogle := testAdapter
 	withGoogle.Providers = []string{"google", "google-beta"}
 	config := map[string]interface{}{"project": "acme", "region": "europe-west1", "add_terraform_attribution_label": false}
-	moduleProviders := map[string]Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
+	moduleProviders := map[string]rootfile.Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
 	labels := &DefaultTags{Provider: "google-beta", Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"}
 
 	dir, _ := moduleRoot(t, twoBuckets)
 	const rootProviders = "provider \"google-beta\" {\n  add_terraform_attribution_label = false\n  default_labels                  = local.labels\n  project                         = \"acme\"\n  region                          = \"europe-west1\"\n}\n"
-	writeConfig(t, dir, ProvidersFileName, rootProviders)
-	writeConfig(t, dir, VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
+	writeConfig(t, dir, rootfile.ProvidersFileName, rootProviders)
+	writeConfig(t, dir, rootfile.VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
 	writeConfig(t, dir, tfrun.LockFileName, "provider \"registry.terraform.io/hashicorp/google\" {\n  version = \"7.2.0\"\n}\n")
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(bothCalls...)}}
 	if _, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{withGoogle}, ModuleProviders: moduleProviders, DefaultTags: labels}), nil, tfrun.ChangeSummary{}, rootChanges(), nil); err != nil {
 		t.Fatal(err)
 	}
 	want := rootProviders + "\nprovider \"google\" {\n  add_terraform_attribution_label = false\n  project                         = \"acme\"\n  region                          = \"europe-west1\"\n  default_labels                  = local.labels\n}\n"
-	if got := readFile(t, dir, ProvidersFileName); got != want {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != want {
 		t.Errorf("providers.tf:\n%s\nwant:\n%s", got, want)
 	}
-	if got := squashed(readFile(t, dir, VersionsFileName)); !strings.Contains(got, squashed(`google = { source = "hashicorp/google" version = "~> 7.2" }`)) || !strings.Contains(got, squashed(`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`)) {
+	if got := squashed(readFile(t, dir, rootfile.VersionsFileName)); !strings.Contains(got, squashed(`google = { source = "hashicorp/google" version = "~> 7.2" }`)) || !strings.Contains(got, squashed(`google-beta = { source = "hashicorp/google-beta" version = "~> 7.2" }`)) {
 		t.Errorf("versions.tf:\n%s", got)
 	}
 }
@@ -602,8 +603,8 @@ variable "name" {
 `
 	const rootProviders = "provider \"google-beta\" {\n  project = \"acme\"\n}\n"
 	config := map[string]interface{}{"project": "acme"}
-	moduleProviders := map[string]Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
-	changes := map[string]string{"google_storage_bucket.logs": changeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	moduleProviders := map[string]rootfile.Provider{"google": {Name: "google", Source: "hashicorp/google", Config: config}}
+	changes := map[string]string{"google_storage_bucket.logs": tfrun.ChangeSignature(resourceChange("x", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	for _, tc := range []struct {
 		requires   string
 		wantGoogle bool
@@ -619,29 +620,29 @@ variable "name" {
 		}
 
 		dir := t.TempDir()
-		f := writeConfig(t, dir, GeneratedFileName, generated)
-		var imports []Import
+		f := writeConfig(t, dir, rootfile.GeneratedFileName, generated)
+		var imports []rootfile.Import
 		for _, r := range f.Resources() {
 			typ, name, _ := strings.Cut(r.Address, ".")
-			imports = append(imports, Import{Type: typ, Name: name, ID: name, Provider: "google-beta"})
+			imports = append(imports, rootfile.Import{Type: typ, Name: name, ID: name, Provider: "google-beta"})
 		}
-		content, err := ImportsFile(imports)
+		content, err := rootfile.ImportsFile(imports)
 		if err != nil {
 			t.Fatal(err)
 		}
-		writeConfig(t, dir, ImportsFileName, string(content))
-		writeConfig(t, dir, ProvidersFileName, rootProviders)
-		writeConfig(t, dir, VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
+		writeConfig(t, dir, rootfile.ImportsFileName, string(content))
+		writeConfig(t, dir, rootfile.ProvidersFileName, rootProviders)
+		writeConfig(t, dir, rootfile.VersionsFileName, "terraform {\n  required_providers {\n    google-beta = {\n      source  = \"hashicorp/google-beta\"\n      version = \"~> 7.2\"\n    }\n  }\n}\n")
 		writeConfig(t, dir, tfrun.LockFileName, "provider \"registry.terraform.io/hashicorp/google\" {\n  version = \"7.2.0\"\n}\n")
 		tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan("module.logs.google_storage_bucket.this")}}
 		calls, _, _, err := synthesize(context.Background(), tf, dir, generating(Options{Adapters: []adapters.Adapter{own}, ModuleProviders: moduleProviders}), nil, tfrun.ChangeSummary{}, changes, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(readFile(t, dir, GeneratedFileName), `module "logs"`) {
-			t.Fatalf("requires %s: the call wasn't kept: %+v\n%s", tc.requires, calls, readFile(t, dir, GeneratedFileName))
+		if !strings.Contains(readFile(t, dir, rootfile.GeneratedFileName), `module "logs"`) {
+			t.Fatalf("requires %s: the call wasn't kept: %+v\n%s", tc.requires, calls, readFile(t, dir, rootfile.GeneratedFileName))
 		}
-		providers, versions := readFile(t, dir, ProvidersFileName), squashed(readFile(t, dir, VersionsFileName))
+		providers, versions := readFile(t, dir, rootfile.ProvidersFileName), squashed(readFile(t, dir, rootfile.VersionsFileName))
 		if !tc.wantGoogle {
 			if providers != rootProviders || strings.Contains(versions, "hashicorp/google\"") {
 				t.Errorf("requires %s: providers.tf:\n%s\nversions.tf:\n%s", tc.requires, providers, versions)
@@ -733,7 +734,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	changes := map[string]string{}
 	addresses := []string{"aws_eip.other", "aws_security_group.web", "module.vpc.aws_route.this[0]"}
 	for _, m := range members {
-		changes[m] = changeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[m] = tfrun.ChangeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 		addresses = append(addresses, trials[0].moduleAddress(m))
 	}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Import: 1}}}, showns: []*tfjson.Plan{importedPlan(addresses...)}}
@@ -744,7 +745,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	if summary.Import != 1 {
 		t.Errorf("summary: %+v", summary)
 	}
-	imports := squashed(readFile(t, dir, ImportsFileName))
+	imports := squashed(readFile(t, dir, rootfile.ImportsFileName))
 	for _, want := range []string{
 		`to = module.vpc.aws_route.this[0] id = "public_0.0.0.0/0"`,
 		`to = module.vpc.aws_eip.this["nat"] id = "nat"`,
@@ -754,7 +755,7 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
 		}
 	}
-	if root := squashed(readFile(t, dir, GeneratedFileName)); !strings.Contains(root, "vpc_id = module.vpc.vpc_id") {
+	if root := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(root, "vpc_id = module.vpc.vpc_id") {
 		t.Errorf("generated.tf:\n%s", root)
 	}
 }
@@ -771,7 +772,7 @@ func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 	changes := map[string]string{}
 	addresses := []string{"aws_eip.other", "aws_security_group.web"}
 	for _, m := range trials[0].members() {
-		changes[m] = changeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
+		changes[m] = tfrun.ChangeSignature(resourceChange("x."+m, tfjson.Actions{tfjson.ActionNoop}, nil, nil))
 		addresses = append(addresses, trials[0].moduleAddress(m))
 	}
 	tf := &fakeTerraform{dir: dir, showns: []*tfjson.Plan{importedPlan(addresses...)}}
@@ -779,7 +780,7 @@ func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 	if err != nil || len(declined) != 1 || declined[0].Declined != "the plan changed outside the module calls" {
 		t.Fatalf("declined=%+v err=%v", declined, err)
 	}
-	if strings.Contains(readFile(t, dir, ImportsFileName), "aws_route.this") {
+	if strings.Contains(readFile(t, dir, rootfile.ImportsFileName), "aws_route.this") {
 		t.Error("imports.tf keeps the added import")
 	}
 }
@@ -922,8 +923,8 @@ func TestCallSource(t *testing.T) {
 		"git::https://example.com/m.git?ref=v1": "git::https://example.com/m.git?ref=v1",
 		"terraform-aws-modules/vpc/aws":         "terraform-aws-modules/vpc/aws",
 	} {
-		if got, err := callSource(root, source); err != nil || got != want {
-			t.Errorf("callSource(%s) = %s, %v; want %s", source, got, err, want)
+		if got, err := hclfile.CallSource(root, source); err != nil || got != want {
+			t.Errorf("hclfile.CallSource(%s) = %s, %v; want %s", source, got, err, want)
 		}
 	}
 }
@@ -934,7 +935,7 @@ func TestCallSource(t *testing.T) {
 // share none.
 func TestSharedProvider(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "aws_s3_bucket" "logs" {
   bucket   = "logs"
   provider = aws.without_default_tags
 }
@@ -982,7 +983,7 @@ resource "aws_s3_bucket_versioning" "other" {
 // anchor and trial to look up: who refers to whom, and from where.
 func TestIndexReferences(t *testing.T) {
 	t.Parallel()
-	f := writeConfig(t, t.TempDir(), GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+	f := writeConfig(t, t.TempDir(), rootfile.GeneratedFileName, `resource "aws_s3_bucket" "logs" {
   bucket = "logs"
 }
 

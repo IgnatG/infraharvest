@@ -15,7 +15,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -31,7 +32,7 @@ func TestImportsByDir(t *testing.T) {
 
 		got, _ := importsByDir(importBlocks{provider: "aws", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
-		want := map[string][]engine.Import{
+		want := map[string][]rootfile.Import{
 			filepath.Join("out", "aws", "sqs"): {{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/1/orders"}},
 			filepath.Join("out", "aws", "sns"): {{Type: "aws_sns_topic", Name: "alerts", ID: "arn:aws:sns:topic"}},
 		}
@@ -92,7 +93,7 @@ func TestImportsByDirSeparatesDirectoryAndProvider(t *testing.T) {
 
 	got, _ := importsByDir(importBlocks{provider: "azurerm", importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "azure", noEnv))
 
-	want := map[string][]engine.Import{
+	want := map[string][]rootfile.Import{
 		filepath.Join("out", "azure"): {{Type: "azurerm_resource_group", Name: "rg", ID: "/subscriptions/s/resourceGroups/rg"}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -113,7 +114,7 @@ func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 		},
 	}
 	options := Options{Layout: "{out}/{provider}/", Out: "out"}
-	azapi := map[string]engine.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}}
+	azapi := map[string]rootfile.Provider{"azapi": {Name: "azapi", Source: "Azure/azapi"}}
 	byDir, _ := importsByDir(importBlocks{provider: "azurerm", configured: azapi, importID: listerID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "azure", noEnv))
 	for _, imp := range byDir[filepath.Join("out", "azure")] {
 		if imp.Provider != "" {
@@ -122,7 +123,7 @@ func TestImportsNameNoProviderTheirTypeImplies(t *testing.T) {
 	}
 
 	network := map[string][]harvest.Resource{"cloud_asset": {harvest.RecordBare("main", "main", "google_compute_network", "google-beta")}}
-	beta := map[string]engine.Provider{"google": {Name: "google", Source: "hashicorp/google"}}
+	beta := map[string]rootfile.Provider{"google": {Name: "google", Source: "hashicorp/google"}}
 	got, _ := importsByDir(importBlocks{provider: "google-beta", configured: beta, importID: listerID, nameOf: rawName, fileOf: noFile}, network, layoutDirs(options.Layout, options.Out, "google", noEnv))
 	if imports := got[filepath.Join("out", "google")]; len(imports) != 1 || imports[0].Provider != "google-beta" {
 		t.Errorf("google-beta: got %+v", got)
@@ -228,7 +229,7 @@ func TestImportsByDirUsesImportIDs(t *testing.T) {
 
 	got, skipped := importsByDir(importBlocks{provider: "aws", importID: importID, nameOf: rawName, fileOf: noFile}, resources, layoutDirs(options.Layout, options.Out, "aws", noEnv))
 
-	want := map[string][]engine.Import{
+	want := map[string][]rootfile.Import{
 		filepath.Join("out", "aws"): {{Type: "aws_route_table_association", Name: "a", ID: "subnet-1/rtb-1"}},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -275,7 +276,7 @@ func TestEngineProvider(t *testing.T) {
 
 	got := engineProvider(p)
 
-	want := engine.Provider{Name: "datadog", Source: "DataDog/datadog", Config: map[string]interface{}{"api_url": "https://api.datadoghq.eu"}}
+	want := rootfile.Provider{Name: "datadog", Source: "DataDog/datadog", Config: map[string]interface{}{"api_url": "https://api.datadoghq.eu"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -495,7 +496,7 @@ func TestImportsLeaveOutWhatTheListerSays(t *testing.T) {
 func TestModuleOptions(t *testing.T) {
 	out := filepath.Join("out", "aws")
 	resolved := []adapters.Adapter{{Source: "acme/bucket/aws", Version: "1.0.0"}}
-	local := filepath.Join(out, engine.ModulesDirName)
+	local := filepath.Join(out, hclfile.ModulesDirName)
 	for _, tc := range []struct {
 		mode       string
 		registry   bool
