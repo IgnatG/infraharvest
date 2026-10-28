@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -150,17 +149,18 @@ func TestFillEffectiveTags(t *testing.T) {
 			writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 			tf := &fakeTerraform{dir: dir, plans: tc.plans, showns: tc.showns}
 
-			filled, last, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), noChanges, stateOnly, nil)
+			d := tidier(tf, dir, Baseline{changes: noChanges, stateOnly: stateOnly})
+			filled, err := settleEdit(t, d, passEffectiveTags, fillEffectiveTags(dir, googleLabels, labelledValues()))
 			if err != nil {
 				t.Fatal(err)
 			}
 			if filled != tc.want {
 				t.Errorf("filled: %v, want %v", filled, tc.want)
 			}
-			// What it fills settles on a plan, which postProcess compares
-			// with next instead of planning again.
-			if (last != nil) != tc.want {
-				t.Errorf("plan handed back: %v, want one: %v", last != nil, tc.want)
+			// What it fills settles on a plan, which the passes after compare
+			// with instead of planning again.
+			if planned := strings.Count(strings.Join(tf.calls, ","), "plan"); tc.want && planned != len(tc.showns) {
+				t.Errorf("planned %d times, want %d: %v", planned, len(tc.showns), tf.calls)
 			}
 			generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 			for _, name := range []string{"orders", "events"} {

@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -331,9 +330,9 @@ resource "aws_subnet" "a" {
 	}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}, showns: []*tfjson.Plan{changed}, shown: clean}
 
-	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := settleEdit(t, tidier(tf, dir, Baseline{changes: changes}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
-	}, rootfile.GeneratedFileName)
+	})})
 	if err != nil || !kept {
 		t.Fatalf("want the references kept, got %v, %v", kept, err)
 	}
@@ -361,9 +360,9 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 	writeConfig(t, dir, rootfile.GeneratedFileName, config)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := settleEdit(t, tidier(tf, dir, Baseline{}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
-	}, rootfile.GeneratedFileName)
+	})})
 	if err != nil || kept {
 		t.Fatalf("want nothing kept, got %v, %v", kept, err)
 	}

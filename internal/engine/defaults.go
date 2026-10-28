@@ -8,24 +8,21 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// maxDefaultRounds bounds how often stripDefaults plans, and
+// maxDefaultRounds bounds how often the defaults pass plans, and
 // maxDefaultValidations how often it validates before each plan.
 const (
 	maxDefaultRounds      = 5
@@ -80,7 +77,7 @@ func (c defaultCandidate) key() string {
 // them. The providers' schemas don't say what their defaults are, so only
 // the plan can tell a default from a setting: the candidates of every
 // resource are left out at once, and where a resource then plans
-// differently from changes (see tfrun.ChangeSignature), its arguments behind
+// differently from baseline (see FewerChanges), its arguments behind
 // the difference are put back and the rest left out again, until the plan
 // stays the same; all of its arguments only where none is behind the
 // difference, or in the last round but one. Before each plan, validation,
@@ -89,79 +86,81 @@ func (c defaultCandidate) key() string {
 // provider's own checks, put back the arguments they name, and the next
 // time the resource's settings too.
 // Other computed arguments set to a constant stay: leaving one out never
-// shows in the plan, so it could hide a real setting. It reports whether
-// it changed generated.tf and, where a plan showed generated.tf as it
-// leaves it, that plan (see shownPlan).
-func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
+// shows in the plan, so it could hide a real setting. Where the plan can't
+// settle what to leave out, only nulls and proven defaults go, with no plan
+// to check them (see stripNullsOnly): the pass rebases onto a new plan.
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, rules defaultRules) (*tidyEdit, error) {
 	path := filepath.Join(dir, rootfile.GeneratedFileName)
-	original, err := os.ReadFile(path)
-	if err != nil {
-		return false, nil, err
-	}
 	current, err := hclfile.Load(path)
 	if err != nil {
-		return false, nil, err
+		return nil, err
 	}
 	// Only constants need the schema, to tell optional from computed, and
 	// empty blocks, which only a plan can tell from absent ones.
 	var schemas *tfjson.ProviderSchemas
 	if len(rules.defaults) > 0 || hasConstants(current.Syntax) || slices.ContainsFunc(current.Syntax.Blocks, func(b *hclsyntax.Block) bool { return hasEmptyBlocks(b.Body) }) {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
-			return false, nil, fmt.Errorf("terraform providers schema: %w", err)
+			return nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
 	}
-	restore := func() error { return fsutil.WriteFile(path, original, 0o644) }
-	// keep holds the candidates to put back, by key.
+	// keep holds the candidates to put back, by key, and removed those the
+	// last round left out.
 	keep := map[string]bool{}
-	nullsOnly := func() (bool, *shownPlan, error) {
-		return stripNullsOnly(ctx, tf, path, restore, schemas, rules, keep)
-	}
+	var removed []defaultCandidate
 	// failed counts the rounds in which the plan failed on each resource.
 	failed := map[string]int{}
-	for round := 0; round < maxDefaultRounds; round++ {
-		removed, err := removeValid(ctx, tf, dir, restore, schemas, rules, keep)
-		if err != nil {
-			return false, nil, errors.Join(err, restore())
-		}
-		if len(removed) == 0 {
-			return false, nil, restore()
-		}
-		p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-		if err != nil {
-			return false, nil, errors.Join(err, restore())
-		}
-		if len(diags) > 0 || p == nil {
-			// Leaving an argument out made the configuration invalid in a
-			// way validation didn't see, such as a check the provider makes
-			// when it plans: a Lambda function's "handler and runtime must
-			// be set when PackageType is Zip". Keep the arguments the
-			// errors name and leave the rest of the resource's out again;
-			// the next time, or if they name none, its settings too (see
-			// defaultCandidate), as such checks come one at a time, as in
-			// a metric alarm's; then everything, as in the last round but
-			// one.
-			assigned, unassigned, err := assignErrors(dir, diags)
-			if err != nil {
-				return false, nil, err
+	return &tidyEdit{
+		edit: func(a *tidyAttempt) (edited, error) {
+			var err error
+			removed, err = removeValid(ctx, tf, dir, a.restore, schemas, rules, keep)
+			return edited{other: len(removed) > 0}, err
+		},
+		review: func(a *tidyAttempt, r tidyReview) (tidyDecision, error) {
+			if r.verdict.Failed {
+				// Leaving an argument out made the configuration invalid in a
+				// way validation didn't see, such as a check the provider makes
+				// when it plans: a Lambda function's "handler and runtime must
+				// be set when PackageType is Zip". Keep the arguments the
+				// errors name and leave the rest of the resource's out again;
+				// the next time, or if they name none, its settings too (see
+				// defaultCandidate), as such checks come one at a time, as in
+				// a metric alarm's; then everything, as in the last round but
+				// one.
+				assigned, unassigned, err := assignErrors(dir, r.diags)
+				if err != nil {
+					return tidyDecision{}, err
+				}
+				if len(unassigned) > 0 || len(assigned) == 0 {
+					log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(r.diags))
+					return tidyDecision{outcome: tidyFallBack}, nil
+				}
+				keepWhatErrorsName(removed, assigned, failed, a.round, keep)
+				return defaultsRetry(dir, a), nil
 			}
-			if len(unassigned) > 0 || len(assigned) == 0 {
-				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(diags))
-				return nullsOnly()
+			differs, noise := keepWhatChanged(r.verdict.Changed, removed, r.baseline, a.round, keep)
+			if !differs && (noise || r.verdict.Totals) {
+				return tidyDecision{outcome: tidyAccept}, nil
 			}
-			keepWhatErrorsName(removed, assigned, failed, round, keep)
-			continue
-		}
-		differs, noise := keepWhatChanged(p, removed, changes, round, keep)
-		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
-			return true, &shownPlan{plan: p, summary: summary}, nil
-		}
-		if !differs {
-			log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, summary, baseline)
-			return nullsOnly()
-		}
+			if !differs {
+				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, r.plan.summary, r.baseline.summary)
+				return tidyDecision{outcome: tidyFallBack}, nil
+			}
+			return defaultsRetry(dir, a), nil
+		},
+		unplanned: func(a *tidyAttempt) (bool, error) {
+			return stripNullsOnly(ctx, tf, path, a.restore, schemas, rules, keep)
+		},
+	}, nil
+}
+
+// defaultsRetry is the outcome of a round of stripDefaults whose plan asks
+// for another: it edits again, or falls back after the last round.
+func defaultsRetry(dir string, a *tidyAttempt) tidyDecision {
+	if a.last() {
+		log.Printf("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, a.rounds)
+		return tidyDecision{outcome: tidyFallBack}
 	}
-	log.Printf("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, maxDefaultRounds)
-	return nullsOnly()
+	return tidyDecision{outcome: tidyRetry}
 }
 
 // stripNullsOnly is stripDefaults where the plan can't settle what to
@@ -171,7 +170,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 // release where the configuration still validates without them: no plan
 // would correct a wrong one. It reports whether it changed generated.tf;
 // restore puts it back as it was.
-func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, *shownPlan, error) {
+func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, error) {
 	type pass struct {
 		schemas *tfjson.ProviderSchemas
 		rules   defaultRules
@@ -185,31 +184,31 @@ func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restor
 	}
 	for _, p := range passes {
 		if err := restore(); err != nil {
-			return false, nil, err
+			return false, err
 		}
 		f, err := hclfile.Load(path)
 		if err != nil {
-			return false, nil, err
+			return false, err
 		}
 		removed := removeDefaults(f, p.schemas, p.rules, keep)
 		if len(removed) == 0 {
-			return false, nil, restore()
+			return false, restore()
 		}
 		if err := f.Save(); err != nil {
-			return false, nil, err
+			return false, err
 		}
 		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
-			return true, nil, nil
+			return true, nil
 		}
 		out, err := tf.Validate(ctx)
 		if err != nil {
-			return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
+			return false, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
 		}
 		if out.Valid {
-			return true, nil, nil
+			return true, nil
 		}
 	}
-	return false, nil, restore()
+	return false, restore()
 }
 
 // keepWhatErrorsName puts back, of removed, what the errors of a failed
@@ -235,21 +234,15 @@ func keepWhatErrorsName(removed []defaultCandidate, assigned map[string][]tfjson
 }
 
 // keepWhatChanged puts back, of removed, the arguments behind each
-// resource whose change in p, the plan of round, is worse than in
-// changes, the plan before (see noWorse): all of its constants in the
+// resource of changed, those that plan in round a change worse than the
+// baseline's (see FewerChanges): all of its constants in the
 // last round but one. It reports whether a resource with arguments left
 // out differs, and whether one without differs all the same, which is
 // noise, as an emulator's plan may differ by itself. Proven defaults
 // count as left out: where the plan differs, the metadata may be wrong,
 // and the plan corrects it.
-func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[string]string, round int, keep map[string]bool) (differs, noise bool) {
-	for _, rc := range p.ResourceChanges {
-		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
-			continue
-		}
-		if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
-			continue
-		}
+func keepWhatChanged(changed []*tfjson.ResourceChange, removed []defaultCandidate, baseline Baseline, round int, keep map[string]bool) (differs, noise bool) {
+	for _, rc := range changed {
 		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
 			noise = true
 			continue
@@ -261,7 +254,7 @@ func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[str
 			keepAll(removed, rc.Address, keep)
 			continue
 		}
-		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
+		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), baseline.Planned(rc.Address)), changedPaths(rc), keep)
 	}
 	return differs, noise
 }
@@ -454,28 +447,6 @@ func newlyChanged(now, before string) []string {
 		}
 	}
 	return changed
-}
-
-// noWorse reports whether a resource's planned change, now, does no more
-// than it did before: the same actions, and no attribute that didn't
-// change before. Leaving out an argument may only remove changes, such as
-// a provider-side setting the import left unset.
-func noWorse(now, before string) bool {
-	if now == before {
-		return true
-	}
-	nowActions, nowAttributes, _ := strings.Cut(now, ":")
-	beforeActions, beforeAttributes, _ := strings.Cut(before, ":")
-	if nowActions != beforeActions && nowActions != string(tfjson.ActionNoop) {
-		return false
-	}
-	before2 := strings.Split(beforeAttributes, ",")
-	for _, a := range strings.Split(nowAttributes, ",") {
-		if a != "" && !slices.Contains(before2, a) {
-			return false
-		}
-	}
-	return true
 }
 
 // removeDefaults removes the candidates not in keep from every resource,

@@ -4,8 +4,6 @@
 package engine
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,16 +15,13 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // ModuleCall is a module call Generate made, or a cluster of resources it
@@ -72,135 +67,163 @@ func (t *trial) moduleAddress(member string) string {
 	return "module." + t.name + "." + t.call.Addresses[member]
 }
 
-// synthesize moves clusters of resources into calls of curated modules:
-// for each anchor resource, the first adapter that maps its cluster. It
-// writes every call, installs the modules and plans, and takes back the
-// calls whose resources would plan differently than baseline, which has
-// each resource's planned change (see tfrun.ChangeSignature), until the plan
-// matches; when the plan fails in a way it can't pin on a call, it plans
-// half of the calls at a time to find the calls that fail. A module may set the arguments opts.StateOnly names, which
-// import can't. Calls are named other than the names r takes.
-// values are the imported values, by address: references to what a call
-// takes and has no output for become the values again (see
-// trial.literals). It returns the clusters it didn't move, with why, and
-// the plan's change summary with the calls it kept, and the lengths of
-// their list outputs (see outputLists).
-func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, tfrun.ChangeSummary, map[string]int, error) {
-	opts := r.opts
-	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.ProvidersFileName, rootfile.VersionsFileName)
-	if err != nil {
-		return nil, baseline, nil, err
+// synthesize is the pass that moves clusters of resources into calls of
+// curated modules: for each anchor resource, the first adapter that maps its
+// cluster. Its edit writes the calls, installs the modules and plans, and
+// its review takes back the calls whose resources would plan differently than
+// the baseline has them (see Baseline.Tolerates), until the plan matches; when
+// the plan fails in a way it can't pin on a call, it plans half of the calls
+// at a time to find the calls that fail. A module may set the arguments the
+// baseline's state-only rules name, which import can't (see StateOnly). Calls
+// are named other than the names the run takes.
+// The imported values, by address, are t.values: references to what a call
+// takes and has no output for become the values again (see trial.literals).
+// It leaves the clusters it didn't move, with why, in t.declined, and the
+// lengths of the list outputs of the calls it kept in t.lists (see
+// outputLists); the pass rebases onto the plan with the calls it kept, for the
+// passes after to compare with. It returns no edit where the run has no
+// adapters or they map no cluster.
+func (t *tidying) synthesize() (*tidyEdit, error) {
+	opts, dir := t.r.opts, t.dir
+	if len(opts.Adapters) == 0 {
+		return nil, nil
 	}
-	trials, declined, err := mapClusters(dir, opts.Adapters, r.taken, values)
+	trials, declined, err := mapClusters(dir, opts.Adapters, t.r.taken, t.values)
 	if err != nil || len(trials) == 0 {
-		return declined, baseline, nil, err
+		t.declined = declined
+		return nil, err
 	}
-	reject := func(reason string, ts ...*trial) {
-		for _, t := range ts {
-			if t.rejected == "" {
-				t.rejected = reason
-			}
-		}
-	}
-	if err := writeCalls(dir, trials, opts.ModuleProviders, opts.DefaultTags); err != nil {
-		return nil, baseline, nil, errors.Join(err, backup.Restore())
-	}
-	if err := tfrun.Init(ctx, tf); err != nil {
-		// Typically: the registry can't be reached.
-		reject(fmt.Sprintf("terraform init: %v", err), trials...)
-	}
-	// written are the calls the root has now. kept are the calls a plan
-	// accepted together, and keptSummary is that plan's summary.
-	written := trials
-	var kept []*trial
-	var keptSummary tfrun.ChangeSummary
 	write := func(ts []*trial) error {
-		if slices.Equal(ts, written) {
-			return nil
-		}
-		if err := backup.Restore(); err != nil {
-			return err
-		}
-		written = ts
 		return writeCalls(dir, ts, opts.ModuleProviders, opts.DefaultTags)
 	}
+	// written are the calls the root has now. kept are the calls a plan
+	// accepted together, and keptPlan is that plan.
+	var written, kept []*trial
+	var keptPlan shownPlan
 	// pending are the groups of calls still to plan with kept, in turn. A
 	// group whose failure the plan can't pin on one of its calls is halved
 	// and its halves are planned in turn, the other held back meanwhile,
 	// until only the calls that fail are declined: one plan when the calls
 	// plan clean, and a plan or two for each halving for each call that
 	// doesn't. Every plan keeps a group, declines a call or halves a group,
-	// so the loop ends.
-	pending := []*callGroup{{trials: activeTrials(trials)}}
-	var passed *callGroup
-	for len(pending) > 0 {
-		g := pending[0]
-		pending = pending[1:]
-		g.trials = activeTrials(g.trials)
-		if len(g.trials) == 0 {
-			continue
-		}
-		// A group known to fail with what is kept (see callGroup) is
-		// halved, or declined, without planning it again.
-		reason := g.fails
-		if g.failsAfter == nil || g.failsAfter != passed {
-			tried := inOrder(trials, kept, g.trials)
-			if err := write(tried); err != nil {
-				return nil, baseline, nil, errors.Join(err, backup.Restore())
-			}
-			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-			if err != nil {
-				return nil, baseline, nil, errors.Join(err, backup.Restore())
-			}
-			ok, why := judge(tried, p, summary, diags, baseline, changes, opts.StateOnly)
-			switch {
-			case ok:
-				kept, keptSummary, passed = tried, *summary, g
-				continue
-			case len(activeTrials(tried)) < len(tried):
-				// The plan took calls back: what is left plans again, with
-				// the group if the plan took back one of kept.
-				retry := &callGroup{trials: g.trials}
-				if len(activeTrials(kept)) < len(kept) {
-					retry.trials, kept = tried, nil
-				}
-				pending = append([]*callGroup{retry}, pending...)
-				continue
-			case why == "":
-				// Nothing to take back (the plan reported neither errors
-				// nor a result): planning again would show the same.
-				reject("the plan reported no result", g.trials...)
-				for _, held := range pending {
-					reject("the plan reported no result", held.trials...)
-				}
-				pending = nil
-				continue
-			}
-			reason = why
-		}
+	// so the rounds end.
+	var pending []*callGroup
+	var passed, current *callGroup
+	// split halves a group whose calls fail for reason, or declines its call.
+	split := func(g *callGroup, reason string) {
 		if len(g.trials) == 1 {
-			reject(reason, g.trials...)
-			continue
+			rejectTrials(reason, g.trials...)
+			return
 		}
 		first := &callGroup{trials: g.trials[:len(g.trials)/2]}
 		second := &callGroup{trials: g.trials[len(g.trials)/2:], fails: reason, failsAfter: first}
 		pending = append([]*callGroup{first, second}, pending...)
 	}
-	if len(kept) == 0 {
-		if err := backup.Restore(); err != nil {
-			return nil, baseline, nil, err
+	// next returns the calls to plan next: the next group's, with what is
+	// kept. A group known to fail with what is kept (see callGroup) is
+	// halved, or declined, without planning it again. It returns none when
+	// no group is left.
+	next := func() []*trial {
+		for len(pending) > 0 {
+			g := pending[0]
+			pending = pending[1:]
+			g.trials = activeTrials(g.trials)
+			if len(g.trials) == 0 {
+				continue
+			}
+			if g.failsAfter == nil || g.failsAfter != passed {
+				current = g
+				return inOrder(trials, kept, g.trials)
+			}
+			split(g, g.fails)
 		}
-		return append(declined, rejections(trials)...), baseline, nil, nil
+		return nil
 	}
-	// The last plan may have tried calls declined since: the root has the
-	// calls the plan of kept accepted, which planning again would show.
-	if err := write(kept); err != nil {
-		return nil, baseline, nil, errors.Join(err, backup.Restore())
-	}
-	if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
-		return nil, baseline, nil, err
-	}
-	return append(declined, rejections(trials)...), keptSummary, outputLists(kept), nil
+	var tried []*trial
+	return &tidyEdit{
+		edit: func(a *tidyAttempt) (edited, error) {
+			if a.round > 0 {
+				// The files are as the pass began.
+				written = tried
+				return edited{other: true}, write(tried)
+			}
+			if err := write(trials); err != nil {
+				return edited{}, err
+			}
+			written = trials
+			if err := tfrun.Init(t.ctx, t.tf); err != nil {
+				// Typically: the registry can't be reached.
+				rejectTrials(fmt.Sprintf("terraform init: %v", err), trials...)
+			}
+			pending = []*callGroup{{trials: activeTrials(trials)}}
+			if tried = next(); tried == nil {
+				return edited{}, a.restore()
+			}
+			if !slices.Equal(tried, written) {
+				if err := a.restore(); err != nil {
+					return edited{}, err
+				}
+				written = tried
+				if err := write(tried); err != nil {
+					return edited{}, err
+				}
+			}
+			return edited{other: true}, nil
+		},
+		review: func(a *tidyAttempt, r tidyReview) (tidyDecision, error) {
+			ok, why := judge(tried, r.plan, r.diags, r.baseline)
+			switch {
+			case ok:
+				kept, keptPlan, passed = tried, r.plan, current
+			case len(activeTrials(tried)) < len(tried):
+				// The plan took calls back: what is left plans again, with
+				// the group if the plan took back one of kept.
+				retry := &callGroup{trials: current.trials}
+				if len(activeTrials(kept)) < len(kept) {
+					retry.trials, kept = tried, nil
+				}
+				pending = append([]*callGroup{retry}, pending...)
+			case why == "":
+				// Nothing to take back (the plan reported neither errors
+				// nor a result): planning again would show the same.
+				rejectTrials("the plan reported no result", current.trials...)
+				for _, held := range pending {
+					rejectTrials("the plan reported no result", held.trials...)
+				}
+				pending = nil
+			default:
+				split(current, why)
+			}
+			if tried = next(); tried != nil {
+				return tidyDecision{outcome: tidyRetry}, nil
+			}
+			if len(kept) == 0 {
+				return tidyDecision{outcome: tidyReject}, nil
+			}
+			// The last plan may have tried calls declined since: the root has
+			// the calls the plan of kept accepted, which planning again would
+			// show.
+			if !slices.Equal(kept, written) {
+				if err := a.restore(); err != nil {
+					return tidyDecision{}, err
+				}
+				if err := write(kept); err != nil {
+					return tidyDecision{}, err
+				}
+			}
+			if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+				return tidyDecision{}, err
+			}
+			return tidyDecision{outcome: tidyAccept, plan: &keptPlan}, nil
+		},
+		finish: func(bool) error {
+			t.declined = slices.Concat(declined, rejections(trials))
+			if len(kept) > 0 {
+				t.lists = outputLists(kept)
+			}
+			return nil
+		},
+	}, nil
 }
 
 // callGroup is calls synthesize plans together with the calls it kept.
@@ -243,13 +266,15 @@ func activeTrials(trials []*trial) []*trial {
 
 // judge rejects the trials the plan shows a problem with, and reports
 // whether there was none: the plan has no errors, every member plans as
-// it did in the root, or only also updates arguments stateOnly names for
-// its type, the modules create nothing else, and the totals match
-// baseline, with those updates and the imports the calls add. When the
-// plan fails with nothing to tell the calls apart by, an error about none
-// of them or totals that don't match, it also returns why, and rejects
-// none for it: the caller plans them apart.
-func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags []tfjson.Diagnostic, baseline tfrun.ChangeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
+// it did in the root, or only also updates arguments baseline's state-only
+// rules name for its type (see StateOnly), the modules create nothing else,
+// and the totals match baseline, with those updates and the imports the
+// calls add. A resource outside the modules is judged by the totals alone.
+// When the plan fails with nothing to tell the calls apart by, an error
+// about none of them or totals that don't match, it also returns why, and
+// rejects none for it: the caller plans them apart.
+func judge(active []*trial, plan shownPlan, diags []tfjson.Diagnostic, baseline Baseline) (bool, string) {
+	p, summary := plan.plan, plan.summary
 	if len(diags) > 0 || p == nil {
 		unattributed := ""
 		for _, d := range diags {
@@ -267,9 +292,9 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 		return false, unattributed
 	}
 	ok := true
-	expected := baseline
+	imports, updates := 0, 0
 	for _, t := range active {
-		expected.Import += len(t.call.Imports)
+		imports += len(t.call.Imports)
 	}
 	for _, rc := range p.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
@@ -285,25 +310,25 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 					member = m
 				}
 			}
-			switch {
-			case member == "":
+			switch member {
+			case "":
 				if !rc.Change.Actions.NoOp() && !rc.Change.Actions.Read() {
 					t.rejected = fmt.Sprintf("the module would also %s %s", strings.Join(tfrun.ActionNames(rc.Change.Actions), " and "), strings.TrimPrefix(rc.Address, "module."+t.name+"."))
 					ok = false
 				}
-			case tfrun.ChangeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(tfrun.ChangeSignature(rc), changes[member], gate.StateOnlyOf(stateOnly, rc.Type))
-				if !same {
-					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(tfrun.ChangeSignature(rc)), describeSignature(changes[member]))
+			default:
+				tolerated, update := baseline.Tolerates(rc, member, StateOnly)
+				if !tolerated {
+					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(tfrun.ChangeSignature(rc)), describeSignature(baseline.Planned(member)))
 					ok = false
 				}
-				if updates {
-					expected.Change++
+				if update {
+					updates++
 				}
 			}
 		}
 	}
-	if ok && (summary == nil || *summary != expected) {
+	if ok && (summary == nil || *summary != baseline.Expected(imports, updates)) {
 		// A change outside the modules: nothing to tell the calls apart by.
 		return false, "the plan changed outside the module calls"
 	}
@@ -330,36 +355,6 @@ func trialOf(active []*trial, d tfjson.Diagnostic) *trial {
 	return nil
 }
 
-// sameButStateOnly reports whether the change signatures in and root
-// differ only in arguments of stateOnly, which import can't set and a
-// module may, and whether that makes an import without changes in root an
-// update in.
-func sameButStateOnly(in, root string, stateOnly []string) (updates, same bool) {
-	inActions, inAttributes, _ := strings.Cut(in, ":")
-	rootActions, rootAttributes, _ := strings.Cut(root, ":")
-	withoutStateOnly := func(attributes string) []string {
-		var kept []string
-		for _, a := range strings.Split(attributes, ",") {
-			if a != "" && !slices.Contains(stateOnly, a) {
-				kept = append(kept, a)
-			}
-		}
-		return kept
-	}
-	if !slices.Equal(withoutStateOnly(inAttributes), withoutStateOnly(rootAttributes)) {
-		return false, false
-	}
-	update := string(tfjson.ActionUpdate)
-	noOp := string(tfjson.ActionNoop)
-	switch {
-	case inActions == rootActions:
-		return false, true
-	case inActions == update && rootActions == noOp:
-		return true, true
-	}
-	return false, false
-}
-
 func describeSignature(s string) string {
 	actions, attributes, _ := strings.Cut(s, ":")
 	if actions == "" {
@@ -369,6 +364,15 @@ func describeSignature(s string) string {
 		return actions
 	}
 	return actions + " (" + attributes + ")"
+}
+
+// rejectTrials declines the calls of ts that aren't declined yet, for reason.
+func rejectTrials(reason string, ts ...*trial) {
+	for _, t := range ts {
+		if t.rejected == "" {
+			t.rejected = reason
+		}
+	}
 }
 
 // rejections lists the trials the plan rejected.
