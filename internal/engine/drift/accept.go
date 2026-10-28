@@ -412,11 +412,12 @@ func (r rejections) reject(c *Change, reason string) {
 // about none; and every change where the plan reported neither errors nor
 // a change summary.
 func (r rejections) planFails(diags []tfjson.Diagnostic, pending []*Change, sources map[*Change]codeSource, contents map[string][]byte) {
+	edited := &editedFiles{contents: contents, parsed: map[string]*editedFile{}}
 	for _, d := range diags {
 		reason := "the plan of the edited code fails: " + strings.Join(strings.Fields(tfrun.FormatDiagnostic(d)), " ")
 		blamed := false
 		for _, c := range pending {
-			if diagnosticOf(d, c, sources[c], contents) {
+			if diagnosticOf(d, c, sources[c], edited) {
 				r.reject(c, reason)
 				blamed = true
 			}
@@ -537,9 +538,34 @@ func planLeaves(rc *tfjson.ResourceChange, stateOnly map[string][]string) []valu
 	return driftLeaves(rc.Type, valueLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown, rc.Change.BeforeSensitive, rc.Change.AfterSensitive), stateOnly)
 }
 
+// editedFiles are the edited files, each parsed once, with the resources
+// by line, as planFails asks of them for each diagnostic and change.
+type editedFiles struct {
+	contents map[string][]byte
+	parsed   map[string]*editedFile
+}
+
+type editedFile struct {
+	file      *hclfile.File
+	resources hclfile.LineIndex
+	err       error
+}
+
+func (e *editedFiles) get(name string) *editedFile {
+	if f, ok := e.parsed[name]; ok {
+		return f
+	}
+	f := &editedFile{}
+	if f.file, f.err = hclfile.Parse(name, e.contents[name]); f.err == nil {
+		f.resources = f.file.ResourceIndex()
+	}
+	e.parsed[name] = f
+	return f
+}
+
 // diagnosticOf reports whether d is about the edit of c, made as src
-// says in contents: in its resource, or in the file and block it edits.
-func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, contents map[string][]byte) bool {
+// says in edited: in its resource, or in the file and block it edits.
+func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, edited *editedFiles) bool {
 	if c.shared != nil {
 		if d.Address != "" {
 			return slices.ContainsFunc(c.Covers, func(a string) bool { return hclfile.TrimInstanceKey(a) == hclfile.TrimInstanceKey(d.Address) })
@@ -552,14 +578,14 @@ func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, contents map[s
 	if d.Range == nil || src.Edit == nil || filepath.Base(d.Range.Filename) != src.Edit.File {
 		return false
 	}
-	f, err := hclfile.Parse(src.Edit.File, contents[src.Edit.File])
-	if err != nil {
+	f := edited.get(src.Edit.File)
+	if f.err != nil {
 		return true
 	}
-	if address := f.ResourceAt(d.Range.Start.Line); address != "" {
+	if address := f.resources.At(d.Range.Start.Line); address != "" {
 		return address == hclfile.TrimInstanceKey(c.Address)
 	}
-	for _, b := range f.Syntax.Blocks {
+	for _, b := range f.file.Syntax.Blocks {
 		switch {
 		case !hclfile.Spans(b.Range(), d.Range.Start.Line):
 		case b.Type == "locals":

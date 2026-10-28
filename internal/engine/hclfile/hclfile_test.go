@@ -142,3 +142,45 @@ func readFile(t *testing.T, dir, name string) string {
 	}
 	return string(content)
 }
+
+func TestLineIndex(t *testing.T) {
+	t.Parallel()
+	f, err := Parse("generated.tf", []byte(`resource "aws_vpc" "a" {
+  cidr_block = "10.0.0.0/16"
+}
+
+locals {
+  x = 1
+}
+resource "aws_subnet" "b" { vpc_id = "v" }
+
+import {
+  to = aws_vpc.a
+  id = "vpc-1"
+}
+
+resource "aws_subnet" "c" {
+  vpc_id = "v"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, imports := f.ResourceIndex(), f.ImportIndex()
+	for line, want := range map[int]string{
+		0: "", 1: "aws_vpc.a", 2: "aws_vpc.a", 3: "aws_vpc.a", 4: "",
+		// The locals block is no resource.
+		5: "", 6: "",
+		8: "aws_subnet.b", 9: "", 11: "",
+		15: "aws_subnet.c", 17: "aws_subnet.c", 18: "", 100: "",
+	} {
+		if got := resources.At(line); got != want {
+			t.Errorf("ResourceIndex().At(%d) = %q, want %q", line, got, want)
+		}
+	}
+	for line, want := range map[int]string{9: "", 10: "aws_vpc.a", 13: "aws_vpc.a", 14: "", 1: ""} {
+		if got := imports.At(line); got != want {
+			t.Errorf("ImportIndex().At(%d) = %q, want %q", line, got, want)
+		}
+	}
+}

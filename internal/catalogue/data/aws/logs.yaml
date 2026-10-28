@@ -1,4 +1,7 @@
 # yaml-language-server: $schema=../../schema.json
+# The logs service records a log group's retention and KMS key when it has
+# them, and as_created "true" when it has neither, as Lambda creates the
+# group of a function that logs before anything else creates it.
 provider: aws
 service: logs
 types:
@@ -7,5 +10,9 @@ types:
     # What AWS gives a log group that doesn't set them.
     defaults: [deletion_protection_enabled=false, log_group_class=STANDARD]
     skip:
-      - reason: log group Lambda creates for a function
+      # A group of a function's name that sets retention or a KMS key was
+      # created for it, usually in Terraform before the function, and is
+      # imported.
+      - reason: a function's log group as Lambda creates it when the function first logs, without retention or encryption; select it to import it
         id_prefixes: [/aws/lambda/]
+        attributes: { as_created: "true" }

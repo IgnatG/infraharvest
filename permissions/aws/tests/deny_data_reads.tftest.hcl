@@ -31,7 +31,10 @@ run "data_reads_denied" {
       "s3:GetObjectVersionForReplication",
       "s3-object-lambda:GetObject",
       "s3express:CreateSession",
+      "s3-outposts:GetObject",
       "s3tables:GetTableData",
+      "s3vectors:GetVectors",
+      "s3vectors:QueryVectors",
       "glacier:GetJobOutput",
       # Items, documents, records and messages.
       "dynamodb:PartiQLSelect",
@@ -40,11 +43,14 @@ run "data_reads_denied" {
       "es:ESHttpHead",
       "kinesisvideo:GetMedia",
       "iot:GetThingShadow",
+      "iotanalytics:SampleChannelData",
+      "healthlake:SearchWithPost",
       # Logs, traces and execution data.
       "logs:StartLiveTail",
       "logs:GetLogObject",
       "cloudtrail:LookupEvents",
       "xray:BatchGetTraces",
+      "xray:ListRetrievedTraces",
       "states:GetExecutionHistory",
       "rds:DownloadDBLogFilePortion",
     ], jsondecode(aws_iam_role_policy.deny_data_reads.policy).Statement[0].Action)) == 0
@@ -58,6 +64,7 @@ run "data_reads_denied" {
       "dynamodb:DescribeTable",
       "es:DescribeDomain",
       "lambda:GetFunction",
+      "cognito-idp:DescribeUserPoolClient",
       "ssm:GetParameter",
       "cassandra:Select",
       "logs:DescribeLogGroups",

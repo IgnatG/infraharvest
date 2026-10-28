@@ -83,14 +83,15 @@ func listedTypes(provider harvest.Provider) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	optIn := provider.Profile().OptInServices
+	profile := provider.Profile()
+	optIn := profile.OptInServices
 	supported := provider.Services()
 	listed := map[string]string{}
 	for _, service := range slices.Sorted(slices.Values(slices.Concat(importer.Services(provider), optIn))) {
 		if service == harvest.QueryService {
 			continue
 		}
-		for _, typ := range serviceTypes(service, supported[service], source, cat, provider.Name(), slices.Contains(optIn, service)) {
+		for _, typ := range serviceTypes(service, supported[service], source, cat, provider.Name(), slices.Contains(optIn, service), profile.MissingTypes) {
 			if _, ok := listed[typ]; !ok {
 				listed[typ] = service
 			}

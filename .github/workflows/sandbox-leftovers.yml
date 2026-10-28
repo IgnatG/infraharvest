@@ -32,6 +32,13 @@ jobs:
     permissions:
       contents: read
       id-token: write # OpenID Connect, for the roles
+    # The delete sweeps every run's tags, a live run's too, so it shares
+    # sandbox-aws's group and waits for the run in progress to finish. As
+    # in any group, a run already waiting in it is cancelled by this one.
+    # A listing deletes nothing and runs at once, in a group of its own.
+    concurrency:
+      group: ${{ inputs.delete && 'sandbox-aws' || format('sandbox-leftovers-{0}', github.run_id) }}
+      cancel-in-progress: false
     # The sweep waits for CloudFront to deploy a distribution disabled
     # before it deletes it, which takes up to half an hour.
     timeout-minutes: 90

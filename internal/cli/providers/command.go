@@ -228,7 +228,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringArrayVar(&options.TagFilters, "tag", nil, "keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
 	flags.StringArrayVar(&options.WhereFilters, "where", nil, "keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
 	flags.BoolVarP(&options.Verbose, "verbose", "v", false, "log more, such as the requests to the cloud's APIs")
-	flags.DurationVar(&options.ListTimeout, "list-timeout", importer.DefaultListTimeout, "longest time to list one service in one account and region, subscription or project; a service that takes longer is reported as failed (0: no limit)")
+	flags.DurationVar(&options.ListTimeout, "list-timeout", importer.DefaultListTimeout, "longest time to list one service in one account and region, subscription or project; a service that takes longer stops, keeps what it listed, and is reported as listed in part (0: no limit)")
 	flags.IntVar(&options.ListParallel, "list-parallel", importer.DefaultListParallel, "how many services of an account and region, a subscription or a project to list at once")
 	flags.Float64Var(&options.RateLimit, "rate-limit", ratelimit.DefaultRate, "most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit)")
 

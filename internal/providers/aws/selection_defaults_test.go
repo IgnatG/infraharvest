@@ -31,8 +31,6 @@ func defaultNetworkAPI(call apiCall) string {
 		return `<DescribeRouteTablesResponse ` + ec2NS + `><routeTableSet><item><routeTableId>rtb-default</routeTableId></item></routeTableSet></DescribeRouteTablesResponse>`
 	case "DescribeInternetGateways":
 		return `<DescribeInternetGatewaysResponse ` + ec2NS + `><internetGatewaySet><item><internetGatewayId>igw-default</internetGatewayId></item></internetGatewaySet></DescribeInternetGatewaysResponse>`
-	case "DescribeSecurityGroups":
-		return `<DescribeSecurityGroupsResponse ` + ec2NS + `><securityGroupInfo><item><groupId>sg-default-own</groupId></item></securityGroupInfo></DescribeSecurityGroupsResponse>`
 	case "ListStacks":
 		return noStacks
 	}
@@ -41,7 +39,9 @@ func defaultNetworkAPI(call apiCall) string {
 
 // The provider leaves out the default network and the security groups EKS
 // creates for clusters; the catalogue's skip rules cover the rest, such as
-// default network ACLs and service-linked roles.
+// default network ACLs, default security groups as AWS created them and
+// service-linked roles. A VPC's default security group is not asked for:
+// the sg lister records whether it is as AWS created it.
 func TestExcludedByDefault(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, defaultNetworkAPI)
@@ -53,9 +53,8 @@ func TestExcludedByDefault(t *testing.T) {
 		harvest.RecordBare("subnet-0own", "b", "aws_subnet", "aws"),
 		harvest.RecordBare("rtb-default", "main", "aws_route_table", "aws"),
 		harvest.RecordBare("igw-default", "gw", "aws_internet_gateway", "aws"),
-		harvest.RecordBare("sg-default-own", "default", "aws_security_group", "aws"),
-		harvest.Record("sgrule-1", "sgrule-1", "aws_security_group_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
-		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
+		harvest.Record("sg-default-own", "default", "aws_security_group", "aws", map[string]string{"group_name": "default", "as_created": "true"}),
+		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own", "as_created": "true"}),
 		harvest.Record("sg-eks", "eks-cluster-sg-web-1", "aws_security_group", "aws", map[string]string{eksClusterTag: "web"}),
 		harvest.Record("sgr-2", "eks_egress_all", "aws_vpc_security_group_egress_rule", "aws", map[string]string{"security_group_id": "sg-eks"}),
 		harvest.Record("sg-0own", "web", "aws_security_group", "aws", map[string]string{"tags.Name": "web"}),
@@ -71,15 +70,12 @@ func TestExcludedByDefault(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"aws_vpc vpc-default":                       reasonDefaultVPC,
-		"aws_subnet subnet-default-a":               reasonDefaultNetwork,
-		"aws_route_table rtb-default":               reasonDefaultNetwork,
-		"aws_internet_gateway igw-default":          reasonDefaultNetwork,
-		"aws_security_group sg-default-own":         reasonDefaultSG,
-		"aws_security_group_rule sgrule-1":          reasonDefaultSG,
-		"aws_vpc_security_group_ingress_rule sgr-1": reasonDefaultSG,
-		"aws_security_group sg-eks":                 reasonEKSClusterSG,
-		"aws_vpc_security_group_egress_rule sgr-2":  reasonEKSClusterSG,
+		"aws_vpc vpc-default":                      reasonDefaultVPC,
+		"aws_subnet subnet-default-a":              reasonDefaultNetwork,
+		"aws_route_table rtb-default":              reasonDefaultNetwork,
+		"aws_internet_gateway igw-default":         reasonDefaultNetwork,
+		"aws_security_group sg-eks":                reasonEKSClusterSG,
+		"aws_vpc_security_group_egress_rule sgr-2": reasonEKSClusterSG,
 	}
 	if !reflect.DeepEqual(excluded, want) {
 		t.Errorf("got %v, want %v", excluded, want)
@@ -88,7 +84,7 @@ func TestExcludedByDefault(t *testing.T) {
 
 // With what the listers record, the default network is worked out from
 // the listing, without asking AWS again: the VPCs' is_default, the parts'
-// vpc_id and the security groups' group_name.
+// vpc_id.
 func TestExcludedByDefaultFromTheListing(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, func(call apiCall) string {
@@ -107,8 +103,6 @@ func TestExcludedByDefaultFromTheListing(t *testing.T) {
 		harvest.Record("rtb-default", "main", "aws_route_table", "aws", map[string]string{"vpc_id": "vpc-default", "main": "true"}),
 		harvest.Record("rtb-0own", "rtb-0own", "aws_route_table", "aws", map[string]string{"vpc_id": "vpc-0abc1234"}),
 		harvest.Record("igw-default", "igw-default", "aws_internet_gateway", "aws", map[string]string{"vpc_id": "vpc-default"}),
-		harvest.Record("sg-default-own", "default", "aws_security_group", "aws", map[string]string{"group_name": "default"}),
-		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
 		harvest.Record("sg-0own", "web", "aws_security_group", "aws", map[string]string{"group_name": "web"}),
 		harvest.Record("sgr-2", "web_egress_all", "aws_vpc_security_group_egress_rule", "aws", map[string]string{"security_group_id": "sg-0own"}),
 	}
@@ -119,12 +113,10 @@ func TestExcludedByDefaultFromTheListing(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"aws_vpc vpc-default":                       reasonDefaultVPC,
-		"aws_subnet subnet-default-a":               reasonDefaultNetwork,
-		"aws_route_table rtb-default":               reasonDefaultNetwork,
-		"aws_internet_gateway igw-default":          reasonDefaultNetwork,
-		"aws_security_group sg-default-own":         reasonDefaultSG,
-		"aws_vpc_security_group_ingress_rule sgr-1": reasonDefaultSG,
+		"aws_vpc vpc-default":              reasonDefaultVPC,
+		"aws_subnet subnet-default-a":      reasonDefaultNetwork,
+		"aws_route_table rtb-default":      reasonDefaultNetwork,
+		"aws_internet_gateway igw-default": reasonDefaultNetwork,
 	}
 	if !reflect.DeepEqual(excluded, want) {
 		t.Errorf("got %v, want %v", excluded, want)
@@ -133,14 +125,13 @@ func TestExcludedByDefaultFromTheListing(t *testing.T) {
 
 // What the listing leaves open is asked for, and only that: a subnet
 // whose VPC wasn't listed takes the default VPCs, not the parts of the
-// default network, and a rule whose group wasn't listed takes the default
-// security groups.
+// default network.
 func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
 	t.Parallel()
 	var ops []string
 	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
-		case "DescribeVpcs", "DescribeSecurityGroups":
+		case "DescribeVpcs":
 			ops = append(ops, call.Op)
 			return defaultNetworkAPI(call)
 		case "ListStacks":
@@ -153,7 +144,6 @@ func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
 	resources := []harvest.Resource{
 		harvest.Record("subnet-default-a", "a", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-default"}),
 		harvest.Record("subnet-0own", "b", "aws_subnet", "aws", map[string]string{"vpc_id": "vpc-0abc1234"}),
-		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
 	}
 
 	excluded, err := p.ExcludedByDefault(ctx, resources)
@@ -162,14 +152,13 @@ func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"aws_subnet subnet-default-a":               reasonDefaultNetwork,
-		"aws_vpc_security_group_ingress_rule sgr-1": reasonDefaultSG,
+		"aws_subnet subnet-default-a": reasonDefaultNetwork,
 	}
 	if !reflect.DeepEqual(excluded, want) {
 		t.Errorf("got %v, want %v", excluded, want)
 	}
-	if !reflect.DeepEqual(ops, []string{"DescribeVpcs", "DescribeSecurityGroups"}) {
-		t.Errorf("asked %v, want the default VPCs and security groups only", ops)
+	if !reflect.DeepEqual(ops, []string{"DescribeVpcs"}) {
+		t.Errorf("asked %v, want the default VPCs only", ops)
 	}
 }
 

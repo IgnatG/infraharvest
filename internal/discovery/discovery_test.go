@@ -75,8 +75,8 @@ func TestListKeepsTheOrderAndTheBound(t *testing.T) {
 	}
 }
 
-// A discoverer that fails, or whose deadline passes, has what it found
-// left out; one that fails in part keeps it, unless its deadline passed.
+// A discoverer that fails has what it found left out; one that fails in
+// part, or whose deadline passes, keeps it, and fails in part.
 // The clock is virtual (synctest), so the good discoverers finish within
 // the deadline however loaded the runner.
 func TestListReportsFailuresAndDeadlines(t *testing.T) {
@@ -98,13 +98,13 @@ func TestListReportsFailuresAndDeadlines(t *testing.T) {
 		if results[1].Err == nil || results[1].Err.Error() != "access denied" || len(results[1].Resources) != 0 {
 			t.Errorf("bad: %+v", results[1])
 		}
-		if !errors.Is(results[2].Err, ErrDeadline) || len(results[2].Resources) != 0 {
+		if !errors.Is(results[2].Err, ErrDeadline) || !harvest.IsPartial(results[2].Err) || len(results[2].Resources) != 1 {
 			t.Errorf("slow: %+v", results[2])
 		}
 		if !harvest.IsPartial(results[3].Err) || len(results[3].Resources) != 1 {
 			t.Errorf("partial: %+v", results[3])
 		}
-		if !errors.Is(results[4].Err, ErrDeadline) || len(results[4].Resources) != 0 {
+		if !errors.Is(results[4].Err, ErrDeadline) || !harvest.IsPartial(results[4].Err) || len(results[4].Resources) != 1 {
 			t.Errorf("slow partial: %+v", results[4])
 		}
 	})
@@ -219,6 +219,14 @@ func TestServiceKeepsWhatAPartialListingFound(t *testing.T) {
 	resources, err = Service("dns", &errProvider{err: refused}, false, nil).Discover(t.Context())
 	if !errors.Is(err, refused) || resources != nil {
 		t.Errorf("failed: got %d resources and %v, want none and the error", len(resources), err)
+	}
+	// A lister whose calls fail as its context is done, at the deadline,
+	// listed in part.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	resources, err = Service("dns", &errProvider{err: context.Canceled}, false, nil).Discover(ctx)
+	if !harvest.IsPartial(err) || !errors.Is(err, context.Canceled) || len(resources) != 1 {
+		t.Errorf("stopped: got %d resources and %v, want 1 and a partial error", len(resources), err)
 	}
 }
 

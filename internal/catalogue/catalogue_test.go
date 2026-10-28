@@ -607,6 +607,16 @@ types:
 			t.Errorf("%s %s: got %v, want %v", tt.assetType, tt.name, got, tt.want)
 		}
 	}
+	// By type alone, whatever the name patterns.
+	for assetType, want := range map[string][]string{
+		"compute.googleapis.com/disk":    {"google_compute_disk", "google_compute_region_disk"},
+		"compute.googleapis.com/Network": {"google_compute_network"},
+		"storage.googleapis.com/Bucket":  nil,
+	} {
+		if got := c.InventoryTypes(assetType); !reflect.DeepEqual(got, want) {
+			t.Errorf("InventoryTypes(%s) = %v, want %v", assetType, got, want)
+		}
+	}
 }
 
 // A resource named as each built-in inventory entry's pattern says maps to

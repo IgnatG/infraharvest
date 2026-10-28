@@ -1,0 +1,47 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Permission names
+
+# The permission templates' deny lists must name actions and permissions
+# their clouds define, or a misspelt one denies nothing; checked against
+# the public references when the lists change and every week. The weekly
+# run also fails when AWS's ReadOnlyAccess gets a new default version,
+# whose new actions may read data the AWS list doesn't deny yet. Nothing
+# here signs in to a cloud.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  pull_request:
+    paths:
+      - permissions/aws/deny-data-reads.json
+      - permissions/google/deny-data-reads.json
+      - .github/scripts/check-permission-names.sh
+      - .github/workflows/permission-names.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the names
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            .github/scripts/check-permission-names.sh
+          else
+            .github/scripts/check-permission-names.sh --readonlyaccess
+          fi

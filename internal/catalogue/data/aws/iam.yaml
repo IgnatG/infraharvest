@@ -20,14 +20,20 @@ types:
     skip:
       - reason: service-linked role, which AWS manages for a service
         id_prefixes: [AWSServiceRoleFor]
+      - reason: a role IAM Identity Center creates for a permission set, which only it can change
+        id_prefixes: [AWSReservedSSO_]
   aws_iam_role_policy:
     skip:
       - reason: service-linked role, which AWS manages for a service
         id_prefixes: [AWSServiceRoleFor]
+      - reason: a role IAM Identity Center creates for a permission set, which only it can change
+        id_prefixes: [AWSReservedSSO_]
   aws_iam_role_policy_attachment:
     skip:
       - reason: service-linked role, which AWS manages for a service
         id_prefixes: [AWSServiceRoleFor]
+      - reason: a role IAM Identity Center creates for a permission set, which only it can change
+        id_prefixes: [AWSReservedSSO_]
   aws_iam_access_key:
     skip:
       - reason: a long-lived credential, which the import can't read the secret of and which is better replaced than codified; select it to import it

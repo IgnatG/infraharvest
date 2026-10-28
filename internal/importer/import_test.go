@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -122,11 +124,15 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 		if err != nil {
 			t.Fatalf("a slow service must not abort the run: %v", err)
 		}
-		if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms") {
-			t.Errorf("want the slow service reported, got %v", failures)
+		if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service slow: listing took longer than --list-timeout 10ms, so it stopped: what it listed by then is imported") || !harvest.IsPartial(failures[0]) {
+			t.Errorf("want the slow service reported as listed in part, got %v", failures)
 		}
-		if got := len(registry.Resources); got != 1 {
-			t.Errorf("want the good service's resource only, got %d resources", got)
+		// What the slow service listed before its deadline is kept.
+		if got := registry.ByService()["slow"]; len(got) != 1 || got[0].Observed.ID != "id-3" {
+			t.Errorf("want the slow service's resource kept, got %v", got)
+		}
+		if got := len(registry.Resources); got != 2 {
+			t.Errorf("want the good and the slow services' resources, got %d resources", got)
 		}
 	})
 }
@@ -144,8 +150,8 @@ func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 }
 
 // fakeProvider lists one resource per service, fails for service "bad",
-// lists one and fails in part for service "partial", and lists service
-// "slow" until its context is done.
+// lists one and fails in part for service "partial", and lists one for
+// service "slow", then fails when its context is done.
 // fakeScope is a provider command's scope (see Options.ProviderScope)
 // with each capability harvest declares for one.
 type fakeScope struct {
@@ -193,9 +199,11 @@ func (s *fakeService) List() error {
 		s.Resources = []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}
 		return harvest.Partial(errors.New("a zone's records: access denied"))
 	case "slow":
-		// Like listers that log a failed call and go on.
+		// Lists one, then waits on a call that fails when its context is
+		// done.
+		s.Resources = []harvest.Resource{harvest.RecordBare("id-3", "three", "fake_thing", "fake")}
 		<-s.Context().Done()
-		return nil
+		return s.Context().Err()
 	}
 	s.Resources = []harvest.Resource{
 		harvest.RecordBare("id-1", "one", "fake_thing", "fake"),
@@ -502,6 +510,47 @@ func TestWithChildImportsAsksInParallelAndKeepsTheOrder(t *testing.T) {
 	}
 	if len(byService["a"]) != 3 {
 		t.Error("the resources given were changed")
+	}
+}
+
+// blockedChildren is fakeProvider whose ChildImports waits until release
+// is closed, counting the calls that started.
+type blockedChildren struct {
+	fakeProvider
+	started atomic.Int32
+	release chan struct{}
+}
+
+func (p *blockedChildren) ChildImports(context.Context, harvest.Resource) ([]harvest.Resource, error) {
+	p.started.Add(1)
+	<-p.release
+	return nil, nil
+}
+
+// Asking many resources for their children takes parallel goroutines, not
+// one for each resource.
+func TestWithChildImportsStartsParallelGoroutines(t *testing.T) {
+	p := &blockedChildren{release: make(chan struct{})}
+	var resources []harvest.Resource
+	for i := range 2000 {
+		resources = append(resources, harvest.RecordBare(fmt.Sprintf("id-%d", i), "r", "fake_thing", "fake"))
+	}
+	before := runtime.NumGoroutine()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		withChildImports(t.Context(), p, map[string][]harvest.Resource{"a": resources}, 4)
+	}()
+	for p.started.Load() < 4 {
+		runtime.Gosched()
+	}
+	if extra := runtime.NumGoroutine() - before; extra > 50 {
+		t.Errorf("%d goroutines while asking 2000 resources 4 at a time", extra)
+	}
+	close(p.release)
+	<-done
+	if got := p.started.Load(); got != 2000 {
+		t.Errorf("asked %d resources, want 2000", got)
 	}
 }
 

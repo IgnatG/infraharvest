@@ -47,8 +47,9 @@ var resourceManagerServices = []string{
 // --resource-group, that Azure Resource Graph knows, every resource group
 // of that scope, empty ones too, and the child resources Resource Graph
 // doesn't index (such as subnets and blob containers), read from Resource
-// Manager, with Log Analytics workspaces' data sources of the kinds azurerm
-// has types for (see workspaceDataSources). The catalogue's inventory
+// Manager for the child types it keeps (see withoutUnkeptChildren), with
+// Log Analytics workspaces' data sources of the kinds azurerm has types
+// for (see workspaceDataSources). The catalogue's inventory
 // entries map a resource to its azurerm type, else aztft does, with its
 // import ID, reading what the ID alone can't say, as between a function
 // app and a web app, from what the listing returned, and asking Resource
@@ -112,7 +113,9 @@ func (g *ResourceGraphLister) List() error {
 	if err != nil {
 		return err
 	}
+	cat := g.catalogue()
 	withoutWorkspaceDataSources(lister.ARMSchemaTree)
+	withoutUnkeptChildren(lister.ARMSchemaTree, keptTypes(cat, g.wants))
 	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
 	if err != nil {
 		return err
@@ -121,7 +124,6 @@ func (g *ResourceGraphLister) List() error {
 	if err != nil {
 		return err
 	}
-	cat := g.catalogue()
 	// What is in a group the default selection leaves out whole, such as
 	// an AKS cluster's MC_* group, is listed, so that it can be selected,
 	// but without its child resources, and the data sources of its

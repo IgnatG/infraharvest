@@ -39,12 +39,13 @@ A service fails with the cloud's denial in its message, `service <name>: ...`, a
 
 - Run as the principal the [permissions templates](permissions.md) grant: on AWS `ReadOnlyAccess` with the data-read deny, on Azure Reader, on Google Cloud `roles/viewer`, `roles/iam.securityReviewer` and `roles/cloudasset.viewer`.
 - On AWS, the templates deny `kms:Decrypt`, so SSM `SecureString` parameters fail to import by design (see [Permissions](permissions.md#aws)).
+- On Google Cloud, `roles/viewer` can't read a Memorystore for Redis instance's AUTH string, so an instance with AUTH enabled fails to import by design, with `Error reading AuthString` (see [Permissions](permissions.md#google-cloud)).
 - `--allow-partial` keeps everything else and exits 3; `--skip=<service>` leaves out a service you can't read.
 - If the templates should grant what was denied, please [open an issue](https://github.com/IgnatG/infraharvest/issues) with the resource type and the message.
 
 ## A service took too long
 
-`service <name>: listing took longer than --list-timeout 30m0s; its resources may be incomplete` means the service didn't finish listing one account and region, subscription or project in time. Raise `--list-timeout` (`0` for no limit), name fewer `--services`, or on AWS skip services a region doesn't use with [`--resource-explorer`](aws.md#resource-explorer).
+`service <name>: listing took longer than --list-timeout 30m0s, so it stopped: what it listed by then is imported, but more may be missing` means the service didn't finish listing one account and region, subscription or project in time. What it listed is in the output, but the run doesn't pass as complete. Raise `--list-timeout` (`0` for no limit), name fewer `--services`, or on AWS skip services a region doesn't use with [`--resource-explorer`](aws.md#resource-explorer).
 
 ## A Terraform command took too long
 
@@ -72,7 +73,7 @@ The `cloud_asset` service fails with `searching project <project>: ...` and a `4
 gcloud services enable cloudasset.googleapis.com --project=<project>
 ```
 
-With user credentials from `gcloud auth application-default login`, the quota project is the one `gcloud auth application-default set-quota-project <project>` sets; with a service account, its own project. A `403` that names `cloudasset.assets.searchAllResources` instead means the principal lacks `roles/cloudasset.viewer`. See [Cloud Asset Inventory](google.md#cloud-asset-inventory) and [Permissions](permissions.md#google-cloud).
+With user credentials from `gcloud auth application-default login`, the quota project is the one `gcloud auth application-default set-quota-project <project>` sets; with a service account, its own project. A `403` that names `serviceusage.services.use` means user credentials whose quota project doesn't let you use it: grant `roles/serviceusage.serviceUsageConsumer` there, or set a quota project that does. A `403` that names `cloudasset.assets.searchAllResources` instead means the principal lacks `roles/cloudasset.viewer`. See [Cloud Asset Inventory](google.md#cloud-asset-inventory) and [Permissions](permissions.md#google-cloud).
 
 A project without the Cloud DNS, Cloud SQL Admin or Cloud Scheduler API enabled has nothing for `dns`, `cloudsql` or `schedulerJobs` to list: that is logged, not a failure.
 

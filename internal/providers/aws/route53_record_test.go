@@ -69,7 +69,7 @@ func recordRoute53API(t *testing.T, failing ...string) func(apiCall) string {
 // The lister lists each zone followed by all its records, NS and SOA
 // included, then the health checks. A record is imported as
 // <zone>_<name>_<type>_<set identifier>, its name with the trailing dot and
-// with \052 unescaped to *.
+// with \052 unescaped to *, and records whether it is at the zone's apex.
 func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordRoute53API(t))
@@ -82,17 +82,17 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 		t.Fatalf("want the partial error of zone Z2's records, got %v", err)
 	}
 
-	record := func(id, label, name, typ, setID string) recordedResource {
+	record := func(id, label, name, typ, setID, apex string) recordedResource {
 		return recordedResource{"aws_route53_record", id, label, map[string]string{
-			"name": name, "zone_id": "Z1", "type": typ, "set_identifier": setID}}
+			"name": name, "zone_id": "Z1", "type": typ, "set_identifier": setID, "apex": apex}}
 	}
 	assertRecorded(t, g.Resources,
 		recordedResource{"aws_route53_zone", "Z1", "example.com", map[string]string{"name": "example.com.", "force_destroy": "false"}},
-		record("Z1_example.com._NS_", "example.com NS", "example.com", "NS", ""),
-		record("Z1_example.com._SOA_", "example.com SOA", "example.com", "SOA", ""),
-		record("Z1_*.example.com._A_", "wildcard A", "*.example.com", "A", ""),
-		record("Z1_www.example.com._CNAME_blue", "www CNAME blue", "www.example.com", "CNAME", "blue"),
-		record("Z1_www.example.com._CNAME_green", "www CNAME green", "www.example.com", "CNAME", "green"),
+		record("Z1_example.com._NS_", "example.com NS", "example.com", "NS", "", "true"),
+		record("Z1_example.com._SOA_", "example.com SOA", "example.com", "SOA", "", "true"),
+		record("Z1_*.example.com._A_", "wildcard A", "*.example.com", "A", "", "false"),
+		record("Z1_www.example.com._CNAME_blue", "www CNAME blue", "www.example.com", "CNAME", "blue", "false"),
+		record("Z1_www.example.com._CNAME_green", "www CNAME green", "www.example.com", "CNAME", "green", "false"),
 		// A zone whose records can't be listed is listed without them.
 		recordedResource{"aws_route53_zone", "Z2", "internal.example", map[string]string{"name": "internal.example.", "force_destroy": "false"}},
 		recordedResource{"aws_route53_health_check", "hc-1", "example.com HTTPS", nil},
@@ -131,4 +131,45 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 		assertIDs(t, g.Resources, "aws_route53_zone", "Z1", "Z2")
 		assertIDs(t, g.Resources, "aws_route53_health_check")
 	})
+}
+
+// A zone and a health check another service created, here Cloud Map for a
+// namespace, record that service as linked_service, and so do the zone's
+// records; the others record none.
+func TestRecordRoute53RecordsLinkedService(t *testing.T) {
+	t.Parallel()
+	const linked = `<LinkedService><ServicePrincipal>servicediscovery.amazonaws.com</ServicePrincipal><Description>arn:aws:servicediscovery:eu-west-2:123456789012:namespace/ns-1</Description></LinkedService>`
+	ctx := useFakeAPI(t, func(call apiCall) string {
+		switch call.Path {
+		case "/2013-04-01/hostedzone":
+			return `<ListHostedZonesResponse ` + recordRoute53NS + `><HostedZones>
+				<HostedZone><Id>/hostedzone/Z3</Id><Name>svc.local.</Name><CallerReference>c-3</CallerReference><Config><PrivateZone>true</PrivateZone></Config>` + linked + `</HostedZone>
+				</HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesResponse>`
+		case "/2013-04-01/hostedzone/Z3/rrset":
+			return `<ListResourceRecordSetsResponse ` + recordRoute53NS + `><ResourceRecordSets>
+				<ResourceRecordSet><Name>api.svc.local.</Name><Type>A</Type><TTL>60</TTL><ResourceRecords><ResourceRecord><Value>10.0.0.1</Value></ResourceRecord></ResourceRecords></ResourceRecordSet>
+				</ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>300</MaxItems></ListResourceRecordSetsResponse>`
+		case "/2013-04-01/healthcheck":
+			return `<ListHealthChecksResponse ` + recordRoute53NS + `><HealthChecks>
+				<HealthCheck><Id>hc-linked</Id><CallerReference>c-l</CallerReference>` + linked + `<HealthCheckConfig><Type>HTTP</Type><IPAddress>10.0.0.1</IPAddress></HealthCheckConfig><HealthCheckVersion>1</HealthCheckVersion></HealthCheck>
+				<HealthCheck><Id>hc-own</Id><CallerReference>c-o</CallerReference><HealthCheckConfig><Type>HTTPS</Type><FullyQualifiedDomainName>example.com</FullyQualifiedDomainName></HealthCheckConfig><HealthCheckVersion>1</HealthCheckVersion></HealthCheck>
+				</HealthChecks><IsTruncated>false</IsTruncated><Marker></Marker><MaxItems>100</MaxItems></ListHealthChecksResponse>`
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &Route53Lister{}
+	g.SetContext(ctx)
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	const principal = "servicediscovery.amazonaws.com"
+	assertRecorded(t, g.Resources,
+		recordedResource{"aws_route53_zone", "Z3", "svc.local", map[string]string{"name": "svc.local.", "force_destroy": "false", "linked_service": principal}},
+		recordedResource{"aws_route53_record", "Z3_api.svc.local._A_", "api A", map[string]string{
+			"name": "api.svc.local", "zone_id": "Z3", "type": "A", "set_identifier": "", "apex": "false", "linked_service": principal}},
+		recordedResource{"aws_route53_health_check", "hc-linked", "10.0.0.1 HTTP", map[string]string{"linked_service": principal}},
+		recordedResource{"aws_route53_health_check", "hc-own", "example.com HTTPS", nil},
+	)
 }

@@ -69,6 +69,7 @@ func TestListedInScopeOnlyWhereTheListingIsComplete(t *testing.T) {
 		{name: "--where", options: Options{Services: base.Services, WhereFilters: []string{"aws_sqs_queue.name=orders"}}, scope: "aws/123/eu-west-2", why: "filtered"},
 		{name: "--resource-explorer", options: Options{Services: base.Services, ProviderScope: fakeScope{partial: "--resource-explorer leaves out the services its index shows nothing of"}}, scope: "aws/123/eu-west-2", why: "--resource-explorer"},
 		{name: "failed in part", options: base, scope: "aws/123/eu-west-2", failures: []error{errors.New("service sqs: access denied")}, why: "failed in part"},
+		{name: "past --list-timeout", options: base, scope: "aws/123/eu-west-2", failures: []error{fmt.Errorf("service sqs: %w", harvest.Partial(errors.New("listing took longer than --list-timeout 30m0s, so it stopped")))}, why: "failed in part"},
 		{name: "complete", options: base, scope: "aws/123/eu-west-2"},
 		{name: "complete, with environments", options: base, pattern: envLayout, scope: "aws/123/eu-west-2"},
 		{name: "complete, but for tags", options: base, scope: "aws/123/eu-west-2", failures: []error{fmt.Errorf("%s couldn't read them: access denied", tagsFailure)}},

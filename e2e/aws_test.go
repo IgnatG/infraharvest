@@ -92,6 +92,7 @@ func seedAWS(t *testing.T) awsEstate {
 	defer awsSeeded.Unlock()
 	if awsSeeded.state == nil {
 		awsSeeded.state = seed(ctx, t, "aws", execPath, pluginCache)
+		createDefaultGroupRules(ctx, t, "test", "us-east-1")
 	}
 	return awsEstate{ctx: ctx, engineName: engineName, execPath: execPath, pluginCache: pluginCache, state: awsSeeded.state}
 }
