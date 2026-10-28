@@ -37,7 +37,7 @@ func newVerifyCmd() *cobra.Command {
 	}
 	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
 		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
-		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments,
+		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments, Policies: &options.Policies,
 		FormatHelp:      "text prints a summary; json prints each root's checks as JSON",
 		CatalogueHelp:   ": those the import used",
 		EnvironmentHelp: "for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/)",

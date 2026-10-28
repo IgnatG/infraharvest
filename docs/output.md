@@ -171,7 +171,7 @@ After generating a directory, infraharvest runs its verification gate on it and 
 | G2 validate | `terraform validate` passes |
 | G3 plan | The plan imports every resource and changes nothing else. The secret variables of values the provider marks sensitive get placeholder values for this plan, so the arguments they set may change, and so may arguments the provider keeps only in state (for example a Secrets Manager secret's `recovery_window_in_days`, or a Google Cloud resource's `labels` and `terraform_labels`, which an import leaves empty). Those of the secrets infraharvest found get their values |
 | G4 standards | The directory, and the local modules it calls, follow the output standard. Terraform and providers are pinned (`required_version` within one major release, providers with `~>`). Registry modules have an exact version, and git modules a `?ref=`. Variables and outputs are typed and described, and no sensitive variable has a default other than `null`. There is no `"${...}"` around a single expression, and no argument the provider leaves out (such as an S3 bucket's deprecated inline settings). There are no state files, but for the local state of a root applied without a backend (`terraform.tfstate` and its backups, which the output's `.gitignore` keeps out of version control, and which G6 and checkov pass over), and only `.tf` files, but for the `.tfvars` and `.hcl` files under `vars/` of a root that environments share, none of which sets a sensitive variable. Local modules have `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and a README, and no `examples/` |
-| G5 scanners | The scanners installed on `PATH` run on the directory, at the same time (no more scanner processes at once than the machine has CPUs, across the roots `--parallel` checks together), and are reported in a fixed order. With none installed (tflint, trivy, checkov), the check is skipped: it checks nothing, shows as skipped in the README, `report.md` and `infraharvest verify`, and has `"skipped": true` in `coverage.json`, but doesn't fail the import. tflint must find nothing at warning level or above, since its findings concern the generated code. trivy and checkov findings are listed but never fail the check: they describe the infrastructure's own settings, which the configuration must mirror to plan with no changes. The scanners run only once G6 passes, so they never see a secret value, in the directory they scan, without the cloud, Terraform and checkov platform credentials in their environment, and tflint with a configuration of infraharvest's own (its bundled Terraform rules, recommended preset), not `~/.tflint.hcl`; checkov runs with `--skip-download` |
+| G5 scanners | The scanners installed on `PATH` run on the directory, at the same time (no more scanner processes at once than the machine has CPUs, across the roots `--parallel` checks together), and are reported in a fixed order. With none installed (tflint, trivy, checkov), the check is skipped: it checks nothing, shows as skipped in the README, `report.md` and `infraharvest verify`, and has `"skipped": true` in `coverage.json`, but doesn't fail the import. tflint must find nothing at warning level or above, since its findings concern the generated code. trivy and checkov findings are listed but never fail the check: they describe the infrastructure's own settings, which the configuration must mirror to plan with no changes. The scanners run only once G6 passes, so they never see a secret value, in the directory they scan, without the cloud, Terraform and checkov platform credentials in their environment, and tflint with a configuration of infraharvest's own (its bundled Terraform rules, recommended preset), not `~/.tflint.hcl`; checkov runs with `--skip-download`. With `--policy`, conftest also checks the directory's `.tf` files against your own OPA policies, and its findings are listed the same way (see [Your own policies](#your-own-policies)) |
 | G6 secrets | No written file, in the directory or the local modules it calls, contains a value the provider marks sensitive (unless another attribute holds the same value in the open and it plainly isn't a secret, such as a parameter that holds its region: a value with upper case, punctuation or the randomness of a key is looked for all the same, as a copy of a secret in an attribute the provider doesn't mark is a leak), a secret value infraharvest found, any value [Secrets](#secrets) would take for a secret, a credential such as a private key, or an AWS access key ID with its secret access key (an ID alone, such as an IAM access key's, is an identifier). The README, written after the checks, is checked for those values too. Errors and check details never quote a secret value infraharvest found, even where a provider quotes the value it rejects: it becomes `(sensitive value)`. The values the var files under `vars/` set are looked at as the configuration's are |
 | G7 determinism | The configuration, with the local modules it calls, calls no function whose result changes between runs, such as `timestamp()` |
 | G8 moves | The moved and removed blocks of the root, such as those of `moves.tf`, are ones Terraform accepts. Each moved block moves a resource to one the root declares, or into a module call it makes, or to one a removed block then forgets, and keeps its type. No moved or removed block starts from what the root still declares, but for an instance a moved block moves out of a resource, which only the plan can tell, and a removed block names a whole resource or module call, not an instance. Together the moved blocks move each resource once: no cycles, and no two onto one address |
@@ -179,6 +179,39 @@ After generating a directory, infraharvest runs its verification gate on it and 
 A failed check counts like a resource that couldn't be imported (exit code 1, or 3 with `--allow-partial`).
 
 To check generated roots again, for example after editing them, run `infraharvest verify [output-directory]`. It runs the same checks on every root, each in a private copy beside it (a hidden directory, removed once checked) without its backend block, its state or `.terraform`, initialised without a backend, so it needs no access to the state and leaves the root as it was, a merged root's `backend` in `providers.tf` included; set secret variables first. Without the state, its plan relies on the import blocks, so run it before you delete `imports.tf`: on a root without them, the plan would create every resource. After `terraform apply`, `infraharvest drift [output-directory]` shows what has changed in the cloud since, with read access to the state (see [Drift](drift.md)). `infraharvest report [output-directory]` prints an import's report again (`--format json` for JSON).
+
+### Your own policies
+
+`--policy <dir>` checks each root against your organisation's own rules, written as [OPA](https://www.openpolicyagent.org/) policies in Rego, with [conftest](https://www.conftest.dev/), as part of G5. `import` and `verify` take it, and the configuration file as `policy` (see [Configuration](configuration.md)); repeat it, or separate directories with commas, for several. conftest must be on `PATH`: with `--policy` and no conftest, the command fails before it starts, rather than skip a check you asked for. It runs in the root's directory on the root's own `.tf` files (not the modules under `.terraform`), read with conftest's HCL2 parser, with the policies of every namespace in the directories, which are read as they are: nothing is downloaded, and conftest gets the scanners' environment without credentials. Each `deny` the configuration breaks is a finding at severity `failure`, each `warn` one at `warning`, named after the policy's package and the file, with the policy's message. Like trivy's and checkov's, they are listed and never fail the check: the roots describe the infrastructure as it is, and a policy says what it should be, so a finding is something to change in the cloud, or in the code once it is applied.
+
+A policy that wants every S3 bucket to have versioning, and an owner tag, in `policies/s3.rego`:
+
+```rego
+package s3
+
+import rego.v1
+
+# Every bucket has an aws_s3_bucket_versioning that refers to it.
+deny contains msg if {
+	some name, _ in input.resource.aws_s3_bucket
+	not versioned(name)
+	msg := sprintf("aws_s3_bucket.%s has no aws_s3_bucket_versioning", [name])
+}
+
+versioned(name) if {
+	some _, blocks in input.resource.aws_s3_bucket_versioning
+	contains(blocks[_].bucket, sprintf("aws_s3_bucket.%s.", [name]))
+}
+
+# Every bucket says who owns it.
+warn contains msg if {
+	some name, blocks in input.resource.aws_s3_bucket
+	not blocks[0].tags.owner
+	msg := sprintf("aws_s3_bucket.%s has no owner tag", [name])
+}
+```
+
+`infraharvest verify --policy=policies` then lists, for a root with an unversioned bucket `logs` without the tag, `conftest: s3 (failure) main.tf: aws_s3_bucket.logs has no aws_s3_bucket_versioning` and `conftest: s3 (warning) main.tf: aws_s3_bucket.logs has no owner tag` under G5. The HCL2 parser gives each block as a list (`blocks[0]` above), and a reference as its expression in a string, such as `"${aws_s3_bucket.logs.id}"`; `conftest parse --parser hcl2 main.tf` shows what a policy reads.
 
 ## Exit codes
 

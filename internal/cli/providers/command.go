@@ -180,6 +180,16 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		options.Stdout = c.OutOrStdout()
 		options.ModulesChosen = c.Flags().Changed("modules")
 		options.ManagedStores = managedStores()
+		// Once, before any scope runs; discover runs no gate, and takes
+		// --policy only as the configuration file it shares with import
+		// may set it.
+		if !options.Discover {
+			policies, err := importer.ResolvePolicies(options.Policies)
+			if err != nil {
+				return err
+			}
+			options.Policies = policies
+		}
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}
@@ -228,7 +238,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules"+moduleFamilies()+", at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	AddEngineFlags(flags, EngineFlags{
 		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
-		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock,
+		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Policies: &options.Policies,
 		FormatHelp:    "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)",
 		CatalogueHelp: ": import IDs, arguments to leave out, default skips, data sources",
 	})

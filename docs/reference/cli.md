@@ -91,6 +91,7 @@ infraharvest discover aws
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
@@ -142,6 +143,7 @@ infraharvest discover azure
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
@@ -193,6 +195,7 @@ infraharvest discover google
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
@@ -285,6 +288,7 @@ infraharvest import aws
 | `--organization` |  | import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
@@ -335,6 +339,7 @@ infraharvest import azure
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
 | `--report-tags` |  | tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary) |
@@ -385,6 +390,7 @@ infraharvest import google
 | `--organization` |  | import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants) |
 | `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--projects` |  | projects to import |
 | `--rate-limit` | `20` | most requests a second to each cloud API: per API host, and for AWS and Azure per account or subscription too (0: no limit) |
 | `--regenerate` |  | generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed |
@@ -460,6 +466,7 @@ infraharvest verify [output-directory] [flags]
 | `--environment` |  | for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/) |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a summary; json prints each root's checks as JSON |
+| `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 
 ## infraharvest version

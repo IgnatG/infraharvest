@@ -47,6 +47,10 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if options.EngineTimeout < 0 {
 		return errors.New("--engine-timeout can't be negative")
 	}
+	policies, err := ResolvePolicies(options.Policies)
+	if err != nil {
+		return err
+	}
 	roots, err := generatedRoots(out)
 	if err != nil {
 		return err
@@ -71,7 +75,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	scanners := engine.DefaultScanners()
+	scanners := engine.DefaultScanners(policies)
 	var results []verifiedRoot
 	var failed []string
 	for _, dir := range roots {
@@ -208,6 +212,7 @@ type VerifyOptions struct {
 	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
 	Format        string        // FormatText or FormatJSON
 	Catalogue     string        // directory of catalogue files the import used, if any
+	Policies      []string      // directories of OPA policies conftest checks the roots against, if any
 	ForceUnlock   bool          // verify even when another run holds the output directory's lock
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.

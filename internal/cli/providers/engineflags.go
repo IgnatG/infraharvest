@@ -23,6 +23,8 @@ type EngineFlags struct {
 	ForceUnlock           *bool
 	// Environments is nil for a command without --environment.
 	Environments *[]string
+	// Policies is nil for a command that runs no verification gate.
+	Policies *[]string
 
 	// FormatHelp is --format's help, which says what the command prints.
 	FormatHelp string
@@ -43,5 +45,8 @@ func AddEngineFlags(flags *pflag.FlagSet, f EngineFlags) {
 	flags.BoolVar(f.ForceUnlock, "force-unlock", false, "run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself")
 	if f.Environments != nil {
 		flags.StringSliceVar(f.Environments, "environment", nil, f.EnvironmentHelp)
+	}
+	if f.Policies != nil {
+		flags.StringSliceVar(f.Policies, "policy", nil, "directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see "+DocsURL+"output/#your-own-policies)")
 	}
 }
