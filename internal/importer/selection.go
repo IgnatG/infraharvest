@@ -102,7 +102,7 @@ func (r *Run) selectResources(listed listing, defaults *selection.Sources, f *se
 			}
 			typ := res.Address.Type
 			tags := listed.tagsOf(res)
-			r.report.AddListed(report.Listed{Scope: scope, Type: typ, ID: id, Tags: tags})
+			r.report.AddListed(report.Listed{Scope: scope, Service: service, Type: typ, ID: id, Tags: tags})
 			d := defaults.Decide(f, scope, id, selection.Listed{Resource: res, Tags: tags})
 			if d.Include {
 				selected[service] = append(selected[service], res)
