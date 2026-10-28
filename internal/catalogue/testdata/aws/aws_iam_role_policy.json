@@ -1,1 +1,1 @@
-{"resources": [{"id": "app:read-queue", "name": "app_read_queue"}, {"id": "AWSServiceRoleForECS:ECSServiceRolePolicy", "name": "ecs_service_linked"}]}
+{"resources": [{"id": "app:read-queue", "name": "app_read_queue"}, {"id": "AWSServiceRoleForECS:ECSServiceRolePolicy", "name": "ecs_service_linked"}, {"id": "AWSReservedSSO_DataAccess_0123456789abcdef:AwsSSOInlinePolicy", "name": "sso_data"}]}

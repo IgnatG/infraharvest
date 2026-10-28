@@ -6,3 +6,4 @@ import {
 }
 
 # AWSServiceRoleForECS/arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy: left out by default, would import as "AWSServiceRoleForECS/arn:aws:iam::aws:policy/aws-service-role/AmazonECSServiceRolePolicy": service-linked role, which AWS manages for a service
+# AWSReservedSSO_AdministratorAccess_0123456789abcdef/arn:aws:iam::aws:policy/AdministratorAccess: left out by default, would import as "AWSReservedSSO_AdministratorAccess_0123456789abcdef/arn:aws:iam::aws:policy/AdministratorAccess": a role IAM Identity Center creates for a permission set, which only it can change
