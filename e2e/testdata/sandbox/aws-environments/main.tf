@@ -3,8 +3,8 @@
 # importing them: two small estates of one workload, dev and prd, in the
 # one account and region, told apart by their Environment tag, as the
 # configuration file's environments.<env>.tags map them. Each has a queue,
-# of another visibility timeout in each, a bucket and a SecureString
-# parameter, whose value differs; prd alone has an alerts queue. Nothing
+# of another visibility timeout in each, a bucket and a parameter named
+# as a secret, whose value differs; prd alone has an alerts queue. Nothing
 # bills by the hour: a run costs well under a cent, and the estate is
 # destroyed after each run.
 # The provider is configured through the environment the test sets.
@@ -88,18 +88,21 @@ resource "aws_s3_bucket" "prd_data" {
 }
 
 # A secret in each, of another value: the merged root takes it from a
-# sensitive variable that no var file sets. Standard parameters, encrypted
-# with the account's AWS managed key, cost nothing.
+# sensitive variable that no var file sets. String parameters, which
+# infraharvest treats as secrets by their names (token), as it would a
+# SecureString's value: the read-only role denies kms:Decrypt, so a
+# SecureString fails to import by design (docs/permissions.md). Standard
+# parameters cost nothing.
 resource "aws_ssm_parameter" "dev_token" {
   name  = "/${local.name}-dev/token"
-  type  = "SecureString"
+  type  = "String"
   value = "not-a-secret-${var.suffix}-dev"
   tags  = local.dev
 }
 
 resource "aws_ssm_parameter" "prd_token" {
   name  = "/${local.name}-prd/token"
-  type  = "SecureString"
+  type  = "String"
   value = "not-a-secret-${var.suffix}-prd"
   tags  = local.prd
 }
