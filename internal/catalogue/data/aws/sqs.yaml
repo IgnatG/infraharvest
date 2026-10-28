@@ -5,10 +5,11 @@ types:
   aws_sqs_queue:
     arn: { service: sqs, resource_type: "" }
     # What AWS gives a queue that doesn't set them: encrypted with
-    # SQS-managed keys.
+    # SQS-managed keys. Not max_message_size: SQS gives a new queue 1 MiB,
+    # but the provider sends its own default, 256 KiB, when the
+    # configuration leaves it out.
     defaults:
       - kms_data_key_reuse_period_seconds=300
-      - max_message_size=1048576
       - message_retention_seconds=345600
       - sqs_managed_sse_enabled=true
       - visibility_timeout_seconds=30

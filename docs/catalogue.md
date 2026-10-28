@@ -109,7 +109,7 @@ types:
 
 An import applies the entries whose constraint accepts the provider version it pins (`~> 4.81` pins 4.81 and later 4.x releases, so `< 5.0` applies), after the entry's own; `infraharvest verify` applies those that accept the version in the root's lock file. Constraints take the operators Terraform's do (`=`, `!=`, `>`, `>=`, `<`, `<=`, `~>`, joined with commas). An entry under a constraint must add something, and not repeat what the entry has for every version.
 
-Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`.
+Defaults of optional arguments that the provider doesn't compute need no entry: infraharvest finds them by plan (see [Tidying](output.md#tidying)). What needs a `defaults` entry is a default the cloud sets for an argument the provider computes, which a plan can't tell from a setting. The entry for every type, `"*"`, takes no `defaults`. A `defaults` entry for an argument the provider gives a default of its own must be that default (see [Schema metadata](#schema-metadata)): the provider sends it when the configuration leaves the argument out, whatever the cloud would give, and `go test ./internal/catalogue` fails on one that isn't, for the release the metadata was read from.
 
 ## Schema metadata
 
