@@ -73,7 +73,8 @@ func checkQueryRoundTrip(ctx context.Context, t *testing.T, q queryRoundTrip) {
 
 	selectionFile := filepath.Join(t.TempDir(), "selection.yaml")
 	root = cli.NewCmdRoot()
-	root.SetArgs(slices.Concat([]string{"discover", q.command, "--pick=false", "--terraform-path=" + execPath, "--selection=" + selectionFile}, query, q.scope))
+	// --out is where discover saves its inventory.
+	root.SetArgs(slices.Concat([]string{"discover", q.command, "--pick=false", "--terraform-path=" + execPath, "--out=" + t.TempDir(), "--selection=" + selectionFile}, query, q.scope))
 	if err := root.ExecuteContext(ctx); err != nil {
 		t.Fatalf("discover %s with the %s service: %v", q.command, harvest.QueryService, err)
 	}

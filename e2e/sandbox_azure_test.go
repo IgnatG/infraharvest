@@ -77,6 +77,7 @@ func TestSandboxAzure(t *testing.T) {
 	checkAzureFound(t, coverage, created, group)
 	checkGroupTags(t, root, group)
 	checkAzureRoles(t, coverage, created, root)
+	s.checkAzureQuery(ctx, t, created)
 	if imported["azurerm_resource_group"] == 0 {
 		t.Errorf("the import doesn't import the resource group %s", s.resourceGroup)
 	}
@@ -212,6 +213,37 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 		}
 	}
 	return root, imported
+}
+
+// sandboxAzureQueried is a type of the estate no lister of its own
+// lists: the query service lists it, through Terraform's list resources
+// (see checkAzureQuery), and resource_graph too, which lists whatever
+// Resource Graph returns.
+const sandboxAzureQueried = "azurerm_application_security_group"
+
+// checkAzureQuery takes the estate's application security group through
+// the query service as the read-only identity, in the estate's resource
+// group (see checkQueryRoundTrip). Call it once importAzure has signed in
+// as that identity.
+func (s *azureSandbox) checkAzureQuery(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	name := ""
+	for _, r := range created {
+		if r.Type == sandboxAzureQueried {
+			name, _ = r.AttributeValues["name"].(string)
+		}
+	}
+	if name == "" {
+		t.Fatalf("the estate has no %s", sandboxAzureQueried)
+	}
+	checkQueryRoundTrip(ctx, t, queryRoundTrip{
+		command:  "azure",
+		scope:    []string{"--resource-group=" + s.resourceGroup},
+		typ:      sandboxAzureQueried,
+		identity: map[string]string{"subscription_id": s.subscriptionID, "resource_group_name": s.resourceGroup, "name": name},
+		file:     "network.tf",
+		plugins:  s.plugins,
+	})
 }
 
 // sandboxResourceGroup returns the estate's resource group, as its data

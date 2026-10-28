@@ -123,6 +123,14 @@ resource "google_compute_firewall" "https" {
   }
 }
 
+# A type no lister lists, which the test lists through the query service
+# (Terraform's list resources). A global network firewall policy with no
+# rules and no network costs nothing.
+resource "google_compute_network_firewall_policy" "query" {
+  name        = "${local.name}-policy"
+  description = "infraharvest sandbox"
+}
+
 # A Cloud Router without NAT or BGP peers, which costs nothing.
 resource "google_compute_router" "main" {
   name    = local.name
