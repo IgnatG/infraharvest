@@ -1,4 +1,8 @@
 {"resources": [
-  {"id": "Z0123456789ABCDEFGHIJ_www.example.internal._A_", "name": "www_A", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "www.example.internal", "type": "A", "set_identifier": ""}},
-  {"id": "Z0123456789ABCDEFGHIJ_api.example.internal._CNAME_eu", "name": "api_CNAME_eu", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "api.example.internal", "type": "CNAME", "set_identifier": "eu"}}
+  {"id": "Z0123456789ABCDEFGHIJ_www.example.internal._A_", "name": "www_A", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "www.example.internal", "type": "A", "set_identifier": "", "apex": "false"}},
+  {"id": "Z0123456789ABCDEFGHIJ_api.example.internal._CNAME_eu", "name": "api_CNAME_eu", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "api.example.internal", "type": "CNAME", "set_identifier": "eu", "apex": "false"}},
+  {"id": "Z0123456789ABCDEFGHIJ_example.internal._MX_", "name": "example_internal_MX", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "MX", "set_identifier": "", "apex": "true"}},
+  {"id": "Z0123456789ABCDEFGHIJ_dev.example.internal._NS_", "name": "dev_NS", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "dev.example.internal", "type": "NS", "set_identifier": "", "apex": "false"}},
+  {"id": "Z0123456789ABCDEFGHIJ_example.internal._NS_", "name": "example_internal_NS", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "NS", "set_identifier": "", "apex": "true"}},
+  {"id": "Z0123456789ABCDEFGHIJ_example.internal._SOA_", "name": "example_internal_SOA", "attributes": {"zone_id": "Z0123456789ABCDEFGHIJ", "name": "example.internal", "type": "SOA", "set_identifier": "", "apex": "true"}}
 ]}

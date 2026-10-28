@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -114,7 +115,9 @@ func (g *Route53Lister) listRecords(client *route53.Client, zoneID, domain strin
 // name's trailing dot; the name attribute does not. Route 53 returns the
 // wildcard label "*" escaped as "\052", which is turned back into "*".
 // The record set is named after its name within the zone's domain, its
-// type and its set identifier (see recordName).
+// type and its set identifier (see recordName). It records whether the set
+// is at the zone's apex (apex), where Route 53 creates the zone's NS and
+// SOA sets with the zone and won't delete them.
 func (g *Route53Lister) addRecord(zoneID, domain string, recordSet types.ResourceRecordSet) {
 	name := strings.Replace(aws.ToString(recordSet.Name), `\052`, "*", 1)
 	recordType := string(recordSet.Type)
@@ -125,6 +128,7 @@ func (g *Route53Lister) addRecord(zoneID, domain string, recordSet types.Resourc
 		"zone_id":        zoneID,
 		"type":           recordType,
 		"set_identifier": setIdentifier,
+		"apex":           strconv.FormatBool(name == domain),
 	}))
 }
 
