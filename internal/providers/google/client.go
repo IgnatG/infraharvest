@@ -71,9 +71,37 @@ func limitedBy(run *ratelimit.Limiter, base *http.Client) *http.Client {
 	delay := runRetryDelay(run)
 	return ratelimit.Kept(run, limitedClientKey{}, func() *http.Client {
 		client := *base
-		client.Transport = retryTransport{base: run.Transport(base.Transport), delay: delay}
+		cloudAsset := ratelimit.New(min(cloudAssetRate, run.Rate()))
+		client.Transport = retryTransport{base: byHost{
+			cloudAsset: cloudAsset.Transport(base.Transport),
+			other:      run.Transport(base.Transport),
+		}, delay: delay}
 		return &client
 	})
+}
+
+// cloudAssetRate is how many Cloud Asset requests a second a run sends at
+// most: Cloud Asset Inventory allows 400 searches a minute per consumer
+// project, the credentials' quota project, which every project of a run
+// shares, so the run's rate per host, 20 a second, would exceed it as
+// soon as projects are searched in parallel.
+const cloudAssetRate = 6.0
+
+// cloudAssetHost is the host of Cloud Asset Inventory's API.
+const cloudAssetHost = "cloudasset.googleapis.com"
+
+// byHost sends Cloud Asset requests through cloudAsset, paced at
+// cloudAssetRate, or the run's rate if that is lower, and every other
+// request through other, paced at the run's rate.
+type byHost struct {
+	cloudAsset, other http.RoundTripper
+}
+
+func (b byHost) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.EqualFold(req.URL.Hostname(), cloudAssetHost) {
+		return b.cloudAsset.RoundTrip(req)
+	}
+	return b.other.RoundTrip(req)
 }
 
 var (

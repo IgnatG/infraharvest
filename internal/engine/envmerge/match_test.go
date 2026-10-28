@@ -13,7 +13,7 @@ import (
 
 // testEnvRoot returns environment env's root of generated, with tokens,
 // its account and the import IDs by address.
-func testEnvRoot(t *testing.T, env string, tokens []string, scope, generated string, ids map[string]string) envRoot {
+func testEnvRoot(t testing.TB, env string, tokens []string, scope, generated string, ids map[string]string) envRoot {
 	t.Helper()
 	f, err := hclfile.Parse("generated.tf", []byte(generated))
 	if err != nil {

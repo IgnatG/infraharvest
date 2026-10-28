@@ -5,9 +5,11 @@ package engine
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -131,5 +133,35 @@ resource "aws_vpc" "a" {
 	}
 	if got, want := readFile(t, dir, rootfile.GeneratedFileName), "resource \"aws_vpc\" \"b\" {\n  cidr_block = \"10.1.0.0/16\"\n}\n"; got != want {
 		t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// BenchmarkByResource assigns an error to each of n resources by the line
+// it points at in generated.tf, as a provider release that adds a
+// required argument gives on every resource of a type.
+func BenchmarkByResource(b *testing.B) {
+	for _, n := range []int{10000, 20000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			var generated, imports strings.Builder
+			var diags []tfjson.Diagnostic
+			for i := range n {
+				fmt.Fprintf(&generated, "resource \"aws_instance\" \"i%d\" {\n  ami           = \"ami-1\"\n  instance_type = \"t3.micro\"\n}\n\n", i)
+				fmt.Fprintf(&imports, "import {\n  to = aws_instance.i%d\n  id = \"i-%d\"\n}\n\n", i, i)
+				diags = append(diags, errorAt(5*i+2, "Missing required argument", ""))
+			}
+			gf, err := hclfile.Parse(rootfile.GeneratedFileName, []byte(generated.String()))
+			if err != nil {
+				b.Fatal(err)
+			}
+			imf, err := hclfile.Parse(rootfile.ImportsFileName, []byte(imports.String()))
+			if err != nil {
+				b.Fatal(err)
+			}
+			for b.Loop() {
+				if assigned, _ := byResource(diags, gf, imf); len(assigned) != n {
+					b.Fatalf("assigned %d resources, want %d", len(assigned), n)
+				}
+			}
+		})
 	}
 }

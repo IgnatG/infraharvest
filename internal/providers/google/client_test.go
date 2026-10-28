@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"google.golang.org/api/compute/v1"
@@ -127,4 +128,42 @@ func TestProviderBlockAndScope(t *testing.T) {
 	if _, region, _ := (&Provider{projectName: "acme-prod"}).Scope(context.Background()); region != "global" {
 		t.Errorf("global scope: %s", region)
 	}
+}
+
+// answering answers every request with 204, at once.
+type answering struct{}
+
+func (answering) RoundTrip(r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Request: r}, nil
+}
+
+// Cloud Asset requests go at cloudAssetRate, below its quota of 400 a
+// minute, however many projects search at once; other APIs keep the run's
+// rate. The clock is virtual (synctest).
+func TestCloudAssetHasItsOwnPace(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client := limitedBy(ratelimit.New(ratelimit.DefaultRate), &http.Client{Transport: answering{}})
+		took := func(host string, n int) time.Duration {
+			start := time.Now()
+			for range n {
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://"+host+"/v1/x", nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				resp.Body.Close()
+			}
+			return time.Since(start)
+		}
+		// The quota of a minute takes a minute.
+		if got := took(cloudAssetHost, 400); got < time.Minute {
+			t.Errorf("400 Cloud Asset requests took %v, want a minute or more", got)
+		}
+		if got := took("compute.googleapis.com", 20); got > 0 {
+			t.Errorf("20 Compute requests took %v, want none of the Cloud Asset pace", got)
+		}
+	})
 }

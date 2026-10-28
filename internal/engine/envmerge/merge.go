@@ -447,22 +447,53 @@ func (m *stackMerge) groupForEach() {
 		}
 	}
 	used := m.labels()
+	// Each resource's shape is read once (see keysShape), and again only
+	// once a resource its values refer to joins a forEach. A seed is tried
+	// against the resources of its bucket alone (see keysBucket), and
+	// only those that share enough of its arguments (see mayAdmit) are
+	// compared in full.
+	shapes := map[*stackResource]*keysShape{}
+	shape := func(r *stackResource) *keysShape {
+		if shapes[r] == nil {
+			shapes[r] = m.keysShape(r)
+		}
+		return shapes[r]
+	}
 	group := func(typ string, full bool) {
 		candidates := byType[typ]
+		if typ == moduleType {
+			return
+		}
+		var buckets map[string]*keysBucket
 		for _, seed := range candidates {
-			if seed.forEach != nil || (seed.coverage() == len(m.envs)) != full || typ == moduleType {
+			if seed.forEach != nil || (seed.coverage() == len(m.envs)) != full {
 				continue
 			}
+			if buckets == nil {
+				buckets = map[string]*keysBucket{}
+				for _, r := range candidates {
+					s := shape(r)
+					if buckets[s.blocks] == nil {
+						buckets[s.blocks] = &keysBucket{setting: map[string][]int{}}
+					}
+					buckets[s.blocks].add(r, s)
+				}
+			}
 			keys := []*stackResource{seed}
-			for _, other := range candidates {
-				if other == seed || other.forEach != nil || (full && other.coverage() < len(m.envs)) {
+			tally := newKeysTally(typ, shape(seed))
+			bucket := buckets[shape(seed).blocks]
+			shared := make([]int, len(bucket.resources))
+			bucket.count(shared, shape(seed).names)
+			for i, other := range bucket.resources {
+				if other == seed || other.forEach != nil || (full && other.coverage() < len(m.envs)) || !tally.mayAdmit(shape(other), shared[i]) {
 					continue
 				}
 				if slices.ContainsFunc(keys, func(k *stackResource) bool { return refersTo(k, other) || refersTo(other, k) }) {
 					continue
 				}
-				if _, _, ok := m.keysBody(append(slices.Clone(keys), other)); ok {
+				if m.admits(tally, shape(other)) {
 					keys = append(keys, other)
+					bucket.count(shared, tally.add(shape(other)))
 				}
 			}
 			if len(keys) < 2 || (full && len(keys) < minRepeated) {
@@ -474,6 +505,14 @@ func (m *stackMerge) groupForEach() {
 				k.forEach = g
 			}
 			m.forEach = append(m.forEach, g)
+			// References to the keys are now written as the forEach's
+			// instances.
+			for r, s := range shapes {
+				if slices.ContainsFunc(keys, func(k *stackResource) bool { return s.refers[k] }) {
+					delete(shapes, r)
+					buckets = nil
+				}
+			}
 		}
 	}
 	for _, full := range []bool{false, true} {
