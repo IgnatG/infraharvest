@@ -99,20 +99,12 @@ func DefaultScanners(policies []string) []Scanner {
 			// ~/.tflint.hcl, whose plugins would run and whose rules would
 			// change what fails the check: the bundled Terraform rules, at
 			// their recommended preset.
-			config, err := os.CreateTemp("", "infraharvest-tflint-*.hcl")
+			config, err := writeTemp("infraharvest-tflint-*.hcl", []byte(tflintConfig))
 			if err != nil {
 				return nil, err
 			}
-			_, werr := config.WriteString(tflintConfig)
-			if cerr := config.Close(); werr == nil {
-				werr = cerr
-			}
-			if werr != nil {
-				_ = os.Remove(config.Name())
-				return nil, werr
-			}
-			defer os.Remove(config.Name())
-			out, err := runTool(ctx, dir, path, "--chdir="+dir, "--config="+config.Name(), "--format=json", "--force")
+			defer os.Remove(config)
+			out, err := runTool(ctx, dir, path, "--chdir="+dir, "--config="+config, "--format=json", "--force")
 			if err != nil {
 				return nil, err
 			}
@@ -159,14 +151,25 @@ const ConftestBinary = "conftest"
 // a policy says what the infrastructure should be, which the
 // configuration mirrors as it is. The policies are local directories
 // only, and nothing is fetched: no --update, which downloads policies
-// before the test.
+// before the test. They run without OPA's built-in functions that reach
+// the network (see conftestCapabilities), so that a policy can't send
+// the configuration anywhere.
 func conftestScanner(path string, policies []string) Scanner {
 	return Scanner{Name: ConftestBinary, Run: func(ctx context.Context, dir string) ([]Finding, error) {
 		files, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 		if err != nil || len(files) == 0 {
 			return nil, err
 		}
-		args := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail"}
+		content, err := conftestCapabilities()
+		if err != nil {
+			return nil, fmt.Errorf("OPA capabilities: %w", err)
+		}
+		capabilities, err := writeTemp("infraharvest-opa-capabilities-*.json", content)
+		if err != nil {
+			return nil, err
+		}
+		defer os.Remove(capabilities)
+		args := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail", "--capabilities=" + capabilities}
 		for _, p := range policies {
 			args = append(args, "--policy="+p)
 		}
@@ -182,6 +185,25 @@ func conftestScanner(path string, policies []string) Scanner {
 		}
 		return parseConftest(out)
 	}}
+}
+
+// writeTemp writes content to a new temporary file, named after pattern
+// as os.CreateTemp names it, and returns its path, for the caller to
+// remove.
+func writeTemp(pattern string, content []byte) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.Write(content)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(f.Name())
+		return "", werr
+	}
+	return f.Name(), nil
 }
 
 // tflintConfig is the configuration tflint runs with: its bundled
