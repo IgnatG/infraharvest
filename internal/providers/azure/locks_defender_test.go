@@ -7,35 +7,91 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
 // Locks are listed in --resource-group when it is set, else in the whole
-// subscription; a lock without a name is skipped.
+// subscription; a lock without a name is skipped. A lock in a resource
+// group records what manages the group, from one Resource Graph query of
+// the run's groups, so that the catalogue leaves out the locks in an AKS
+// cluster's node resource group and keeps the others.
 func TestManagementLockListsTheScope(t *testing.T) {
 	t.Parallel()
-	const lock = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks/keep"
-	for resourceGroup, wantPath := range map[string]string{
-		"rg1": "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks",
-		"":    "/subscriptions/sub/providers/Microsoft.Authorization/locks",
+	const (
+		graphPath = "/providers/Microsoft.ResourceGraph/resources"
+		keep      = roleSubscription + "/resourceGroups/rg1/providers/Microsoft.Authorization/locks/keep"
+		nodes     = roleSubscription + "/resourceGroups/MC_rg-aks_aks_uksouth/providers/Microsoft.Network/loadBalancers/kubernetes/providers/Microsoft.Authorization/locks/nodes"
+	)
+	groups := graphRows(
+		`{"id":"`+roleSubscription+`/resourceGroups/rg1","tags":{},"managedBy":""}`,
+		`{"id":"`+roleSubscription+`/resourceGroups/MC_rg-aks_aks_uksouth","tags":{},"managedBy":"`+aksCluster+`"}`,
+	)
+	keepLock := listedResource{Type: "azurerm_management_lock", ID: keep, Name: "keep", Attributes: map[string]string{"name": "keep", "resource_group_name": "rg1"}}
+	nodesLock := listedResource{Type: "azurerm_management_lock", ID: nodes, Name: "nodes", Attributes: map[string]string{
+		"name": "nodes", "resource_group_name": "MC_rg-aks_aks_uksouth", "resource_group_managed_by": aksCluster,
+	}}
+	for _, tc := range []struct {
+		resourceGroup, path string
+		want                []listedResource
+	}{
+		{"rg1", roleSubscription + "/resourceGroups/rg1/providers/Microsoft.Authorization/locks", []listedResource{keepLock}},
+		{"", roleSubscription + "/providers/Microsoft.Authorization/locks", []listedResource{keepLock, nodesLock}},
 	} {
-		transport := &routedTransport{bodies: map[string]string{
-			wantPath: armList(armItem(lock, "keep", `{"level":"CanNotDelete"}`), `{"id":"`+lock+`2"}`),
-		}}
+		items := []string{armItem(keep, "keep", `{"level":"CanNotDelete"}`), `{"id":"` + keep + `2"}`}
+		if tc.resourceGroup == "" {
+			items = append(items, armItem(nodes, "nodes", `{"level":"CanNotDelete"}`))
+		}
+		transport := &routedTransport{bodies: map[string]string{tc.path: armList(items...), graphPath: groups}}
 		g := &ManagementLockLister{}
-		g.SetSettings(routedArgs(transport, resourceGroup))
+		g.SetSettings(serviceSettings{
+			subscriptionID: roleSubscriptionID,
+			resourceGroup:  tc.resourceGroup,
+			credential:     fakeCredential{},
+			clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+		})
 
 		if err := g.List(); err != nil {
-			t.Fatalf("resource group %q: %v", resourceGroup, err)
+			t.Fatalf("resource group %q: %v", tc.resourceGroup, err)
 		}
 
-		if !reflect.DeepEqual(transport.paths, []string{wantPath}) {
-			t.Errorf("resource group %q: requested %v, want %s", resourceGroup, transport.paths, wantPath)
+		if want := []string{tc.path, graphPath}; !reflect.DeepEqual(transport.paths, want) {
+			t.Errorf("resource group %q: requested %v, want %v", tc.resourceGroup, transport.paths, want)
 		}
-		want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "keep", Attributes: map[string]string{"name": "keep", "resource_group_name": "rg1"}}}
-		if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
-			t.Errorf("resource group %q: got %+v, want %+v", resourceGroup, got, want)
+		if got := listedResources(g.Resources); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("resource group %q: got %+v, want %+v", tc.resourceGroup, got, tc.want)
 		}
+	}
+}
+
+// Locks on the subscription alone are in no resource group, so nothing
+// asks Resource Graph what manages one.
+func TestManagementLockSkipsTheGroupsQueryWithoutGroups(t *testing.T) {
+	t.Parallel()
+	const (
+		path = roleSubscription + "/providers/Microsoft.Authorization/locks"
+		lock = path + "/all"
+	)
+	transport := &routedTransport{bodies: map[string]string{path: armList(armItem(lock, "all", `{"level":"ReadOnly"}`))}}
+	g := &ManagementLockLister{}
+	g.SetSettings(serviceSettings{
+		subscriptionID: roleSubscriptionID,
+		credential:     fakeCredential{},
+		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+	})
+
+	if err := g.List(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(transport.paths, []string{path}) {
+		t.Errorf("requested %v, want only %s", transport.paths, path)
+	}
+	want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "all", Attributes: map[string]string{"name": "all"}}}
+	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
