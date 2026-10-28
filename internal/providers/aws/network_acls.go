@@ -6,15 +6,17 @@ package aws
 import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // NaclLister lists the network ACLs of a region, each by its ID.
 //
-// A VPC's default ACL is recorded as aws_default_network_acl, which the
-// catalogue then skips, since AWS creates one with every VPC; every other
-// ACL is recorded as aws_network_acl.
+// A VPC's default ACL is recorded as aws_default_network_acl, with
+// as_created "true" while it is as AWS creates it with the VPC (see
+// defaultACLAsCreated), which the catalogue then skips; every other ACL is
+// recorded as aws_network_acl.
 type NaclLister struct {
 	Service
 }
@@ -34,14 +36,43 @@ func (g *NaclLister) List() error {
 		if err != nil {
 			return err
 		}
-		for _, acl := range page.NetworkAcls {
-			resourceType := "aws_network_acl"
-			if aws.ToBool(acl.IsDefault) {
-				resourceType = "aws_default_network_acl"
-			}
+		for i := range page.NetworkAcls {
+			acl := &page.NetworkAcls[i]
 			id := aws.ToString(acl.NetworkAclId)
-			g.Resources = append(g.Resources, harvest.RecordBare(id, id, resourceType, "aws"))
+			if !aws.ToBool(acl.IsDefault) {
+				g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_network_acl", "aws"))
+				continue
+			}
+			resource := harvest.RecordBare(id, id, "aws_default_network_acl", "aws")
+			if defaultACLAsCreated(acl) {
+				resource.Observed.Attributes["as_created"] = "true"
+			}
+			g.Resources = append(g.Resources, resource)
 		}
 	}
 	return nil
+}
+
+// defaultACLAsCreated reports whether a VPC's default network ACL is as AWS
+// creates it: without tags, and with no entries but the ones AWS gives it,
+// rule 100 allowing all IPv4 traffic and, in a VPC with IPv6, rule 101
+// allowing all IPv6 traffic, each way, besides the catch-all deny rules
+// nothing can change. Configuration that adopts the default ACL, as the
+// terraform-aws-vpc module does by default, tags it or changes its rules.
+func defaultACLAsCreated(acl *types.NetworkAcl) bool {
+	if len(acl.Tags) > 0 {
+		return false
+	}
+	for _, entry := range acl.Entries {
+		rule := aws.ToInt32(entry.RuleNumber)
+		if rule >= 32767 {
+			continue
+		}
+		allowsAll := rule == 100 && aws.ToString(entry.CidrBlock) == "0.0.0.0/0" && entry.Ipv6CidrBlock == nil ||
+			rule == 101 && aws.ToString(entry.Ipv6CidrBlock) == "::/0" && entry.CidrBlock == nil
+		if !allowsAll || entry.RuleAction != types.RuleActionAllow || aws.ToString(entry.Protocol) != "-1" {
+			return false
+		}
+	}
+	return true
 }
