@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Command opacapabilities checks the OPA capabilities infraharvest gives
-// conftest (internal/engine/conftest_capabilities.json) against the OPA
+// conftest (internal/engine/gate/conftest_capabilities.json) against the OPA
 // release the newest conftest is built with, and with -write bumps them to
 // it. Run from the repository root:
 //
@@ -14,7 +14,7 @@
 // releases and lists the built-in functions the newer one adds, marking
 // those that may reach the network or read files, which a person decides
 // on: a function that does belongs in deniedBuiltins
-// (internal/engine/conftest_capabilities.go). It fails, after the report,
+// (internal/engine/gate/conftest_capabilities.go). It fails, after the report,
 // when the newer release has dropped one of deniedBuiltins that the
 // embedded one has: the name to deny may have changed.
 //
@@ -50,8 +50,8 @@ import (
 
 // The files a bump writes, from the repository root.
 const (
-	capabilitiesFile = "internal/engine/conftest_capabilities.json"
-	sourceFile       = "internal/engine/conftest_capabilities.go"
+	capabilitiesFile = "internal/engine/gate/conftest_capabilities.json"
+	sourceFile       = "internal/engine/gate/conftest_capabilities.go"
 	noticeScript     = ".github/scripts/schema-metadata-notice.sh"
 	schemametaDir    = "internal/catalogue/schemameta"
 )
@@ -217,9 +217,9 @@ func opaRequirement(goMod []byte) (string, error) {
 	return "", fmt.Errorf("it requires no %s", opaModule)
 }
 
-// readSource returns opaVersion and deniedBuiltins as the engine's source
+// readSource returns opaVersion and deniedBuiltins as the gate's source
 // declares them: the command reads them there, rather than import the
-// engine, as it rewrites the same file.
+// gate, as it rewrites the same file.
 func readSource(goSource []byte) (opa string, denied []string, err error) {
 	file, err := parser.ParseFile(token.NewFileSet(), sourceFile, goSource, 0)
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -278,7 +279,7 @@ func TestDriftAcceptChecksTheEditedCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, CheckFormat) {
+	if c := outcomes(result)["aws_s3_bucket.logs tags.Env"]; c.Outcome != DriftRejectedByCheck || !strings.Contains(c.Reason, gate.CheckFormat) {
 		t.Errorf("logs: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "main.tf"); got != taggedBuckets {

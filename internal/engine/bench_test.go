@@ -5,9 +5,6 @@ package engine
 
 import (
 	"fmt"
-	"math/rand/v2"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,38 +37,6 @@ func benchGenerated(n int) []byte {
 		}
 	}
 	return []byte(b.String())
-}
-
-// benchValues returns n random values of the length of a password or a
-// key, which the content never holds: the worst case, a scan that finds
-// nothing and so reads every file to the end.
-func benchValues(n int) []string {
-	r := rand.New(rand.NewPCG(1, 2))
-	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	values := make([]string, n)
-	for i := range values {
-		v := make([]byte, 24+r.IntN(16))
-		for j := range v {
-			v[j] = letters[r.IntN(len(letters))]
-		}
-		values[i] = string(v)
-	}
-	return values
-}
-
-func BenchmarkScanSecrets(b *testing.B) {
-	dir := b.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, GeneratedFileName), benchGenerated(benchResources), 0o644); err != nil {
-		b.Fatal(err)
-	}
-	sensitive := benchValues(benchMoved)
-	b.ReportAllocs()
-	for b.Loop() {
-		check, err := scanSecrets(dir, sensitive)
-		if err != nil || !check.Passed {
-			b.Fatal(err, check.Details)
-		}
-	}
 }
 
 // benchVPCs returns the addresses of the VPCs of benchGenerated(n): what

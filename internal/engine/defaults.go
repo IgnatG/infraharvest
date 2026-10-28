@@ -167,7 +167,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 		if len(removed) == 0 {
 			return false, nil, restore()
 		}
-		p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+		p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {
 			return false, nil, errors.Join(err, restore())
 		}
@@ -401,8 +401,8 @@ func keepChanged(removed []defaultCandidate, address string, changed, paths []st
 // default_cache_behavior.grpc_config.enabled.
 func changedPaths(rc *tfjson.ResourceChange) []string {
 	var paths []string
-	for _, l := range changedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown) {
-		paths = append(paths, withoutIndexes(l.path))
+	for _, l := range tfrun.ChangedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown) {
+		paths = append(paths, tfrun.WithoutIndexes(l.Path))
 	}
 	return paths
 }
@@ -499,17 +499,17 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			// Left out, it would plan as the default.
 			continue
 		case isNamedDefault(rules.defaults, path, attr.Expr):
-			s := schemaAttribute(schemas, typ, path)
+			s := tfrun.SchemaAttribute(schemas, typ, path)
 			if s == nil || !s.Optional || s.Required {
 				continue
 			}
 		case isEmptyValue(attr.Expr):
-			s := schemaAttribute(schemas, typ, path)
+			s := tfrun.SchemaAttribute(schemas, typ, path)
 			if s == nil || !s.Optional || s.Required || slices.Contains(rules.keepEmpty, strings.Join(path, ".")) {
 				continue
 			}
 		case isConstant(attr.Expr):
-			s := schemaAttribute(schemas, typ, path)
+			s := tfrun.SchemaAttribute(schemas, typ, path)
 			// A sensitive value, such as a parameter's, is what the cloud has,
 			// never a default; nor are the tags (see defaultRules).
 			if s == nil || !s.Optional || s.Required || s.Sensitive || (rules.tags != "" && strings.Join(path, ".") == rules.tags) {
@@ -526,7 +526,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 			// The Plugin SDK doesn't let a computed argument have a
 			// default, so the schema agreeing says the metadata is of
 			// this argument.
-			if s := schemaAttribute(schemas, typ, path); s != nil && s.Optional && !s.Computed && !s.Required {
+			if s := tfrun.SchemaAttribute(schemas, typ, path); s != nil && s.Optional && !s.Computed && !s.Required {
 				c.proven, c.setting = true, false
 			}
 		}
@@ -593,7 +593,7 @@ func isEmptyValue(expr hclsyntax.Expression) bool {
 		if len(e.Parts) == 0 {
 			return true
 		}
-		s, ok := literalString(e)
+		s, ok := hclfile.LiteralString(e)
 		return ok && s == ""
 	case *hclsyntax.TupleConsExpr:
 		return len(e.Exprs) == 0
@@ -703,7 +703,7 @@ func isZeroConstant(expr hclsyntax.Expression) bool {
 		if len(e.Parts) == 0 {
 			return true
 		}
-		s, ok := literalString(e)
+		s, ok := hclfile.LiteralString(e)
 		return ok && s == ""
 	case *hclsyntax.TupleConsExpr:
 		return len(e.Exprs) == 0
@@ -736,7 +736,7 @@ func hasConstants(body *hclsyntax.Body) bool {
 // zero value it was.
 func setsComputed(schemas *tfjson.ProviderSchemas, typ string, path []string, body *hclsyntax.Body) bool {
 	for name, attr := range body.Attributes {
-		if s := schemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !isNullLiteral(attr.Expr) && (s == nil || s.Computed) {
+		if s := tfrun.SchemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !isNullLiteral(attr.Expr) && (s == nil || s.Computed) {
 			return true
 		}
 	}

@@ -42,11 +42,11 @@ func TestOPARequirement(t *testing.T) {
 	}
 }
 
-// The command reads opaVersion and deniedBuiltins out of the engine's
+// The command reads opaVersion and deniedBuiltins out of the gate's
 // source as it is.
 func TestReadSource(t *testing.T) {
 	t.Parallel()
-	content, err := os.ReadFile(filepath.Join("..", "..", "conftest_capabilities.go"))
+	content, err := os.ReadFile(filepath.Join("..", "..", "gate", "conftest_capabilities.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

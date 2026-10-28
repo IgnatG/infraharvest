@@ -5,11 +5,14 @@ package engine
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -140,11 +143,11 @@ func handedOverReadme(result *Result) []byte {
 }
 
 // checksSection lists the verification gate's checks, with their details.
-func checksSection(gate Gate) string {
+func checksSection(checks gate.Gate) string {
 	var b strings.Builder
-	if len(gate) > 0 {
+	if len(checks) > 0 {
 		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
-		for _, c := range gate {
+		for _, c := range checks {
 			status := "passed"
 			switch {
 			case !c.Passed:
@@ -155,7 +158,7 @@ func checksSection(gate Gate) string {
 			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
 		}
 		var details []string
-		for _, c := range gate {
+		for _, c := range checks {
 			for _, d := range c.Details {
 				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
 			}
@@ -168,10 +171,10 @@ func checksSection(gate Gate) string {
 }
 
 // stateOnlyUpdates reports whether the plan check passed with resources
-// that update state-only arguments (see planCheck).
-func stateOnlyUpdates(gate Gate) bool {
-	c := gate.check(CheckPlan)
-	return c.Passed && slices.ContainsFunc(c.Details, func(d string) bool { return strings.Contains(d, stateOnlyChange) })
+// that update state-only arguments (see gate.PlanCheck).
+func stateOnlyUpdates(checks gate.Gate) bool {
+	c := checks.Named(gate.CheckPlan)
+	return c.Passed && slices.ContainsFunc(c.Details, func(d string) bool { return strings.Contains(d, gate.StateOnlyChange) })
 }
 
 // modulesSection lists the module calls and the clusters of resources that
@@ -298,4 +301,26 @@ func plural(n int, one, many string) string {
 // WriteReadme writes the README of dir, a root that holds result.
 func WriteReadme(dir string, result *Result) error {
 	return fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
+}
+
+// checkReadme runs scanSecrets' checks on the README Generate wrote after
+// the gate ran, which the gate couldn't see, with values the secret values
+// no file may contain. Should the README hold one, G6 fails and the README
+// is written again to say so.
+func checkReadme(dir string, result *Result, values []string) error {
+	content, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	if err != nil {
+		return err
+	}
+	found := secret.InFile(secret.NewMatcher(values), ReadmeFileName, string(content))
+	if len(found) == 0 {
+		return nil
+	}
+	for i, c := range result.Gate {
+		if c.Name == gate.CheckSecrets {
+			result.Gate[i].Passed = false
+			result.Gate[i].Details = append(result.Gate[i].Details, found...)
+		}
+	}
+	return WriteReadme(dir, result)
 }

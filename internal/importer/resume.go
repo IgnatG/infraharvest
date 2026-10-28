@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 	"github.com/IgnatG/infraharvest/internal/version"
@@ -410,7 +412,7 @@ func (c *claim) discard(out, dir string) error {
 		return errors.Join(err, readErr)
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+		if !e.Type().IsRegular() || tfrun.LocalStateFile(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
@@ -443,7 +445,7 @@ func leakedSecrets(result *engine.Result) error {
 		return nil
 	}
 	for _, c := range result.Gate {
-		if c.Name == engine.CheckSecrets && !c.Passed {
+		if c.Name == gate.CheckSecrets && !c.Passed {
 			return fmt.Errorf("%s failed, so the root isn't kept: %s", c.Name, strings.Join(c.Details, "; "))
 		}
 	}
@@ -452,7 +454,7 @@ func leakedSecrets(result *engine.Result) error {
 
 // rootBackup is what a root had before it was generated again: the files
 // directly in its directory, but its local state (see
-// engine.LocalStateFile), and its checkpoint. The state is Terraform's,
+// tfrun.LocalStateFile), and its checkpoint. The state is Terraform's,
 // which may write it in between, so it is never written back or removed.
 type rootBackup struct {
 	dir   string
@@ -479,7 +481,7 @@ func backupRoot(dir, path string, content []byte) (*rootBackup, error) {
 		return nil, err
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+		if !e.Type().IsRegular() || tfrun.LocalStateFile(e.Name()) {
 			continue
 		}
 		info, err := e.Info()
@@ -504,7 +506,7 @@ func (b *rootBackup) restore() error {
 		return err
 	}
 	for _, e := range entries {
-		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+		if _, ok := b.files[e.Name()]; ok || !e.Type().IsRegular() || tfrun.LocalStateFile(e.Name()) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(b.dir, e.Name())); err != nil && !errors.Is(err, fs.ErrNotExist) {

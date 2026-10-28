@@ -26,7 +26,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -53,14 +55,14 @@ type Result struct {
 	// labels Generate gave them.
 	Imported []Import
 	// Secrets are the variables to set before planning.
-	Secrets []Secret
+	Secrets []secret.Variable
 	// Rejected are the resources left out of the configuration.
 	Rejected []Rejection
 	// Owned are the resources left out because their tags say another
 	// tool manages them (see OwnedBy).
 	Owned []OwnedResource `json:",omitempty"`
 	// Gate is the result of the verification gate (see runGate).
-	Gate Gate
+	Gate gate.Gate
 	// Warnings are about what the configuration holds that people should
 	// look at, such as a tag named after an AWS access key ID.
 	Warnings []string `json:",omitempty"`
@@ -184,8 +186,8 @@ type Options struct {
 	// of ScannerSlots: roots checked at the same time, such as those of one
 	// import, share them, so that the scanners of all of them together
 	// don't outnumber the CPUs. nil gives the run slots of its own.
-	Scanners     []Scanner
-	ScannerSlots *ScannerSlots `json:"-"`
+	Scanners     []gate.Scanner
+	ScannerSlots *gate.ScannerSlots `json:"-"`
 	// IncludeOwned keeps the resources whose tags say another tool
 	// manages them, which Generate leaves out otherwise (see OwnedBy).
 	IncludeOwned bool
@@ -241,9 +243,9 @@ type run struct {
 	// add adds to.
 	taken Names
 	// secrets gives the run's own plans the values of the secrets it found
-	// in the configuration (see literalSecretsToVariables), once it found
+	// in the configuration (see secret.LiteralsToVariables), once it found
 	// any.
-	secrets *secretValues
+	secrets *secret.Values
 	// modules counts the users of the generated modules the run takes up
 	// (see Options.Modules).
 	modules *ModuleRefs
@@ -280,7 +282,7 @@ const (
 // rejects what it generated, Generate repairs it (see repair) and plans
 // again. Resources it still can't plan are left out (see Rejection). Secret
 // values Terraform doesn't write into the configuration become sensitive
-// variables in variables.tf (see Secret). Last, it writes a README with
+// variables in variables.tf (see secret.Variable). Last, it writes a README with
 // what is left to do.
 //
 // Generate fails if Terraform can't plan the directory at all. It refuses
@@ -312,14 +314,14 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Imp
 	}
 	// Several steps need the providers' schemas: read them once per init.
 	// No plan shows the secret values Generate finds (see
-	// redactingTerraform), and none reads the state the root may have
+	// secret.RedactingTerraform), and none reads the state the root may have
 	// locally (see tfrun.WithoutLocalState).
 	tf, removeEmptyState, err := tfrun.WithoutLocalState(tf, dir)
 	if err != nil {
 		return nil, err
 	}
 	defer removeEmptyState()
-	redacting := &redactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
+	redacting := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
 	g := &generation{
 		tf:        &schemaCache{Terraform: redacting},
 		redacting: redacting,
@@ -341,7 +343,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Imp
 	}
 	// The values of the secrets hideSecrets moves, which the run's plans
 	// read, go with the run.
-	defer func() { r.secrets.remove() }()
+	defer func() { r.secrets.Remove() }()
 	if err := g.hideSecrets(); err != nil {
 		return nil, err
 	}
@@ -375,7 +377,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []Imp
 	if err := WriteReadme(dir, g.result); err != nil {
 		return g.result, err
 	}
-	return g.result, checkReadme(dir, g.result, knownValues(g.literal))
+	return g.result, checkReadme(dir, g.result, secret.KnownValues(g.literal))
 }
 
 // generation is the state generate's stages share as they generate a
@@ -384,7 +386,7 @@ type generation struct {
 	// tf runs Terraform in dir, without showing the secret values hidden
 	// with redacting.
 	tf        tfrun.Terraform
-	redacting *redactingTerraform
+	redacting *secret.RedactingTerraform
 	dir       string
 	// generated is the path of generated.tf.
 	generated string
@@ -393,7 +395,7 @@ type generation struct {
 	opts      Options
 	// literal are the secrets found in the configuration Terraform
 	// generated (see hideSecrets).
-	literal []Secret
+	literal []secret.Variable
 	// diags are the errors of the last plan.
 	diags []tfjson.Diagnostic
 	// last is the last of the plans planUntilValid makes, if it had no
@@ -499,9 +501,9 @@ func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) 
 // Terraform wrote every value the provider doesn't mark sensitive into the
 // file, secrets among them: they move before anything else reads it.
 // Generate's own plans read their values from outside the output (see
-// secretValues), which the run's secrets hold once there are any.
+// secret.Values), which the run's secrets hold once there are any.
 func (g *generation) hideSecrets() error {
-	literal, warnings, err := literalSecretsToVariables(g.generated, g.r.taken)
+	literal, warnings, err := secret.LiteralsToVariables(g.generated, g.r.taken)
 	if err != nil {
 		return err
 	}
@@ -509,11 +511,11 @@ func (g *generation) hideSecrets() error {
 	if len(literal) == 0 {
 		return nil
 	}
-	g.redacting.hide(literal)
-	if g.r.secrets, err = newSecretValues(); err != nil {
+	g.redacting.Hide(literal)
+	if g.r.secrets, err = secret.NewValues(); err != nil {
 		return err
 	}
-	if err := g.r.secrets.write(literal); err != nil {
+	if err := g.r.secrets.Write(literal); err != nil {
 		return err
 	}
 	return writeVariables(g.dir, literal, nil)
@@ -522,7 +524,7 @@ func (g *generation) hideSecrets() error {
 // replan plans the root again, for its errors and, if it has none, its
 // plan (see generation.last).
 func (g *generation) replan(ctx context.Context) error {
-	shown, summary, ds, err := showPlanWithSummary(ctx, g.tf, g.r.secrets.options())
+	shown, summary, ds, err := tfrun.ShowPlan(ctx, g.tf, g.r.secrets.Options())
 	if err != nil {
 		return err
 	}
@@ -559,7 +561,7 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 		errs, err := unresolved("terraform plan", g.dir, g.diags)
 		if err != nil {
 			// Errors can quote the values they reject, as below.
-			return errors.New(redact(err.Error(), g.literal))
+			return errors.New(secret.Redact(err.Error(), g.literal))
 		}
 		if len(errs) == 0 {
 			return nil
@@ -570,7 +572,7 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 				all = append(all, ds...)
 			}
 			// Errors can quote the values they reject, as below.
-			return fmt.Errorf("terraform plan: %s", redact(tfrun.DiagnosticsError(all).Error(), g.literal))
+			return fmt.Errorf("terraform plan: %s", secret.Redact(tfrun.DiagnosticsError(all).Error(), g.literal))
 		}
 		// Repair once; leave out what is left.
 		changed := false
@@ -624,24 +626,30 @@ func (g *generation) leaveOut() error {
 
 // secretVariables makes the secret attributes of the resources the root
 // keeps read from variables (see useVariables), and those whose values
-// aren't secret after all literals again (see publicSecretsToLiterals).
+// aren't secret after all literals again (see secret.PublicToLiterals).
 func (g *generation) secretVariables(ctx context.Context) error {
-	var kept []Secret
+	var kept []secret.Variable
 	for _, s := range withoutRejected(g.literal, g.result.Rejected) {
 		if !g.leftOut[s.Address] {
 			kept = append(kept, s)
 		}
 	}
 	var err error
-	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, g.r.secrets.options()); err != nil {
+	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, g.r.secrets.Options()); err != nil {
 		return err
 	}
-	if g.result.Secrets, err = publicSecretsToLiterals(ctx, g.tf, g.dir, g.result.Secrets, g.r.secrets); err != nil {
+	var public bool
+	if g.result.Secrets, public, err = secret.PublicToLiterals(ctx, g.tf, filepath.Join(g.dir, GeneratedFileName), g.result.Secrets, g.r.secrets); err != nil {
 		return err
+	}
+	if public {
+		if err := writeVariables(g.dir, g.result.Secrets, nil); err != nil {
+			return err
+		}
 	}
 	if g.r.secrets != nil {
 		// Only the variables still declared: Terraform warns about others.
-		if err := g.r.secrets.write(g.result.Secrets); err != nil {
+		if err := g.r.secrets.Write(g.result.Secrets); err != nil {
 			return err
 		}
 	}
@@ -705,11 +713,11 @@ func (g *generation) finish(ctx context.Context) error {
 	// Errors can quote the values they reject.
 	for i := range result.Rejected {
 		for j, e := range result.Rejected[i].Errors {
-			result.Rejected[i].Errors[j] = redact(e, g.literal)
+			result.Rejected[i].Errors[j] = secret.Redact(e, g.literal)
 		}
 	}
 	if g.rejected.Len() > 0 {
-		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), redactBytes(g.rejected.Bytes(), g.literal), 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(dir, RejectedFileName), secret.RedactBytes(g.rejected.Bytes(), g.literal), 0o644); err != nil {
 			return err
 		}
 	}
@@ -817,11 +825,11 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 	if len(general) > 0 {
 		return nil, fmt.Errorf("%s: %w", command, tfrun.DiagnosticsError(diags))
 	}
-	secrets := findSecrets(generated)
+	secrets := secret.FindSensitive(generated)
 	for addr, ds := range errs {
 		var left []tfjson.Diagnostic
 		for _, d := range ds {
-			if !aboutSecret(d, secrets[addr]) {
+			if !secret.About(d, secrets[addr]) {
 				left = append(left, d)
 			}
 		}
@@ -841,24 +849,24 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // validates the result. It leaves out resources that still don't validate,
 // adding them to rejections and out. It returns literal's variables first.
 // Secret attributes the imported objects hold no value for are left out of
-// the configuration instead (see withoutUnset); vars are the options the
+// the configuration instead (see secret.WithoutUnset); vars are the options the
 // plan that tells them apart needs.
-func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []Secret, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]Secret, error) {
+func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]secret.Variable, error) {
 	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
-	found := findSecrets(generated)
+	found := secret.FindSensitive(generated)
 	var schemas *tfjson.ProviderSchemas
 	if len(found) > 0 {
 		if schemas, err = tf.ProvidersSchema(ctx); err != nil {
 			return nil, fmt.Errorf("terraform providers schema: %w", err)
 		}
-		found = withoutWriteOnly(found, schemas)
+		found = secret.WithoutWriteOnly(found, schemas)
 	}
 	if len(found) > 0 {
 		var unset bool
-		if found, unset, err = withoutUnset(ctx, tf, found, schemas, vars); err != nil {
+		if found, unset, err = secret.WithoutUnset(ctx, tf, found, schemas, vars); err != nil {
 			return nil, err
 		}
 		if unset {
@@ -871,10 +879,7 @@ func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Nam
 		// Written again, without the variables of resources left out since.
 		return literal, writeVariables(dir, literal, schemas)
 	}
-	secrets := append(slices.Clone(literal), secretsToVariables(generated, found, withVariables(taken, literal))...)
-	for i := len(literal); i < len(secrets); i++ {
-		secrets[i].ty = attributeType(schemas, strings.SplitN(secrets[i].Address, ".", 2)[0], secrets[i].schemaPath)
-	}
+	secrets := append(slices.Clone(literal), secret.ToVariables(generated, found, withVariables(taken, literal), schemas)...)
 	if err := generated.Save(); err != nil {
 		return nil, err
 	}
@@ -908,7 +913,7 @@ func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Nam
 }
 
 // writeVariables writes variables.tf, or removes it if there are no secrets.
-func writeVariables(dir string, secrets []Secret, schemas *tfjson.ProviderSchemas) error {
+func writeVariables(dir string, secrets []secret.Variable, schemas *tfjson.ProviderSchemas) error {
 	path := filepath.Join(dir, VariablesFileName)
 	if len(secrets) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -916,7 +921,7 @@ func writeVariables(dir string, secrets []Secret, schemas *tfjson.ProviderSchema
 		}
 		return nil
 	}
-	content, err := variablesFile(secrets, schemas)
+	content, err := secret.VariablesFile(secrets, schemas)
 	if err != nil {
 		return err
 	}
@@ -978,4 +983,35 @@ func sameFiles(dir string, files map[string][]byte) (bool, error) {
 		return false, err
 	}
 	return maps.EqualFunc(now, files, bytes.Equal), nil
+}
+
+// withoutRejected returns the secrets of resources rejections doesn't
+// name.
+func withoutRejected(secrets []secret.Variable, rejections []Rejection) []secret.Variable {
+	left := map[string]bool{}
+	for _, r := range rejections {
+		left[r.Address] = true
+	}
+	var kept []secret.Variable
+	for _, s := range secrets {
+		if !left[s.Address] {
+			kept = append(kept, s)
+		}
+	}
+	return kept
+}
+
+// withVariables returns taken with the variables of secrets added.
+func withVariables(taken Names, secrets []secret.Variable) Names {
+	if len(secrets) == 0 {
+		return taken
+	}
+	names := Names{}
+	for name := range taken {
+		names[name] = true
+	}
+	for _, s := range secrets {
+		names["var."+s.Variable] = true
+	}
+	return names
 }

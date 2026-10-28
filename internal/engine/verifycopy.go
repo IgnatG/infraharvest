@@ -62,7 +62,7 @@ func verifyCopy(dir string) (string, func(), error) {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if name == ".terraform" || name == workspaceStateDir || name == ".infraharvest" {
+			if name == ".terraform" || name == tfrun.WorkspaceStateDir || name == ".infraharvest" {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(filepath.Join(copied, rel), 0o700)

@@ -159,7 +159,7 @@ func eachLiteral(syntax *hclsyntax.Body, body *hclwrite.Body, block string, src 
 	for _, name := range attributeNames(syntax) {
 		switch expr := syntax.Attributes[name].Expr.(type) {
 		case *hclsyntax.TemplateExpr:
-			if v, ok := literalString(expr); ok {
+			if v, ok := hclfile.LiteralString(expr); ok {
 				if tokens, ok := replace(name, block, v); ok {
 					body.SetAttributeRaw(name, tokens)
 					changed = true

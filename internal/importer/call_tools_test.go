@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -142,9 +143,9 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "vacate merged",
 			set: func(tools *callTools, args *[]any) {
-				tools.vacateMergedRoot = func(dir string, files []string, r []engine.Removal) ([]string, engine.Check, error) {
+				tools.vacateMergedRoot = func(dir string, files []string, r []engine.Removal) ([]string, gate.Check, error) {
 					*args = []any{dir, files, r}
-					return nil, engine.Check{}, errStub
+					return nil, gate.Check{}, errStub
 				}
 			},
 			call: func(tools *callTools) error {
@@ -167,9 +168,9 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "merged moves",
 			set: func(tools *callTools, args *[]any) {
-				tools.mergedMoves = func(dir string, m []engine.Move, r []engine.Removal) (engine.Check, error) {
+				tools.mergedMoves = func(dir string, m []engine.Move, r []engine.Removal) (gate.Check, error) {
 					*args = []any{dir, m, r}
-					return engine.Check{}, errStub
+					return gate.Check{}, errStub
 				}
 			},
 			call: func(tools *callTools) error {

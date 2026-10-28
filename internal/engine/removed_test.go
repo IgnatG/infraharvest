@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 func TestRemovedFrom(t *testing.T) {
@@ -132,8 +134,8 @@ func TestGenerateHandsOverAnInstanceAlone(t *testing.T) {
 	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "| `aws_sqs_queue.group[0]`, moved to `aws_sqs_queue.departed_group_0` | `aws/prod` |") {
 		t.Errorf("README.md:\n%s", readme)
 	}
-	if !result.Gate.check(CheckMoves).Passed {
-		t.Errorf("moves check: %+v", result.Gate.check(CheckMoves))
+	if !result.Gate.Named(gate.CheckMoves).Passed {
+		t.Errorf("moves check: %+v", result.Gate.Named(gate.CheckMoves))
 	}
 }
 
@@ -169,8 +171,8 @@ func TestGenerateHandsOverWithRemovedBlocks(t *testing.T) {
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
 	}
-	if !result.Gate.check(CheckMoves).Passed {
-		t.Errorf("moves check: %+v", result.Gate.check(CheckMoves))
+	if !result.Gate.Named(gate.CheckMoves).Passed {
+		t.Errorf("moves check: %+v", result.Gate.Named(gate.CheckMoves))
 	}
 }
 
@@ -223,7 +225,7 @@ func TestVacate(t *testing.T) {
 	if !reflect.DeepEqual(result.Removed, opts.Previous.Removed) || len(result.Imported) != 0 {
 		t.Errorf("result: %+v", result)
 	}
-	if !result.Gate.Passed() || result.Gate.check(CheckMoves).Name != CheckMoves {
+	if !result.Gate.Passed() || result.Gate.Named(gate.CheckMoves).Name != gate.CheckMoves {
 		t.Errorf("gate: %+v", result.Gate)
 	}
 	if got := readFile(t, dir, VersionsFileName); !strings.Contains(got, `required_version = ">= 1.10, < 2.0"`) {

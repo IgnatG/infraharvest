@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"os"
@@ -85,20 +85,13 @@ func locateFindings(dir string, findings []Finding) {
 			if !strings.Contains(f.at.file, "/") {
 				f.Resource = blockAt(f.at)
 			}
-		case namesModuleCall(f.Resource) && strings.Contains(f.at.file, "/"):
+		case hclfile.NamesModuleCall(f.Resource) && strings.Contains(f.at.file, "/"):
 			if inner := blockAt(f.at); inner != "" {
 				f.Resource += "." + inner
 			}
 		}
 		f.at = position{}
 	}
-}
-
-// namesModuleCall reports whether address is a module call's, in module
-// calls or not, rather than a resource's.
-func namesModuleCall(address string) bool {
-	names := addressNames(address)
-	return len(names) >= 2 && names[len(names)-2] == "module"
 }
 
 // blockAt returns the address of the top-level block of f spanning line: a
@@ -124,40 +117,4 @@ func blockAt(f *hclfile.File, line int) string {
 		return ""
 	}
 	return ""
-}
-
-// ResourceAt returns the resource of managed, what a root imports, that a
-// finding about address is about: the one at address; or else the one
-// at address but for instance keys, or the one module call address
-// makes, where there is only one. A finding about a module call of
-// several resources, or about none the root imports, is about none.
-func ResourceAt(managed []Managed, address string) (Managed, bool) {
-	if address == "" {
-		return Managed{}, false
-	}
-	for _, m := range managed {
-		if m.Address == address {
-			return m, true
-		}
-	}
-	bare := strings.Join(addressNames(address), ".")
-	one := func(match func(string) bool) (Managed, bool) {
-		var found []Managed
-		for _, m := range managed {
-			if match(strings.Join(addressNames(m.Address), ".")) {
-				found = append(found, m)
-			}
-		}
-		if len(found) == 1 {
-			return found[0], true
-		}
-		return Managed{}, false
-	}
-	if m, ok := one(func(a string) bool { return a == bare }); ok {
-		return m, true
-	}
-	if namesModuleCall(address) {
-		return one(func(a string) bool { return strings.HasPrefix(a, bare+".") })
-	}
-	return Managed{}, false
 }

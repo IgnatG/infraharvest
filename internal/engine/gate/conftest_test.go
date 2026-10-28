@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"encoding/json"
@@ -288,14 +288,14 @@ deny contains {"msg": sprintf("%s has no owner tag", [name]), "resource": sprint
 func TestNoticeNamesOPACapabilities(t *testing.T) {
 	t.Parallel()
 	for path, want := range map[string][]string{
-		filepath.Join("..", "..", "NOTICE"): {
-			"internal/engine/conftest_capabilities.json",
+		filepath.Join("..", "..", "..", "NOTICE"): {
+			"internal/engine/gate/conftest_capabilities.json",
 			"from OPA " + opaVersion + " (capabilities/v" + opaVersion + ".json)",
 			"https://github.com/open-policy-agent/opa/blob/v" + opaVersion + "/capabilities/v" + opaVersion + ".json",
 			"LICENSES/Apache-2.0.txt",
 		},
-		filepath.Join("..", "..", "REUSE.toml"): {
-			`path = "internal/engine/conftest_capabilities.json"`,
+		filepath.Join("..", "..", "..", "REUSE.toml"): {
+			`path = "internal/engine/gate/conftest_capabilities.json"`,
 			`SPDX-License-Identifier = "Apache-2.0"`,
 		},
 	} {
@@ -309,7 +309,7 @@ func TestNoticeNamesOPACapabilities(t *testing.T) {
 			}
 		}
 	}
-	if _, err := os.Stat(filepath.Join("..", "..", "LICENSES", "Apache-2.0.txt")); err != nil {
+	if _, err := os.Stat(filepath.Join("..", "..", "..", "LICENSES", "Apache-2.0.txt")); err != nil {
 		t.Error(err)
 	}
 }

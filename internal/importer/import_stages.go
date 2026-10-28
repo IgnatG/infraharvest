@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
@@ -391,7 +392,7 @@ func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath s
 // of l leaves out, or keeps although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
 	opts := catalogueEngineOptions(c.cat, t.root.version)
-	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(c.options.Policies), true, true
+	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, gate.DefaultScanners(c.options.Policies), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout
 	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID)

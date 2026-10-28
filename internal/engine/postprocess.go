@@ -14,18 +14,11 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
-
-// placeholderString stands in for secret values in the plans post-processing
-// runs. Those plans are only compared with each other, never applied. It
-// meets the password rules providers check before planning (Redshift's,
-// RDS's, Azure's): upper and lower case letters, a digit and a symbol, 8
-// to 41 characters, and none of / @ " ' \ or a space.
-const placeholderString = "Infraharvest-Placeholder-0"
 
 // postProcess improves the configuration once it plans, with the passes of
 // tidyPasses, in their order: the tags an import leaves out (see
@@ -51,8 +44,8 @@ const placeholderString = "Infraharvest-Placeholder-0"
 // didn't move into a curated module, with why. planned, if set, is a plan
 // of the configuration as it is, with the same variables, which it starts
 // from instead of planning.
-func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []Secret, planned *shownPlan) ([]ModuleCall, error) {
-	vars := append(placeholders(secrets), r.secrets.options()...)
+func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []secret.Variable, planned *shownPlan) ([]ModuleCall, error) {
+	vars := append(secret.Placeholders(secrets), r.secrets.Options()...)
 	baseline, values, changes, err := replanValues(ctx, tf, vars, planned)
 	if err != nil {
 		return nil, err
@@ -451,7 +444,7 @@ func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baselin
 	if !changed {
 		return true, backup.restore()
 	}
-	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil {
 		return false, errors.Join(err, backup.restore())
 	}
@@ -483,7 +476,7 @@ func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.
 	if !changed {
 		return false, nil
 	}
-	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil {
 		return false, errors.Join(err, backup.restore())
 	}
@@ -525,7 +518,7 @@ func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tf
 			return sortedKeys(resources), err
 		},
 		verify: func(ctx context.Context) (*verdict[string, bool], error) {
-			p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 			if err != nil {
 				return nil, err
 			}
@@ -650,7 +643,7 @@ func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
 // changeSignature), by address. It returns no summary if the
 // configuration doesn't plan.
 func planValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
-	p, summary, _, err := showPlanWithSummary(ctx, tf, vars)
+	p, summary, _, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil || p == nil {
 		return nil, nil, nil, err
 	}
@@ -697,28 +690,4 @@ func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
 		changes[rc.Address] = changeSignature(rc)
 	}
 	return values, changes
-}
-
-// placeholders gives each secret variable without a known value (see
-// secretValues) a value of its type.
-func placeholders(secrets []Secret) []tfexec.PlanOption {
-	vars := make([]tfexec.PlanOption, 0, len(secrets))
-	for _, s := range secrets {
-		if s.value != "" {
-			continue
-		}
-		value := placeholderString
-		switch {
-		case s.ty.Equals(cty.Number):
-			value = "0"
-		case s.ty.Equals(cty.Bool):
-			value = "false"
-		case s.ty.IsListType(), s.ty.IsSetType(), s.ty.IsTupleType():
-			value = "[]"
-		case s.ty.IsMapType(), s.ty.IsObjectType():
-			value = "{}"
-		}
-		vars = append(vars, tfexec.Var(s.Variable+"="+value))
-	}
-	return vars
 }

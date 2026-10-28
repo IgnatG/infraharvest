@@ -18,6 +18,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -186,8 +187,8 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 			}
 		}
 		for _, d := range coverage.Directories {
-			if d.Path == rootPath && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == engine.CheckMoves && c.Passed && !c.Skipped }) {
-				t.Errorf("--modules=%s: %s: the gate doesn't pass %s: %+v", modules, rootPath, engine.CheckMoves, d.Checks)
+			if d.Path == rootPath && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == gate.CheckMoves && c.Passed && !c.Skipped }) {
+				t.Errorf("--modules=%s: %s: the gate doesn't pass %s: %+v", modules, rootPath, gate.CheckMoves, d.Checks)
 			}
 		}
 

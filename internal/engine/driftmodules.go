@@ -21,6 +21,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 // driftModule is a module a root calls, as Terraform installed it, read
@@ -691,7 +692,7 @@ func (e *driftEditor) viaText(m *driftModule, t traced) string {
 	if f := m.cfg.files[t.file]; f != nil && t.rng.End.Byte <= len(f.Src) && t.rng.Start.Byte < t.rng.End.Byte {
 		expr := string(f.Src[t.rng.Start.Byte:t.rng.End.Byte])
 		if !strings.Contains(expr, "\n") && len(expr) <= maxSourceExpression {
-			text += " " + redactText(expr, e.forms)
+			text += " " + secret.RedactText(expr, e.forms)
 		}
 	}
 	return text

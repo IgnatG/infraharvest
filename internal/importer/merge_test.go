@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
@@ -270,12 +271,12 @@ func TestRecordMerge(t *testing.T) {
 // happen has none, as its root is gone.
 func TestFillMergeFindings(t *testing.T) {
 	t.Parallel()
-	gate := engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+	checks := gate.Gate{{Name: gate.CheckScanners, Passed: true, Findings: []gate.Finding{
 		{Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag", Resource: "aws_s3_bucket.logs"},
 	}}}
 	result := &engine.MergeResult{Environments: []engine.MergedEnvironment{
-		{Env: "dev", Gate: gate, Imports: map[string]string{"aws_s3_bucket.logs": "acme-dev-logs"}},
-		{Env: "prod", Gate: gate, Imports: map[string]string{"module.logs.aws_s3_bucket.this": "acme-prod-logs"}},
+		{Env: "dev", Gate: checks, Imports: map[string]string{"aws_s3_bucket.logs": "acme-dev-logs"}},
+		{Env: "prod", Gate: checks, Imports: map[string]string{"module.logs.aws_s3_bucket.this": "acme-prod-logs"}},
 	}}
 	merge := report.Merge{Path: "aws/eu-west-2"}
 	fillMerge(&merge, result)

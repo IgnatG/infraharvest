@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -725,6 +726,6 @@ func Vacate(dir string, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	result.Gate = Gate{check}
+	result.Gate = gate.Gate{check}
 	return result, WriteReadme(dir, result)
 }

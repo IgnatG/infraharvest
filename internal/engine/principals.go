@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // notePrincipals notes, after each argument in the file at path that the
@@ -43,7 +44,7 @@ func notePrincipals(path string) (bool, error) {
 			if !ok {
 				continue
 			}
-			if _, ok := literalString(tmpl); !ok {
+			if _, ok := hclfile.LiteralString(tmpl); !ok {
 				continue
 			}
 			// The mark of a note, so that an argument is noted once.
@@ -56,7 +57,7 @@ func notePrincipals(path string) (bool, error) {
 			kind := "object"
 			if t, ok := b.Body.Attributes[p.KindArgument]; ok && p.KindArgument != "" {
 				if tmpl, ok := t.Expr.(*hclsyntax.TemplateExpr); ok {
-					if v, ok := literalString(tmpl); ok && p.Kinds[v] != "" {
+					if v, ok := hclfile.LiteralString(tmpl); ok && p.Kinds[v] != "" {
 						kind = p.Kinds[v]
 					}
 				}

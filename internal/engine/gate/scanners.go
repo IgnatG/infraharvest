@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"bytes"
@@ -32,9 +32,10 @@ const maxReportedFindings = 20
 // ScannerSlots bound the scanner processes running at once, as many as the
 // machine has CPUs, and at least two, over every directory the gate checks
 // at the same time: the roots of one import, which --parallel checks
-// together, share one (see Options.ScannerSlots). They belong to whoever
-// runs those roots, so another run in the process, such as another MCP
-// call, has slots of its own. The zero value is ready to use.
+// together, share one (see the engine's Options.ScannerSlots). They
+// belong to whoever runs those roots, so another run in the process, such
+// as another MCP call, has slots of its own. The zero value is ready to
+// use.
 type ScannerSlots struct {
 	once  sync.Once
 	slots chan struct{}
@@ -135,7 +136,7 @@ func DefaultScanners(policies []string) []Scanner {
 			// Cloud platform, which an API key in the environment would
 			// otherwise upload the configuration to. Its secrets scan reads
 			// every file but the local state of a root applied without a
-			// backend, which holds secret values (see LocalStateFile). It
+			// backend, which holds secret values (see tfrun.LocalStateFile). It
 			// reads the .checkov.yaml of the directory it scans whatever
 			// --config-file names, so that is left as it is.
 			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")

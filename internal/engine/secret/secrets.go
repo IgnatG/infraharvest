@@ -1,12 +1,16 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package secret keeps secret values out of the configuration infraharvest
+// generates: it finds them, among the values Terraform marks sensitive and
+// those it writes in the open, moves them into sensitive variables, hides
+// them from the output of infraharvest's own plans, and tells whether a
+// file holds one. It never writes a value into the output.
+package secret
 
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -26,21 +30,23 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// Secret is a variable the generated configuration reads a secret value
+// Variable is a variable the generated configuration reads a secret value
 // from. Terraform doesn't write the values the provider marks sensitive
 // into the configuration it generates, and infraharvest moves the secrets
-// it finds among the others out of it (see literalSecretsToVariables), so
+// it finds among the others out of it (see LiteralsToVariables), so
 // the user sets the variable before planning.
-type Secret struct {
+type Variable struct {
 	Variable  string // variable name
 	Address   string // address of the resource that uses it
 	Attribute string // attribute it sets, e.g. value, block[1].password or environment.variables.API_SECRET
+	// Type is the variable's type, from the provider schema where it
+	// describes the attribute; cty.NilType if unknown.
+	Type cty.Type `json:"-"`
 
 	schemaPath []string // block types and attribute name, e.g. [block password]
-	ty         cty.Type // from the provider schema; cty.NilType if unknown
 	// key is the name a secret infraharvest found goes by, such as the
 	// environment variable API_SECRET, and value its value, which only
-	// infraharvest's own plans see (see secretValues); both are "" for
+	// infraharvest's own plans see (see Values); both are "" for
 	// values the provider marks sensitive, which Terraform doesn't show.
 	key, value string
 }
@@ -48,9 +54,9 @@ type Secret struct {
 // secretStoreAdvice ends the description of every secret variable.
 const secretStoreAdvice = "set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_%s, and keep the value out of version control"
 
-// secretAttribute is an attribute Terraform generated as
+// Sensitive is an attribute Terraform generated as
 // "null # sensitive": it has a value Terraform won't show.
-type secretAttribute struct {
+type Sensitive struct {
 	address    string
 	path       string   // e.g. value or block[1].password
 	schemaPath []string // block types and attribute name, e.g. [block password]
@@ -58,14 +64,14 @@ type secretAttribute struct {
 	rng        hcl.Range
 }
 
-func (s secretAttribute) name() string {
+func (s Sensitive) name() string {
 	return s.schemaPath[len(s.schemaPath)-1]
 }
 
-// findSecrets lists the secret attributes of every resource in f, by
+// FindSensitive lists the secret attributes of every resource in f, by
 // resource address.
-func findSecrets(f *hclfile.File) map[string][]secretAttribute {
-	secrets := map[string][]secretAttribute{}
+func FindSensitive(f *hclfile.File) map[string][]Sensitive {
+	secrets := map[string][]Sensitive{}
 	for _, r := range f.Resources() {
 		if found := secretsIn(r.Address, r.Syntax.Body, r.Write.Body(), "", nil); len(found) > 0 {
 			secrets[r.Address] = found
@@ -74,8 +80,8 @@ func findSecrets(f *hclfile.File) map[string][]secretAttribute {
 	return secrets
 }
 
-func secretsIn(address string, syntax *hclsyntax.Body, body *hclwrite.Body, prefix string, schemaPrefix []string) []secretAttribute {
-	var found []secretAttribute
+func secretsIn(address string, syntax *hclsyntax.Body, body *hclwrite.Body, prefix string, schemaPrefix []string) []Sensitive {
+	var found []Sensitive
 	names := make([]string, 0, len(syntax.Attributes))
 	for name := range syntax.Attributes {
 		names = append(names, name)
@@ -83,7 +89,7 @@ func secretsIn(address string, syntax *hclsyntax.Body, body *hclwrite.Body, pref
 	sort.Strings(names)
 	for _, name := range names {
 		if attr := body.GetAttribute(name); attr != nil && isSecretNull(attr) {
-			found = append(found, secretAttribute{
+			found = append(found, Sensitive{
 				address:    address,
 				path:       prefix + name,
 				schemaPath: append(append([]string(nil), schemaPrefix...), name),
@@ -133,7 +139,7 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 	return false
 }
 
-// withoutUnset leaves out of found, and removes from their resources, the
+// WithoutUnset leaves out of found, and removes from their resources, the
 // secret attributes the imported objects hold no value for, such as a
 // database's master password, which AWS never returns, or hold the empty
 // string, as the google provider does for an encryption key never set:
@@ -145,8 +151,8 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 // with the attributes still null as Terraform generated them; if that plan
 // doesn't succeed, found is returned as it is. It reports whether it
 // removed any attribute.
-func withoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]secretAttribute, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]secretAttribute, bool, error) {
-	p, _, _, err := showPlanWithSummary(ctx, tf, vars)
+func WithoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]Sensitive, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]Sensitive, bool, error) {
+	p, _, _, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil || p == nil {
 		return found, false, err
 	}
@@ -156,13 +162,13 @@ func withoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]se
 			imported[rc.Address] = rc.Change.Before
 		}
 	}
-	kept := map[string][]secretAttribute{}
+	kept := map[string][]Sensitive{}
 	removed := false
 	for address, secrets := range found {
 		resourceType := strings.SplitN(address, ".", 2)[0]
 		for _, s := range secrets {
 			before, ok := imported[address]
-			attr := schemaAttribute(schemas, resourceType, s.schemaPath)
+			attr := tfrun.SchemaAttribute(schemas, resourceType, s.schemaPath)
 			if !ok || attr == nil || attr.Required || !allUnset(valuesAt(before, s.schemaPath)) {
 				kept[address] = append(kept[address], s)
 				continue
@@ -215,7 +221,7 @@ func allUnset(values []any) bool {
 	return len(values) > 0
 }
 
-// aboutSecret reports whether d is about one of secrets: its range is on
+// About reports whether d is about one of secrets: its range is on
 // the attribute, or its message names the attribute and says a value is
 // missing (see missingValue), as in "one of insecure_value,value,value_wo
 // must be specified". Such errors are expected while the attributes are
@@ -223,7 +229,7 @@ func allUnset(values []any) bool {
 // catches any taken for one by mistake. A message that names an attribute
 // for another reason, such as "Invalid value", isn't about it: secret
 // attributes are often called value or password.
-func aboutSecret(d tfjson.Diagnostic, secrets []secretAttribute) bool {
+func About(d tfjson.Diagnostic, secrets []Sensitive) bool {
 	for _, s := range secrets {
 		if d.Range != nil && hclfile.Spans(s.rng, d.Range.Start.Line) {
 			return true
@@ -252,12 +258,13 @@ var notInIdentifier = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 
 var notInVariableName = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-// secretsToVariables makes every secret attribute read from a new sensitive
+// ToVariables makes every secret attribute read from a new sensitive
 // variable, named other than the variables in taken, and returns the
 // variables, by resource in file order and by attribute as secretsIn
-// lists them (by name, then nested blocks in order). It edits f's tree.
-func secretsToVariables(f *hclfile.File, secrets map[string][]secretAttribute, taken Names) []Secret {
-	var vars []Secret
+// lists them (by name, then nested blocks in order), typed from schemas
+// where they describe the attribute. It edits f's tree.
+func ToVariables(f *hclfile.File, secrets map[string][]Sensitive, taken map[string]bool, schemas *tfjson.ProviderSchemas) []Variable {
+	var vars []Variable
 	used := map[string]bool{}
 	for name := range taken {
 		if v, ok := strings.CutPrefix(name, "var."); ok {
@@ -274,15 +281,16 @@ func secretsToVariables(f *hclfile.File, secrets map[string][]secretAttribute, t
 			}
 			used[name] = true
 			s.body.SetAttributeTraversal(s.name(), hcl.Traversal{hcl.TraverseRoot{Name: "var"}, hcl.TraverseAttr{Name: name}})
-			vars = append(vars, Secret{Variable: name, Address: s.address, Attribute: s.path, schemaPath: s.schemaPath})
+			ty := tfrun.AttributeType(schemas, strings.SplitN(s.address, ".", 2)[0], s.schemaPath)
+			vars = append(vars, Variable{Variable: name, Address: s.address, Attribute: s.path, Type: ty, schemaPath: s.schemaPath})
 		}
 	}
 	return vars
 }
 
-// variablesFile renders a sensitive variable without a default for each
+// VariablesFile renders a sensitive variable without a default for each
 // secret, typed from the provider schemas where they describe it.
-func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, error) {
+func VariablesFile(secrets []Variable, schemas *tfjson.ProviderSchemas) ([]byte, error) {
 	f := hclwrite.NewEmptyFile()
 	body := f.Body()
 	for i, s := range secrets {
@@ -295,9 +303,9 @@ func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, e
 			why = "infraharvest found a secret value here and left it out of the configuration"
 		}
 		b.SetAttributeValue("description", cty.StringVal(fmt.Sprintf("%s of %s. %s: "+secretStoreAdvice+".", s.Attribute, s.Address, why, s.Variable)))
-		ty := s.ty
+		ty := s.Type
 		if ty == cty.NilType {
-			ty = attributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
+			ty = tfrun.AttributeType(schemas, strings.SplitN(s.Address, ".", 2)[0], s.schemaPath)
 		}
 		if ty != cty.NilType {
 			tokens, err := typeTokens(ty)
@@ -311,53 +319,20 @@ func variablesFile(secrets []Secret, schemas *tfjson.ProviderSchemas) ([]byte, e
 	return hclwrite.Format(f.Bytes()), nil
 }
 
-// withoutWriteOnly leaves out write-only attributes (value_wo, for
+// WithoutWriteOnly leaves out write-only attributes (value_wo, for
 // example). Terraform also generates them as "null # sensitive", but they
 // are never stored, so null, unset, is what an import should produce.
-func withoutWriteOnly(secrets map[string][]secretAttribute, schemas *tfjson.ProviderSchemas) map[string][]secretAttribute {
-	kept := map[string][]secretAttribute{}
+func WithoutWriteOnly(secrets map[string][]Sensitive, schemas *tfjson.ProviderSchemas) map[string][]Sensitive {
+	kept := map[string][]Sensitive{}
 	for addr, attrs := range secrets {
 		resourceType := strings.SplitN(addr, ".", 2)[0]
 		for _, s := range attrs {
-			if attr := schemaAttribute(schemas, resourceType, s.schemaPath); attr == nil || !attr.WriteOnly {
+			if attr := tfrun.SchemaAttribute(schemas, resourceType, s.schemaPath); attr == nil || !attr.WriteOnly {
 				kept[addr] = append(kept[addr], s)
 			}
 		}
 	}
 	return kept
-}
-
-// attributeType returns the type of the attribute at path in resourceType's
-// schema, or cty.NilType if the schemas don't describe it.
-func attributeType(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
-	if attr := schemaAttribute(schemas, resourceType, path); attr != nil {
-		return attr.AttributeType
-	}
-	return cty.NilType
-}
-
-// schemaAttribute returns the attribute at path in resourceType's schema,
-// or nil if the schemas don't describe it.
-func schemaAttribute(schemas *tfjson.ProviderSchemas, resourceType string, path []string) *tfjson.SchemaAttribute {
-	if schemas == nil || len(path) == 0 {
-		return nil
-	}
-	for _, provider := range schemas.Schemas {
-		resource, ok := provider.ResourceSchemas[resourceType]
-		if !ok || resource.Block == nil {
-			continue
-		}
-		block := resource.Block
-		for _, name := range path[:len(path)-1] {
-			nested, ok := block.NestedBlocks[name]
-			if !ok || nested.Block == nil {
-				return nil
-			}
-			block = nested.Block
-		}
-		return block.Attributes[path[len(path)-1]]
-	}
-	return nil
 }
 
 // typeTokens renders ty as a type constraint expression.
@@ -383,29 +358,29 @@ func isPublic(rule catalogue.SecretWhen, when string) bool {
 	return when != "" && !slices.Contains(rule.In, when)
 }
 
-// publicSecretsToLiterals writes into the configuration the values of the
-// secrets publicSensitive says aren't secret, as the plan shows them, and
-// returns the other secrets. Values that look like secrets all the same
-// (see secretReason) stay in their variables. It plans only if a secret
+// PublicToLiterals writes into the generated configuration, the file at
+// path, the values of the secrets publicSensitive says aren't secret, as
+// the plan shows them, and returns the other secrets, and whether it
+// wrote any, which leaves their variables to declare no more. Values that look like secrets all the same
+// (see Reason) stay in their variables. It plans only if a secret
 // may be public, with the values of known, if set, for the secrets Generate
-// found (see secretValues).
-func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, known *secretValues) ([]Secret, error) {
-	path := filepath.Join(dir, GeneratedFileName)
+// found (see Values).
+func PublicToLiterals(ctx context.Context, tf tfrun.Terraform, path string, secrets []Variable, known *Values) ([]Variable, bool, error) {
 	generated, err := hclfile.Load(path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	bodies := map[string]*hclsyntax.Body{}
 	writes := map[string]*hclwrite.Body{}
 	for _, r := range generated.Resources() {
 		bodies[r.Address], writes[r.Address] = r.Syntax.Body, r.Write.Body()
 	}
-	candidate := func(s Secret) (catalogue.SecretWhen, bool) {
+	candidate := func(s Variable) (catalogue.SecretWhen, bool) {
 		rule, ok := publicSensitive(strings.SplitN(s.Address, ".", 2)[0])
 		if !ok || s.key != "" || s.Attribute != rule.Argument || bodies[s.Address] == nil {
 			return rule, false
 		}
-		return rule, isPublic(rule, stringLiteral(attributeExpr(bodies[s.Address], rule.When)))
+		return rule, isPublic(rule, hclfile.StringLiteral(hclfile.AttributeExpr(bodies[s.Address], rule.When)))
 	}
 	possible := false
 	for _, s := range secrets {
@@ -414,11 +389,11 @@ func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string
 		}
 	}
 	if !possible {
-		return secrets, nil
+		return secrets, false, nil
 	}
-	p, _, _, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
+	p, _, _, err := tfrun.ShowPlan(ctx, tf, append(Placeholders(secrets), known.Options()...))
 	if err != nil || p == nil {
-		return secrets, err
+		return secrets, false, err
 	}
 	imported := map[string]map[string]any{}
 	for _, rc := range p.ResourceChanges {
@@ -428,7 +403,7 @@ func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string
 			}
 		}
 	}
-	var kept []Secret
+	var kept []Variable
 	changed := false
 	for _, s := range secrets {
 		rule, ok := candidate(s)
@@ -437,8 +412,8 @@ func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string
 			continue
 		}
 		value, isString := imported[s.Address][rule.Argument].(string)
-		name := stringLiteral(attributeExpr(bodies[s.Address], "name"))
-		if !isString || secretReason(name, value, true) != "" {
+		name := hclfile.StringLiteral(hclfile.AttributeExpr(bodies[s.Address], "name"))
+		if !isString || Reason(name, value, true) != "" {
 			kept = append(kept, s)
 			continue
 		}
@@ -448,16 +423,16 @@ func publicSecretsToLiterals(ctx context.Context, tf tfrun.Terraform, dir string
 		changed = true
 	}
 	if !changed {
-		return secrets, nil
+		return secrets, false, nil
 	}
 	if err := generated.Save(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return kept, writeVariables(dir, kept, nil)
+	return kept, true, nil
 }
 
 // publicValue returns the value of a sensitive argument of rc's imported
-// object that publicSensitive says isn't secret, as publicSecretsToLiterals
+// object that publicSensitive says isn't secret, as PublicToLiterals
 // writes it.
 func publicValue(rc *tfjson.ResourceChange) (string, bool) {
 	rule, ok := publicSensitive(rc.Type)
@@ -468,5 +443,36 @@ func publicValue(rc *tfjson.ResourceChange) (string, bool) {
 	when, _ := before[rule.When].(string)
 	value, isString := before[rule.Argument].(string)
 	name, _ := before["name"].(string)
-	return value, isString && isPublic(rule, when) && secretReason(name, value, true) == ""
+	return value, isString && isPublic(rule, when) && Reason(name, value, true) == ""
+}
+
+// PlaceholderValue stands in for secret values in the plans post-processing
+// runs. Those plans are only compared with each other, never applied. It
+// meets the password rules providers check before planning (Redshift's,
+// RDS's, Azure's): upper and lower case letters, a digit and a symbol, 8
+// to 41 characters, and none of / @ " ' \ or a space.
+const PlaceholderValue = "Infraharvest-Placeholder-0"
+
+// Placeholders gives each secret variable without a known value (see
+// Values) a value of its type.
+func Placeholders(secrets []Variable) []tfexec.PlanOption {
+	vars := make([]tfexec.PlanOption, 0, len(secrets))
+	for _, s := range secrets {
+		if s.value != "" {
+			continue
+		}
+		value := PlaceholderValue
+		switch {
+		case s.Type.Equals(cty.Number):
+			value = "0"
+		case s.Type.Equals(cty.Bool):
+			value = "false"
+		case s.Type.IsListType(), s.Type.IsSetType(), s.Type.IsTupleType():
+			value = "[]"
+		case s.Type.IsMapType(), s.Type.IsObjectType():
+			value = "{}"
+		}
+		vars = append(vars, tfexec.Var(s.Variable+"="+value))
+	}
+	return vars
 }

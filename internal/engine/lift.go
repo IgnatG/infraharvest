@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -303,11 +304,11 @@ func taggedResources(f *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSc
 // receivesTags reports whether the schemas of typ have attribute and one
 // that holds the tags its provider adds to it.
 func receivesTags(schemas *tfjson.ProviderSchemas, typ, attribute string) bool {
-	if schemaAttribute(schemas, typ, []string{attribute}) == nil {
+	if tfrun.SchemaAttribute(schemas, typ, []string{attribute}) == nil {
 		return false
 	}
 	for _, all := range []string{attribute + "_all", "terraform_" + attribute, "effective_" + attribute} {
-		if schemaAttribute(schemas, typ, []string{all}) != nil {
+		if tfrun.SchemaAttribute(schemas, typ, []string{all}) != nil {
 			return true
 		}
 	}

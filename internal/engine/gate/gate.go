@@ -1,27 +1,36 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+// Package gate is the verification gate: the checks a root passes before
+// infraharvest calls it done, and in what order they run. A check reads
+// the root's files and plans it; the gate never edits a file.
+package gate
 
 import (
 	"context"
 	"fmt"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Names of the verification gate's checks, numbered G1 to G8 (see also
-// CheckStandards, CheckScanners and CheckMoves).
+// CheckScanners).
 const (
-	CheckFormat      = "G1 format"
-	CheckValidate    = "G2 validate"
-	CheckPlan        = "G3 plan"
+	CheckFormat   = "G1 format"
+	CheckValidate = "G2 validate"
+	CheckPlan     = "G3 plan"
+	// CheckStandards is the built-in standards check, of the output
+	// standard, which the engine owns (see Policy.Standards).
+	CheckStandards   = "G4 standards"
 	CheckSecrets     = "G6 secrets"
 	CheckDeterminism = "G7 determinism"
+	// CheckMoves is the check of a root's moved and removed blocks, which
+	// the engine owns (see Policy.Moves).
+	CheckMoves = "G8 moves"
 )
 
 // Check is the outcome of one check of the verification gate.
@@ -40,9 +49,9 @@ type Check struct {
 	Findings []Finding `json:",omitempty"`
 	// Changes are the changes a plan check found, for CheckPlan.
 	Changes []PlannedChange
-	// files are the edited files a failure is blamed on, where the gate
-	// blames edited files (see gatePolicy.diff).
-	files []string
+	// Files are the edited files a failure is blamed on, where the gate
+	// blames edited files (see Policy.Diff).
+	Files []string `json:"-"`
 }
 
 // PlannedChange is a change the plan has for a resource besides importing
@@ -66,8 +75,8 @@ func (g Gate) Passed() bool {
 	return true
 }
 
-// check returns the check named name; one that didn't run fails.
-func (g Gate) check(name string) Check {
+// Named returns the check named name; one that didn't run fails.
+func (g Gate) Named(name string) Check {
 	for _, c := range g {
 		if c.Name == name {
 			return c
@@ -76,127 +85,78 @@ func (g Gate) check(name string) Check {
 	return Check{Name: name, Details: []string{"didn't run"}}
 }
 
-// runGate runs the import gate on the directory as Generate leaves it:
-// every check of the gate (see fullGate), with a plan that imports each
-// resource an import block names and changes nothing else (see
-// planCheck). Secret variables Terraform doesn't show get placeholder
-// values in the plan, so the arguments they set may change; so may the
-// arguments opts.StateOnly names per type, which providers keep only in
-// state and import can't set. known, if set, has the values of the
-// secrets Generate found (see secretValues).
-func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []Secret, opts Options, known *secretValues) (Gate, error) {
-	expected, err := countImportBlocks(dir)
-	if err != nil {
-		return nil, err
-	}
-	policy := fullGate(opts)
-	policy.plan = func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, append(placeholders(secrets), known.options()...))
-		if err != nil {
-			return Check{}, nil, err
-		}
-		return planCheck(p, diags, secrets, opts.StateOnly, expected), append(sensitiveValues(p), knownValues(secrets)...), nil
-	}
-	gate, _, err := policy.run(ctx, tf, dir)
-	return gate, err
-}
-
-// countImportBlocks counts the import blocks in dir's configuration: how
-// many resources its plan must import.
-func countImportBlocks(dir string) (int, error) {
-	files, err := configFiles(dir)
-	if err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, f := range files {
-		for _, b := range f.Syntax.Blocks {
-			if b.Type == "import" {
-				n++
-			}
-		}
-	}
-	return n, nil
-}
-
-// gatePolicy is how a run of the verification gate checks a directory:
+// Policy is how a run of the verification gate checks a directory:
 // which of the gate's checks run, and what they judge by. The import
-// gate (see runGate), Verify's and VerifyMerged's run every check; Add's
-// holds the scanners back on the secrets staging's plan found (see
-// withheld); a stack's merged root is planned as each environment, and
-// its scanners run once, if none of them finds a secret (see others);
-// and drift judges its edits by what they add to the findings the root
-// had, blaming the files they are in (see baseline and diff).
-type gatePolicy struct {
-	// checks are the names of the checks that run; none runs them all.
-	checks []string
-	// plan runs the plan check, and returns with it the values its plan
+// gate, Verify's and VerifyMerged's run every check; Add's holds the
+// scanners back on the secrets staging's plan found (see Withheld); a
+// stack's merged root is planned as each environment, and its scanners
+// run once, if none of them finds a secret (see Others); and drift judges
+// its edits by what they add to the findings the root had, blaming the
+// files they are in (see Baseline and Diff).
+type Policy struct {
+	// Checks are the names of the checks that run; none runs them all.
+	Checks []string
+	// Plan runs the plan check, and returns with it the values its plan
 	// marks sensitive, which no file may hold.
-	plan func() (Check, []string, error)
-	// others plan the directory again after plan, as the other
+	Plan func() (Check, []string, error)
+	// Others plan the directory again after Plan, as the other
 	// environments of a stack: each has a gate of its own, of its plan
 	// check and the secrets check of the values it marks sensitive, and
 	// the scanners run only if each of those passes.
-	others []gatePlan
-	// sensitive are values no file may hold besides those the plans mark
+	Others []OtherPlan
+	// Sensitive are values no file may hold besides those the plans mark
 	// sensitive.
-	sensitive []string
-	// withheld, if set, is a secrets check of values the directory
+	Sensitive []string
+	// Withheld, if set, is a secrets check of values the directory
 	// mustn't hold that the gate doesn't know, such as those another
 	// directory's plan marks sensitive: the scanners run only if it
 	// passes, and the gate's secrets check fails with what it found.
-	withheld *Check
-	// baseline, for diff mode, has checks of the directory before it was
+	Withheld *Check
+	// Baseline, for diff mode, has checks of the directory before it was
 	// edited: a check it has fails only on the findings it adds to them.
-	baseline Gate
-	// diff has the gate judge edits: edited are the files they changed,
-	// by name, which before and after hold as they were and are, and the
+	Baseline Gate
+	// Diff has the gate judge edits: Edited are the files they changed,
+	// by name, which Before and After hold as they were and are, and the
 	// gate blames its failures on them. The format check fails only on
 	// these files, as the others are as they were; the secrets check scans
 	// only these, failing on a finding an edit adds, without saying where
 	// the secret is; a check that fails names the files it blames (see
-	// Check.files), none where it can't tell; and the gate stops at the
+	// Check.Files), none where it can't tell; and the gate stops at the
 	// first that fails, as the edits it blames are left out and the rest
 	// checked again.
-	diff          bool
-	edited        []string
-	before, after map[string][]byte
-	// omit and own are the output standard's (see checkStandards), and
-	// scanners are the external scanners to run, in slots (see
+	Diff          bool
+	Edited        []string
+	Before, After map[string][]byte
+	// Standards and Moves run the standards and the moves check on a
+	// directory: the rules of the output standard and of moved blocks
+	// are the engine's. A policy that runs those checks must set them.
+	Standards, Moves func(dir string) (Check, error)
+	// Scanners are the external scanners to run, in Slots (see
 	// runScanners).
-	omit     map[string][]string
-	own      []string
-	scanners []Scanner
-	slots    *ScannerSlots
+	Scanners []Scanner
+	Slots    *ScannerSlots
 }
 
-// gatePlan is one more plan of the directory a gate checks (see
-// gatePolicy.others).
-type gatePlan struct {
-	// name is what the scanners' check, held back on its secrets, says of
+// OtherPlan is one more plan of the directory a gate checks (see
+// Policy.Others).
+type OtherPlan struct {
+	// Name is what the scanners' check, held back on its secrets, says of
 	// it, such as "environment prod".
-	name string
-	run  func() (Check, []string, error)
-}
-
-// fullGate returns the policy that runs every check of the gate, to the
-// output standard and with the scanners and scanner slots of opts; its
-// plan is still to be set.
-func fullGate(opts Options) gatePolicy {
-	return gatePolicy{omit: opts.Omit, own: ownModuleDirs(opts.Adapters), scanners: opts.Scanners, slots: opts.ScannerSlots}
+	Name string
+	Run  func() (Check, []string, error)
 }
 
 // runs reports whether the gate runs the check named name.
-func (p gatePolicy) runs(name string) bool {
-	return len(p.checks) == 0 || slices.Contains(p.checks, name)
+func (p Policy) runs(name string) bool {
+	return len(p.Checks) == 0 || slices.Contains(p.Checks, name)
 }
 
-// run runs the checks of the gate that p says on dir, with tf, and
+// Run runs the checks of the gate that p says on dir, with tf, and
 // returns their results in the gate's order, which is the order they run
 // in but for the scanners, listed before the secrets check that holds
-// them back; and the gate of each of p.others. A cancelled run fails as
+// them back; and the gate of each of p.Others. A cancelled run fails as
 // cancelled.
-func (p gatePolicy) run(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
+func (p Policy) Run(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
 	gate, others, err := p.runChecks(ctx, tf, dir)
 	if err != nil {
 		return nil, nil, err
@@ -209,13 +169,13 @@ func (p gatePolicy) run(ctx context.Context, tf tfrun.Terraform, dir string) (Ga
 	return gate, others, nil
 }
 
-// runChecks is run but for its cancellation.
-func (p gatePolicy) runChecks(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
+// runChecks is Run but for its cancellation.
+func (p Policy) runChecks(ctx context.Context, tf tfrun.Terraform, dir string) (Gate, []Gate, error) {
 	var gate Gate
 	// add adds c to the gate, and reports whether the gate stops there.
 	add := func(c Check) bool {
 		gate = append(gate, c)
-		return p.diff && !c.Passed
+		return p.Diff && !c.Passed
 	}
 	if p.runs(CheckFormat) {
 		c, err := p.format(ctx, tf)
@@ -235,31 +195,31 @@ func (p gatePolicy) runChecks(ctx context.Context, tf tfrun.Terraform, dir strin
 			return gate, nil, nil
 		}
 	}
-	sensitive := slices.Clone(p.sensitive)
+	sensitive := slices.Clone(p.Sensitive)
 	var others []Gate
 	// clean is whether the secrets checks of the other plans pass, and
 	// held names those that don't.
 	clean := true
 	var held []string
 	if p.runs(CheckPlan) {
-		planned, values, err := p.plan()
+		planned, values, err := p.Plan()
 		if err != nil {
 			return nil, nil, err
 		}
 		sensitive = append(sensitive, values...)
-		for _, other := range p.others {
-			otherPlanned, otherValues, err := other.run()
+		for _, other := range p.Others {
+			otherPlanned, otherValues, err := other.Run()
 			if err != nil {
 				return nil, nil, err
 			}
-			secrets, err := scanSecrets(dir, append(slices.Clone(p.sensitive), otherValues...))
+			secrets, err := scanSecrets(dir, append(slices.Clone(p.Sensitive), otherValues...))
 			if err != nil {
 				return nil, nil, err
 			}
 			others = append(others, Gate{otherPlanned, secrets})
 			if !secrets.Passed {
 				clean = false
-				held = append(held, other.name)
+				held = append(held, other.Name)
 			}
 		}
 		if add(planned) {
@@ -290,21 +250,21 @@ func (p gatePolicy) runChecks(ctx context.Context, tf tfrun.Terraform, dir strin
 			scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
 			if secrets.Passed {
 				scanners.Details = append(scanners.Details, held...)
-				if p.withheld != nil {
-					clean = clean && p.withheld.Passed
-					scanners.Details = append(scanners.Details, p.withheld.Details...)
+				if p.Withheld != nil {
+					clean = clean && p.Withheld.Passed
+					scanners.Details = append(scanners.Details, p.Withheld.Details...)
 				}
 				if clean {
-					scanners = runScanners(ctx, dir, p.scanners, p.slots)
+					scanners = runScanners(ctx, dir, p.Scanners, p.Slots)
 				}
 			}
 			if add(scanners) {
 				return gate, others, nil
 			}
 		}
-		if p.withheld != nil && !p.withheld.Passed {
+		if p.Withheld != nil && !p.Withheld.Passed {
 			secrets.Passed = false
-			secrets.Details = append(secrets.Details, p.withheld.Details...)
+			secrets.Details = append(secrets.Details, p.Withheld.Details...)
 		}
 		if p.runs(CheckSecrets) && add(secrets) {
 			return gate, others, nil
@@ -322,30 +282,30 @@ func (p gatePolicy) runChecks(ctx context.Context, tf tfrun.Terraform, dir strin
 
 // format runs the format check. Where the gate blames edited files, only
 // those fail it.
-func (p gatePolicy) format(ctx context.Context, tf tfrun.Terraform) (Check, error) {
+func (p Policy) format(ctx context.Context, tf tfrun.Terraform) (Check, error) {
 	formatted, files, err := tf.FormatCheck(ctx)
 	if err != nil {
 		return Check{}, fmt.Errorf("terraform fmt: %w", err)
 	}
-	if !p.diff {
+	if !p.Diff {
 		return Check{Name: CheckFormat, Passed: formatted, Details: files}, nil
 	}
 	c := Check{Name: CheckFormat, Passed: true}
 	for _, f := range files {
-		if slices.Contains(p.edited, filepath.Base(f)) {
-			c.files = append(c.files, filepath.Base(f))
+		if slices.Contains(p.Edited, filepath.Base(f)) {
+			c.Files = append(c.Files, filepath.Base(f))
 		}
 	}
-	if len(c.files) > 0 {
+	if len(c.Files) > 0 {
 		c.Passed = false
-		c.Details = []string{strings.Join(c.files, ", ") + " isn't formatted"}
+		c.Details = []string{strings.Join(c.Files, ", ") + " isn't formatted"}
 	}
 	return c, nil
 }
 
 // validate runs the validate check, blaming the edited files an error is
 // in.
-func (p gatePolicy) validate(ctx context.Context, tf tfrun.Terraform) (Check, error) {
+func (p Policy) validate(ctx context.Context, tf tfrun.Terraform) (Check, error) {
 	validation, err := tf.Validate(ctx)
 	if err != nil {
 		return Check{}, fmt.Errorf("terraform validate: %w", err)
@@ -356,9 +316,9 @@ func (p gatePolicy) validate(ctx context.Context, tf tfrun.Terraform) (Check, er
 		if d.Range == nil {
 			continue
 		}
-		for _, name := range p.edited {
+		for _, name := range p.Edited {
 			if name == filepath.ToSlash(d.Range.Filename) || name == filepath.Base(d.Range.Filename) {
-				c.files = append(c.files, name)
+				c.Files = append(c.Files, name)
 			}
 		}
 	}
@@ -368,49 +328,46 @@ func (p gatePolicy) validate(ctx context.Context, tf tfrun.Terraform) (Check, er
 // judged runs the standards or the moves check, named name, as diff mode
 // judges it where the baseline has it: with only the findings it adds,
 // failing if there are any, and blaming the edited files they name.
-func (p gatePolicy) judged(name, dir string) (Check, error) {
-	var c Check
-	var err error
+func (p Policy) judged(name, dir string) (Check, error) {
+	run := p.Moves
 	if name == CheckStandards {
-		c, err = checkStandards(dir, p.omit, p.own)
-	} else {
-		c, err = checkMoves(dir)
+		run = p.Standards
 	}
+	c, err := run(dir)
 	if err != nil {
 		return Check{}, err
 	}
-	i := slices.IndexFunc(p.baseline, func(b Check) bool { return b.Name == name })
+	i := slices.IndexFunc(p.Baseline, func(b Check) bool { return b.Name == name })
 	if i < 0 {
 		return c, nil
 	}
-	c.Details = addedDetails(p.baseline[i], c)
+	c.Details = AddedDetails(p.Baseline[i], c)
 	c.Passed = len(c.Details) == 0
-	c.files = filesNamed(c.Details, p.edited)
+	c.Files = filesNamed(c.Details, p.Edited)
 	return c, nil
 }
 
 // secrets runs the secrets check, of the values sensitive has: on the
 // files of dir, or, where the gate blames edited files, on what an edit
 // adds to each.
-func (p gatePolicy) secrets(dir string, sensitive []string) (Check, error) {
-	if !p.diff {
+func (p Policy) secrets(dir string, sensitive []string) (Check, error) {
+	if !p.Diff {
 		return scanSecrets(dir, sensitive)
 	}
-	values := newValueMatcher(sensitive)
-	for _, name := range p.edited {
-		var before, after Check
-		scanFile(&before, values, name, string(p.before[name]))
-		scanFile(&after, values, name, string(p.after[name]))
-		if len(addedDetails(before, after)) > 0 {
+	values := secret.NewMatcher(sensitive)
+	for _, name := range p.Edited {
+		before := Check{Details: secret.InFile(values, name, string(p.Before[name]))}
+		after := Check{Details: secret.InFile(values, name, string(p.After[name]))}
+		if len(AddedDetails(before, after)) > 0 {
 			// What it found is a secret's whereabouts, not for a report.
-			return Check{Name: CheckSecrets, Details: []string{name + " would hold a secret"}, files: []string{name}}, nil
+			return Check{Name: CheckSecrets, Details: []string{name + " would hold a secret"}, Files: []string{name}}, nil
 		}
 	}
 	return Check{Name: CheckSecrets, Passed: true}, nil
 }
 
-// addedDetails returns the details of after that before doesn't have.
-func addedDetails(before, after Check) []string {
+// AddedDetails returns the details of after that before doesn't have.
+func AddedDetails(before, after Check) []string {
 	had := map[string]int{}
 	for _, d := range before.Details {
 		had[d]++
@@ -443,11 +400,18 @@ func filesNamed(details, names []string) []string {
 	return files
 }
 
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
+// scanSecrets checks every file Generate wrote into dir, and into the
+// local modules it calls (see walkOutputAndModules), for the plan's
+// sensitive values and the secret values Generate found, for credential
+// formats, for provider blocks that set a credential argument to a
+// constant (see secret.IsCredential), and for any secret value written in
+// the configuration (see secret.Literals).
+func scanSecrets(dir string, sensitive []string) (Check, error) {
+	check := Check{Name: CheckSecrets}
+	values := secret.NewMatcher(sensitive)
+	err := walkOutputAndModules(dir, func(rel string, content string) {
+		check.Details = append(check.Details, secret.InFile(values, rel, content)...)
+	})
+	check.Passed = len(check.Details) == 0
+	return check, err
 }

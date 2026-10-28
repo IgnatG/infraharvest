@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -223,9 +224,10 @@ func (f *fakeTerraform) PlanJSON(_ context.Context, w io.Writer, opts ...tfexec.
 	}
 	for _, opt := range opts {
 		// The engine's var file is the one in the temporary directory
-		// the test set: tfexec.VarFileOption keeps its path unexported.
+		// the test set, where secret.Values keeps it:
+		// tfexec.VarFileOption keeps its path unexported.
 		if _, ok := opt.(*tfexec.VarFileOption); ok && f.secretsTemp != "" {
-			paths, err := filepath.Glob(filepath.Join(f.secretsTemp, secretValuesPattern+"*", secretValuesFile))
+			paths, err := filepath.Glob(filepath.Join(f.secretsTemp, "infraharvest-secrets-*", "secrets.tfvars.json"))
 			if err != nil {
 				return false, err
 			}
@@ -816,9 +818,13 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
 	if want := "init,plan,schema,plan,show,validate,plan,show,plan,show,fmt,validate,plan,show"; strings.Join(tf.calls, ",") != want {
 		t.Errorf("calls: got %v, want %s", tf.calls, want)
 	}
-	wantSecrets := []Secret{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", schemaPath: []string{"value"}, ty: cty.String}}
-	if !reflect.DeepEqual(result.Secrets, wantSecrets) {
-		t.Errorf("secrets: got %+v, want %+v", result.Secrets, wantSecrets)
+	wantSecrets := []secret.Variable{{Variable: "aws_ssm_parameter_app_env_value", Address: "aws_ssm_parameter.app_env", Attribute: "value", Type: cty.String}}
+	var gotSecrets []secret.Variable
+	for _, s := range result.Secrets {
+		gotSecrets = append(gotSecrets, secret.Variable{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute, Type: s.Type})
+	}
+	if !reflect.DeepEqual(gotSecrets, wantSecrets) {
+		t.Errorf("secrets: got %+v, want %+v", gotSecrets, wantSecrets)
 	}
 	got := readFile(t, dir, GeneratedFileName)
 	if !strings.Contains(got, "value = var.aws_ssm_parameter_app_env_value # sensitive") {

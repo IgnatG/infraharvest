@@ -11,6 +11,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -23,7 +25,7 @@ import (
 // make. It initialises the copy without a backend, as Verify does.
 // Secret variables need values, from TF_VAR_ environment variables or a
 // .auto.tfvars file.
-func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts Options) (Gate, error) {
+func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts Options) (gate.Gate, error) {
 	dir, remove, err := verifyCopy(root)
 	if err != nil {
 		return nil, err
@@ -50,15 +52,15 @@ func VerifyMerged(ctx context.Context, newTF NewRunner, root, env string, opts O
 		expected = len(ids)
 	}
 	policy := fullGate(opts)
-	policy.plan = func() (Check, []string, error) {
-		p, _, diags, err := showPlanWithSummary(ctx, tf, vars)
+	policy.Plan = func() (gate.Check, []string, error) {
+		p, _, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {
-			return Check{}, nil, err
+			return gate.Check{}, nil, err
 		}
-		check := planCheck(p, diags, nil, opts.StateOnly, expected)
+		check := gate.PlanCheck(p, diags, nil, opts.StateOnly, expected)
 		check.Details = append([]string{"environment " + env}, check.Details...)
-		return check, sensitiveValues(p), nil
+		return check, secret.InPlan(p), nil
 	}
-	gate, _, err := policy.run(ctx, tf, dir)
-	return gate, err
+	checks, _, err := policy.Run(ctx, tf, dir)
+	return checks, err
 }

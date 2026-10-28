@@ -14,6 +14,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -169,7 +170,7 @@ func (s *driftSession) placeholders() ([]string, error) {
 func (s *driftSession) refresh(ctx context.Context) (*tfjson.Plan, error) {
 	p, err := savedPlan(ctx, s.tf, s.refreshPlan(), s.planOptions(tfexec.RefreshOnly(true))...)
 	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh-only: %w", redactError(err, s.forms))
+		return nil, fmt.Errorf("terraform plan -refresh-only: %w", secret.RedactError(err, s.forms))
 	}
 	s.forms = driftSecretForms(s.state, p)
 	return p, nil
@@ -182,11 +183,11 @@ func (s *driftSession) refresh(ctx context.Context) (*tfjson.Plan, error) {
 func (s *driftSession) refreshed(ctx context.Context) (*tfjson.Plan, error) {
 	// A saved plan applies without refreshing again.
 	if err := s.tf.Apply(ctx, tfexec.DirOrPlan(s.refreshPlan()), tfexec.Lock(false)); err != nil {
-		return nil, fmt.Errorf("terraform apply of the refresh-only plan to the staged state: %w", redactError(err, s.forms))
+		return nil, fmt.Errorf("terraform apply of the refresh-only plan to the staged state: %w", secret.RedactError(err, s.forms))
 	}
 	p, err := savedPlan(ctx, s.tf, filepath.Join(s.staging, "code.tfplan"), s.planOptions(tfexec.Refresh(false))...)
 	if err != nil {
-		return nil, fmt.Errorf("terraform plan -refresh=false: %w", redactError(err, s.forms))
+		return nil, fmt.Errorf("terraform plan -refresh=false: %w", secret.RedactError(err, s.forms))
 	}
 	return p, nil
 }

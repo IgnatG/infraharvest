@@ -17,6 +17,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -132,7 +133,7 @@ func (f *fakeEngine) tools() *callTools {
 					return nil, err
 				}
 				result.Files = []string{"fake_thing.tf"}
-				result.Gate = engine.Gate{{Name: engine.CheckSecrets, Details: []string{"fake_thing.tf: fake_thing.leak holds a secret value"}}}
+				result.Gate = gate.Gate{{Name: gate.CheckSecrets, Details: []string{"fake_thing.tf: fake_thing.leak holds a secret value"}}}
 			}
 			for _, imp := range imports {
 				label := imp.Name
@@ -217,14 +218,14 @@ func (f *fakeEngine) tools() *callTools {
 			f.notInCloud[filepath.Base(dir)] = gone
 			return nil
 		},
-		mergedMoves: func(dir string, moved []engine.Move, _ []engine.Removal) (engine.Check, error) {
+		mergedMoves: func(dir string, moved []engine.Move, _ []engine.Removal) (gate.Check, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.mergedMoves == nil {
 				f.mergedMoves = map[string][]engine.Move{}
 			}
 			f.mergedMoves[filepath.Base(dir)] = moved
-			return engine.Check{Name: engine.CheckMoves, Passed: true}, os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644)
+			return gate.Check{Name: gate.CheckMoves, Passed: true}, os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644)
 		},
 	}
 }
@@ -576,7 +577,7 @@ func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(out, "fake", "beta", engine.GeneratedFileName)); err != nil {
 		t.Errorf("beta: %v", err)
 	}
-	if failures := errors.Join(run.failures...); len(run.failures) != 2 || !strings.Contains(failures.Error(), "plan failed") || !strings.Contains(failures.Error(), engine.CheckSecrets+" failed") {
+	if failures := errors.Join(run.failures...); len(run.failures) != 2 || !strings.Contains(failures.Error(), "plan failed") || !strings.Contains(failures.Error(), gate.CheckSecrets+" failed") {
 		t.Errorf("failures %v", run.failures)
 	}
 }

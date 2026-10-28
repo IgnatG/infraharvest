@@ -311,7 +311,7 @@ func buildModule(g *moduleGroup, schemas *tfjson.ProviderSchemas) (bool, error) 
 	g.main = hclwrite.Format(f.Bytes())
 	for i, m := range first.members {
 		for _, attr := range moduleOutputs {
-			if schemaAttribute(schemas, AddressType(m.Address), []string{attr}) != nil {
+			if tfrun.SchemaAttribute(schemas, AddressType(m.Address), []string{attr}) != nil {
 				g.outputs = append(g.outputs, outputName(first.slots[i], attr))
 			}
 		}
@@ -471,7 +471,7 @@ func references(tokens hclwrite.Tokens, internal map[string]bool) (inside, outsi
 }
 
 func attributeTypeOrAny(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
-	if ty := attributeType(schemas, resourceType, path); ty != cty.NilType {
+	if ty := tfrun.AttributeType(schemas, resourceType, path); ty != cty.NilType {
 		return ty
 	}
 	return cty.DynamicPseudoType
@@ -786,7 +786,7 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 	if err := tfrun.Init(ctx, tf); err != nil {
 		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
 	}
-	p, summary, diags, err := showPlanWithSummary(ctx, tf, vars)
+	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil {
 		return false, errors.Join(err, undo())
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -163,7 +164,7 @@ type shared struct {
 
 	// scanners are the slots the scanners of the command's roots run in,
 	// which they share (see engine.Options.ScannerSlots).
-	scanners engine.ScannerSlots
+	scanners gate.ScannerSlots
 }
 
 // rateLimiter returns the command's limiter, of perSecond requests a

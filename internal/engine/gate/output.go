@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"io/fs"
@@ -18,7 +18,7 @@ import (
 
 // walkOutput calls visit with each file Generate wrote into dir, by path
 // relative to dir, skipping Terraform's working files, and the local state
-// of a root applied without a backend (see LocalStateFile), which no
+// of a root applied without a backend (see tfrun.LocalStateFile), which no
 // check reads: it holds the secret values the configuration mustn't.
 func walkOutput(dir string, visit func(rel, content string)) error {
 	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -26,12 +26,12 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == ".terraform" || d.Name() == workspaceStateDir {
+			if d.Name() == ".terraform" || d.Name() == tfrun.WorkspaceStateDir {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if d.Name() == tfrun.LockFileName || LocalStateFile(d.Name()) {
+		if d.Name() == tfrun.LockFileName || tfrun.LocalStateFile(d.Name()) {
 			return nil
 		}
 		content, err := os.ReadFile(path)
@@ -94,7 +94,7 @@ func calledModules(dir string) ([]string, error) {
 				continue
 			}
 			for _, b := range f.Syntax.Blocks {
-				m := localModuleDir(d, b)
+				m := LocalModuleDir(d, b)
 				if m == "" || seen[m] {
 					continue
 				}
@@ -122,9 +122,9 @@ func calledModules(dir string) ([]string, error) {
 	return dirs, nil
 }
 
-// localModuleDir returns the directory a module block in dir calls when
+// LocalModuleDir returns the directory a module block in dir calls when
 // its source is a local path, such as "../../modules/vpc", or "".
-func localModuleDir(dir string, b *hclsyntax.Block) string {
+func LocalModuleDir(dir string, b *hclsyntax.Block) string {
 	if b.Type != "module" {
 		return ""
 	}
@@ -132,9 +132,18 @@ func localModuleDir(dir string, b *hclsyntax.Block) string {
 	if !ok {
 		return ""
 	}
-	source, ok := constantString(attr.Expr)
+	source, ok := hclfile.ConstantString(attr.Expr)
 	if !ok || (!strings.HasPrefix(source, "./") && !strings.HasPrefix(source, "../")) {
 		return ""
 	}
 	return filepath.Join(dir, filepath.FromSlash(source))
+}
+
+// rel names path relative to dir, with forward slashes; "." for dir.
+func rel(dir, path string) string {
+	r, err := filepath.Rel(dir, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(r)
 }

@@ -19,7 +19,7 @@ name: Adapters
 # opens no issue: the counts are for watching, not for acting on.
 #
 # The opa-capabilities job checks the OPA capabilities infraharvest gives
-# conftest (internal/engine/conftest_capabilities.json) against the OPA
+# conftest (internal/engine/gate/conftest_capabilities.json) against the OPA
 # release the newest conftest is built with
 # (internal/engine/cmd/opacapabilities). When they are behind, it bumps
 # them, says in the run's summary what the newer release adds, and the
@@ -250,7 +250,7 @@ jobs:
       - name: Commit it
         run: |
           cp -R "$RUNNER_TEMP/opa-capabilities/files/." .
-          opa=$(sed -n 's/^const opaVersion = "\([^"]*\)"$/\1/p' internal/engine/conftest_capabilities.go)
+          opa=$(sed -n 's/^const opaVersion = "\([^"]*\)"$/\1/p' internal/engine/gate/conftest_capabilities.go)
           title="chore(engine): bump the OPA capabilities to OPA $opa"
           echo "TITLE=$title" >> "$GITHUB_ENV"
           {
@@ -258,7 +258,7 @@ jobs:
             echo
             cat "$RUNNER_TEMP/opa-capabilities/report.md"
             echo
-            echo "Before merging, read the new built-in functions: one that reaches the network, reads files or the environment, or loads a schema goes into \`deniedBuiltins\` in \`internal/engine/conftest_capabilities.go\`, and into the list in docs/output.md."
+            echo "Before merging, read the new built-in functions: one that reaches the network, reads files or the environment, or loads a schema goes into \`deniedBuiltins\` in \`internal/engine/gate/conftest_capabilities.go\`, and into the list in docs/output.md."
             echo
             echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
           } > "$RUNNER_TEMP/body.md"

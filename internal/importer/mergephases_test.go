@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -288,8 +289,8 @@ func TestMergeStackRestoresTheMergedRootWhereMovesFail(t *testing.T) {
 	run, stack, members := remergeStack(t, out, f, "audit")
 	run.options.Regenerate = true
 	run.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
-	run.tools.mergedMoves = func(string, []engine.Move, []engine.Removal) (engine.Check, error) {
-		return engine.Check{}, errors.New("disk full")
+	run.tools.mergedMoves = func(string, []engine.Move, []engine.Removal) (gate.Check, error) {
+		return gate.Check{}, errors.New("disk full")
 	}
 	if err := run.mergeStack(t.Context(), stack, members); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("merging again: %v, want the moved blocks' error", err)
