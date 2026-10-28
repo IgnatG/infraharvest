@@ -360,11 +360,9 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 	}
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
-	writeRoot(t, dir, rootfile.VersionsFileName, "storage.tf")
-	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: "old-archive", Address: "aws_s3_bucket.old_archive"}}}
-	if err := writeCheckpoint(out, dir, checkpoint{Result: result}); err != nil {
-		t.Fatal(err)
-	}
+	m := newMemoryOutput(out)
+	m.root(dir).configured = true
+	m.root(dir).checkpoint = &checkpoint{Result: &engine.Result{Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: "old-archive", Address: "aws_s3_bucket.old_archive"}}}}
 
 	for name, tc := range map[string]struct {
 		options Options
@@ -375,7 +373,9 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 		"incremental": {Options{ManagedState: []string{path}, Out: out, Incremental: true}, true},
 		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Regenerate: true}, true},
 	} {
-		defaults, err := excludedManaged(t, NewRun(), tc.options, nil)
+		run := NewRun()
+		run.index = m.index()
+		defaults, err := excludedManaged(t, run, tc.options, nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -384,10 +384,10 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 		}
 	}
 
-	if err := os.WriteFile(checkpointPath(out, dir), []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := excludedManaged(t, NewRun(), Options{ManagedState: []string{path}, Out: out, Regenerate: true}, nil); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
+	m.root(dir).checkpoint, m.root(dir).unreadable = nil, errors.New("unexpected end of JSON input")
+	run := NewRun()
+	run.index = m.index()
+	if _, err := excludedManaged(t, run, Options{ManagedState: []string{path}, Out: out, Regenerate: true}, nil); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
 		t.Errorf("an unreadable checkpoint: %v", err)
 	}
 }
@@ -399,16 +399,16 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "123456789012", "eu-west-2")
-	writeRoot(t, dir, rootfile.VersionsFileName, "storage.tf")
+	writeRoot(t, dir)
 	// From an older release, with imports.tf deleted: the bucket's address
 	// is only inferred, as the call it was moved into.
 	older := &engine.Result{
 		Imported: []rootfile.Import{{Type: "aws_s3_bucket", Name: "old_archive", ID: "old-archive"}},
 		Modules:  []engine.ModuleCall{{Name: "archive", Resources: []string{"aws_s3_bucket.old_archive"}}},
 	}
-	if err := writeCheckpoint(out, dir, checkpoint{Result: older}); err != nil {
-		t.Fatal(err)
-	}
+	m := newMemoryOutput(out)
+	m.root(dir).configured = true
+	m.root(dir).checkpoint = &checkpoint{Result: older}
 	own := `{"version": 4, "resources": [
 	  {"mode": "managed", "module": "module.archive", "type": "aws_s3_bucket", "name": "this", "instances": [{"index_key": 0, "attributes": {"id": "old-archive"}}]},
 	  {"mode": "managed", "type": "aws_vpc", "name": "main", "instances": [{"attributes": {"id": "vpc-0abc1234"}}]}
@@ -421,6 +421,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := NewRun()
+	run.index = m.index()
 
 	defaults, err := excludedManaged(t, run, Options{ManagedState: []string{out, other}, Out: out, Regenerate: true}, nil)
 	if err != nil {
@@ -429,7 +430,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	if want := map[string]string{"aws_vpc vpc-default": report.TerraformPrefix + " (" + other + ")"}; !reflect.DeepEqual(defaults, want) {
 		t.Errorf("defaults: %v, want %v", defaults, want)
 	}
-	got, err := run.shared.previousAddressesOf(out, dir)
+	got, err := run.shared.previousAddressesOf(run.index, dir)
 	want := []engine.Managed{
 		{Type: "aws_s3_bucket", ID: "old-archive", Address: "module.archive.aws_s3_bucket.this[0]"},
 		{Type: "aws_vpc", ID: "vpc-0abc1234", Address: "aws_vpc.main"},
@@ -438,7 +439,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 		t.Errorf("previous addresses: %+v, %v, want %+v", got, err, want)
 	}
 	// Without the state, the address stays inferred.
-	if got, _ := NewRun().shared.previousAddressesOf(out, dir); len(got) != 1 || !got[0].Unverified {
+	if got, _ := NewRun().shared.previousAddressesOf(m.index(), dir); len(got) != 1 || !got[0].Unverified {
 		t.Errorf("without the state: %+v", got)
 	}
 }

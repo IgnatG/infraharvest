@@ -61,7 +61,7 @@ func TestMergeRefusal(t *testing.T) {
 	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, true); reason != "" {
 		t.Errorf("a merged root told from its files: %q", reason)
 	}
-	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: "x"}); err != nil {
+	if err := mergeCheckpoints.write(out, stack, mergeCheckpoint{Fingerprint: "x"}); err != nil {
 		t.Fatal(err)
 	}
 	if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, false); reason != "" {
@@ -69,11 +69,11 @@ func TestMergeRefusal(t *testing.T) {
 	}
 	// A checkpoint that can't be read isn't taken for none, even for a
 	// merged root told from its files.
-	if err := os.WriteFile(mergeCheckpointPath(out, stack), []byte("{not json"), 0o644); err != nil {
+	if err := os.WriteFile(mergeCheckpoints.path(out, stack), []byte("{not json"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, adopted := range []bool{false, true} {
-		if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, adopted); !strings.Contains(reason, "merge checkpoint can't be read") || !strings.Contains(reason, mergeCheckpointPath(out, stack)) {
+		if reason := mergeRefusal(out, stack, []mergeMember{dev, prod}, adopted); !strings.Contains(reason, "merge checkpoint can't be read") || !strings.Contains(reason, mergeCheckpoints.path(out, stack)) {
 			t.Errorf("a corrupt checkpoint, adopted %v: %q", adopted, reason)
 		}
 	}
@@ -166,7 +166,7 @@ func TestMarkMerging(t *testing.T) {
 	}
 
 	// Merged before with dev: prod alone merges again with it.
-	if err := writeMergeCheckpoint(out, stack, mergeCheckpoint{Fingerprint: "x", Merge: report.Merge{Merged: true, Environments: []string{"dev", "prod"}}}); err != nil {
+	if err := mergeCheckpoints.write(out, stack, mergeCheckpoint{Fingerprint: "x", Merge: report.Merge{Merged: true, Environments: []string{"dev", "prod"}}}); err != nil {
 		t.Fatal(err)
 	}
 	again := calls("prod")

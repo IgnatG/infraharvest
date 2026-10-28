@@ -75,7 +75,7 @@ func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Op
 // claim is a root claimRoot got ready for generating.
 type claim struct {
 	// previous are where the earlier import that generated the root put
-	// its resources (see previousAddresses); none for a new root.
+	// its resources (see indexedRoot.previous); none for a new root.
 	previous []engine.Managed
 	// labels are the labels that import gave them, by type and import
 	// ID, and moved the moved blocks its moves.tf had (see
@@ -111,14 +111,15 @@ func (c *claim) previousRoot() *engine.Previous {
 // decision to generate it afresh or again, says (see
 // rootDecision.generated). A fresh root gets a checkpoint. Generating a
 // root an earlier import generated again, from what d found of it on
-// disk, first records where its resources were (see previousAddresses,
+// disk, first records where its resources were (see indexedRoot.previous,
 // and shared.previousAddressesOf for what s has of its own state) in its
 // checkpoint, then removes what the import generated (see
 // clearGenerated). The checkpoint then has no result: it records that
 // the root's generation started, so that a later run knows the files are
 // infraharvest's even if this one fails, and that the root isn't
 // complete (see unfinishedRoot).
-func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
+func claimRoot(x *outputIndex, dir, fp string, d rootDecision, s *shared) (*claim, error) {
+	out := x.out
 	claimed := &claim{}
 	if s != nil {
 		claimed.modules = &s.modules
@@ -134,7 +135,7 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 	c := onDisk.c
 	var err error
 	if onDisk.readable {
-		if claimed.previous, err = s.previousAddressesOf(out, dir); err != nil {
+		if claimed.previous, err = s.previousAddressesOf(x, dir); err != nil {
 			return nil, err
 		}
 		// A run that stopped while generating the root again removed
@@ -154,7 +155,7 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 		}
 	}
 	if len(claimed.previous) > 0 {
-		if claimed.backup, err = backupRoot(dir, checkpointPath(out, dir), onDisk.content); err != nil {
+		if claimed.backup, err = backupRoot(dir, rootCheckpoints.path(out, dir), onDisk.content); err != nil {
 			return nil, err
 		}
 	}
@@ -164,7 +165,7 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 	if c.Result != nil {
 		started.PendingFiles = c.Result.Files
 	}
-	if err := writeCheckpoint(out, dir, started); err != nil {
+	if err := rootCheckpoints.write(out, dir, started); err != nil {
 		return nil, err
 	}
 	if err := clearGenerated(out, dir); err != nil {
@@ -218,34 +219,6 @@ func tfFiles(dir string) ([]string, error) {
 	return names, nil
 }
 
-// previousAddresses returns where the earlier import that generated dir,
-// a root of out, put its resources, by type and import ID: what the
-// checkpoint of a run that stopped while generating the root again kept
-// (see checkpoint.Pending); else the addresses the checkpoint's result
-// records; else, for a result from an older release, where the root's
-// import blocks import; else, once they are deleted, what the result
-// says it imported, unverified (see engine.InferredAddresses). A root
-// whose import didn't finish has none. It makes no cloud call.
-func previousAddresses(out, dir string) ([]engine.Managed, error) {
-	c, err := readCheckpoint(out, dir)
-	if err != nil || c == nil {
-		return nil, err
-	}
-	switch {
-	case len(c.Pending) > 0:
-		return c.Pending, nil
-	case c.Result == nil:
-		return nil, nil
-	case len(c.Result.Addresses) > 0:
-		return c.Result.Addresses, nil
-	}
-	imported, err := engine.ImportedAddresses(dir)
-	if err != nil || len(imported) > 0 {
-		return imported, err
-	}
-	return engine.InferredAddresses(c.Result), nil
-}
-
 // recordStated records m, where the root in dir has a resource as its own
 // state says (see excludeManaged).
 func (s *shared) recordStated(dir string, m engine.Managed) {
@@ -263,14 +236,15 @@ func (s *shared) recordStated(dir string, m engine.Managed) {
 	s.stated[dir] = append(s.stated[dir], m)
 }
 
-// previousAddressesOf returns previousAddresses for the root in dir, with
+// previousAddressesOf returns what x has of where the earlier import put the
+// resources of the root in dir (see indexedRoot.previous), with
 // where its own state has its resources, if --managed-state read it (see
 // excludeManaged), in place of the addresses only inferred, and with the
 // resources the state has that the root's checkpoint doesn't say: the
 // state's addresses are the ones a plan on it starts from. A nil s reads
 // no state.
-func (s *shared) previousAddressesOf(out, dir string) ([]engine.Managed, error) {
-	previous, err := previousAddresses(out, dir)
+func (s *shared) previousAddressesOf(x *outputIndex, dir string) ([]engine.Managed, error) {
+	previous, err := x.root(dir).previous()
 	if err != nil || s == nil {
 		return previous, err
 	}

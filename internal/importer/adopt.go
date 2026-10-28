@@ -39,55 +39,20 @@ type mergedState struct {
 	stack, env string
 }
 
-// mergedRootDirs returns the directories under out that hold a root
-// environments share (see hclfile.MergedEnvironments), sorted: outside
-// the checkpoints, Terraform's working directories and local workspaces.
-func mergedRootDirs(out string) ([]string, error) {
-	var dirs []string
-	err := filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if !d.IsDir() {
-			return nil
-		}
-		switch d.Name() {
-		case CheckpointDir, ".terraform", "terraform.tfstate.d", ".git", "vars":
-			if path != out {
-				return filepath.SkipDir
-			}
-		}
-		envs, err := hclfile.MergedEnvironments(path)
-		if err != nil || len(envs) == 0 {
-			return err
-		}
-		if names, err := tfFiles(path); err != nil || len(names) == 0 {
-			return err
-		}
-		dirs = append(dirs, path)
-		return nil
-	})
-	sort.Strings(dirs)
-	return dirs, err
-}
-
 // mergedOwnStates returns, by state location (see stateLocation), the
-// environment of a root environments share under out whose own state
+// environment of a root environments share in x's output whose own state
 // each is (see envmerge.MergedStateLocations): what such a state has is
 // the merged root's, not another state's. With unrecorded, only the
 // roots no merge checkpoint records count (see adoptedCheckpoint).
-func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error) {
-	dirs, err := mergedRootDirs(out)
+func mergedOwnStates(x *outputIndex, unrecorded bool) (map[string]mergedState, error) {
+	stacks, err := x.mergedRoots()
 	if err != nil {
 		return nil, err
 	}
 	own := map[string]mergedState{}
-	for _, dir := range dirs {
+	for _, stack := range stacks {
 		if unrecorded {
-			c, err := readMergeCheckpoint(out, dir)
+			c, err := stack.mergeCheckpoint()
 			if err != nil {
 				return nil, err
 			}
@@ -95,17 +60,17 @@ func mergedOwnStates(out string, unrecorded bool) (map[string]mergedState, error
 				continue
 			}
 		}
-		envs, err := hclfile.MergedEnvironments(dir)
+		envs, err := stack.environments()
 		if err != nil {
 			return nil, err
 		}
 		for _, env := range envs {
-			locations, err := envmerge.MergedStateLocations(dir, env)
+			locations, err := stack.stateLocations(env)
 			if err != nil {
 				return nil, err
 			}
 			for _, location := range locations {
-				own[stateLocation(location)] = mergedState{stack: dir, env: env}
+				own[stateLocation(location)] = mergedState{stack: stack.dir, env: env}
 			}
 		}
 	}

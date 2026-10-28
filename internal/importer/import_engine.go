@@ -43,11 +43,12 @@ func importWithEngine(ctx context.Context, run *Run, provider harvest.Provider, 
 // importInto imports into run. It returns an error only if the import
 // couldn't run; what couldn't be imported goes into run.
 func importInto(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
+	run.openOutput(options.Out)
 	c, err := listCall(ctx, run, provider, options, args)
 	if err != nil || c == nil {
 		return err
 	}
-	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
+	if err := planHandovers(run.outputIndex(options.Out), []*listedCall{c}); err != nil {
 		return err
 	}
 	if err := markMerging(options, []*listedCall{c}); err != nil {
@@ -207,7 +208,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	if err != nil {
 		return nil, nil, err
 	}
-	claimed, err := claimRoot(options.Out, dir, fp, d, run.shared)
+	claimed, err := claimRoot(run.outputIndex(options.Out), dir, fp, d, run.shared)
 	if err != nil {
 		return nil, err, nil
 	}

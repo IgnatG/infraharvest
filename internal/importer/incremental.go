@@ -147,73 +147,8 @@ func stagingDir(out, dir string) string {
 	return filepath.Join(base, hex.EncodeToString(sum[:])[:16])
 }
 
-// heldElsewhere returns, by type and import ID, the root, relative to
-// out, that imports each resource the checkpoints under out record for a
-// root other than those of byDir: a resource goes into one root only, so
-// an incremental import leaves it out rather than import it again, as
-// when the root an import puts a type in has changed since the root that
-// has it was generated. Only roots that still have configuration count,
-// applied ones too, with their import blocks deleted, and only what the
-// checkpoint records them importing (see previousAddresses): a resource
-// one left out may be generated in another. A checkpoint that can't be
-// read is logged and passed over.
-func heldElsewhere(out string, byDir map[string][]rootfile.Import) (map[engine.External]string, error) {
-	dirs, err := checkpointDirs(out)
-	if err != nil {
-		return nil, err
-	}
-	own := map[string]bool{}
-	for dir := range byDir {
-		own[filepath.Clean(checkpointPath(out, dir))] = true
-	}
-	held := map[engine.External]string{}
-	for _, dir := range dirs {
-		if own[filepath.Clean(checkpointPath(out, dir))] {
-			continue
-		}
-		names, err := tfFiles(dir)
-		if err != nil {
-			return nil, err
-		}
-		if len(names) == 0 {
-			continue
-		}
-		c, err := readCheckpoint(out, dir)
-		if err != nil {
-			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(out, dir), err)
-			continue
-		}
-		if c == nil || c.Result == nil {
-			continue
-		}
-		addresses, err := previousAddresses(out, dir)
-		if err != nil {
-			return nil, err
-		}
-		root := relativePath(out, dir)
-		for _, m := range addresses {
-			key := engine.ResourceKey(m.Type, m.ID)
-			if _, ok := held[key]; !ok {
-				held[key] = root
-			}
-		}
-	}
-	// And what the roots environments share have, whose import IDs come
-	// from their var files.
-	merged, err := mergedHolds(out, byDir)
-	if err != nil {
-		return nil, err
-	}
-	for key, root := range merged {
-		if _, ok := held[key]; !ok {
-			held[key] = root
-		}
-	}
-	return held, nil
-}
-
 // leaveOutHeld removes from byDir the imports of what another root holds
-// (see heldElsewhere), recording each as excluded, with the root, and
+// (see outputIndex.heldElsewhere), recording each as excluded, with the root, and
 // drops the roots it leaves with nothing to import.
 func (r *Run) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) {
 	if len(held) == 0 {

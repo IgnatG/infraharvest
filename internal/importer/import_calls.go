@@ -117,6 +117,8 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 			return err
 		}
 	}
+	// What the scope reads of the output is what earlier imports left.
+	run.openOutput(options.Out)
 	runs := make([]*Run, len(calls))
 	for i := range runs {
 		runs[i] = run.child()
@@ -155,7 +157,7 @@ func importCalls(ctx context.Context, run *Run, calls []Call, steps callSteps) e
 	}
 	// Before any root is generated: what goes from one to another is
 	// worked out from where the roots had their resources before.
-	if err := planHandovers(options.Out, listed); err != nil {
+	if err := planHandovers(run.outputIndex(options.Out), listed); err != nil {
 		return err
 	}
 	if err := markMerging(options, listed); err != nil {

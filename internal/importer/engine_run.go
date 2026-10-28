@@ -69,7 +69,11 @@ type Run struct {
 	// to tell what the roots have that is no longer in the cloud (see
 	// listedHere); nil when it can't tell.
 	here *listedHere
-	used bool
+	// index is what earlier imports left in the output directory, as the
+	// scope the run imports first read it (see outputIndex), made when the
+	// scope starts (see Run.openOutput) or, without, on first use.
+	index *outputIndex
+	used  bool
 }
 
 // discoverState is what discover lists into the selection file it writes
@@ -349,7 +353,7 @@ func couldNotRun(err, writeErr error) error {
 func (r *Run) child() *Run {
 	c := NewRun()
 	c.selection, c.backend, c.lock, c.modules, c.shared, c.tools = r.selection, r.backend, r.lock, r.modules, r.shared, r.tools
-	c.environments = r.environments
+	c.environments, c.index = r.environments, r.index
 	return c
 }
 
@@ -428,4 +432,22 @@ func (r *Run) CheckMergeEnvironments(flags *pflag.FlagSet) error {
 		return nil
 	}
 	return config.CheckMergeEnvironments(r.environments, flag.Value.String() == "true", flag.Changed)
+}
+
+// openOutput starts a scope: the run's index of what earlier imports left
+// in out is made anew, to be read when first asked, so that what the
+// scope's own roots write isn't in it, and what the scopes before it left
+// is.
+func (r *Run) openOutput(out string) {
+	r.index = newDiskIndex(out)
+}
+
+// outputIndex returns the index of what earlier imports left in out that
+// the scope the run imports reads (see openOutput), made on first use if
+// none was opened.
+func (r *Run) outputIndex(out string) *outputIndex {
+	if r.index == nil || r.index.out != out {
+		r.openOutput(out)
+	}
+	return r.index
 }

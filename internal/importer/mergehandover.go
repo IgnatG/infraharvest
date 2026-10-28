@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -20,32 +19,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
-
-// mergedStacks returns the directories of the merged roots the merge
-// checkpoints under out record, sorted.
-func mergedStacks(out string) ([]string, error) {
-	base := filepath.Join(out, CheckpointDir, "merge")
-	var stacks []string
-	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		if d.IsDir() || filepath.Ext(path) != ".json" {
-			return nil
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		stacks = append(stacks, filepath.Join(out, strings.TrimSuffix(rel, ".json")))
-		return nil
-	})
-	sort.Strings(stacks)
-	return stacks, err
-}
 
 // mergedLeaving is a resource of a merged root that the run puts in
 // another root now: env is the environment it is of, and had says where
@@ -77,8 +50,9 @@ type mergedLeaving struct {
 // merge phase writes the merged root with removed blocks alone (see
 // vacateMergedRoots), as a root of its own whose every resource goes is
 // (see engine.Vacate).
-func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall, assigned map[engine.External]string, stays map[engine.External]string) error {
-	stacks, err := mergedStacks(out)
+func planMergedHandovers(x *outputIndex, h *handovers, callOf map[string]*listedCall, assigned map[engine.External]string, stays map[engine.External]string) error {
+	out := x.out
+	stacks, err := x.mergedStacks()
 	if err != nil {
 		return err
 	}
@@ -92,8 +66,9 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		scope = c.scope
 		break
 	}
-	for _, stack := range stacks {
-		c, err := readMergeCheckpoint(out, stack)
+	for _, merged := range stacks {
+		stack := merged.dir
+		c, err := merged.mergeCheckpoint()
 		if err != nil {
 			log.Printf("%s: %v; what that merged root has isn't handed over to other roots (--regenerate)", relativePath(out, stack), err)
 			continue
@@ -101,11 +76,11 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		if c == nil || !c.Merge.Merged {
 			continue
 		}
-		names, err := tfFiles(stack)
+		has, err := merged.configured()
 		if err != nil {
 			return err
 		}
-		if len(names) == 0 {
+		if !has {
 			continue
 		}
 		path := relativePath(out, stack)
@@ -123,7 +98,7 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		// environment's account, subscription or project, and its moves.tf
 		// moves nothing that a plan may not have applied yet.
 		vacatable := !mergesInto(callOf, stack) && importsEnvironments(s, scope, c.Members)
-		moved, err := rootfile.ReadMoves(stack)
+		moved, err := merged.movesTF()
 		if err != nil {
 			return err
 		}
@@ -165,10 +140,7 @@ func planMergedHandovers(out string, h *handovers, callOf map[string]*listedCall
 		if len(leaving) == 0 {
 			continue
 		}
-		removals, problems, err := mergedRemovals(out, stack, c.Imports, leaving)
-		if err != nil {
-			return err
-		}
+		removals, problems := mergedRemovals(out, moved, c.Imports, leaving)
 		if len(problems) > 0 {
 			var envs []string
 			for _, l := range leaving {
@@ -224,10 +196,11 @@ func mergesInto(callOf map[string]*listedCall, stack string) bool {
 	return false
 }
 
-// mergedRemovals returns the removed blocks the merged root in stack, under
-// out, gets for leaving, those of its resources that go to other roots
-// now, imports being the import IDs of each environment's resources in
-// it by address; or what keeps them from it. As the environments share
+// mergedRemovals returns the removed blocks a merged root, under out,
+// gets for leaving, those of its resources that go to other roots now,
+// imports being the import IDs of each environment's resources in it by
+// address, and moved the moved blocks of its moves.tf; or what keeps
+// them from it. As the environments share
 // its code, a removed block forgets what it takes in every environment's
 // state: it takes a whole resource, or module call, only where every
 // environment that has it hands it over. Else, where every environment
@@ -237,11 +210,7 @@ func mergesInto(callOf map[string]*listedCall, stack string) bool {
 // environment's state has nothing at that address for the moved block to
 // move. Never one in a module call, as moved blocks may not take it out
 // of a module package, nor one its moves.tf still moves.
-func mergedRemovals(out, stack string, imports map[string]map[string]string, leaving []mergedLeaving) ([]rootfile.Removal, []string, error) {
-	moved, err := rootfile.ReadMoves(stack)
-	if err != nil {
-		return nil, nil, err
-	}
+func mergedRemovals(out string, moved []rootfile.Move, imports map[string]map[string]string, leaving []mergedLeaving) ([]rootfile.Removal, []string) {
 	resources, instances := map[string]int{}, map[string]int{}
 	var addresses []string
 	for _, ids := range imports {
@@ -298,7 +267,7 @@ func mergedRemovals(out, stack string, imports map[string]map[string]string, lea
 			}
 		}
 	}
-	return removals, problems, nil
+	return removals, problems
 }
 
 // plannedRemoval is a removed block planned for a merged root (see
@@ -459,7 +428,7 @@ func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
 func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool) error {
 	out := r.options.Out
 	path := relativePath(out, stack)
-	c, err := readMergeCheckpoint(out, stack)
+	c, err := mergeCheckpoints.read(out, stack)
 	if err != nil {
 		return err
 	}
@@ -501,10 +470,12 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 		for _, l := range leaving {
 			all = append(all, l.mergedLeaving)
 		}
-		var problems []string
-		if removals, problems, err = mergedRemovals(out, stack, c.Imports, all); err != nil {
+		moved, err := rootfile.ReadMoves(stack)
+		if err != nil {
 			return err
 		}
+		var problems []string
+		removals, problems = mergedRemovals(out, moved, c.Imports, all)
 		why = strings.Join(problems, "; ")
 	}
 	if why == "" {
@@ -569,7 +540,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile
 		return "the removed blocks fail the moves check: " + strings.Join(check.Details, "; "), restore()
 	}
 	c.Files, c.Imports = left, nil
-	return "", writeMergeCheckpoint(r.options.Out, stack, *c)
+	return "", mergeCheckpoints.write(r.options.Out, stack, *c)
 }
 
 // importsEnvironments reports whether the command imports the account,

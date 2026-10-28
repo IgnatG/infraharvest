@@ -146,7 +146,7 @@ func TestDecideRoot(t *testing.T) {
 	empty := filepath.Join(out, "fake", "empty")
 	writeRootFiles(t, premergeDir(out, empty), map[string]string{rootfile.VersionsFileName: "terraform {}\n"})
 	fp := func(dir string) string {
-		c, err := readCheckpoint(out, dir)
+		c, err := rootCheckpoints.read(out, dir)
 		if err != nil || c == nil {
 			return "none"
 		}

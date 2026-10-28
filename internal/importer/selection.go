@@ -351,7 +351,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	var own map[string]string
 	if (options.Regenerate || options.Resume) && options.Out != "" {
 		var dirs []string
-		if held, dirs, err = generatedResources(options.Out); err != nil {
+		if held, dirs, err = run.outputIndex(options.Out).generatedResources(); err != nil {
 			return err
 		}
 		own = ownStates(options.Out, dirs, run.backend)
@@ -363,7 +363,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	// the kept ones otherwise, which have it.
 	var mergedOwn map[string]mergedState
 	if (options.Regenerate || options.Resume || options.Incremental) && options.Out != "" {
-		if mergedOwn, err = mergedOwnStates(options.Out, !options.Regenerate && !options.Resume); err != nil {
+		if mergedOwn, err = mergedOwnStates(run.outputIndex(options.Out), !options.Regenerate && !options.Resume); err != nil {
 			return err
 		}
 	}
@@ -393,43 +393,6 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 		}
 	}
 	return nil
-}
-
-// generatedResources returns the roots earlier imports generated in out
-// that still have configuration, and by type and import ID, the root that
-// has each of their resources (see previousAddresses), those of roots
-// still being generated again too. A root whose checkpoint can't be read
-// fails it: what that root has can't be told, and leaving any of it out
-// would make a plan on its state destroy it.
-func generatedResources(out string) (map[engine.External]string, []string, error) {
-	dirs, err := checkpointDirs(out)
-	if err != nil {
-		return nil, nil, err
-	}
-	held := map[engine.External]string{}
-	var roots []string
-	for _, dir := range dirs {
-		dir = filepath.Clean(dir)
-		names, err := tfFiles(dir)
-		if err != nil {
-			return nil, nil, err
-		}
-		if len(names) == 0 {
-			continue
-		}
-		previous, err := previousAddresses(out, dir)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w: with --managed-state, generating roots again needs to know what each has, so that none of it is left out", relativePath(out, dir), err)
-		}
-		roots = append(roots, dir)
-		for _, p := range previous {
-			key := engine.ResourceKey(p.Type, p.ID)
-			if _, ok := held[key]; !ok {
-				held[key] = dir
-			}
-		}
-	}
-	return held, roots, nil
 }
 
 // ownStates returns the root of dirs whose own state each state location

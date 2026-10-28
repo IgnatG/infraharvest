@@ -4,7 +4,6 @@
 package importer
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -205,14 +204,9 @@ func TestKeptRoots(t *testing.T) {
 	out := t.TempDir()
 	old := filepath.Join(out, "aws", "111111111111", "us-east-1")
 	split := filepath.Join(out, "envs", "dev", "aws", "333333333333", "us-east-1")
+	m := newMemoryOutput(out)
 	for _, dir := range []string{old, split, filepath.Join(out, "aws", "333333333333", "us-east-1")} {
-		path := checkpointPath(out, dir)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		m.root(dir).checkpoint = &checkpoint{}
 	}
 	account := func(r harvest.Resource) string { return r.RawName }
 	envOf := func(r harvest.Resource) string {
@@ -227,7 +221,7 @@ func TestKeptRoots(t *testing.T) {
 	unsplit := func(_ string, r harvest.Resource) string {
 		return filepath.Join(out, "aws", account(r), "us-east-1")
 	}
-	kept := newKeptRoots(out)
+	kept := newKeptRoots(m.index(), nil)
 	dirs := kept.dirs(dirOf, unsplit, envOf)
 	for _, tc := range []struct {
 		r    harvest.Resource
@@ -264,15 +258,14 @@ func TestKeptRootsSplit(t *testing.T) {
 	}
 	inferred := queue("q-5", "five")
 	inferred.Unverified = true
+	m := newMemoryOutput(out)
 	for account, had := range map[string][]engine.Managed{
 		"111111111111": {queue("q-1", "one"), queue("q-2", "two")},
 		"222222222222": {queue("q-3", "three"), queue("q-4", "four")},
 		"333333333333": {inferred},
 		"444444444444": nil,
 	} {
-		if err := writeCheckpoint(out, rootOf(account), checkpoint{Result: &engine.Result{Addresses: had}}); err != nil {
-			t.Fatal(err)
-		}
+		m.root(rootOf(account)).checkpoint = &checkpoint{Result: &engine.Result{Addresses: had}}
 	}
 	envOf := func(r harvest.Resource) string {
 		if r.Observed.ID == "q-2" {
@@ -312,7 +305,7 @@ func TestKeptRootsSplit(t *testing.T) {
 			"q-6": dirOf("", resources["sqs"][4]),
 		}, []string{"aws/111111111111/us-east-1", "aws/222222222222/us-east-1", "aws/333333333333/us-east-1"}},
 	} {
-		kept := newKeptRoots(out)
+		kept := newKeptRoots(m.index(), nil)
 		if err := kept.split(resources, dirOf, unsplit, importID, tc.regenerate); err != nil {
 			t.Fatal(err)
 		}
