@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -107,7 +108,8 @@ func encodedID(name string) (string, bool) {
 	return strings.TrimSuffix(string(decoded), "/"), true
 }
 
-// fromQuery maps id through query, which aztft answers. Once the import
+// fromQuery maps id through query, which aztft answers, leaving out the
+// types azurerm doesn't have (see missingTypes). Once the import
 // is interrupted, query fails with the context's error, and id maps to
 // nothing, without a line for each resource: the lister returns the
 // error.
@@ -118,6 +120,8 @@ func fromQuery(id string, query queryType) mapping {
 		return mapping{}
 	case err != nil:
 		return mapping{leftOut: ": " + err.Error()}
+	case len(types) == 1 && missingTypes[types[0].TFType]:
+		return mapping{leftOut: ": aztft maps it to " + types[0].TFType + ", which azurerm 5 doesn't have; left out", untyped: true}
 	case len(types) == 0:
 		return mapping{leftOut: ": no azurerm resource type; left out", untyped: true}
 	case !exact:
@@ -127,7 +131,31 @@ func fromQuery(id string, query queryType) mapping {
 		}
 		return mapping{leftOut: " could be " + strings.Join(names, " or ") + "; left out"}
 	}
+	for i := len(types) - 1; i >= 0; i-- {
+		if missingTypes[types[i].TFType] {
+			log.Printf("azurerm: resource_graph: %s: aztft maps part of it to %s, which azurerm 5 doesn't have; left out", id, types[i].TFType)
+			types, ids = slices.Delete(types, i, i+1), slices.Delete(ids, i, i+1)
+		}
+	}
 	return mapping{types: types, ids: ids}
+}
+
+// missingTypes are the azurerm types aztft can map a resource to that the
+// azurerm release line generated roots pin (5) doesn't have: an import
+// block for one fails the root's plan outright, taking its other
+// resources with it. A resource that maps to one alone is left out, as if
+// azurerm had no type for it, so that --azapi imports it through azapi
+// instead; a part of a resource that maps to one is left out, and the rest
+// imported. Remove a type once aztft stops mapping to it.
+var missingTypes = map[string]bool{
+	// A Palo Alto Networks firewall in a Virtual WAN hub that Panorama
+	// manages.
+	"azurerm_palo_alto_next_generation_firewall_vhub_panorama": true,
+	// Of single-server PostgreSQL, retired: backup policies and instances
+	// can outlive its servers.
+	"azurerm_data_protection_backup_instance_postgresql": true,
+	"azurerm_data_protection_backup_policy_postgresql":   true,
+	"azurerm_postgresql_active_directory_administrator":  true,
 }
 
 // The azurerm types of a Log Analytics workspace's tables, which the

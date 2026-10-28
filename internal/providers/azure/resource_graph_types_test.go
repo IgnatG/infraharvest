@@ -18,7 +18,9 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
+	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
@@ -252,5 +254,25 @@ func TestInParallelBoundsLookups(t *testing.T) {
 		if n != 1 {
 			t.Errorf("item %d done %d times", i, n)
 		}
+	}
+}
+
+// A part of a resource that aztft maps to a type azurerm doesn't have is
+// left out, and the rest of it imported.
+func TestFromQueryLeavesOutPartsAzurermLacks(t *testing.T) {
+	t.Parallel()
+	const id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.DBforPostgreSQL/servers/db"
+	rid, err := armid.ParseResourceId(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := fromQuery(id, func(string) ([]aztft.Type, []string, bool, error) {
+		return []aztft.Type{
+			{AzureId: rid, TFType: "azurerm_postgresql_active_directory_administrator"},
+			{AzureId: rid, TFType: "azurerm_resource_group"},
+		}, []string{id + "/admin", id}, true, nil
+	})
+	if m.leftOut != "" || len(m.types) != 1 || m.types[0].TFType != "azurerm_resource_group" || !slices.Equal(m.ids, []string{id}) {
+		t.Errorf("got %+v", m)
 	}
 }
