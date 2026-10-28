@@ -132,23 +132,9 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	if err := checkDriftCatalogue(options); err != nil {
 		return err
 	}
-	decider := driftpolicy.Decider{Rules: options.Rules}
-	if options.Decisions != "" {
-		f, err := driftpolicy.LoadDecisions(options.Decisions)
-		if err != nil {
-			return fmt.Errorf("--decisions: %w", err)
-		}
-		decider.Decisions = f
-	}
-	// What --write-decisions merges into is read first, so that a file it
-	// can't merge into fails the run before any root is refreshed.
-	var merge *driftpolicy.Decisions
-	if options.WriteDecisions {
-		m, err := decisionsToMerge(options, decider.Decisions)
-		if err != nil {
-			return err
-		}
-		merge = m
+	decider, merge, err := driftDecider(options)
+	if err != nil {
+		return err
 	}
 	targets, err := selectDriftTargets(options.Out, options)
 	if err != nil {
@@ -185,25 +171,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	}
 	own := driftAdapters(ctx, options.Modules)
 
-	results := make([]report.DriftRoot, len(targets))
-	changes := make([][]report.DriftChange, len(targets))
-	slots := make(chan struct{}, options.Parallel)
-	var wg sync.WaitGroup
-	for i, target := range targets {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case slots <- struct{}{}:
-			case <-ctx.Done():
-				results[i] = report.DriftRoot{Path: relativePath(run.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
-				return
-			}
-			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, target)
-		}()
-	}
-	wg.Wait()
+	results, changes := checkDriftRoots(ctx, run, decider, check, own, targets)
 	if confirmed != nil {
 		if err := confirmed.writeBack(); err != nil {
 			return err
@@ -213,15 +181,7 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 		return err
 	}
 
-	d := &report.Drift{Roots: results}
-	var failed []string
-	for i, r := range results {
-		d.Changes = append(d.Changes, changes[i]...)
-		if r.Error != "" {
-			failed = append(failed, r.Name()+": "+r.Error)
-		}
-	}
-	d.Finish()
+	d, failed := driftReport(results, changes)
 	if err := d.WriteFiles(options.Out); err != nil {
 		return err
 	}
@@ -239,6 +199,79 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 			return err
 		}
 	}
+	return driftExit(options, d, failed)
+}
+
+// driftDecider returns what decides which changes drift accepts: the
+// rules and the decisions file, and with --write-decisions, the decisions
+// it merges into. What --write-decisions merges into is read first, so
+// that a file it can't merge into fails the run before any root is
+// refreshed.
+func driftDecider(options DriftOptions) (driftpolicy.Decider, *driftpolicy.Decisions, error) {
+	decider := driftpolicy.Decider{Rules: options.Rules}
+	if options.Decisions != "" {
+		f, err := driftpolicy.LoadDecisions(options.Decisions)
+		if err != nil {
+			return decider, nil, fmt.Errorf("--decisions: %w", err)
+		}
+		decider.Decisions = f
+	}
+	if !options.WriteDecisions {
+		return decider, nil, nil
+	}
+	merge, err := decisionsToMerge(options, decider.Decisions)
+	if err != nil {
+		return decider, nil, err
+	}
+	return decider, merge, nil
+}
+
+// checkDriftRoots checks the targets, up to run.Parallel at a time,
+// and returns each one's result and changes, in the targets' order. A
+// target the context ends before it starts has the context's error.
+func checkDriftRoots(ctx context.Context, run DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, targets []driftTarget) ([]report.DriftRoot, [][]report.DriftChange) {
+	results := make([]report.DriftRoot, len(targets))
+	changes := make([][]report.DriftChange, len(targets))
+	slots := make(chan struct{}, run.Parallel)
+	var wg sync.WaitGroup
+	for i, target := range targets {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = report.DriftRoot{Path: relativePath(run.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
+				return
+			}
+			defer func() { <-slots }()
+			results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, target)
+		}()
+	}
+	wg.Wait()
+	return results, changes
+}
+
+// driftReport gathers the roots' results and changes into the report, and
+// returns it with the roots that couldn't be checked.
+func driftReport(results []report.DriftRoot, changes [][]report.DriftChange) (*report.Drift, []string) {
+	d := &report.Drift{Roots: results}
+	var failed []string
+	for i, r := range results {
+		d.Changes = append(d.Changes, changes[i]...)
+		if r.Error != "" {
+			failed = append(failed, r.Name()+": "+r.Error)
+		}
+	}
+	d.Finish()
+	return d, failed
+}
+
+// driftExit returns the error drift exits with: report.ExitCouldNotRun
+// when a root couldn't be checked, and with DetailedExitCode,
+// report.ExitDriftRejected for accepted changes the plan rejected, or
+// report.ExitDrift for drift left.
+func driftExit(options DriftOptions, d *report.Drift, failed []string) error {
 	if len(failed) > 0 {
 		return &ExitError{Code: report.ExitCouldNotRun, Err: fmt.Errorf("%d roots couldn't be checked:\n%s", len(failed), strings.Join(failed, "\n"))}
 	}
