@@ -498,7 +498,7 @@ func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[st
 				declined = append(declined, ModuleCall{Source: a.Source, Version: a.Version, Resources: t.members(), Declined: reason})
 				continue
 			}
-			name := callName(anchor.Address)
+			name := hclfile.CallName(anchor.Address)
 			if call.Name != "" {
 				name = call.Name
 			}
@@ -540,7 +540,7 @@ func indexReferences(resources []hclfile.Resource) clusterReferences {
 		idx.position[r.Address] = i
 		refers := map[string]bool{}
 		for _, tr := range hclfile.Traversals(r.Syntax.Body) {
-			target := resourceAddress(tr)
+			target := hclfile.ResourceAddress(tr)
 			if target == "" {
 				continue
 			}
@@ -621,7 +621,7 @@ func unfollowable(t *trial, refs clusterReferences, values map[string]map[string
 		traversals = append(traversals, expr.Variables()...)
 	}
 	for _, tr := range traversals {
-		target := resourceAddress(tr)
+		target := hclfile.ResourceAddress(tr)
 		if !slices.Contains(members, target) {
 			continue
 		}
@@ -1080,7 +1080,7 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 	if applied == nil || module.FirstMatchingBlock(tags.Block, nil) != nil {
 		return nil
 	}
-	copied, err := copyBlock(applied)
+	copied, err := hclfile.CopyBlock(applied)
 	if err != nil {
 		return fmt.Errorf("provider %s: %w", implied, err)
 	}

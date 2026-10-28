@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"fmt"
@@ -10,7 +10,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
@@ -74,15 +73,15 @@ func parseRefactorAddress(attr *hclsyntax.Attribute, src []byte) (refactorAddres
 	return refactorAddress{}, false
 }
 
-// checkMoves checks the moved and removed blocks of the root in dir: each
+// MovesCheck checks the moved and removed blocks of the root in dir: each
 // moved block moves a resource to one the root declares, or into a
 // module call it makes, or to one a removed block then forgets, and keeps
 // its type; no moved or removed block starts from what the root still
 // declares, and a removed block names no instance; and the moves together
 // move each resource once, with no cycle and no two onto one address (see
-// conflictingMoves).
-func checkMoves(dir string) (gate.Check, error) {
-	check := gate.Check{Name: gate.CheckMoves, Passed: true}
+// rootfile.ConflictingMoves).
+func MovesCheck(dir string) (Check, error) {
+	check := Check{Name: CheckMoves, Passed: true}
 	fail := func(format string, args ...any) {
 		check.Passed = false
 		check.Details = append(check.Details, fmt.Sprintf(format, args...))
@@ -195,7 +194,7 @@ func checkMoves(dir string) (gate.Check, error) {
 			moved = append(moved, rootfile.Move{From: from.text, To: to.text})
 		}
 	}
-	if problem := conflictingMoves(moved, nil); problem != "" {
+	if problem := rootfile.ConflictingMoves(moved, nil); problem != "" {
 		fail("%s", problem)
 	}
 	return check, nil

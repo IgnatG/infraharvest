@@ -478,7 +478,7 @@ func addAliasProvider(providers *hclfile.File, provider *hclwrite.Body, dt Defau
 		if !dt.Argument && b.Type() == dt.Block {
 			continue
 		}
-		copied, err := copyBlock(b)
+		copied, err := hclfile.CopyBlock(b)
 		if err != nil {
 			return fmt.Errorf("provider %s: %w", dt.Provider, err)
 		}

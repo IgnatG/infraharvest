@@ -399,7 +399,7 @@ func (w *rootWriter) copyVariables(files map[string][]byte) error {
 			if slices.Contains(declaring, nil) && found.Body().GetAttribute("default") == nil {
 				// Some environments don't set it, such as a secret of a
 				// resource of one environment: null, where they don't.
-				copied, err := copyBlock(found)
+				copied, err := hclfile.CopyBlock(found)
 				if err != nil {
 					return err
 				}
@@ -884,7 +884,7 @@ func (w *rootWriter) sameTemplate(normal []string) bool {
 }
 
 // terraformBlock writes the terraform block: required_version, from the
-// roots' and raised to what the merged files use (see featuresNeed), the
+// roots' and raised to what the merged files use (see rootfile.FeaturesNeed), the
 // provider's requirement, and the backend, its settings in each
 // environment's backend.hcl, where the roots have one.
 func (w *rootWriter) terraformBlock(files map[string][]byte) ([]byte, error) {
@@ -1062,7 +1062,7 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 		}
 		block := body.AppendNewBlock("variable", []string{v.name}).Body()
 		block.SetAttributeValue("description", cty.StringVal(describe(v)))
-		ty, err := optionalTypeTokens(v.ty)
+		ty, err := hclfile.OptionalTypeTokens(v.ty)
 		if err != nil {
 			return nil, fmt.Errorf("variable %s: %w", v.name, err)
 		}

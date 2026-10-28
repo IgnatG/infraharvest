@@ -369,28 +369,6 @@ func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T
 	}
 }
 
-func TestConflictingMoves(t *testing.T) {
-	t.Parallel()
-	for name, tt := range map[string]struct {
-		moved    []rootfile.Move
-		declared string
-		want     string
-	}{
-		"a chain":           {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.z"}}, "a.z", ""},
-		"one moved twice":   {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.x", To: "a.z"}}, "", "a.x moves both to a.y and to a.z"},
-		"two onto one":      {[]rootfile.Move{{From: "a.x", To: "a.z"}, {From: "a.y", To: "a.z"}}, "", "more than one resource moves to a.z"},
-		"from what is here": {[]rootfile.Move{{From: "a.x", To: "a.y"}}, "a.x", "a.x moves to a.y, but a resource is at a.x still"},
-		"a cycle":           {[]rootfile.Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.x"}}, "", "the moves from a.x come back to a.x"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			if got := conflictingMoves(tt.moved, map[string]bool{tt.declared: tt.declared != ""}); got != tt.want {
-				t.Errorf("got %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 // A root that already exists may hold a file that is a symlink, such as a
 // committed moves.tf or README.md link: writing it replaces the link with
 // the file, and never writes through it to its target.

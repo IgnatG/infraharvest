@@ -210,7 +210,7 @@ func (n *normaliser) label(label string) string {
 	s = strings.Trim(s, "_")
 	switch {
 	case s == "":
-		return mainLabel
+		return hclfile.MainLabel
 	case hclfile.StartsWithDigit(s):
 		return "r_" + s
 	}

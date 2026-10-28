@@ -163,21 +163,3 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 		t.Errorf("providers.tf changed:\n%s", got)
 	}
 }
-
-// dropBackend keeps a file formatted as it was: formatted where it was,
-// else as it is but for the block it removes.
-func TestDropBackend(t *testing.T) {
-	t.Parallel()
-	formatted := "terraform {\n  required_version = \">= 1.5\"\n\n  backend \"s3\" {}\n}\n"
-	if got := string(dropBackend([]byte(formatted))); strings.Contains(got, "backend") || got != string(hclwrite.Format([]byte(got))) {
-		t.Errorf("formatted: %q", got)
-	}
-	unformatted := "terraform {\n  required_version=\">= 1.5\"\n  backend \"s3\" {}\n}\n"
-	if got := string(dropBackend([]byte(unformatted))); strings.Contains(got, "backend") || !strings.Contains(got, "required_version=") {
-		t.Errorf("unformatted: %q", got)
-	}
-	none := "provider \"aws\" {}\n"
-	if got := string(dropBackend([]byte(none))); got != none {
-		t.Errorf("without a backend: %q", got)
-	}
-}

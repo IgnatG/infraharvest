@@ -23,6 +23,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -631,3 +633,53 @@ const (
 	// local modules, next to the roots.
 	ModulesDirName = "modules"
 )
+
+// ResourceAddress returns the resource a traversal refers to, or "".
+func ResourceAddress(t hcl.Traversal) string {
+	switch t.RootName() {
+	case "var", "local", "module", "data", "path", "count", "each", "self", "terraform":
+		return ""
+	}
+	if len(t) < 2 {
+		return ""
+	}
+	step, ok := t[1].(hcl.TraverseAttr)
+	if !ok {
+		return ""
+	}
+	return t.RootName() + "." + step.Name
+}
+
+// CopyBlock returns an unattached copy of block, without the comments
+// above it (Terraform's, naming the resource's import ID).
+func CopyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
+	src := block.BuildTokens(nil).Bytes()
+	for {
+		trimmed := bytes.TrimLeft(src, " \t\r\n")
+		if !bytes.HasPrefix(trimmed, []byte("#")) && !bytes.HasPrefix(trimmed, []byte("//")) {
+			src = trimmed
+			break
+		}
+		_, rest, found := bytes.Cut(trimmed, []byte("\n"))
+		if !found {
+			src = nil
+			break
+		}
+		src = rest
+	}
+	parsed, diags := ParseDiagnostics("", src)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("copy a block: %w", diags)
+	}
+	f := parsed.Edit()
+	if len(f.Body().Blocks()) != 1 {
+		return nil, errors.New("copy a block: not one block")
+	}
+	copied := f.Body().Blocks()[0]
+	f.Body().RemoveBlock(copied)
+	return copied, nil
+}
+
+// EvalContext evaluates the constants of generated configuration, in
+// which Terraform writes JSON strings as jsonencode(...).
+var EvalContext = &hcl.EvalContext{Functions: map[string]function.Function{"jsonencode": stdlib.JSONEncodeFunc}}

@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package hclfile
 
 import (
 	"slices"
@@ -15,11 +15,11 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-// optionalTypeTokens is the type of a generated module's variable, with
+// OptionalTypeTokens is the type of a generated module's variable, with
 // every attribute of its objects optional, such as a route table's routes:
 // a call then sets only the attributes it has values for (see
-// hclfile.WithoutNullAttributes), instead of a dozen nulls per object.
-func optionalTypeTokens(ty cty.Type) (hclwrite.Tokens, error) {
+// WithoutNullAttributes), instead of a dozen nulls per object.
+func OptionalTypeTokens(ty cty.Type) (hclwrite.Tokens, error) {
 	f, diags := hclwrite.ParseConfig([]byte("type = "+optionalTypeString(ty)+"\n"), "type", hcl.InitialPos)
 	if diags.HasErrors() {
 		return nil, diags
@@ -63,16 +63,16 @@ func optionalTypeString(ty cty.Type) string {
 	return typeexpr.TypeString(ty)
 }
 
-// hasObjects reports whether ty is or holds an object type, whose
-// attributes optionalTypeTokens makes optional.
-func hasObjects(ty cty.Type) bool {
+// HasObjects reports whether ty is or holds an object type, whose
+// attributes OptionalTypeTokens makes optional.
+func HasObjects(ty cty.Type) bool {
 	switch {
 	case ty.IsObjectType():
 		return true
 	case ty.IsListType(), ty.IsSetType(), ty.IsMapType():
-		return hasObjects(ty.ElementType())
+		return HasObjects(ty.ElementType())
 	case ty.IsTupleType():
-		return slices.ContainsFunc(ty.TupleElementTypes(), hasObjects)
+		return slices.ContainsFunc(ty.TupleElementTypes(), HasObjects)
 	}
 	return false
 }

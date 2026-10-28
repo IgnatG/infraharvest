@@ -166,7 +166,7 @@ func rootLabel(address string) (string, bool) {
 // registry the root calls makes, as moved blocks stay within a module
 // package, and onto an address another resource had. It returns none if
 // the blocks together, with those that move what removed blocks take
-// alone first (see departureMoves), don't move each resource once: two
+// alone first (see rootfile.DepartureMoves), don't move each resource once: two
 // that move the same one, or to the same address, a chain that comes
 // back to where it started, or a move from an address a resource has
 // now.
@@ -206,7 +206,7 @@ func moves(previous *Previous, now []Managed, sources map[string]string) ([]root
 	}
 	retyped, why := retypes(previous, now, sources)
 	unmoved = append(unmoved, why...)
-	if problem := conflictingMoves(append(slices.Clone(moved), rootfile.DepartureMoves(previous.Removed, retyped)...), declared); problem != "" {
+	if problem := rootfile.ConflictingMoves(append(slices.Clone(moved), rootfile.DepartureMoves(previous.Removed, retyped)...), declared); problem != "" {
 		if len(previous.Moved) > 0 {
 			problem += fmt.Sprintf(": plan and apply the root, and delete %s, before generating it again", rootfile.MovesFileName)
 		}
@@ -433,36 +433,6 @@ func callSources(calls []ModuleCall) map[string]string {
 	return sources
 }
 
-// conflictingMoves returns what of moved, moved blocks of a root that
-// declares the addresses of declared, Terraform would reject; "" if
-// nothing.
-func conflictingMoves(moved []rootfile.Move, declared map[string]bool) string {
-	to := map[string]string{}
-	into := map[string]bool{}
-	for _, m := range moved {
-		switch {
-		case to[m.From] != "":
-			return fmt.Sprintf("%s moves both to %s and to %s", m.From, to[m.From], m.To)
-		case into[m.To]:
-			return fmt.Sprintf("more than one resource moves to %s", m.To)
-		case declared[m.From]:
-			return fmt.Sprintf("%s moves to %s, but a resource is at %s still", m.From, m.To, m.From)
-		}
-		to[m.From] = m.To
-		into[m.To] = true
-	}
-	for _, m := range moved {
-		seen := map[string]bool{m.From: true}
-		for next := m.To; next != ""; next = to[next] {
-			if seen[next] {
-				return fmt.Sprintf("the moves from %s come back to %s", m.From, next)
-			}
-			seen[next] = true
-		}
-	}
-	return ""
-}
-
 // movedFrom returns the name of the root (see Names) that b, a moved or
 // removed block, takes a resource from: type.label for a resource of the
 // root, or module.name for one in a module call.
@@ -491,7 +461,7 @@ func movedFrom(b *hclsyntax.Block) (string, bool) {
 // opts.Previous, and a README that says to apply the root before the
 // roots they go to. A plan of it then forgets them, and destroys
 // nothing. It runs no Terraform: the gate is the moves check (see
-// checkMoves). It fails if opts.Previous has no removed blocks, or still
+// gate.MovesCheck). It fails if opts.Previous has no removed blocks, or still
 // moves resources.
 func Vacate(dir string, opts Options) (*Result, error) {
 	if opts.Previous == nil || len(opts.Previous.Removed) == 0 {
@@ -515,7 +485,7 @@ func Vacate(dir string, opts Options) (*Result, error) {
 	if err := requireMinimumVersion(dir); err != nil {
 		return nil, err
 	}
-	check, err := checkMoves(dir)
+	check, err := gate.MovesCheck(dir)
 	if err != nil {
 		return nil, err
 	}

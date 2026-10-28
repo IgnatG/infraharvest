@@ -75,3 +75,19 @@ func IsNumber(word string) bool {
 func StartsWithDigit(s string) bool {
 	return s != "" && s[0] >= '0' && s[0] <= '9'
 }
+
+// MainLabel labels a resource whose type a root has no other of, as the
+// HashiCorp style guide suggests.
+const MainLabel = "main"
+
+// CallName is the name of a module call built around the resource at
+// address: the resource's label, or, for main, which says only that the
+// root has one resource of the type, the type without its provider, as in
+// module "vpc" for aws_vpc.main.
+func CallName(address string) string {
+	resourceType, label, _ := strings.Cut(address, ".")
+	if _, rest, ok := strings.Cut(resourceType, "_"); ok && label == MainLabel {
+		return rest
+	}
+	return label
+}

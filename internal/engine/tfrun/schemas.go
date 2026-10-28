@@ -135,3 +135,10 @@ func SchemaAttribute(schemas *tfjson.ProviderSchemas, resourceType string, path 
 	}
 	return nil
 }
+
+func AttributeTypeOrAny(schemas *tfjson.ProviderSchemas, resourceType string, path []string) cty.Type {
+	if ty := AttributeType(schemas, resourceType, path); ty != cty.NilType {
+		return ty
+	}
+	return cty.DynamicPseudoType
+}

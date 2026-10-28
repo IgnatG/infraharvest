@@ -39,7 +39,7 @@ var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 // apply it as each environment before the roots they go to. Each
 // environment's plan of it then forgets them, and destroys nothing. It
 // runs no Terraform: it returns the files it leaves, by path in dir with
-// forward slashes, sorted, and the moves check of them (see checkMoves).
+// forward slashes, sorted, and the moves check of them (see gate.MovesCheck).
 // It fails if removed is empty, or its moves.tf still moves resources.
 func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error) {
 	if len(removed) == 0 {
@@ -104,7 +104,7 @@ func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]str
 	if err := rootfile.RaiseRequiredVersion(dir); err != nil {
 		return nil, gate.Check{}, err
 	}
-	check, err := checkMoves(dir)
+	check, err := gate.MovesCheck(dir)
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
@@ -202,6 +202,6 @@ func vacatedMergedReadme(envs []string, backend bool, removed []rootfile.Removal
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", d.Address, d.Root)
 		}
 	}
-	b.WriteString(checksSection(gate.Gate{check}))
+	b.WriteString(gate.ChecksSection(gate.Gate{check}))
 	return []byte(b.String())
 }

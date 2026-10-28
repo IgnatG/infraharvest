@@ -223,3 +223,33 @@ func ReadRemoved(dir string) ([]Removal, error) {
 	}
 	return removed, nil
 }
+
+// ConflictingMoves returns what of moved, moved blocks of a root that
+// declares the addresses of declared, Terraform would reject; "" if
+// nothing.
+func ConflictingMoves(moved []Move, declared map[string]bool) string {
+	to := map[string]string{}
+	into := map[string]bool{}
+	for _, m := range moved {
+		switch {
+		case to[m.From] != "":
+			return fmt.Sprintf("%s moves both to %s and to %s", m.From, to[m.From], m.To)
+		case into[m.To]:
+			return fmt.Sprintf("more than one resource moves to %s", m.To)
+		case declared[m.From]:
+			return fmt.Sprintf("%s moves to %s, but a resource is at %s still", m.From, m.To, m.From)
+		}
+		to[m.From] = m.To
+		into[m.To] = true
+	}
+	for _, m := range moved {
+		seen := map[string]bool{m.From: true}
+		for next := m.To; next != ""; next = to[next] {
+			if seen[next] {
+				return fmt.Sprintf("the moves from %s come back to %s", m.From, next)
+			}
+			seen[next] = true
+		}
+	}
+	return ""
+}

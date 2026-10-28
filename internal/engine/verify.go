@@ -90,7 +90,7 @@ func fullGate(opts Options) gate.Policy {
 	own := ownModuleDirs(opts.Adapters)
 	return gate.Policy{
 		Standards: func(dir string) (gate.Check, error) { return checkStandards(dir, opts.Omit, own) },
-		Moves:     checkMoves,
+		Moves:     gate.MovesCheck,
 		Scanners:  opts.Scanners,
 		Slots:     opts.ScannerSlots,
 	}

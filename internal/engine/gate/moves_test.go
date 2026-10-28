@@ -1,15 +1,12 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"strings"
 	"testing"
 
-	tfjson "github.com/hashicorp/terraform-json"
-
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -84,11 +81,11 @@ removed {
   }
 }
 `)
-	check, err := checkMoves(dir)
+	check, err := MovesCheck(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !check.Passed || check.Name != gate.CheckMoves {
+	if !check.Passed || check.Name != CheckMoves {
 		t.Errorf("want the moves check passed, got %+v", check)
 	}
 }
@@ -97,7 +94,7 @@ func TestCheckMovesWithoutMoves(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
-	check, err := checkMoves(dir)
+	check, err := MovesCheck(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +213,7 @@ moved {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
 			writeConfig(t, dir, rootfile.MovesFileName, tc.moves)
-			check, err := checkMoves(dir)
+			check, err := MovesCheck(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -224,21 +221,5 @@ moved {
 				t.Errorf("want a failure with %q, got %+v", tc.want, check)
 			}
 		})
-	}
-}
-
-// With state, a resource a moved block moves plans as a no-op at its new
-// address, with where it was: the plan check counts it as no change, and
-// not as an import.
-func TestPlanCheckCountsAMoveAsNoChange(t *testing.T) {
-	t.Parallel()
-	moved := &tfjson.ResourceChange{
-		Address: "aws_subnet.b", PreviousAddress: "aws_subnet.a", Type: "aws_subnet", Mode: tfjson.ManagedResourceMode,
-		Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}},
-	}
-	imported := change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
-	check := gate.PlanCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved, imported}}, nil, nil, nil, 1)
-	if !check.Passed || len(check.Changes) != 0 {
-		t.Errorf("want a move and an import passed, got %+v", check)
 	}
 }

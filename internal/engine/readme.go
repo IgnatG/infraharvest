@@ -123,7 +123,7 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- %s.\n", w)
 		}
 	}
-	b.WriteString(checksSection(result.Gate))
+	b.WriteString(gate.ChecksSection(result.Gate))
 	return []byte(b.String())
 }
 
@@ -137,36 +137,8 @@ func handedOverReadme(result *Result) []byte {
 	b.WriteString("2. Run `terraform apply`, before applying the roots the resources go to (see Moves). It removes them from this root's state, and changes nothing in the cloud.\n")
 	fmt.Fprintf(&b, "3. Delete `%s`: the removed blocks have done their job, and the root manages nothing.\n", rootfile.MovesFileName)
 	b.WriteString(movesSection(result))
-	b.WriteString(checksSection(result.Gate))
+	b.WriteString(gate.ChecksSection(result.Gate))
 	return []byte(b.String())
-}
-
-// checksSection lists the verification gate's checks, with their details.
-func checksSection(checks gate.Gate) string {
-	var b strings.Builder
-	if len(checks) > 0 {
-		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
-		for _, c := range checks {
-			status := "passed"
-			switch {
-			case !c.Passed:
-				status = "**failed**"
-			case c.Skipped:
-				status = "skipped"
-			}
-			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
-		}
-		var details []string
-		for _, c := range checks {
-			for _, d := range c.Details {
-				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
-			}
-		}
-		if len(details) > 0 {
-			fmt.Fprintf(&b, "\n%s\n", strings.Join(details, "\n"))
-		}
-	}
-	return b.String()
 }
 
 // stateOnlyUpdates reports whether the plan check passed with resources

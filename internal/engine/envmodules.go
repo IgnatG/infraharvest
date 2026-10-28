@@ -14,6 +14,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // moduleType is what merging takes for the type of a module call, whose
@@ -52,7 +54,7 @@ func stackAddress(t hcl.Traversal) string {
 		}
 		return ""
 	}
-	return resourceAddress(t)
+	return hclfile.ResourceAddress(t)
 }
 
 // stackReferences returns the resources and module calls body refers to,

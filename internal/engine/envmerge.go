@@ -548,7 +548,7 @@ func (m *stackMerge) forEachBodies() {
 // deploy_<feature> variable, true where an environment has the feature,
 // counts every resource of it. A feature is named after the word most of
 // its resources' names start with, or, for one resource, after the
-// resource (see callName). Each residue resource is a feature of its own.
+// resource (see hclfile.CallName). Each residue resource is a feature of its own.
 func (m *stackMerge) features() {
 	var parts []*stackResource
 	for _, r := range m.resources {
@@ -588,7 +588,7 @@ func (m *stackMerge) features() {
 	}
 	for _, root := range order {
 		members := groups[root]
-		name := callName(members[0].resourceType + "." + members[0].label)
+		name := hclfile.CallName(members[0].resourceType + "." + members[0].label)
 		resourceType := members[0].resourceType
 		if len(members) > 1 {
 			name, resourceType = commonWord(members), ""
@@ -644,9 +644,9 @@ func refersTo(a, b *stackResource) bool {
 }
 
 // firstWord is the first word of r's name in the merged root (see
-// callName).
+// hclfile.CallName).
 func firstWord(r *stackResource) string {
-	word, _, _ := strings.Cut(callName(r.resourceType+"."+r.label), "_")
+	word, _, _ := strings.Cut(hclfile.CallName(r.resourceType+"."+r.label), "_")
 	return word
 }
 
@@ -812,7 +812,7 @@ func (m *stackMerge) render() {
 			default:
 				continue
 			}
-			a.local = uniqueEnvName(used, callName(r.resourceType+"."+r.label)+"_name", r.resourceType)
+			a.local = uniqueEnvName(used, hclfile.CallName(r.resourceType+"."+r.label)+"_name", r.resourceType)
 			m.locals = append(m.locals, namedLocal{a.local, value})
 			a.value = hclwrite.TokensForTraversal(hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: a.local}})
 			break
@@ -1040,7 +1040,7 @@ func (m *stackMerge) mergeBody(r *stackResource) (*mergedBody, string) {
 		}
 	}
 	b := &bodyMerger{m: m, r: r}
-	body := b.body(in, nil, callName(r.resourceType+"."+r.label))
+	body := b.body(in, nil, hclfile.CallName(r.resourceType+"."+r.label))
 	switch {
 	case b.reason != "":
 		return nil, b.reason
@@ -1151,7 +1151,7 @@ func (b *bodyMerger) attribute(in []envBody, path []string, prefix, name string)
 		name:         joinName(prefix, name),
 		resourceType: b.r.resourceType,
 		what:         at + " of " + b.r.resourceType + "." + b.r.label,
-		ty:           attributeTypeOrAny(b.m.schemas, b.r.resourceType, schemaPath),
+		ty:           tfrun.AttributeTypeOrAny(b.m.schemas, b.r.resourceType, schemaPath),
 		values:       map[int]hclwrite.Tokens{},
 		sensitive:    variables,
 	}
@@ -1316,7 +1316,7 @@ func (b *bodyMerger) dynamic(in []envBody, path []string, prefix, typ string) *m
 	b.differing += len(fields)
 	types := map[string]cty.Type{}
 	for _, f := range fields {
-		types[f] = attributeTypeOrAny(b.m.schemas, b.r.resourceType, append(slices.Clone(schemaPath), f))
+		types[f] = tfrun.AttributeTypeOrAny(b.m.schemas, b.r.resourceType, append(slices.Clone(schemaPath), f))
 	}
 	ty := cty.Object(types)
 	single := most <= 1
@@ -1412,7 +1412,7 @@ func (m *stackMerge) keysBody(keys []*stackResource) (*mergedBody, []string, boo
 func (m *stackMerge) keysVariable(g *forEachGroup) *envVariable {
 	types := map[string]cty.Type{}
 	for _, f := range g.fields {
-		types[f] = attributeTypeOrAny(m.schemas, g.resourceType, []string{f})
+		types[f] = tfrun.AttributeTypeOrAny(m.schemas, g.resourceType, []string{f})
 	}
 	v := &envVariable{
 		name:         pluralName(g.resourceType),
@@ -1826,7 +1826,7 @@ func literalTokens(tokens hclwrite.Tokens) (hclwrite.Tokens, bool) {
 	if !calls {
 		return tokens, true
 	}
-	v, diags := expr.Value(omitEvalContext)
+	v, diags := expr.Value(hclfile.EvalContext)
 	if diags.HasErrors() || !v.IsWhollyKnown() {
 		return nil, false
 	}

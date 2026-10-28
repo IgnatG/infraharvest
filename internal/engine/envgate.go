@@ -193,7 +193,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 		// The gate plans without the backend, which its init leaves out, as
 		// a root's backend.tf is written only once its gate passes.
 		gated := maps.Clone(files)
-		gated[rootfile.ProvidersFileName] = dropBackend(files[rootfile.ProvidersFileName])
+		gated[rootfile.ProvidersFileName] = hclfile.DropBackend(files[rootfile.ProvidersFileName])
 		if err := g.write(gated); err != nil {
 			return nil, err
 		}
@@ -701,7 +701,7 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []secret.Variable) []secre
 // it (see Removal): each environment's next plan forgets it, as the
 // environments share the merged root's code, and its required_version is
 // raised to what removed blocks need. It returns the moves check of them
-// (see checkMoves); the README lists them only once it passes.
+// (see gate.MovesCheck); the README lists them only once it passes.
 func WriteMergedMoves(dir string, moved []rootfile.Move, removed []rootfile.Removal) (gate.Check, error) {
 	if err := rootfile.WriteMoves(dir, moved, removed, nil); err != nil {
 		return gate.Check{}, err
@@ -711,7 +711,7 @@ func WriteMergedMoves(dir string, moved []rootfile.Move, removed []rootfile.Remo
 			return gate.Check{}, err
 		}
 	}
-	check, err := checkMoves(dir)
+	check, err := gate.MovesCheck(dir)
 	if err != nil || !check.Passed {
 		return check, err
 	}

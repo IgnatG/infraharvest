@@ -52,3 +52,25 @@ moved {
 		t.Error("without moves: moves.tf is still there, want it removed")
 	}
 }
+
+func TestConflictingMoves(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		moved    []Move
+		declared string
+		want     string
+	}{
+		"a chain":           {[]Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.z"}}, "a.z", ""},
+		"one moved twice":   {[]Move{{From: "a.x", To: "a.y"}, {From: "a.x", To: "a.z"}}, "", "a.x moves both to a.y and to a.z"},
+		"two onto one":      {[]Move{{From: "a.x", To: "a.z"}, {From: "a.y", To: "a.z"}}, "", "more than one resource moves to a.z"},
+		"from what is here": {[]Move{{From: "a.x", To: "a.y"}}, "a.x", "a.x moves to a.y, but a resource is at a.x still"},
+		"a cycle":           {[]Move{{From: "a.x", To: "a.y"}, {From: "a.y", To: "a.x"}}, "", "the moves from a.x come back to a.x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := ConflictingMoves(tt.moved, map[string]bool{tt.declared: tt.declared != ""}); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

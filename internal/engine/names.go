@@ -120,7 +120,7 @@ func relabelled(imports []rootfile.Import, taken Names, tidy bool, previous *Pre
 // that the root had no other resource of the type. A label that doesn't
 // fit says the resource's name has changed, such as in the cloud.
 func keepsLabel(old, base string, tidy bool) bool {
-	if tidy && old == mainLabel {
+	if tidy && old == hclfile.MainLabel {
 		return true
 	}
 	fits := func(label string) bool {
@@ -132,10 +132,6 @@ func keepsLabel(old, base string, tidy bool) bool {
 	i := strings.LastIndexByte(old, '_')
 	return i > 0 && hclfile.IsNumber(old[i+1:]) && fits(old[:i])
 }
-
-// mainLabel labels a resource whose type a root has no other of, as the
-// HashiCorp style guide suggests.
-const mainLabel = "main"
 
 // tidyLabels rewrites in place the labels of imports, the resources
 // Generate adds to one root, the way a person names them:
@@ -160,7 +156,7 @@ func tidyLabels(imports []rootfile.Import, taken Names) {
 	}
 	for i, imp := range imports {
 		if perType[imp.Type] == 1 && !taken.hasType(imp.Type) {
-			imports[i].Name = mainLabel
+			imports[i].Name = hclfile.MainLabel
 		}
 	}
 }
@@ -240,18 +236,6 @@ func sharedPrefix(imports []rootfile.Import) string {
 		}
 	}
 	return best
-}
-
-// callName is the name of a module call built around the resource at
-// address: the resource's label, or, for main, which says only that the
-// root has one resource of the type, the type without its provider, as in
-// module "vpc" for aws_vpc.main.
-func callName(address string) string {
-	resourceType, label, _ := strings.Cut(address, ".")
-	if _, rest, ok := strings.Cut(resourceType, "_"); ok && label == mainLabel {
-		return rest
-	}
-	return label
 }
 
 func sortedKeys[V any](m map[string]V) []string {

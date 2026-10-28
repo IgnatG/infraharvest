@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package hclfile
 
 import (
 	"strings"
@@ -10,8 +10,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 func TestOptionalTypeString(t *testing.T) {
@@ -28,12 +26,12 @@ func TestOptionalTypeString(t *testing.T) {
 		if got := optionalTypeString(tc.ty); got != tc.want {
 			t.Errorf("optionalTypeString(%#v) = %s, want %s", tc.ty, got, tc.want)
 		}
-		if _, err := optionalTypeTokens(tc.ty); err != nil {
+		if _, err := OptionalTypeTokens(tc.ty); err != nil {
 			t.Errorf("%s: %v", tc.want, err)
 		}
 	}
-	if !hasObjects(route) || hasObjects(cty.Map(cty.String)) {
-		t.Error("hasObjects")
+	if !HasObjects(route) || HasObjects(cty.Map(cty.String)) {
+		t.Error("HasObjects")
 	}
 }
 
@@ -58,11 +56,11 @@ func TestWithoutNullAttributes(t *testing.T) {
 		{`{ k = { a = null } }`, cty.ObjectVal(map[string]cty.Value{"k": cty.EmptyObjectVal})},
 		{`["x"]`, cty.TupleVal([]cty.Value{cty.StringVal("x")})},
 	} {
-		tokens := hclfile.ParseExpr(tc.in)
+		tokens := ParseExpr(tc.in)
 		if tokens == nil {
 			t.Fatalf("%s doesn't parse", tc.in)
 		}
-		out := hclfile.WithoutNullAttributes(tokens).Bytes()
+		out := WithoutNullAttributes(tokens).Bytes()
 		if strings.Contains(string(out), "null") {
 			t.Errorf("%s: still has nulls: %s", tc.in, out)
 		}

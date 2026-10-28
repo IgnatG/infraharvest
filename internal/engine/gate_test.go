@@ -256,6 +256,21 @@ func TestGateBlamesEditedFiles(t *testing.T) {
   to   = aws_subnet.missing
 }
 `
+	// The root the moved blocks move to and from: aws_subnet.b, two
+	// instances of aws_subnet.c and a module call.
+	const config = `resource "aws_subnet" "b" {
+  cidr_block = "10.0.1.0/24"
+}
+
+resource "aws_subnet" "c" {
+  count      = 2
+  cidr_block = "10.0.2.0/24"
+}
+
+module "network" {
+  source = "./modules/network"
+}
+`
 	for _, tc := range []struct {
 		name        string
 		unformatted []string
@@ -272,7 +287,7 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, rootfile.GeneratedFileName, movesCheckConfig)
+			writeConfig(t, dir, rootfile.GeneratedFileName, config)
 			if err := os.MkdirAll(filepath.Join(dir, "modules", "network"), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -428,4 +443,20 @@ func withChecks(p gate.Policy) gate.Policy {
 	full := fullGate(Options{})
 	p.Standards, p.Moves = full.Standards, full.Moves
 	return p
+}
+
+// With state, a resource a moved block moves plans as a no-op at its new
+// address, with where it was: the plan check counts it as no change, and
+// not as an import.
+func TestPlanCheckCountsAMoveAsNoChange(t *testing.T) {
+	t.Parallel()
+	moved := &tfjson.ResourceChange{
+		Address: "aws_subnet.b", PreviousAddress: "aws_subnet.a", Type: "aws_subnet", Mode: tfjson.ManagedResourceMode,
+		Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}},
+	}
+	imported := change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
+	check := gate.PlanCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved, imported}}, nil, nil, nil, 1)
+	if !check.Passed || len(check.Changes) != 0 {
+		t.Errorf("want a move and an import passed, got %+v", check)
+	}
 }
