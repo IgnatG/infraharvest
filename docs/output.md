@@ -153,13 +153,24 @@ The `report/` directory of the output records the import:
 
 | File | Contents |
 |---|---|
-| `coverage.json` | What the listers found, by type and directory, and what became of it: imported (each at its address in the root, such as `module.app.aws_iam_role.this` for a resource moved into a module call), left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set, and, after `--incremental`, what the roots have that is no longer in the cloud (`not_in_cloud`, see [Choosing what to import](usage.md#choosing-what-to-import)), and the roots that keep their directories although `environments:` would lay their resources out elsewhere (`kept_roots`, see [Layout](#layout)), and warnings about the run itself (`warnings`), such as environments that couldn't apply. With AWS `--cfn-stack`, the stacks (`cloudformation_stacks`): each resource by its logical ID, what became of it and where it was imported, whether it is retained, the stack's template, and whether the stack is safe to delete, with what keeps it from being so (see [Migrating a CloudFormation stack](aws.md#migrating-a-cloudformation-stack)) |
+| `coverage.json` | What the listers found, by type and directory, and what became of it: imported (each at its address in the root, such as `module.app.aws_iam_role.this` for a resource moved into a module call), left out (with Terraform's errors), not importable, or lost to a failed directory or service. Also the secret variables to set, and, after `--incremental`, what the roots have that is no longer in the cloud (`not_in_cloud`, see [Choosing what to import](usage.md#choosing-what-to-import)), and the roots that keep their directories although `environments:` would lay their resources out elsewhere (`kept_roots`, see [Layout](#layout)), and warnings about the run itself (`warnings`), such as environments that couldn't apply. What the scanners of the [verification gate](#verification-gate) found (`findings`): each with its root, the scanner, rule, severity, place and message, and, where it is about a resource the root imports, the resource's `address`, `type` and import `id`, with the `scope` and `service` of its entry in the selection file (see [Findings by resource](#findings-by-resource)). With AWS `--cfn-stack`, the stacks (`cloudformation_stacks`): each resource by its logical ID, what became of it and where it was imported, whether it is retained, the stack's template, and whether the stack is safe to delete, with what keeps it from being so (see [Migrating a CloudFormation stack](aws.md#migrating-a-cloudformation-stack)) |
 | `manifest.json` | The versions used: infraharvest, Terraform or OpenTofu, and the provider (constraint and locked version) |
 | `report.md` | The same, for people |
 | `drift.json` | Written by `infraharvest drift`, not by an import: what changed in the cloud since each root was applied, with each change's decision (`accept` or `keep`), what decided it (`decision_source`) and outcome (`written`, `kept`, `rejected_by_plan`, `rejected_by_check`, `manual`, `secret`, `not_assessable` or `absorbed`), the roots it couldn't check and why (`schema_version` 1; printed on stdout with `--format json`). See [Drift](drift.md) |
 | `drift.md` | The same, for people |
 
 `report.md`'s "Managed and unmanaged" section counts, by type and by account and region, what Terraform manages (by the state `--managed-state` reads, by tags, or, with `--incremental`, in a root of the output already), what other tools such as CloudFormation manage, what the cloud manages itself or the default selection leaves out for another reason (`managed`, `other_tool` and `cloud` in `coverage.json`), and what none of them does (see [Audit](audit.md)). With `--report-tags owner,team`, the report also counts what was discovered, imported and managed by the value of each tag key, including resources without the tag, so you can see which owners still have resources outside infrastructure as code. It counts the resources whose tags discover could read (see Choosing what to import). Reports hold no timestamps or absolute paths, so importing an unchanged estate produces the same files. With `--format json`, the whole report is also printed to stdout as one JSON document (`schema_version` 1); logs always go to stderr.
+
+### Findings by resource
+
+`report.md`'s "Findings by resource" section lists what G5's scanners, and your policies (see [Your own policies](#your-own-policies)), found in each root, by the resource each finding is about, then by scanner, so you can see which imported resources break which rule before you apply. It flags them and changes nothing: trivy's, checkov's and your policies' findings describe the infrastructure as it is, and never fail the import. A finding is about the resource the scanner names (checkov's and trivy's results name it, trivy naming a resource in a module call by the call and the line of the module's file, which infraharvest turns into the resource's address in the call), or else the block of the root at the line it gives (tflint's), or, for a policy, the resource its result names (see the example below); a finding in an `import` block is about the resource it imports. infraharvest then looks the address up among the root's import blocks for the resource's type, import ID and selection entry. A finding about a module call of several resources stays about the call, and one about no resource, such as tflint's about a variable or the provider, about the root alone. The section lists up to 200 findings, in a fixed order, and says how many more there are; `findings` in `coverage.json` has them all:
+
+```sh
+# the imported resources with findings, and how many each has
+jq -r '[.findings[]? | select(.id) | "\(.root) \(.address) \(.id)"] | group_by(.) | .[] | "\(length) \(.[0])"' infraharvest-out/report/coverage.json
+```
+
+The selection file stays as you wrote it: to leave a resource out because of a finding, set its entry's `include: false` yourself.
 
 ## Verification gate
 
@@ -182,7 +193,7 @@ To check generated roots again, for example after editing them, run `infraharves
 
 ### Your own policies
 
-`--policy <dir>` checks each root against your organisation's own rules, written as [OPA](https://www.openpolicyagent.org/) policies in Rego, with [conftest](https://www.conftest.dev/), as part of G5. `import` and `verify` take it, and the configuration file as `policy` (see [Configuration](configuration.md)); repeat it, or separate directories with commas, for several. conftest must be on `PATH`: with `--policy` and no conftest, the command fails before it starts, rather than skip a check you asked for. It runs in the root's directory on the root's own `.tf` files (not the modules under `.terraform`), read with conftest's HCL2 parser, with the policies of every namespace in the directories, which are read as they are: nothing is downloaded, and conftest gets the scanners' environment without credentials. Each `deny` the configuration breaks is a finding at severity `failure`, each `warn` one at `warning`, named after the policy's package and the file, with the policy's message. Like trivy's and checkov's, they are listed and never fail the check: the roots describe the infrastructure as it is, and a policy says what it should be, so a finding is something to change in the cloud, or in the code once it is applied.
+`--policy <dir>` checks each root against your organisation's own rules, written as [OPA](https://www.openpolicyagent.org/) policies in Rego, with [conftest](https://www.conftest.dev/), as part of G5. `import` and `verify` take it, and the configuration file as `policy` (see [Configuration](configuration.md)); repeat it, or separate directories with commas, for several. conftest must be on `PATH`: with `--policy` and no conftest, the command fails before it starts, rather than skip a check you asked for. It runs in the root's directory on the root's own `.tf` files (not the modules under `.terraform`), read with conftest's HCL2 parser, with the policies of every namespace in the directories, which are read as they are: nothing is downloaded, and conftest gets the scanners' environment without credentials. The policies can't reach the network either, so none can send the generated configuration anywhere: infraharvest gives conftest OPA capabilities (`--capabilities`) without `http.send` and `net.lookup_ip_addr`, and with no host to reach. They have the other built-in functions of OPA 1.21.1, the release conftest 0.71.1 is built with, and conftest's own, such as `parse_config`. A policy that calls a network function, or one newer than OPA 1.21.1, doesn't compile: G5 fails, saying conftest couldn't run, with OPA's error. Each `deny` the configuration breaks is a finding at severity `failure`, each `warn` one at `warning`, named after the policy's package and the file, with the policy's message. Like trivy's and checkov's, they are listed and never fail the check: the roots describe the infrastructure as it is, and a policy says what it should be, so a finding is something to change in the cloud, or in the code once it is applied.
 
 A policy that wants every S3 bucket to have versioning, and an owner tag, in `policies/s3.rego`:
 
@@ -192,10 +203,11 @@ package s3
 import rego.v1
 
 # Every bucket has an aws_s3_bucket_versioning that refers to it.
-deny contains msg if {
+deny contains {"msg": msg, "resource": address} if {
 	some name, _ in input.resource.aws_s3_bucket
 	not versioned(name)
-	msg := sprintf("aws_s3_bucket.%s has no aws_s3_bucket_versioning", [name])
+	address := sprintf("aws_s3_bucket.%s", [name])
+	msg := sprintf("%s has no aws_s3_bucket_versioning", [address])
 }
 
 versioned(name) if {
@@ -212,6 +224,8 @@ warn contains msg if {
 ```
 
 `infraharvest verify --policy=policies` then lists, for a root with an unversioned bucket `logs` without the tag, `conftest: s3 (failure) main.tf: aws_s3_bucket.logs has no aws_s3_bucket_versioning` and `conftest: s3 (warning) main.tf: aws_s3_bucket.logs has no owner tag` under G5. The HCL2 parser gives each block as a list (`blocks[0]` above), and a reference as its expression in a string, such as `"${aws_s3_bucket.logs.id}"`; `conftest parse --parser hcl2 main.tf` shows what a policy reads.
+
+conftest gives the file of a finding, not the resource, so a rule says which resource it is about, for [Findings by resource](#findings-by-resource), as `deny` does above: it returns an object with the message as `msg` and the resource's address in the root as `resource`, such as `aws_s3_bucket.logs` or `module.logs.aws_s3_bucket.this`. A rule that returns its message alone, as `warn` does, has its finding about the resource whose address the message starts with, followed by a space or a colon, if any.
 
 ## Exit codes
 

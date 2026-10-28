@@ -156,8 +156,29 @@ func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 	for _, c := range result.Gate {
 		d.Checks = append(d.Checks, Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 	}
+	r.addFindings(path, scope, result)
 	r.addMoves(path, result)
 	r.Directories = append(r.Directories, d)
+}
+
+// addFindings records what the scanners of result's gate, of the root at
+// path, found, each about the resource the root imports at the address
+// it names, if any (see engine.ResourceAt), with its type and import ID;
+// the root's resources were listed in scope.
+func (r *Report) addFindings(path, scope string, result *engine.Result) {
+	managed := result.Addresses
+	if len(managed) == 0 {
+		managed = engine.InferredAddresses(result)
+	}
+	for _, c := range result.Gate {
+		for _, f := range c.Findings {
+			finding := Finding{Root: path, Address: f.Resource, Scope: scope, Scanner: f.Scanner, Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}
+			if m, ok := engine.ResourceAt(managed, f.Resource); ok {
+				finding.Address, finding.Type, finding.ID = m.Address, m.Type, m.ID
+			}
+			r.Findings = append(r.Findings, finding)
+		}
+	}
 }
 
 // addMoves records what result, of the root at path, moves within it, as

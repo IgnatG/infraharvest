@@ -124,6 +124,7 @@ The import exits 1 when a resource couldn't be imported or a check failed, and 3
 - A table of totals: discovered, imported, excluded, left out, not importable (types Terraform can't import) and failed.
 - **Managed and unmanaged**: for each type, and for each account and region when there are several, how much was discovered, how much Terraform manages (by the state, by tags, or, with `--incremental`, in a root of the output already), how much another tool manages, how much the cloud manages itself (or the default selection leaves out for another reason, such as a VPC another account shares), and how much none of them does. It is there whenever something was discovered, also when nothing is managed.
 - **By tag**, with `--report-tags`: the same for each value of each tag key, `(not tagged)` included, with what was imported.
+- **Findings by resource**: what the gate's scanners, and your policies with `--policy`, found about each imported resource, to review before you apply (see [Findings by resource](output.md#findings-by-resource)).
 - **Excluded**: every resource the selection left out, with its reason, as in the selection file.
 - **Failures**: services, accounts or projects that couldn't be listed. The audit is incomplete for them.
 

@@ -4,7 +4,11 @@
 package engine
 
 import (
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -54,8 +58,8 @@ func TestParseConftest(t *testing.T) {
 		want []Finding
 	}{
 		"failures and warnings": {conftestReport, []Finding{
-			{Rule: "s3", Severity: "failure", Location: "main.tf", Message: "aws_s3_bucket.logs has no aws_s3_bucket_versioning"},
-			{Rule: "s3", Severity: "warning", Location: "main.tf", Message: "aws_s3_bucket.logs has no owner tag"},
+			{Rule: "s3", Severity: "failure", Location: "main.tf", Message: "aws_s3_bucket.logs has no aws_s3_bucket_versioning", Resource: "aws_s3_bucket.logs"},
+			{Rule: "s3", Severity: "warning", Location: "main.tf", Message: "aws_s3_bucket.logs has no owner tag", Resource: "aws_s3_bucket.logs"},
 		}},
 		"namespaces": {`[{"filename":"main.tf","namespace":"main","successes":0,"failures":[{"msg":"no public buckets","metadata":{"query":"data.main.deny"}}]},{"filename":"main.tf","namespace":"tags","successes":0,"warnings":[{"msg":"no team tag","metadata":{"query":"data.tags.warn"}}]}]`, []Finding{
 			{Rule: "main", Severity: "failure", Location: "main.tf", Message: "no public buckets"},
@@ -86,7 +90,11 @@ func TestConftestScanner(t *testing.T) {
 	}
 	bin := t.TempDir()
 	argsFile := filepath.Join(t.TempDir(), "args")
-	script := "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > " + argsFile + "\nprintf '%s' '" + conftestReport + "'\n"
+	capsFile := filepath.Join(t.TempDir(), "capabilities.json")
+	// It keeps a copy of the capabilities it is given, which the scanner
+	// removes once it has run, with the shell's builtins only, as PATH has
+	// nothing else.
+	script := "#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; case \"$a\" in --capabilities=*) while IFS= read -r l || [ -n \"$l\" ]; do printf '%s\\n' \"$l\"; done < \"${a#--capabilities=}\" > " + capsFile + ";; esac; done > " + argsFile + "\nprintf '%s' '" + conftestReport + "'\n"
 	if err := os.WriteFile(filepath.Join(bin, ConftestBinary), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -130,8 +138,100 @@ func TestConftestScanner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail", "--policy=" + policies[0], "--policy=" + policies[1], "--", "main.tf", "variables.tf"}
-	if got := strings.Fields(string(args)); !reflect.DeepEqual(got, want) {
+	got := strings.Fields(string(args))
+	capabilities := ""
+	for i, a := range got {
+		if path, ok := strings.CutPrefix(a, "--capabilities="); ok {
+			capabilities, got[i] = path, "--capabilities="
+		}
+	}
+	want := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail", "--capabilities=", "--policy=" + policies[0], "--policy=" + policies[1], "--", "main.tf", "variables.tf"}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("conftest ran with %v, want %v", got, want)
+	}
+	if _, err := os.Stat(capabilities); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the capabilities file %q is left behind: %v", capabilities, err)
+	}
+	content, err := os.ReadFile(capsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkCapabilities(t, content)
+}
+
+// checkCapabilities checks the capabilities conftest runs with have
+// OPA's built-in functions and conftest's, but none that reaches the
+// network, and no host to reach.
+func checkCapabilities(t *testing.T, content []byte) {
+	t.Helper()
+	var capabilities struct {
+		Builtins []struct {
+			Name string `json:"name"`
+		} `json:"builtins"`
+		AllowNet *[]string `json:"allow_net"`
+		Features []string  `json:"features"`
+	}
+	if err := json.Unmarshal(content, &capabilities); err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, b := range capabilities.Builtins {
+		names = append(names, b.Name)
+	}
+	for _, name := range []string{"sprintf", "contains", "net.cidr_contains", "parse_config", "parse_config_file", "parse_combined_config_files"} {
+		if !slices.Contains(names, name) {
+			t.Errorf("capabilities lack %s", name)
+		}
+	}
+	for _, name := range []string{"http.send", "net.lookup_ip_addr"} {
+		if slices.Contains(names, name) {
+			t.Errorf("capabilities have %s, which reaches the network", name)
+		}
+	}
+	if capabilities.AllowNet == nil || len(*capabilities.AllowNet) != 0 {
+		t.Errorf("allow_net: got %v, want no host", capabilities.AllowNet)
+	}
+	if !slices.Contains(capabilities.Features, "rego_v1") {
+		t.Errorf("capabilities lack OPA's features: %v", capabilities.Features)
+	}
+}
+
+// With conftest installed, a policy that reaches the network doesn't
+// compile, and one that doesn't runs, with conftest's own functions.
+func TestConftestPoliciesOffTheNetwork(t *testing.T) {
+	path, err := exec.LookPath(ConftestBinary)
+	if err != nil {
+		t.Skip("conftest isn't installed")
+	}
+	dir := writeFindingsRoot(t)
+	policy := func(rego string) []string {
+		policies := t.TempDir()
+		if err := os.WriteFile(filepath.Join(policies, "p.rego"), []byte(rego), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return []string{policies}
+	}
+	offline := policy(`package p
+
+import rego.v1
+
+deny contains {"msg": sprintf("%s has no owner tag", [name]), "resource": sprintf("aws_s3_bucket.%s", [name])} if {
+	some name, blocks in input.resource.aws_s3_bucket
+	not blocks[0].tags.owner
+	parse_config("json", "{}") == {}
+}
+`)
+	findings, err := conftestScanner(path, offline).Run(t.Context(), dir)
+	if err != nil || len(findings) != 1 || findings[0].Resource != "aws_s3_bucket.logs" {
+		t.Errorf("got %+v, %v, want the bucket's finding", findings, err)
+	}
+	for name, call := range map[string]string{
+		"http.send":          `http.send({"method": "POST", "url": "http://127.0.0.1:9/", "body": input, "raise_error": false})`,
+		"net.lookup_ip_addr": `net.lookup_ip_addr("example.com")`,
+	} {
+		online := policy("package p\n\nimport rego.v1\n\ndeny contains \"sent\" if {\n\tx := " + call + "\n\tx\n}\n")
+		if _, err := conftestScanner(path, online).Run(t.Context(), dir); err == nil || !strings.Contains(err.Error(), "undefined function "+name) {
+			t.Errorf("a policy that calls %s: got %v, want it not to compile", name, err)
+		}
 	}
 }
