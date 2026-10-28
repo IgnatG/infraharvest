@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/identitystore"
 	idstypes "github.com/aws/aws-sdk-go-v2/service/identitystore/types"
@@ -22,7 +24,11 @@ type IdentityStoreLister struct {
 // instance, then lists its users, then its groups, each followed by its
 // memberships. Without an instance there is nothing to list. Every error
 // is returned.
-func (g *IdentityStoreLister) List() error {
+func (g *IdentityStoreLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *IdentityStoreLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -85,7 +91,7 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 					"description":       aws.ToString(group.Description),
 				}))
 			// A call per group, for memberships the import may not keep.
-			if !g.wants("aws_identitystore_group_membership") {
+			if !g.Wants("aws_identitystore_group_membership") {
 				continue
 			}
 			if err := g.listMemberships(client, store, groupID); err != nil {

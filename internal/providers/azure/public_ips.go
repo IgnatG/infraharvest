@@ -4,7 +4,11 @@
 package azure
 
 import (
+	"context"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // PublicIPLister lists public IP addresses as azurerm_public_ip and
@@ -16,7 +20,11 @@ type PublicIPLister struct {
 
 // List lists the addresses, then the prefixes. Either listing
 // failing fails the service.
-func (az *PublicIPLister) List() error {
+func (az *PublicIPLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *PublicIPLister) list() error {
 	if err := az.appendAddresses(); err != nil {
 		return err
 	}

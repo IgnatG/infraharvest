@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // recordCloud9Lifecycle is the lifecycle status the fake Cloud9 API
@@ -95,16 +97,16 @@ func TestRecordCloud9ListsEnvironments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Cloud9Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	env := func(id string) recordedResource {
 		return recordedResource{"aws_cloud9_environment_ec2", id, id, nil}
 	}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		env("env-created"),
 		env("env-creating"),
 		env("env-delete-failed"),
@@ -139,9 +141,9 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Cloud9Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -152,7 +154,7 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 	for _, id := range ids {
 		want = append(want, recordedResource{"aws_cloud9_environment_ec2", id, id, nil})
 	}
-	assertRecorded(t, g.Resources, want...)
+	assertRecorded(t, resources, want...)
 }
 
 // An error listing the environments or describing them is returned.
@@ -172,9 +174,8 @@ func TestRecordCloud9ReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &Cloud9Lister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

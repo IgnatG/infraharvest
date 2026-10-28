@@ -23,9 +23,9 @@ type listingProvider struct {
 	t *testing.T
 }
 
-func (p *listingProvider) Select(name string, verbose bool) error {
+func (p *listingProvider) Lister(name string) (harvest.Lister, error) {
 	p.t.Errorf("listed %s, though the inventory has it", name)
-	return p.fakeProvider.Select(name, verbose)
+	return p.fakeProvider.Lister(name)
 }
 
 func TestInventory(t *testing.T) {
@@ -184,18 +184,15 @@ func TestReadTagsFromAttributes(t *testing.T) {
 	}
 }
 
-// countingProvider counts the services it lists in countingListed: the
-// registry lists each service with a provider of its own, the zero value
-// of this type, so the count can't be a field.
+// countingProvider counts the services it lists.
 type countingProvider struct {
 	fakeProvider
+	listed atomic.Int32
 }
 
-var countingListed atomic.Int32
-
-func (p *countingProvider) Select(name string, verbose bool) error {
-	countingListed.Add(1)
-	return p.fakeProvider.Select(name, verbose)
+func (p *countingProvider) Lister(name string) (harvest.Lister, error) {
+	p.listed.Add(1)
+	return p.fakeProvider.Lister(name)
 }
 
 // The saved inventory of the same arguments is of another account or
@@ -207,11 +204,11 @@ func TestInventoryOfAnotherScope(t *testing.T) {
 	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Discover: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-1"), args); err != nil {
 		t.Fatal(err)
 	}
-	countingListed.Store(0)
-	if _, _, err := listResources(t.Context(), &countingProvider{}, callOf(Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args); err != nil {
+	counting := &countingProvider{}
+	if _, _, err := listResources(t.Context(), counting, callOf(Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args); err != nil {
 		t.Fatal(err)
 	}
-	if n := countingListed.Load(); n != 1 {
+	if n := counting.listed.Load(); n != 1 {
 		t.Errorf("listed %d services, want the inventory of eu-west-1 not reused for eu-west-2", n)
 	}
 }

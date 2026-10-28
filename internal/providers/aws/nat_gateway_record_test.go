@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists NAT gateways by ID, across pages, leaving out those
@@ -29,13 +31,13 @@ func TestRecordNatGatewayListsLiveGateways(t *testing.T) {
 			</natGatewaySet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &NatGatewayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_nat_gateway", "nat-a", "nat-a", nil},
 		recordedResource{"aws_nat_gateway", "nat-pending", "nat-pending", nil},
 	)
@@ -47,7 +49,6 @@ func TestRecordNatGatewayReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &NatGatewayLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

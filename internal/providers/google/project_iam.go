@@ -4,6 +4,7 @@
 package google
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -37,7 +38,11 @@ type IamLister struct {
 }
 
 // List reads the policy. A failure to read it is an error.
-func (g *IamLister) List() error {
+func (g *IamLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *IamLister) list() error {
 	region := g.Settings().region
 	if region.Name != "" {
 		return nil

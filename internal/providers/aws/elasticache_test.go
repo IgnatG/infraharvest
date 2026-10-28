@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // elastiCacheResponse wraps the result of a call of the ElastiCache query
 // API.
@@ -47,14 +51,14 @@ func TestElastiCacheListsWhatTerraformManages(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &ElastiCacheLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_elasticache_cluster", "sessions")
-	assertIDs(t, g.Resources, "aws_elasticache_replication_group", "queue")
-	assertIDs(t, g.Resources, "aws_elasticache_parameter_group", "default.valkey8", "queue-valkey8")
-	assertIDs(t, g.Resources, "aws_elasticache_subnet_group", "default", "queue")
+	assertIDs(t, resources, "aws_elasticache_cluster", "sessions")
+	assertIDs(t, resources, "aws_elasticache_replication_group", "queue")
+	assertIDs(t, resources, "aws_elasticache_parameter_group", "default.valkey8", "queue-valkey8")
+	assertIDs(t, resources, "aws_elasticache_subnet_group", "default", "queue")
 }

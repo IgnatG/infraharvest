@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // TestKinesisPaginates (pagination_test.go) pins the IDs across two pages.
 // This records the rest: each stream by name, with its name as an
@@ -20,13 +24,13 @@ func TestRecordKinesisListsStreamsByName(t *testing.T) {
 				{"StreamName":"clicks","StreamARN":"arn:aws:kinesis:us-east-1:123456789012:stream/clicks","StreamStatus":"ACTIVE"}]}`
 	})
 	g := &KinesisLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_kinesis_stream", "orders", "orders", map[string]string{"name": "orders"}},
 		recordedResource{"aws_kinesis_stream", "clicks", "clicks", map[string]string{"name": "clicks"}},
 	)
@@ -38,7 +42,6 @@ func TestRecordKinesisReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &KinesisLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

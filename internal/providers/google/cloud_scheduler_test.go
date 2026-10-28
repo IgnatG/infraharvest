@@ -18,9 +18,7 @@ import (
 func newSchedulerJobs(t *testing.T, region string) *SchedulerJobsLister {
 	t.Helper()
 	g := &SchedulerJobsLister{}
-	g.Configure(harvest.ListerConfig{Provider: "google"})
 	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: region}})
-	g.SetContext(fastRetries(t))
 	return g
 }
 
@@ -47,7 +45,8 @@ func TestSchedulerJobsList(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newSchedulerJobs(t, "us-central1")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if len(other) > 0 {
@@ -55,7 +54,7 @@ func TestSchedulerJobsList(t *testing.T) {
 	}
 
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Address.Type+" "+r.Observed.ID+" "+r.RawName)
 	}
 	want := []string{
@@ -65,8 +64,8 @@ func TestSchedulerJobsList(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("resources:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if len(g.Resources) > 0 {
-		r := g.Resources[0]
+	if len(resources) > 0 {
+		r := resources[0]
 		wantAttributes := map[string]string{"name": "nightly-export", "project": "acme", "region": "us-central1"}
 		if !reflect.DeepEqual(r.Observed.Attributes, wantAttributes) {
 			t.Errorf("attributes %v, want %v", r.Observed.Attributes, wantAttributes)
@@ -88,11 +87,12 @@ func TestSchedulerJobsGlobal(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newSchedulerJobs(t, "")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Resources) != 0 || requests != 0 {
-		t.Errorf("%d resources and %d requests, want none", len(g.Resources), requests)
+	if len(resources) != 0 || requests != 0 {
+		t.Errorf("%d resources and %d requests, want none", len(resources), requests)
 	}
 }
 
@@ -160,7 +160,7 @@ func TestSchedulerJobsErrors(t *testing.T) {
 			t.Setenv(EndpointEnv, server.URL)
 
 			g := newSchedulerJobs(t, "us-central1")
-			err := g.List()
+			resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("want an error")
@@ -171,8 +171,8 @@ func TestSchedulerJobsErrors(t *testing.T) {
 			} else if err != nil {
 				t.Fatalf("want no error, got %v", err)
 			}
-			if len(g.Resources) != 0 {
-				t.Errorf("%d resources, want none", len(g.Resources))
+			if len(resources) != 0 {
+				t.Errorf("%d resources, want none", len(resources))
 			}
 		})
 	}

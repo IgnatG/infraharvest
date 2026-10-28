@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // newRun returns a context of a run of its own, which resolves the
@@ -41,7 +43,7 @@ func TestGenerateConfigPerRegion(t *testing.T) {
 
 	for _, region := range []string{GlobalPseudoRegion, "us-east-1", GlobalPseudoRegion} {
 		s := &Service{}
-		s.SetContext(ctx)
+		s.Begin(ctx, harvest.Settings{})
 		s.SetSettings(serviceSettings{region: region})
 
 		cfg, err := s.sdkConfig()
@@ -67,7 +69,7 @@ func TestGenerateConfigWithoutSharedConfig(t *testing.T) {
 	ctx := newRun(t)
 
 	s := &Service{}
-	s.SetContext(ctx)
+	s.Begin(ctx, harvest.Settings{})
 	s.SetSettings(serviceSettings{region: "us-east-1", profile: "default"})
 	if _, err := s.sdkConfig(); err != nil {
 		t.Errorf("want the environment's credentials used, got %v", err)
@@ -149,7 +151,7 @@ func useEnvironmentCredentials(t *testing.T, keyID string) {
 // the run of ctx.
 func serviceIn(ctx context.Context, region string) *Service {
 	s := &Service{}
-	s.SetContext(ctx)
+	s.Begin(ctx, harvest.Settings{})
 	s.SetSettings(serviceSettings{region: region})
 	return s
 }
@@ -238,7 +240,7 @@ func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 	t.Setenv("AWS_ENDPOINT_URL_STS", sts.URL)
 	inRole := func(role string) *Service {
 		s := &Service{}
-		s.SetContext(ctx)
+		s.Begin(ctx, harvest.Settings{})
 		s.SetSettings(serviceSettings{region: "eu-west-1", roleARN: role})
 		return s
 	}
@@ -368,7 +370,7 @@ func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 func serviceWithContext(ctx context.Context, p *Provider) *Service {
 	s := &Service{}
 	s.SetSettings(p.settings())
-	s.SetContext(ctx)
+	s.Begin(ctx, harvest.Settings{})
 	return s
 }
 
@@ -387,7 +389,7 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	}}
 	credentials := aws.NewCredentialsCache(aws.AnonymousCredentials{})
 	s := &Service{}
-	s.SetContext(ctx)
+	s.Begin(ctx, harvest.Settings{})
 
 	for _, region := range []string{"eu-west-1", "us-east-1", "eu-west-1"} {
 		cfg := aws.Config{Region: region, Credentials: credentials, HTTPClient: api, Retryer: func() aws.Retryer { return aws.NopRetryer{} }}
@@ -404,19 +406,20 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	}
 }
 
-// Select passes the service the provider's settings, which pick its SDK
+// Lister passes the service the provider's settings, which pick its SDK
 // configuration and region: both the guard and the lister it guards get
 // them.
-func TestSelectPassesTheSettings(t *testing.T) {
+func TestListerPassesTheSettings(t *testing.T) {
 	t.Parallel()
 	p := &Provider{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	if err := p.Select("sqs", false); err != nil {
+	lister, err := p.Lister("sqs")
+	if err != nil {
 		t.Fatal(err)
 	}
-	guard := p.Selected().(*guardedLister)
+	guard := lister.(*guardedLister)
 	want := configKey{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	if got := guard.cacheKey(); got != want {
-		t.Errorf("the guard's cacheKey: got %+v, want %+v", got, want)
+	if got := configKey(guard.settings); got != want {
+		t.Errorf("the guard's settings: got %+v, want %+v", got, want)
 	}
 	if got := guard.lister.(*SqsLister).cacheKey(); got != want {
 		t.Errorf("the lister's cacheKey: got %+v, want %+v", got, want)

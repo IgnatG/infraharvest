@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/aws/smithy-go/encoding/cbor"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // recordCloudWatchOp returns the CloudWatch operation call is for. The
@@ -93,13 +95,13 @@ func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordCloudWatchAPI(t, ""))
 	g := &CloudWatchLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cloudwatch_metric_alarm", "cpu-high", "cpu-high", nil},
 		recordedResource{"aws_cloudwatch_metric_alarm", "5xx rate", "5xx rate", nil},
 		recordedResource{"aws_cloudwatch_metric_alarm", "queue-depth", "queue-depth", nil},
@@ -122,9 +124,8 @@ func TestRecordCloudWatchReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordCloudWatchAPI(t, failing))
 			g := &CloudWatchLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

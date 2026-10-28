@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"regexp"
 	"strings"
 
@@ -38,7 +39,11 @@ var goneVpcEndpointStates = map[string]bool{
 
 // List lists every VPC endpoint the account manages and that is not gone,
 // page by page. An API error is returned and ends the listing.
-func (g *VpcEndpointLister) List() error {
+func (g *VpcEndpointLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *VpcEndpointLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -432,55 +432,45 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 	return kept
 }
 
-// listServices lists the resources of every service of the call c into
-// registry, parallel services at once, each service with a provider of
-// its own initialised with args. A service that fails to list is left out
-// of the registry and returned among the failures; one that lists in part
-// (see harvest.Partial), or takes longer than --list-timeout, keeps what
-// it listed, and is among the failures too.
-// The error is for what stops the whole listing: a provider that can't be
-// initialised, a filter that doesn't parse, or an interrupt.
+// listServices lists the resources of every service of the call c with
+// provider, which has been initialised and given the catalogue (see
+// Run.prepareCall), parallel services at once, and returns them by
+// service. A service that fails to list is left out of them and returned
+// among the failures; one that lists in part (see harvest.Partial), or
+// takes longer than --list-timeout, keeps what it listed, and is among the
+// failures too.
+// The error is for what stops the whole listing: a filter that doesn't
+// parse, or an interrupt.
 //
 // The services that list from what the others listed (see
 // harvest.Profile.DependentServices), and the query service, list once
 // the others are done, given what they listed.
-func listServices(ctx context.Context, registry *harvest.Registry, c *callContext, parallel int, args []string) ([]error, error) {
+func listServices(ctx context.Context, provider harvest.Provider, c *callContext, parallel int) (map[string][]harvest.Resource, []error, error) {
 	options := c.options
 	filters, err := options.filters()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	settings := harvest.Settings{Verbose: options.Verbose, Filters: filters, Unwanted: c.unwanted}
 	discoverers := make([]discovery.Discoverer, 0, len(c.services))
 	var dependent []discovery.Discoverer
-	var waiting []harvest.ProviderWithListedByOthers
+	var waiting harvest.ProviderWithListedByOthers
 	var queries []*queryDiscoverer
 	for _, service := range c.services {
-		serviceProvider := registry.Register(service)
-		if err := serviceProvider.Init(ctx, args); err != nil {
-			return nil, err
-		}
-		// The service's provider is new, so it is given the catalogue the
-		// import's provider has, before it makes the service's lister.
-		if p, ok := serviceProvider.(harvest.ProviderWithCatalogue); ok && c.cat != nil {
-			p.SetCatalogue(c.cat)
-		}
-		if p, ok := serviceProvider.(harvest.ProviderWithUnwantedTypes); ok && c.unwanted != nil {
-			p.SetUnwantedTypes(c.unwanted)
-		}
-		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
+		d := discovery.Service(service, provider, settings)
 		if service == harvest.QueryService && c.query != nil {
 			// It lists once the others are done, with the provider
 			// release the modules of what they listed pin (see
 			// Run.callRoot).
-			q := &queryDiscoverer{Discoverer: d, query: func(listed []harvest.Resource) harvest.Query { return c.query(serviceProvider, listed) }}
+			q := &queryDiscoverer{Discoverer: d, query: func(listed []harvest.Resource) harvest.Query { return c.query(provider, listed) }}
 			dependent = append(dependent, q)
 			queries = append(queries, q)
 			continue
 		}
-		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
+		if slices.Contains(provider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
-			if p, ok := serviceProvider.(harvest.ProviderWithListedByOthers); ok {
-				waiting = append(waiting, p)
+			if p, ok := provider.(harvest.ProviderWithListedByOthers); ok {
+				waiting = p
 			}
 			continue
 		}
@@ -490,45 +480,44 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 	listOptions := discovery.Options{Timeout: options.ListTimeout, Parallel: parallel}
 	results, err := discovery.List(ctx, discoverers, listOptions)
 	if err != nil {
-		return nil, fmt.Errorf("listing: %w", err)
+		return nil, nil, fmt.Errorf("listing: %w", err)
 	}
 	if len(dependent) > 0 {
 		var listed []harvest.Resource
 		for _, result := range results {
 			listed = append(listed, result.Resources...)
 		}
-		for _, p := range waiting {
-			p.SetListedByOthers(listed)
+		if waiting != nil {
+			waiting.SetListedByOthers(listed)
 		}
 		for _, q := range queries {
 			q.listedByOthers = listed
 		}
 		more, err := discovery.List(ctx, dependent, listOptions)
 		if err != nil {
-			return nil, fmt.Errorf("listing: %w", err)
+			return nil, nil, fmt.Errorf("listing: %w", err)
 		}
 		results = append(results, more...)
 	}
 
 	var failures []error
-	var failed []string
+	byService := make(map[string][]harvest.Resource, len(results))
 	for _, result := range results {
-		if result.Err == nil {
-			continue
-		}
 		cause := result.Err
-		if errors.Is(cause, discovery.ErrDeadline) {
+		if cause != nil && errors.Is(cause, discovery.ErrDeadline) {
 			// Name the flag that sets the deadline, so the fix is plain.
 			cause = harvest.Partial(fmt.Errorf("listing took longer than --list-timeout %s, so it stopped: what it listed by then is imported, but more may be missing", options.ListTimeout))
 		}
-		if !harvest.IsPartial(cause) {
-			failed = append(failed, result.Name)
+		if cause != nil {
+			failures = append(failures, fmt.Errorf("service %s: %w", result.Name, cause))
 		}
-		failures = append(failures, fmt.Errorf("service %s: %w", result.Name, cause))
+		if cause != nil && !harvest.IsPartial(cause) {
+			continue
+		}
+		log.Printf("%s: %d resources listed", result.Name, len(result.Resources))
+		byService[result.Name] = append([]harvest.Resource{}, result.Resources...)
 	}
-	registry.Unregister(failed)
-	registry.Collect()
-	return failures, nil
+	return byService, failures, nil
 }
 
 // Services returns the names of provider's services, sorted, without its

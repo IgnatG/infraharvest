@@ -20,25 +20,26 @@ func TestProjectID(t *testing.T) {
 	}
 }
 
-// selectedSettings returns the settings p's Select passed its current
-// lister.
-func selectedSettings(t *testing.T, p *Provider) listerSettings {
+// listerSettingsOf returns the settings p's Lister passed the lister of
+// service.
+func listerSettingsOf(t *testing.T, p *Provider, service string) listerSettings {
 	t.Helper()
-	l, ok := p.Selected().(interface{ Settings() listerSettings })
+	lister, err := p.Lister(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, ok := lister.(interface{ Settings() listerSettings })
 	if !ok {
-		t.Fatalf("%T takes no settings", p.Selected())
+		t.Fatalf("%T takes no settings", lister)
 	}
 	return l.Settings()
 }
 
-// What Select passes is what the lister reads.
-func TestSelectPassesTheSettings(t *testing.T) {
+// What Lister passes is what the lister reads.
+func TestListerPassesTheSettings(t *testing.T) {
 	t.Parallel()
 	p := &Provider{projectName: "acme", region: compute.Region{Name: "europe-west2"}}
-	if err := p.Select(cloudAssetService, false); err != nil {
-		t.Fatal(err)
-	}
-	settings := selectedSettings(t, p)
+	settings := listerSettingsOf(t, p, cloudAssetService)
 	if project, err := settings.projectID(); err != nil || project != "acme" {
 		t.Errorf("project %q, %v", project, err)
 	}

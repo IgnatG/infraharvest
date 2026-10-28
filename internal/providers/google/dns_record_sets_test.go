@@ -56,9 +56,7 @@ func cloudDNS(t *testing.T) *httptest.Server {
 func newDNSRecordSets(t *testing.T, region string) *DNSRecordSetsLister {
 	t.Helper()
 	g := &DNSRecordSetsLister{}
-	g.Configure(harvest.ListerConfig{Provider: "google"})
 	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: region}})
-	g.SetContext(fastRetries(t))
 	return g
 }
 
@@ -68,11 +66,12 @@ func newDNSRecordSets(t *testing.T, region string) *DNSRecordSetsLister {
 func TestDNSRecordSetsList(t *testing.T) {
 	t.Setenv(EndpointEnv, cloudDNS(t).URL)
 	g := newDNSRecordSets(t, "")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Address.Type+" "+r.Observed.ID)
 	}
 	sort.Strings(got)
@@ -89,7 +88,7 @@ func TestDNSRecordSetsList(t *testing.T) {
 
 	cat := catalogue.MustBuiltin("google")
 	skipped := map[string]bool{}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		a := r.Observed.Attributes
 		if a["project"] != "acme" || a["managed_zone"] == "" || a["name"] == "" || a["type"] == "" || a["dns_name"] == "" {
 			t.Errorf("%s: attributes %v", r.Observed.ID, a)
@@ -129,8 +128,9 @@ func TestRecordSetName(t *testing.T) {
 func TestDNSRecordSetsInARegion(t *testing.T) {
 	t.Setenv(EndpointEnv, cloudDNS(t).URL)
 	g := newDNSRecordSets(t, "us-central1")
-	if err := g.List(); err != nil || len(g.Resources) != 0 {
-		t.Errorf("got %v, %v", g.Resources, err)
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil || len(resources) != 0 {
+		t.Errorf("got %v, %v", resources, err)
 	}
 }
 
@@ -170,15 +170,15 @@ func TestDNSRecordSetsErrors(t *testing.T) {
 			defer server.Close()
 			t.Setenv(EndpointEnv, server.URL)
 			g := newDNSRecordSets(t, "")
-			err := g.List()
+			resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error %v, want one: %v", err, tt.wantErr)
 			}
 			if err != nil && !strings.Contains(err.Error(), "acme") {
 				t.Errorf("error %q doesn't name the project", err)
 			}
-			if len(g.Resources) != 0 {
-				t.Errorf("%d resources, want none", len(g.Resources))
+			if len(resources) != 0 {
+				t.Errorf("%d resources, want none", len(resources))
 			}
 		})
 	}
@@ -198,7 +198,8 @@ func TestDNSRecordSetsZoneFails(t *testing.T) {
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
 	g := newDNSRecordSets(t, "")
-	if err := g.List(); err == nil || !strings.Contains(err.Error(), "example-com") {
+	_, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err == nil || !strings.Contains(err.Error(), "example-com") {
 		t.Errorf("error %v, want one naming the zone", err)
 	}
 }

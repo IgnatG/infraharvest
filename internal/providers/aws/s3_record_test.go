@@ -98,16 +98,15 @@ func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 	t.Parallel()
 	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") || !strings.Contains(err.Error(), "policy of bucket denied-policy") {
 		t.Errorf("want a partial error for the location of locked and the policy of denied-policy, got %v", err)
 	}
 
 	bucketAttrs := map[string]string{"force_destroy": "false", "acl": "private"}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_s3_bucket_policy", "logs-eu", "logs-eu", nil},
 		recordedResource{"aws_s3_bucket", "logs-eu", "logs-eu", map[string]string{
 			"force_destroy": "false", "acl": "private", "policy": recordS3Policy}},
@@ -124,14 +123,14 @@ func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 	t.Parallel()
 	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: "us-east-1"})
 
-	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
 		t.Errorf("want a partial error for the location of locked, got %v", err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_s3_bucket", "us-bucket", "us-bucket", map[string]string{"force_destroy": "false", "acl": "private"}},
 	)
 }
@@ -156,14 +155,14 @@ func TestRecordS3UsesTheListedRegions(t *testing.T) {
 			`</Buckets></ListAllMyBucketsResult>`
 	})
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_s3_bucket", "logs-eu")
+	assertIDs(t, resources, "aws_s3_bucket", "logs-eu")
 }
 
 // Without a region (ProfileRegion), the lister lists the buckets of the region
@@ -172,24 +171,23 @@ func TestRecordS3WithoutRegion(t *testing.T) {
 	t.Parallel()
 	ctx := useRecordS3API(t, "eu-west-1", "")
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: ProfileRegion})
 
-	if err := g.List(); !harvest.IsPartial(err) {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if !harvest.IsPartial(err) {
 		t.Errorf("want a partial error, got %v", err)
 	}
 
-	assertIDs(t, g.Resources, "aws_s3_bucket", "logs-eu", "assets-eu", "legacy-eu", "denied-policy")
+	assertIDs(t, resources, "aws_s3_bucket", "logs-eu", "assets-eu", "legacy-eu", "denied-policy")
 }
 
 func TestRecordS3ReturnsListBucketsError(t *testing.T) {
 	t.Parallel()
 	ctx := useRecordS3API(t, "us-east-1", `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`)
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	assertRecordedError(t, g.List(), "AccessDenied")
+	assertRecordedError(t, listError(ctx, g), "AccessDenied")
 }
 
 // The buckets' locations and policies are read several buckets at once,
@@ -216,17 +214,17 @@ func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &S3Lister{}
-	g.SetContext(ctx)
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	locations.check(t)
 	policies.check(t)
 	bucketAttrs := map[string]string{"force_destroy": "false", "acl": "private"}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_s3_bucket", "a", "a", bucketAttrs},
 		recordedResource{"aws_s3_bucket_policy", "b", "b", nil},
 		recordedResource{"aws_s3_bucket", "b", "b", map[string]string{"force_destroy": "false", "acl": "private", "policy": recordS3Policy}},

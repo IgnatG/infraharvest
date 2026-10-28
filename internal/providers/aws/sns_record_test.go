@@ -6,6 +6,8 @@ package aws
 import (
 	"net/url"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -55,13 +57,13 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &SnsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_sns_topic", recordSNSARN + "alerts", "alerts", nil},
 		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-1", "notify lambda", nil},
 		recordedResource{"aws_sns_topic_subscription", recordSNSARN + "alerts:sub-5", "hooks.example.com https", nil},
@@ -75,9 +77,8 @@ func TestRecordSnsReturnsListTopicsError(t *testing.T) {
 		return recordQueryError(recordSNSNS, "AuthorizationError")
 	})
 	g := &SnsLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AuthorizationError")
+	assertRecordedError(t, listError(ctx, g), "AuthorizationError")
 }
 
 // The topics' subscriptions are asked for several topics at once, and
@@ -109,9 +110,8 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 			return recordUnexpected(t, call)
 		})
 		g := &SnsLister{}
-		g.SetContext(ctx)
 
-		err := g.List()
+		resources, err := g.List(ctx, harvest.Settings{})
 
 		at.check(t)
 		topic := func(name string) recordedResource {
@@ -124,10 +124,10 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertRecorded(t, g.Resources, topic("a"), subscription("a"), topic("b"), subscription("b"), topic("c"), subscription("c"))
+			assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"), subscription("b"), topic("c"), subscription("c"))
 			continue
 		}
 		assertRecordedError(t, err, "AuthorizationError")
-		assertRecorded(t, g.Resources, topic("a"), subscription("a"), topic("b"))
+		assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"))
 	}
 }

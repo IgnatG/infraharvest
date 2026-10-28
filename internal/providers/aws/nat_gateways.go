@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -28,7 +30,11 @@ var goneNatGatewayStates = map[types.NatGatewayState]bool{
 
 // List lists the NAT gateways that are not gone, page by page. An
 // API error is returned and ends the listing.
-func (g *NatGatewayLister) List() error {
+func (g *NatGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *NatGatewayLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -36,7 +36,6 @@ var (
 	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
-	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
 	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
 )
 
@@ -79,8 +78,6 @@ var services = map[string]func() harvest.Lister{
 // Provider lists one Azure subscription, or one resource group in it
 // (see Init). The zero value is ready for Init.
 type Provider struct {
-	harvest.ProviderBase
-
 	// subscriptionID is the subscription to list.
 	subscriptionID string
 	// resourceGroup is --resource-group, "" for the whole subscription.
@@ -103,9 +100,6 @@ type Provider struct {
 	// azapi is --azapi (Init's args[2]): resource_graph imports what
 	// azurerm has no type for as azapi_resource (see azapiCandidates).
 	azapi bool
-	// unwanted reports the types the import leaves out whatever is listed
-	// (see SetUnwantedTypes); nil wants every type.
-	unwanted func(typ string) bool
 }
 
 // Init takes the resource group (args[0], "" for the whole subscription),
@@ -346,42 +340,33 @@ func (p *Provider) ProviderBlock() map[string]interface{} {
 	}
 }
 
-// Services returns a new lister for every service.
-func (*Provider) Services() map[string]harvest.Lister {
+// Services returns a new lister, as Lister makes it, for every service.
+func (p *Provider) Services() map[string]harvest.Lister {
 	supported := make(map[string]harvest.Lister, len(services))
-	for name, newLister := range services {
-		supported[name] = newLister()
+	for name := range services {
+		supported[name], _ = p.Lister(name)
 	}
 	return supported
 }
 
-// Select makes the service called name the provider's current one,
-// with a new lister, and passes it the provider's settings.
-func (p *Provider) Select(name string, verbose bool) error {
-	newLister, ok := services[name]
-	if !ok {
-		return errors.New("not a service of azure; \"infraharvest services azure\" lists them")
+// Lister returns a new lister for the service called name, with the
+// provider's settings.
+func (p *Provider) Lister(name string) (harvest.Lister, error) {
+	newLister := func(name string) harvest.Lister {
+		if newLister, ok := services[name]; ok {
+			return newLister()
+		}
+		return nil
 	}
-	service := newLister()
-	p.Current = service
-	service.Configure(harvest.ListerConfig{
-		Service:  name,
-		Provider: providerName,
-		Verbose:  verbose,
+	return harvest.ListerFor(commandName, name, newLister, serviceSettings{
+		subscriptionID: p.subscriptionID,
+		resourceGroup:  p.resourceGroup,
+		credential:     p.credential,
+		clientOptions:  p.clientOptions,
+		catalogue:      p.catalogue,
+		listed:         p.listed,
+		azapi:          p.azapi,
 	})
-	if l, ok := service.(harvest.SettingsTaker[serviceSettings]); ok {
-		l.SetSettings(serviceSettings{
-			subscriptionID: p.subscriptionID,
-			resourceGroup:  p.resourceGroup,
-			credential:     p.credential,
-			clientOptions:  p.clientOptions,
-			catalogue:      p.catalogue,
-			listed:         p.listed,
-			azapi:          p.azapi,
-			unwanted:       p.unwanted,
-		})
-	}
-	return nil
 }
 
 // Scope is the subscription and the resource group, "all" for the whole
@@ -498,13 +483,6 @@ func describeScope(flags map[string][]string) string {
 		text += ", what azurerm has no type for through azapi"
 	}
 	return text
-}
-
-// SetUnwantedTypes takes what reports the types the import leaves out
-// whatever is listed, which the services get: they skip the calls that
-// list only those (see Service.wants).
-func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
-	p.unwanted = unwanted
 }
 
 // SetCatalogue sets the import's catalogue, which the services get.

@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists each Elastic IP by allocation ID, associated or not,
 // from one DescribeAddresses call. An EC2-Classic address, which has no
@@ -24,13 +28,13 @@ func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
 			</addressesSet>`)
 	})
 	g := &ElasticIPLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_eip", "eipalloc-1", "i-1", nil},
 		recordedResource{"aws_eip", "eipalloc-2", "eipalloc-2", nil},
 	)
@@ -42,7 +46,6 @@ func TestRecordElasticIPReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &ElasticIPLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

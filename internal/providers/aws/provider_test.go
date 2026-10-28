@@ -34,28 +34,29 @@ func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 	}
 }
 
-// Select makes only the lister of the service it names, the one Services
+// Lister makes only the lister of the service it names, the one Services
 // has for it, and refuses a name that isn't a service. The query
 // service's lister, which asks AWS nothing itself, isn't wrapped.
-func TestSelectMakesTheServicesLister(t *testing.T) {
+func TestListerMakesTheServicesLister(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
 	for name, want := range p.Services() {
-		if err := p.Select(name, false); err != nil {
+		lister, err := p.Lister(name)
+		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if name == harvest.QueryService {
-			if _, ok := p.Current.(*harvest.QueryLister); !ok {
-				t.Errorf("%s: selected %T", name, p.Current)
+			if _, ok := lister.(*harvest.QueryLister); !ok {
+				t.Errorf("%s: made %T", name, lister)
 			}
 			continue
 		}
-		got, ok := p.Current.(*guardedLister)
+		got, ok := lister.(*guardedLister)
 		if !ok || reflect.TypeOf(got.lister) != reflect.TypeOf(want.(*guardedLister).lister) {
-			t.Errorf("%s: selected %T, want %T", name, p.Current, want)
+			t.Errorf("%s: made %T, want %T", name, lister, want)
 		}
 	}
-	if err := p.Select("no-such-service", false); err == nil {
+	if _, err := p.Lister("no-such-service"); err == nil {
 		t.Error("want an error for a service that doesn't exist")
 	}
 }

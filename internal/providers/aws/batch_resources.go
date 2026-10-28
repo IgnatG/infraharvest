@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,7 +23,11 @@ type BatchLister struct {
 // List records the compute environments, then the active job
 // definitions, then the job queues, each by the ID Terraform imports it by. The first error stops the listing and
 // is returned.
-func (g *BatchLister) List() error {
+func (g *BatchLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *BatchLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudhsmv2"
 	"github.com/aws/aws-sdk-go-v2/service/cloudhsmv2/types"
@@ -22,7 +24,11 @@ type CloudHsmLister struct {
 // being deleted, or are deleted, are left out: DescribeClusters keeps
 // reporting deleted clusters for a while, and Terraform reads them as
 // gone. Any error fails the service.
-func (g *CloudHsmLister) List() error {
+func (g *CloudHsmLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudHsmLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

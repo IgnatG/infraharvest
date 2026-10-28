@@ -46,14 +46,14 @@ func TestCloudControlLister(t *testing.T) {
 		return `{"ResourceDescriptions":[]}`
 	})
 	g := newCloudControlLister("eventbridge")
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_bus", "default", "orders")
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_connection", "crm")
+	assertIDs(t, resources, "aws_cloudwatch_event_bus", "default", "orders")
+	assertIDs(t, resources, "aws_cloudwatch_event_connection", "crm")
 	if want := []string{"AWS::Events::ApiDestination", "AWS::Events::Archive", "AWS::Events::EventBus", "AWS::Events::EventBus", "AWS::Events::Connection"}; !reflect.DeepEqual(listed, want) {
 		t.Errorf("listed %v, want %v", listed, want)
 	}
@@ -65,9 +65,8 @@ func TestCloudControlListerFails(t *testing.T) {
 		return `{"__type":"AccessDeniedException","Message":"not allowed"}`
 	})
 	g := newCloudControlLister("athena")
-	g.SetContext(ctx)
 
-	err := g.List()
+	_, err := g.List(ctx, harvest.Settings{})
 	if err == nil || !strings.Contains(err.Error(), "AWS::Athena::WorkGroup") || harvest.IsPartial(err) {
 		t.Errorf("want the service failed, with an error naming the type, got %v", err)
 	}
@@ -94,14 +93,13 @@ func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
 		return `{"ResourceDescriptions":[]}`
 	})
 	g := newCloudControlLister("eventbridge")
-	g.SetContext(ctx)
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AWS::Events::ApiDestination") || strings.Contains(err.Error(), "AWS::Events::Archive") {
 		t.Errorf("want a partial error naming the denied type only, got %v", err)
 	}
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_connection", "crm")
+	assertIDs(t, resources, "aws_cloudwatch_event_connection", "crm")
 }
 
 // Every service listed through Cloud Control is a service of the provider,
@@ -155,12 +153,13 @@ func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 	if _, ok := p.Services()["ivs"]; !ok {
 		t.Error("the overlay's service isn't among the services")
 	}
-	if err := p.Select("ivs", false); err != nil {
+	lister, err := p.Lister("ivs")
+	if err != nil {
 		t.Fatal(err)
 	}
-	guard, ok := p.Current.(*guardedLister)
+	guard, ok := lister.(*guardedLister)
 	if !ok {
-		t.Fatalf("got %T, want a guardedLister", p.Current)
+		t.Fatalf("got %T, want a guardedLister", lister)
 	}
 	want := []cloudControlType{{CloudFormation: "AWS::IVS::Channel", Identifier: "Arn", Terraform: "aws_ivs_channel"}}
 	if g, ok := guard.lister.(*CloudControlLister); !ok || !reflect.DeepEqual(g.types, want) {

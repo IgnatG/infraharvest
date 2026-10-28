@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"context"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armlocks"
@@ -28,7 +29,11 @@ type ManagementLockLister struct {
 // List lists the locks. Resource Manager's list at a scope also
 // returns the locks on the resources under it, so a group's list includes
 // the locks on its resources, and the subscription's list every lock.
-func (az *ManagementLockLister) List() error {
+func (az *ManagementLockLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *ManagementLockLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	predicate, err := graphPredicate(subscriptionID, resourceGroup)
 	if err != nil {

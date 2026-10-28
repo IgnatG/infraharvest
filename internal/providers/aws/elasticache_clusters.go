@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticache"
 
@@ -24,7 +26,11 @@ type ElastiCacheLister struct {
 
 // List lists clusters, parameter groups, replication groups and
 // subnet groups, in that order, and returns the first error.
-func (g *ElastiCacheLister) List() error {
+func (g *ElastiCacheLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *ElastiCacheLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

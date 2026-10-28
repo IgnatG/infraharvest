@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/iam"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -162,13 +164,13 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IamLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_iam_user", "alice@example.com", "alice@example.com", map[string]string{"force_destroy": "false"}},
 		recordedResource{"aws_iam_user_policy", "alice@example.com:s3-inline", "aliceexample.com_s3-inline", nil},
 		recordedResource{"aws_iam_user_policy", "alice@example.com:kms-inline", "aliceexample.com_kms-inline", nil},
@@ -237,9 +239,8 @@ func TestRecordIamReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &IamLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }
@@ -265,7 +266,7 @@ func TestRecordIamAsksForFullPages(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IamLister{}
-	g.SetContext(ctx)
+	g.Begin(ctx, harvest.Settings{})
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -293,13 +294,12 @@ func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
 		}
 		return recordUnexpected(t, call)
 	})
-	p := &Provider{}
-	p.SetUnwantedTypes(func(typ string) bool { return typ == "aws_iam_access_key" })
-	g := p.withUnwanted(&IamLister{}).(*IamLister)
-	g.SetContext(ctx)
+	g := &IamLister{}
+	unwanted := func(typ string) bool { return typ == "aws_iam_access_key" }
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{Unwanted: unwanted})
+	if err != nil {
 		t.Fatal(err)
 	}
-	assertRecorded(t, g.Resources, recordedResource{"aws_iam_user", "bob", "bob", map[string]string{"force_destroy": "false"}})
+	assertRecorded(t, resources, recordedResource{"aws_iam_user", "bob", "bob", map[string]string{"force_destroy": "false"}})
 }

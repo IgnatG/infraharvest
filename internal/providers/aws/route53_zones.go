@@ -5,6 +5,7 @@ package aws
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -33,7 +34,11 @@ type Route53Lister struct {
 // harvest.Partial), so what was listed is imported and the listing reads
 // as incomplete rather than as a zone with no records. A zone list that
 // fails fails the service.
-func (g *Route53Lister) List() error {
+func (g *Route53Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *Route53Lister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -71,7 +76,7 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, lis
 			g.Resources = append(g.Resources, harvest.Record(zoneID, strings.TrimSuffix(domain, "."), "aws_route53_zone", "aws", attributes))
 			// A call or more per zone, for records the import may not
 			// keep.
-			if g.wants("aws_route53_record") {
+			if g.Wants("aws_route53_record") {
 				errs = append(errs, g.listRecords(client, zoneID, domain, zone.LinkedService))
 			}
 		}

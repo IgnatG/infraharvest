@@ -148,7 +148,7 @@ func (p *Provider) excludeShared(ctx context.Context, config aws.Config, resourc
 		return nil
 	}
 	service := &Service{}
-	service.SetContext(ctx)
+	service.Begin(ctx, harvest.Settings{})
 	account, err := service.callerAccount(config)
 	if err != nil {
 		return fmt.Errorf("find the AWS account, for what other accounts share: %w", err)

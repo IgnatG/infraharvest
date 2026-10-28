@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists every analyzer, whatever its type or status, across
@@ -29,13 +31,13 @@ func TestRecordAccessAnalyzerListsAnalyzersByName(t *testing.T) {
 			{"name":"org","arn":"%sorg","type":"ORGANIZATION","status":"CREATING"}],"nextToken":%q}`, arn, arn, nextPageToken)
 	})
 	g := &AccessAnalyzerLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_accessanalyzer_analyzer", "account", "account", nil},
 		recordedResource{"aws_accessanalyzer_analyzer", "org", "org", nil},
 		recordedResource{"aws_accessanalyzer_analyzer", "org-unused", "org-unused", nil},
@@ -48,7 +50,6 @@ func TestRecordAccessAnalyzerReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &AccessAnalyzerLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

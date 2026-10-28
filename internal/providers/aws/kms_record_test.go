@@ -78,9 +78,8 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &KmsLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 	if err == nil {
 		t.Fatal("want a partial error, got none")
 	}
@@ -91,7 +90,7 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		t.Errorf("k-secret's failure reported %d times, want once: %v", n, err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_kms_key", "k-app", "app", map[string]string{"key_id": "k-app"}},
 		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-1", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
 		recordedResource{"aws_kms_grant", recordKmsKeyARN + "k-app:grant-2", "lambda", map[string]string{"grantee_principal": "arn:aws:iam::123456789012:role/app"}},
@@ -120,9 +119,8 @@ func TestRecordKmsReturnsListErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &KmsLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }
@@ -180,9 +178,9 @@ func TestRecordKmsKeepsTheKeysOrder(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &KmsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	var want, wantGrants []string
@@ -190,10 +188,10 @@ func TestRecordKmsKeepsTheKeysOrder(t *testing.T) {
 		want = append(want, fmt.Sprintf("k-%d", i))
 		wantGrants = append(wantGrants, fmt.Sprintf("%sk-%d:g", recordKmsKeyARN, i))
 	}
-	assertIDs(t, g.Resources, "aws_kms_key", want...)
-	assertIDs(t, g.Resources, "aws_kms_grant", wantGrants...)
-	for i := 0; i+1 < len(g.Resources); i += 2 {
-		if key, grant := g.Resources[i], g.Resources[i+1]; key.Address.Type != "aws_kms_key" || grant.Observed.ID != recordKmsKeyARN+key.Observed.ID+":g" {
+	assertIDs(t, resources, "aws_kms_key", want...)
+	assertIDs(t, resources, "aws_kms_grant", wantGrants...)
+	for i := 0; i+1 < len(resources); i += 2 {
+		if key, grant := resources[i], resources[i+1]; key.Address.Type != "aws_kms_key" || grant.Observed.ID != recordKmsKeyARN+key.Observed.ID+":g" {
 			t.Errorf("resource %d: want key %s followed by its grant, got %s %s", i, key.Observed.ID, grant.Address.Type, grant.Observed.ID)
 		}
 	}

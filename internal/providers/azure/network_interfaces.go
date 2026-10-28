@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"context"
 	"maps"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
@@ -22,7 +23,11 @@ type NetworkInterfaceLister struct {
 }
 
 // List lists the network interfaces.
-func (az *NetworkInterfaceLister) List() error {
+func (az *NetworkInterfaceLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *NetworkInterfaceLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	client, err := armnetwork.NewInterfacesClient(subscriptionID, credential, options)
 	if err != nil {

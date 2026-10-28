@@ -119,7 +119,7 @@ func TestClientSettings(t *testing.T) {
 func TestRecordBare(t *testing.T) {
 	t.Parallel()
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Provider: "azurerm"})
+	s.Begin(t.Context(), harvest.Settings{Provider: "azurerm"})
 	const id = "/subscriptions/sub/resourceGroups/rg1"
 	s.recordBare(id, "rg1", "azurerm_resource_group")
 

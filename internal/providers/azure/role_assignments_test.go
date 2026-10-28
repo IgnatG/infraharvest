@@ -14,6 +14,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The subscription the role assignment tests list, and its scope.
@@ -131,7 +133,8 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, ""))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +160,7 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 			"name": "66666666-6666-6666-6666-666666666666", "scope": roleSubscription + "/resourceGroups/data/providers/Microsoft.Storage/storageAccounts/stdata", "principal_type": "User", "resource_group_name": "data",
 		}},
 	}
-	got := listedResources(g.Resources)
+	got := listedResources(resources)
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got:\n%+v\nwant:\n%+v", got, want)
 	}
@@ -167,7 +170,7 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 	// custom role by ID, for the reference to its definition.
 	cat := catalogue.MustBuiltin("azurerm")
 	skipped := map[string]bool{}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes) != "" {
 			skipped[r.RawName] = true
 		}
@@ -176,7 +179,7 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 		t.Errorf("left out by default: %v, want %v", skipped, want)
 	}
 	for i, omit := range map[int][]string{1: {"role_definition_id"}, 2: {"role_definition_name"}} {
-		r := g.Resources[i]
+		r := resources[i]
 		if got := cat.ResourceOmit(r.Address.Type, r.Observed.Attributes); !reflect.DeepEqual(got, omit) {
 			t.Errorf("%s: leaves out %v, want %v", r.RawName, got, omit)
 		}
@@ -192,14 +195,15 @@ func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, "app"))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	if len(transport.sent) != 2 || !strings.Contains(transport.sent[1], "resourceGroup =~ 'app'") {
 		t.Errorf("queries: %v, want the resource group app's", transport.sent)
 	}
-	got := listedResources(g.Resources)
+	got := listedResources(resources)
 	if len(got) != 1 || got[0].Name != "app Reader" {
 		t.Errorf("got %+v, want the assignment on app alone", got)
 	}
@@ -215,7 +219,8 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, ""))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,7 +229,7 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 	}
 	// Resource Graph returned no Reader role: the name starts with the
 	// assignment's.
-	if got := listedResources(g.Resources); len(got) != 1 || got[0].Name != "subscription 22222222" {
+	if got := listedResources(resources); len(got) != 1 || got[0].Name != "subscription 22222222" {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -238,7 +243,8 @@ func TestRoleAssignmentRejectsAMalformedSubscription(t *testing.T) {
 	args.subscriptionID = "sub' or 1==1"
 	g := &RoleAssignmentLister{}
 	g.SetSettings(args)
-	if err := g.List(); err == nil || len(transport.sent) != 0 {
+	_, err := g.List(t.Context(), harvest.Settings{})
+	if err == nil || len(transport.sent) != 0 {
 		t.Errorf("err %v, queries %v", err, transport.sent)
 	}
 }

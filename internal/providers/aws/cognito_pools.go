@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentity"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
@@ -24,7 +26,11 @@ type CognitoLister struct {
 // List records the identity pools, then the user pools, then the
 // clients of each user pool in the order the pools were listed. The first
 // error stops the listing and is returned.
-func (g *CognitoLister) List() error {
+func (g *CognitoLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CognitoLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -38,7 +44,7 @@ func (g *CognitoLister) List() error {
 		return err
 	}
 	// A call per pool, for clients the import may not keep.
-	if !g.wants("aws_cognito_user_pool_client") {
+	if !g.Wants("aws_cognito_user_pool_client") {
 		return nil
 	}
 	for _, poolID := range poolIDs {

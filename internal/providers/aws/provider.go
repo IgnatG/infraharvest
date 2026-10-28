@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
 	"regexp"
 	"strings"
 
@@ -25,7 +24,6 @@ var (
 	_ harvest.ProviderWithPartialTypes      = (*Provider)(nil)
 	_ harvest.ProviderWithScope             = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue         = (*Provider)(nil)
-	_ harvest.ProviderWithUnwantedTypes     = (*Provider)(nil)
 	_ harvest.ProviderWithStackMapper       = (*Provider)(nil)
 	_ harvest.ProviderWithTags              = (*Provider)(nil)
 	_ harvest.ProviderWithTerraformEnv      = (*Provider)(nil)
@@ -39,7 +37,6 @@ const providerName = "aws"
 // Provider lists one account in one region (see Init), through the
 // services of serviceTable and the catalogue's Cloud Control services.
 type Provider struct {
-	harvest.ProviderBase
 	// region is the region to list: a region's name, GlobalPseudoRegion or
 	// ProfileRegion.
 	region string
@@ -53,9 +50,6 @@ type Provider struct {
 	account, resolvedRegion string
 	// cat is the catalogue of the import, nil until SetCatalogue sets it.
 	cat *catalogue.Catalogue
-	// unwanted reports the types the import leaves out whatever is listed
-	// (see SetUnwantedTypes); nil wants every type.
-	unwanted func(typ string) bool
 	// stackScope, when set, scopes the import to the resources of
 	// CloudFormation stacks (see SetStackScope).
 	stackScope *StackScope
@@ -232,61 +226,54 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 	}
 }
 
-// Services returns a new lister, wrapped in a guardedLister,
-// for every service: those of serviceTable, and one Cloud Control
-// lister per service of the cloud_control entries of the catalogue of the
-// import (see SetCatalogue), which takes the place of a lister of the same
-// name; and the query service's, which lists through Terraform and asks
-// AWS nothing itself.
+// Services returns a new lister, as Lister makes it, for every service:
+// those of serviceTable, and one Cloud Control lister per service of the
+// cloud_control entries of the catalogue of the import (see
+// SetCatalogue), which takes the place of a lister of the same name; and
+// the query service's, which lists through Terraform and asks AWS nothing
+// itself.
 func (p *Provider) Services() map[string]harvest.Lister {
-	supported := make(map[string]harvest.Lister, len(serviceTable))
+	names := []string{harvest.QueryService}
 	for _, s := range serviceTable {
-		supported[s.name] = &guardedLister{lister: s.newLister()}
+		names = append(names, s.name)
 	}
-	for name, types := range p.cloudControl() {
-		supported[name] = &guardedLister{lister: &CloudControlLister{types: types}}
+	for name := range p.cloudControl() {
+		names = append(names, name)
 	}
-	supported[harvest.QueryService] = &harvest.QueryLister{}
+	supported := make(map[string]harvest.Lister, len(names))
+	for _, name := range names {
+		supported[name], _ = p.Lister(name)
+	}
 	return supported
 }
 
-// newServiceLister returns a new lister, wrapped in a guardedLister, for
-// the service called name, as Services has it, or nil when there is no
-// such service: a Cloud Control service takes the place of a lister of the
-// same name. The query service's lister isn't wrapped.
+// newServiceLister returns a new lister for the service called name, as
+// Services has it, or nil when there is no such service: a Cloud Control
+// service takes the place of a lister of the same name.
 func (p *Provider) newServiceLister(name string) harvest.Lister {
 	if name == harvest.QueryService {
 		return &harvest.QueryLister{}
 	}
 	if types, ok := p.cloudControl()[name]; ok {
-		return p.guard(&CloudControlLister{types: types})
+		return &CloudControlLister{types: types}
 	}
 	for _, s := range serviceTable {
 		if s.name == name {
-			return p.guard(s.newLister())
+			return s.newLister()
 		}
 	}
 	return nil
 }
 
-// Select makes the service called name the provider's current one,
-// with a new lister, and passes it the provider's settings. Only that
-// service's lister is made (see newServiceLister).
-func (p *Provider) Select(name string, verbose bool) error {
-	service := p.newServiceLister(name)
-	if service == nil {
-		return errors.New("not a service of aws; \"infraharvest services aws\" lists them")
+// Lister returns a new lister for the service called name, with the
+// provider's settings, in a guardedLister but for the query service's,
+// which asks AWS nothing.
+func (p *Provider) Lister(name string) (harvest.Lister, error) {
+	lister, err := harvest.ListerFor(providerName, name, p.newServiceLister, p.settings())
+	if err != nil || name == harvest.QueryService {
+		return lister, err
 	}
-	p.Current = service
-	service.Configure(harvest.ListerConfig{
-		Service:  name,
-		Provider: p.Name(),
-		Verbose:  verbose,
-	})
-	if l, ok := service.(harvest.SettingsTaker[serviceSettings]); ok {
-		l.SetSettings(p.settings())
-	}
-	return nil
+	return &guardedLister{lister: lister, settings: p.settings(), resourceExplorer: p.resourceExplorer}, nil
 }
 
 // settings are the settings every service of the provider gets: the
@@ -306,32 +293,8 @@ func (p *Provider) service(ctx context.Context) *Service {
 	}
 	service := &Service{}
 	service.SetSettings(p.settings())
-	service.SetContext(ctx)
+	service.Begin(ctx, harvest.Settings{})
 	return service
-}
-
-// SetUnwantedTypes takes what reports the types the import leaves out
-// whatever is listed, such as aws_iam_access_key unless the selection
-// file includes some: the listers it makes after that skip the calls that
-// list only those (see Service.wants).
-func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
-	p.unwanted = unwanted
-}
-
-// withUnwanted gives lister the types the import leaves out, if it takes
-// them, and returns it.
-func (p *Provider) withUnwanted(lister harvest.Lister) harvest.Lister {
-	if l, ok := lister.(interface{ setUnwanted(func(typ string) bool) }); ok {
-		l.setUnwanted(p.unwanted)
-	}
-	return lister
-}
-
-// guard wraps lister, given the types the import leaves out, in a
-// guardedLister that Resource Explorer rules out when the provider uses
-// it.
-func (p *Provider) guard(lister harvest.Lister) *guardedLister {
-	return &guardedLister{lister: p.withUnwanted(lister), resourceExplorer: p.resourceExplorer}
 }
 
 // UseResourceExplorer makes the services the provider lists skip the

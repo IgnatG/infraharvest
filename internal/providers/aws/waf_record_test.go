@@ -142,13 +142,13 @@ func TestRecordWafListsEveryType(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWafAPI(t))
 	g := &WafLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecordedWaf(t, g.Resources, "aws_waf_")
+	assertRecordedWaf(t, resources, "aws_waf_")
 }
 
 // An error from any list operation is returned, and the operations after it
@@ -159,9 +159,8 @@ func TestRecordWafReturnsErrors(t *testing.T) {
 		t.Run(o.op, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordWafErrorAPI(t, o.op))
 			g := &WafLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "WAFInternalErrorException")
+			assertRecordedError(t, listError(ctx, g), "WAFInternalErrorException")
 		})
 	}
 }
@@ -172,9 +171,8 @@ func TestRecordWafReturnsRepeatedMarkerError(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
 	g := &WafLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "pagination did not advance")
+	assertRecordedError(t, listError(ctx, g), "pagination did not advance")
 }
 
 // An ID of eight characters or fewer ends the name whole. AWS gives
@@ -183,13 +181,13 @@ func TestRecordWafNamesShortIDs(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWafShortIDAPI(t))
 	g := &WafLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_waf_web_acl", "short", "main_short", nil},
 		recordedResource{"aws_waf_web_acl", "abcdefgh", "edge_abcdefgh", nil},
 	)

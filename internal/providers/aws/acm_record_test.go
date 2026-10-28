@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordACMCertificate = "arn:aws:acm:us-east-1:123456789012:certificate/"
@@ -30,13 +32,13 @@ func TestRecordACMListsCertificates(t *testing.T) {
 			{"CertificateArn":"` + recordACMCertificate + `c-3","DomainName":"api.example.com"}],"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &ACMLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_acm_certificate", recordACMCertificate + "c-1", "c-1_www.example.com", map[string]string{
 			"domain_name": "www.example.com.", "status": "ISSUED", "type": "AMAZON_ISSUED"}},
 		// An answer without a status or a type records none.
@@ -52,7 +54,6 @@ func TestRecordACMReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &ACMLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

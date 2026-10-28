@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -30,7 +31,11 @@ type FirehoseLister struct {
 // ARN is made of its partition, region, account and name, so the ARN is
 // built from the name rather than described for, at one account lookup
 // for the whole listing (see callerAccount). Any error fails the service.
-func (g *FirehoseLister) List() error {
+func (g *FirehoseLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *FirehoseLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

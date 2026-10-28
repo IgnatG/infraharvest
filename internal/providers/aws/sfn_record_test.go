@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordSfnARN = "arn:aws:states:us-east-1:123456789012:"
@@ -41,13 +43,13 @@ func TestRecordSfnListsStateMachinesAndActivities(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordSfnAPI(t, ""))
 	g := &SfnLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_sfn_state_machine", recordSfnARN + "stateMachine:orders", "orders", nil},
 		recordedResource{"aws_sfn_state_machine", recordSfnARN + "stateMachine:refunds", "refunds", nil},
 		recordedResource{"aws_sfn_activity", recordSfnARN + "activity:approve", "approve", nil},
@@ -61,9 +63,8 @@ func TestRecordSfnReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordSfnAPI(t, failing))
 			g := &SfnLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

@@ -3,7 +3,7 @@
 
 package harvest
 
-// prune applies the lister's ID filters to its resources and drops
+// Prune applies the ID filters among filters to resources and drops
 // duplicates, keeping the order. A resource is a duplicate of an earlier
 // kept one with the same type and ID. Resources with the same type and
 // name are not: two APIs can each have a stage named $default.
@@ -15,9 +15,9 @@ package harvest
 // Duplicates are dropped with or without filters: a lister that reaches a
 // resource twice, such as through two parents or overlapping pages, would
 // otherwise import it twice, under two names. A resource without an
-// address or an observation is kept as it is. When nothing is kept,
-// Resources becomes nil.
-func prune(s *ListerBase) {
+// address or an observation is kept as it is. When nothing is kept, it
+// returns nil.
+func Prune(resources []Resource, filters []Filter) []Resource {
 	// resourceKey identifies a resource for spotting duplicates. The ID
 	// alone is not enough, since resources of different types may share
 	// one.
@@ -25,13 +25,13 @@ func prune(s *ListerBase) {
 		resourceType, id string
 	}
 	kept := make(map[resourceKey]bool)
-	var resources []Resource
-	for _, resource := range s.Resources {
-		if len(s.filters) > 0 && !passesIDFilters(s.filters, resource) {
+	var pruned []Resource
+	for _, resource := range resources {
+		if len(filters) > 0 && !passesIDFilters(filters, resource) {
 			continue
 		}
 		if resource.Address == nil || resource.Observed == nil {
-			resources = append(resources, resource)
+			pruned = append(pruned, resource)
 			continue
 		}
 		key := resourceKey{resource.Address.Type, resource.Observed.ID}
@@ -39,9 +39,9 @@ func prune(s *ListerBase) {
 			continue
 		}
 		kept[key] = true
-		resources = append(resources, resource)
+		pruned = append(pruned, resource)
 	}
-	s.Resources = resources
+	return pruned
 }
 
 // passesIDFilters reports whether resource passes every ID filter among

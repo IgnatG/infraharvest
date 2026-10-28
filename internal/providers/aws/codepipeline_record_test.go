@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordCodePipelineWebhook = "arn:aws:codepipeline:us-east-1:123456789012:webhook:"
@@ -31,13 +33,13 @@ func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &CodePipelineLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_codepipeline", "web", "web", nil},
 		recordedResource{"aws_codepipeline", "api", "api", nil},
 		recordedResource{"aws_codepipeline_webhook", recordCodePipelineWebhook + "web-push", "web-push", nil},
@@ -60,9 +62,8 @@ func TestRecordCodePipelineReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &CodePipelineLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

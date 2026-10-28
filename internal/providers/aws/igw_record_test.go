@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists the internet gateways attached to something, whatever
@@ -31,13 +33,13 @@ func TestRecordIgwListsAttachedGateways(t *testing.T) {
 			</internetGatewaySet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &IgwLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_internet_gateway", "igw-main", "igw-main", map[string]string{"vpc_id": "vpc-1"}},
 		recordedResource{"aws_internet_gateway", "igw-detaching", "igw-detaching", map[string]string{"vpc_id": "vpc-2"}},
 	)
@@ -49,7 +51,6 @@ func TestRecordIgwReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &IgwLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

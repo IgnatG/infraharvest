@@ -98,7 +98,7 @@ func TestManagedIdentityLister(t *testing.T) {
 		lister := &ManagedIdentityLister{}
 		lister.SetSettings(routedArgs(transport, tc.resourceGroup))
 
-		err := lister.List()
+		resources, err := lister.List(t.Context(), harvest.Settings{})
 		switch {
 		case tc.partial != "":
 			if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "federated credentials of "+tc.partial) {
@@ -107,7 +107,7 @@ func TestManagedIdentityLister(t *testing.T) {
 		case err != nil:
 			t.Errorf("%s: %v", tc.name, err)
 		}
-		if got := listedResources(lister.Listed()); !reflect.DeepEqual(got, tc.want) {
+		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: listed %+v, want %+v", tc.name, got, tc.want)
 		}
 		if !reflect.DeepEqual(transport.paths, tc.wantPaths) {

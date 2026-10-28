@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists each cluster's parts with the IDs Terraform imports
@@ -54,20 +56,20 @@ func TestEksListsClusterPartsWithImportIDs(t *testing.T) {
 		return `{"__type":"ResourceNotFoundException"}`
 	})
 	g := &EksLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_eks_cluster", "web", "legacy")
-	assertIDs(t, g.Resources, "aws_eks_node_group", "web:system")
-	assertIDs(t, g.Resources, "aws_eks_addon", "web:vpc-cni")
-	assertIDs(t, g.Resources, "aws_eks_fargate_profile", "web:batch")
-	assertIDs(t, g.Resources, "aws_eks_pod_identity_association", "web,a-1")
-	assertIDs(t, g.Resources, "aws_eks_access_entry", "web:"+admin)
-	assertIDs(t, g.Resources, "aws_eks_access_policy_association", "web#"+admin+"#"+policy)
-	for _, r := range g.Resources {
+	assertIDs(t, resources, "aws_eks_cluster", "web", "legacy")
+	assertIDs(t, resources, "aws_eks_node_group", "web:system")
+	assertIDs(t, resources, "aws_eks_addon", "web:vpc-cni")
+	assertIDs(t, resources, "aws_eks_fargate_profile", "web:batch")
+	assertIDs(t, resources, "aws_eks_pod_identity_association", "web,a-1")
+	assertIDs(t, resources, "aws_eks_access_entry", "web:"+admin)
+	assertIDs(t, resources, "aws_eks_access_policy_association", "web#"+admin+"#"+policy)
+	for _, r := range resources {
 		if r.Address.Type == "aws_eks_access_policy_association" && r.RawName != "admin_AmazonEKSClusterAdminPolicy" {
 			t.Errorf("policy association named %q, want admin_AmazonEKSClusterAdminPolicy", r.RawName)
 		}
@@ -103,14 +105,14 @@ func TestEksKeepsTheClustersOrder(t *testing.T) {
 		return `{"__type":"ResourceNotFoundException"}`
 	})
 	g := &EksLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Observed.ID)
 	}
 	var want []string

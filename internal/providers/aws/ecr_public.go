@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ecrpublic"
 
@@ -19,7 +21,11 @@ type EcrPublicLister struct {
 // List records every public repository by name. ECR Public has
 // its API in us-east-1 only, so the client is pointed there whatever
 // region the service is listed for. Any error fails the service.
-func (g *EcrPublicLister) List() error {
+func (g *EcrPublicLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EcrPublicLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

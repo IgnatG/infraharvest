@@ -40,19 +40,20 @@ func TestServices(t *testing.T) {
 
 // A name that isn't a service, such as networks, which cloud_asset
 // lists, fails and says how to find the services.
-func TestSelectUnknownService(t *testing.T) {
+func TestListerOfAnUnknownService(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
 	for _, name := range []string{"widgets", "networks", "sslCertificates"} {
-		if err := p.Select(name, false); err == nil || err.Error() != `not a service of google; "infraharvest services google" lists them` {
-			t.Errorf("Select(%q): %v", name, err)
+		if _, err := p.Lister(name); err == nil || err.Error() != `not a service of google; "infraharvest services google" lists them` {
+			t.Errorf("Lister(%q): %v", name, err)
 		}
 	}
-	if err := p.Select(cloudAssetService, false); err != nil {
+	lister, err := p.Lister(cloudAssetService)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := p.Selected().(*CloudAssetLister); !ok {
-		t.Errorf("cloud_asset: %#v", p.Selected())
+	if _, ok := lister.(*CloudAssetLister); !ok {
+		t.Errorf("cloud_asset: %#v", lister)
 	}
 }
 

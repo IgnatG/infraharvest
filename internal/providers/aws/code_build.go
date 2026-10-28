@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -16,7 +18,11 @@ type CodeBuildLister struct {
 
 // List lists every project as an aws_codebuild_project. The list
 // returns only names, which are also the Terraform import IDs.
-func (g *CodeBuildLister) List() error {
+func (g *CodeBuildLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CodeBuildLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,7 +26,11 @@ type EfsLister struct {
 // points, all by ID. Failing to list file systems or access points fails
 // the service; the failures to read a file system's parts are returned
 // together as a partial error (see partFailures).
-func (g *EfsLister) List() error {
+func (g *EfsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EfsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -54,10 +59,10 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_efs_file_system", "aws"))
 			// A call each per file system, for mount targets and policies
 			// the import may not keep.
-			if g.wants("aws_efs_mount_target") && !g.listMountTargets(client, id) {
+			if g.Wants("aws_efs_mount_target") && !g.listMountTargets(client, id) {
 				continue
 			}
-			if g.wants("aws_efs_file_system_policy") {
+			if g.Wants("aws_efs_file_system_policy") {
 				g.addFileSystemPolicy(client, id)
 			}
 		}

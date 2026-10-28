@@ -33,7 +33,11 @@ type DirectConnectLister struct {
 // leaving out those being deleted, deleted or rejected: Direct Connect
 // keeps reporting them for a while, and Terraform reads them as gone. Any
 // error fails the service.
-func (g *DirectConnectLister) List() error {
+func (g *DirectConnectLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DirectConnectLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -56,7 +60,11 @@ type DirectConnectGatewayLister struct {
 
 // List lists the gateways by ID, leaving out those being deleted or
 // deleted. Any error fails the service.
-func (g *DirectConnectGatewayLister) List() error {
+func (g *DirectConnectGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DirectConnectGatewayLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

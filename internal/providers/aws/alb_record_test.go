@@ -131,9 +131,8 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &AlbLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 	if !harvest.IsPartial(err) {
 		t.Errorf("want a partial error, got %v", err)
 	}
@@ -143,7 +142,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 		}
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_lb", recordAlbWeb, "web", nil},
 		recordedResource{"aws_lb_listener", recordAlbHTTPS, "HTTPS 443", nil},
 		recordedResource{"aws_lb_listener_rule", recordAlbRule, "HTTPS 443 10", nil},
@@ -182,9 +181,8 @@ func TestRecordAlbReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &AlbLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

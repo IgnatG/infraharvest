@@ -34,7 +34,11 @@ type IamLister struct {
 // ends the listing and is returned, so that a failed list never passes for
 // an empty one; the one exception is a user deleted between the details
 // that named it and the listing of its access keys (see iamGone).
-func (g *IamLister) List() error {
+func (g *IamLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *IamLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -165,7 +169,7 @@ func (g *IamLister) addUsers(client *iam.Client, users []iamtypes.UserDetail) er
 			})
 		}
 		// One call per user, for keys the default selection leaves out.
-		if !g.wants("aws_iam_access_key") {
+		if !g.Wants("aws_iam_access_key") {
 			continue
 		}
 		if err := g.listUserAccessKeys(client, name); err != nil {

@@ -165,14 +165,14 @@ func TestCloudAssetAutopilotUnknown(t *testing.T) {
 			cat := catalogue.MustBuiltin("google")
 			for range 2 {
 				g := assetLister(t, nil, "us-central1")
-				err := g.List()
+				resources, err := g.List(testRun(t), harvest.Settings{Provider: "google"})
 				if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "acme-prod") {
 					t.Fatalf("error %v, want a partial one naming the project", err)
 				}
-				if len(g.Resources) != 4 {
-					t.Fatalf("got %v", byID(g.Resources))
+				if len(resources) != 4 {
+					t.Fatalf("got %v", byID(resources))
 				}
-				for _, r := range g.Resources {
+				for _, r := range resources {
 					a := r.Observed.Attributes
 					pool := r.Address.Type == "google_container_node_pool"
 					if (a[parentAutopilotAttribute] == "unknown") != pool {

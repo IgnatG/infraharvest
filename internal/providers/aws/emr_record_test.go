@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists the clusters starting, running or waiting by ID, named
@@ -35,13 +37,13 @@ func TestRecordEmrListsClustersAndSecurityConfigurations(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EmrLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_emr_cluster", "j-1ETL", "nightly etl", nil},
 		recordedResource{"aws_emr_cluster", "j-3NEW", "adhoc", nil},
 		recordedResource{"aws_emr_security_configuration", "kms-at-rest", "kms-at-rest", nil},
@@ -64,9 +66,8 @@ func TestRecordEmrReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &EmrLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "InvalidRequestException")
+			assertRecordedError(t, listError(ctx, g), "InvalidRequestException")
 		})
 	}
 }

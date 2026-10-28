@@ -238,12 +238,11 @@ func listResources(ctx context.Context, provider harvest.Provider, c *callContex
 	if !provider.Profile().ConcurrentListing {
 		parallel = 1
 	}
-	registry := harvest.NewRegistry(provider)
-	failures, err := listServices(ctx, registry, c, parallel, args)
+	resources, failures, err := listServices(ctx, provider, c, parallel)
 	if err != nil {
 		return listing{}, nil, err
 	}
-	listed := listing{resources: registry.ByService()}
+	listed := listing{resources: resources}
 	leaveOutQueryOverlap(provider.Name(), listed.resources)
 	var tagsErr error
 	listed.tags, tagsErr = readTags(ctx, provider, listed.resources)

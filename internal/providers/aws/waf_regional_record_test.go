@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -46,9 +48,9 @@ func TestRecordWafRegionalListsEveryType(t *testing.T) {
 		{backupID, "API_GATEWAY"}:               recordJSONError("WAFNonexistentItemException"),
 	}))
 	g := &WafRegionalLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,7 +67,7 @@ func TestRecordWafRegionalListsEveryType(t *testing.T) {
 		association(recordWafRegionalALB, "shop"),
 		association(recordWafRegionalStage, "prod"),
 	)
-	assertRecorded(t, g.Resources, want...)
+	assertRecorded(t, resources, want...)
 }
 
 // An error from any list operation is returned, and the operations after it
@@ -76,9 +78,8 @@ func TestRecordWafRegionalReturnsErrors(t *testing.T) {
 		t.Run(o.op, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordWafErrorAPI(t, o.op))
 			g := &WafRegionalLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "WAFInternalErrorException")
+			assertRecordedError(t, listError(ctx, g), "WAFInternalErrorException")
 		})
 	}
 }
@@ -95,9 +96,8 @@ func TestRecordWafRegionalReturnsAssociationErrors(t *testing.T) {
 		{backupID, "API_GATEWAY"}:               `{"ResourceArns":[]}`,
 	}))
 	g := &WafRegionalLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "WAFInternalErrorException")
+	assertRecordedError(t, listError(ctx, g), "WAFInternalErrorException")
 }
 
 // A page that sends back the marker it was asked with is an error, not an
@@ -106,9 +106,8 @@ func TestRecordWafRegionalReturnsRepeatedMarkerError(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
 	g := &WafRegionalLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "pagination did not advance")
+	assertRecordedError(t, listError(ctx, g), "pagination did not advance")
 }
 
 // As in the WAF lister, an ID of eight characters or fewer ends the name
@@ -117,13 +116,13 @@ func TestRecordWafRegionalNamesShortIDs(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWafShortIDAPI(t))
 	g := &WafRegionalLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_wafregional_web_acl", "short", "main_short", nil},
 		recordedResource{"aws_wafregional_web_acl", "abcdefgh", "edge_abcdefgh", nil},
 	)

@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"google.golang.org/api/compute/v1"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The project's IAM members, one per member of each binding, a
@@ -43,13 +45,14 @@ func TestIamList(t *testing.T) {
 
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme"})
-	g.SetContext(t.Context())
-	if err := g.List(); err != nil {
+	ctx := t.Context()
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Address.Type+" "+r.Observed.ID)
 	}
 	sort.Strings(got)
@@ -61,7 +64,7 @@ func TestIamList(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("resources:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if a := r.Observed.Attributes; a["project"] != "acme" || a["role"] == "" || a["member"] == "" {
 			t.Errorf("%s: attributes %v", r.Observed.ID, a)
 		}
@@ -70,7 +73,7 @@ func TestIamList(t *testing.T) {
 		t.Errorf("requested policy version %v, want 3 for conditional bindings", policyVersion)
 	}
 	var names []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		names = append(names, r.RawName)
 	}
 	sort.Strings(names)
@@ -107,9 +110,10 @@ func TestIamListsNothingInARegion(t *testing.T) {
 	t.Setenv(EndpointEnv, "http://127.0.0.1:1")
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: "us-central1"}})
-	g.SetContext(t.Context())
-	if err := g.List(); err != nil || len(g.Resources) != 0 {
-		t.Errorf("got %v, %v", g.Resources, err)
+	ctx := t.Context()
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil || len(resources) != 0 {
+		t.Errorf("got %v, %v", resources, err)
 	}
 }
 
@@ -123,8 +127,9 @@ func TestIamListFails(t *testing.T) {
 
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme"})
-	g.SetContext(t.Context())
-	if err := g.List(); err == nil {
+	ctx := t.Context()
+	_, err := g.List(ctx, harvest.Settings{})
+	if err == nil {
 		t.Error("want an error")
 	}
 }

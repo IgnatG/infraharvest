@@ -60,14 +60,13 @@ func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EcrLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "the lifecycle policy of tools/legacy") || !strings.Contains(err.Error(), "AccessDeniedException") {
 		t.Errorf("want a partial error for the lifecycle policy of tools/legacy, got %v", err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_ecr_repository", "web", "web", nil},
 		recordedResource{"aws_ecr_repository_policy", "web", "web", nil},
 		recordedResource{"aws_ecr_repository", "api", "api", nil},
@@ -84,7 +83,6 @@ func TestRecordEcrReturnsRepositoryErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &EcrLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

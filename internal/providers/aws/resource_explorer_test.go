@@ -177,15 +177,15 @@ func listRegion(ctx context.Context, t *testing.T, service string, explorer bool
 	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.Select(service, false); err != nil {
+	lister, err := p.Lister(service)
+	if err != nil {
 		t.Fatal(err)
 	}
-	s := p.Selected()
-	s.SetContext(ctx)
-	if err := s.List(); err != nil {
+	resources, err := lister.List(ctx, harvest.Settings{Service: service, Provider: "aws"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return s.Listed()
+	return resources
 }
 
 func TestResourceExplorerSkipsServicesTheRegionHasNoneOf(t *testing.T) {

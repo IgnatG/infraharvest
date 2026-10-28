@@ -4,7 +4,6 @@
 package google
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -69,22 +68,19 @@ func sqlAdmin(t *testing.T) (server *httptest.Server, requested func() []string)
 	}
 }
 
-// newCloudSQL is a lister of region of the project acme, in a run of its
-// own (see fastRetries), so that it keeps none of the instance lists of
-// other tests: a server on the same port would otherwise give a test
-// another's.
+// newCloudSQL is a lister of region of the project acme, which a test lists
+// in a run of its own (see fastRetries), so that it keeps none of the
+// instance lists of other tests: a server on the same port would otherwise
+// give a test another's.
 func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 	t.Helper()
-	return cloudSQLLister(fastRetries(t), region)
+	return cloudSQLLister(region)
 }
 
-// cloudSQLLister is a lister of region of the project acme, in the run of
-// ctx.
-func cloudSQLLister(ctx context.Context, region string) *CloudSQLLister {
+// cloudSQLLister is a lister of region of the project acme.
+func cloudSQLLister(region string) *CloudSQLLister {
 	g := &CloudSQLLister{}
-	g.Configure(harvest.ListerConfig{Provider: "google"})
 	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: region}})
-	g.SetContext(ctx)
 	return g
 }
 
@@ -93,12 +89,13 @@ func TestCloudSQLList(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newCloudSQL(t, "us-central1")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Address.Type+" "+r.Observed.ID+" "+r.RawName)
 	}
 	sort.Strings(got)
@@ -116,7 +113,7 @@ func TestCloudSQLList(t *testing.T) {
 		t.Errorf("resources:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if r.Observed.ID != "projects/acme/instances/orders/databases/app" {
 			continue
 		}
@@ -148,14 +145,15 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 
 	regions := []string{"us-central1", "europe-west1", "us-central1", "asia-east1"}
 	listers := make([]*CloudSQLLister, len(regions))
+	resources := make([][]harvest.Resource, len(regions))
 	errs := make([]error, len(regions))
 	var wg sync.WaitGroup
 	for i, region := range regions {
-		listers[i] = cloudSQLLister(ctx, region)
+		listers[i] = cloudSQLLister(region)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = listers[i].List()
+			resources[i], errs[i] = listers[i].List(ctx, harvest.Settings{Provider: "google"})
 		}()
 	}
 	wg.Wait()
@@ -164,7 +162,7 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 		if errs[i] != nil {
 			t.Fatalf("%s: %v", regions[i], errs[i])
 		}
-		if got := len(listers[i].Resources); got != want {
+		if got := len(resources[i]); got != want {
 			t.Errorf("%s: got %d resources, want %d", regions[i], got, want)
 		}
 	}
@@ -204,10 +202,10 @@ func TestCloudSQLKeepsAFailure(t *testing.T) {
 	t.Setenv(EndpointEnv, failOnce.URL)
 
 	ctx := fastRetries(t)
-	if err := cloudSQLLister(ctx, "us-central1").List(); err == nil {
+	if _, err := cloudSQLLister("us-central1").List(ctx, harvest.Settings{Provider: "google"}); err == nil {
 		t.Fatal("the failed list succeeded")
 	}
-	if err := cloudSQLLister(ctx, "europe-west1").List(); err == nil {
+	if _, err := cloudSQLLister("europe-west1").List(ctx, harvest.Settings{Provider: "google"}); err == nil {
 		t.Error("another region's import listed again after the failure")
 	}
 	mu.Lock()
@@ -217,8 +215,9 @@ func TestCloudSQLKeepsAFailure(t *testing.T) {
 		t.Errorf("got %d requests, want the failing one", made)
 	}
 	g := newCloudSQL(t, "us-central1")
-	if err := g.List(); err != nil || len(g.Resources) != 4 {
-		t.Errorf("listing afresh: got %d resources, %v", len(g.Resources), err)
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil || len(resources) != 4 {
+		t.Errorf("listing afresh: got %d resources, %v", len(resources), err)
 	}
 }
 
@@ -228,11 +227,12 @@ func TestCloudSQLGlobal(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newCloudSQL(t, "")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Resources) != 0 {
-		t.Errorf("%d resources, want none", len(g.Resources))
+	if len(resources) != 0 {
+		t.Errorf("%d resources, want none", len(resources))
 	}
 	if paths := requested(); len(paths) != 0 {
 		t.Errorf("requests %v, want none", paths)
@@ -245,11 +245,12 @@ func TestCloudSQLRegionWithoutInstances(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newCloudSQL(t, "asia-east1")
-	if err := g.List(); err != nil {
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Resources) != 0 {
-		t.Errorf("%d resources, want none", len(g.Resources))
+	if len(resources) != 0 {
+		t.Errorf("%d resources, want none", len(resources))
 	}
 	for _, path := range requested() {
 		if strings.HasSuffix(path, "/databases") {
@@ -282,15 +283,15 @@ func TestCloudSQLInstanceListFails(t *testing.T) {
 			t.Setenv(EndpointEnv, server.URL)
 
 			g := newCloudSQL(t, "us-central1")
-			err := g.List()
+			resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
 			if err == nil {
 				t.Fatal("want an error")
 			}
 			if !strings.Contains(err.Error(), "acme") {
 				t.Errorf("error %q doesn't name the project", err)
 			}
-			if len(g.Resources) != 0 {
-				t.Errorf("%d resources, want none", len(g.Resources))
+			if len(resources) != 0 {
+				t.Errorf("%d resources, want none", len(resources))
 			}
 		})
 	}
@@ -345,8 +346,8 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			ctx := fastRetries(t)
 			cachesOf(ctx).setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
 
-			g := cloudSQLLister(ctx, "us-central1")
-			err := g.List()
+			g := cloudSQLLister("us-central1")
+			resources, err := g.List(ctx, harvest.Settings{Provider: "google"})
 			if got := err != nil; got != tt.partial {
 				t.Fatalf("error %v, want one: %v", err, tt.partial)
 			}
@@ -358,8 +359,8 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 					t.Errorf("error %q doesn't name the instance", err)
 				}
 			}
-			if len(g.Resources) != 1 || g.Resources[0].Observed.ID != "projects/acme/instances/orders/databases/app" {
-				t.Errorf("resources %v, want the database of orders", g.Resources)
+			if len(resources) != 1 || resources[0].Observed.ID != "projects/acme/instances/orders/databases/app" {
+				t.Errorf("resources %v, want the database of orders", resources)
 			}
 			p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}, caches: cachesOf(ctx)}
 			if got := slices.Contains(p.PartialTypes(), sqlDatabaseType); got != tt.partialType {
@@ -417,15 +418,15 @@ func TestCloudSQLListsDatabasesAtOnce(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	ctx := fastRetries(t)
-	g := cloudSQLLister(ctx, "us-central1")
-	err := g.List()
+	g := cloudSQLLister("us-central1")
+	resources, err := g.List(ctx, harvest.Settings{Provider: "google"})
 
 	// secret's failure alone fails the listing, in part.
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "orders") || strings.Contains(err.Error(), "stopped") || strings.Contains(err.Error(), "gone") {
 		t.Errorf("error %v, want a partial one naming secret alone", err)
 	}
 	var got []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		got = append(got, r.Observed.ID)
 	}
 	want := []string{
@@ -477,7 +478,8 @@ func TestCloudSQLAPIDisabled(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := newCloudSQL(t, "us-central1")
-	if err := g.List(); err != nil || len(g.Resources) != 0 {
-		t.Errorf("got %v, %v; want nothing and no error", g.Resources, err)
+	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
+	if err != nil || len(resources) != 0 {
+		t.Errorf("got %v, %v; want nothing and no error", resources, err)
 	}
 }

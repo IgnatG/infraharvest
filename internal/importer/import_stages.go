@@ -134,12 +134,12 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 type callContext struct {
 	options Options
 	// cat is the catalogue of the import, the built-in one with the
-	// --catalogue overlay merged in; the provider of each service listed
-	// is given it (see listServices).
+	// --catalogue overlay merged in; the provider is given it (see
+	// Run.prepareCall).
 	cat *catalogue.Catalogue
 	// unwanted reports whether the import leaves out every resource of a
 	// type whatever is listed (see selection.Unwanted), whose listing the
-	// provider of each service listed may skip (see listServices); nil for
+	// provider's listers may skip (see listServices); nil for
 	// discover, which lists every type, so that the selection file can
 	// include any.
 	unwanted func(typ string) bool

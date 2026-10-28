@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -21,7 +22,11 @@ type CloudFormationLister struct {
 
 // List lists the stacks, then each stack set followed by its
 // instances. Every error ends the listing.
-func (g *CloudFormationLister) List() error {
+func (g *CloudFormationLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudFormationLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -76,7 +81,7 @@ func (g *CloudFormationLister) listStackSets(client *cloudformation.Client) erro
 			name := aws.ToString(set.StackSetName)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudformation_stack_set", "aws"))
 			// A call per stack set, for instances the import may not keep.
-			if !g.wants("aws_cloudformation_stack_set_instance") {
+			if !g.Wants("aws_cloudformation_stack_set_instance") {
 				continue
 			}
 			if err := g.listStackInstances(client, name); err != nil {

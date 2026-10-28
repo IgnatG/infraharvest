@@ -64,13 +64,13 @@ func TestRecordEfsListsFileSystemsMountTargetsPoliciesAndAccessPoints(t *testing
 	t.Parallel()
 	ctx := useFakeAPI(t, recordEfsAPI(t, ""))
 	g := &EfsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "mount targets of fs-2") {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "mount targets of fs-2") {
 		t.Errorf("want a partial error for the mount targets of fs-2, got %v", err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_efs_file_system", "fs-1", "fs-1", nil},
 		recordedResource{"aws_efs_mount_target", "fsmt-1a", "fsmt-1a", nil},
 		recordedResource{"aws_efs_mount_target", "fsmt-1b", "fsmt-1b", nil},
@@ -92,9 +92,8 @@ func TestRecordEfsReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordEfsAPI(t, failing))
 			g := &EfsLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

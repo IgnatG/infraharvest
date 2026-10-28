@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -23,7 +25,11 @@ type NaclLister struct {
 
 // List lists every network ACL, page by page. An API error is
 // returned and ends the listing.
-func (g *NaclLister) List() error {
+func (g *NaclLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *NaclLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

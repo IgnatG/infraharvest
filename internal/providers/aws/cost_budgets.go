@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/budgets"
 
@@ -20,7 +22,11 @@ type BudgetsLister struct {
 // List lists the budgets of the account the credentials belong
 // to. Terraform imports a budget as <account>:<budget name>, so the
 // account comes first, from STS.
-func (g *BudgetsLister) List() error {
+func (g *BudgetsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *BudgetsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

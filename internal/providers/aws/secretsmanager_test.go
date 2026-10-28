@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister leaves out the secrets services create for themselves, such
 // as the master password RDS manages for a database, and the secrets
@@ -25,11 +29,11 @@ func TestSecretsManagerLeavesOutServiceSecrets(t *testing.T) {
 			{"ARN":"` + arn + `old-MnOpQr","Name":"old","DeletedDate":1767225600}]}`
 	})
 	g := &SecretsManagerLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_secretsmanager_secret", arn+"app-AbCdEf")
+	assertIDs(t, resources, "aws_secretsmanager_secret", arn+"app-AbCdEf")
 }

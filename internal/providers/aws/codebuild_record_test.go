@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists each CodeBuild project by name, across pages.
@@ -21,13 +23,13 @@ func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
 		return fmt.Sprintf(`{"projects":["web-build","web-tests"],"nextToken":%q}`, nextPageToken)
 	})
 	g := &CodeBuildLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_codebuild_project", "web-build", "web-build", nil},
 		recordedResource{"aws_codebuild_project", "web-tests", "web-tests", nil},
 		recordedResource{"aws_codebuild_project", "api-build", "api-build", nil},
@@ -40,7 +42,6 @@ func TestRecordCodeBuildReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &CodeBuildLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

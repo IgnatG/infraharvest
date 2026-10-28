@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -28,7 +29,11 @@ type OrganizationLister struct {
 // attachments. Every list is read across pages, and every error is
 // returned: a part of the tree left out would leave out all that is below
 // it.
-func (g *OrganizationLister) List() error {
+func (g *OrganizationLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *OrganizationLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

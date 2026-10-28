@@ -22,7 +22,11 @@ type EmrLister struct {
 
 // List lists the clusters, then the security configurations.
 // Either list failing fails the service.
-func (g *EmrLister) List() error {
+func (g *EmrLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EmrLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

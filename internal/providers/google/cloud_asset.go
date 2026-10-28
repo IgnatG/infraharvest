@@ -54,7 +54,11 @@ type CloudAssetLister struct {
 // listing fails in part (see harvest.Partial): it keeps every resource,
 // and the disks and node pools it couldn't tell about are left out by
 // default.
-func (g *CloudAssetLister) List() error {
+func (g *CloudAssetLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudAssetLister) list() error {
 	cat := g.catalogue()
 	types := g.Types(cat)
 	assetTypes := inventoryTypes(cat, types)
@@ -79,7 +83,7 @@ func (g *CloudAssetLister) List() error {
 	// Marking takes a list of the instances or the clusters, which those
 	// of types the import leaves out alone don't need.
 	wanted := slices.DeleteFunc(slices.Clone(resources), func(r harvest.Resource) bool {
-		return !g.Settings().wants(r.Address.Type)
+		return !g.Wants(r.Address.Type)
 	})
 	var unmarked []error
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {

@@ -102,7 +102,7 @@ type scopedResource struct {
 func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
 	service.SetSettings(serviceSettings{region: region, profile: profile, roleARN: roleARN})
-	service.SetContext(ctx)
+	service.Begin(ctx, harvest.Settings{})
 	config, err := service.sdkConfig()
 	if err != nil {
 		return nil, err

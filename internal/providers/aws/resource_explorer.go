@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/resourceexplorer2"
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
 	"github.com/aws/smithy-go"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // explorerTypes maps the services Resource Explorer may rule out to the
@@ -105,22 +107,22 @@ const explorerIndexMinAge = 24 * time.Hour
 // pages.
 const explorerSearchLimit = 1000
 
-// explorerSkip returns why the service needn't list its region: Resource
-// Explorer is on and its index shows the service has nothing there. It
-// returns "" otherwise, and whenever the index can't tell.
-func (s *guardedLister) explorerSkip() string {
+// explorerSkip returns why the service called name needn't list its region:
+// Resource Explorer is on and its index shows the service has nothing
+// there. It returns "" otherwise, and whenever the index can't tell. Its
+// calls take ctx.
+func (s *guardedLister) explorerSkip(ctx context.Context, name string) string {
 	if !s.resourceExplorer {
 		return ""
 	}
-	name := s.lister.Name()
 	types, ok := explorerTypes[name]
 	if !ok {
 		return ""
 	}
 	svc := &Service{}
-	svc.SetSettings(s.Settings())
-	svc.SetContext(s.Context())
-	return explorerFor(svc).skip(svc.Context(), name, types)
+	svc.SetSettings(s.settings)
+	svc.Begin(ctx, harvest.Settings{Service: name})
+	return explorerFor(svc).skip(ctx, name, types)
 }
 
 // explorerRegion is what Resource Explorer says about one account and

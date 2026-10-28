@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists each CloudHSM v2 cluster by ID, across pages, followed
@@ -29,13 +31,13 @@ func TestRecordCloudHsmListsClustersAndHsms(t *testing.T) {
 			"NextToken":%q}`, nextPageToken)
 	})
 	g := &CloudHsmLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cloudhsm_v2_cluster", "cluster-1", "cluster-1", nil},
 		recordedResource{"aws_cloudhsm_v2_hsm", "hsm-a", "hsm-a", map[string]string{"cluster_id": "cluster-1"}},
 		recordedResource{"aws_cloudhsm_v2_hsm", "hsm-b", "hsm-b", map[string]string{"cluster_id": "cluster-1"}},
@@ -48,7 +50,6 @@ func TestRecordCloudHsmReturnsErrors(t *testing.T) {
 		return recordJSONError("CloudHsmAccessDeniedException")
 	})
 	g := &CloudHsmLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "CloudHsmAccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "CloudHsmAccessDeniedException")
 }

@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,7 +30,11 @@ type EksLister struct {
 // make a configuration that plans to delete them. The clusters of a page
 // are read resourceParallel at a time, as each takes several calls, and
 // recorded in the page's order.
-func (g *EksLister) List() error {
+func (g *EksLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EksLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -72,7 +77,7 @@ func (g *EksLister) cluster(clusterName string, svc *eks.Client) ([]harvest.Reso
 		{g.getAccessEntries, []string{"aws_eks_access_entry", "aws_eks_access_policy_association"}},
 	}
 	for _, part := range parts {
-		if !g.wantsAny(part.types...) {
+		if !g.WantsAny(part.types...) {
 			continue
 		}
 		if err := part.list(clusterName, svc, &resources); err != nil {
@@ -175,7 +180,7 @@ func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client, out *[
 		for _, principal := range page.AccessEntries {
 			*out = append(*out, harvest.RecordBare(clusterName+":"+principal, arnName(principal), "aws_eks_access_entry", "aws"))
 			// A call per entry, for associations the import may not keep.
-			if !g.wants("aws_eks_access_policy_association") {
+			if !g.Wants("aws_eks_access_policy_association") {
 				continue
 			}
 			if err := g.getAccessPolicyAssociations(clusterName, principal, svc, out); err != nil {

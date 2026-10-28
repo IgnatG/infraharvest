@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists every MediaStore container by name, across pages, but
 // those being deleted.
@@ -23,13 +27,13 @@ func TestRecordMediaStoreListsContainers(t *testing.T) {
 			"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &MediaStoreLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_media_store_container", "live", "live", nil},
 		recordedResource{"aws_media_store_container", "archive", "archive", nil},
 	)
@@ -41,7 +45,6 @@ func TestRecordMediaStoreReturnsErrors(t *testing.T) {
 		return recordJSONError("InternalServerError")
 	})
 	g := &MediaStoreLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "InternalServerError")
+	assertRecordedError(t, listError(ctx, g), "InternalServerError")
 }

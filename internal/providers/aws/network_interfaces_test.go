@@ -6,6 +6,8 @@ package aws
 import (
 	"net/url"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister asks for the network interfaces AWS doesn't manage, of the
@@ -45,13 +47,13 @@ func TestRecordNetworkInterfaces(t *testing.T) {
 			</networkInterfaceSet>`)
 	})
 	g := &NetworkInterfaceLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_network_interface", "eni-own", "eni-own", nil},
 		recordedResource{"aws_network_interface", "eni-secondary", "eni-secondary", nil},
 		recordedResource{"aws_network_interface", "eni-tagged", "eni-tagged", nil},

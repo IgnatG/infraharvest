@@ -4,30 +4,104 @@
 package harvest
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
 )
 
-func TestSetFiltersWithNoFilters(t *testing.T) {
+// A lister listing a service with settings of its own provider's, and the
+// import's.
+type typedLister struct {
+	ListerOf[string]
+	listed []Resource
+	err    error
+}
+
+func (l *typedLister) List(ctx context.Context, s Settings) ([]Resource, error) {
+	return l.Run(ctx, s, func() error {
+		l.Resources = append(l.Resources, l.listed...)
+		return l.err
+	})
+}
+
+// Run gives the lister the context and the settings of the call, and
+// returns what it listed with its error, even a partial one, which keeps
+// what was listed.
+func TestListerOfRun(t *testing.T) {
 	t.Parallel()
-	var s ListerBase
-	s.SetFilters(nil)
-	if !reflect.DeepEqual(s.filters, []Filter{}) {
-		t.Errorf("filters: got %#v, want an empty, non-nil slice", s.filters)
+	partial := Partial(errors.New("a part was refused"))
+	l := &typedLister{listed: []Resource{RecordBare("vpc-1", "one", "aws_vpc", "aws")}, err: partial}
+	l.SetSettings("eu-west-1")
+
+	got, err := l.List(t.Context(), Settings{Service: "vpc", Provider: "aws", Verbose: true})
+
+	if !errors.Is(err, partial) || !IsPartial(err) {
+		t.Errorf("error: got %v, want the lister's partial one", err)
+	}
+	if len(got) != 1 || got[0].Observed.ID != "vpc-1" {
+		t.Errorf("listed: got %v, want vpc-1", got)
+	}
+	if l.Name() != "vpc" || l.Provider() != "aws" || !l.Verbose() || l.Settings() != "eu-west-1" {
+		t.Errorf("accessors: got %q, %q, %v, %q", l.Name(), l.Provider(), l.Verbose(), l.Settings())
 	}
 }
 
-// SetFilters keeps a copy: changing the caller's slice afterwards doesn't
-// change the lister's filters.
-func TestSetFiltersCopies(t *testing.T) {
+func TestSettingsWants(t *testing.T) {
 	t.Parallel()
-	filters := []Filter{{Service: "vpc", Path: "id", Values: []string{"vpc-1"}}}
-	var s ListerBase
-	s.SetFilters(filters)
-	filters[0].Service = "subnet"
-	if s.filters[0].Service != "vpc" {
-		t.Errorf("filters: got %#v, want the vpc filter", s.filters)
+	unwanted := Settings{Unwanted: func(typ string) bool { return typ == "aws_iam_access_key" }}
+	for _, tc := range []struct {
+		name     string
+		settings Settings
+		types    []string
+		want     bool
+	}{
+		{"every type, when the import leaves none out", Settings{}, []string{"aws_iam_access_key"}, true},
+		{"a type it leaves out", unwanted, []string{"aws_iam_access_key"}, false},
+		{"another type", unwanted, []string{"aws_iam_user"}, true},
+		{"any of types, one wanted", unwanted, []string{"aws_iam_access_key", "aws_iam_user"}, true},
+		{"any of types, none wanted", unwanted, []string{"aws_iam_access_key"}, false},
+	} {
+		if got := tc.settings.WantsAny(tc.types...); got != tc.want {
+			t.Errorf("%s: WantsAny(%v) = %v, want %v", tc.name, tc.types, got, tc.want)
+		}
+		if len(tc.types) == 1 {
+			if got := tc.settings.Wants(tc.types[0]); got != tc.want {
+				t.Errorf("%s: Wants(%v) = %v, want %v", tc.name, tc.types[0], got, tc.want)
+			}
+		}
+	}
+}
+
+// ListerFor gives the lister it makes the provider's settings when it takes
+// them, makes a lister that takes none as it is, and fails for a service the
+// provider doesn't have, naming the command that lists them.
+func TestListerFor(t *testing.T) {
+	t.Parallel()
+	newLister := func(name string) Lister {
+		switch name {
+		case "typed":
+			return &typedLister{}
+		case QueryService:
+			return QueryLister{}
+		}
+		return nil
+	}
+
+	typed, err := ListerFor("aws", "typed", newLister, "eu-west-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := typed.(*typedLister).Settings(); got != "eu-west-1" {
+		t.Errorf("settings: got %q, want eu-west-1", got)
+	}
+	if untyped, err := ListerFor("aws", QueryService, newLister, "eu-west-1"); err != nil || untyped != (QueryLister{}) {
+		t.Errorf("a lister without settings: got %v, %v", untyped, err)
+	}
+	_, err = ListerFor("aws", "nothing", newLister, "eu-west-1")
+	if err == nil || !strings.Contains(err.Error(), `not a service of aws; "infraharvest services aws" lists them`) {
+		t.Errorf("a service it lacks: got %v", err)
 	}
 }
 
@@ -208,15 +282,13 @@ func TestPrune(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := ListerBase{Resources: tc.resources}
-			s.SetFilters(tc.filters)
-			s.Prune()
+			pruned := Prune(tc.resources, tc.filters)
 
-			if got := resourceTypes(s.Resources); !reflect.DeepEqual(got, tc.wantTypes) {
+			if got := resourceTypes(pruned); !reflect.DeepEqual(got, tc.wantTypes) {
 				t.Errorf("types kept: got %v, want %v", got, tc.wantTypes)
 			}
-			ids := make([]string, 0, len(s.Resources))
-			for _, resource := range s.Resources {
+			ids := make([]string, 0, len(pruned))
+			for _, resource := range pruned {
 				ids = append(ids, resource.Observed.ID)
 			}
 			if !reflect.DeepEqual(ids, tc.wantIDs) {

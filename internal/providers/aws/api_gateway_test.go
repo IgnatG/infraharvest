@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister records the IDs Terraform imports each part of a REST API
 // with, lists the deployment a stage serves and not the API's root
@@ -48,27 +52,27 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 		return `{"item":[]}`
 	})
 	g := &APIGatewayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_api_gateway_rest_api", "a1")
-	assertIDs(t, g.Resources, "aws_api_gateway_stage", "a1/prod", "a1/test")
-	assertIDs(t, g.Resources, "aws_api_gateway_deployment", "a1/d1")
-	assertIDs(t, g.Resources, "aws_api_gateway_resource", "a1/r1")
-	assertIDs(t, g.Resources, "aws_api_gateway_method", "a1/root/GET", "a1/r1/GET", "a1/r1/POST")
-	assertIDs(t, g.Resources, "aws_api_gateway_integration", "a1/r1/GET")
-	assertIDs(t, g.Resources, "aws_api_gateway_integration_response", "a1/r1/GET/200")
-	assertIDs(t, g.Resources, "aws_api_gateway_method_response", "a1/root/GET/200", "a1/r1/GET/200", "a1/r1/GET/500")
-	assertIDs(t, g.Resources, "aws_api_gateway_model", "a1/Order")
-	assertIDs(t, g.Resources, "aws_api_gateway_gateway_response", "a1/UNAUTHORIZED")
-	assertIDs(t, g.Resources, "aws_api_gateway_documentation_part", "a1/p1")
-	assertIDs(t, g.Resources, "aws_api_gateway_authorizer", "a1/au1")
+	assertIDs(t, resources, "aws_api_gateway_rest_api", "a1")
+	assertIDs(t, resources, "aws_api_gateway_stage", "a1/prod", "a1/test")
+	assertIDs(t, resources, "aws_api_gateway_deployment", "a1/d1")
+	assertIDs(t, resources, "aws_api_gateway_resource", "a1/r1")
+	assertIDs(t, resources, "aws_api_gateway_method", "a1/root/GET", "a1/r1/GET", "a1/r1/POST")
+	assertIDs(t, resources, "aws_api_gateway_integration", "a1/r1/GET")
+	assertIDs(t, resources, "aws_api_gateway_integration_response", "a1/r1/GET/200")
+	assertIDs(t, resources, "aws_api_gateway_method_response", "a1/root/GET/200", "a1/r1/GET/200", "a1/r1/GET/500")
+	assertIDs(t, resources, "aws_api_gateway_model", "a1/Order")
+	assertIDs(t, resources, "aws_api_gateway_gateway_response", "a1/UNAUTHORIZED")
+	assertIDs(t, resources, "aws_api_gateway_documentation_part", "a1/p1")
+	assertIDs(t, resources, "aws_api_gateway_authorizer", "a1/au1")
 
 	names := map[string]string{}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		names[r.Address.Type+" "+r.Observed.ID] = r.RawName
 	}
 	for key, want := range map[string]string{
@@ -108,15 +112,15 @@ func TestAPIGatewayWithoutNames(t *testing.T) {
 		return `{"item":[]}`
 	})
 	g := &APIGatewayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_api_gateway_model")
+	assertIDs(t, resources, "aws_api_gateway_model")
 	names := map[string]string{}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		names[r.Address.Type+" "+r.Observed.ID] = r.RawName
 	}
 	for key, want := range map[string]string{
