@@ -37,3 +37,25 @@ variable "estate_resource_group" {
   type        = string
   default     = "infraharvest-sandbox"
 }
+
+variable "slot" {
+  description = "Which sandbox subscription this is: \"\" for the first, which every estate uses, or \"second\", where the environments estate (TestSandboxAzureEnvironments) puts prod. It changes the names of the variables the gh commands set, AZURE_SECOND_ for the second, and the name of the custom role, which must be unique in the tenant."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = contains(["", "second"], var.slot)
+    error_message = "Use \"\" for the first subscription or \"second\"."
+  }
+}
+
+variable "first_readonly_principal_id" {
+  description = "With slot = \"second\": the object ID of the first subscription's infraharvest-ci-readonly, its bootstrap's readonly_principal_id output. It gets Reader on this subscription too, as permissions/azure grants, for the environments estate's first import, which reads both subscriptions with one sign-in."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.first_readonly_principal_id == "" || can(regex("^[0-9a-fA-F-]{36}$", var.first_readonly_principal_id))
+    error_message = "Use the principal's object ID, a GUID."
+  }
+}

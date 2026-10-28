@@ -6,10 +6,12 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -275,4 +278,27 @@ func copyOutput(out, dst string) error {
 		}
 		return os.WriteFile(target, content, 0o600)
 	})
+}
+
+// checkVerified runs infraharvest verify on the output directory out as
+// environment env, with the credentials the process has then, as that
+// environment's team runs it, and checks that the root environments share
+// at path, relative to out, passes every check as env.
+func checkVerified(ctx context.Context, t *testing.T, engineName, execPath, out, path, env string) {
+	t.Helper()
+	var stdout bytes.Buffer
+	root := cli.NewCmdRoot()
+	root.SetArgs([]string{"verify", out, "--engine=" + engineName, "--terraform-path=" + execPath, "--environment=" + env})
+	root.SetOut(&stdout)
+	err := root.ExecuteContext(ctx)
+	t.Logf("infraharvest verify --environment=%s: %v\n%s", env, err, stdout.String())
+	if err != nil {
+		t.Errorf("infraharvest verify --environment=%s: %v", env, err)
+	}
+	// One line per root and environment: "<path> (<env>): <status>".
+	if !slices.ContainsFunc(strings.Split(stdout.String(), "\n"), func(line string) bool {
+		return strings.HasPrefix(line, path+" ("+env+"): passed")
+	}) {
+		t.Errorf("infraharvest verify --environment=%s: %s didn't pass as %s:\n%s", env, path, env, stdout.String())
+	}
 }
