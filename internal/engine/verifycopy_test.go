@@ -146,12 +146,12 @@ func TestVerifyMergedChecksACopyWithoutTheBackend(t *testing.T) {
 		inspector = &copyInspector{Terraform: &mergeFake{env: "prod", dir: d, overrides: &overrides}, dir: d}
 		return inspector, nil
 	}
-	gate, err := VerifyMerged(context.Background(), newTF, dir, "prod", Options{})
+	checks, err := VerifyMerged(context.Background(), newTF, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !gate.Passed() {
-		t.Errorf("gate: %+v", gate)
+	if !checks.Passed() {
+		t.Errorf("gate: %+v", checks)
 	}
 	if got := inspector.seen[ProvidersFileName]; strings.Contains(got, "backend \"") {
 		t.Errorf("the copy's providers.tf has the backend:\n%s", got)

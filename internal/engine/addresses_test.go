@@ -181,3 +181,31 @@ func TestAddressType(t *testing.T) {
 		}
 	}
 }
+
+// A finding is about the resource at its address, or the only one at it
+// but for instance keys, or the only one in the module call it names.
+func TestResourceAt(t *testing.T) {
+	t.Parallel()
+	managed := []Managed{
+		{Type: "aws_s3_bucket", ID: "acme-logs", Address: "aws_s3_bucket.logs"},
+		{Type: "aws_s3_bucket", ID: "acme-data", Address: "module.data.aws_s3_bucket.this[0]"},
+		{Type: "aws_iam_role", ID: "a", Address: `module.roles["a"].aws_iam_role.this`},
+		{Type: "aws_iam_role", ID: "b", Address: `module.roles["b"].aws_iam_role.this`},
+	}
+	for address, want := range map[string]string{
+		"aws_s3_bucket.logs":                  "acme-logs",
+		"module.data.aws_s3_bucket.this[0]":   "acme-data",
+		"module.data.aws_s3_bucket.this":      "acme-data",
+		"module.data":                         "acme-data",
+		`module.roles["a"].aws_iam_role.this`: "a",
+		"module.roles.aws_iam_role.this":      "",
+		"module.roles":                        "",
+		"aws_s3_bucket.other":                 "",
+		"":                                    "",
+	} {
+		m, ok := ResourceAt(managed, address)
+		if ok != (want != "") || m.ID != want {
+			t.Errorf("%q: got %+v, %v, want %q", address, m, ok, want)
+		}
+	}
+}

@@ -20,6 +20,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
@@ -389,12 +390,12 @@ func TestGoldenMergedRoots(t *testing.T) {
 				t.Errorf("wrote %v, want %v", g.written, want)
 			}
 			policy := fullGate(Options{})
-			policy.plan = func() (Check, []string, error) { return Check{Name: CheckPlan, Passed: true}, nil, nil }
-			gate, _, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
+			policy.Plan = func() (gate.Check, []string, error) { return gate.Check{Name: gate.CheckPlan, Passed: true}, nil, nil }
+			checks, _, err := policy.Run(context.Background(), &fakeTerraform{dir: dir}, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, c := range gate {
+			for _, c := range checks {
 				if !c.Passed {
 					t.Errorf("%s failed: %s", c.Name, strings.Join(c.Details, "; "))
 				}

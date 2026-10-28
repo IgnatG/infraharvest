@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 // findingsReport is a report of a root whose scanners found something
@@ -32,9 +33,9 @@ func findingsReport() *Report {
 			{Type: "aws_iam_role", ID: "a", Address: `module.roles["a"].aws_iam_role.this`},
 			{Type: "aws_iam_role", ID: "b", Address: `module.roles["b"].aws_iam_role.this`},
 		},
-		Gate: engine.Gate{
-			{Name: engine.CheckFormat, Passed: true},
-			{Name: engine.CheckScanners, Passed: true, Details: []string{"trivy: 4 findings"}, Findings: []engine.Finding{
+		Gate: gate.Gate{
+			{Name: gate.CheckFormat, Passed: true},
+			{Name: gate.CheckScanners, Passed: true, Details: []string{"trivy: 4 findings"}, Findings: []gate.Finding{
 				{Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: "S3 Bucket Logging", Resource: "aws_s3_bucket.logs"},
 				{Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag", Resource: "aws_s3_bucket.logs"},
 				{Scanner: "checkov", Rule: "CKV_AWS_18", Location: "modules/bucket/main.tf:5", Message: "Ensure the S3 bucket has access logging enabled", Resource: "module.data.aws_s3_bucket.this"},
@@ -160,8 +161,8 @@ func TestMergeFindings(t *testing.T) {
 func TestMergedRootFindings(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
-	gate := func(message string) engine.Gate {
-		return engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+	checked := func(message string) gate.Gate {
+		return gate.Gate{{Name: gate.CheckScanners, Passed: true, Findings: []gate.Finding{
 			{Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: message, Resource: "aws_s3_bucket.logs"},
 		}}}
 	}
@@ -170,13 +171,13 @@ func TestMergedRootFindings(t *testing.T) {
 		r.AddListed(Listed{Scope: scope, Service: "s3", Type: "aws_s3_bucket", ID: id})
 		r.AddDirectory(path, scope, &engine.Result{
 			Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: id, Address: "aws_s3_bucket.logs"}},
-			Gate:      gate("S3 Bucket Logging, in the root set aside"),
+			Gate:      checked("S3 Bucket Logging, in the root set aside"),
 		})
 	}
 	m := Merge{Path: "aws", Merged: true, Environments: []string{"dev", "prod"}, Roots: []MergedRoot{{Env: "dev", Path: "envs/dev/aws"}, {Env: "prod", Path: "envs/prod/aws"}}}
 	for env, id := range map[string]string{"dev": "acme-dev-logs", "prod": "acme-prod-logs"} {
 		managed := engine.MergedManaged(map[string]string{"aws_s3_bucket.logs": id})
-		m.Findings = append(m.Findings, GateFindings("aws", env, managed, gate("S3 Bucket Logging"))...)
+		m.Findings = append(m.Findings, GateFindings("aws", env, managed, checked("S3 Bucket Logging"))...)
 	}
 	r.AddMerge(m, []string{"envs/dev/aws", "envs/prod/aws"})
 	r.Finish(nil, nil, false)

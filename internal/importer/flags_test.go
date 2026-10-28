@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 // --policy is an explicit request: without conftest it fails up front,
@@ -27,10 +27,10 @@ func TestResolvePolicies(t *testing.T) {
 		t.Fatal(err)
 	}
 	withConftest, without := t.TempDir(), t.TempDir()
-	if err := os.WriteFile(filepath.Join(withConftest, engine.ConftestBinary), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(withConftest, gate.ConftestBinary), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(withConftest, engine.ConftestBinary+".exe"), nil, 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(withConftest, gate.ConftestBinary+".exe"), nil, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for name, tc := range map[string]struct {

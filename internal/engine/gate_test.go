@@ -15,8 +15,8 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
-	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 func change(address string, actions tfjson.Actions, before, after map[string]any) *tfjson.ResourceChange {
@@ -24,250 +24,6 @@ func change(address string, actions tfjson.Actions, before, after map[string]any
 	return &tfjson.ResourceChange{
 		Address: address, Type: typ, Mode: tfjson.ManagedResourceMode,
 		Change: &tfjson.Change{Actions: actions, Before: before, After: after, Importing: &tfjson.Importing{ID: "x"}},
-	}
-}
-
-var update = tfjson.Actions{tfjson.ActionUpdate}
-
-func TestPlanCheck(t *testing.T) {
-	t.Parallel()
-	stateOnly := map[string][]string{"aws_secretsmanager_secret": {"recovery_window_in_days"}}
-	secrets := []secret.Variable{{Variable: "v", Address: "aws_ssm_parameter.p", Attribute: "value"}, {Variable: "w", Address: "aws_mq_broker.b", Attribute: "user[0].password"}}
-	for _, tc := range []struct {
-		name    string
-		changes []*tfjson.ResourceChange
-		passed  bool
-	}{
-		{"imports only", []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}, true},
-		{"state-only argument", []*tfjson.ResourceChange{change("aws_secretsmanager_secret.db", update, map[string]any{"name": "db"}, map[string]any{"name": "db", "recovery_window_in_days": 30.0})}, true},
-		{"placeholder secret", []*tfjson.ResourceChange{change("aws_ssm_parameter.p", update, map[string]any{"value": "real"}, map[string]any{"value": "placeholder"})}, true},
-		{"placeholder secret and what it makes unknown", []*tfjson.ResourceChange{withUnknown(change("aws_ssm_parameter.p", update, map[string]any{"value": "real", "version": 1.0}, map[string]any{"value": "placeholder"}), "version")}, true},
-		{"unknown without a secret", []*tfjson.ResourceChange{withUnknown(change("aws_nat_gateway.n", update, map[string]any{}, map[string]any{}), "secondary_allocation_ids")}, false},
-		{"real change", []*tfjson.ResourceChange{change("aws_vpc.main", update, map[string]any{"cidr_block": "10.0.0.0/16"}, map[string]any{"cidr_block": "10.1.0.0/16"})}, false},
-		{"create", []*tfjson.ResourceChange{change("aws_vpc.extra", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{})}, false},
-		{"delete", []*tfjson.ResourceChange{change("aws_vpc.old", tfjson.Actions{tfjson.ActionDelete}, map[string]any{}, nil)}, false},
-		{"replace", []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionDelete, tfjson.ActionCreate}, map[string]any{}, map[string]any{})}, false},
-		{"secret in a block", []*tfjson.ResourceChange{change("aws_mq_broker.b", update, map[string]any{"user": []any{map[string]any{"username": "app", "password": "real"}}}, map[string]any{"user": []any{map[string]any{"username": "app", "password": "placeholder"}}})}, true},
-		{"secret in a block and a real change beside it", []*tfjson.ResourceChange{change("aws_mq_broker.b", update, map[string]any{"user": []any{map[string]any{"username": "app", "password": "real"}}}, map[string]any{"user": []any{map[string]any{"username": "other", "password": "placeholder"}}})}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			check := planCheck(&tfjson.Plan{ResourceChanges: tc.changes}, nil, secrets, stateOnly, len(tc.changes))
-			if check.Passed != tc.passed {
-				t.Errorf("passed=%v, want %v: %v", check.Passed, tc.passed, check.Details)
-			}
-		})
-	}
-
-	failed := planCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		change("aws_vpc.main", update, map[string]any{"cidr_block": "a", "tags": nil}, map[string]any{"cidr_block": "b", "tags": map[string]any{}}),
-	}}, nil, nil, nil, 1)
-	want := []PlannedChange{{Address: "aws_vpc.main", Actions: []string{"update"}, Attributes: []string{"cidr_block", "tags"}}}
-	if !reflect.DeepEqual(failed.Changes, want) || failed.Details[0] != "aws_vpc.main: update (cidr_block, tags)" {
-		t.Errorf("got %+v, %v", failed.Changes, failed.Details)
-	}
-
-	errored := planCheck(nil, []tfjson.Diagnostic{errorAt(1, "Invalid value", "")}, nil, nil, 0)
-	if errored.Passed || len(errored.Details) != 1 {
-		t.Errorf("want a failure with the error, got %+v", errored)
-	}
-
-	noSummary := planCheck(nil, nil, nil, nil, 0)
-	if noSummary.Passed || len(noSummary.Details) != 1 {
-		t.Errorf("want a failure saying the plan reported nothing, got %+v", noSummary)
-	}
-
-	// An edit that lost an import block, with its resource, leaves a plan
-	// with fewer imports than the configuration should have.
-	dropped := planCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}, nil, nil, nil, 2)
-	if dropped.Passed || !strings.Contains(strings.Join(dropped.Details, "\n"), "imports 1 resources, the configuration has 2 import blocks") {
-		t.Errorf("want a failure for the missing import, got %+v", dropped)
-	}
-	if unchecked := planCheck(&tfjson.Plan{}, nil, nil, nil, -1); !unchecked.Passed {
-		t.Errorf("a negative expected count must not be checked, got %+v", unchecked)
-	}
-}
-
-func TestChangedLeaves(t *testing.T) {
-	t.Parallel()
-	before := map[string]any{
-		"cidr_block": "10.0.0.0/16",
-		"tags":       nil,
-		"user":       []any{map[string]any{"username": "app", "password": "real", "groups": []any{"a"}}},
-		"version":    1.0,
-	}
-	after := map[string]any{
-		"cidr_block": "10.0.0.0/16",
-		"tags":       map[string]any{},
-		"user":       []any{map[string]any{"username": "app", "password": "placeholder", "groups": []any{"a", "b"}}},
-	}
-	unknown := map[string]any{"version": true, "arn": true, "user": []any{map[string]any{"id": true}}}
-
-	got := changedLeaves(before, after, unknown)
-
-	want := []leaf{
-		{path: "arn", unknown: true},
-		{path: "tags"},
-		{path: "user[0].groups[1]"},
-		{path: "user[0].id", unknown: true},
-		{path: "user[0].password"},
-		{path: "version", unknown: true},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-	if top := topLevel(got); !reflect.DeepEqual(top, []string{"arn", "tags", "user", "version"}) {
-		t.Errorf("topLevel: got %v", top)
-	}
-	if got := withoutIndexes("user[0].groups[1]"); got != "user.groups" {
-		t.Errorf("withoutIndexes: got %q", got)
-	}
-}
-
-func TestScanSecrets(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_db_instance" "a" {
-  password = "s3cr3t-value"
-}
-`)
-	writeConfig(t, dir, "providers.tf", `provider "aws" {
-  access_key = "`+testKeyID+`"
-  secret_key = "`+testSecret+`"
-}
-
-provider "pagerduty" {
-  token          = "u+abcdefghijklmnop"
-  service_region = "eu"
-  api_key        = var.pagerduty_key
-}
-`)
-	writeConfig(t, dir, ImportsFileName, `import {
-  to = aws_db_instance.a
-  id = "db"
-}
-`)
-
-	check, err := scanSecrets(dir, []string{"s3cr3t-value"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if check.Passed {
-		t.Fatal("want a failure")
-	}
-	joined := strings.Join(check.Details, "\n")
-	for _, want := range []string{"generated.tf: contains a value the provider marks sensitive", "providers.tf: looks like it contains an AWS access key ID with its secret access key", "providers.tf: provider block sets pagerduty.token, which belongs in the provider's environment", "providers.tf: provider block sets aws.access_key"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("missing %q in:\n%s", want, joined)
-		}
-	}
-	if strings.Contains(joined, ImportsFileName) || strings.Contains(joined, "pagerduty.api_key") || strings.Contains(joined, "service_region") {
-		t.Errorf("clean file reported:\n%s", joined)
-	}
-}
-
-// The local state of a root applied without a backend holds the values the
-// provider marks sensitive, but isn't configuration: the scan passes over
-// it, its workspaces' states too.
-func TestScanSecretsSkipsLocalState(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, "resource \"aws_db_instance\" \"a\" {\n  password = var.password\n}\n")
-	state := `{"resources": [{"instances": [{"attributes": {"password": "s3cr3t-value"}}]}]}`
-	for _, name := range []string{"terraform.tfstate", "terraform.tfstate.backup", filepath.Join(workspaceStateDir, "dev", "terraform.tfstate")} {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(state), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	check, err := scanSecrets(dir, []string{"s3cr3t-value"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !check.Passed {
-		t.Errorf("want a pass, got %v", check.Details)
-	}
-}
-
-// Made-up key halves, built from parts so that secret scanners don't take
-// the source for a leak. betterleaks still takes the secret for a generic
-// API key; the betterleaks:allow comment tells it this one is made up.
-var (
-	testKeyID  = "AKIA" + "EXAMPLE" + "EXAMPLE12"
-	testSecret = "Ab3+cD4/eF5gH6iJ7kL8" + "mN9oP0qR1sT2uV3wX4yZ" // betterleaks:allow
-)
-
-func TestScanNondeterminism(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_ssm_parameter" "a" {
-  value = timestamp()
-}
-`)
-
-	check, err := scanNondeterminism(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "timestamp(") {
-		t.Errorf("got %+v", check)
-	}
-}
-
-// The secrets and determinism checks cover the shared local modules a root
-// calls, and those they call, outside the root's directory; modules it
-// doesn't call aren't its to check.
-func TestScansCoverCalledModules(t *testing.T) {
-	t.Parallel()
-	out := t.TempDir()
-	root, vpc, subnet, unused := filepath.Join(out, "aws", "eu-west-2"), filepath.Join(out, "modules", "vpc"), filepath.Join(out, "modules", "subnet"), filepath.Join(out, "modules", "unused")
-	for _, d := range []string{root, vpc, subnet, unused} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeConfig(t, root, GeneratedFileName, `module "vpc" {
-  source = "../../modules/vpc"
-}
-
-module "missing" {
-  source = "../../modules/missing"
-}
-`)
-	writeConfig(t, vpc, "main.tf", `module "subnet" {
-  source = "../subnet"
-}
-
-resource "aws_ssm_parameter" "a" {
-  value = timestamp()
-}
-`)
-	writeConfig(t, subnet, "main.tf", `resource "aws_ssm_parameter" "b" {
-  value = "s3cr3t-value"
-}
-`)
-	writeConfig(t, unused, "main.tf", `resource "aws_ssm_parameter" "c" {
-  value = uuid()
-}
-`)
-
-	secrets, err := scanSecrets(root, []string{"s3cr3t-value"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if secrets.Passed || !strings.Contains(strings.Join(secrets.Details, "\n"), "../../modules/subnet/main.tf: contains a value the provider marks sensitive") {
-		t.Errorf("secrets: %+v", secrets)
-	}
-	determinism, err := scanNondeterminism(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{"../../modules/vpc/main.tf: calls timestamp("}; determinism.Passed || !reflect.DeepEqual(determinism.Details, want) {
-		t.Errorf("determinism: %+v, want %v", determinism, want)
 	}
 }
 
@@ -286,51 +42,20 @@ func TestRunGate(t *testing.T) {
 `)
 	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
 
-	gate, err := runGate(context.Background(), tf, dir, nil, Options{}, nil)
+	checks, err := runGate(context.Background(), tf, dir, nil, Options{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var names []string
-	for _, c := range gate {
+	for _, c := range checks {
 		names = append(names, c.Name)
 	}
-	if want := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckMoves, CheckScanners, CheckSecrets, CheckDeterminism}; !reflect.DeepEqual(names, want) {
+	if want := []string{gate.CheckFormat, gate.CheckValidate, gate.CheckPlan, gate.CheckStandards, gate.CheckMoves, gate.CheckScanners, gate.CheckSecrets, gate.CheckDeterminism}; !reflect.DeepEqual(names, want) {
 		t.Errorf("checks: got %v, want %v", names, want)
 	}
-	if !gate.Passed() {
-		t.Errorf("want every check passed: %+v", gate)
-	}
-}
-
-// withUnknown marks attributes of rc as known only after apply.
-func withUnknown(rc *tfjson.ResourceChange, attributes ...string) *tfjson.ResourceChange {
-	unknown := map[string]any{}
-	for _, a := range attributes {
-		unknown[a] = true
-	}
-	rc.Change.AfterUnknown = unknown
-	return rc
-}
-
-func TestScanNondeterminismIgnoresStringsAndComments(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `# set at timestamp() time
-resource "aws_ssm_parameter" "a" {
-  value       = "uuid("
-  description = "made by timestamp()"
-  name        = lower(uuid())
-}
-`)
-
-	check, err := scanNondeterminism(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if check.Passed || len(check.Details) != 1 || check.Details[0] != "generated.tf: calls uuid(" {
-		t.Errorf("got %+v", check)
+	if !checks.Passed() {
+		t.Errorf("want every check passed: %+v", checks)
 	}
 }
 
@@ -352,22 +77,22 @@ func TestScannersDontSeeSecrets(t *testing.T) {
 `)
 	tf := &fakeTerraform{dir: dir, shown: &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}}
 	ran := false
-	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+	spy := gate.Scanner{Name: "spy", Run: func(context.Context, string) ([]gate.Finding, error) {
 		ran = true
 		return nil, nil
 	}}
 
-	gate, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []Scanner{spy}}, nil)
+	checks, err := runGate(context.Background(), tf, dir, nil, Options{Scanners: []gate.Scanner{spy}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ran {
 		t.Error("a scanner ran on a directory holding a secret")
 	}
-	if c := gate.check(CheckSecrets); c.Passed {
+	if c := checks.Named(gate.CheckSecrets); c.Passed {
 		t.Errorf("G6 passed: %+v", c)
 	}
-	if c := gate.check(CheckScanners); !c.Skipped {
+	if c := checks.Named(gate.CheckScanners); !c.Skipped {
 		t.Errorf("scanners not skipped: %+v", c)
 	}
 }
@@ -378,17 +103,17 @@ func TestGateCancelled(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
-		policy func(cancel func()) gatePolicy
+		policy func(cancel func()) gate.Policy
 	}{
-		{"every check", func(cancel func()) gatePolicy {
-			return gatePolicy{plan: func() (Check, []string, error) {
+		{"every check", func(cancel func()) gate.Policy {
+			return withChecks(gate.Policy{Plan: func() (gate.Check, []string, error) {
 				cancel() // as an interrupt while the plan runs
-				return Check{Name: CheckPlan, Passed: true}, nil, nil
-			}}
+				return gate.Check{Name: gate.CheckPlan, Passed: true}, nil, nil
+			}})
 		}},
-		{"stopped at a failure", func(cancel func()) gatePolicy {
+		{"stopped at a failure", func(cancel func()) gate.Policy {
 			cancel() // as an interrupt while fmt runs
-			return gatePolicy{checks: []string{CheckFormat, CheckValidate}, diff: true, edited: []string{GeneratedFileName}}
+			return withChecks(gate.Policy{Checks: []string{gate.CheckFormat, gate.CheckValidate}, Diff: true, Edited: []string{GeneratedFileName}})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -403,7 +128,7 @@ func TestGateCancelled(t *testing.T) {
 			var calls []string
 			tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
 
-			_, _, err := tc.policy(cancel).run(ctx, tf, dir)
+			_, _, err := tc.policy(cancel).Run(ctx, tf, dir)
 
 			if !errors.Is(err, context.Canceled) {
 				t.Errorf("want the cancellation, got %v", err)
@@ -416,15 +141,15 @@ func TestGateCancelled(t *testing.T) {
 // runs: the scanners before the secrets check that holds them back.
 func TestGateCheckOrder(t *testing.T) {
 	t.Parallel()
-	all := []string{CheckFormat, CheckValidate, CheckPlan, CheckStandards, CheckMoves, CheckScanners, CheckSecrets, CheckDeterminism}
+	all := []string{gate.CheckFormat, gate.CheckValidate, gate.CheckPlan, gate.CheckStandards, gate.CheckMoves, gate.CheckScanners, gate.CheckSecrets, gate.CheckDeterminism}
 	for _, tc := range []struct {
 		name   string
 		checks []string
 		want   []string
 	}{
 		{"every check", nil, all},
-		{"drift's", []string{CheckSecrets, CheckMoves, CheckStandards, CheckValidate, CheckFormat}, []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets}},
-		{"a baseline's", []string{CheckStandards, CheckMoves}, []string{CheckStandards, CheckMoves}},
+		{"drift's", []string{gate.CheckSecrets, gate.CheckMoves, gate.CheckStandards, gate.CheckValidate, gate.CheckFormat}, []string{gate.CheckFormat, gate.CheckValidate, gate.CheckStandards, gate.CheckMoves, gate.CheckSecrets}},
+		{"a baseline's", []string{gate.CheckStandards, gate.CheckMoves}, []string{gate.CheckStandards, gate.CheckMoves}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -433,15 +158,15 @@ func TestGateCheckOrder(t *testing.T) {
   cidr_block = "10.0.0.0/16"
 }
 `)
-			policy := gatePolicy{checks: tc.checks, plan: func() (Check, []string, error) {
-				return Check{Name: CheckPlan, Passed: true}, nil, nil
-			}}
-			gate, _, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
+			policy := withChecks(gate.Policy{Checks: tc.checks, Plan: func() (gate.Check, []string, error) {
+				return gate.Check{Name: gate.CheckPlan, Passed: true}, nil, nil
+			}})
+			checks, _, err := policy.Run(context.Background(), &fakeTerraform{dir: dir}, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var names []string
-			for _, c := range gate {
+			for _, c := range checks {
 				names = append(names, c.Name)
 			}
 			if !reflect.DeepEqual(names, tc.want) {
@@ -457,21 +182,23 @@ func TestGateCheckOrder(t *testing.T) {
 func TestGateWithholdsScanners(t *testing.T) {
 	t.Parallel()
 	const secret = "s3cr3t-value"
-	plan := func(values ...string) func() (Check, []string, error) {
-		return func() (Check, []string, error) { return Check{Name: CheckPlan, Passed: true}, values, nil }
+	plan := func(values ...string) func() (gate.Check, []string, error) {
+		return func() (gate.Check, []string, error) {
+			return gate.Check{Name: gate.CheckPlan, Passed: true}, values, nil
+		}
 	}
-	staged := Check{Name: CheckSecrets, Details: []string{"generated.tf: contains a value the provider marks sensitive"}}
+	staged := gate.Check{Name: gate.CheckSecrets, Details: []string{"generated.tf: contains a value the provider marks sensitive"}}
 	for _, tc := range []struct {
 		name    string
-		policy  gatePolicy
+		policy  gate.Policy
 		ran     bool
 		details []string // the scanners' check's, when held back
 		secrets bool     // whether the gate's secrets check passes
 	}{
-		{"clean", gatePolicy{plan: plan(), others: []gatePlan{{name: "environment b", run: plan("not-in-a-file")}}}, true, nil, true},
-		{"the gate's plan", gatePolicy{plan: plan(secret)}, false, []string{"not run, as " + CheckSecrets + " found secret values"}, false},
-		{"another plan", gatePolicy{plan: plan(), others: []gatePlan{{name: "environment b", run: plan(secret)}}}, false, []string{"not run, as " + CheckSecrets + " found secret values", "environment b"}, true},
-		{"withheld", gatePolicy{plan: plan(), withheld: &staged}, false, append([]string{"not run, as " + CheckSecrets + " found secret values"}, staged.Details...), false},
+		{"clean", withChecks(gate.Policy{Plan: plan(), Others: []gate.OtherPlan{{Name: "environment b", Run: plan("not-in-a-file")}}}), true, nil, true},
+		{"the gate's plan", withChecks(gate.Policy{Plan: plan(secret)}), false, []string{"not run, as " + gate.CheckSecrets + " found secret values"}, false},
+		{"another plan", withChecks(gate.Policy{Plan: plan(), Others: []gate.OtherPlan{{Name: "environment b", Run: plan(secret)}}}), false, []string{"not run, as " + gate.CheckSecrets + " found secret values", "environment b"}, true},
+		{"withheld", withChecks(gate.Policy{Plan: plan(), Withheld: &staged}), false, append([]string{"not run, as " + gate.CheckSecrets + " found secret values"}, staged.Details...), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -483,30 +210,30 @@ func TestGateWithholdsScanners(t *testing.T) {
 `)
 			ran := false
 			policy := tc.policy
-			policy.scanners = []Scanner{{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+			policy.Scanners = []gate.Scanner{{Name: "spy", Run: func(context.Context, string) ([]gate.Finding, error) {
 				ran = true
 				return nil, nil
 			}}}
-			gate, others, err := policy.run(context.Background(), &fakeTerraform{dir: dir}, dir)
+			checks, others, err := policy.Run(context.Background(), &fakeTerraform{dir: dir}, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if ran != tc.ran {
 				t.Errorf("scanners ran: %t, want %t", ran, tc.ran)
 			}
-			if c := gate.check(CheckScanners); !tc.ran && (!c.Skipped || !reflect.DeepEqual(c.Details, tc.details)) {
+			if c := checks.Named(gate.CheckScanners); !tc.ran && (!c.Skipped || !reflect.DeepEqual(c.Details, tc.details)) {
 				t.Errorf("scanners: %+v, want skipped with %v", c, tc.details)
 			}
-			if c := gate.check(CheckSecrets); c.Passed != tc.secrets {
+			if c := checks.Named(gate.CheckSecrets); c.Passed != tc.secrets {
 				t.Errorf("secrets: %+v, want passed %t", c, tc.secrets)
 			}
-			if len(others) != len(policy.others) {
-				t.Fatalf("got %d other gates, want %d", len(others), len(policy.others))
+			if len(others) != len(policy.Others) {
+				t.Fatalf("got %d other gates, want %d", len(others), len(policy.Others))
 			}
 			for i, other := range others {
 				names := []string{other[0].Name, other[1].Name}
-				if !reflect.DeepEqual(names, []string{CheckPlan, CheckSecrets}) || other[1].Passed != tc.ran {
-					t.Errorf("gate of %s: %+v", policy.others[i].name, other)
+				if !reflect.DeepEqual(names, []string{gate.CheckPlan, gate.CheckSecrets}) || other[1].Passed != tc.ran {
+					t.Errorf("gate of %s: %+v", policy.Others[i].Name, other)
 				}
 			}
 		})
@@ -536,11 +263,11 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 		want        string               // the check that fails, with what it found; "" if none
 		files       []string
 	}{
-		{"an edited file unformatted", []string{"main.tf", "other.tf"}, map[string][2]string{"main.tf": {"", ""}}, CheckFormat + ": main.tf isn't formatted", []string{"main.tf"}},
+		{"an edited file unformatted", []string{"main.tf", "other.tf"}, map[string][2]string{"main.tf": {"", ""}}, gate.CheckFormat + ": main.tf isn't formatted", []string{"main.tf"}},
 		{"another file unformatted", []string{"other.tf"}, map[string][2]string{"main.tf": {"", ""}}, "", nil},
-		{"a moved block added", nil, map[string][2]string{"main.tf": {"", badMove}}, CheckMoves + ": main.tf:1: moved block to aws_subnet.missing, which the root doesn't declare, and no removed block takes", []string{"main.tf"}},
+		{"a moved block added", nil, map[string][2]string{"main.tf": {"", badMove}}, gate.CheckMoves + ": main.tf:1: moved block to aws_subnet.missing, which the root doesn't declare, and no removed block takes", []string{"main.tf"}},
 		{"a secret kept", nil, map[string][2]string{"secret.tf": {held, held}}, "", nil},
-		{"a secret added", nil, map[string][2]string{"secret.tf": {held, held}, "z.tf": {"", held}}, CheckSecrets + ": z.tf would hold a secret", []string{"z.tf"}},
+		{"a secret added", nil, map[string][2]string{"secret.tf": {held, held}, "z.tf": {"", held}}, gate.CheckSecrets + ": z.tf would hold a secret", []string{"z.tf"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -553,40 +280,40 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 			writeConfig(t, dir, MovesFileName, strings.NewReplacer("aws_subnet.a", "aws_subnet.z", "missing", "elsewhere").Replace(badMove))
 			var calls []string
 			tf := &fakeDriftTerraform{calls: &calls, unformatted: tc.unformatted}
-			baseline, _, err := gatePolicy{checks: []string{CheckStandards, CheckMoves}}.run(context.Background(), tf, dir)
+			baseline, _, err := withChecks(gate.Policy{Checks: []string{gate.CheckStandards, gate.CheckMoves}}).Run(context.Background(), tf, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			policy := gatePolicy{
-				checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
-				sensitive: []string{secret},
-				baseline:  baseline,
-				diff:      true,
-				before:    map[string][]byte{},
-				after:     map[string][]byte{},
-			}
+			policy := withChecks(gate.Policy{
+				Checks:    []string{gate.CheckFormat, gate.CheckValidate, gate.CheckStandards, gate.CheckMoves, gate.CheckSecrets},
+				Sensitive: []string{secret},
+				Baseline:  baseline,
+				Diff:      true,
+				Before:    map[string][]byte{},
+				After:     map[string][]byte{},
+			})
 			for name, edit := range tc.edits {
-				policy.edited = append(policy.edited, name)
-				policy.before[name], policy.after[name] = []byte(edit[0]), []byte(edit[1])
+				policy.Edited = append(policy.Edited, name)
+				policy.Before[name], policy.After[name] = []byte(edit[0]), []byte(edit[1])
 				writeConfig(t, dir, name, edit[1])
 			}
-			slices.Sort(policy.edited)
-			gate, _, err := policy.run(context.Background(), tf, dir)
+			slices.Sort(policy.Edited)
+			checks, _, err := policy.Run(context.Background(), tf, dir)
 			if err != nil {
 				t.Fatal(err)
 			}
 			var got string
 			var files []string
-			for _, c := range gate {
+			for _, c := range checks {
 				if !c.Passed {
-					got, files = c.Name+": "+strings.Join(c.Details, "; "), c.files
+					got, files = c.Name+": "+strings.Join(c.Details, "; "), c.Files
 				}
 			}
 			if got != tc.want || !slices.Equal(files, tc.files) {
 				t.Errorf("got %q blaming %v, want %q blaming %v", got, files, tc.want, tc.files)
 			}
-			if tc.want != "" && !strings.HasPrefix(tc.want, gate[len(gate)-1].Name) {
-				t.Errorf("the gate went on past the failure: %+v", gate)
+			if tc.want != "" && !strings.HasPrefix(tc.want, checks[len(checks)-1].Name) {
+				t.Errorf("the gate went on past the failure: %+v", checks)
 			}
 		})
 	}
@@ -606,16 +333,16 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
 `)
 	var calls []string
 	tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
-	gate, _, err := gatePolicy{
-		checks:    []string{CheckFormat, CheckSecrets},
-		sensitive: []string{secret},
-		diff:      true,
-	}.run(context.Background(), tf, dir)
+	checks, _, err := withChecks(gate.Policy{
+		Checks:    []string{gate.CheckFormat, gate.CheckSecrets},
+		Sensitive: []string{secret},
+		Diff:      true,
+	}).Run(context.Background(), tf, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gate) != 2 || !gate[0].Passed || !gate[1].Passed {
-		t.Errorf("gate %+v, want format and secrets passed", gate)
+	if len(checks) != 2 || !checks[0].Passed || !checks[1].Passed {
+		t.Errorf("gate %+v, want format and secrets passed", checks)
 	}
 
 	// It stops at the first check that fails, here a moved block the
@@ -625,12 +352,12 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
   to   = aws_vpc.missing
 }
 `)
-	gate, _, err = gatePolicy{checks: []string{CheckMoves, CheckSecrets}, sensitive: []string{secret}, diff: true}.run(context.Background(), tf, dir)
+	checks, _, err = withChecks(gate.Policy{Checks: []string{gate.CheckMoves, gate.CheckSecrets}, Sensitive: []string{secret}, Diff: true}).Run(context.Background(), tf, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gate) != 1 || gate[0].Name != CheckMoves || gate[0].Passed {
-		t.Errorf("gate %+v, want it stopped at the failed moves check", gate)
+	if len(checks) != 1 || checks[0].Name != gate.CheckMoves || checks[0].Passed {
+		t.Errorf("gate %+v, want it stopped at the failed moves check", checks)
 	}
 }
 
@@ -682,10 +409,11 @@ variable "api_token" {
 	if strings.Contains(details, "backend.hcl") || strings.Contains(details, "common.tfvars") {
 		t.Errorf("G4 reports a var file of a merged root:\n%s", details)
 	}
-	secrets, err := scanSecrets(dir, nil)
+	checks, _, err := withChecks(gate.Policy{Checks: []string{gate.CheckSecrets}}).Run(t.Context(), &fakeTerraform{dir: dir}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	secrets := checks.Named(gate.CheckSecrets)
 	if !strings.Contains(strings.Join(secrets.Details, "\n"), "vars/prod/terraform.tfvars: api_token holds a secret value") {
 		t.Errorf("G6 doesn't find the token the var file sets: %+v", secrets)
 	}
@@ -694,4 +422,12 @@ variable "api_token" {
 			t.Errorf("%s is taken for a merged root's var file", rel)
 		}
 	}
+}
+
+// withChecks gives p the engine's standards and moves checks, as fullGate
+// does, with no omissions and none of the organisation's own modules.
+func withChecks(p gate.Policy) gate.Policy {
+	full := fullGate(Options{})
+	p.Standards, p.Moves = full.Standards, full.Moves
+	return p
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -455,7 +456,7 @@ func stagedConfig(dir, staging, path string, content []byte) ([]byte, error) {
 				}
 			}
 		case "module":
-			m := localModuleDir(dir, b)
+			m := gate.LocalModuleDir(dir, b)
 			if m == "" {
 				continue
 			}
@@ -745,11 +746,11 @@ var foldedAttributes = map[string]string{"tags_all": "tags", "effective_labels":
 // back; with tags_all, effective_labels and terraform_labels folded into
 // tags and labels, each path once.
 func driftLeaves(typ string, leaves []valueLeaf, stateOnly map[string][]string) []valueLeaf {
-	skip := stateOnlyOf(stateOnly, typ)
+	skip := gate.StateOnlyOf(stateOnly, typ)
 	seen := map[string]bool{}
 	var kept []valueLeaf
 	for _, l := range leaves {
-		top := topOf(l.path)
+		top := tfrun.TopOf(l.path)
 		if slices.Contains(skip, top) || strings.HasSuffix(top, "_wo") {
 			continue
 		}
@@ -889,7 +890,7 @@ func forcesReplacement(paths []any, path string) bool {
 		if !ok || len(steps) == 0 {
 			continue
 		}
-		if first, ok := steps[0].(string); ok && first == topOf(path) {
+		if first, ok := steps[0].(string); ok && first == tfrun.TopOf(path) {
 			return true
 		}
 	}
@@ -1117,4 +1118,12 @@ func addDriftSources(changes []DriftChange, contents map[string][]byte, editor *
 		}
 	}
 	return sources, nil
+}
+
+// at returns the i-th element of list, or nil past its end.
+func at(list []any, i int) any {
+	if i < len(list) {
+		return list[i]
+	}
+	return nil
 }

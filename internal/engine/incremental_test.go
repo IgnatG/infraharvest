@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -444,19 +445,19 @@ func TestAddScannersDontSeeStagingSecrets(t *testing.T) {
 	tf := &fakeTerraform{dir: staging, generated: "resource \"aws_sqs_queue\" \"jobs\" {\n  name = \"" + sensitive + "\"\n}\n", shown: shown}
 	rootTF := &fakeTerraform{dir: root}
 	var ran []string
-	spy := Scanner{Name: "spy", Run: func(_ context.Context, dir string) ([]Finding, error) {
+	spy := gate.Scanner{Name: "spy", Run: func(_ context.Context, dir string) ([]gate.Finding, error) {
 		ran = append(ran, dir)
 		return nil, nil
 	}}
 	opts := addOptions
-	opts.Scanners = []Scanner{spy}
+	opts.Scanners = []gate.Scanner{spy}
 	before, err := rootFileContents(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	_, err = Add(context.Background(), tf, rootTF, staging, root, []Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "jobs"}}, opts, nil)
-	if err == nil || !strings.Contains(err.Error(), CheckSecrets+" failed") {
+	if err == nil || !strings.Contains(err.Error(), gate.CheckSecrets+" failed") {
 		t.Errorf("err = %v, want the secrets check failed", err)
 	}
 
@@ -526,8 +527,8 @@ func TestAddUndoesWhenTheRootDoesNotInitialize(t *testing.T) {
 
 func TestResultWith(t *testing.T) {
 	t.Parallel()
-	previous := &Result{Imported: []Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Gate: Gate{{Name: CheckFormat}}}
-	added := &Result{Imported: []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Gate: Gate{{Name: CheckFormat, Passed: true}}}
+	previous := &Result{Imported: []Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat}}}
+	added := &Result{Imported: []Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Gate: gate.Gate{{Name: gate.CheckFormat, Passed: true}}}
 	got := previous.With(added)
 	if len(got.Imported) != 2 || !got.Gate.Passed() || len(previous.Imported) != 1 {
 		t.Errorf("got %+v", got)

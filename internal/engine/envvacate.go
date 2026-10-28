@@ -15,6 +15,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -39,24 +40,24 @@ var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 // runs no Terraform: it returns the files it leaves, by path in dir with
 // forward slashes, sorted, and the moves check of them (see checkMoves).
 // It fails if removed is empty, or its moves.tf still moves resources.
-func VacateMerged(dir string, files []string, removed []Removal) ([]string, Check, error) {
+func VacateMerged(dir string, files []string, removed []Removal) ([]string, gate.Check, error) {
 	if len(removed) == 0 {
-		return nil, Check{}, errors.New("no resources to hand over")
+		return nil, gate.Check{}, errors.New("no resources to hand over")
 	}
 	moved, err := ReadMoves(dir)
 	if err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	if len(moved) > 0 {
-		return nil, Check{}, fmt.Errorf("%s still moves resources: plan and apply every environment, and delete %s, before generating it again", MovesFileName, MovesFileName)
+		return nil, gate.Check{}, fmt.Errorf("%s still moves resources: plan and apply every environment, and delete %s, before generating it again", MovesFileName, MovesFileName)
 	}
 	envs, err := MergedEnvironments(dir)
 	if err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	providers, err := os.ReadFile(filepath.Join(dir, ProvidersFileName))
 	if err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	reads := map[string]bool{}
 	for _, m := range variableReference.FindAllSubmatch(providers, -1) {
@@ -80,11 +81,11 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 			keep = true
 		case name == VariablesFileName:
 			if keep, err = keepVariables(path, reads); err != nil {
-				return nil, Check{}, err
+				return nil, gate.Check{}, err
 			}
 		case values[name]:
 			if err := keepValues(path, reads); err != nil {
-				return nil, Check{}, err
+				return nil, gate.Check{}, err
 			}
 			keep = true
 		}
@@ -93,22 +94,22 @@ func VacateMerged(dir string, files []string, removed []Removal) ([]string, Chec
 			continue
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, Check{}, err
+			return nil, gate.Check{}, err
 		}
 	}
 	if err := writeMoves(dir, nil, removed, nil); err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	if err := raiseRequiredVersion(dir); err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	check, err := checkMoves(dir)
 	if err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	backend := slices.ContainsFunc(left, isBackendConfig)
 	if err := fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), vacatedMergedReadme(envs, backend, removed, check), 0o644); err != nil {
-		return nil, Check{}, err
+		return nil, gate.Check{}, err
 	}
 	left = append(left, MovesFileName, ReadmeFileName)
 	slices.Sort(left)
@@ -173,7 +174,7 @@ func parseWritable(path string) (*hclwrite.File, error) {
 // whose resources all go to other roots now (see VacateMerged): what is
 // left to do is forget them, in each environment's state, with its
 // backend settings, if backend, or else in its workspace.
-func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check Check) []byte {
+func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check gate.Check) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest merged this root before, for %s. Its resources, in every environment, now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s`, and each environment's settings in `%s/<env>/`.\n", strings.Join(envs, ", "), ProvidersFileName, MovesFileName, hclfile.VarsDir)
 	b.WriteString("\n## Next steps\n\n")
@@ -200,6 +201,6 @@ func vacatedMergedReadme(envs []string, backend bool, removed []Removal, check C
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", d.Address, d.Root)
 		}
 	}
-	b.WriteString(checksSection(Gate{check}))
+	b.WriteString(checksSection(gate.Gate{check}))
 	return []byte(b.String())
 }

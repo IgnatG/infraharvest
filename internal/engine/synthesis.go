@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -289,7 +290,7 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 					ok = false
 				}
 			case changeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(changeSignature(rc), changes[member], stateOnlyOf(stateOnly, rc.Type))
+				updates, same := sameButStateOnly(changeSignature(rc), changes[member], gate.StateOnlyOf(stateOnly, rc.Type))
 				if !same {
 					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(changeSignature(rc)), describeSignature(changes[member]))
 					ok = false
@@ -330,7 +331,7 @@ func trialOf(active []*trial, d tfjson.Diagnostic) *trial {
 // changeSignature describes a resource's planned change: its actions and
 // the attributes that change.
 func changeSignature(rc *tfjson.ResourceChange) string {
-	return strings.Join(actionNames(rc.Change.Actions), ",") + ":" + strings.Join(changedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown), ",")
+	return strings.Join(actionNames(rc.Change.Actions), ",") + ":" + strings.Join(tfrun.ChangedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown), ",")
 }
 
 // sameButStateOnly reports whether the change signatures in and root

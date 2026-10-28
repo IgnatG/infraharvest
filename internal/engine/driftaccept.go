@@ -18,6 +18,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -493,24 +494,21 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 // values p and sensitive have that no file may hold. It returns the
 // check that fails, with what it found, and the edited files it fails
 // on, none where it can't tell; or "".
-func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves Check, sensitive []string, opts DriftOptions) (string, []string, error) {
-	gate, _, err := gatePolicy{
-		checks:    []string{CheckFormat, CheckValidate, CheckStandards, CheckMoves, CheckSecrets},
-		sensitive: append(secret.InPlan(p), sensitive...),
-		baseline:  Gate{standards, moves},
-		diff:      true,
-		edited:    names,
-		before:    original,
-		after:     edited,
-		omit:      opts.Omit,
-		own:       ownModuleDirs(opts.Adapters),
-	}.run(ctx, stf, staging)
+func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves gate.Check, sensitive []string, opts DriftOptions) (string, []string, error) {
+	policy := fullGate(Options{Omit: opts.Omit, Adapters: opts.Adapters})
+	policy.Checks = []string{gate.CheckFormat, gate.CheckValidate, gate.CheckStandards, gate.CheckMoves, gate.CheckSecrets}
+	policy.Sensitive = append(secret.InPlan(p), sensitive...)
+	policy.Baseline = gate.Gate{standards, moves}
+	policy.Diff = true
+	policy.Edited = names
+	policy.Before, policy.After = original, edited
+	checks, _, err := policy.Run(ctx, stf, staging)
 	if err != nil {
 		return "", nil, err
 	}
-	for _, c := range gate {
+	for _, c := range checks {
 		if !c.Passed {
-			return c.Name + ": " + strings.Join(c.Details, "; "), c.files, nil
+			return c.Name + ": " + strings.Join(c.Details, "; "), c.Files, nil
 		}
 	}
 	return "", nil, nil

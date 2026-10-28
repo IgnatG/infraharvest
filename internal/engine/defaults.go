@@ -401,8 +401,8 @@ func keepChanged(removed []defaultCandidate, address string, changed, paths []st
 // default_cache_behavior.grpc_config.enabled.
 func changedPaths(rc *tfjson.ResourceChange) []string {
 	var paths []string
-	for _, l := range changedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown) {
-		paths = append(paths, withoutIndexes(l.path))
+	for _, l := range tfrun.ChangedLeaves(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown) {
+		paths = append(paths, tfrun.WithoutIndexes(l.Path))
 	}
 	return paths
 }

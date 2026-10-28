@@ -401,3 +401,55 @@ const VarsDir = "vars"
 func IsMergedVarFile(rel string) bool {
 	return strings.HasPrefix(rel, VarsDir+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
 }
+
+// ConstantString returns the value of expr if it is a constant string.
+func ConstantString(expr hclsyntax.Expression) (string, bool) {
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
+		return "", false
+	}
+	return v.AsString(), true
+}
+
+// AddressNames returns the names of an address, split at its dots,
+// without its instance keys, whose quoted strings may have dots and
+// brackets of their own: module, logs, aws_s3_bucket and this for
+// module.logs["a.b"].aws_s3_bucket.this[0].
+func AddressNames(address string) []string {
+	var names []string
+	var name strings.Builder
+	depth, quoted, escaped := 0, false, false
+	for _, r := range address {
+		switch {
+		case quoted:
+			switch {
+			case escaped:
+				escaped = false
+			case r == '\\':
+				escaped = true
+			case r == '"':
+				quoted = false
+			}
+		case r == '"' && depth > 0:
+			quoted = true
+		case r == '[':
+			depth++
+		case r == ']' && depth > 0:
+			depth--
+		case depth > 0:
+		case r == '.':
+			names = append(names, name.String())
+			name.Reset()
+		default:
+			name.WriteRune(r)
+		}
+	}
+	return append(names, name.String())
+}
+
+// NamesModuleCall reports whether address is a module call's, in module
+// calls or not, rather than a resource's.
+func NamesModuleCall(address string) bool {
+	names := AddressNames(address)
+	return len(names) >= 2 && names[len(names)-2] == "module"
+}

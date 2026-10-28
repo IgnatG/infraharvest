@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -75,8 +75,8 @@ func ResolvePolicies(dirs []string) ([]string, error) {
 	if len(dirs) == 0 {
 		return nil, nil
 	}
-	if _, err := exec.LookPath(engine.ConftestBinary); err != nil {
-		return nil, fmt.Errorf("--policy: checking the roots against policies needs %s on PATH (see https://www.conftest.dev/install/): %w", engine.ConftestBinary, err)
+	if _, err := exec.LookPath(gate.ConftestBinary); err != nil {
+		return nil, fmt.Errorf("--policy: checking the roots against policies needs %s on PATH (see https://www.conftest.dev/install/): %w", gate.ConftestBinary, err)
 	}
 	resolved := make([]string, 0, len(dirs))
 	for _, dir := range dirs {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -47,8 +48,8 @@ func TestReadmeFile(t *testing.T) {
 // changes.
 func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
 	t.Parallel()
-	gate := Gate{{Name: CheckPlan, Passed: true, Details: []string{"google_pubsub_topic.orders: " + stateOnlyChange + " (labels, terraform_labels)"}}}
-	got := string(readmeFile(&Result{Imported: []Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: gate}))
+	checks := gate.Gate{{Name: gate.CheckPlan, Passed: true, Details: []string{"google_pubsub_topic.orders: " + gate.StateOnlyChange + " (labels, terraform_labels)"}}}
+	got := string(readmeFile(&Result{Imported: []Import{{Type: "google_pubsub_topic", Name: "orders", ID: "projects/acme/topics/orders"}}, Gate: checks}))
 	if !strings.Contains(got, "with no changes but the updates the checks below list") || strings.Contains(got, "with no changes.\n") {
 		t.Errorf("got:\n%s", got)
 	}

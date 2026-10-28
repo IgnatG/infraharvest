@@ -25,6 +25,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -49,8 +50,8 @@ type MergeOptions struct {
 	// and region.
 	Profile         MergeProfile
 	Omit, StateOnly map[string][]string
-	Scanners        []Scanner
-	ScannerSlots    *ScannerSlots
+	Scanners        []gate.Scanner
+	ScannerSlots    *gate.ScannerSlots
 	Adapters        []adapters.Adapter
 	CommandTimeout  time.Duration
 }
@@ -89,7 +90,7 @@ type MergeResidue struct {
 // by their addresses in the merged root, which its imports.tfvars holds.
 type MergedEnvironment struct {
 	Env     string
-	Gate    Gate
+	Gate    gate.Gate
 	Imports map[string]string
 	// Addresses are where its root's resources are in the merged root, by
 	// their addresses in the root.
@@ -407,11 +408,11 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			// Not imported this time, so without its credentials: it
 			// keeps its part as it was, unplanned (see MergeRoot.Terraform).
 			envs[e].Unplanned = true
-			envs[e].Gate = Gate{{Name: CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
+			envs[e].Gate = gate.Gate{{Name: gate.CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
 		}
 	}
 	policy := fullGate(Options{Omit: g.opts.Omit, Scanners: g.opts.Scanners, ScannerSlots: g.opts.ScannerSlots, Adapters: g.opts.Adapters})
-	policy.plan = func() (Check, []string, error) { return g.plan(ctx, tf, m, w, first) }
+	policy.Plan = func() (gate.Check, []string, error) { return g.plan(ctx, tf, m, w, first) }
 	// planned are the other environments the gate plans, in the order of
 	// their gates.
 	var planned []int
@@ -420,19 +421,19 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 			continue
 		}
 		planned = append(planned, e)
-		policy.others = append(policy.others, gatePlan{name: "environment " + m.envs[e], run: func() (Check, []string, error) {
+		policy.Others = append(policy.Others, gate.OtherPlan{Name: "environment " + m.envs[e], Run: func() (gate.Check, []string, error) {
 			envTF, err := g.terraform(e)
 			if err != nil {
-				return Check{}, nil, err
+				return gate.Check{}, nil, err
 			}
 			return g.plan(ctx, envTF, m, w, e)
 		}})
 	}
-	gate, others, err := policy.run(ctx, tf, g.dir)
+	checks, others, err := policy.Run(ctx, tf, g.dir)
 	if err != nil {
 		return nil, err
 	}
-	envs[first].Gate = gate
+	envs[first].Gate = checks
 	for i, e := range planned {
 		envs[e].Gate = others[i]
 	}
@@ -445,28 +446,28 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 // credentialsOverrideFileName). The plan must import each of the
 // environment's resources, and change nothing else but what the
 // secrets' placeholders and the state-only arguments may (see
-// planCheck).
-func (g *mergeGate) plan(ctx context.Context, tf tfrun.Terraform, m *stackMerge, w *rootWriter, env int) (Check, []string, error) {
+// gate.PlanCheck).
+func (g *mergeGate) plan(ctx context.Context, tf tfrun.Terraform, m *stackMerge, w *rootWriter, env int) (gate.Check, []string, error) {
 	if err := g.writeOverride(env, w); err != nil {
-		return Check{}, nil, err
+		return gate.Check{}, nil, err
 	}
 	defer func() { _ = g.removeOverride() }()
 	// The merge has just written every var file the environment plans
 	// with: one that isn't there fails the plan.
 	vars, _, err := varFileOptions(g.dir, varFiles(m.envs[env], true))
 	if err != nil {
-		return Check{}, nil, err
+		return gate.Check{}, nil, err
 	}
 	secrets := w.sensitiveIn(env, g.roots[env].Secrets)
 	gone, restore, err := g.leaveOutGone(m, w, env)
 	if err != nil {
-		return Check{}, nil, err
+		return gate.Check{}, nil, err
 	}
 	p, _, diags, err := tfrun.ShowPlan(ctx, tf, append(vars, secret.Placeholders(secrets)...))
 	if err := errors.Join(err, restore()); err != nil {
-		return Check{}, nil, err
+		return gate.Check{}, nil, err
 	}
-	check := planCheckWith(p, diags, g.secretsIn(m, env), g.opts.StateOnly, len(g.imports(m, env))-len(gone), gone)
+	check := gate.PlanCheckWith(p, diags, g.secretsIn(m, env), g.opts.StateOnly, len(g.imports(m, env))-len(gone), gone)
 	check.Details = append([]string{"environment " + m.envs[env]}, check.Details...)
 	return check, secret.InPlan(p), nil
 }
@@ -588,7 +589,7 @@ func (g *mergeGate) residueFor(m *stackMerge, envs []MergedEnvironment) (map[str
 				continue
 			}
 			why = append(why, fmt.Sprintf("%s: %s: %s", env.Env, c.Name, strings.Join(c.Details, "; ")))
-			if c.Name != CheckPlan {
+			if c.Name != gate.CheckPlan {
 				continue
 			}
 			for _, change := range c.Changes {
@@ -609,7 +610,7 @@ func (g *mergeGate) residueFor(m *stackMerge, envs []MergedEnvironment) (map[str
 	// break, residue doesn't mend.
 	for _, env := range envs {
 		for _, c := range env.Gate {
-			if !c.Passed && (c.Name != CheckPlan || len(c.Changes) == 0) {
+			if !c.Passed && (c.Name != gate.CheckPlan || len(c.Changes) == 0) {
 				return nil, why
 			}
 		}
@@ -700,13 +701,13 @@ func (w *rootWriter) sensitiveIn(env int, rootSecrets []secret.Variable) []secre
 // environments share the merged root's code, and its required_version is
 // raised to what removed blocks need. It returns the moves check of them
 // (see checkMoves); the README lists them only once it passes.
-func WriteMergedMoves(dir string, moved []Move, removed []Removal) (Check, error) {
+func WriteMergedMoves(dir string, moved []Move, removed []Removal) (gate.Check, error) {
 	if err := writeMoves(dir, moved, removed, nil); err != nil {
-		return Check{}, err
+		return gate.Check{}, err
 	}
 	if len(removed) > 0 {
 		if err := raiseRequiredVersion(dir); err != nil {
-			return Check{}, err
+			return gate.Check{}, err
 		}
 	}
 	check, err := checkMoves(dir)

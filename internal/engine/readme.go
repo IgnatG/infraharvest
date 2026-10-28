@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -142,11 +143,11 @@ func handedOverReadme(result *Result) []byte {
 }
 
 // checksSection lists the verification gate's checks, with their details.
-func checksSection(gate Gate) string {
+func checksSection(checks gate.Gate) string {
 	var b strings.Builder
-	if len(gate) > 0 {
+	if len(checks) > 0 {
 		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
-		for _, c := range gate {
+		for _, c := range checks {
 			status := "passed"
 			switch {
 			case !c.Passed:
@@ -157,7 +158,7 @@ func checksSection(gate Gate) string {
 			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
 		}
 		var details []string
-		for _, c := range gate {
+		for _, c := range checks {
 			for _, d := range c.Details {
 				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
 			}
@@ -170,10 +171,10 @@ func checksSection(gate Gate) string {
 }
 
 // stateOnlyUpdates reports whether the plan check passed with resources
-// that update state-only arguments (see planCheck).
-func stateOnlyUpdates(gate Gate) bool {
-	c := gate.check(CheckPlan)
-	return c.Passed && slices.ContainsFunc(c.Details, func(d string) bool { return strings.Contains(d, stateOnlyChange) })
+// that update state-only arguments (see gate.PlanCheck).
+func stateOnlyUpdates(checks gate.Gate) bool {
+	c := checks.Named(gate.CheckPlan)
+	return c.Passed && slices.ContainsFunc(c.Details, func(d string) bool { return strings.Contains(d, gate.StateOnlyChange) })
 }
 
 // modulesSection lists the module calls and the clusters of resources that
@@ -316,7 +317,7 @@ func checkReadme(dir string, result *Result, values []string) error {
 		return nil
 	}
 	for i, c := range result.Gate {
-		if c.Name == CheckSecrets {
+		if c.Name == gate.CheckSecrets {
 			result.Gate[i].Passed = false
 			result.Gate[i].Details = append(result.Gate[i].Details, found...)
 		}

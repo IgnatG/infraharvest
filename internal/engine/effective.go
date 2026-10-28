@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -90,7 +91,7 @@ func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et E
 			if signature == changes[rc.Address] {
 				continue
 			}
-			if _, same := sameButStateOnly(signature, changes[rc.Address], stateOnlyOf(stateOnly, rc.Type)); same {
+			if _, same := sameButStateOnly(signature, changes[rc.Address], gate.StateOnlyOf(stateOnly, rc.Type)); same {
 				continue
 			}
 			if !slices.Contains(filled, rc.Address) {

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
@@ -178,7 +179,7 @@ func Retyped(previous, now []Managed) []string {
 // An address of no resource, such as module.logs, a module call alone,
 // has none: "".
 func AddressType(address string) string {
-	names := addressNames(address)
+	names := hclfile.AddressNames(address)
 	for len(names) > 0 && names[0] == "module" {
 		if len(names) < 2 {
 			return ""
@@ -194,38 +195,38 @@ func AddressType(address string) string {
 	return names[0]
 }
 
-// addressNames returns the names of an address, split at its dots,
-// without its instance keys, whose quoted strings may have dots and
-// brackets of their own: module, logs, aws_s3_bucket and this for
-// module.logs["a.b"].aws_s3_bucket.this[0].
-func addressNames(address string) []string {
-	var names []string
-	var name strings.Builder
-	depth, quoted, escaped := 0, false, false
-	for _, r := range address {
-		switch {
-		case quoted:
-			switch {
-			case escaped:
-				escaped = false
-			case r == '\\':
-				escaped = true
-			case r == '"':
-				quoted = false
-			}
-		case r == '"' && depth > 0:
-			quoted = true
-		case r == '[':
-			depth++
-		case r == ']' && depth > 0:
-			depth--
-		case depth > 0:
-		case r == '.':
-			names = append(names, name.String())
-			name.Reset()
-		default:
-			name.WriteRune(r)
+// ResourceAt returns the resource of managed, what a root imports, that a
+// finding about address is about: the one at address; or else the one
+// at address but for instance keys, or the one module call address
+// makes, where there is only one. A finding about a module call of
+// several resources, or about none the root imports, is about none.
+func ResourceAt(managed []Managed, address string) (Managed, bool) {
+	if address == "" {
+		return Managed{}, false
+	}
+	for _, m := range managed {
+		if m.Address == address {
+			return m, true
 		}
 	}
-	return append(names, name.String())
+	bare := strings.Join(hclfile.AddressNames(address), ".")
+	one := func(match func(string) bool) (Managed, bool) {
+		var found []Managed
+		for _, m := range managed {
+			if match(strings.Join(hclfile.AddressNames(m.Address), ".")) {
+				found = append(found, m)
+			}
+		}
+		if len(found) == 1 {
+			return found[0], true
+		}
+		return Managed{}, false
+	}
+	if m, ok := one(func(a string) bool { return a == bare }); ok {
+		return m, true
+	}
+	if hclfile.NamesModuleCall(address) {
+		return one(func(a string) bool { return strings.HasPrefix(a, bare+".") })
+	}
+	return Managed{}, false
 }

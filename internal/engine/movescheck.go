@@ -9,11 +9,9 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-)
 
-// CheckMoves is the verification gate's check of a root's moved and
-// removed blocks (G8).
-const CheckMoves = "G8 moves"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+)
 
 // refactorAddress is the address a moved or removed block names, as in
 // module.vpc.aws_subnet.a[0]: the module calls it is in, without their
@@ -81,8 +79,8 @@ func parseRefactorAddress(attr *hclsyntax.Attribute, src []byte) (refactorAddres
 // declares, and a removed block names no instance; and the moves together
 // move each resource once, with no cycle and no two onto one address (see
 // conflictingMoves).
-func checkMoves(dir string) (Check, error) {
-	check := Check{Name: CheckMoves, Passed: true}
+func checkMoves(dir string) (gate.Check, error) {
+	check := gate.Check{Name: gate.CheckMoves, Passed: true}
 	fail := func(format string, args ...any) {
 		check.Passed = false
 		check.Details = append(check.Details, fmt.Sprintf(format, args...))

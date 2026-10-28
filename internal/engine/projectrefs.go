@@ -50,7 +50,7 @@ func referModulesToResources(dir string) (bool, error) {
 			continue
 		}
 		if attr, ok := r.Syntax.Body.Attributes[refs.Attribute]; ok {
-			if value, ok := constantString(attr.Expr); ok && value != "" {
+			if value, ok := hclfile.ConstantString(attr.Expr); ok && value != "" {
 				if targets[typ] == nil {
 					targets[typ] = &moduleTarget{refs: refs, byValue: map[string][]string{}}
 				}

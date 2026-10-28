@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -137,8 +138,8 @@ func TestAWSRegenerateLayout(t *testing.T) {
 		}
 	}
 	for _, d := range second.Directories {
-		if d.Path == oldRoot && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == engine.CheckMoves && c.Passed && !c.Skipped }) {
-			t.Errorf("%s: the gate doesn't pass %s: %+v", oldRoot, engine.CheckMoves, d.Checks)
+		if d.Path == oldRoot && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == gate.CheckMoves && c.Passed && !c.Skipped }) {
+			t.Errorf("%s: the gate doesn't pass %s: %+v", oldRoot, gate.CheckMoves, d.Checks)
 		}
 	}
 	// Each README names the other roots, for the order to apply them in.

@@ -31,9 +31,6 @@ import (
 // writes, plans or reads such a root back takes its paths from here, so
 // that they agree.
 const (
-	// workspaceStateDir holds the local state of each workspace but the
-	// default one, in terraform.tfstate.d/<workspace>/terraform.tfstate.
-	workspaceStateDir     = "terraform.tfstate.d"
 	commonVarsPath        = hclfile.VarsDir + "/common.tfvars"
 	envVarsFileName       = "terraform.tfvars"
 	importVarsFileName    = "imports.tfvars"
@@ -81,7 +78,7 @@ func isBackendConfig(name string) bool {
 // backend, keeps environment env's state: in the workspace named after
 // it, terraform.tfstate.d/<env>/terraform.tfstate.
 func workspaceStateFile(dir, env string) string {
-	return filepath.Join(dir, workspaceStateDir, env, tfrun.LocalStateFileName)
+	return filepath.Join(dir, tfrun.WorkspaceStateDir, env, tfrun.LocalStateFileName)
 }
 
 // featureFlagName returns the name of the variable that says whether an

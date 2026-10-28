@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -58,8 +59,8 @@ func TestVerifyOutputWithoutRoots(t *testing.T) {
 
 func TestWriteVerified(t *testing.T) {
 	results := []verifiedRoot{
-		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckScanners, Passed: true, Skipped: true}}},
-		{Path: "aws/1/global", Checks: []report.Check{{Name: engine.CheckFormat, Passed: true}, {Name: engine.CheckPlan, Details: []string{"aws_iam_role.a: update"}}}},
+		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: gate.CheckFormat, Passed: true}, {Name: gate.CheckScanners, Passed: true, Skipped: true}}},
+		{Path: "aws/1/global", Checks: []report.Check{{Name: gate.CheckFormat, Passed: true}, {Name: gate.CheckPlan, Details: []string{"aws_iam_role.a: update"}}}},
 	}
 	var b bytes.Buffer
 	if err := writeVerified(&b, results, FormatText); err != nil {
@@ -70,14 +71,14 @@ func TestWriteVerified(t *testing.T) {
 	}
 
 	// The scanners' findings follow, by resource, as report.md lists them.
-	gate := engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+	checks := gate.Gate{{Name: gate.CheckScanners, Passed: true, Findings: []gate.Finding{
 		{Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: "S3 Bucket Logging", Resource: "aws_s3_bucket.logs"},
 		{Scanner: "tflint", Rule: "terraform_required_version", Severity: "warning", Location: "providers.tf:1", Message: "required_version is required"},
 	}}}
 	managed := []engine.Managed{{Type: "aws_s3_bucket", ID: "acme-logs", Address: "aws_s3_bucket.logs"}}
 	results = []verifiedRoot{
-		{Path: "aws/eu-west-2", Environment: "prod", Checks: []report.Check{{Name: engine.CheckScanners, Passed: true}}, Findings: report.GateFindings("aws/eu-west-2", "prod", managed, gate)},
-		{Path: "aws/1/global", Checks: []report.Check{{Name: engine.CheckScanners, Passed: true}}},
+		{Path: "aws/eu-west-2", Environment: "prod", Checks: []report.Check{{Name: gate.CheckScanners, Passed: true}}, Findings: report.GateFindings("aws/eu-west-2", "prod", managed, checks)},
+		{Path: "aws/1/global", Checks: []report.Check{{Name: gate.CheckScanners, Passed: true}}},
 	}
 	b.Reset()
 	if err := writeVerified(&b, results, FormatText); err != nil {

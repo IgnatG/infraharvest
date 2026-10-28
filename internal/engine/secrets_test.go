@@ -18,6 +18,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -135,8 +136,8 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 			t.Errorf("var file %s left behind", path)
 		}
 	}
-	if !result.Gate.check(CheckSecrets).Passed {
-		t.Errorf("G6 failed: %+v", result.Gate.check(CheckSecrets))
+	if !result.Gate.Named(gate.CheckSecrets).Passed {
+		t.Errorf("G6 failed: %+v", result.Gate.Named(gate.CheckSecrets))
 	}
 	assertNotWritten(t, dir, value)
 }
@@ -161,10 +162,11 @@ func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
 }
 `)
 
-	check, err := scanSecrets(dir, nil)
+	checks, _, err := withChecks(gate.Policy{Checks: []string{gate.CheckSecrets}}).Run(t.Context(), &fakeTerraform{dir: dir}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	check := checks.Named(gate.CheckSecrets)
 
 	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "generated.tf: environment.variables.API_SECRET of resource.aws_lambda_function.api holds a secret value") {
 		t.Errorf("want G6 to fail on the secret, got %+v", check)
@@ -189,7 +191,7 @@ func TestRedactResultAndCheckReadme(t *testing.T) {
 		t.Fatalf("got %+v, %v; want the secret in a variable", secrets, err)
 	}
 	result := &Result{
-		Gate:    Gate{{Name: CheckPlan, Details: []string{`generated.tf:3: Invalid value: got "` + value + `"`}}, {Name: CheckSecrets, Passed: true}},
+		Gate:    gate.Gate{{Name: gate.CheckPlan, Details: []string{`generated.tf:3: Invalid value: got "` + value + `"`}}, {Name: gate.CheckSecrets, Passed: true}},
 		Modules: []ModuleCall{{Name: "vpc", Declined: "plan error: got " + value}},
 	}
 	redactResult(result, secrets)
@@ -200,23 +202,23 @@ func TestRedactResultAndCheckReadme(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNotWritten(t, dir, value)
-	if !result.Gate.check(CheckSecrets).Passed {
-		t.Errorf("G6 failed on a redacted README: %+v", result.Gate.check(CheckSecrets))
+	if !result.Gate.Named(gate.CheckSecrets).Passed {
+		t.Errorf("G6 failed on a redacted README: %+v", result.Gate.Named(gate.CheckSecrets))
 	}
 
 	// Should a value get through, G6 fails and the README says so.
-	leaky := &Result{Gate: Gate{{Name: CheckPlan, Details: []string{"got " + value}}, {Name: CheckSecrets, Passed: true}}}
+	leaky := &Result{Gate: gate.Gate{{Name: gate.CheckPlan, Details: []string{"got " + value}}, {Name: gate.CheckSecrets, Passed: true}}}
 	if err := WriteReadme(dir, leaky); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkReadme(dir, leaky, secret.KnownValues(secrets)); err != nil {
 		t.Fatal(err)
 	}
-	g6 := leaky.Gate.check(CheckSecrets)
+	g6 := leaky.Gate.Named(gate.CheckSecrets)
 	if g6.Passed || len(g6.Details) != 1 || !strings.HasPrefix(g6.Details[0], ReadmeFileName+": ") {
 		t.Errorf("G6 didn't fail on the README: %+v", g6)
 	}
-	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, CheckSecrets+" | **failed**") {
+	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, gate.CheckSecrets+" | **failed**") {
 		t.Errorf("README doesn't show G6 failing:\n%s", readme)
 	}
 }
@@ -281,7 +283,7 @@ func TestGenerateWritesStringParameterValues(t *testing.T) {
 			if !strings.Contains(got, `value = "`+tc.value+`"`) || strings.Contains(got, "# sensitive") {
 				t.Errorf("want the value written as it is:\n%s", got)
 			}
-			if check := result.Gate.check(CheckSecrets); !check.Passed {
+			if check := result.Gate.Named(gate.CheckSecrets); !check.Passed {
 				t.Errorf("G6 failed: %+v", check)
 			}
 		})

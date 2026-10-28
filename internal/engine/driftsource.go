@@ -21,8 +21,10 @@ import (
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // How a root's code sets an attribute that changed in the cloud
@@ -305,7 +307,7 @@ func (e *driftEditor) resolve(cfg *driftConfig, c *DriftChange) codeSource {
 		src.Secret = true
 	case src.Edit != nil && e.writesSecret(src.Edit.Text):
 		src.Secret = true
-	case src.Edit != nil && hasSensitive(maskKey(e.resources[c.Address].afterSensitive, topOf(c.Attribute))):
+	case src.Edit != nil && hasSensitive(maskKey(e.resources[c.Address].afterSensitive, tfrun.TopOf(c.Attribute))):
 		// What is written may be more than the change, such as a whole
 		// list: none of the argument may be sensitive.
 		src.Secret = true
@@ -974,11 +976,11 @@ func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]b
 		}
 		// The findings, not their count: an edit may remove one secret and
 		// add another.
-		var had Check
+		var had gate.Check
 		if f, err := hclfile.Parse(name, old); err == nil {
 			had.Details = secret.Literals(f)
 		}
-		if len(addedDetails(had, Check{Details: secret.Literals(edited)})) > 0 {
+		if len(gate.AddedDetails(had, gate.Check{Details: secret.Literals(edited)})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content

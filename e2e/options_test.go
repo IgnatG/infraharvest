@@ -31,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -543,8 +544,8 @@ func (e optionsEstate) checkVerify(t *testing.T, out string) {
 	if code := importer.ExitCode(err); code != report.ExitIncomplete {
 		t.Errorf("infraharvest verify after a change to %s: exit code %d, want %d: %v", edited, code, report.ExitIncomplete, err)
 	}
-	if status := statuses[optionsRoot]; !strings.HasPrefix(status, "failed") || !strings.Contains(status, engine.CheckPlan) {
-		t.Errorf("infraharvest verify after a change to %s: %s didn't fail %s:\n%s", edited, optionsRoot, engine.CheckPlan, stdout)
+	if status := statuses[optionsRoot]; !strings.HasPrefix(status, "failed") || !strings.Contains(status, gate.CheckPlan) {
+		t.Errorf("infraharvest verify after a change to %s: %s didn't fail %s:\n%s", edited, optionsRoot, gate.CheckPlan, stdout)
 	}
 	if !strings.HasPrefix(statuses[optionsGlobalRoot], "passed") {
 		t.Errorf("infraharvest verify after a change to %s: %s, which it didn't change, didn't pass:\n%s", edited, optionsGlobalRoot, stdout)

@@ -41,7 +41,7 @@ func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []
 	for _, r := range generated.Resources() {
 		for name, value := range defaults[resourceProvider(r)] {
 			if attr, ok := r.Syntax.Body.Attributes[name]; ok {
-				if v, ok := constantString(attr.Expr); ok && v == value {
+				if v, ok := hclfile.ConstantString(attr.Expr); ok && v == value {
 					candidates = append(candidates, candidate{r, name})
 				}
 			}
@@ -93,7 +93,7 @@ func providerValues(dir string, names []string) (map[string]map[string]string, e
 			if !ok {
 				continue
 			}
-			if v, ok := constantString(attr.Expr); ok {
+			if v, ok := hclfile.ConstantString(attr.Expr); ok {
 				if values[b.Labels[0]] == nil {
 					values[b.Labels[0]] = map[string]string{}
 				}

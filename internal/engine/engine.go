@@ -26,6 +26,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -61,7 +62,7 @@ type Result struct {
 	// tool manages them (see OwnedBy).
 	Owned []OwnedResource `json:",omitempty"`
 	// Gate is the result of the verification gate (see runGate).
-	Gate Gate
+	Gate gate.Gate
 	// Warnings are about what the configuration holds that people should
 	// look at, such as a tag named after an AWS access key ID.
 	Warnings []string `json:",omitempty"`
@@ -185,8 +186,8 @@ type Options struct {
 	// of ScannerSlots: roots checked at the same time, such as those of one
 	// import, share them, so that the scanners of all of them together
 	// don't outnumber the CPUs. nil gives the run slots of its own.
-	Scanners     []Scanner
-	ScannerSlots *ScannerSlots `json:"-"`
+	Scanners     []gate.Scanner
+	ScannerSlots *gate.ScannerSlots `json:"-"`
 	// IncludeOwned keeps the resources whose tags say another tool
 	// manages them, which Generate leaves out otherwise (see OwnedBy).
 	IncludeOwned bool

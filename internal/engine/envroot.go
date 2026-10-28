@@ -22,6 +22,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // mainFileName holds the resources whose roots name no file of their own
@@ -1240,7 +1241,7 @@ func (w *rootWriter) readme() []byte {
 	if w.backendType() != "" {
 		b.WriteString("`-reconfigure` switches the working directory to the environment's state.")
 	} else {
-		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", workspaceStateDir)
+		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", tfrun.WorkspaceStateDir)
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
 	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, importVarsPath("<env>"), importVarsPath("<env>"))

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -70,12 +71,12 @@ func refine(ctx context.Context, tf tfrun.Terraform, dir string, result *Result,
 // known, if set, has the values of the secrets Generate found (see
 // secret.Values).
 func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options, known *secret.Values, before map[string][]byte, refineWarnings int) error {
-	gate, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
+	checks, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err
 	}
-	if before == nil || gate.Passed() {
-		result.Gate = gate
+	if before == nil || checks.Passed() {
+		result.Gate = checks
 		return nil
 	}
 	refined, err := rootFileContents(dir)
@@ -90,18 +91,18 @@ func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Re
 		return err
 	}
 	if !without.Passed() {
-		result.Gate = gate
+		result.Gate = checks
 		return restoreRoot(dir, refined)
 	}
-	result.Warnings = append(result.Warnings[:refineWarnings], refineFailed+"made its gate fail ("+failedChecks(gate)+"), so they were rolled back")
+	result.Warnings = append(result.Warnings[:refineWarnings], refineFailed+"made its gate fail ("+failedChecks(checks)+"), so they were rolled back")
 	result.Gate = without
 	return nil
 }
 
-// failedChecks names the checks of gate that failed.
-func failedChecks(gate Gate) string {
+// failedChecks names the checks that failed.
+func failedChecks(checks gate.Gate) string {
 	var failed []string
-	for _, c := range gate {
+	for _, c := range checks {
 		if !c.Passed {
 			failed = append(failed, c.Name)
 		}

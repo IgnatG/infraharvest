@@ -28,7 +28,7 @@ precedence = "override"
 SPDX-FileCopyrightText = "Copyright IBM Corp. 2014, 2026 (HashiCorp, Inc.: terraform-provider-aws, terraform-provider-azurerm, terraform-provider-google)"
 SPDX-License-Identifier = "MPL-2.0"
 
-# OPA's capabilities file (internal/engine/conftest_capabilities.json): the
+# OPA's capabilities file (internal/engine/gate/conftest_capabilities.json): the
 # built-in functions, keywords and features of OPA 1.21.1, copied unchanged
 # from capabilities/v1.21.1.json in open-policy-agent/opa, which is
 # Apache-2.0. infraharvest passes it, less the functions it leaves out, to
@@ -36,7 +36,7 @@ SPDX-License-Identifier = "MPL-2.0"
 # embeds the file is AGPL-3.0-only as a larger work, which Apache-2.0
 # section 4 allows.
 [[annotations]]
-path = "internal/engine/conftest_capabilities.json"
+path = "internal/engine/gate/conftest_capabilities.json"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright The OPA Authors"
 SPDX-License-Identifier = "Apache-2.0"
