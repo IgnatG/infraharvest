@@ -34,7 +34,8 @@
 #      global and the Tagging API doesn't list roles.
 #
 # It sweeps what earlier runs left with their own run tag the same way:
-# runs never overlap (the workflow's concurrency group), so another run's
+# runs never overlap (sandbox-aws.yml's concurrency group, which the
+# delete of sandbox-leftovers.yml waits in too), so another run's
 # tag only remains on what that run failed to delete, as when it was
 # cancelled during its destroy. It touches nothing without the tag but the
 # log groups Lambda names after the CloudFormation estate's ih-sbx-

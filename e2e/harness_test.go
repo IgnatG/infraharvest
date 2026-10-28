@@ -152,6 +152,17 @@ func configBlocks(t *testing.T, dir string) []*hclsyntax.Block {
 // imports.
 func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string]int {
 	t.Helper()
+	imported := map[string]int{}
+	for typ, ids := range checkImportedIDs(ctx, t, dir, execPath, pluginCache, vars) {
+		imported[typ] = len(ids)
+	}
+	return imported
+}
+
+// checkImportedIDs is checkNoChanges, returning by type the IDs of the
+// resources it imports, as the plan reads them into state.
+func checkImportedIDs(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string][]string {
+	t.Helper()
 	tf, err := tfrun.New(dir, execPath, pluginCache, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +182,7 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 	if err != nil {
 		t.Fatalf("%s: terraform show: %v", dir, err)
 	}
-	imported := map[string]int{}
+	imported := map[string][]string{}
 	for _, rc := range plan.ResourceChanges {
 		// Modules read data sources, such as the caller's identity.
 		if rc.Mode != tfjson.ManagedResourceMode {
@@ -188,7 +199,10 @@ func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCach
 				continue
 			}
 		}
-		imported[rc.Type]++
+		// An import's plan holds what it read in Before.
+		before, _ := rc.Change.Before.(map[string]any)
+		id, _ := before["id"].(string)
+		imported[rc.Type] = append(imported[rc.Type], id)
 	}
 	return imported
 }

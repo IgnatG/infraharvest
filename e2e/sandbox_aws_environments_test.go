@@ -53,7 +53,7 @@ var sandboxEnvironmentTags = map[string]string{"dev": "dev", "prd": "prod"}
 // must merge into one root they share, aws/<region>, with what differs in
 // each environment's var files: the queue's visibility timeout a
 // variable, prd's alerts queue counted by a deploy_ variable only prod
-// sets, and each environment's SecureString parameter value a sensitive
+// sets, and each environment's secret-named parameter value a sensitive
 // variable that no var file sets and no file of the output holds. Planned
 // as each environment, with its var files and its secret, the merged root
 // must import what that environment has and change nothing. It destroys
@@ -144,7 +144,7 @@ func TestSandboxAWSEnvironments(t *testing.T) {
 }
 
 // sandboxEnvironmentSecrets returns the value of each environment's
-// SecureString parameter the estate created, by environment.
+// secret-named parameter the estate created, by environment.
 func sandboxEnvironmentSecrets(t *testing.T, created []*tfjson.StateResource) map[string]string {
 	t.Helper()
 	secrets := map[string]string{}

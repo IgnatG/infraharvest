@@ -61,8 +61,9 @@ jobs:
     # destroy has, and a margin, so that it never stops a destroy halfway
     # (the cfn estate's test 90 minutes, then 30 for what its stacks
     # retained and 30 for the destroy); the job, another half an hour for
-    # the destroy step below and one for the sweep.
-    timeout-minutes: ${{ inputs.estate == 'data' && 160 || inputs.estate == 'cfn' && 230 || 190 }}
+    # the destroy step below and one for each sweep, of what earlier runs
+    # left and of what this one did.
+    timeout-minutes: ${{ inputs.estate == 'data' && 190 || inputs.estate == 'cfn' && 260 || 220 }}
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -80,6 +81,25 @@ jobs:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
       run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
+    # An unset variable is an empty string, which would surface only
+    # minutes into the apply: without the boundary, the fixture role is
+    # denied iam:CreateRole. The bootstrap's gh_commands output sets them.
+    - name: Variables
+      env:
+        AWS_FIXTURE_ROLE_ARN: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        AWS_READONLY_ROLE_ARN: ${{ vars.AWS_READONLY_ROLE_ARN }}
+        AWS_BOUNDARY_POLICY_ARN: ${{ vars.AWS_BOUNDARY_POLICY_ARN }}
+      run: |
+        missing=()
+        for name in AWS_REGION AWS_FIXTURE_ROLE_ARN AWS_READONLY_ROLE_ARN AWS_BOUNDARY_POLICY_ARN; do
+          if [ -z "${!name}" ]; then
+            missing+=("$name")
+          fi
+        done
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "::error::The sandbox environment lacks the variables ${missing[*]}. Set them with the commands the aws-bootstrap root's gh_commands output prints (see e2e/README.md)."
+          exit 1
+        fi
     - name: Directories
       run: |
         {
@@ -120,9 +140,13 @@ jobs:
         aws-region: ${{ vars.AWS_REGION }}
         aws-profile: readonly
     # What an earlier run may have left, in both regions and in us-east-1,
-    # where the Tagging API lists CloudFront. Only a warning: AWS lists
-    # deleted resources, such as terminated instances, for a while.
+    # where the Tagging API lists CloudFront. A warning, as AWS lists
+    # deleted resources, such as terminated instances, for a while; the
+    # estate's names are fixed per engine, though, so what is still there
+    # would stop the apply (a load balancer that already exists), and the
+    # next step sweeps it.
     - name: Leftovers
+      id: leftovers
       run: |
         for region in $(printf '%s\n' "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1 | sort -u); do
           left=$(aws resourcegroupstaggingapi get-resources --profile fixture --region "$region" \
@@ -130,8 +154,18 @@ jobs:
             --query 'ResourceTagMappingList[].ResourceARN' --output text)
           if [ -n "$left" ]; then
             echo "::warning::Resources tagged infraharvest-sandbox=$E2E_ENGINE in $region: $left"
+            echo "found=true" >> "$GITHUB_OUTPUT"
           fi
         done
+    # Every earlier run's tag (see the script), which only what a run
+    # failed to delete still carries: the group lets no other run be live.
+    - name: Sweep what earlier runs left
+      if: steps.leftovers.outputs.found == 'true'
+      timeout-minutes: 30
+      env:
+        AWS_PROFILE: fixture
+        RUN_ID: ${{ github.run_id }}
+      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
     # Redshift creates a cluster through its service-linked role, which an
     # account has only once a cluster was made; created with the cluster,
     # it isn't ready in time and CreateCluster fails ("Unable to assume the
