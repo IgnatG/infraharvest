@@ -44,7 +44,7 @@ const maxMergeRounds = 3
 const credentialsOverrideFileName = "infraharvest_credentials_override.tf"
 
 // MergeOptions configure MergeRoots: what the merged root's gate checks,
-// as Generate's does (see engine.Options).
+// as engine.Generate's does (see engine.Options).
 type MergeOptions struct {
 	// Profile is what the merged root reads of each environment's account
 	// and region.
