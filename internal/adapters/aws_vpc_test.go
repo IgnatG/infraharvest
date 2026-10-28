@@ -158,8 +158,8 @@ func TestVPCMapsEveryMember(t *testing.T) {
 		t.Errorf("addresses: %v", call.Addresses)
 	}
 	wantImports := []Import{
-		{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"},
-		{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private", Suffix: "_0.0.0.0/0"},
+		{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity},
+		{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private", Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity},
 	}
 	if !reflect.DeepEqual(call.Imports, wantImports) {
 		t.Errorf("imports: %+v", call.Imports)
@@ -499,9 +499,9 @@ func TestVPCMapsANATGatewayPerZone(t *testing.T) {
 		t.Errorf("addresses: %v", call.Addresses)
 	}
 	wantImports := []Import{
-		{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"},
-		{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private_a", Suffix: "_0.0.0.0/0"},
-		{To: "aws_route.private_nat_gateway[1]", Of: "aws_route_table.private_b", Suffix: "_0.0.0.0/0"},
+		{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity},
+		{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private_a", Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity},
+		{To: "aws_route.private_nat_gateway[1]", Of: "aws_route_table.private_b", Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity},
 	}
 	if !reflect.DeepEqual(call.Imports, wantImports) {
 		t.Errorf("imports: %+v", call.Imports)

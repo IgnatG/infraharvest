@@ -766,18 +766,22 @@ type moduleImport struct {
 
 // retargetImports points the import blocks into the given resources at
 // their new addresses, such as module.logs.aws_s3_bucket.this[0], and adds
-// the imports of added, with IDs that start with the import ID of the
-// resource each names.
+// the imports of added: by IDs that start with the import ID of the
+// resource each names, or, where that resource is imported by its
+// identity, by the identity the adapter makes of its (see
+// adapters.Import.Identity).
 func retargetImports(dir string, to map[string]string, added []moduleImport) error {
 	imports, err := loadHCL(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return err
 	}
 	ids := map[string]string{}
-	byIdentity := map[string]bool{}
+	identities := map[string]map[string]string{}
 	for _, imp := range imports.imports() {
 		ids[imp.to] = imp.id
-		_, byIdentity[imp.to] = imp.syntax.Body.Attributes["identity"]
+		if _, hasID := imp.syntax.Body.Attributes["id"]; !hasID {
+			identities[imp.to], _ = identityOf(imp.syntax.Body)
+		}
 		address, ok := to[imp.to]
 		if !ok {
 			continue
@@ -790,9 +794,6 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 	}
 	body := imports.edit().Body()
 	for _, imp := range added {
-		if byIdentity[imp.Of] {
-			return fmt.Errorf("import into %s: %s is imported by its identity, which has no import ID to start one from", imp.to, imp.Of)
-		}
 		id := ids[imp.Of]
 		if id == "" {
 			return fmt.Errorf("import into %s: %s has no import ID", imp.to, imp.Of)
@@ -804,9 +805,37 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		body.AppendNewline()
 		block := body.AppendNewBlock("import", nil).Body()
 		block.SetAttributeTraversal("to", traversal)
-		block.SetAttributeValue("id", cty.StringVal(id+imp.Suffix))
+		of, byIdentity := identities[imp.Of]
+		if !byIdentity {
+			block.SetAttributeValue("id", cty.StringVal(id+imp.Suffix))
+			continue
+		}
+		identity := identityFrom(imp.Identity, of)
+		if len(identity) == 0 {
+			return fmt.Errorf("import into %s: %s is imported by its identity, which the module's adapter makes no identity of", imp.to, imp.Of)
+		}
+		block.SetAttributeValue("identity", identityValue(identity))
 	}
 	return imports.save()
+}
+
+// identityFrom returns the identity spec makes of of, the identity of
+// the resource an adapter's import names (see adapters.Import.Identity):
+// each attribute of spec whose value is {name} is of's attribute name,
+// left out where of has none, and any other value is as it is.
+func identityFrom(spec, of map[string]string) map[string]string {
+	identity := map[string]string{}
+	for k, v := range spec {
+		name, isRef := strings.CutPrefix(v, "{")
+		if name, ok := strings.CutSuffix(name, "}"); isRef && ok {
+			if value, ok := of[name]; ok {
+				identity[k] = value
+			}
+			continue
+		}
+		identity[k] = v
+	}
+	return identity
 }
 
 // importTargets returns where each import block of dir imports into, by

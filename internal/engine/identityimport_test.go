@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
 )
 
 // A resource with an identity, as Terraform's list resources return it, is
@@ -176,5 +178,52 @@ func TestMergeRootsByIDAndIdentity(t *testing.T) {
 	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"]})
 	if err != nil || !strings.Contains(result.Reason, "by ID and others by identity") {
 		t.Errorf("want a reason not to merge, got %v %+v", err, result)
+	}
+}
+
+// A module call's adapter adds the imports of resources the root has no
+// block for, such as the VPC module's default routes, from the import of
+// the resource each starts from: by identity where that resource is
+// imported by its identity.
+func TestRetargetImportsByIdentity(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, ImportsFileName, `import {
+  to = aws_route_table.public
+  identity = {
+    account_id = "123456789012"
+    id         = "rtb-1"
+  }
+}
+
+import {
+  to = aws_route_table.private
+  id = "rtb-2"
+}
+`)
+	route := map[string]string{"account_id": "{account_id}", "region": "{region}", "route_table_id": "{id}", "destination_cidr_block": "0.0.0.0/0"}
+	err := retargetImports(dir, map[string]string{"aws_route_table.public": "module.vpc.aws_route_table.public[0]"}, []moduleImport{
+		{Import: adapters.Import{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0", Identity: route}, to: "module.vpc.aws_route.public_internet_gateway[0]"},
+		{Import: adapters.Import{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private", Suffix: "_0.0.0.0/0", Identity: route}, to: "module.vpc.aws_route.private_nat_gateway[0]"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, dir, ImportsFileName)
+	for _, want := range []string{
+		"to = module.vpc.aws_route_table.public[0]",
+		"to = module.vpc.aws_route.public_internet_gateway[0]\n  identity = {\n    account_id             = \"123456789012\"\n    destination_cidr_block = \"0.0.0.0/0\"\n    route_table_id         = \"rtb-1\"\n  }\n",
+		"to = module.vpc.aws_route.private_nat_gateway[0]\n  id = \"rtb-2_0.0.0.0/0\"\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("imports.tf misses %q:\n%s", want, got)
+		}
+	}
+
+	// An adapter that makes no identity can't add the import.
+	writeConfig(t, dir, ImportsFileName, "import {\n  to = aws_route_table.public\n  identity = {\n    id = \"rtb-1\"\n  }\n}\n")
+	err = retargetImports(dir, nil, []moduleImport{{Import: adapters.Import{To: "aws_route.this[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"}, to: "module.vpc.aws_route.this[0]"}})
+	if err == nil || !strings.Contains(err.Error(), "makes no identity") {
+		t.Errorf("want an error, got %v", err)
 	}
 }
