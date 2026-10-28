@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"slices"
@@ -16,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/resourceexplorer2"
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
-	"github.com/aws/smithy-go"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -449,14 +447,4 @@ func explorerError(op string, err error) string {
 		return fmt.Sprintf("not allowed resource-explorer-2:%s (%v)", op, err)
 	}
 	return fmt.Sprintf("%s: %v", op, err)
-}
-
-// apiErrorCode returns the error code of an AWS API error, "" for any
-// other error.
-func apiErrorCode(err error) string {
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode()
-	}
-	return ""
 }

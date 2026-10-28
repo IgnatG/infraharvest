@@ -5,13 +5,7 @@ package aws
 
 import (
 	"context"
-	"crypto/x509"
-	"errors"
 	"log"
-	"net"
-	"strings"
-
-	"github.com/aws/smithy-go"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -39,7 +33,7 @@ func (s *guardedLister) List(ctx context.Context, settings harvest.Settings) ([]
 		return nil, nil
 	}
 	resources, err := s.lister.List(ctx, settings)
-	if err != nil && unavailableInRegion(err) {
+	if err != nil && awsCodes.Classify(err) == harvest.OutcomeSkipRegion {
 		log.Printf("aws: %s: not offered in %s: %v; not listing it", settings.Service, s.where(), err)
 		return resources, nil
 	}
@@ -53,28 +47,4 @@ func (s *guardedLister) where() string {
 		return "the default region"
 	}
 	return region
-}
-
-// unavailableInRegion says whether err means AWS doesn't offer the service
-// in the region: it has no endpoint there, the endpoint's name is served
-// by another host's certificate, or the API says the operation is
-// unavailable. A timeout or a DNS failure that may pass is not that.
-func unavailableInRegion(err error) bool {
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-		return true
-	}
-	var hostErr x509.HostnameError
-	if errors.As(err, &hostErr) {
-		return true
-	}
-	var hostErrPtr *x509.HostnameError
-	if errors.As(err, &hostErrPtr) {
-		return true
-	}
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == "UnavailableOperation" || strings.Contains(apiErr.ErrorMessage(), "Unavailable Operation")
-	}
-	return false
 }

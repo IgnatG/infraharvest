@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
 	"log"
 	"slices"
 	"strconv"
@@ -23,14 +22,14 @@ import (
 type EcsLister struct {
 	Service
 	// parts gathers the parts of the listing that failed.
-	parts partFailures
+	parts harvest.Parts
 }
 
 // List lists the clusters with their services, then the task
 // definitions. Failing to list clusters or task definitions fails the
 // service; failing to list or describe a cluster's services leaves out
 // only those services, and the failures are returned together as a partial
-// error (see partFailures).
+// error (see harvest.Parts).
 func (g *EcsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -42,12 +41,12 @@ func (g *EcsLister) list() error {
 	}
 	client := ecs.NewFromConfig(config)
 	if err := g.listClusters(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
 	if err := g.listTaskDefinitions(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
-	return g.parts.err()
+	return g.parts.Err()
 }
 
 // listClusters records every cluster by ARN, named after its name (the
@@ -85,7 +84,7 @@ func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName str
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			g.parts.add("services of cluster "+clusterARN, err)
+			g.parts.Add(awsCodes, "services of cluster "+clusterARN, err)
 			return
 		}
 		for batch := range slices.Chunk(page.ServiceArns, ecsDescribeServicesLimit) {
@@ -107,7 +106,7 @@ func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName stri
 		Services: serviceARNs,
 	})
 	if err != nil {
-		g.parts.add("services "+strings.Join(serviceARNs, ", "), err)
+		g.parts.Add(awsCodes, "services "+strings.Join(serviceARNs, ", "), err)
 		return
 	}
 	described := map[string]types.Service{}

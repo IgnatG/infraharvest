@@ -60,7 +60,7 @@ func (g *DNSRecordSetsLister) list() error {
 	}
 	zones, err := dnsZones(ctx, svc, project)
 	if err != nil {
-		if isServiceDisabled(err) {
+		if googleCodes.Classify(err) == harvest.OutcomeNothingToList {
 			log.Printf("%s: dns: no Cloud DNS zones listed in project %s: %v", g.Provider(), project, err)
 			return nil
 		}

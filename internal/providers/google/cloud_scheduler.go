@@ -65,7 +65,7 @@ func (g *SchedulerJobsLister) list() error {
 		return nil
 	})
 	if err != nil {
-		if nothingToList(err) {
+		if outcome := googleCodes.Classify(err); outcome.LeavesNothingOut() || outcome == harvest.OutcomeSkipRegion {
 			log.Printf("%s: schedulerJobs: no Cloud Scheduler jobs listed in %s: %v", g.Provider(), parent, err)
 			return nil
 		}

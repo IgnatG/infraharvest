@@ -5,12 +5,8 @@ package azure
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
-	"net/http"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -57,7 +53,7 @@ func (az *ManagedIdentityLister) list() error {
 	if err != nil {
 		return err
 	}
-	var failures []error
+	var parts harvest.Parts
 	for _, identity := range listed {
 		if identity.ID == nil || identity.Name == nil {
 			continue
@@ -72,7 +68,7 @@ func (az *ManagedIdentityLister) list() error {
 		// listed.
 		identityResourceGroup, err := resourceGroupOf(*identity.ID)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("azurerm: managed_identity: federated credentials of %s: %w", *identity.ID, err))
+			parts.Add(nil, "azurerm: managed_identity: federated credentials of "+*identity.ID, err)
 			continue
 		}
 		federated, err := listAll(ctx, credentials.NewListPager(identityResourceGroup, *identity.Name, nil),
@@ -88,13 +84,12 @@ func (az *ManagedIdentityLister) list() error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			var respErr *azcore.ResponseError
-			if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+			if azureCodes.Classify(err) == harvest.OutcomeGone {
 				log.Printf("azurerm: managed_identity: %s is gone: %v", *identity.ID, err)
 				continue
 			}
-			failures = append(failures, fmt.Errorf("azurerm: managed_identity: listing the federated credentials of %s: %w", *identity.ID, err))
+			parts.Add(nil, "azurerm: managed_identity: listing the federated credentials of "+*identity.ID, err)
 		}
 	}
-	return harvest.Partial(errors.Join(failures...))
+	return parts.Err()
 }

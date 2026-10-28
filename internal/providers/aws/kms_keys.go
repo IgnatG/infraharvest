@@ -6,7 +6,6 @@ package aws
 import (
 	"cmp"
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,7 +28,7 @@ type KmsLister struct {
 // as a key is named after its alias. Failing to list keys or aliases fails
 // the service; a key or an alias whose key can't be described, and a key
 // whose grants can't be listed, is left out, and the failures are returned
-// together as a partial error (see partFailures).
+// together as a partial error (see harvest.Parts).
 func (g *KmsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -42,16 +41,16 @@ func (g *KmsLister) list() error {
 	lister := &kmsLister{g: g, svc: kms.NewFromConfig(config), keys: map[string]*types.KeyMetadata{}}
 	aliases, err := lister.listAliases()
 	if err != nil {
-		return errors.Join(err, lister.parts.err())
+		return lister.parts.Fail(err)
 	}
 	if err := lister.addKeys(keyNames(aliases)); err != nil {
-		return errors.Join(err, lister.parts.err())
+		return lister.parts.Fail(err)
 	}
 	for _, alias := range aliases {
 		name := aws.ToString(alias.AliasName)
 		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_kms_alias", "aws"))
 	}
-	return lister.parts.err()
+	return lister.parts.Err()
 }
 
 // keyNames names each key that has aliases after the first of them in
@@ -75,7 +74,7 @@ type kmsLister struct {
 	g     *KmsLister
 	svc   *kms.Client
 	keys  map[string]*types.KeyMetadata
-	parts partFailures
+	parts harvest.Parts
 }
 
 // addKeys records every listable key, imported by its ID, which it also
@@ -116,7 +115,7 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(l.keys[id]), "aws",
 				map[string]string{"key_id": id}))
 			l.g.Resources = append(l.g.Resources, grants[i]...)
-			l.parts.add("grants of key "+id, grantErrs[i])
+			l.parts.Add(awsCodes, "grants of key "+id, grantErrs[i])
 		}
 	}
 	return nil
@@ -219,7 +218,7 @@ func (l *kmsLister) describeAll(keyIDs []string) {
 	})
 	for i, id := range todo {
 		l.keys[id] = metadata[i]
-		l.parts.add("key "+id, errs[i])
+		l.parts.Add(awsCodes, "key "+id, errs[i])
 	}
 }
 

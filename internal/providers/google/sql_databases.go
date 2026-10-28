@@ -91,7 +91,7 @@ func (g *CloudSQLLister) list() error {
 	}
 	instances, err := sqlPrimaries(ctx, svc, project, region.Name)
 	if err != nil {
-		if isServiceDisabled(err) {
+		if googleCodes.Classify(err) == harvest.OutcomeNothingToList {
 			log.Printf("%s: cloudsql: no Cloud SQL instances listed in project %s: %v", g.Provider(), project, err)
 			return nil
 		}
@@ -112,14 +112,14 @@ func (g *CloudSQLLister) list() error {
 	_ = group.Wait()
 	// In the instances' order, whichever answered first.
 	var resources []harvest.Resource
-	var unlisted []error
+	var parts harvest.Parts
 	for i, instance := range instances {
 		list, err := lists[i].list, lists[i].err
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			if sqlInstanceGone(err) {
+			if googleCodes.Classify(err) == harvest.OutcomeGone {
 				log.Printf("%s: cloudsql: instance %s in project %s was deleted since it was listed, so it has no databases to list: %v", g.Provider(), instance.Name, project, err)
 				continue
 			}
@@ -128,7 +128,7 @@ func (g *CloudSQLLister) list() error {
 				caches.setSQLDatabasesUnlisted(project, region.Name, true)
 				continue
 			}
-			unlisted = append(unlisted, fmt.Errorf("listing the databases of Cloud SQL instance %s in project %s: %w", instance.Name, project, err))
+			parts.Add(nil, fmt.Sprintf("listing the databases of Cloud SQL instance %s in project %s", instance.Name, project), err)
 			continue
 		}
 		for _, db := range list.Items {
@@ -136,7 +136,7 @@ func (g *CloudSQLLister) list() error {
 		}
 	}
 	g.Resources = resources
-	return harvest.Partial(errors.Join(unlisted...))
+	return parts.Err()
 }
 
 // sqlInstanceNotServing reports whether err says a Cloud SQL instance
@@ -159,14 +159,6 @@ func sqlInstanceNotServing(err error) bool {
 		return strings.Contains(strings.ToLower(apiErr.Message), "not running")
 	}
 	return false
-}
-
-// sqlInstanceGone reports whether err is a 404, which the SQL Admin API
-// answers for an instance deleted since it was listed: it has no
-// databases left.
-func sqlInstanceGone(err error) bool {
-	var apiErr *googleapi.Error
-	return errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
 }
 
 // sqlDatabasesKey names the import of project's region.

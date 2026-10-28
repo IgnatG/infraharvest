@@ -85,17 +85,17 @@ func (g *CloudAssetLister) list() error {
 	wanted := slices.DeleteFunc(slices.Clone(resources), func(r harvest.Resource) bool {
 		return !g.Wants(r.Address.Type)
 	})
-	var unmarked []error
+	var unmarked harvest.Parts
 	for _, mark := range []func(context.Context, string, []*cloudasset.ResourceSearchResult, []harvest.Resource) error{markInstances, markAutopilotPools} {
 		if err := mark(ctx, project, results, wanted); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
-			unmarked = append(unmarked, err)
+			unmarked.Add(nil, "", err)
 		}
 	}
 	g.Resources = resources
-	return harvest.Partial(errors.Join(unmarked...))
+	return unmarked.Err()
 }
 
 // Types returns the Terraform types the lister lists, sorted: those of
