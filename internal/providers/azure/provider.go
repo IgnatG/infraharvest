@@ -416,7 +416,8 @@ func (p *Provider) InQueryScope(identity map[string]string) bool {
 // diagnostic_setting, which takes a request per resource (see
 // DiagnosticSettingLister) and lists after the others, asking only the
 // resources they found for their diagnostic settings, and the query
-// service, which lists the types --query-types names; Azure Verified
+// service, which lists the types --query-types names; resource_graph
+// leaves out the types azurerm 5 lacks (see missingTypes); Azure Verified
 // Modules are its curated modules; roots go under <out>/azure/, not
 // azurerm; the services of a subscription may list at once, as each has
 // its own lister and what they share, the credential and the
@@ -440,6 +441,7 @@ func (*Provider) Profile() harvest.Profile {
 		ModulesName:       "Azure Verified Modules",
 		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService, harvest.QueryService),
 		ListedTypes:       listedTypes,
+		MissingTypes:      missingTypes,
 		DependentServices: []string{diagnosticSettingService},
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},

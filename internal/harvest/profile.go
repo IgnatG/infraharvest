@@ -46,6 +46,13 @@ type Profile struct {
 	// leaves those types to their services (see QueryService). A provider
 	// without the query service needs none.
 	ListedTypes map[string]string
+	// MissingTypes are the resource types the provider's services can map
+	// a resource to that the provider release generated roots pin
+	// doesn't have, such as azurerm types that aztft knows and azurerm 5
+	// lacks: the services leave such resources out, as an import block
+	// for one would fail the root's plan, so the services reference
+	// doesn't count the types as listed.
+	MissingTypes []string
 	// Source is the Terraform provider's registry source address, such as
 	// DataDog/datadog, for the required_providers block; hashicorp/<Name>
 	// without it.

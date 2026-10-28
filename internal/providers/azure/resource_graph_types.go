@@ -120,7 +120,7 @@ func fromQuery(id string, query queryType) mapping {
 		return mapping{}
 	case err != nil:
 		return mapping{leftOut: ": " + err.Error()}
-	case len(types) == 1 && missingTypes[types[0].TFType]:
+	case len(types) == 1 && slices.Contains(missingTypes, types[0].TFType):
 		return mapping{leftOut: ": aztft maps it to " + types[0].TFType + ", which azurerm 5 doesn't have; left out", untyped: true}
 	case len(types) == 0:
 		return mapping{leftOut: ": no azurerm resource type; left out", untyped: true}
@@ -132,7 +132,7 @@ func fromQuery(id string, query queryType) mapping {
 		return mapping{leftOut: " could be " + strings.Join(names, " or ") + "; left out"}
 	}
 	for i := len(types) - 1; i >= 0; i-- {
-		if missingTypes[types[i].TFType] {
+		if slices.Contains(missingTypes, types[i].TFType) {
 			log.Printf("azurerm: resource_graph: %s: aztft maps part of it to %s, which azurerm 5 doesn't have; left out", id, types[i].TFType)
 			types, ids = slices.Delete(types, i, i+1), slices.Delete(ids, i, i+1)
 		}
@@ -146,16 +146,18 @@ func fromQuery(id string, query queryType) mapping {
 // resources with it. A resource that maps to one alone is left out, as if
 // azurerm had no type for it, so that --azapi imports it through azapi
 // instead; a part of a resource that maps to one is left out, and the rest
-// imported. Remove a type once aztft stops mapping to it.
-var missingTypes = map[string]bool{
+// imported. The provider's profile declares them (see
+// harvest.Profile.MissingTypes). Remove a type once aztft stops mapping
+// to it.
+var missingTypes = []string{
 	// A Palo Alto Networks firewall in a Virtual WAN hub that Panorama
 	// manages.
-	"azurerm_palo_alto_next_generation_firewall_vhub_panorama": true,
+	"azurerm_palo_alto_next_generation_firewall_vhub_panorama",
 	// Of single-server PostgreSQL, retired: backup policies and instances
 	// can outlive its servers.
-	"azurerm_data_protection_backup_instance_postgresql": true,
-	"azurerm_data_protection_backup_policy_postgresql":   true,
-	"azurerm_postgresql_active_directory_administrator":  true,
+	"azurerm_data_protection_backup_instance_postgresql",
+	"azurerm_data_protection_backup_policy_postgresql",
+	"azurerm_postgresql_active_directory_administrator",
 }
 
 // The azurerm types of a Log Analytics workspace's tables, which the

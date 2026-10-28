@@ -104,7 +104,8 @@ func writeProviderServices(b *strings.Builder, name string) error {
 	if err != nil {
 		return err
 	}
-	optIn := slices.Sorted(slices.Values(provider.Profile().OptInServices))
+	profile := provider.Profile()
+	optIn := slices.Sorted(slices.Values(profile.OptInServices))
 	services := importer.Services(provider)
 	supported := provider.Services()
 
@@ -123,7 +124,7 @@ func writeProviderServices(b *strings.Builder, name string) error {
 			fmt.Fprintf(b, "| `%s` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |\n", service)
 			continue
 		}
-		types := serviceTypes(service, supported[service], source, cat, prefix, slices.Contains(optIn, service))
+		types := serviceTypes(service, supported[service], source, cat, prefix, slices.Contains(optIn, service), profile.MissingTypes)
 		cellService := "`" + service + "`"
 		if slices.Contains(optIn, service) {
 			cellService += " (opt-in)"
@@ -147,8 +148,10 @@ type typedService interface {
 // its lister code names; those the lister says it lists, if it says,
 // or else those the catalogue assigns to it (for an opt-in service, those
 // the catalogue maps from the cloud's inventory); and the children the
-// catalogue declares for any of them.
-func serviceTypes(service string, lister harvest.Lister, source *providerSource, cat *catalogue.Catalogue, prefix string, optIn bool) []string {
+// catalogue declares for any of them; but not the types missing names,
+// which the provider leaves out (see harvest.Profile.MissingTypes),
+// though its lister code names them too.
+func serviceTypes(service string, lister harvest.Lister, source *providerSource, cat *catalogue.Catalogue, prefix string, optIn bool, missing []string) []string {
 	found := map[string]bool{}
 	for _, typ := range source.literals(listerTypeNames(lister, source.importPath), prefix) {
 		found[typ] = true
@@ -177,6 +180,9 @@ func serviceTypes(service string, lister harvest.Lister, source *providerSource,
 				queue = append(queue, child)
 			}
 		}
+	}
+	for _, typ := range missing {
+		delete(found, typ)
 	}
 	return slices.Sorted(maps.Keys(found))
 }
