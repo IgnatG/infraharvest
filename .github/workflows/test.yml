@@ -14,6 +14,9 @@ on:
     branches: [main]
     paths: [go.mod, go.sum]
   workflow_dispatch:
+  # Nightly, the e2e jobs alone, with OpenTofu (see the changes job).
+  schedule:
+  - cron: "23 3 * * *"
 
 permissions:
   contents: read
@@ -39,14 +42,19 @@ concurrency:
 # test-windows counts as passed. A push to main and workflow_dispatch run
 # everything. The e2e jobs run with Terraform alone, but for
 # workflow_dispatch, which runs them with OpenTofu too: a run with each
-# engine would double the jobs every push queues for runners.
+# engine would double the jobs every push queues for runners. So the
+# nightly run on main runs the e2e jobs alone, every shard, with OpenTofu
+# alone: what Terraform proves on each pull request, OpenTofu proves by
+# the next morning, and no pull request waits for it.
 jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      code: ${{ steps.diff.outputs.code }}
-      permissions: ${{ steps.diff.outputs.permissions }}
+      code: ${{ github.event_name != 'schedule' && steps.diff.outputs.code || 'false' }}
+      permissions: ${{ github.event_name != 'schedule' && steps.diff.outputs.permissions || 'false' }}
+      # The e2e jobs: as code, and every night.
+      e2e: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.code }}
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -394,13 +402,13 @@ jobs:
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
-        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || github.event_name == 'schedule' && '["tofu"]' || '["terraform"]') }}
         shard: [round-trip, selection, incremental, options-output, options-input, drift, mcp, environments, environments-drift, environments-regenerate, regenerate, others]
         include:
         - shard: round-trip
@@ -495,13 +503,13 @@ jobs:
   e2e-google:
     name: e2e-google (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || github.event_name == 'schedule' && '["tofu"]' || '["terraform"]') }}
         shard: [round-trip, incremental, drift, environments, others]
         include:
         - shard: round-trip
@@ -564,13 +572,13 @@ jobs:
   e2e-azure:
     name: e2e-azure (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || '["terraform"]') }}
+        engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || github.event_name == 'schedule' && '["tofu"]' || '["terraform"]') }}
         shard: [round-trip, incremental, drift, environments, others]
         include:
         - shard: round-trip
