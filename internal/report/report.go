@@ -207,24 +207,26 @@ type Coverage struct {
 }
 
 // Finding is what a scanner of the verification gate found in a root
-// (Root, relative to the output directory, with forward slashes): by
-// Scanner, its rule, severity, place and message. Address is the
+// (Root, relative to the output directory, with forward slashes), as
+// Environment plans it for a root environments share: by Scanner, its
+// rule, severity, place and message. Address is the
 // resource or module call it is about, where the scanner names one; Type
 // and ID, the resource's type and import ID, where the root imports a
 // resource there, and Scope and Service where the import listed it, as
 // the selection file's entry for it has them.
 type Finding struct {
-	Root     string `json:"root"`
-	Address  string `json:"address,omitempty"`
-	Type     string `json:"type,omitempty"`
-	ID       string `json:"id,omitempty"`
-	Scope    string `json:"scope,omitempty"`
-	Service  string `json:"service,omitempty"`
-	Scanner  string `json:"scanner"`
-	Rule     string `json:"rule"`
-	Severity string `json:"severity,omitempty"`
-	Location string `json:"location,omitempty"`
-	Message  string `json:"message,omitempty"`
+	Root        string `json:"root"`
+	Environment string `json:"environment,omitempty"`
+	Address     string `json:"address,omitempty"`
+	Type        string `json:"type,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	Service     string `json:"service,omitempty"`
+	Scanner     string `json:"scanner"`
+	Rule        string `json:"rule"`
+	Severity    string `json:"severity,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Message     string `json:"message,omitempty"`
 }
 
 // String describes f as the check's details do: its rule, severity,
@@ -233,13 +235,17 @@ func (f Finding) String() string {
 	return engine.Finding{Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}.String()
 }
 
-// sortFindings sorts findings by root; in each, those about a resource
-// first, by address, then the others; then by scanner and what each says.
+// sortFindings sorts findings by root and environment; in each, those
+// about a resource first, by address, then the others; then by scanner
+// and what each says.
 func sortFindings(findings []Finding) {
 	sort.SliceStable(findings, func(i, j int) bool {
 		a, b := findings[i], findings[j]
 		if a.Root != b.Root {
 			return a.Root < b.Root
+		}
+		if a.Environment != b.Environment {
+			return a.Environment < b.Environment
 		}
 		if (a.Address == "") != (b.Address == "") {
 			return a.Address != ""
@@ -486,6 +492,10 @@ type Merge struct {
 	// Checks are the merged root's gate, for each environment, whose
 	// name each check's details start with.
 	Checks []Check `json:"checks,omitempty"`
+	// Findings are what the scanners of the merged root's gate found, for
+	// each environment, which AddMerge records with the report's, in
+	// place of those of the roots merged (see Report.Findings).
+	Findings []Finding `json:"findings,omitempty"`
 	// Unchanged says a resumed import kept the merged root as an earlier
 	// one wrote it (--resume).
 	Unchanged bool `json:"unchanged,omitempty"`
@@ -1133,22 +1143,45 @@ func (r *Report) findingsMarkdown(b *strings.Builder) {
 		return
 	}
 	b.WriteString("\n## Findings by resource\n\nThe scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `coverage.json` lists them all, with each resource's type and import ID.\n\n")
+	if left := writeFindings(b, r.Findings, maxMarkdownFindings); left > 0 {
+		fmt.Fprintf(b, "\n%d more findings aren't listed here: `coverage.json` has them all.\n", left)
+	}
+}
+
+// ListFindings returns findings as report.md lists them (see
+// writeFindings), all of them, sorted, as infraharvest verify prints
+// them.
+func ListFindings(findings []Finding) string {
+	findings = slices.Clone(findings)
+	sortFindings(findings)
+	var b strings.Builder
+	writeFindings(&b, slices.Compact(findings), len(findings))
+	return b.String()
+}
+
+// writeFindings writes findings, which are sorted, up to limit of them,
+// under a line for each root and resource they are about, and returns
+// how many it leaves out.
+func writeFindings(b *strings.Builder, findings []Finding, limit int) int {
 	group := ""
-	for i, f := range r.Findings {
-		if i == maxMarkdownFindings {
-			fmt.Fprintf(b, "\n%d more findings aren't listed here: `coverage.json` has them all.\n", len(r.Findings)-i)
-			break
+	for i, f := range findings {
+		if i == limit {
+			return len(findings) - i
 		}
-		heading := fmt.Sprintf("- `%s`, not about one resource:", f.Root)
+		root := "`" + f.Root + "`"
+		if f.Environment != "" {
+			root += " as " + f.Environment
+		}
+		heading := fmt.Sprintf("- %s, not about one resource:", root)
 		switch {
 		case f.ID != "":
 			about := "`" + f.ID + "`"
 			if f.Service != "" {
 				about += ", " + f.Service
 			}
-			heading = fmt.Sprintf("- `%s` in `%s` (%s):", f.Address, f.Root, about)
+			heading = fmt.Sprintf("- `%s` in %s (%s):", f.Address, root, about)
 		case f.Address != "":
-			heading = fmt.Sprintf("- `%s` in `%s`:", f.Address, f.Root)
+			heading = fmt.Sprintf("- `%s` in %s:", f.Address, root)
 		}
 		if heading != group {
 			group = heading
@@ -1156,6 +1189,7 @@ func (r *Report) findingsMarkdown(b *strings.Builder) {
 		}
 		fmt.Fprintf(b, "  - %s: %s\n", f.Scanner, f.String())
 	}
+	return 0
 }
 
 // Read reads the report an import wrote into outputDir (see WriteFiles).

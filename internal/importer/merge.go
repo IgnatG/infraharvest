@@ -390,6 +390,9 @@ func fillMerge(merge *report.Merge, result *engine.MergeResult) {
 		for _, c := range env.Gate {
 			merge.Checks = append(merge.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: append([]string{env.Env}, c.Details...)})
 		}
+		if merge.Merged {
+			merge.Findings = append(merge.Findings, report.GateFindings(merge.Path, env.Env, engine.MergedManaged(env.Imports), env.Gate)...)
+		}
 	}
 }
 

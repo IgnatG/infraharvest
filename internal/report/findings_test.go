@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -150,5 +151,81 @@ func TestMergeFindings(t *testing.T) {
 	r.Finish(nil, nil, false)
 	if len(r.Findings) != 5 || r.Findings[0].Service != "s3" {
 		t.Errorf("got %+v", r.Findings)
+	}
+}
+
+// A merged root's findings, for each environment, replace those of the
+// roots it merges, each with the scope and service its environment's
+// root listed the resource in, and report.md lists them by environment.
+func TestMergedRootFindings(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	gate := func(message string) engine.Gate {
+		return engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+			{Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: message, Resource: "aws_s3_bucket.logs"},
+		}}}
+	}
+	for env, id := range map[string]string{"dev": "acme-dev-logs", "prod": "acme-prod-logs"} {
+		scope, path := "aws/"+env+"/eu-west-2", "envs/"+env+"/aws"
+		r.AddListed(Listed{Scope: scope, Service: "s3", Type: "aws_s3_bucket", ID: id})
+		r.AddDirectory(path, scope, &engine.Result{
+			Addresses: []engine.Managed{{Type: "aws_s3_bucket", ID: id, Address: "aws_s3_bucket.logs"}},
+			Gate:      gate("S3 Bucket Logging, in the root set aside"),
+		})
+	}
+	m := Merge{Path: "aws", Merged: true, Environments: []string{"dev", "prod"}, Roots: []MergedRoot{{Env: "dev", Path: "envs/dev/aws"}, {Env: "prod", Path: "envs/prod/aws"}}}
+	for env, id := range map[string]string{"dev": "acme-dev-logs", "prod": "acme-prod-logs"} {
+		managed := engine.MergedManaged(map[string]string{"aws_s3_bucket.logs": id})
+		m.Findings = append(m.Findings, GateFindings("aws", env, managed, gate("S3 Bucket Logging"))...)
+	}
+	r.AddMerge(m, []string{"envs/dev/aws", "envs/prod/aws"})
+	r.Finish(nil, nil, false)
+
+	want := []Finding{
+		{Root: "aws", Environment: "dev", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", ID: "acme-dev-logs", Scope: "aws/dev/eu-west-2", Service: "s3", Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: "S3 Bucket Logging"},
+		{Root: "aws", Environment: "prod", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", ID: "acme-prod-logs", Scope: "aws/prod/eu-west-2", Service: "s3", Scanner: "trivy", Rule: "AWS-0089", Severity: "LOW", Location: "main.tf", Message: "S3 Bucket Logging"},
+	}
+	if !reflect.DeepEqual(r.Findings, want) {
+		t.Errorf("got %+v,\nwant %+v", r.Findings, want)
+	}
+	if r.Merges[0].Findings != nil {
+		t.Errorf("coverage.json would list the merged root's findings twice: %+v", r.Merges[0].Findings)
+	}
+	wantMD := "- `aws_s3_bucket.logs` in `aws` as dev (`acme-dev-logs`, s3):\n" +
+		"  - trivy: AWS-0089 (low) main.tf: S3 Bucket Logging\n" +
+		"- `aws_s3_bucket.logs` in `aws` as prod (`acme-prod-logs`, s3):\n" +
+		"  - trivy: AWS-0089 (low) main.tf: S3 Bucket Logging\n"
+	if md := r.Markdown(); !strings.Contains(md, wantMD) {
+		t.Errorf("report.md lacks the merged root's findings:\n%s", md)
+	}
+}
+
+// A merge that didn't happen keeps the roots' findings.
+func TestUnmergedRootFindings(t *testing.T) {
+	t.Parallel()
+	r := findingsReport()
+	r.AddMerge(Merge{Path: "aws", Reason: "too different", Findings: []Finding{{Root: "aws", Environment: "dev", Scanner: "trivy"}}}, []string{"aws/1/eu-west-2"})
+	r.Finish(nil, nil, false)
+	if len(r.Findings) != 5 || slices.ContainsFunc(r.Findings, func(f Finding) bool { return f.Root == "aws" }) {
+		t.Errorf("got %+v", r.Findings)
+	}
+}
+
+// ListFindings lists every finding, sorted, as report.md does.
+func TestListFindings(t *testing.T) {
+	t.Parallel()
+	findings := []Finding{
+		{Root: "aws", Environment: "prod", Scanner: "tflint", Rule: "terraform_required_version", Severity: "warning", Location: "providers.tf:1", Message: "required_version is required"},
+		{Root: "aws", Environment: "dev", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", ID: "acme-dev-logs", Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag"},
+	}
+	want := "- `aws_s3_bucket.logs` in `aws` as dev (`acme-dev-logs`):\n" +
+		"  - conftest: s3 (failure) main.tf: logs has no owner tag\n" +
+		"- `aws` as prod, not about one resource:\n" +
+		"  - tflint: terraform_required_version (warning) providers.tf:1: required_version is required\n"
+	if got := ListFindings(findings); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if findings[0].Environment != "prod" {
+		t.Error("ListFindings sorted the caller's findings")
 	}
 }
