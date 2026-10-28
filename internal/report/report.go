@@ -943,139 +943,221 @@ func marshal(v any) ([]byte, error) {
 // Markdown renders the report for people.
 func (r *Report) Markdown() string {
 	var b strings.Builder
+	r.summaryMarkdown(&b)
+	r.typesMarkdown(&b)
+	r.tagsMarkdown(&b)
+	d := r.directoryLines()
+	writeSection(&b, "Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", d.leftOut)
+	writeSection(&b, "Secrets to set", "Set these variables before planning, from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`: infraharvest never writes secret values into its output.", d.secrets)
+	writeSection(&b, "Warnings", "Look at these before using the configuration.", d.warnings)
+	r.findingsMarkdown(&b)
+	writeSection(&b, "No longer in the cloud", "The roots have these resources, but the import didn't find them, though it listed every resource of their type where they were: they have been deleted since, and the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again. The import changed nothing the roots have.", r.notInCloudLines())
+	writeSection(&b, "Moved", "Generated again, these roots have these resources at other addresses: their moved blocks, in `moves.tf`, move them in state, so their next plans destroy nothing.", r.movedLines())
+	writeSection(&b, "Handed over", "These resources go to other roots now. The removed blocks in `moves.tf` of the roots they were in make those roots' states forget them, without destroying them, and the roots they go to import them. Apply the root each was in first, then the root it goes to.", r.departedLines())
+	writeSection(&b, "Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`, or generate them again with `--regenerate`, which hands their resources over to the roots of their environments where removed blocks can take them all, the log saying why not.", r.keptRootLines())
+	merged, apart := r.mergeLines()
+	writeSection(&b, "Environments merged", "The environments of each of these stacks share one root, with their own values in `vars/<env>/`: each environment's plan of it, with its own credentials, imports what its own root did and changes nothing else. The roots they had are kept under `.infraharvest/premerge/`. Each merged root's README says how to plan and apply an environment.", merged)
+	writeSection(&b, "Environments kept apart", "The environments of each of these stacks keep a root each, as they were generated: merging them into one root wouldn't have planned the same.", apart)
+	writeSection(&b, "Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", r.incompleteHandoverLines())
+	r.CloudFormationStacks.Markdown(&b)
+	writeSection(&b, "Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", d.modules)
+	writeSection(&b, "Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", d.declined)
+	writeSection(&b, "Not importable", "infraharvest doesn't import these resource types.", r.skippedLines())
+	writeSection(&b, "Excluded", "The selection left these resources out.", r.excludedLines())
+	writeSection(&b, "Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", proseLines(r.FailedChecks()))
+	writeSection(&b, "Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", proseLines(r.SkippedChecks()))
+	writeSection(&b, "Failed directories", "Nothing in these directories was imported.", d.errors)
+	writeSection(&b, "Failures", "These parts of the import couldn't run, or ran only in part: services that couldn't be listed, accounts or projects that couldn't be reached, tags or default selections that couldn't be read, and what stopped the run.", proseLines(r.Failures))
+	return b.String()
+}
+
+// writeSection writes a section of the report: its title, the intro that
+// says what its lines are, and the lines, or nothing without lines.
+func writeSection(b *strings.Builder, title, intro string, lines []string) {
+	if len(lines) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n## %s\n\n%s\n\n%s\n", title, intro, strings.Join(lines, "\n"))
+}
+
+// proseLines returns a list item for each message.
+func proseLines(messages []string) []string {
+	var lines []string
+	for _, m := range messages {
+		lines = append(lines, "- "+mdtext.Prose(m))
+	}
+	return lines
+}
+
+// summaryMarkdown writes the report's heading, the tools, provider and
+// modules the import used, and its totals.
+func (r *Report) summaryMarkdown(b *strings.Builder) {
 	b.WriteString("# Import report\n\n")
-	fmt.Fprintf(&b, "%s %s, %s %s, provider `%s` %s", r.Tool.Name, r.Tool.Version, r.Engine.Name, r.Engine.Version, r.Provider.Source, r.Provider.Constraint)
+	fmt.Fprintf(b, "%s %s, %s %s, provider `%s` %s", r.Tool.Name, r.Tool.Version, r.Engine.Name, r.Engine.Version, r.Provider.Source, r.Provider.Constraint)
 	if r.Provider.Version != "" {
-		fmt.Fprintf(&b, " (%s)", r.Provider.Version)
+		fmt.Fprintf(b, " (%s)", r.Provider.Version)
 	}
 	b.WriteString(".\n\n")
 	if r.Provider.HeldBack != "" {
-		fmt.Fprintf(&b, "The provider is held back: %s.\n\n", r.Provider.HeldBack)
+		fmt.Fprintf(b, "The provider is held back: %s.\n\n", r.Provider.HeldBack)
 	}
 	for _, m := range r.Modules {
-		fmt.Fprintf(&b, "`%s` %s is available; the module calls use %s, the release its adapter is tested with (`--modules latest-untested` calls the newest).\n\n", m.Source, m.Latest, m.Version)
+		fmt.Fprintf(b, "`%s` %s is available; the module calls use %s, the release its adapter is tested with (`--modules latest-untested` calls the newest).\n\n", m.Source, m.Latest, m.Version)
 	}
 	for _, m := range r.Unused {
-		fmt.Fprintf(&b, "`%s` %s isn't called: it accepts the provider at `%s` only, not its newest major release, so its resources stay in the root.\n\n", m.Source, m.Version, m.Accepts)
+		fmt.Fprintf(b, "`%s` %s isn't called: it accepts the provider at `%s` only, not its newest major release, so its resources stay in the root.\n\n", m.Source, m.Version, m.Accepts)
 	}
 
 	t := r.Totals
 	b.WriteString("| Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|\n")
-	fmt.Fprintf(&b, "| %d | %d | %d | %d | %d | %d |\n", t.Discovered, t.Imported, t.Excluded, t.LeftOut, t.Skipped, t.Failed)
+	fmt.Fprintf(b, "| %d | %d | %d | %d | %d | %d |\n", t.Discovered, t.Imported, t.Excluded, t.LeftOut, t.Skipped, t.Failed)
+}
 
-	if len(r.Types) > 0 {
-		b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|---|\n")
-		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
-		}
+// typesMarkdown writes the counts by type, then what is managed and what
+// isn't, by account and region where there are several, and by type.
+func (r *Report) typesMarkdown(b *strings.Builder) {
+	if len(r.Types) == 0 {
+		return
 	}
-	if len(r.Types) > 0 {
-		b.WriteString("\n## Managed and unmanaged\n\nWhat Terraform already manages, according to the state read with --managed-state or to the resources' tags, what other tools such as CloudFormation or Pulumi manage, and what the cloud manages itself, such as a default VPC, or the default selection leaves out for another reason: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
-		const header = "| Discovered | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |"
-		if len(r.Scopes) > 1 {
-			b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
-			for _, s := range r.Scopes {
-				fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d |\n", mdtext.Cell(mdtext.Code(s.Scope)), s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
-			}
-			b.WriteString("\n")
-		}
-		b.WriteString("| Type " + header + "\n|---|---|---|---|---|---|\n")
-		for _, c := range r.Types {
-			fmt.Fprintf(&b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
-		}
+	b.WriteString("\n## By type\n\n| Type | Discovered | Imported | Excluded | Left out | Not importable | Failed |\n|---|---|---|---|---|---|---|\n")
+	for _, c := range r.Types {
+		fmt.Fprintf(b, "| `%s` | %d | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Imported, c.Excluded, c.LeftOut, c.Skipped, c.Failed)
 	}
-	if len(r.Tags) > 0 {
-		b.WriteString("\n## By tag\n\nWhat was discovered by the value of each tag asked for with --report-tags, and how much of it is under infrastructure as code.\n")
-		key := ""
-		for _, c := range r.Tags {
-			if c.Key != key {
-				key = c.Key
-				fmt.Fprintf(&b, "\n| %s | Discovered | Imported | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |\n|---|---|---|---|---|---|---|\n", mdtext.Cell(mdtext.Code(key)))
-			}
-			value := "(not tagged)"
-			if c.Value != "" {
-				value = mdtext.Cell(mdtext.Code(c.Value))
-			}
-			fmt.Fprintf(&b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
+	b.WriteString("\n## Managed and unmanaged\n\nWhat Terraform already manages, according to the state read with --managed-state or to the resources' tags, what other tools such as CloudFormation or Pulumi manage, and what the cloud manages itself, such as a default VPC, or the default selection leaves out for another reason: the import left those out (--include-owned imports those their tags say are managed). The rest isn't under infrastructure as code yet.\n\n")
+	const header = "| Discovered | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |"
+	if len(r.Scopes) > 1 {
+		b.WriteString("| Account and region " + header + "\n|---|---|---|---|---|---|\n")
+		for _, s := range r.Scopes {
+			fmt.Fprintf(b, "| %s | %d | %d | %d | %d | %d |\n", mdtext.Cell(mdtext.Code(s.Scope)), s.Discovered, s.Managed, s.OtherTool, s.Cloud, s.notManaged())
 		}
+		b.WriteString("\n")
 	}
+	b.WriteString("| Type " + header + "\n|---|---|---|---|---|---|\n")
+	for _, c := range r.Types {
+		fmt.Fprintf(b, "| `%s` | %d | %d | %d | %d | %d |\n", c.Type, c.Discovered, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
+	}
+}
 
-	var leftOut, secrets, warnings, modules, declined, dirErrors []string
+// tagsMarkdown writes the counts by the value of each tag asked for, a
+// table for each tag.
+func (r *Report) tagsMarkdown(b *strings.Builder) {
+	if len(r.Tags) == 0 {
+		return
+	}
+	b.WriteString("\n## By tag\n\nWhat was discovered by the value of each tag asked for with --report-tags, and how much of it is under infrastructure as code.\n")
+	key := ""
+	for _, c := range r.Tags {
+		if c.Key != key {
+			key = c.Key
+			fmt.Fprintf(b, "\n| %s | Discovered | Imported | Managed by Terraform | Managed by another tool | Managed by the cloud | Not managed |\n|---|---|---|---|---|---|---|\n", mdtext.Cell(mdtext.Code(key)))
+		}
+		value := "(not tagged)"
+		if c.Value != "" {
+			value = mdtext.Cell(mdtext.Code(c.Value))
+		}
+		fmt.Fprintf(b, "| %s | %d | %d | %d | %d | %d | %d |\n", value, c.Discovered, c.Imported, c.Managed, c.OtherTool, c.Cloud, c.notManaged())
+	}
+}
+
+// directoryMarkdown has the list items of the report's sections that
+// gather what each directory has.
+type directoryMarkdown struct {
+	leftOut, secrets, warnings, modules, declined, errors []string
+}
+
+// directoryLines returns the list items of each directory's resources
+// left out, secrets, warnings, module calls, declined modules and error,
+// the report's own warnings first.
+func (r *Report) directoryLines() directoryMarkdown {
+	var d directoryMarkdown
 	for _, w := range r.Warnings {
-		warnings = append(warnings, "- "+mdtext.Prose(w)+".")
+		d.warnings = append(d.warnings, "- "+mdtext.Prose(w)+".")
 	}
-	for _, d := range r.Directories {
-		for _, m := range d.Modules {
+	for _, dir := range r.Directories {
+		for _, m := range dir.Modules {
 			resources := "`" + strings.Join(m.Resources, "`, `") + "`"
 			source := strings.TrimSpace("`" + m.Source + "` " + m.Version)
 			if m.Declined != "" {
-				declined = append(declined, fmt.Sprintf("- %s in `%s` (%s): %s", resources, d.Path, source, mdtext.Prose(m.Declined)))
+				d.declined = append(d.declined, fmt.Sprintf("- %s in `%s` (%s): %s", resources, dir.Path, source, mdtext.Prose(m.Declined)))
 			} else {
-				modules = append(modules, fmt.Sprintf("- `module.%s` in `%s`: %s, for %s", m.Name, d.Path, source, resources))
+				d.modules = append(d.modules, fmt.Sprintf("- `module.%s` in `%s`: %s, for %s", m.Name, dir.Path, source, resources))
 			}
 		}
-		for _, l := range d.LeftOut {
-			leftOut = append(leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, d.Path, mdtext.Prose(strings.Join(l.Errors, "; "))))
+		for _, l := range dir.LeftOut {
+			d.leftOut = append(d.leftOut, fmt.Sprintf("- `%s` in `%s`: %s", l.Address, dir.Path, mdtext.Prose(strings.Join(l.Errors, "; "))))
 		}
-		for _, s := range d.Secrets {
-			secrets = append(secrets, fmt.Sprintf("- `%s` in `%s`: %s of `%s`", s.Variable, d.Path, s.Attribute, s.Address))
+		for _, s := range dir.Secrets {
+			d.secrets = append(d.secrets, fmt.Sprintf("- `%s` in `%s`: %s of `%s`", s.Variable, dir.Path, s.Attribute, s.Address))
 		}
-		for _, w := range d.Warnings {
-			warnings = append(warnings, fmt.Sprintf("- `%s`: %s.", d.Path, mdtext.Prose(w)))
+		for _, w := range dir.Warnings {
+			d.warnings = append(d.warnings, fmt.Sprintf("- `%s`: %s.", dir.Path, mdtext.Prose(w)))
 		}
-		if d.Error != "" {
-			dirErrors = append(dirErrors, fmt.Sprintf("- `%s`: %s", d.Path, mdtext.Prose(d.Error)))
+		if dir.Error != "" {
+			d.errors = append(d.errors, fmt.Sprintf("- `%s`: %s", dir.Path, mdtext.Prose(dir.Error)))
 		}
 	}
-	section := func(title, intro string, lines []string) {
-		if len(lines) == 0 {
-			return
-		}
-		fmt.Fprintf(&b, "\n## %s\n\n%s\n\n%s\n", title, intro, strings.Join(lines, "\n"))
-	}
-	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
-	section("Secrets to set", "Set these variables before planning, from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`: infraharvest never writes secret values into its output.", secrets)
-	section("Warnings", "Look at these before using the configuration.", warnings)
-	r.findingsMarkdown(&b)
-	var gone []string
+	return d
+}
+
+// notInCloudLines returns a list item for each resource the roots have
+// that the import didn't find.
+func (r *Report) notInCloudLines() []string {
+	var lines []string
 	for _, g := range r.NotInCloud {
 		line := fmt.Sprintf("- `%s` %s in `%s`", g.Address, mdtext.Code(g.ID), g.Path)
 		if g.Environment != "" {
 			line += ", of " + g.Environment
 		}
-		gone = append(gone, line)
+		lines = append(lines, line)
 	}
-	section("No longer in the cloud", "The roots have these resources, but the import didn't find them, though it listed every resource of their type where they were: they have been deleted since, and the next plan of the root would create them again. Delete each one's import block, if the root's `imports.tf` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again. The import changed nothing the roots have.", gone)
-	var movedLines, departedLines []string
+	return lines
+}
+
+// movedLines returns a list item for each resource a root generated again
+// moves to another address.
+func (r *Report) movedLines() []string {
+	var lines []string
 	for _, m := range r.Moved {
-		movedLines = append(movedLines, fmt.Sprintf("- `%s` to `%s` in `%s`", m.From, m.To, m.FromRoot))
+		lines = append(lines, fmt.Sprintf("- `%s` to `%s` in `%s`", m.From, m.To, m.FromRoot))
 	}
+	return lines
+}
+
+// departedLines returns a list item for each resource handed over to
+// another root.
+func (r *Report) departedLines() []string {
+	var lines []string
 	for _, d := range r.Departed {
 		to := "`" + d.ToRoot + "`, which didn't import it"
 		if d.To != "" {
 			to = fmt.Sprintf("`%s` in `%s`", d.To, d.ToRoot)
 		}
-		departedLines = append(departedLines, fmt.Sprintf("- `%s` in `%s` to %s", d.From, d.FromRoot, to))
+		lines = append(lines, fmt.Sprintf("- `%s` in `%s` to %s", d.From, d.FromRoot, to))
 	}
-	section("Moved", "Generated again, these roots have these resources at other addresses: their moved blocks, in `moves.tf`, move them in state, so their next plans destroy nothing.", movedLines)
-	section("Handed over", "These resources go to other roots now. The removed blocks in `moves.tf` of the roots they were in make those roots' states forget them, without destroying them, and the roots they go to import them. Apply the root each was in first, then the root it goes to.", departedLines)
-	var incompleteLines []string
-	for _, h := range r.IncompleteHandovers {
-		incompleteLines = append(incompleteLines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, mdtext.Prose(h.Warning)))
-	}
-	var keptLines []string
+	return lines
+}
+
+// keptRootLines returns a list item for each root an earlier import
+// generated that keeps its directory.
+func (r *Report) keptRootLines() []string {
+	var lines []string
 	for _, k := range r.KeptRoots {
-		keptLines = append(keptLines, fmt.Sprintf("- `%s`, of %s", k.Path, strings.Join(k.Environments, ", ")))
+		lines = append(lines, fmt.Sprintf("- `%s`, of %s", k.Path, strings.Join(k.Environments, ", ")))
 	}
-	section("Kept where they were", "An earlier import generated these roots, so they keep their directories, and the resources in them, though the configuration file's environments would put those under `envs/<env>/` now: a root's state key comes from its path. To lay them out by environment, import into a new `--out`, or generate them again with `--regenerate`, which hands their resources over to the roots of their environments where removed blocks can take them all, the log saying why not.", keptLines)
-	var mergedLines, apartLines []string
+	return lines
+}
+
+// mergeLines returns the list items of the stacks whose environments were
+// merged into one root, each followed by the resources kept as their
+// environment's root had them, and of those kept apart.
+func (r *Report) mergeLines() (merged, apart []string) {
 	for _, m := range r.Merges {
 		roots := make([]string, len(m.Roots))
 		for i, root := range m.Roots {
 			roots[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
 		}
 		if !m.Merged {
-			apartLines = append(apartLines, fmt.Sprintf("- %s: %s", strings.Join(roots, ", "), mdtext.Prose(m.Reason)))
+			apart = append(apart, fmt.Sprintf("- %s: %s", strings.Join(roots, ", "), mdtext.Prose(m.Reason)))
 			continue
 		}
 		line := fmt.Sprintf("- `%s`, of %s: %d resources shared", m.Path, strings.Join(roots, ", "), m.Shared)
@@ -1086,50 +1168,48 @@ func (r *Report) Markdown() string {
 			line += fmt.Sprintf("; not planned as %s, which the import didn't have: plan it with each one's credentials, with `infraharvest verify --environment`, before applying", strings.Join(m.Unplanned, ", "))
 		}
 		if len(m.Apart) > 0 {
-			apart := make([]string, len(m.Apart))
+			kept := make([]string, len(m.Apart))
 			for i, root := range m.Apart {
-				apart[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
+				kept[i] = fmt.Sprintf("`%s` (%s)", root.Path, root.Env)
 			}
-			line += fmt.Sprintf("; %s, new to it, kept a root of its own: %s", strings.Join(apart, ", "), mdtext.Prose(m.ApartReason))
+			line += fmt.Sprintf("; %s, new to it, kept a root of its own: %s", strings.Join(kept, ", "), mdtext.Prose(m.ApartReason))
 		}
-		mergedLines = append(mergedLines, line)
+		merged = append(merged, line)
 		for _, res := range m.Residue {
-			mergedLines = append(mergedLines, fmt.Sprintf("  - `%s` of %s, as `%s`: %s", res.Address, res.Env, res.MergedAddress, mdtext.Prose(res.Reason)))
+			merged = append(merged, fmt.Sprintf("  - `%s` of %s, as `%s`: %s", res.Address, res.Env, res.MergedAddress, mdtext.Prose(res.Reason)))
 		}
 	}
-	section("Environments merged", "The environments of each of these stacks share one root, with their own values in `vars/<env>/`: each environment's plan of it, with its own credentials, imports what its own root did and changes nothing else. The roots they had are kept under `.infraharvest/premerge/`. Each merged root's README says how to plan and apply an environment.", mergedLines)
-	section("Environments kept apart", "The environments of each of these stacks keep a root each, as they were generated: merging them into one root wouldn't have planned the same.", apartLines)
-	section("Handovers not finished", "One of the two roots of each of these handovers failed: do what each line says before applying either root.", incompleteLines)
-	r.CloudFormationStacks.Markdown(&b)
-	section("Modules", "These resources are managed through module calls, each kept because it planned the same as the resources it replaced.", modules)
-	section("Not moved into a module", "A module couldn't manage these resources the same way, so they stay in the root.", declined)
-	var skipped []string
+	return merged, apart
+}
+
+// incompleteHandoverLines returns a list item for each handover one of
+// whose roots failed.
+func (r *Report) incompleteHandoverLines() []string {
+	var lines []string
+	for _, h := range r.IncompleteHandovers {
+		lines = append(lines, fmt.Sprintf("- `%s` from `%s` to `%s`: %s", h.From, h.FromRoot, h.ToRoot, mdtext.Prose(h.Warning)))
+	}
+	return lines
+}
+
+// skippedLines returns a list item for each resource type the import
+// doesn't import.
+func (r *Report) skippedLines() []string {
+	var lines []string
 	for _, s := range r.Skipped {
-		skipped = append(skipped, fmt.Sprintf("- `%s` (%d): %s", s.Type, s.Count, s.Reason))
+		lines = append(lines, fmt.Sprintf("- `%s` (%d): %s", s.Type, s.Count, s.Reason))
 	}
-	section("Not importable", "infraharvest doesn't import these resource types.", skipped)
-	var excluded []string
+	return lines
+}
+
+// excludedLines returns a list item for each resource the selection left
+// out.
+func (r *Report) excludedLines() []string {
+	var lines []string
 	for _, e := range r.Excluded {
-		excluded = append(excluded, fmt.Sprintf("- `%s` %s: %s", e.Type, mdtext.Code(e.ID), mdtext.Prose(e.Reason)))
+		lines = append(lines, fmt.Sprintf("- `%s` %s: %s", e.Type, mdtext.Code(e.ID), mdtext.Prose(e.Reason)))
 	}
-	section("Excluded", "The selection left these resources out.", excluded)
-	var failures []string
-	for _, f := range r.Failures {
-		failures = append(failures, "- "+mdtext.Prose(f))
-	}
-	var checks []string
-	for _, f := range r.FailedChecks() {
-		checks = append(checks, "- "+mdtext.Prose(f))
-	}
-	section("Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", checks)
-	var skippedChecks []string
-	for _, s := range r.SkippedChecks() {
-		skippedChecks = append(skippedChecks, "- "+mdtext.Prose(s))
-	}
-	section("Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", skippedChecks)
-	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
-	section("Failures", "These parts of the import couldn't run, or ran only in part: services that couldn't be listed, accounts or projects that couldn't be reached, tags or default selections that couldn't be read, and what stopped the run.", failures)
-	return b.String()
+	return lines
 }
 
 // maxMarkdownFindings bounds the findings report.md lists; coverage.json
