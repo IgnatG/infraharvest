@@ -625,6 +625,27 @@ func (r *Report) Merge(other *Report) {
 // directories that failed, by type.
 func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	r.SchemaVersion = SchemaVersion
+	r.sortEntries()
+	byType, byScope := r.countCoverage(discovered, failed)
+	r.setTotals(byType, byScope)
+	r.Tags = r.countByTag()
+	if len(r.CloudFormationStacks) > 0 {
+		r.CloudFormationStacks.Finish(r.results())
+	}
+
+	switch {
+	case !r.incomplete():
+		r.ExitCode = ExitOK
+	case allowPartial:
+		r.ExitCode = ExitPartial
+	default:
+		r.ExitCode = ExitIncomplete
+	}
+}
+
+// sortEntries sorts the report's lists and drops their duplicates; it also
+// sets where each departure arrives and the service of each finding.
+func (r *Report) sortEntries() {
 	sort.Slice(r.Directories, func(i, j int) bool { return r.Directories[i].Path < r.Directories[j].Path })
 	sort.Slice(r.Skipped, func(i, j int) bool { return r.Skipped[i].Type < r.Skipped[j].Type })
 	sort.Slice(r.Excluded, func(i, j int) bool {
@@ -664,8 +685,14 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
 	r.listFindings()
 	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
+}
 
-	byType := map[string]*CoverageTotal{}
+// countCoverage counts the report, by type and by account and region:
+// discovered counts what the listers found, by type, and failed resources
+// in directories that failed, by type. It sorts each directory's imported
+// resources and those left out.
+func (r *Report) countCoverage(discovered, failed map[string]int) (byType, byScope map[string]*CoverageTotal) {
+	byType = map[string]*CoverageTotal{}
 	count := func(t string) *CoverageTotal {
 		if byType[t] == nil {
 			byType[t] = &CoverageTotal{}
@@ -681,7 +708,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	for _, s := range r.Skipped {
 		count(s.Type).Skipped += s.Count
 	}
-	byScope := map[string]*CoverageTotal{}
+	byScope = map[string]*CoverageTotal{}
 	for _, s := range r.Scopes {
 		byScope[s.Scope] = &CoverageTotal{Discovered: s.Discovered}
 	}
@@ -709,6 +736,12 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 			c.LeftOut += len(d.LeftOut)
 		})
 	}
+	return byType, byScope
+}
+
+// setTotals sets the counts by type, sorted, the totals, and the counts by
+// account and region, sorted.
+func (r *Report) setTotals(byType, byScope map[string]*CoverageTotal) {
 	types := make([]string, 0, len(byType))
 	for t := range byType {
 		types = append(types, t)
@@ -733,19 +766,6 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 		r.Scopes[i].CoverageTotal = *byScope[r.Scopes[i].Scope]
 	}
 	sort.Slice(r.Scopes, func(i, j int) bool { return r.Scopes[i].Scope < r.Scopes[j].Scope })
-	r.Tags = r.countByTag()
-	if len(r.CloudFormationStacks) > 0 {
-		r.CloudFormationStacks.Finish(r.results())
-	}
-
-	switch {
-	case !r.incomplete():
-		r.ExitCode = ExitOK
-	case allowPartial:
-		r.ExitCode = ExitPartial
-	default:
-		r.ExitCode = ExitIncomplete
-	}
 }
 
 // listFindings sets on each finding about a resource the service that
