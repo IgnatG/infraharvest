@@ -17,6 +17,7 @@ import (
 // status with those reasons, isn't it. nothingToList counts it as nothing
 // there, as it does a 404 or a 400, but not a missing permission.
 func TestServiceDisabledAndNothingToList(t *testing.T) {
+	t.Parallel()
 	errorInfo := func(reason string) []interface{} {
 		return []interface{}{map[string]interface{}{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason, "domain": "googleapis.com"}}
 	}

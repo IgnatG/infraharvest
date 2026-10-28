@@ -63,9 +63,6 @@ func clustersAndAssets(t *testing.T, search *fakeAssetSearch, clusters *fakeClus
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
-	testCaches().autopilotClusters.forget()
-	t.Cleanup(testCaches().autopilotClusters.forget)
 }
 
 func nodePool(cluster, name, location string) map[string]any {
@@ -194,6 +191,7 @@ func TestCloudAssetAutopilotUnknown(t *testing.T) {
 }
 
 func TestClusterKey(t *testing.T) {
+	t.Parallel()
 	for id, want := range map[string]string{
 		"projects/acme-prod/locations/us-central1/clusters/prod": "us-central1/prod",
 		"projects/acme-prod/zones/us-central1-a/clusters/dev":    "us-central1-a/dev",

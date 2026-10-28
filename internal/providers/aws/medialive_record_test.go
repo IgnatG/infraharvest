@@ -40,8 +40,10 @@ func recordMediaLiveAPI(t *testing.T, failing ...string) func(apiCall) string {
 // The lister lists channels, inputs and input security groups by ID, across
 // pages.
 func TestRecordMediaLiveListsChannelsInputsAndSecurityGroups(t *testing.T) {
-	useFakeAPI(t, recordMediaLiveAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordMediaLiveAPI(t))
 	g := &MediaLiveLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -60,8 +62,10 @@ func TestRecordMediaLiveListsChannelsInputsAndSecurityGroups(t *testing.T) {
 // A list that fails is left out and the others are still listed, and the
 // listing reads as partial, naming the lists that failed.
 func TestRecordMediaLiveReturnsPartialErrors(t *testing.T) {
-	useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputSecurityGroups"))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputSecurityGroups"))
 	g := &MediaLiveLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "channels") || !strings.Contains(err.Error(), "input security groups") {
 		t.Errorf("want a partial error naming the channels and the input security groups, got %v", err)
@@ -75,8 +79,10 @@ func TestRecordMediaLiveReturnsPartialErrors(t *testing.T) {
 
 // When every list fails, so does the service.
 func TestRecordMediaLiveReturnsErrors(t *testing.T) {
-	useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputs", "/prod/inputSecurityGroups"))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputs", "/prod/inputSecurityGroups"))
 	g := &MediaLiveLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 	if err == nil || harvest.IsPartial(err) {

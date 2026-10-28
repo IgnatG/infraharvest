@@ -52,9 +52,16 @@ type runCachesKey struct{}
 
 // cachesOf returns the caches of ctx's run: those kept with the run's
 // limiter (see ratelimit.FromContext), made the first time it is asked
-// for.
+// for. A context of no run gets caches of its own, which nothing else
+// sees: kept with the limiter of the calls outside any run (see
+// ratelimit.Default), what one such call listed would last as long as
+// the process, and every other such call would see it.
 func cachesOf(ctx context.Context) *runCaches {
-	return ratelimit.Kept(ratelimit.FromContext(ctx), runCachesKey{}, func() *runCaches {
+	l := ratelimit.FromContext(ctx)
+	if l == ratelimit.Default() {
+		l = nil // Kept keeps nothing with a nil Limiter.
+	}
+	return ratelimit.Kept(l, runCachesKey{}, func() *runCaches {
 		return &runCaches{rejectedTypes: map[string]bool{}, unlistedSQLDatabases: map[string]bool{}}
 	})
 }

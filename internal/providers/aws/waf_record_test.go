@@ -139,8 +139,10 @@ func recordWafShortIDAPI(t *testing.T) func(apiCall) string {
 // rule groups, size constraint sets, SQL injection match sets and XSS match
 // sets of WAF Classic, each across pages.
 func TestRecordWafListsEveryType(t *testing.T) {
-	useFakeAPI(t, recordWafAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWafAPI(t))
 	g := &WafLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -152,10 +154,12 @@ func TestRecordWafListsEveryType(t *testing.T) {
 // An error from any list operation is returned, and the operations after it
 // are not called.
 func TestRecordWafReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, o := range recordWafOps {
 		t.Run(o.op, func(t *testing.T) {
-			useFakeAPI(t, recordWafErrorAPI(t, o.op))
+			ctx := useFakeAPI(t, recordWafErrorAPI(t, o.op))
 			g := &WafLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "WAFInternalErrorException")
 		})
@@ -165,8 +169,10 @@ func TestRecordWafReturnsErrors(t *testing.T) {
 // A page that sends back the marker it was asked with is an error, not an
 // endless listing.
 func TestRecordWafReturnsRepeatedMarkerError(t *testing.T) {
-	useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
 	g := &WafLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "pagination did not advance")
 }
@@ -174,8 +180,10 @@ func TestRecordWafReturnsRepeatedMarkerError(t *testing.T) {
 // An ID of eight characters or fewer ends the name whole. AWS gives
 // 36-character IDs.
 func TestRecordWafNamesShortIDs(t *testing.T) {
-	useFakeAPI(t, recordWafShortIDAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWafShortIDAPI(t))
 	g := &WafLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

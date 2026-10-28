@@ -17,6 +17,7 @@ import (
 // listed and fail the listing in part, naming it; those of an identity gone
 // since it was listed (a 404) leave nothing out.
 func TestManagedIdentityLister(t *testing.T) {
+	t.Parallel()
 	const (
 		scoped = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
 		all    = "/subscriptions/sub/providers/Microsoft.ManagedIdentity/userAssignedIdentities"
@@ -95,7 +96,7 @@ func TestManagedIdentityLister(t *testing.T) {
 	} {
 		transport := &routedTransport{bodies: tc.bodies, refused: tc.refused}
 		lister := &ManagedIdentityLister{}
-		lister.Configure(harvest.ListerConfig{Settings: routedArgs(transport, tc.resourceGroup)})
+		lister.SetSettings(routedArgs(transport, tc.resourceGroup))
 
 		err := lister.List()
 		switch {

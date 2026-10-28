@@ -101,7 +101,7 @@ type scopedResource struct {
 // changes nothing.
 func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: serviceSettings{region: region, profile: profile, roleARN: roleARN}.args()})
+	service.SetSettings(serviceSettings{region: region, profile: profile, roleARN: roleARN})
 	service.SetContext(ctx)
 	config, err := service.sdkConfig()
 	if err != nil {

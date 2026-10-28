@@ -38,6 +38,7 @@ var (
 // its own: no child imports, no selection defaults, no Terraform
 // environment, the hashicorp/azurerm source.
 func TestCapabilitiesNotImplemented(t *testing.T) {
+	t.Parallel()
 	var p harvest.Provider = &Provider{}
 	for name, has := range map[string]bool{
 		"ChildImports":      implements[harvest.ProviderWithChildImports](p),
@@ -110,6 +111,7 @@ func TestInitTakesTheScope(t *testing.T) {
 // The clients go to the configured cloud, as infraharvest, for the
 // auxiliary tenants too, through the subscription's limiter.
 func TestSignInClientOptions(t *testing.T) {
+	t.Parallel()
 	cfg := authConfig{subscriptionID: "sub-options", cloud: cloud.AzureChina, auxiliaryTenants: []string{"t1", "t2"}}
 	got, credential, options, err := signIn(t.Context(), cfg)
 	if err != nil {
@@ -143,6 +145,7 @@ func TestSignInClientOptions(t *testing.T) {
 // it. Before the fix it ran under a context of its own, which only its
 // timeout ended.
 func TestSignInStopsWithItsContext(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	cfg := authConfig{subscriptionID: "sub-cancelled", metadataHost: "management.stack.example"}
@@ -155,6 +158,7 @@ func TestSignInStopsWithItsContext(t *testing.T) {
 // tokens, whichever subscription they are for; another configuration gets
 // a credential of its own.
 func TestSignInSharesTheCredential(t *testing.T) {
+	t.Parallel()
 	sign := func(cfg authConfig) azcore.TokenCredential {
 		t.Helper()
 		_, credential, _, err := signIn(t.Context(), cfg)
@@ -179,6 +183,7 @@ func TestSignInSharesTheCredential(t *testing.T) {
 // Every sign-in of a run for a subscription shares its limiter, of the
 // run's rate; other subscriptions have their own.
 func TestSubscriptionLimiterIsShared(t *testing.T) {
+	t.Parallel()
 	run := limitersOf(ratelimit.New(7))
 	a := run.subscription("sub-limiter-a")
 	if a == nil || run.subscription("sub-limiter-a") != a {
@@ -197,6 +202,7 @@ func TestSubscriptionLimiterIsShared(t *testing.T) {
 // limiters, at its own rate, the graph's no more than graphRate, and the
 // requests of one never wait for the other's. Run with -race.
 func TestRunsKeepTheirOwnLimits(t *testing.T) {
+	t.Parallel()
 	type run struct {
 		limiter     *ratelimit.Limiter
 		graph, subs float64
@@ -253,6 +259,7 @@ func TestRunsKeepTheirOwnLimits(t *testing.T) {
 // Resource Manager requests use Go's default transport, with its proxy
 // settings, and TLS 1.2 or later.
 func TestResourceManagerHTTPClient(t *testing.T) {
+	t.Parallel()
 	client := resourceManagerHTTPClient()
 	transport, ok := client.Transport.(*http.Transport)
 	if !ok {
@@ -273,6 +280,7 @@ func TestResourceManagerHTTPClient(t *testing.T) {
 }
 
 func TestProviderBlock(t *testing.T) {
+	t.Parallel()
 	p := &Provider{subscriptionID: "sub-1"}
 	// Nothing but the subscription and the features block: azurerm 5
 	// registers no resource providers by default, which the Reader role
@@ -302,6 +310,7 @@ func TestProviderBlock(t *testing.T) {
 // Every call returns listers of its own, so concurrent services never
 // share one.
 func TestServicesAreFresh(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
 	if len(first) != 14 {
@@ -317,6 +326,7 @@ func TestServicesAreFresh(t *testing.T) {
 // Select hands the service the provider's settings and makes it the
 // current one; an unknown service is an error.
 func TestSelect(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	credential := azcore.TokenCredential(fakeCredential{})
 	options := &arm.ClientOptions{}
@@ -335,17 +345,16 @@ func TestSelect(t *testing.T) {
 	if s.Name() != "virtual_network" || !s.Verbose() || s.Provider() != "azurerm" {
 		t.Errorf("name %q, verbose %v, provider %q", s.Name(), s.Verbose(), s.Provider())
 	}
-	want := map[string]interface{}{
-		"subscription_id": "sub",
-		"credential":      credential,
-		"client_options":  options,
-		"resource_group":  "rg1",
-		"catalogue":       cat,
-		"listed":          listed,
-		"azapi":           false,
+	want := serviceSettings{
+		subscriptionID: "sub",
+		credential:     credential,
+		clientOptions:  options,
+		resourceGroup:  "rg1",
+		catalogue:      cat,
+		listed:         listed,
 	}
 	if got := s.Settings(); !reflect.DeepEqual(got, want) {
-		t.Errorf("args %#v, want %#v", got, want)
+		t.Errorf("settings %#v, want %#v", got, want)
 	}
 
 	previous := p.Selected()
@@ -362,6 +371,7 @@ func TestSelect(t *testing.T) {
 // Scope is the subscription and the resource group, "all" for the whole
 // subscription.
 func TestScope(t *testing.T) {
+	t.Parallel()
 	for resourceGroup, want := range map[string]string{"rg1": "rg1", "": "all"} {
 		p := &Provider{subscriptionID: "sub", resourceGroup: resourceGroup}
 		account, region, err := p.Scope(t.Context())
@@ -372,6 +382,7 @@ func TestScope(t *testing.T) {
 }
 
 func TestDefaultTagsAndConcurrency(t *testing.T) {
+	t.Parallel()
 	profile := (&Provider{}).Profile()
 	if got, want := profile.DefaultTags, (&harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"}); !reflect.DeepEqual(got, want) {
 		t.Errorf("default tags %+v, want %+v", got, want)
@@ -392,6 +403,7 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 // Resource Graph queries share one limiter across subscriptions, as Azure
 // throttles them per user; every other request keeps its subscription's.
 func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
+	t.Parallel()
 	run := ratelimit.New(ratelimit.DefaultRate)
 	a := limitedClient(run, "sub-graph-a", nil).(*limitedDoer)
 	b := limitedClient(run, "sub-graph-b", nil).(*limitedDoer)

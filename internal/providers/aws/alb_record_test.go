@@ -40,7 +40,8 @@ const (
 // certificates, and a TCP, TLS, UDP or GENEVE listener, which has no rules
 // but its default one, isn't asked for rules.
 func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "DescribeLoadBalancers":
@@ -130,6 +131,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &AlbLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 	if !harvest.IsPartial(err) {
@@ -167,9 +169,10 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 
 // Listing load balancers or target groups fails the service.
 func TestRecordAlbReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeLoadBalancers", "DescribeTargetGroups"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordQueryError(recordAlbNS, "AccessDenied")
@@ -179,6 +182,7 @@ func TestRecordAlbReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &AlbLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

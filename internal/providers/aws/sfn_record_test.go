@@ -38,8 +38,10 @@ func recordSfnAPI(t *testing.T, failing string) func(apiCall) string {
 // The lister lists state machines, then activities, by ARN, named after
 // their names, across pages.
 func TestRecordSfnListsStateMachinesAndActivities(t *testing.T) {
-	useFakeAPI(t, recordSfnAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordSfnAPI(t, ""))
 	g := &SfnLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -54,10 +56,12 @@ func TestRecordSfnListsStateMachinesAndActivities(t *testing.T) {
 }
 
 func TestRecordSfnReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListStateMachines", "ListActivities"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordSfnAPI(t, failing))
+			ctx := useFakeAPI(t, recordSfnAPI(t, failing))
 			g := &SfnLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

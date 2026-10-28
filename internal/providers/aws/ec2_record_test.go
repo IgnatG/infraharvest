@@ -17,7 +17,8 @@ import (
 // case and the last match wins. It records source_dest_check "true", and
 // reads no instance's user data (DescribeInstanceAttribute is unexpected).
 func TestRecordEc2ListsLiveInstances(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		if call.Op != "DescribeInstances" {
 			return recordUnexpected(t, call)
@@ -42,6 +43,7 @@ func TestRecordEc2ListsLiveInstances(t *testing.T) {
 			</instancesSet></item></reservationSet><nextToken>`+nextPageToken+`</nextToken>`)
 	})
 	g := &Ec2Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -61,7 +63,8 @@ func TestRecordEc2ListsLiveInstances(t *testing.T) {
 // service's name, or every service, are passed to DescribeInstances as
 // tag:<key> filters; other filters are not.
 func TestRecordEc2PassesTagFilters(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeInstances" {
 			return recordUnexpected(t, call)
 		}
@@ -88,6 +91,7 @@ func TestRecordEc2PassesTagFilters(t *testing.T) {
 		return recordEC2(call.Op, `<reservationSet/>`)
 	})
 	g := &Ec2Lister{}
+	g.SetContext(ctx)
 	g.SetFilters([]harvest.Filter{
 		{Service: "instance", Path: "tags.env", Values: []string{"prod"}},
 		{Service: "ebs_volume", Path: "tags.backup", Values: []string{"daily"}},
@@ -105,10 +109,12 @@ func TestRecordEc2PassesTagFilters(t *testing.T) {
 }
 
 func TestRecordEc2ReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &Ec2Lister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }
@@ -118,11 +124,12 @@ func TestRecordEc2ReturnsErrors(t *testing.T) {
 // records cpu_options "default": not one with fewer cores, or with AMD
 // SEV-SNP on. The types are asked for once each.
 func TestRecordEc2MarksDefaultCPUOptions(t *testing.T) {
+	t.Parallel()
 	instance := func(id, instanceType, cpu string) string {
 		return `<item><instanceId>` + id + `</instanceId><instanceType>` + instanceType + `</instanceType><instanceState><code>16</code><name>running</name></instanceState><cpuOptions>` + cpu + `</cpuOptions></item>`
 	}
 	var asked []string
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "DescribeInstances":
@@ -154,6 +161,7 @@ func TestRecordEc2MarksDefaultCPUOptions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Ec2Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -174,7 +182,8 @@ func TestRecordEc2MarksDefaultCPUOptions(t *testing.T) {
 // When DescribeInstanceTypes fails, the listing goes on, and no instance
 // records cpu_options: the configuration keeps them.
 func TestRecordEc2KeepsCPUOptionsWithoutInstanceTypes(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeInstances":
 			return recordEC2(call.Op, `<reservationSet><item><reservationId>r-1</reservationId><instancesSet>
@@ -189,6 +198,7 @@ func TestRecordEc2KeepsCPUOptionsWithoutInstanceTypes(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Ec2Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

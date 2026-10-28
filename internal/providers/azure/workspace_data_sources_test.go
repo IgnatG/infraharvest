@@ -62,6 +62,7 @@ func (f *kindTransport) Do(r *http.Request) (*http.Response, error) {
 // does not. The IDs are in the form azurerm parses, whatever the case of
 // the ones listed, and the types come from the kind asked for.
 func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
+	t.Parallel()
 	const (
 		group     = "/subscriptions/sub/resourceGroups/rg1"
 		workspace = group + "/providers/Microsoft.OperationalInsights/workspaces/ws1"
@@ -167,6 +168,7 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 // asking aztft, which would read each one from Resource Manager to learn
 // its kind; other resources still go to aztft.
 func TestKnownTypesSkipsTheQuery(t *testing.T) {
+	t.Parallel()
 	const (
 		workspace = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.OperationalInsights/workspaces/ws1"
 		source    = workspace + "/dataSources/system"
@@ -199,6 +201,7 @@ func TestKnownTypesSkipsTheQuery(t *testing.T) {
 // azlist would list a workspace's data sources as its child resources,
 // without a kind; the lister's schema tree drops them, and only them.
 func TestWithoutWorkspaceDataSources(t *testing.T) {
+	t.Parallel()
 	tree, err := azlist.BuildARMSchemaTree(azlist.ARMSchemaFile)
 	if err != nil {
 		t.Fatal(err)

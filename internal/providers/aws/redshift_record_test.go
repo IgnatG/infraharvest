@@ -63,8 +63,10 @@ func recordRedshiftAPI(t *testing.T, failing string) func(apiCall) string {
 // event subscriptions by name; snapshot schedules, each followed by an
 // association per cluster it is associated with.
 func TestRecordRedshiftListsClustersAndTheirParts(t *testing.T) {
-	useFakeAPI(t, recordRedshiftAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordRedshiftAPI(t, ""))
 	g := &RedshiftLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -87,10 +89,12 @@ func TestRecordRedshiftListsClustersAndTheirParts(t *testing.T) {
 }
 
 func TestRecordRedshiftReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for failing := range recordRedshiftPages {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordRedshiftAPI(t, failing))
+			ctx := useFakeAPI(t, recordRedshiftAPI(t, failing))
 			g := &RedshiftLister{}
+			g.SetContext(ctx)
 
 			err := g.List()
 

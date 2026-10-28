@@ -28,6 +28,7 @@ import (
 )
 
 func TestGraphPredicate(t *testing.T) {
+	t.Parallel()
 	sub := "00000000-0000-0000-0000-000000000001"
 	for _, tc := range []struct {
 		subscription, resourceGroup, want string
@@ -57,6 +58,7 @@ func listed(t *testing.T, id string, properties map[string]interface{}) azlist.A
 // aztft's own mappings, without asking Resource Manager, give the azurerm
 // types and import IDs of resources an ID says enough about.
 func TestGraphResourcesMapsTypes(t *testing.T) {
+	t.Parallel()
 	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1"
 	vnet := rg + "/providers/Microsoft.Network/virtualNetworks/net1"
 	resources := graphResources([]azlist.AzureResource{
@@ -93,6 +95,7 @@ func TestGraphResourcesMapsTypes(t *testing.T) {
 
 // What aztft can't map, or can't choose a type for, is left out.
 func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
+	t.Parallel()
 	const id = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Web/sites/app"
 	for name, query := range map[string]queryType{
 		"error": func(string) ([]aztft.Type, []string, bool, error) { return nil, nil, false, errors.New("unknown") },
@@ -120,6 +123,7 @@ func TestGraphResourcesLeavesOutUnmapped(t *testing.T) {
 // the attributes as any other; a child resource Resource Manager listed
 // under it is left out, as without --azapi, as is everything without it.
 func TestGraphResourcesThroughAzapi(t *testing.T) {
+	t.Parallel()
 	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1"
 	fleet := rg + "/providers/Microsoft.AzureFleet/fleets/batch"
 	rows := []azlist.AzureResource{
@@ -166,6 +170,7 @@ func TestGraphResourcesThroughAzapi(t *testing.T) {
 // opt-in, so * never imports the same resource twice, and so is
 // diagnostic_setting, which takes a request per resource.
 func TestWildcardListsResourceGraph(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	services := p.Services()
 	optIn := p.Profile().OptInServices
@@ -192,6 +197,7 @@ func TestWildcardListsResourceGraph(t *testing.T) {
 // imported as well; a group azlist already added isn't listed twice,
 // whatever the case of its ID.
 func TestResourceGraphListsEmptyResourceGroups(t *testing.T) {
+	t.Parallel()
 	const sub = "00000000-0000-0000-0000-000000000001"
 	const (
 		app   = "/subscriptions/" + sub + "/resourceGroups/rg-app"
@@ -253,6 +259,7 @@ func TestResourceGraphListsEmptyResourceGroups(t *testing.T) {
 
 // With --resource-group, only that group is asked for.
 func TestResourceGroupsQueryHonoursTheResourceGroup(t *testing.T) {
+	t.Parallel()
 	predicate, err := graphPredicate("00000000-0000-0000-0000-000000000001", "rg1")
 	if err != nil {
 		t.Fatal(err)
@@ -269,6 +276,7 @@ func TestResourceGroupsQueryHonoursTheResourceGroup(t *testing.T) {
 // resource before aztft: a type aztft doesn't know, or one it maps
 // otherwise.
 func TestGraphResourcesCatalogueOverridesAztft(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	overlay := `provider: azurerm
 types:
@@ -310,6 +318,7 @@ types:
 // What Azure creates itself is recorded with what the built-in skip rules
 // need, and they leave it out.
 func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
+	t.Parallel()
 	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
 	aks := sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
 	nodes := sub + "/resourceGroups/MC_rg-aks_aks_eastus"
@@ -400,6 +409,7 @@ func TestGraphResourcesSkipsWhatAzureCreates(t *testing.T) {
 // machine isn't listed; a data disk, which the machine's data disk
 // attachment needs, is kept. Before, azlist dropped every attached disk.
 func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
+	t.Parallel()
 	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app"
 	vm := rg + "/providers/Microsoft.Compute/virtualMachines/vm1"
 	other := rg + "/providers/Microsoft.Compute/virtualMachines/vm2"
@@ -459,6 +469,7 @@ func TestGraphResourcesKeepsAttachedDataDisks(t *testing.T) {
 // is recorded with it and left out: the endpoint or service creates and
 // deletes it. A virtual machine's interface is kept.
 func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
+	t.Parallel()
 	const network = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.Network"
 	endpoint := network + "/privateEndpoints/pe-blob"
 	service := network + "/privateLinkServices/pls-app"
@@ -508,6 +519,7 @@ func TestGraphResourcesSkipsPrivateEndpointInterfaces(t *testing.T) {
 // its child resources; what is in any other group, or is left out for
 // itself alone, has them listed.
 func TestInSkippedGroup(t *testing.T) {
+	t.Parallel()
 	const sub = "/subscriptions/00000000-0000-0000-0000-000000000001"
 	aks := sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
 	nodes := sub + "/resourceGroups/MC_rg-aks_aks_eastus"
@@ -532,6 +544,7 @@ func TestInSkippedGroup(t *testing.T) {
 // out, and what was listed is kept; one for a child type a resource
 // doesn't have, or an item azlist couldn't read, is only logged.
 func TestChildListFailures(t *testing.T) {
+	t.Parallel()
 	response := func(status int, text string) string {
 		return "GET https://management.azure.com/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app/config\n" +
 			"--------------------------------------------------------------------------------\n" +
@@ -574,6 +587,7 @@ func TestChildListFailures(t *testing.T) {
 // workspace in the Azure sandbox imported 697 built-in tables and 39
 // LogManagement saved searches.
 func TestGraphResourcesSkipsBuiltInWorkspaceTablesAndSearches(t *testing.T) {
+	t.Parallel()
 	const workspace = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationalInsights/workspaces/Logs"
 	table := func(tableType, plan string, retentionAsDefault, totalAsDefault bool) map[string]interface{} {
 		return map[string]interface{}{"properties": map[string]interface{}{
@@ -651,6 +665,7 @@ func TestGraphResourcesSkipsBuiltInWorkspaceTablesAndSearches(t *testing.T) {
 }
 
 func TestSavedSearchSolution(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ workspace, name, want string }{
 		{"logs", "LogManagement(logs)_General|StaleComputers", "LogManagement"},
 		{"Logs", "LogManagement(logs)_LogManagement|AllEvents", "LogManagement"},
@@ -688,6 +703,7 @@ func pseudoID(t *testing.T, owner, kind, target string) armid.ResourceId {
 // was named after the base64 of the associated resource's ID, which made
 // labels hundreds of characters long.
 func TestGraphNameOfAssociations(t *testing.T) {
+	t.Parallel()
 	const network = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Network"
 	subnet := network + "/virtualNetworks/net1/subnets/app"
 	nic := network + "/networkInterfaces/vm1-nic"
@@ -719,6 +735,7 @@ func TestGraphNameOfAssociations(t *testing.T) {
 // azlist lists child resources childListParallel at a time, not one per
 // CPU, recursively and with managed resources.
 func TestListerOption(t *testing.T) {
+	t.Parallel()
 	opt := listerOption("00000000-0000-0000-0000-000000000001", nil, arm.ClientOptions{})
 	if opt.Parallelism != childListParallel || !opt.Recursive || !opt.IncludeManaged || opt.SubscriptionId != "00000000-0000-0000-0000-000000000001" {
 		t.Errorf("option %+v", opt)
@@ -753,6 +770,7 @@ func (f *pagedTransport) Do(r *http.Request) (*http.Response, error) {
 // Resource Graph would send 100, and follows the skip token to the last
 // page. A row that isn't an object is left out.
 func TestGraphQueryPages(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		query func(options *arm.ClientOptions) (int, error)

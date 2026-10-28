@@ -114,10 +114,11 @@ func nestedStacksAPI(t *testing.T, listed map[string]int) func(apiCall) string {
 // is imported. A nested stack named before its parent is read once, so its
 // resources are in the scope once, and --cfn-ignore finds them.
 func TestResolveStacksNestedUnderDeletedParent(t *testing.T) {
+	t.Parallel()
 	listed := map[string]int{}
-	useFakeAPI(t, nestedStacksAPI(t, listed))
+	ctx := useFakeAPI(t, nestedStacksAPI(t, listed))
 
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{nestedKept, nestedParent}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{nestedKept, nestedParent}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +162,9 @@ func TestResolveStacksNestedUnderDeletedParent(t *testing.T) {
 // report then keeps it, and the stack it is nested in, from being safe to
 // delete.
 func TestResolveStacksUnreadableNested(t *testing.T) {
+	t.Parallel()
 	api := scopeStacksAPI(t)
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		if form.Get("StackName") != scopeNetworkStack {
 			return api(call)
@@ -173,7 +175,7 @@ func TestResolveStacksUnreadableNested(t *testing.T) {
 		return recordQueryError(recordCfnNS, "AccessDenied")
 	})
 
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,9 +219,10 @@ func TestResolveStacksUnreadableNested(t *testing.T) {
 // is unreadable too, rather than failing the run; a stack --cfn-stack
 // names whose template can't be read still fails it.
 func TestResolveStacksNestedTemplateRefused(t *testing.T) {
+	t.Parallel()
 	api := scopeStacksAPI(t)
 	refused := scopeNetworkStack
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		if call.Op == "GetTemplate" && form.Get("StackName") == refused {
 			return recordQueryError(recordCfnNS, "AccessDenied")
@@ -227,7 +230,7 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 		return api(call)
 	})
 
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +245,7 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 	}
 
 	refused = scopeAppStack
-	if _, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
+	if _, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
 		t.Errorf("the named stack's template refused: %v", err)
 	}
 }
@@ -251,6 +254,7 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 // URL to upload its copy to; one whose parent --cfn-stack doesn't reach
 // has the root stack DescribeStacks gives it.
 func TestStackNesting(t *testing.T) {
+	t.Parallel()
 	template, err := parseTemplate("Resources:\n  Queues:\n    Type: AWS::CloudFormation::Stack\n    Properties:\n      TemplateURL: !Sub https://${Bucket}.s3.amazonaws.com/queues.json\n")
 	if err != nil {
 		t.Fatal(err)

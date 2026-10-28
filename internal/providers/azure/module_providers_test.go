@@ -13,6 +13,7 @@ import (
 // azapi gets the root's subscription, and a custom cloud's endpoints as
 // overrides of the public cloud's.
 func TestModuleProvidersConfigureAzapi(t *testing.T) {
+	t.Parallel()
 	p := &Provider{subscriptionID: "sub-1"}
 	azapi := p.ModuleProviders()["azapi"]
 	if azapi.Source != "Azure/azapi" || len(azapi.Config) != 1 || azapi.Config["subscription_id"] != "sub-1" {

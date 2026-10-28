@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
@@ -57,6 +56,7 @@ func values(items []*string) []string {
 
 // Every page is walked in order; nil items and empty pages add nothing.
 func TestListAllWalksEveryPage(t *testing.T) {
+	t.Parallel()
 	pages := [][]*string{
 		{to.Ptr("a"), nil, to.Ptr("b")},
 		{},
@@ -80,6 +80,7 @@ func TestListAllWalksEveryPage(t *testing.T) {
 // listAll stops at the first page that fails, with the items of the pages
 // before it and the error.
 func TestListAllStopsAtAFailingPage(t *testing.T) {
+	t.Parallel()
 	pages := [][]*string{{to.Ptr("a")}, {to.Ptr("b")}, {to.Ptr("c")}}
 	got, err := listAll(t.Context(), pagerOf(pages, 1), pageItems)
 	if !errors.Is(err, errPageFailed) {
@@ -95,43 +96,28 @@ func TestListAllStopsAtAFailingPage(t *testing.T) {
 	}
 }
 
-// clientSettings reads what Select passes, and gives zero values for
-// arguments that are missing or of another type rather than panicking.
+// clientSettings reads what Select passes, and gives zero values without
+// settings.
 func TestClientSettings(t *testing.T) {
+	t.Parallel()
 	options := &arm.ClientOptions{}
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{
-		"subscription_id": "sub",
-		"resource_group":  "rg1",
-		"credential":      azcore.TokenCredential(fakeCredential{}),
-		"client_options":  options,
-	}})
+	s.SetSettings(serviceSettings{subscriptionID: "sub", resourceGroup: "rg1", credential: fakeCredential{}, clientOptions: options})
 	subscriptionID, resourceGroup, credential, gotOptions := s.clientSettings()
 	if subscriptionID != "sub" || resourceGroup != "rg1" || credential == nil || gotOptions != options {
 		t.Errorf("got %q, %q, %v, %v", subscriptionID, resourceGroup, credential, gotOptions)
 	}
 
-	for name, args := range map[string]map[string]interface{}{
-		"no arguments": nil,
-		"other types": {
-			"subscription_id": 1,
-			"resource_group":  true,
-			"credential":      "token",
-			"client_options":  arm.ClientOptions{},
-		},
-	} {
-		s := &Service{}
-		s.Configure(harvest.ListerConfig{Settings: args})
-		subscriptionID, resourceGroup, credential, options := s.clientSettings()
-		if subscriptionID != "" || resourceGroup != "" || credential != nil || options != nil {
-			t.Errorf("%s: got %q, %q, %v, %v", name, subscriptionID, resourceGroup, credential, options)
-		}
+	subscriptionID, resourceGroup, credential, options = (&Service{}).clientSettings()
+	if subscriptionID != "" || resourceGroup != "" || credential != nil || options != nil {
+		t.Errorf("no settings: got %q, %q, %v, %v", subscriptionID, resourceGroup, credential, options)
 	}
 }
 
 // recordBare adds a resource of the service's provider with no
 // attributes.
 func TestRecordBare(t *testing.T) {
+	t.Parallel()
 	s := &Service{}
 	s.Configure(harvest.ListerConfig{Provider: "azurerm"})
 	const id = "/subscriptions/sub/resourceGroups/rg1"

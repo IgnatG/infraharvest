@@ -54,6 +54,7 @@ func TestClientOptionsWithoutAnEmulator(t *testing.T) {
 // at their own run's rate: every call of a run shares one client, and the
 // requests of one run never wait for the other's. Run with -race.
 func TestLimitedClientIsTheRunsOwn(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer server.Close()
 	base := server.Client()
@@ -101,6 +102,7 @@ func TestLimitedClientIsTheRunsOwn(t *testing.T) {
 // list, and a shared one would carry resources from one project or region
 // into the next.
 func TestSupportedServicesAreNew(t *testing.T) {
+	t.Parallel()
 	a, b := (&Provider{}).Services(), (&Provider{}).Services()
 	for name, g := range a {
 		if g == b[name] {
@@ -112,6 +114,7 @@ func TestSupportedServicesAreNew(t *testing.T) {
 // Roots are laid out by project and region, and don't get the provider's
 // attribution label, which would change every imported resource's labels.
 func TestProviderBlockAndScope(t *testing.T) {
+	t.Parallel()
 	p := &Provider{projectName: "acme-prod"}
 	p.region.Name = "europe-west1"
 	config := p.ProviderBlock()["provider"].(map[string]interface{})["google"].(map[string]interface{})

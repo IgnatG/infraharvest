@@ -11,7 +11,8 @@ const recordCloudTrailARN = "arn:aws:cloudtrail:"
 // names, asking for no shadow trails, and leaves out a trail whose home is
 // another region, in case one is answered anyway: it is that region's.
 func TestRecordCloudTrailListsTheRegionsOwnTrails(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeTrails" {
 			return recordUnexpected(t, call)
 		}
@@ -24,6 +25,7 @@ func TestRecordCloudTrailListsTheRegionsOwnTrails(t *testing.T) {
 			{"Name":"elsewhere","TrailARN":"` + recordCloudTrailARN + `eu-west-1:123456789012:trail/elsewhere","HomeRegion":"eu-west-1","IsMultiRegionTrail":true}]}`
 	})
 	g := &CloudTrailLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -36,10 +38,12 @@ func TestRecordCloudTrailListsTheRegionsOwnTrails(t *testing.T) {
 }
 
 func TestRecordCloudTrailReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &CloudTrailLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

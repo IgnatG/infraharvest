@@ -11,7 +11,8 @@ import (
 // The lister lists NAT gateways by ID, across pages, leaving out those
 // deleted, being deleted or failed, which AWS lists for about an hour.
 func TestRecordNatGatewayListsLiveGateways(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeNatGateways" {
 			return recordUnexpected(t, call)
 		}
@@ -28,6 +29,7 @@ func TestRecordNatGatewayListsLiveGateways(t *testing.T) {
 			</natGatewaySet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &NatGatewayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -40,10 +42,12 @@ func TestRecordNatGatewayListsLiveGateways(t *testing.T) {
 }
 
 func TestRecordNatGatewayReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &NatGatewayLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

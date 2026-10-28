@@ -20,7 +20,8 @@ const recordEcrRepo = "arn:aws:ecr:us-east-1:123456789012:repository/"
 // error is returned as a partial one, naming the repository, and the other
 // repositories are still listed.
 func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		repository := recordJSONField(call, "repositoryName")
 		if call.Op != "DescribeRepositories" && recordJSONField(call, "registryId") != "123456789012" {
 			t.Errorf("%s of %s outside the repository's registry: %s", call.Op, repository, call.Body)
@@ -59,6 +60,7 @@ func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EcrLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "the lifecycle policy of tools/legacy") || !strings.Contains(err.Error(), "AccessDeniedException") {
@@ -77,10 +79,12 @@ func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
 }
 
 func TestRecordEcrReturnsRepositoryErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &EcrLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

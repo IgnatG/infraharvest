@@ -11,15 +11,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/resourceexplorer2"
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
 	"github.com/aws/smithy-go"
-
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // explorerTypes maps the services Resource Explorer may rule out to the
@@ -108,30 +105,11 @@ const explorerIndexMinAge = 24 * time.Hour
 // pages.
 const explorerSearchLimit = 1000
 
-var (
-	// resourceExplorer turns the pre-filter on (see UseResourceExplorer).
-	resourceExplorer atomic.Bool
-	explorerMu       sync.Mutex
-	// explorerRegions holds what Resource Explorer says about each account
-	// and region, read once for all of its services.
-	explorerRegions = map[configKey]*explorerRegion{}
-	// explorerNow is the clock an index's age is measured by.
-	explorerNow = time.Now
-)
-
-// UseResourceExplorer makes the services listed after it skip the regions
-// where AWS Resource Explorer's index has none of their resources (see
-// explorerTypes). It is off by default: the index can lag behind recent
-// changes by hours, and a resource it hasn't found yet would be left out.
-func UseResourceExplorer(on bool) {
-	resourceExplorer.Store(on)
-}
-
 // explorerSkip returns why the service needn't list its region: Resource
 // Explorer is on and its index shows the service has nothing there. It
 // returns "" otherwise, and whenever the index can't tell.
 func (s *guardedLister) explorerSkip() string {
-	if !resourceExplorer.Load() {
+	if !s.resourceExplorer {
 		return ""
 	}
 	name := s.lister.Name()
@@ -140,7 +118,7 @@ func (s *guardedLister) explorerSkip() string {
 		return ""
 	}
 	svc := &Service{}
-	svc.Configure(harvest.ListerConfig{Settings: s.Settings()})
+	svc.SetSettings(s.Settings())
 	svc.SetContext(s.Context())
 	return explorerFor(svc).skip(svc.Context(), name, types)
 }
@@ -149,6 +127,8 @@ func (s *guardedLister) explorerSkip() string {
 // region: the types of the resources the default view shows there.
 type explorerRegion struct {
 	once sync.Once
+	// now is the clock the index's age is measured by.
+	now func() time.Time
 	// unusable says why the index can't rule anything out; "" if it can.
 	unusable string
 	region   string
@@ -174,14 +154,14 @@ type explorerRegion struct {
 // region svc lists, read the first time a service asks. If it can't rule
 // anything out, it logs why, once.
 func explorerFor(svc *Service) *explorerRegion {
-	key := svc.cacheKey()
-	explorerMu.Lock()
-	x, ok := explorerRegions[key]
+	key, run := svc.cacheKey(), svc.configs()
+	run.explorerMu.Lock()
+	x, ok := run.explorerRegions[key]
 	if !ok {
-		x = &explorerRegion{region: key.region}
-		explorerRegions[key] = x
+		x = &explorerRegion{region: key.region, now: run.explorerNow}
+		run.explorerRegions[key] = x
 	}
-	explorerMu.Unlock()
+	run.explorerMu.Unlock()
 	x.once.Do(func() {
 		x.unusable = x.load(svc)
 		where := x.region
@@ -219,7 +199,7 @@ func (x *explorerRegion) load(svc *Service) string {
 	x.client = resourceexplorer2.NewFromConfig(cfg)
 	// The region's own index: without one, no aggregator has its resources
 	// either.
-	index, reason := activeIndex(ctx, x.client, false)
+	index, reason := activeIndex(ctx, x.client, false, x.now())
 	if reason != "" {
 		return reason
 	}
@@ -247,9 +227,9 @@ func (x *explorerRegion) load(svc *Service) string {
 
 // activeIndex returns the index of the client's region, or why it can't
 // rule anything out: there is none, it is still being built, or it is too
-// new to have found everything. An aggregator also counts from when it
+// new, at now, to have found everything. An aggregator also counts from when it
 // last changed, such as when it became the aggregator.
-func activeIndex(ctx context.Context, client *resourceexplorer2.Client, aggregator bool) (*resourceexplorer2.GetIndexOutput, string) {
+func activeIndex(ctx context.Context, client *resourceexplorer2.Client, aggregator bool, now time.Time) (*resourceexplorer2.GetIndexOutput, string) {
 	index, err := client.GetIndex(ctx, &resourceexplorer2.GetIndexInput{})
 	if apiErrorCode(err) == "ResourceNotFoundException" || (err == nil && aws.ToString(index.Arn) == "") {
 		return nil, "no index"
@@ -264,7 +244,7 @@ func activeIndex(ctx context.Context, client *resourceexplorer2.Client, aggregat
 	if updated := aws.ToTime(index.LastUpdatedAt); aggregator && updated.After(since) {
 		since = updated
 	}
-	if explorerNow().Sub(since) < explorerIndexMinAge {
+	if now.Sub(since) < explorerIndexMinAge {
 		return nil, fmt.Sprintf("the index dates from %s, less than a day ago, and may not have found every resource yet", since.UTC().Format(time.RFC3339))
 	}
 	return index, ""
@@ -279,7 +259,7 @@ func (x *explorerRegion) useAggregator(ctx context.Context, cfg aws.Config, loca
 	cfg = cfg.Copy()
 	cfg.Region = local.ReplicatingTo[0]
 	client := resourceexplorer2.NewFromConfig(cfg)
-	index, reason := activeIndex(ctx, client, true)
+	index, reason := activeIndex(ctx, client, true, x.now())
 	if reason == "" && (index.Type != retypes.IndexTypeAggregator || !slices.Contains(index.ReplicatingFrom, x.region)) {
 		reason = "that index doesn't aggregate this region's"
 	}

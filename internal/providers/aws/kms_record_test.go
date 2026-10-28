@@ -41,7 +41,8 @@ var recordKmsKeys = map[string]string{
 // managed alias, alias/aws/<service>, is left out without describing its
 // key, and so is that key when the keys are listed.
 func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListKeys":
 			if recordSecondPage(call) {
@@ -77,6 +78,7 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &KmsLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 	if err == nil {
@@ -103,9 +105,10 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 
 // Listing keys or aliases fails the service.
 func TestRecordKmsReturnsListErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListKeys", "ListAliases"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
@@ -117,6 +120,7 @@ func TestRecordKmsReturnsListErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &KmsLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})
@@ -126,6 +130,7 @@ func TestRecordKmsReturnsListErrors(t *testing.T) {
 // A key's type follows the origin of its material and whether it is a
 // multi-Region replica, from the metadata DescribeKey answered.
 func TestKmsKeyType(t *testing.T) {
+	t.Parallel()
 	replica := &types.MultiRegionConfiguration{MultiRegionKeyType: types.MultiRegionKeyTypeReplica}
 	primary := &types.MultiRegionConfiguration{MultiRegionKeyType: types.MultiRegionKeyTypePrimary}
 	for _, c := range []struct {
@@ -151,12 +156,13 @@ func TestKmsKeyType(t *testing.T) {
 // page's order however their answers come back: here the first key's
 // answer comes last.
 func TestRecordKmsKeepsTheKeysOrder(t *testing.T) {
+	t.Parallel()
 	const n = 8
 	var keys []string
 	for i := range n {
 		keys = append(keys, fmt.Sprintf(`{"KeyId":"k-%d"}`, i))
 	}
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		id := recordJSONField(call, "KeyId")
 		i, _ := strconv.Atoi(strings.TrimPrefix(id, "k-"))
 		switch call.Op {
@@ -174,6 +180,7 @@ func TestRecordKmsKeepsTheKeysOrder(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &KmsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

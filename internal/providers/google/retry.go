@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"google.golang.org/api/googleapi"
+
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 // retryAttempts is how many times a request is sent at most: the first
@@ -25,8 +27,21 @@ const retryAttempts = 5
 const retryMaxDelay = 30 * time.Second
 
 // retryDelay is the wait before the first retry, doubled before each
-// next one, with jitter (see retryWait). Tests make it shorter.
-var retryDelay = 500 * time.Millisecond
+// next one, with jitter (see retryWait), unless the run keeps another (see
+// runRetryDelay).
+const retryDelay = 500 * time.Millisecond
+
+// retryDelayKey is the key of a run's wait before the first retry, kept
+// with its limiter.
+type retryDelayKey struct{}
+
+// runRetryDelay returns the wait before the first retry of the requests of
+// the run whose limiter is run: retryDelay, unless the run kept another
+// before its first request, as tests do to keep their failing calls
+// short.
+func runRetryDelay(run *ratelimit.Limiter) time.Duration {
+	return ratelimit.Kept(run, retryDelayKey{}, func() time.Duration { return retryDelay })
+}
 
 // retryTransport sends each request through base again when Google's API
 // answers that it is throttled (429, or a 403 whose reason says so, see
@@ -39,7 +54,7 @@ var retryDelay = 500 * time.Millisecond
 // base is the rate limiter's transport, so that each retry is paced too.
 type retryTransport struct {
 	base http.RoundTripper
-	// delay replaces retryDelay when set.
+	// delay replaces retryDelay when set (see runRetryDelay).
 	delay time.Duration
 }
 

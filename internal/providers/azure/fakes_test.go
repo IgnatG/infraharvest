@@ -14,6 +14,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // fakeCredential hands out a token without signing in.
@@ -52,14 +54,20 @@ func (f *fakeTransport) Do(r *http.Request) (*http.Response, error) {
 	}, nil
 }
 
+// settledLister is a lister of the provider, which takes its settings.
+type settledLister interface {
+	harvest.Lister
+	harvest.SettingsTaker[serviceSettings]
+}
+
 // fakeArgs are the arguments Select hands a service, for subscription
 // "sub" and resourceGroup ("" for the whole subscription), with every
 // request answered by transport.
-func fakeArgs(transport *fakeTransport, resourceGroup string) map[string]interface{} {
-	return map[string]interface{}{
-		"subscription_id": "sub",
-		"resource_group":  resourceGroup,
-		"credential":      azcore.TokenCredential(fakeCredential{}),
-		"client_options":  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+func fakeArgs(transport *fakeTransport, resourceGroup string) serviceSettings {
+	return serviceSettings{
+		subscriptionID: "sub",
+		resourceGroup:  resourceGroup,
+		credential:     fakeCredential{},
+		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
 	}
 }

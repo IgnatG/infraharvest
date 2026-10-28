@@ -12,7 +12,8 @@ import "testing"
 // endpoint an AWS service manages (RequesterManaged) and one that is gone or
 // going are left out; a partial one is listed.
 func TestRecordVpcEndpointListsEndpoints(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeVpcEndpoints" {
 			return recordUnexpected(t, call)
 		}
@@ -30,6 +31,7 @@ func TestRecordVpcEndpointListsEndpoints(t *testing.T) {
 			</vpcEndpointSet>`)
 	})
 	g := &VpcEndpointLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -44,15 +46,18 @@ func TestRecordVpcEndpointListsEndpoints(t *testing.T) {
 }
 
 func TestRecordVpcEndpointReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &VpcEndpointLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }
 
 func TestVpcEndpointName(t *testing.T) {
+	t.Parallel()
 	for service, want := range map[string]string{
 		"com.amazonaws.eu-west-2.s3":                      "s3",
 		"com.amazonaws.eu-west-2.ecr.dkr":                 "ecr.dkr",

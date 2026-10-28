@@ -10,7 +10,8 @@ import "testing"
 // domain, or one whose engine isn't named, as an aws_elasticsearch_domain,
 // and an OpenSearch one as an aws_opensearch_domain.
 func TestRecordEsListsDomainsByName(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path != "/2015-01-01/domain" {
 			return recordUnexpected(t, call)
 		}
@@ -23,6 +24,7 @@ func TestRecordEsListsDomainsByName(t *testing.T) {
 			{"DomainName":"legacy"}]}`
 	})
 	g := &EsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -36,10 +38,12 @@ func TestRecordEsListsDomainsByName(t *testing.T) {
 }
 
 func TestRecordEsReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &EsLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

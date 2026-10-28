@@ -28,7 +28,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 	cache := t.TempDir()
 	dir := t.TempDir()
 
-	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.TerraformBinary.Find(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}

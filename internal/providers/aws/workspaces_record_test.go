@@ -44,8 +44,10 @@ func recordWorkspacesAPI(t *testing.T, failing string) func(apiCall) string {
 // and across pages. Deregistered directories and terminated workspaces are
 // left out.
 func TestRecordWorkspacesListsDirectoriesWorkspacesAndIPGroups(t *testing.T) {
-	useFakeAPI(t, recordWorkspacesAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWorkspacesAPI(t, ""))
 	g := &WorkspacesLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -64,10 +66,12 @@ func TestRecordWorkspacesListsDirectoriesWorkspacesAndIPGroups(t *testing.T) {
 }
 
 func TestRecordWorkspacesReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeWorkspaceDirectories", "DescribeWorkspaces", "DescribeIpGroups"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordWorkspacesAPI(t, failing))
+			ctx := useFakeAPI(t, recordWorkspacesAPI(t, failing))
 			g := &WorkspacesLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

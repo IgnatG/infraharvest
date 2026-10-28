@@ -8,7 +8,8 @@ import "testing"
 // The lister lists the registered domains by name, across pages. It
 // doesn't ask for the deprecated ones.
 func TestRecordSwfListsRegisteredDomains(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListDomains" {
 			return recordUnexpected(t, call)
 		}
@@ -21,6 +22,7 @@ func TestRecordSwfListsRegisteredDomains(t *testing.T) {
 		return `{"domainInfos":[{"name":"orders","status":"REGISTERED","arn":"arn:aws:swf:us-east-1:123456789012:/domain/orders"}],"nextPageToken":"` + nextPageToken + `"}`
 	})
 	g := &SWFLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -33,10 +35,12 @@ func TestRecordSwfListsRegisteredDomains(t *testing.T) {
 }
 
 func TestRecordSwfReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("OperationNotPermittedFault")
 	})
 	g := &SWFLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "OperationNotPermittedFault")
 }

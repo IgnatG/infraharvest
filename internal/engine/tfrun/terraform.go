@@ -81,11 +81,6 @@ var findMu sync.Mutex
 // versionOf reports the version of the engine binary at execPath.
 type versionOf func(ctx context.Context, execPath string) (*version.Version, error)
 
-// FindTerraform finds Terraform; see Binary.Find.
-func FindTerraform(ctx context.Context, explicitPath, cacheDir string) (string, error) {
-	return TerraformBinary.Find(ctx, explicitPath, cacheDir)
-}
-
 // Find returns a binary of at least b.Minimum, in this order: explicitPath
 // (which must qualify), b.Name on PATH, a binary cached in cacheDir, or,
 // for engines downloaded automatically, the latest release downloaded into

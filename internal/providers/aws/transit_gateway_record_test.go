@@ -50,8 +50,10 @@ func recordTransitGatewayAPI(t *testing.T, failing ...string) func(apiCall) stri
 // attachments, each by ID and across pages, leaving out those deleted or
 // rejected.
 func TestRecordTransitGatewayListsGatewaysRouteTablesAndAttachments(t *testing.T) {
-	useFakeAPI(t, recordTransitGatewayAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordTransitGatewayAPI(t))
 	g := &TransitGatewayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -71,10 +73,12 @@ func TestRecordTransitGatewayListsGatewaysRouteTablesAndAttachments(t *testing.T
 
 // Each list fails the service.
 func TestRecordTransitGatewayReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeTransitGateways", "DescribeTransitGatewayRouteTables", "DescribeTransitGatewayVpcAttachments"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordTransitGatewayAPI(t, failing))
+			ctx := useFakeAPI(t, recordTransitGatewayAPI(t, failing))
 			g := &TransitGatewayLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "UnauthorizedOperation")
 		})

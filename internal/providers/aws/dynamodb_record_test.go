@@ -19,7 +19,8 @@ func recordDynamoDbTable(call apiCall) string {
 // The lister lists each table by name, across pages: the next page starts
 // after the last table of the one before.
 func TestRecordDynamoDbListsTablesByName(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListTables":
 			switch recordJSONField(call, "ExclusiveStartTableName") {
@@ -36,6 +37,7 @@ func TestRecordDynamoDbListsTablesByName(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -53,7 +55,8 @@ func TestRecordDynamoDbListsTablesByName(t *testing.T) {
 // table of 2017, which is a table of its own in each region, records none,
 // and a table deleted since it was listed is left out.
 func TestRecordDynamoDbRecordsReplicas(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListTables":
 			return `{"TableNames":["orders","legacy","gone","users"]}`
@@ -74,6 +77,7 @@ func TestRecordDynamoDbRecordsReplicas(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -93,7 +97,8 @@ func TestRecordDynamoDbRecordsReplicas(t *testing.T) {
 // A table that can't be described is still recorded, without replicas, and
 // the service fails in part.
 func TestRecordDynamoDbDescribeErrorIsPartial(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListTables":
 			return `{"TableNames":["orders","users"]}`
@@ -106,6 +111,7 @@ func TestRecordDynamoDbDescribeErrorIsPartial(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 
@@ -120,10 +126,12 @@ func TestRecordDynamoDbDescribeErrorIsPartial(t *testing.T) {
 }
 
 func TestRecordDynamoDbReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &DynamoDbLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }
@@ -133,7 +141,8 @@ func TestRecordDynamoDbReturnsErrors(t *testing.T) {
 // region, without asking AWS more than for the stacks. A table with no
 // replicas, or whose replicas are all in regions after its own, stays.
 func TestExcludedByDefaultGlobalTableReplicas(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -149,7 +158,7 @@ func TestExcludedByDefaultGlobalTableReplicas(t *testing.T) {
 		return attributes
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.Record("orders", "orders", "aws_dynamodb_table", "aws", replicas("eu-west-1", "us-west-2")),
 		harvest.Record("carts", "carts", "aws_dynamodb_table", "aws", replicas("us-west-2")),
 		harvest.RecordBare("users", "users", "aws_dynamodb_table", "aws"),
@@ -167,8 +176,9 @@ func TestExcludedByDefaultGlobalTableReplicas(t *testing.T) {
 // The tables are described several at once, and recorded in the listed
 // order.
 func TestRecordDynamoDbDescribesTablesInParallel(t *testing.T) {
+	t.Parallel()
 	at := newOverlap(3)
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListTables":
 			return `{"TableNames":["a","b","c"]}`
@@ -179,6 +189,7 @@ func TestRecordDynamoDbDescribesTablesInParallel(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

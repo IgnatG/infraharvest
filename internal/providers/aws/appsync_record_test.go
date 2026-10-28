@@ -8,7 +8,8 @@ import "testing"
 // The lister lists GraphQL APIs by ID, named after their names, across
 // pages.
 func TestRecordAppSyncListsGraphqlApis(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path != "/v1/apis" {
 			return recordUnexpected(t, call)
 		}
@@ -19,6 +20,7 @@ func TestRecordAppSyncListsGraphqlApis(t *testing.T) {
 			"arn":"arn:aws:appsync:us-east-1:123456789012:apis/api1"}],"nextToken":"` + nextPageToken + `"}`
 	})
 	g := &AppSyncLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -31,10 +33,12 @@ func TestRecordAppSyncListsGraphqlApis(t *testing.T) {
 }
 
 func TestRecordAppSyncReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("UnauthorizedException")
 	})
 	g := &AppSyncLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedException")
 }

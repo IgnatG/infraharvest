@@ -16,7 +16,8 @@ func elastiCacheResponse(op, result string) string {
 // manage, and what is being deleted. Default parameter and subnet groups
 // are listed, for the catalogue to leave out.
 func TestElastiCacheListsWhatTerraformManages(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeCacheClusters":
 			return elastiCacheResponse(call.Op, `<CacheClusters>
@@ -46,6 +47,7 @@ func TestElastiCacheListsWhatTerraformManages(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &ElastiCacheLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

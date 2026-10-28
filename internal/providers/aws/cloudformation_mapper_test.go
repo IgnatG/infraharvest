@@ -34,6 +34,7 @@ func testSchemas() *tfjson.ProviderSchemas {
 }
 
 func TestStackMapper(t *testing.T) {
+	t.Parallel()
 	m := newStackMapper(map[string][]string{
 		"AWS::S3::Bucket":         {"aws_s3_bucket"},
 		"AWS::EC2::SecurityGroup": {"aws_security_group"},
@@ -87,6 +88,7 @@ func TestStackMapper(t *testing.T) {
 // parameter named like a meta-argument gets a variable name Terraform
 // takes.
 func TestStackMapperWithStackIntent(t *testing.T) {
+	t.Parallel()
 	computed := &tfjson.SchemaAttribute{Computed: true}
 	optional := &tfjson.SchemaAttribute{Optional: true}
 	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{

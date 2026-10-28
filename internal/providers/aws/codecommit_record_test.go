@@ -11,7 +11,8 @@ import (
 // The lister lists repositories by name, then approval rule templates by
 // name, each across pages.
 func TestRecordCodeCommitListsRepositoriesAndTemplates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListRepositories":
 			if recordSecondPage(call) {
@@ -29,6 +30,7 @@ func TestRecordCodeCommitListsRepositoriesAndTemplates(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &CodeCommitLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -45,9 +47,10 @@ func TestRecordCodeCommitListsRepositoriesAndTemplates(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordCodeCommitReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListRepositories", "ListApprovalRuleTemplates"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
@@ -57,6 +60,7 @@ func TestRecordCodeCommitReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &CodeCommitLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

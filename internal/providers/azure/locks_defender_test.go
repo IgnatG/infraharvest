@@ -8,12 +8,12 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // Locks are listed in --resource-group when it is set, else in the whole
 // subscription; a lock without a name is skipped.
 func TestManagementLockListsTheScope(t *testing.T) {
+	t.Parallel()
 	const lock = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks/keep"
 	for resourceGroup, wantPath := range map[string]string{
 		"rg1": "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks",
@@ -23,7 +23,7 @@ func TestManagementLockListsTheScope(t *testing.T) {
 			wantPath: armList(armItem(lock, "keep", `{"level":"CanNotDelete"}`), `{"id":"`+lock+`2"}`),
 		}}
 		g := &ManagementLockLister{}
-		g.Configure(harvest.ListerConfig{Settings: routedArgs(transport, resourceGroup)})
+		g.SetSettings(routedArgs(transport, resourceGroup))
 
 		if err := g.List(); err != nil {
 			t.Fatalf("resource group %q: %v", resourceGroup, err)
@@ -43,6 +43,7 @@ func TestManagementLockListsTheScope(t *testing.T) {
 // that the catalogue leaves out the lock Azure Backup puts on a storage
 // account, and locks in groups the default selection leaves out.
 func TestLockAttributes(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	for _, tc := range []struct {
 		id, name string
@@ -68,27 +69,28 @@ func TestLockAttributes(t *testing.T) {
 // are listed for the whole subscription, and with --resource-group nothing
 // is asked for or listed.
 func TestDefenderListersListTheSubscription(t *testing.T) {
+	t.Parallel()
 	const (
 		contacts = "/subscriptions/sub/providers/Microsoft.Security/securityContacts"
 		pricings = "/subscriptions/sub/providers/Microsoft.Security/pricings"
 	)
 	for _, tc := range []struct {
 		service string
-		lister  func() harvest.Lister
+		lister  func() settledLister
 		path    string
 		body    string
 		want    []listedResource
 	}{
 		{
 			service: "security_center_contact",
-			lister:  func() harvest.Lister { return &SecurityCenterContactLister{} },
+			lister:  func() settledLister { return &SecurityCenterContactLister{} },
 			path:    contacts,
 			body:    armList(armItem(contacts+"/default", "default", `{"emails":"secops@example.com"}`), `{"name":"nameless"}`),
 			want:    []listedResource{{Type: "azurerm_security_center_contact", ID: contacts + "/default", Name: "default"}},
 		},
 		{
 			service: "security_center_subscription_pricing",
-			lister:  func() harvest.Lister { return &SecurityCenterSubscriptionPricingLister{} },
+			lister:  func() settledLister { return &SecurityCenterSubscriptionPricingLister{} },
 			path:    pricings,
 			body: armList(
 				armItem(pricings+"/VirtualMachines", "VirtualMachines", `{"pricingTier":"Standard","subPlan":"P2","deprecated":false}`),
@@ -104,7 +106,7 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 	} {
 		transport := &routedTransport{bodies: map[string]string{tc.path: tc.body}}
 		g := tc.lister()
-		g.Configure(harvest.ListerConfig{Settings: routedArgs(transport, "")})
+		g.SetSettings(routedArgs(transport, ""))
 		if err := g.List(); err != nil {
 			t.Fatalf("%s: %v", tc.service, err)
 		}
@@ -117,7 +119,7 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 
 		transport = &routedTransport{bodies: map[string]string{tc.path: tc.body}}
 		g = tc.lister()
-		g.Configure(harvest.ListerConfig{Settings: routedArgs(transport, "rg1")})
+		g.SetSettings(routedArgs(transport, "rg1"))
 		if err := g.List(); err != nil {
 			t.Errorf("%s with a resource group: %v", tc.service, err)
 		}
@@ -129,13 +131,14 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 
 // A list that fails fails the service, rather than listing nothing.
 func TestLockAndDefenderListersFailWhenTheListFails(t *testing.T) {
-	for service, g := range map[string]harvest.Lister{
+	t.Parallel()
+	for service, g := range map[string]settledLister{
 		"management_lock":                      &ManagementLockLister{},
 		"security_center_contact":              &SecurityCenterContactLister{},
 		"security_center_subscription_pricing": &SecurityCenterSubscriptionPricingLister{},
 	} {
 		// Nothing registered: every request gets a 404.
-		g.Configure(harvest.ListerConfig{Settings: routedArgs(&routedTransport{}, "")})
+		g.SetSettings(routedArgs(&routedTransport{}, ""))
 		if err := g.List(); err == nil {
 			t.Errorf("%s: listed %v, want an error", service, g.Listed())
 		}

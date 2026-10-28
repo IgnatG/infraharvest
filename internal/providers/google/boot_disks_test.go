@@ -76,9 +76,6 @@ func computeAndAssets(t *testing.T, search *fakeAssetSearch, instances *fakeInst
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
-	testCaches().instances.forget()
-	t.Cleanup(testCaches().instances.forget)
 }
 
 const computeURL = "https://www.googleapis.com/compute/v1/"
@@ -338,10 +335,8 @@ func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
-	testCaches().instances.forget()
-	t.Cleanup(testCaches().instances.forget)
 
-	list, err := instancesOnce(t.Context(), "123456789012")
+	list, err := instancesOnce(testRun(t), "123456789012")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +347,7 @@ func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 }
 
 func TestComputeID(t *testing.T) {
+	t.Parallel()
 	for url, want := range map[string]string{
 		computeURL + "projects/acme-prod/zones/us-central1-a/disks/web":                                 "projects/acme-prod/zones/us-central1-a/disks/web",
 		"https://compute.googleapis.com/compute/v1/projects/acme-prod/regions/us-central1/disks/shared": "projects/acme-prod/regions/us-central1/disks/shared",

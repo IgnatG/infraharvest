@@ -70,8 +70,8 @@ type Provider struct {
 	caches *runCaches
 }
 
-// runCaches returns the caches of the run Init was given, or those of the
-// calls outside any run (see ratelimit.Default) before Init.
+// runCaches returns the caches of the run Init was given, or, before
+// Init, caches of no run, which hold nothing (see cachesOf).
 func (p *Provider) runCaches() *runCaches {
 	if p.caches == nil {
 		return cachesOf(context.Background())
@@ -201,8 +201,10 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: p.Name(),
 		Verbose:  verbose,
-		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted}.args(),
 	})
+	if l, ok := service.(harvest.SettingsTaker[listerSettings]); ok {
+		l.SetSettings(listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted})
+	}
 	return nil
 }
 

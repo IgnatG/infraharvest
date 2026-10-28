@@ -24,6 +24,7 @@ import (
 )
 
 func TestSignInMethodOrder(t *testing.T) {
+	t.Parallel()
 	// all has the settings of every method; each case takes some away.
 	all := authConfig{
 		tenantID:         "tenant",
@@ -159,6 +160,7 @@ func TestNewCredentialTypes(t *testing.T) {
 }
 
 func TestNewCredentialPassesTheClientIDToTheMSIEndpoint(t *testing.T) {
+	t.Parallel()
 	for clientID, want := range map[string]string{"": "", "client": "client"} {
 		credential, err := newCredential(authConfig{useMSI: true, msiEndpoint: "https://msi.example/token", clientID: clientID})
 		if err != nil {
@@ -182,6 +184,7 @@ func TestNewCredentialPassesTheClientIDToTheMSIEndpoint(t *testing.T) {
 }
 
 func TestNewCredentialNeedsTenantAndClient(t *testing.T) {
+	t.Parallel()
 	methods := map[string]authConfig{
 		"a client certificate": {certificatePath: "/certs/sp.pem"},
 		"a client secret":      {clientSecret: "secret"},
@@ -210,6 +213,7 @@ func TestNewCredentialNeedsTenantAndClient(t *testing.T) {
 }
 
 func TestNewCredentialCertificateErrors(t *testing.T) {
+	t.Parallel()
 	garbage := filepath.Join(t.TempDir(), "garbage.pem")
 	if err := os.WriteFile(garbage, []byte("not a certificate"), 0o600); err != nil {
 		t.Fatal(err)
@@ -226,6 +230,7 @@ func TestNewCredentialCertificateErrors(t *testing.T) {
 }
 
 func TestFetchIDToken(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		query string
 		// want are the query parameters the token endpoint must get.
@@ -273,6 +278,7 @@ func TestFetchIDToken(t *testing.T) {
 }
 
 func TestFetchIDTokenErrors(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		status int
 		body   string
@@ -294,6 +300,7 @@ func TestFetchIDTokenErrors(t *testing.T) {
 }
 
 func TestMSIEndpointCredential(t *testing.T) {
+	t.Parallel()
 	for _, clientID := range []string{"", "client"} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet || r.URL.Path != "/metadata/identity/oauth2/token" {
@@ -330,6 +337,7 @@ func TestMSIEndpointCredential(t *testing.T) {
 }
 
 func TestMSIEndpointCredentialErrors(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":"invalid_request"}`))
@@ -351,6 +359,7 @@ func TestMSIEndpointCredentialErrors(t *testing.T) {
 }
 
 func TestParseMSIToken(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1700000000, 0)
 	for name, tc := range map[string]struct {
 		body string

@@ -16,31 +16,15 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
-// resetSDKConfigs forgets the configurations, credentials, failures and
-// accounts built so far, now and when the test ends: the configurations
-// of the tests' services, whose contexts carry no limiter, are Default's.
-func resetSDKConfigs(t *testing.T) {
+// newRun returns a context of a run of its own, which resolves the
+// credentials and builds the configurations afresh, whatever other tests
+// resolved and built.
+func newRun(t *testing.T) context.Context {
 	t.Helper()
-	reset := func() {
-		run := configsOf(ratelimit.Default())
-		run.mu.Lock()
-		run.configs = map[configKey]aws.Config{}
-		run.baseProviders = map[configKey]aws.CredentialsProvider{}
-		run.buildFailures = map[configKey]buildFailure{}
-		run.mu.Unlock()
-		credentialsMu.Lock()
-		resolvedCredentials = map[credentialsKey]sharedCredentials{}
-		credentialsMu.Unlock()
-		accountsMu.Lock()
-		callerAccounts = map[*aws.CredentialsCache]string{}
-		accountsMu.Unlock()
-	}
-	reset()
-	t.Cleanup(reset)
+	return ratelimit.NewContext(t.Context(), ratelimit.New(0))
 }
 
 // One import covers global services (region aws-global) and then each
@@ -53,11 +37,12 @@ func TestGenerateConfigPerRegion(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_REGION", "")
-	resetSDKConfigs(t)
+	ctx := newRun(t)
 
 	for _, region := range []string{GlobalPseudoRegion, "us-east-1", GlobalPseudoRegion} {
 		s := &Service{}
-		s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": region, "profile": ""}})
+		s.SetContext(ctx)
+		s.SetSettings(serviceSettings{region: region})
 
 		cfg, err := s.sdkConfig()
 		if err != nil {
@@ -79,10 +64,11 @@ func TestGenerateConfigWithoutSharedConfig(t *testing.T) {
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_PROFILE", "")
 	t.Setenv("AWS_REGION", "")
-	resetSDKConfigs(t)
+	ctx := newRun(t)
 
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1", "profile": "default"}})
+	s.SetContext(ctx)
+	s.SetSettings(serviceSettings{region: "us-east-1", profile: "default"})
 	if _, err := s.sdkConfig(); err != nil {
 		t.Errorf("want the environment's credentials used, got %v", err)
 	}
@@ -106,10 +92,10 @@ func TestTerraformEnv(t *testing.T) {
 	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE", "AWS_REGION"} {
 		t.Setenv(k, "")
 	}
-	resetSDKConfigs(t)
+	ctx := newRun(t)
 	p := &Provider{region: "eu-west-2", profile: "prod"}
 
-	env, err := p.TerraformEnv(t.Context())
+	env, err := p.TerraformEnv(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,10 +111,10 @@ func TestTerraformEnv(t *testing.T) {
 
 	// Without --regions, the region the profile resolves to.
 	defaultRegion := &Provider{}
-	if err := defaultRegion.Init(t.Context(), []string{ProfileRegion, "prod"}); err != nil {
+	if err := defaultRegion.Init(ctx, []string{ProfileRegion, "prod"}); err != nil {
 		t.Fatal(err)
 	}
-	env, err = defaultRegion.TerraformEnv(t.Context())
+	env, err = defaultRegion.TerraformEnv(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +145,12 @@ func useEnvironmentCredentials(t *testing.T, keyID string) {
 	t.Setenv("AWS_REGION", "")
 }
 
-// serviceIn returns a service of region, with the default profile.
-func serviceIn(region string) *Service {
+// serviceIn returns a service of region, with the default profile, in
+// the run of ctx.
+func serviceIn(ctx context.Context, region string) *Service {
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": region, "profile": ""}})
+	s.SetContext(ctx)
+	s.SetSettings(serviceSettings{region: region})
 	return s
 }
 
@@ -171,13 +159,13 @@ func serviceIn(region string) *Service {
 // once, whatever the number of regions.
 func TestSDKConfigSharesCredentialsAcrossRegions(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
-	resetSDKConfigs(t)
+	ctx := newRun(t)
 
-	first, err := serviceIn("eu-west-1").sdkConfig()
+	first, err := serviceIn(ctx, "eu-west-1").sdkConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := serviceIn("us-east-1").sdkConfig()
+	second, err := serviceIn(ctx, "us-east-1").sdkConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,8 +182,8 @@ func TestSDKConfigSharesCredentialsAcrossRegions(t *testing.T) {
 // resolving the credentials again, until failureMemory has passed.
 func TestSDKConfigRemembersFailures(t *testing.T) {
 	useEnvironmentCredentials(t, "")
-	resetSDKConfigs(t)
-	s := serviceIn("eu-west-1")
+	ctx := newRun(t)
+	s := serviceIn(ctx, "eu-west-1")
 
 	_, first := s.sdkConfig()
 	if first == nil {
@@ -230,7 +218,7 @@ const recordAssumeRole = `<AssumeRoleResponse xmlns="https://sts.amazonaws.com/d
 // once.
 func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
-	resetSDKConfigs(t)
+	ctx := newRun(t)
 	const roleA, roleB = "arn:aws:iam::111111111111:role/a", "arn:aws:iam::222222222222:role/b"
 	at := newOverlap(2)
 	var mu sync.Mutex
@@ -250,7 +238,8 @@ func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 	t.Setenv("AWS_ENDPOINT_URL_STS", sts.URL)
 	inRole := func(role string) *Service {
 		s := &Service{}
-		s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1", "profile": "", "role_arn": role}})
+		s.SetContext(ctx)
+		s.SetSettings(serviceSettings{region: "eu-west-1", roleARN: role})
 		return s
 	}
 	services := []*Service{inRole(roleA), inRole(roleA), inRole(roleB), inRole(roleA)}
@@ -280,13 +269,12 @@ func TestSDKConfigBuildsEachKeyOnceAndKeysAtOnce(t *testing.T) {
 }
 
 // Two runs in one process, at once, each build the configuration of an
-// account and region with their own run's rate: neither takes the other's
-// configuration, or its limit, while both share the credentials. The
+// account and region with their own run's rate, and its own credentials:
+// neither takes the other's configuration, or its limit. The
 // slow run's second request waits past its deadline; the fast run's
 // doesn't wait. Run with -race.
 func TestSDKConfigIsTheRunsOwn(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
-	resetSDKConfigs(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer server.Close()
 
@@ -295,8 +283,7 @@ func TestSDKConfigIsTheRunsOwn(t *testing.T) {
 	var wg sync.WaitGroup
 	for i, run := range runs {
 		wg.Go(func() {
-			s := serviceIn("eu-west-1")
-			s.SetContext(ratelimit.NewContext(t.Context(), run))
+			s := serviceIn(ratelimit.NewContext(t.Context(), run), "eu-west-1")
 			cfg, err := s.sdkConfig()
 			if err != nil {
 				t.Error(err)
@@ -311,8 +298,8 @@ func TestSDKConfigIsTheRunsOwn(t *testing.T) {
 	if built[0].HTTPClient == built[1].HTTPClient {
 		t.Fatal("the runs share one configuration")
 	}
-	if built[0].Credentials != built[1].Credentials {
-		t.Error("each run resolved credentials of its own")
+	if built[0].Credentials == built[1].Credentials {
+		t.Error("the runs share credentials")
 	}
 	// waited sends two requests through cfg, the second with a deadline
 	// shorter than a second, and reports whether it waited past it.
@@ -337,12 +324,27 @@ func TestSDKConfigIsTheRunsOwn(t *testing.T) {
 	}
 }
 
+// Each run resolves the credentials afresh: a run after the environment's
+// credentials changed, as a long-lived process's next run, uses the new
+// ones, not those an earlier run resolved.
+func TestSDKConfigResolvesEachRunsCredentials(t *testing.T) {
+	for _, keyID := range []string{"AKIDFIRST", "AKIDSECOND"} {
+		useEnvironmentCredentials(t, keyID)
+		got, err := serviceIn(newRun(t), "eu-west-1").baseCredentials()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.AccessKeyID != keyID {
+			t.Errorf("a run with %s in the environment got the credentials of %s", keyID, got.AccessKeyID)
+		}
+	}
+}
+
 // The provider's own calls use the configuration of the run Init was
 // given, even with a context that carries no limiter, as Terraform's
 // credentials are asked for.
 func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
-	resetSDKConfigs(t)
 	ctx := ratelimit.NewContext(t.Context(), ratelimit.New(5))
 	p := &Provider{}
 	if err := p.Init(ctx, []string{"eu-west-1", ""}); err != nil {
@@ -365,7 +367,7 @@ func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 // as the importer gives each service its listing's context.
 func serviceWithContext(ctx context.Context, p *Provider) *Service {
 	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	s.SetSettings(p.settings())
 	s.SetContext(ctx)
 	return s
 }
@@ -373,7 +375,8 @@ func serviceWithContext(ctx context.Context, p *Provider) *Service {
 // callerAccount asks STS once for the credentials of a configuration, and
 // remembers the account for every region that shares them.
 func TestCallerAccountIsAskedOnce(t *testing.T) {
-	resetSDKConfigs(t)
+	t.Parallel()
+	ctx := newRun(t)
 	calls := 0
 	api := &fakeAPI{handle: func(call apiCall) string {
 		if call.Op != "GetCallerIdentity" {
@@ -384,6 +387,7 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	}}
 	credentials := aws.NewCredentialsCache(aws.AnonymousCredentials{})
 	s := &Service{}
+	s.SetContext(ctx)
 
 	for _, region := range []string{"eu-west-1", "us-east-1", "eu-west-1"} {
 		cfg := aws.Config{Region: region, Credentials: credentials, HTTPClient: api, Retryer: func() aws.Retryer { return aws.NopRetryer{} }}
@@ -400,36 +404,21 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	}
 }
 
-// What the provider passes each service is what picks its SDK
-// configuration and region.
-func TestServiceReadsTheProviderArgs(t *testing.T) {
+// Select passes the service the provider's settings, which pick its SDK
+// configuration and region: both the guard and the lister it guards get
+// them.
+func TestSelectPassesTheSettings(t *testing.T) {
+	t.Parallel()
 	p := &Provider{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	s := &Service{}
-	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	if err := p.Select("sqs", false); err != nil {
+		t.Fatal(err)
+	}
+	guard := p.Selected().(*guardedLister)
 	want := configKey{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	if got := s.cacheKey(); got != want {
-		t.Errorf("cacheKey: got %+v, want %+v", got, want)
+	if got := guard.cacheKey(); got != want {
+		t.Errorf("the guard's cacheKey: got %+v, want %+v", got, want)
 	}
-	if got := regionSetting(s.Settings()); got != "eu-west-2" {
-		t.Errorf("regionSetting: got %q", got)
-	}
-	if got := regionSetting(map[string]interface{}{regionKey: 1}); got != "" {
-		t.Errorf("regionSetting of another type: got %q, want none", got)
-	}
-}
-
-// The settings a service gets come back as they went in, and those of
-// another type as none.
-func TestServiceSettingsRoundTrip(t *testing.T) {
-	want := serviceSettings{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
-	args := want.args()
-	if got := settingsOf(args); got != want {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-	if args[skipRegionValidationKey] != true {
-		t.Errorf("skip_region_validation: got %v", args[skipRegionValidationKey])
-	}
-	if got := settingsOf(map[string]interface{}{regionKey: 1, profileKey: true}); got != (serviceSettings{}) {
-		t.Errorf("settings of other types: got %+v", got)
+	if got := guard.lister.(*SqsLister).cacheKey(); got != want {
+		t.Errorf("the lister's cacheKey: got %+v, want %+v", got, want)
 	}
 }

@@ -126,8 +126,10 @@ func recordOrgTree() []recordedResource {
 // policies, each followed by its attachments. Every list is read across
 // pages.
 func TestRecordOrganizationListsTreeAndPolicies(t *testing.T) {
-	useFakeAPI(t, recordOrgAPI(t, "111111111111", ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordOrgAPI(t, "111111111111", ""))
 	g := &OrganizationLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -141,8 +143,10 @@ func TestRecordOrganizationListsTreeAndPolicies(t *testing.T) {
 // A delegated administrator can list the tree, but only the management
 // account manages the organization, so it isn't recorded.
 func TestRecordOrganizationLeavesTheOrganizationToItsManagementAccount(t *testing.T) {
-	useFakeAPI(t, recordOrgAPI(t, "222222222222", ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordOrgAPI(t, "222222222222", ""))
 	g := &OrganizationLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -154,13 +158,15 @@ func TestRecordOrganizationLeavesTheOrganizationToItsManagementAccount(t *testin
 // Every error is returned, the walk's included: a part of the tree left
 // out would leave out everything below it.
 func TestRecordOrganizationReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{
 		"DescribeOrganization", "GetCallerIdentity", "ListRoots", "ListAccountsForParent",
 		"ListOrganizationalUnitsForParent", "ListPolicies", "ListTargetsForPolicy",
 	} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordOrgAPI(t, "111111111111", failing))
+			ctx := useFakeAPI(t, recordOrgAPI(t, "111111111111", failing))
 			g := &OrganizationLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

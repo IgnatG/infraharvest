@@ -105,7 +105,8 @@ func recordIamAttachment(name, arn string) string {
 // default selection to see. No user, group or role is asked for its own
 // policies or groups.
 func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		user := form.Get("UserName")
 		switch {
@@ -161,6 +162,7 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IamLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -216,9 +218,10 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 // Every list's error is returned, a user's access keys included: a failed
 // list must not pass for an empty one.
 func TestRecordIamReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"GetAccountAuthorizationDetails", "ListAccessKeys", "ListInstanceProfiles"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordQueryError(recordIamNS, "AccessDenied")
@@ -234,6 +237,7 @@ func TestRecordIamReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &IamLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})
@@ -243,7 +247,8 @@ func TestRecordIamReturnsErrors(t *testing.T) {
 // The authorization details and the instance profiles are asked for 1000
 // to a page, the most IAM answers, not its default of 100.
 func TestRecordIamAsksForFullPages(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "GetAccountAuthorizationDetails":
@@ -260,6 +265,7 @@ func TestRecordIamAsksForFullPages(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IamLister{}
+	g.SetContext(ctx)
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +283,8 @@ func TestRecordIamAsksForFullPages(t *testing.T) {
 // An import that leaves access keys out whatever is listed doesn't ask for
 // them, user by user.
 func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "GetAccountAuthorizationDetails":
 			return recordIamDetails(call, `<UserDetailList>`+recordIamUser("bob", "AIDABOB", "")+`</UserDetailList>`, "")
@@ -289,6 +296,7 @@ func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
 	p := &Provider{}
 	p.SetUnwantedTypes(func(typ string) bool { return typ == "aws_iam_access_key" })
 	g := p.withUnwanted(&IamLister{}).(*IamLister)
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

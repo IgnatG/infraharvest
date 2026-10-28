@@ -16,23 +16,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// The keys of the settings Provider.Select passes each service, written
-// only by serviceSettings.args and read only by settingsOf, so that the
-// two can't drift apart.
-const (
-	subscriptionIDKey = "subscription_id"
-	resourceGroupKey  = "resource_group"
-	credentialKey     = "credential"
-	clientOptionsKey  = "client_options"
-	catalogueKey      = "catalogue"
-	listedKey         = "listed"
-	azapiKey          = "azapi"
-	unwantedKey       = "unwanted"
-)
-
-// serviceSettings are the settings Provider.Select passes each service,
-// typed: the service gets them as a map (see harvest.ListerConfig), which
-// args makes and settingsOf reads back.
+// serviceSettings are the settings Provider.Select passes each service
+// (see harvest.ListerOf).
 type serviceSettings struct {
 	// subscriptionID is the subscription to list.
 	subscriptionID string
@@ -55,61 +40,24 @@ type serviceSettings struct {
 	unwanted func(typ string) bool
 }
 
-// args returns the settings as a service's settings map. Without unwanted
-// types the map has no entry for them, so that the maps of equal settings
-// are deeply equal, which no func is.
-func (s serviceSettings) args() map[string]interface{} {
-	args := map[string]interface{}{
-		subscriptionIDKey: s.subscriptionID,
-		credentialKey:     s.credential,
-		clientOptionsKey:  s.clientOptions,
-		resourceGroupKey:  s.resourceGroup,
-		catalogueKey:      s.catalogue,
-		listedKey:         s.listed,
-		azapiKey:          s.azapi,
-	}
-	if s.unwanted != nil {
-		args[unwantedKey] = s.unwanted
-	}
-	return args
-}
-
-// settingsOf returns the settings in a service's settings map, as args
-// makes it. A setting that is missing, or of another type, comes back as
-// its zero value.
-func settingsOf(settings map[string]interface{}) serviceSettings {
-	var s serviceSettings
-	s.subscriptionID, _ = settings[subscriptionIDKey].(string)
-	s.resourceGroup, _ = settings[resourceGroupKey].(string)
-	s.credential, _ = settings[credentialKey].(azcore.TokenCredential)
-	s.clientOptions, _ = settings[clientOptionsKey].(*arm.ClientOptions)
-	s.catalogue, _ = settings[catalogueKey].(*catalogue.Catalogue)
-	s.listed, _ = settings[listedKey].([]harvest.Resource)
-	s.azapi, _ = settings[azapiKey].(bool)
-	s.unwanted, _ = settings[unwantedKey].(func(typ string) bool)
-	return s
-}
-
-// Service is what every Azure lister embeds: the service
-// state, and the settings Provider.Select passes it as
-// arguments.
+// Service is what every Azure lister embeds: the service state, and the
+// settings Provider.Select passes it.
 type Service struct {
-	harvest.ListerBase
+	harvest.ListerOf[serviceSettings]
 }
 
 // clientSettings returns what the service's Resource Manager clients need:
 // the subscription, --resource-group ("" for the whole subscription), the
-// credential and the client options. An argument that is missing, or of
-// another type, comes back as its zero value.
+// credential and the client options.
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
-	s := settingsOf(az.Settings())
+	s := az.Settings()
 	return s.subscriptionID, s.resourceGroup, s.credential, s.clientOptions
 }
 
 // wants reports whether the import may keep resources of typ: a lister
 // skips the calls that list only resources of a type it doesn't want.
 func (az *Service) wants(typ string) bool {
-	return settingsOf(az.Settings()).wants(typ)
+	return az.Settings().wants(typ)
 }
 
 // wantsAny reports whether the import may keep resources of any of types:

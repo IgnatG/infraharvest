@@ -88,8 +88,9 @@ func cdkStacksAPI(t *testing.T) func(apiCall) string {
 // first; eks.Cluster's cluster is imported as aws_eks_cluster; and another
 // custom resource gets the general advice.
 func TestCDKCustomResources(t *testing.T) {
-	useFakeAPI(t, cdkStacksAPI(t))
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"cdk"}, awsCatalogue())
+	t.Parallel()
+	ctx := useFakeAPI(t, cdkStacksAPI(t))
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"cdk"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +120,9 @@ func TestCDKCustomResources(t *testing.T) {
 // where two stacks have it, by stack too; it refuses what must be taken
 // out of the stack first, what can be imported, and what isn't there.
 func TestAcknowledge(t *testing.T) {
-	useFakeAPI(t, cdkStacksAPI(t))
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"cdk", "other"}, awsCatalogue())
+	t.Parallel()
+	ctx := useFakeAPI(t, cdkStacksAPI(t))
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"cdk", "other"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +204,7 @@ func readTestFile(t *testing.T, path string) string {
 // is imported where the queue it names is, in the template's JSON form of
 // Ref too.
 func TestImportScopeHeldPolicy(t *testing.T) {
+	t.Parallel()
 	const queueURL = "https://sqs.eu-west-2.amazonaws.com/123456789012/jobs"
 	template, err := parseTemplate(`{"Resources": {"Jobs": {"Type": "AWS::SQS::Queue"}, "JobsPolicy": {"Type": "AWS::SQS::QueuePolicy", "Properties": {"Queues": [{"Ref": "Jobs"}]}}}}`)
 	if err != nil {

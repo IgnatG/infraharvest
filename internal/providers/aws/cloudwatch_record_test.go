@@ -90,8 +90,10 @@ func recordCloudWatchAPI(t *testing.T, failing string) func(apiCall) string {
 // then the default bus's event rules but those a service manages, each
 // followed by its targets.
 func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
-	useFakeAPI(t, recordCloudWatchAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordCloudWatchAPI(t, ""))
 	g := &CloudWatchLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -115,10 +117,12 @@ func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 // The EventBridge lists fail the service. (The fake API cannot answer a
 // CBOR error, so the CloudWatch lists' errors are not recorded here.)
 func TestRecordCloudWatchReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListRules", "ListTargetsByRule"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordCloudWatchAPI(t, failing))
+			ctx := useFakeAPI(t, recordCloudWatchAPI(t, failing))
 			g := &CloudWatchLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

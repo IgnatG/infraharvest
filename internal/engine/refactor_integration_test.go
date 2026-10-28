@@ -110,7 +110,7 @@ func TestRefactorBlocksWithRealEngines(t *testing.T) {
 	defer cancel()
 	cache := t.TempDir()
 	engines := map[string]string{}
-	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.TerraformBinary.Find(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}

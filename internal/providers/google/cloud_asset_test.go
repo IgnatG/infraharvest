@@ -27,6 +27,7 @@ import (
 )
 
 func TestAssetID(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct{ name, project, want string }{
 		{"//compute.googleapis.com/projects/acme-prod/global/networks/main", "projects/123", "projects/acme-prod/global/networks/main"},
 		{"//storage.googleapis.com/acme-assets", "projects/123", "acme-assets"},
@@ -46,6 +47,7 @@ func TestAssetID(t *testing.T) {
 }
 
 func TestInRegion(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		location, region string
 		want             bool
@@ -73,6 +75,7 @@ func TestInRegion(t *testing.T) {
 // display name is its full name, was named
 // projects_acme_prod_topics_orders.
 func TestAssetName(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct{ displayName, id, want string }{
 		{"projects/acme-prod/topics/orders", "projects/acme-prod/topics/orders", "orders"},
 		{"projects/acme-prod/subscriptions/orders-worker", "projects/acme-prod/subscriptions/orders-worker", "orders-worker"},
@@ -88,6 +91,7 @@ func TestAssetName(t *testing.T) {
 }
 
 func TestSnakeCase(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"email": "email", "uniqueId": "unique_id", "dnsName": "dns_name"} {
 		if got := snakeCase(in); got != want {
 			t.Errorf("%s: got %s", in, got)
@@ -183,24 +187,7 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 	return listAssetsIn(t, cat, region)
-}
-
-// forgetSearches drops the searches and the rejected asset types the
-// tests' run has kept (see testCaches), now and when the test ends, so
-// that a test's search doesn't reach another's.
-func forgetSearches(t *testing.T) {
-	t.Helper()
-	forget := func() {
-		caches := testCaches()
-		caches.searches.forget()
-		caches.mu.Lock()
-		caches.rejectedTypes = map[string]bool{}
-		caches.mu.Unlock()
-	}
-	forget()
-	t.Cleanup(forget)
 }
 
 // listAssetsIn lists region (global for "") of the project acme-prod from
@@ -221,12 +208,9 @@ func listAssetsIn(t *testing.T, cat *catalogue.Catalogue, region string) []harve
 func assetLister(t *testing.T, cat *catalogue.Catalogue, region string) *CloudAssetLister {
 	t.Helper()
 	g := &CloudAssetLister{}
-	g.SetContext(t.Context())
-	args := map[string]interface{}{"project": "acme-prod", "region": compute.Region{Name: region}}
-	if cat != nil {
-		args["catalogue"] = cat
-	}
-	g.Configure(harvest.ListerConfig{Provider: "google", Settings: args})
+	g.SetContext(testRun(t))
+	g.Configure(harvest.ListerConfig{Provider: "google"})
+	g.SetSettings(listerSettings{project: "acme-prod", region: compute.Region{Name: region}, catalogue: cat})
 	return g
 }
 
@@ -322,7 +306,6 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 
 	regions := []string{"", "us-central1", "europe-west1", "us-central1", ""}
 	listers := make([]*CloudAssetLister, len(regions))
@@ -379,7 +362,6 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 
 	for range 2 {
 		if err := assetLister(t, nil, "").List(); err == nil {
@@ -392,7 +374,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	if failures != 1 || len(search.requests) != 0 {
 		t.Errorf("after a failure: %d failed and %d other searches, want the failed one only", failures, len(search.requests))
 	}
-	testCaches().searches.forget()
+	testCaches(t).searches.forget()
 	if got := listAssetsIn(t, nil, ""); len(got) != 7 || len(search.requests) != 1 {
 		t.Errorf("searching afresh: got %d resources from %d searches", len(got), len(search.requests))
 	}
@@ -422,7 +404,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 		t.Errorf("got %d requests for %d types, want at most %d", len(search.requests), n, most)
 	}
 
-	testCaches().searches.forget()
+	testCaches(t).searches.forget()
 	before := len(search.requests)
 	if got := listAssetsIn(t, cat, ""); len(got) != 7 {
 		t.Errorf("searching again: got %v", byID(got))
@@ -440,7 +422,6 @@ func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSearches(t)
 	if err := assetLister(t, nil, "").List(); err == nil || !strings.Contains(err.Error(), "every asset type") {
 		t.Errorf("error %v, want one saying every type is rejected", err)
 	}
@@ -450,6 +431,7 @@ func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 // that the catalogue leaves out the pools of a cluster Cloud Composer
 // created, as it leaves out the cluster.
 func TestCloudAssetRecordsTheParentsLabels(t *testing.T) {
+	t.Parallel()
 	cluster := "//container.googleapis.com/projects/acme-prod/locations/us-central1/clusters/us-central1-pipelines-1a2b3c4d-gke"
 	results := []*cloudasset.ResourceSearchResult{
 		{AssetType: "container.googleapis.com/Cluster", Name: cluster, Location: "us-central1", Labels: map[string]string{"goog-composer-version": "composer-2-9-7-airflow-2-9-3"}},
@@ -480,6 +462,7 @@ func TestCloudAssetRecordsTheParentsLabels(t *testing.T) {
 // A resource records its description, which tells the load balancers GKE
 // creates for LoadBalancer Services, named a and a hash, from the user's.
 func TestCloudAssetRecordsTheDescription(t *testing.T) {
+	t.Parallel()
 	results := []*cloudasset.ResourceSearchResult{
 		{AssetType: "compute.googleapis.com/ForwardingRule", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/forwardingRules/a0123456789abcdef0123456789abcdef", Location: "us-central1", Description: `{"kubernetes.io/service-name":"default/web"}`},
 		{AssetType: "compute.googleapis.com/ForwardingRule", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/forwardingRules/web", Location: "us-central1"},
@@ -498,6 +481,7 @@ func TestCloudAssetRecordsTheDescription(t *testing.T) {
 }
 
 func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
+	t.Parallel()
 	results := []*cloudasset.ResourceSearchResult{
 		{AssetType: "compute.googleapis.com/BackendBucket", Name: "//compute.googleapis.com/projects/acme-prod/regions/us-central1/backendBuckets/b", Location: "global"},
 		{AssetType: "example.googleapis.com/Widget", Name: "//example.googleapis.com/projects/acme-prod/widgets/w", Location: "global"},
@@ -510,6 +494,7 @@ func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 // cloud_asset is one of the services * lists, which leaves out only the
 // query service, and gets the import's catalogue.
 func TestCloudAssetIsInTheWildcard(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	if _, ok := p.Services()[cloudAssetService]; !ok {
 		t.Fatal("cloud_asset isn't a service")
@@ -522,12 +507,13 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	if err := p.Select(cloudAssetService, false); err != nil {
 		t.Fatal(err)
 	}
-	if p.Selected().Settings()["catalogue"] != cat {
+	if selectedSettings(t, p).catalogue != cat {
 		t.Error("the service doesn't get the import's catalogue")
 	}
 }
 
 func TestRegionOf(t *testing.T) {
+	t.Parallel()
 	for location, want := range map[string]string{
 		"us-central1":    "us-central1",
 		"us-central1-a":  "us-central1",
@@ -559,10 +545,10 @@ func TestGlobalNamesTheOtherRegions(t *testing.T) {
 // global takes them wherever they are, and any import lists in part the
 // types of the asset types its run's search rejected.
 func TestCloudAssetPartialTypes(t *testing.T) {
-	forgetSearches(t)
+	t.Parallel()
 	cat := catalogue.MustBuiltin("google")
-	global := &Provider{catalogue: cat}
-	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}}
+	global := &Provider{catalogue: cat, caches: testCaches(t)}
+	regional := &Provider{catalogue: cat, region: compute.Region{Name: "us-central1"}, caches: testCaches(t)}
 
 	if got := global.PartialTypes(); len(got) != 0 {
 		t.Errorf("global: got %v, want none", got)
@@ -571,7 +557,7 @@ func TestCloudAssetPartialTypes(t *testing.T) {
 		t.Errorf("a region: got %v, want %v", got, want)
 	}
 
-	caches := testCaches()
+	caches := testCaches(t)
 	caches.mu.Lock()
 	caches.rejectedTypes["pubsub.googleapis.com/Topic"] = true
 	caches.mu.Unlock()

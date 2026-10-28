@@ -20,6 +20,7 @@ func envOf(vars map[string]string) func(string) string {
 }
 
 func TestLoadAuthConfigReadsTheEnvironment(t *testing.T) {
+	t.Parallel()
 	cfg, err := loadAuthConfig(envOf(map[string]string{
 		"ARM_SUBSCRIPTION_ID":             "sub",
 		"ARM_TENANT_ID":                   "tenant",
@@ -58,6 +59,7 @@ func TestLoadAuthConfigReadsTheEnvironment(t *testing.T) {
 }
 
 func TestLoadAuthConfigWithNothingSet(t *testing.T) {
+	t.Parallel()
 	cfg, err := loadAuthConfig(envOf(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -69,6 +71,7 @@ func TestLoadAuthConfigWithNothingSet(t *testing.T) {
 }
 
 func TestLoadAuthConfigFallsBackToGitHubActions(t *testing.T) {
+	t.Parallel()
 	actions := map[string]string{
 		"ACTIONS_ID_TOKEN_REQUEST_URL":   "https://actions.example/idtoken?api-version=2.0",
 		"ACTIONS_ID_TOKEN_REQUEST_TOKEN": "actions-token",
@@ -98,6 +101,7 @@ func TestLoadAuthConfigFallsBackToGitHubActions(t *testing.T) {
 // method off, and a value that is not a boolean is an error naming the
 // variable and the value.
 func TestLoadAuthConfigFlags(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		value string
 		want  bool
@@ -133,6 +137,7 @@ func TestLoadAuthConfigFlags(t *testing.T) {
 }
 
 func TestLoadAuthConfigAuxiliaryTenants(t *testing.T) {
+	t.Parallel()
 	cfg, err := loadAuthConfig(envOf(map[string]string{"ARM_AUXILIARY_TENANT_IDS": " aux1 ;; aux2;aux3 ; "}))
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +153,7 @@ func TestLoadAuthConfigAuxiliaryTenants(t *testing.T) {
 }
 
 func TestLoadAuthConfigEnvironments(t *testing.T) {
+	t.Parallel()
 	for environment, want := range map[string]cloud.Configuration{
 		"":                     cloud.AzurePublic,
 		"public":               cloud.AzurePublic,
@@ -187,6 +193,7 @@ func TestLoadAuthConfigEnvironments(t *testing.T) {
 }
 
 func TestLoadAuthConfigStack(t *testing.T) {
+	t.Parallel()
 	_, err := loadAuthConfig(envOf(map[string]string{"ARM_ENVIRONMENT": "stack"}))
 	if err == nil || !strings.Contains(err.Error(), "ARM_METADATA_HOSTNAME") {
 		t.Errorf("stack without a host: got %v, want an error naming ARM_METADATA_HOSTNAME", err)
@@ -225,6 +232,7 @@ func metadataServer(t *testing.T, status int, body string) (server *httptest.Ser
 }
 
 func TestCloudFromMetadata(t *testing.T) {
+	t.Parallel()
 	const signIn = `"authentication":{"loginEndpoint":"https://login.stack.example/adfs","audiences":["https://management.stack.example/123","https://other"]}`
 	for name, tc := range map[string]struct {
 		body string
@@ -266,6 +274,7 @@ func TestCloudFromMetadata(t *testing.T) {
 }
 
 func TestCloudFromMetadataErrors(t *testing.T) {
+	t.Parallel()
 	const entry = `{"resourceManager":"https://arm.example/","authentication":{"loginEndpoint":"https://login.example/","audiences":["https://arm.example/"]}}`
 	for name, tc := range map[string]struct {
 		status int
@@ -291,6 +300,7 @@ func TestCloudFromMetadataErrors(t *testing.T) {
 }
 
 func TestCloudFromMetadataUnreachable(t *testing.T) {
+	t.Parallel()
 	server, host := metadataServer(t, http.StatusOK, "{}")
 	server.Close()
 	_, err := cloudFromMetadata(t.Context(), server.Client(), host)

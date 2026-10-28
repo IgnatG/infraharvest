@@ -23,7 +23,8 @@ func rdsResponse(op, result string) string {
 // every parameter, subnet and option group, the default ones included,
 // which the catalogue leaves out; event subscriptions by name.
 func TestRDSListsWhatTerraformManages(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeDBClusters":
 			return rdsResponse(call.Op, `<DBClusters>
@@ -84,6 +85,7 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &RDSLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -105,6 +107,7 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 // writer, the primary cluster, is there; one without a writer names no
 // region, and every region lists it.
 func TestRDSListsGlobalClustersInTheirPrimaryRegion(t *testing.T) {
+	t.Parallel()
 	member := func(region, cluster string, writer bool) string {
 		isWriter := "false"
 		if writer {
@@ -113,7 +116,7 @@ func TestRDSListsGlobalClustersInTheirPrimaryRegion(t *testing.T) {
 		return `<GlobalClusterMember><DBClusterArn>arn:aws:rds:` + region + `:123456789012:cluster:` + cluster +
 			`</DBClusterArn><IsWriter>` + isWriter + `</IsWriter></GlobalClusterMember>`
 	}
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeGlobalClusters":
 			// The fake API's region is us-east-1.
@@ -147,6 +150,7 @@ func TestRDSListsGlobalClustersInTheirPrimaryRegion(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &RDSLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

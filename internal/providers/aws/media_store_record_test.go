@@ -8,7 +8,8 @@ import "testing"
 // The lister lists every MediaStore container by name, across pages, but
 // those being deleted.
 func TestRecordMediaStoreListsContainers(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListContainers" {
 			return recordUnexpected(t, call)
 		}
@@ -22,6 +23,7 @@ func TestRecordMediaStoreListsContainers(t *testing.T) {
 			"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &MediaStoreLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -34,10 +36,12 @@ func TestRecordMediaStoreListsContainers(t *testing.T) {
 }
 
 func TestRecordMediaStoreReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("InternalServerError")
 	})
 	g := &MediaStoreLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "InternalServerError")
 }

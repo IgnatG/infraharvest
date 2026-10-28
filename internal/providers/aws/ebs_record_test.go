@@ -21,8 +21,9 @@ import (
 // "<instance>:<device>". The DescribeInstances error is pinned by
 // TestEbsReturnsDescribeInstancesError.
 func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
+	t.Parallel()
 	describes := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "DescribeVolumes":
@@ -59,6 +60,7 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -81,7 +83,8 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 // the DescribeInstances answer rather than failing it; its volume is not
 // taken for a root volume and the listing goes on.
 func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeVolumes":
 			return recordEC2(call.Op, `<volumeSet>
@@ -94,6 +97,7 @@ func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -108,13 +112,15 @@ func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
 
 // Volumes attached to no instance need no DescribeInstances call.
 func TestRecordEbsDescribesNoInstancesForDetachedVolumes(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeVolumes" {
 			return recordUnexpected(t, call)
 		}
 		return recordEC2(call.Op, `<volumeSet><item><volumeId>vol-1</volumeId><status>available</status><attachmentSet/></item></volumeSet>`)
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -126,7 +132,8 @@ func TestRecordEbsDescribesNoInstancesForDetachedVolumes(t *testing.T) {
 // The tag filters that concern volumes, or every service, are passed to
 // DescribeVolumes as tag:<key> filters; other filters are not.
 func TestRecordEbsPassesTagFilters(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeVolumes" {
 			return recordUnexpected(t, call)
 		}
@@ -151,6 +158,7 @@ func TestRecordEbsPassesTagFilters(t *testing.T) {
 		return recordEC2(call.Op, `<volumeSet/>`)
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 	g.SetFilters([]harvest.Filter{
 		{Service: "ebs_volume", Path: "tags.env", Values: []string{"prod", "dev"}},
 		{Service: "instance", Path: "tags.role", Values: []string{"web"}},
@@ -166,10 +174,12 @@ func TestRecordEbsPassesTagFilters(t *testing.T) {
 }
 
 func TestRecordEbsReturnsDescribeVolumesErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

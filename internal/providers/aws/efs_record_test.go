@@ -61,8 +61,10 @@ func recordEfsAPI(t *testing.T, failing string) func(apiCall) string {
 // mount targets and without its policy, which is not asked for, and the
 // listing reads as partial; one without a policy is listed without.
 func TestRecordEfsListsFileSystemsMountTargetsPoliciesAndAccessPoints(t *testing.T) {
-	useFakeAPI(t, recordEfsAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordEfsAPI(t, ""))
 	g := &EfsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "mount targets of fs-2") {
 		t.Errorf("want a partial error for the mount targets of fs-2, got %v", err)
@@ -85,10 +87,12 @@ func TestRecordEfsListsFileSystemsMountTargetsPoliciesAndAccessPoints(t *testing
 
 // Listing file systems or access points fails the service.
 func TestRecordEfsReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"/2015-02-01/file-systems", "/2015-02-01/access-points"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordEfsAPI(t, failing))
+			ctx := useFakeAPI(t, recordEfsAPI(t, failing))
 			g := &EfsLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 const ec2NS = `xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"`
@@ -42,7 +43,8 @@ func defaultNetworkAPI(call apiCall) string {
 // creates for clusters; the catalogue's skip rules cover the rest, such as
 // default network ACLs and service-linked roles.
 func TestExcludedByDefault(t *testing.T) {
-	useFakeAPI(t, defaultNetworkAPI)
+	t.Parallel()
+	ctx := useFakeAPI(t, defaultNetworkAPI)
 	p := &Provider{region: "us-east-1"}
 	resources := []harvest.Resource{
 		harvest.RecordBare("vpc-default", "vpc-default", "aws_vpc", "aws"),
@@ -63,7 +65,7 @@ func TestExcludedByDefault(t *testing.T) {
 		harvest.RecordBare("/app/web", "web", "aws_cloudwatch_log_group", "aws"),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +90,8 @@ func TestExcludedByDefault(t *testing.T) {
 // the listing, without asking AWS again: the VPCs' is_default, the parts'
 // vpc_id and the security groups' group_name.
 func TestExcludedByDefaultFromTheListing(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -110,7 +113,7 @@ func TestExcludedByDefaultFromTheListing(t *testing.T) {
 		harvest.Record("sgr-2", "web_egress_all", "aws_vpc_security_group_egress_rule", "aws", map[string]string{"security_group_id": "sg-0own"}),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +136,9 @@ func TestExcludedByDefaultFromTheListing(t *testing.T) {
 // default network, and a rule whose group wasn't listed takes the default
 // security groups.
 func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
+	t.Parallel()
 	var ops []string
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeVpcs", "DescribeSecurityGroups":
 			ops = append(ops, call.Op)
@@ -152,7 +156,7 @@ func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
 		harvest.Record("sgr-1", "default_ingress_all", "aws_vpc_security_group_ingress_rule", "aws", map[string]string{"security_group_id": "sg-default-own"}),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +176,8 @@ func TestExcludedByDefaultAsksForWhatTheListingLeavesOpen(t *testing.T) {
 // Global services have no network to ask about; their stacks are in every
 // enabled region.
 func TestExcludedByDefaultGlobal(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeRegions":
 			return `<DescribeRegionsResponse ` + ec2NS + `><regionInfo><item><regionName>eu-west-2</regionName></item></regionInfo></DescribeRegionsResponse>`
@@ -183,7 +188,7 @@ func TestExcludedByDefaultGlobal(t *testing.T) {
 		return ""
 	})
 	p := &Provider{region: GlobalPseudoRegion}
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.RecordBare("AWSServiceRoleForECS", "ecs", "aws_iam_role", "aws"),
 		harvest.RecordBare("app", "app", "aws_iam_role", "aws"),
 	})
@@ -195,9 +200,10 @@ func TestExcludedByDefaultGlobal(t *testing.T) {
 // What a CloudFormation stack manages is left out, by its ID or the ID
 // Terraform imports it with; what no stack manages, or one deleted, isn't.
 func TestExcludedByDefaultCloudFormation(t *testing.T) {
+	t.Parallel()
 	const ns = `xmlns="http://cloudformation.amazonaws.com/doc/2010-05-15/"`
 	var stacks []string
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListStacks":
 			if !strings.Contains(call.Body, "StackStatusFilter.member.1=") || strings.Contains(call.Body, "DELETE_COMPLETE&") {
@@ -220,7 +226,7 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 	})
 	p := &Provider{region: "us-east-1"}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.RecordBare("app-assets", "assets", "aws_s3_bucket", "aws"),
 		// The lister records the cluster's ARN; Terraform imports it by name.
 		harvest.RecordBare("arn:aws:ecs:us-east-1:123456789012:cluster/apps", "apps", "aws_ecs_cluster", "aws"),
@@ -245,8 +251,9 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 // that account manages it. What this account owns, or what records no
 // owner, stays.
 func TestExcludeShared(t *testing.T) {
+	t.Parallel()
 	calls := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "GetCallerIdentity" {
 			t.Errorf("unexpected call %s", call.Op)
 			return ""
@@ -260,12 +267,12 @@ func TestExcludeShared(t *testing.T) {
 		harvest.Record("subnet-own", "own", "aws_subnet", "aws", ownerAttributes(aws.String("123456789012"))),
 		harvest.Record("vpc-1", "vpc", "aws_vpc", "aws", ownerAttributes(nil)),
 	}
-	config, err := p.config(t.Context())
+	config, err := p.config(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	excluded := map[string]string{}
-	if err := p.excludeShared(t.Context(), config, resources, excluded); err != nil {
+	if err := p.excludeShared(ctx, config, resources, excluded); err != nil {
 		t.Fatal(err)
 	}
 	if want := map[string]string{"aws_subnet subnet-shared": reasonShared("210987654321")}; !reflect.DeepEqual(excluded, want) {
@@ -277,7 +284,7 @@ func TestExcludeShared(t *testing.T) {
 
 	// Without an owner recorded, it asks nothing.
 	calls = 0
-	if err := p.excludeShared(t.Context(), config, resources[2:], map[string]string{}); err != nil || calls != 0 {
+	if err := p.excludeShared(ctx, config, resources[2:], map[string]string{}); err != nil || calls != 0 {
 		t.Errorf("without owners: %d calls, %v", calls, err)
 	}
 }
@@ -287,7 +294,8 @@ func TestExcludeShared(t *testing.T) {
 // asking AWS more than for the stacks; grants to other principals, or that
 // record none, stay.
 func TestExcludedByDefaultServiceGrants(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -304,7 +312,7 @@ func TestExcludedByDefaultServiceGrants(t *testing.T) {
 	}
 	const linkedRole = "arn:aws:iam::123456789012:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		grant("rds", "rds.eu-west-2.amazonaws.com"),
 		grant("linked", linkedRole),
 		grant("app", "arn:aws:iam::123456789012:role/app"),
@@ -329,7 +337,8 @@ func TestExcludedByDefaultServiceGrants(t *testing.T) {
 // stacks; others stay, a launch template tagged only with the cluster
 // included.
 func TestExcludedByDefaultEKSNodeGroups(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -338,7 +347,7 @@ func TestExcludedByDefaultEKSNodeGroups(t *testing.T) {
 	p := &Provider{region: "eu-west-2"}
 	nodeGroup := map[string]string{"tags.eks:cluster-name": "prod", "tags.eks:nodegroup-name": "workers"}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.Record("eks-workers-1a2b", "eks-workers-1a2b", "aws_autoscaling_group", "aws", nodeGroup),
 		harvest.Record("lt-eks", "eks-1a2b", "aws_launch_template", "aws", nodeGroup),
 		harvest.Record("web", "web", "aws_autoscaling_group", "aws", map[string]string{"tags.Name": "web"}),
@@ -386,11 +395,13 @@ func recordStacksAPI(t *testing.T, calls *atomic.Int32) func(apiCall) string {
 // The global call scans every enabled region's stacks, several at once,
 // and merges what they manage.
 func TestCloudFormationManagedScansEveryRegion(t *testing.T) {
+	t.Parallel()
 	var calls atomic.Int32
-	useFakeAPI(t, recordStacksAPI(t, &calls))
+	cfg := fakeConfig(recordStacksAPI(t, &calls))
+	ctx := fakeRun(t, cfg)
 	p := &Provider{region: GlobalPseudoRegion}
 
-	managed, err := p.cloudFormationManaged(t.Context(), *testConfig)
+	managed, err := p.cloudFormationManaged(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,15 +416,12 @@ func TestCloudFormationManagedScansEveryRegion(t *testing.T) {
 	}
 }
 
-// A region scanned lately with the same credentials isn't scanned again, so
-// an import's regional calls reuse what its global call scanned; another
-// region, or other credentials, are scanned.
+// A region the run scanned lately with the same credentials isn't scanned
+// again, so an import's regional calls reuse what its global call scanned;
+// another region, other credentials, or another run, are scanned.
 func TestRegionStacksAreScannedOnce(t *testing.T) {
-	t.Cleanup(func() {
-		stackScansMu.Lock()
-		stackScans = map[stackScanKey]stackScan{}
-		stackScansMu.Unlock()
-	})
+	t.Parallel()
+	run := configsOf(ratelimit.New(0))
 	var calls atomic.Int32
 	config := aws.Config{
 		Region:      "us-east-1",
@@ -423,7 +431,7 @@ func TestRegionStacksAreScannedOnce(t *testing.T) {
 	}
 
 	for _, region := range []string{"eu-west-1", "eu-west-1", "eu-west-2"} {
-		managed, err := regionStacks(t.Context(), config, region)
+		managed, err := run.regionStacks(t.Context(), config, region)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -437,10 +445,17 @@ func TestRegionStacksAreScannedOnce(t *testing.T) {
 
 	other := config
 	other.Credentials = aws.NewCredentialsCache(aws.AnonymousCredentials{})
-	if _, err := regionStacks(t.Context(), other, "eu-west-1"); err != nil {
+	if _, err := run.regionStacks(t.Context(), other, "eu-west-1"); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 3 {
 		t.Errorf("other credentials reused another's scan: %d ListStacks calls, want 3", calls.Load())
+	}
+
+	if _, err := configsOf(ratelimit.New(0)).regionStacks(t.Context(), config, "eu-west-1"); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 4 {
+		t.Errorf("another run reused the run's scan: %d ListStacks calls, want 4", calls.Load())
 	}
 }
