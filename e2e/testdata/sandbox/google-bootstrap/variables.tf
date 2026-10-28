@@ -65,3 +65,9 @@ variable "first_readonly_service_account" {
     error_message = "Use the service account's email."
   }
 }
+
+variable "deny_data_reads" {
+  description = "Whether the read-only service accounts' data reads are denied in the project, as permissions/google denies them. Managing deny policies takes Deny Admin (roles/iam.denyAdmin), which is granted on the organization: set false for a project outside an organization."
+  type        = bool
+  default     = true
+}

@@ -265,8 +265,9 @@ resource "google_service_account_iam_member" "readonly_github" {
 module "readonly" {
   source = "../../../../permissions/google"
 
-  project_id = var.project_id
-  member     = google_service_account.readonly.member
+  project_id      = var.project_id
+  member          = google_service_account.readonly.member
+  deny_data_reads = var.deny_data_reads
 }
 
 # The second project's: the first project's read-only service account
