@@ -358,6 +358,22 @@ resource "aws_cloudwatch_log_group" "fn" {
   tags              = local.tags
 }
 
+# A type no lister lists, which the test lists through the query service
+# (Terraform's list resources). It takes no tags and goes with its log
+# group. The function logs no errors, so the metric gets no data, which
+# is what CloudWatch charges for.
+resource "aws_cloudwatch_log_metric_filter" "fn_errors" {
+  name           = "${local.name}-fn-errors"
+  log_group_name = aws_cloudwatch_log_group.fn.name
+  pattern        = "ERROR"
+
+  metric_transformation {
+    name      = "${local.name}-fn-errors"
+    namespace = "infraharvest-sandbox"
+    value     = "1"
+  }
+}
+
 resource "aws_lambda_function" "fn" {
   function_name    = "${local.name}-fn"
   role             = aws_iam_role.fn.arn

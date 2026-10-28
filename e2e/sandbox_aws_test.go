@@ -44,6 +44,12 @@ var sandboxAWSServices = []string{
 	"subnet", "vpc", "vpc_endpoint", "wafv2_regional",
 }
 
+// sandboxAWSQueried is the type testdata/sandbox/aws creates that no
+// lister lists: the query service lists it, through Terraform's list
+// resources (see checkSandboxAWSQuery), and the import of the services
+// leaves it out.
+const sandboxAWSQueried = "aws_cloudwatch_log_metric_filter"
+
 // sandboxSecondRegion is where testdata/sandbox/aws creates the resources
 // of its second region, unless SANDBOX_AWS_SECOND_REGION names another.
 const sandboxSecondRegion = "eu-west-1"
@@ -80,6 +86,7 @@ func TestSandboxAWS(t *testing.T) {
 	coverage, imported := s.checkImport(ctx, t, state)
 	checkModuleCalls(t, coverage)
 	checkRegions(t, coverage, state, s.region, secondRegion)
+	checkSandboxAWSQuery(ctx, t, s, state)
 
 	created := checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
 	work, rel := checkRegenerated(ctx, t, s, estate, importSandbox, created)
@@ -233,7 +240,9 @@ func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjs
 	checkApplied(ctx, t, s.out, generatedDirs(t, s.out), s.execPath, s.plugins, nil, func(dir string) []tfexec.PlanOption { return secretValues(t, dir, created) })
 	seeded := map[string]int{}
 	for _, r := range created {
-		seeded[r.Type]++
+		if r.Type != sandboxAWSQueried {
+			seeded[r.Type]++
+		}
 	}
 	for _, typ := range sortedKeys(seeded) {
 		if imported[typ] < seeded[typ] {
@@ -241,6 +250,33 @@ func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjs
 		}
 	}
 	return coverage, imported
+}
+
+// checkSandboxAWSQuery takes the estate's metric filter through the
+// query service as the read-only profile, in the region of the estate
+// (see checkQueryRoundTrip). Call it once the importer has signed in as
+// that profile.
+func checkSandboxAWSQuery(ctx context.Context, t *testing.T, s *sandbox, created []*tfjson.StateResource) {
+	t.Helper()
+	var filter *tfjson.StateResource
+	for _, r := range created {
+		if r.Type == sandboxAWSQueried {
+			filter = r
+		}
+	}
+	if filter == nil {
+		t.Fatalf("the estate has no %s", sandboxAWSQueried)
+	}
+	name, _ := filter.AttributeValues["name"].(string)
+	group, _ := filter.AttributeValues["log_group_name"].(string)
+	checkQueryRoundTrip(ctx, t, queryRoundTrip{
+		command:  "aws",
+		scope:    []string{"--profile=" + s.readonlyProfile, "--regions=" + s.region},
+		typ:      sandboxAWSQueried,
+		identity: map[string]string{"region": s.region, "log_group_name": group, "name": name},
+		file:     "logs.tf",
+		plugins:  s.plugins,
+	})
 }
 
 // checkEKSClusterGroup checks that the import leaves out the security
