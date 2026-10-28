@@ -28,7 +28,11 @@ type WafRegionalLister struct {
 // rules, rule groups, size constraint sets, SQL injection match sets and
 // XSS match sets, then the associations of each web ACL, and returns the
 // first error.
-func (g *WafRegionalLister) List() error {
+func (g *WafRegionalLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *WafRegionalLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -42,7 +46,7 @@ func (g *WafRegionalLister) List() error {
 	for _, acl := range resources {
 		// A call per web ACL and resource type, for associations the
 		// import may not keep.
-		if acl.Address.Type != "aws_wafregional_web_acl" || !g.wants("aws_wafregional_web_acl_association") {
+		if acl.Address.Type != "aws_wafregional_web_acl" || !g.Wants("aws_wafregional_web_acl_association") {
 			continue
 		}
 		protected, err := g.webACLAssociations(svc, acl.Observed.ID, acl.RawName)

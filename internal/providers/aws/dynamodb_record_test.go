@@ -37,13 +37,13 @@ func TestRecordDynamoDbListsTablesByName(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dynamodb_table", "orders", "orders", nil},
 		recordedResource{"aws_dynamodb_table", "sessions", "sessions", nil},
 		recordedResource{"aws_dynamodb_table", "users", "users", nil},
@@ -77,13 +77,13 @@ func TestRecordDynamoDbRecordsReplicas(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dynamodb_table", "orders", "orders", map[string]string{
 			"replica.#":             "2",
 			"replica.0.region_name": "eu-west-1",
@@ -111,15 +111,14 @@ func TestRecordDynamoDbDescribeErrorIsPartial(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	resources, err := g.List(ctx, harvest.Settings{})
 
 	assertRecordedError(t, err, "AccessDeniedException")
 	if !harvest.IsPartial(err) {
 		t.Errorf("want a partial failure, got %v", err)
 	}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dynamodb_table", "orders", "orders", nil},
 		recordedResource{"aws_dynamodb_table", "users", "users", nil},
 	)
@@ -131,9 +130,8 @@ func TestRecordDynamoDbReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &DynamoDbLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }
 
 // A global table is imported once, in the first of its regions by name:
@@ -189,14 +187,14 @@ func TestRecordDynamoDbDescribesTablesInParallel(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &DynamoDbLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	at.check(t)
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dynamodb_table", "a", "a", nil},
 		recordedResource{"aws_dynamodb_table", "b", "b", nil},
 		recordedResource{"aws_dynamodb_table", "c", "c", nil},

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordLambdaARN = "arn:aws:lambda:us-east-1:123456789012:"
@@ -81,14 +83,14 @@ func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordLambdaAPI(t, nil))
 	g := &LambdaLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	resize := recordLambdaARN + "function:resize"
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_lambda_function", resize, "resize", map[string]string{"function_name": "resize"}},
 		recordedResource{"aws_lambda_permission", resize + "/AllowS3", "AllowS3", map[string]string{"statement_id": "AllowS3", "function_name": resize}},
 		recordedResource{"aws_lambda_permission", resize + "/AllowSNS", "AllowSNS", map[string]string{"statement_id": "AllowSNS", "function_name": resize}},
@@ -122,9 +124,8 @@ func TestRecordLambdaReturnsErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordLambdaAPI(t, map[string]string{tc.path: tc.answer}))
 			g := &LambdaLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), tc.want)
+			assertRecordedError(t, listError(ctx, g), tc.want)
 		})
 	}
 }

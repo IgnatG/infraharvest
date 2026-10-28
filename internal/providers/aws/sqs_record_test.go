@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordSQSURL = "https://sqs.us-east-1.amazonaws.com/123456789012/"
@@ -47,13 +49,13 @@ func TestRecordSqsListsQueuesByURL(t *testing.T) {
 				return `{"QueueUrls":["` + recordSQSURL + `orders","` + recordSQSURL + `orders-dlq.fifo"]}`
 			})
 			g := &SqsLister{}
-			g.SetContext(ctx)
 
-			if err := g.List(); err != nil {
+			resources, err := g.List(ctx, harvest.Settings{})
+			if err != nil {
 				t.Fatal(err)
 			}
 
-			assertRecorded(t, g.Resources,
+			assertRecorded(t, resources,
 				recordedResource{"aws_sqs_queue", recordSQSURL + "orders", "orders", nil},
 				recordedResource{"aws_sqs_queue", recordSQSURL + "orders-dlq.fifo", "orders-dlq.fifo", nil},
 			)
@@ -67,7 +69,6 @@ func TestRecordSqsReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDenied")
 	})
 	g := &SqsLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDenied")
+	assertRecordedError(t, listError(ctx, g), "AccessDenied")
 }

@@ -5,6 +5,8 @@ package aws
 
 import (
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister pages every list by NextToken, keeps the API ID on later pages,
@@ -51,21 +53,21 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 		return `{"items":[]}`
 	})
 	g := &APIGatewayV2Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_apigatewayv2_api", "a1", "a2", "a3")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_stage", "a1/$default", "a1/prod")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_model", "a1/m1")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_integration", "a1/i1")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_route", "a1/r1", "a3/r9")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_route_response", "a1/r1/rr1")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_authorizer", "a1/au1")
-	assertIDs(t, g.Resources, "aws_apigatewayv2_vpc_link", "v1")
-	assertIDs(t, g.Resources, "aws_api_gateway_stage")
+	assertIDs(t, resources, "aws_apigatewayv2_api", "a1", "a2", "a3")
+	assertIDs(t, resources, "aws_apigatewayv2_stage", "a1/$default", "a1/prod")
+	assertIDs(t, resources, "aws_apigatewayv2_model", "a1/m1")
+	assertIDs(t, resources, "aws_apigatewayv2_integration", "a1/i1")
+	assertIDs(t, resources, "aws_apigatewayv2_route", "a1/r1", "a3/r9")
+	assertIDs(t, resources, "aws_apigatewayv2_route_response", "a1/r1/rr1")
+	assertIDs(t, resources, "aws_apigatewayv2_authorizer", "a1/au1")
+	assertIDs(t, resources, "aws_apigatewayv2_vpc_link", "v1")
+	assertIDs(t, resources, "aws_api_gateway_stage")
 }
 
 // Each part is named after what a person reads it by, not its ID: a stage
@@ -100,9 +102,9 @@ func TestAPIGatewayV2NamesParts(t *testing.T) {
 		return `{"items":[]}`
 	})
 	g := &APIGatewayV2Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,12 +120,12 @@ func TestAPIGatewayV2NamesParts(t *testing.T) {
 		"a1/i6":       "MOCK",
 		"a1":          "orders",
 	}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if name, ok := want[r.Observed.ID]; !ok || r.RawName != name {
 			t.Errorf("%s %s: named %q, want %q", r.Address.Type, r.Observed.ID, r.RawName, name)
 		}
 	}
-	if len(g.Resources) != len(want) {
-		t.Errorf("got %d resources, want %d", len(g.Resources), len(want))
+	if len(resources) != len(want) {
+		t.Errorf("got %d resources, want %d", len(resources), len(want))
 	}
 }

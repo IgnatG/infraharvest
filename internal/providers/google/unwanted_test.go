@@ -26,21 +26,6 @@ func unwantedOnly(types ...string) func(string) bool {
 	}
 }
 
-// The provider hands the listers what reports the types the import
-// leaves out, as it hands them its other settings.
-func TestSelectPassesUnwantedTypes(t *testing.T) {
-	t.Parallel()
-	p := &Provider{projectName: "acme"}
-	p.SetUnwantedTypes(unwantedOnly(sqlDatabaseType))
-	if err := p.Select(cloudSQLService, false); err != nil {
-		t.Fatal(err)
-	}
-	settings := selectedSettings(t, p)
-	if settings.wants(sqlDatabaseType) || !settings.wants(dnsRecordSetType) {
-		t.Errorf("databases wanted %v, record sets %v; want false, true", settings.wants(sqlDatabaseType), settings.wants(dnsRecordSetType))
-	}
-}
-
 // A lister whose only type the import leaves out whatever is listed, as
 // cloudsql's databases, a call per instance, and dns's record sets, a
 // call per zone, asks for nothing, not even for the parents.
@@ -67,20 +52,18 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		}))
 		t.Setenv(EndpointEnv, server.URL)
 
-		tc.lister.Configure(harvest.ListerConfig{Provider: "google"})
 		tc.lister.SetSettings(listerSettings{
-			region:   compute.Region{Name: tc.region},
-			project:  "acme",
-			unwanted: unwantedOnly(tc.typ),
+			region:  compute.Region{Name: tc.region},
+			project: "acme",
 		})
 		// A run of its own keeps no other test's instance lists.
-		tc.lister.SetContext(fastRetries(t))
-		if err := tc.lister.List(); err != nil {
+		listed, err := tc.lister.List(fastRetries(t), harvest.Settings{Provider: "google", Unwanted: unwantedOnly(tc.typ)})
+		if err != nil {
 			t.Errorf("%s: %v", tc.name, err)
 		}
 		server.Close()
-		if len(asked) != 0 || len(tc.lister.Listed()) != 0 {
-			t.Errorf("%s: asked for %v and listed %d, want neither", tc.name, asked, len(tc.lister.Listed()))
+		if len(asked) != 0 || len(listed) != 0 {
+			t.Errorf("%s: asked for %v and listed %d, want neither", tc.name, asked, len(listed))
 		}
 	}
 }
@@ -92,19 +75,18 @@ func TestCloudAssetMarksNoUnwantedTypes(t *testing.T) {
 	instances := &fakeInstances{pages: bootDiskPages}
 	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets, perPage: 500}, instances)
 	g := assetLister(t, nil, "us-central1")
-	settings := g.Settings()
-	settings.unwanted = unwantedOnly("google_compute_instance", "google_compute_disk", "google_compute_region_disk")
-	g.SetSettings(settings)
-	if err := g.List(); err != nil {
+	unwanted := unwantedOnly("google_compute_instance", "google_compute_disk", "google_compute_region_disk")
+	resources, err := g.List(testRun(t), harvest.Settings{Provider: "google", Unwanted: unwanted})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if instances.requests() != 0 {
 		t.Errorf("got %d instance lists, want none", instances.requests())
 	}
-	if len(g.Resources) == 0 {
+	if len(resources) == 0 {
 		t.Error("listed nothing")
 	}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if _, ok := r.Observed.Attributes[bootDiskAttribute]; ok {
 			t.Errorf("%s: attributes %v", r.Observed.ID, r.Observed.Attributes)
 		}

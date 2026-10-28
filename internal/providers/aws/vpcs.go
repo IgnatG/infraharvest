@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,7 +24,11 @@ type VpcLister struct {
 
 // List lists every VPC, page by page. An API error is returned and
 // ends the listing.
-func (g *VpcLister) List() error {
+func (g *VpcLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *VpcLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

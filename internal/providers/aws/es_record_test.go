@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists each domain by name, with its name as an attribute,
 // from one ListDomainNames call of every engine type: an Elasticsearch
@@ -24,13 +28,13 @@ func TestRecordEsListsDomainsByName(t *testing.T) {
 			{"DomainName":"legacy"}]}`
 	})
 	g := &EsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_elasticsearch_domain", "logs", "logs", map[string]string{"domain_name": "logs"}},
 		recordedResource{"aws_opensearch_domain", "search", "search", map[string]string{"domain_name": "search"}},
 		recordedResource{"aws_elasticsearch_domain", "legacy", "legacy", map[string]string{"domain_name": "legacy"}},
@@ -43,7 +47,6 @@ func TestRecordEsReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &EsLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

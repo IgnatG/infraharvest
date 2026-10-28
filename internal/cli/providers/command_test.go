@@ -21,12 +21,12 @@ import (
 
 // stubProvider is a provider of one service, queues, that lists nothing:
 // enough for a command to check its flags against.
-type stubProvider struct{ harvest.ProviderBase }
+type stubProvider struct{}
 
-func (*stubProvider) Init(context.Context, []string) error { return nil }
-func (*stubProvider) Select(string, bool) error            { return nil }
-func (*stubProvider) Name() string                         { return "stub" }
-func (*stubProvider) Profile() harvest.Profile             { return harvest.Profile{} }
+func (*stubProvider) Init(context.Context, []string) error  { return nil }
+func (*stubProvider) Lister(string) (harvest.Lister, error) { return nil, nil }
+func (*stubProvider) Name() string                          { return "stub" }
+func (*stubProvider) Profile() harvest.Profile              { return harvest.Profile{} }
 func (*stubProvider) Services() map[string]harvest.Lister {
 	return map[string]harvest.Lister{"queues": nil}
 }

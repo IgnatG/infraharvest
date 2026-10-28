@@ -21,7 +21,11 @@ type BeanstalkLister struct {
 
 // List lists the applications, then the environments. Either
 // call failing fails the service.
-func (g *BeanstalkLister) List() error {
+func (g *BeanstalkLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *BeanstalkLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

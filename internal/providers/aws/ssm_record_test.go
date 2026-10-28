@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists every parameter by name, across pages, whatever its
@@ -24,13 +26,13 @@ func TestRecordSsmListsParameters(t *testing.T) {
 			{"Name":"feature-flags","Type":"StringList","Version":2}],"NextToken":%q}`, nextPageToken)
 	})
 	g := &SsmLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_ssm_parameter", "/app/db/host", "/app/db/host", nil},
 		recordedResource{"aws_ssm_parameter", "feature-flags", "feature-flags", nil},
 		recordedResource{"aws_ssm_parameter", "/app/db/password", "/app/db/password", nil},
@@ -43,7 +45,6 @@ func TestRecordSsmReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &SsmLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

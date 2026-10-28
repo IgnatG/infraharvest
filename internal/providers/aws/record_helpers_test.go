@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -171,4 +172,11 @@ func recordJSONBool(call apiCall, key string) (value, set bool) {
 	}
 	value, set = body[key].(bool)
 	return value, set
+}
+
+// listError lists with l, in ctx, and returns its error, for a test of
+// how a lister fails.
+func listError(ctx context.Context, l harvest.Lister) error {
+	_, err := l.List(ctx, harvest.Settings{})
+	return err
 }

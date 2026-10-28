@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appsync"
 
@@ -17,7 +19,11 @@ type AppSyncLister struct {
 
 // List records every GraphQL API, merged APIs included, by its
 // API ID, which is what Terraform imports it by, named after the API.
-func (g *AppSyncLister) List() error {
+func (g *AppSyncLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *AppSyncLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

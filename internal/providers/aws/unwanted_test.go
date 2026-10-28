@@ -290,14 +290,12 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			})
 			list := func(unwanted []string) []harvest.Resource {
 				t.Helper()
-				p := &Provider{}
-				p.SetUnwantedTypes(func(typ string) bool { return slices.Contains(unwanted, typ) })
-				g := p.withUnwanted(tc.lister())
-				g.SetContext(ctx)
-				if err := g.List(); err != nil {
+				settings := harvest.Settings{Unwanted: func(typ string) bool { return slices.Contains(unwanted, typ) }}
+				resources, err := tc.lister().List(ctx, settings)
+				if err != nil {
 					t.Fatal(err)
 				}
-				return g.Listed()
+				return resources
 			}
 
 			list(nil)
@@ -339,14 +337,12 @@ func TestWafRegionalSkipsUnwantedAssociations(t *testing.T) {
 			asked++
 			return `{"ResourceArns":[]}`
 		})
-		p := &Provider{}
-		p.SetUnwantedTypes(func(typ string) bool { return unwanted && typ == "aws_wafregional_web_acl_association" })
-		g := p.withUnwanted(&WafRegionalLister{})
-		g.SetContext(ctx)
-		if err := g.List(); err != nil {
+		settings := harvest.Settings{Unwanted: func(typ string) bool { return unwanted && typ == "aws_wafregional_web_acl_association" }}
+		resources, err := (&WafRegionalLister{}).List(ctx, settings)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if len(resourceIDs(g.Listed(), "aws_wafregional_web_acl")) == 0 {
+		if len(resourceIDs(resources, "aws_wafregional_web_acl")) == 0 {
 			t.Fatal("no web ACLs listed")
 		}
 		if got := asked > 0; got == unwanted {

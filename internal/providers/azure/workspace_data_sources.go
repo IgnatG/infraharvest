@@ -50,7 +50,7 @@ func withoutWorkspaceDataSources(tree azlist.ARMSchemaTree) {
 
 // workspaceDataSources lists the data sources of the workspaces in listed
 // that azurerm has a resource type for, and the import wants (see
-// Service.wants), with one filtered list per kind and workspace. It returns them under the IDs azurerm imports them by,
+// harvest.Settings.Wants), with one filtered list per kind and workspace. It returns them under the IDs azurerm imports them by,
 // with their azurerm types by upper-case ID, so they need no further call
 // to tell their kind. A list that fails leaves the others to go on, and
 // the failures come back joined as a partial error (see harvest.Partial)

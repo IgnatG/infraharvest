@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister names a distribution after its alias or comment, and lists
@@ -30,16 +32,16 @@ func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
 		return `<Error><Code>NotFound</Code></Error>`
 	})
 	g := &CloudFrontLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_cloudfront_distribution", "E1", "E2", "E3")
-	assertIDs(t, g.Resources, "aws_cloudfront_cache_policy", "p1")
+	assertIDs(t, resources, "aws_cloudfront_distribution", "E1", "E2", "E3")
+	assertIDs(t, resources, "aws_cloudfront_cache_policy", "p1")
 	var names []string
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if r.Address.Type == "aws_cloudfront_distribution" {
 			names = append(names, r.RawName)
 		}
@@ -80,9 +82,8 @@ func TestCloudFrontCachePolicyPages(t *testing.T) {
 			return `<Error><Code>NotFound</Code></Error>`
 		})
 		g := &CloudFrontLister{}
-		g.SetContext(ctx)
 
-		err := g.List()
+		resources, err := g.List(ctx, harvest.Settings{})
 
 		if repeat {
 			if err == nil || !strings.Contains(err.Error(), "did not advance") {
@@ -93,6 +94,6 @@ func TestCloudFrontCachePolicyPages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertIDs(t, g.Resources, "aws_cloudfront_cache_policy", "p1", "p2")
+		assertIDs(t, resources, "aws_cloudfront_cache_policy", "p1", "p2")
 	}
 }

@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 const recordBudgetsSTSNS = "https://sts.amazonaws.com/doc/2011-06-15/"
 
@@ -34,13 +38,13 @@ func TestRecordBudgetsListsBudgetsOfTheAccount(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &BudgetsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_budgets_budget", "123456789012:monthly total", "monthly total", nil},
 		recordedResource{"aws_budgets_budget", "123456789012:ec2-hours", "ec2-hours", nil},
 	)
@@ -57,9 +61,8 @@ func TestRecordBudgetsReturnsErrors(t *testing.T) {
 			return recordUnexpected(t, call)
 		})
 		g := &BudgetsLister{}
-		g.SetContext(ctx)
 
-		assertRecordedError(t, g.List(), "AccessDenied")
+		assertRecordedError(t, listError(ctx, g), "AccessDenied")
 	})
 	t.Run("DescribeBudgets", func(t *testing.T) {
 		ctx := useFakeAPI(t, func(call apiCall) string {
@@ -69,8 +72,7 @@ func TestRecordBudgetsReturnsErrors(t *testing.T) {
 			return recordJSONError("AccessDeniedException")
 		})
 		g := &BudgetsLister{}
-		g.SetContext(ctx)
 
-		assertRecordedError(t, g.List(), "AccessDeniedException")
+		assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 	})
 }

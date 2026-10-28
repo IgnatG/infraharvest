@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,11 @@ type ACMLister struct {
 // is told by its type. ListCertificates asks for every key type:
 // without the filter it returns only RSA_1024 and RSA_2048 certificates,
 // so ECDSA and RSA_3072/4096 ones would be missing.
-func (g *ACMLister) List() error {
+func (g *ACMLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *ACMLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

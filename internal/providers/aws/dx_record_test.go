@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // recordDirectConnectAPI answers Direct Connect with two pages of gateways
@@ -56,13 +58,13 @@ func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
 		return api(call)
 	})
 	g := &DirectConnectLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dx_private_virtual_interface", "dxvif-1", "app-private", nil},
 		recordedResource{"aws_dx_public_virtual_interface", "dxvif-2", "app-public", nil},
 		recordedResource{"aws_dx_transit_virtual_interface", "dxvif-3", "app-transit", nil},
@@ -76,13 +78,13 @@ func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordDirectConnectAPI(t))
 	g := &DirectConnectGatewayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_dx_gateway", "dxgw-1", "dxgw-1", nil},
 		recordedResource{"aws_dx_gateway", "dxgw-2", "dxgw-2", nil},
 	)
@@ -103,14 +105,12 @@ func TestRecordDirectConnectReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordDirectConnectAPI(t, failing))
 			g := &DirectConnectLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "DirectConnectClientException")
+			assertRecordedError(t, listError(ctx, g), "DirectConnectClientException")
 		})
 	}
 	ctx := useFakeAPI(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
 	g := &DirectConnectGatewayLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "DirectConnectClientException")
+	assertRecordedError(t, listError(ctx, g), "DirectConnectClientException")
 }

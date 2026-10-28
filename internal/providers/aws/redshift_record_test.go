@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordRedshiftNS = "http://redshift.amazonaws.com/doc/2012-12-01/"
@@ -66,13 +68,13 @@ func TestRecordRedshiftListsClustersAndTheirParts(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordRedshiftAPI(t, ""))
 	g := &RedshiftLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_redshift_cluster", "analytics", "analytics", nil},
 		recordedResource{"aws_redshift_cluster", "reports", "reports", nil},
 		recordedResource{"aws_redshift_parameter_group", "etl-params", "etl-params", nil},
@@ -94,9 +96,8 @@ func TestRecordRedshiftReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordRedshiftAPI(t, failing))
 			g := &RedshiftLister{}
-			g.SetContext(ctx)
 
-			err := g.List()
+			_, err := g.List(ctx, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDenied")
 			if err != nil && !strings.Contains(err.Error(), failing) {

@@ -22,28 +22,6 @@
         "name": "vpc-3",
         "stateId": "vpc-3"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
     ]
   },
   {
@@ -69,107 +47,23 @@
         "name": "vpc-3",
         "stateId": "vpc-3"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
-    ]
-  },
-  {
-    "case": "no filters set drops duplicates",
-    "prune": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
     ]
   },
   {
     "case": "nil resources, no filters",
-    "prune": null,
-    "pruneMethod": null
+    "prune": null
   },
   {
     "case": "nil resources, a filter",
-    "prune": null,
-    "pruneMethod": null
+    "prune": null
   },
   {
     "case": "empty resources, a filter",
-    "prune": null,
-    "pruneMethod": null
+    "prune": null
   },
   {
     "case": "id filter",
     "prune": [
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_subnet",
         "name": "subnet-1",
@@ -200,35 +94,11 @@
         "name": "vpc-3",
         "stateId": "vpc-3"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
     ]
   },
   {
     "case": "two id filters on one service",
     "prune": [
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_subnet",
         "name": "subnet-1",
@@ -244,40 +114,11 @@
         "name": "vpc-1",
         "stateId": "vpc-1"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      }
     ]
   },
   {
     "case": "attribute filter only removes duplicates",
     "prune": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_vpc",
         "name": "vpc-1",
@@ -313,18 +154,6 @@
         "name": "vpc-3",
         "stateId": "vpc-3"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
     ]
   },
   {
@@ -335,40 +164,11 @@
         "name": "subnet-1",
         "stateId": "subnet-1"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      }
     ]
   },
   {
     "case": "full type name is not applied",
     "prune": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-2",
-        "stateId": "vpc-2"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "vpc-3",
-        "stateId": "vpc-3"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_vpc",
         "name": "vpc-1",
@@ -404,35 +204,11 @@
         "name": "subnet-1",
         "stateId": "subnet-1"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "vpc-1",
-        "stateId": "vpc-1"
-      },
-      {
-        "type": "aws_subnet",
-        "name": "subnet-1",
-        "stateId": "subnet-1"
-      }
     ]
   },
   {
     "case": "same name, other state ID",
     "prune": [
-      {
-        "type": "aws_vpc",
-        "name": "same",
-        "stateId": "vpc-a"
-      },
-      {
-        "type": "aws_vpc",
-        "name": "same",
-        "stateId": "vpc-b"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_vpc",
         "name": "same",
@@ -453,30 +229,11 @@
         "name": "same",
         "stateId": "vpc-b"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "same",
-        "stateId": "vpc-b"
-      }
     ]
   },
   {
     "case": "types sharing an ID",
     "prune": [
-      {
-        "type": "aws_iam_role",
-        "name": "admins",
-        "stateId": "admins"
-      },
-      {
-        "type": "aws_iam_group",
-        "name": "admins",
-        "stateId": "admins"
-      }
-    ],
-    "pruneMethod": [
       {
         "type": "aws_iam_role",
         "name": "admins",
@@ -497,18 +254,10 @@
         "name": "a",
         "stateId": "vpc-1"
       }
-    ],
-    "pruneMethod": [
-      {
-        "type": "aws_vpc",
-        "name": "a",
-        "stateId": "vpc-1"
-      }
     ]
   },
   {
     "case": "everything filtered out",
-    "prune": null,
-    "pruneMethod": null
+    "prune": null
   }
 ]

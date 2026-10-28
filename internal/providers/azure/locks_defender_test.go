@@ -11,6 +11,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // Locks are listed in --resource-group when it is set, else in the whole
@@ -53,14 +55,15 @@ func TestManagementLockListsTheScope(t *testing.T) {
 			clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
 		})
 
-		if err := g.List(); err != nil {
+		resources, err := g.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Fatalf("resource group %q: %v", tc.resourceGroup, err)
 		}
 
 		if want := []string{tc.path, graphPath}; !reflect.DeepEqual(transport.paths, want) {
 			t.Errorf("resource group %q: requested %v, want %v", tc.resourceGroup, transport.paths, want)
 		}
-		if got := listedResources(g.Resources); !reflect.DeepEqual(got, tc.want) {
+		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("resource group %q: got %+v, want %+v", tc.resourceGroup, got, tc.want)
 		}
 	}
@@ -82,7 +85,8 @@ func TestManagementLockSkipsTheGroupsQueryWithoutGroups(t *testing.T) {
 		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
 	})
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -90,7 +94,7 @@ func TestManagementLockSkipsTheGroupsQueryWithoutGroups(t *testing.T) {
 		t.Errorf("requested %v, want only %s", transport.paths, path)
 	}
 	want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "all", Attributes: map[string]string{"name": "all"}}}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -163,24 +167,26 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 		transport := &routedTransport{bodies: map[string]string{tc.path: tc.body}}
 		g := tc.lister()
 		g.SetSettings(routedArgs(transport, ""))
-		if err := g.List(); err != nil {
+		resources, err := g.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Fatalf("%s: %v", tc.service, err)
 		}
 		if !reflect.DeepEqual(transport.paths, []string{tc.path}) {
 			t.Errorf("%s: requested %v, want %s", tc.service, transport.paths, tc.path)
 		}
-		if got := listedResources(g.Listed()); !reflect.DeepEqual(got, tc.want) {
+		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", tc.service, got, tc.want)
 		}
 
 		transport = &routedTransport{bodies: map[string]string{tc.path: tc.body}}
 		g = tc.lister()
 		g.SetSettings(routedArgs(transport, "rg1"))
-		if err := g.List(); err != nil {
+		resources, err = g.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Errorf("%s with a resource group: %v", tc.service, err)
 		}
-		if len(transport.paths) != 0 || len(g.Listed()) != 0 {
-			t.Errorf("%s with a resource group: requested %v, listed %v", tc.service, transport.paths, g.Listed())
+		if len(transport.paths) != 0 || len(resources) != 0 {
+			t.Errorf("%s with a resource group: requested %v, listed %v", tc.service, transport.paths, resources)
 		}
 	}
 }
@@ -195,8 +201,9 @@ func TestLockAndDefenderListersFailWhenTheListFails(t *testing.T) {
 	} {
 		// Nothing registered: every request gets a 404.
 		g.SetSettings(routedArgs(&routedTransport{}, ""))
-		if err := g.List(); err == nil {
-			t.Errorf("%s: listed %v, want an error", service, g.Listed())
+		resources, err := g.List(t.Context(), harvest.Settings{})
+		if err == nil {
+			t.Errorf("%s: listed %v, want an error", service, resources)
 		}
 	}
 }

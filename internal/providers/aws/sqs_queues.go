@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"os"
 	"strings"
 
@@ -27,7 +28,11 @@ type SqsLister struct {
 // URL and named after the URL's last part, the queue name. When the
 // environment variable SQS_PREFIX is set, even to "", it is passed on as
 // the queue name prefix. Any listing error fails the service.
-func (g *SqsLister) List() error {
+func (g *SqsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SqsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

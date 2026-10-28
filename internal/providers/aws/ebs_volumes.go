@@ -47,7 +47,11 @@ const ebsInstanceBatch = 200
 // Telling a root volume apart takes the attached instances' root device
 // names, which one DescribeInstances call per batch of instances returns
 // (see rootDeviceNames). Any API error is returned and ends the listing.
-func (g *EbsLister) List() error {
+func (g *EbsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EbsLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

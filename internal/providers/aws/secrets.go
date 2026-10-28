@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 
@@ -22,7 +24,11 @@ type SecretsManagerLister struct {
 // secret scheduled for deletion, which Terraform treats as gone. The
 // request asks for none of those, and one answered anyway is skipped.
 // Errors are returned.
-func (g *SecretsManagerLister) List() error {
+func (g *SecretsManagerLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SecretsManagerLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

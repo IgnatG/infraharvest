@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordSESNS = "http://ses.amazonaws.com/doc/2010-12-01/"
@@ -85,13 +87,13 @@ func TestRecordSesListsIdentitiesTemplatesAndRules(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordSESAPI(t, ""))
 	g := &SesLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_ses_domain_identity", "example.com", "example.com", nil},
 		recordedResource{"aws_ses_domain_identity", "mail.example.com", "mail.example.com", nil},
 		recordedResource{"aws_ses_email_identity", "alerts@example.com", "alerts@example.com", nil},
@@ -116,9 +118,8 @@ func TestRecordSesReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordSESAPI(t, failing))
 			g := &SesLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

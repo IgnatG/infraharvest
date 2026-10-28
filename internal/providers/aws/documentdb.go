@@ -28,7 +28,11 @@ type DocDBLister struct {
 
 // List lists the clusters, the subnet groups and the cluster
 // parameter groups, in that order. Any error fails the service.
-func (g *DocDBLister) List() error {
+func (g *DocDBLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DocDBLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

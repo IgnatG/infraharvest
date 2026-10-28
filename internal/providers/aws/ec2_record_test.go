@@ -43,13 +43,13 @@ func TestRecordEc2ListsLiveInstances(t *testing.T) {
 			</instancesSet></item></reservationSet><nextToken>`+nextPageToken+`</nextToken>`)
 	})
 	g := &Ec2Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_instance", "i-1", "i-1_web",
 			map[string]string{"source_dest_check": "true"}},
 		recordedResource{"aws_instance", "i-3", "i-3_second",
@@ -91,21 +91,21 @@ func TestRecordEc2PassesTagFilters(t *testing.T) {
 		return recordEC2(call.Op, `<reservationSet/>`)
 	})
 	g := &Ec2Lister{}
-	g.SetContext(ctx)
-	g.SetFilters([]harvest.Filter{
+	filters := []harvest.Filter{
 		{Service: "instance", Path: "tags.env", Values: []string{"prod"}},
 		{Service: "ebs_volume", Path: "tags.backup", Values: []string{"daily"}},
 		// The service's name is taken as the type too.
 		{Service: "ec2_instance", Path: "tags.owner", Values: []string{"me"}},
 		{Path: "tags.team", Values: []string{"data", "ml"}},
 		{Service: "ec2_instance", Path: "id", Values: []string{"i-9"}},
-	})
+	}
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{Filters: filters})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources)
+	assertRecorded(t, resources)
 }
 
 func TestRecordEc2ReturnsErrors(t *testing.T) {
@@ -114,9 +114,8 @@ func TestRecordEc2ReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &Ec2Lister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }
 
 // An instance whose CPU options are its type's defaults, as
@@ -161,14 +160,14 @@ func TestRecordEc2MarksDefaultCPUOptions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Ec2Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	want := map[string]string{"i-arm": "default", "i-x86": "default", "i-fewer": "", "i-sev": "", "i-old": "default"}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if got := r.Observed.Attributes["cpu_options"]; got != want[r.Observed.ID] {
 			t.Errorf("%s: cpu_options %q, want %q", r.Observed.ID, got, want[r.Observed.ID])
 		}
@@ -198,13 +197,13 @@ func TestRecordEc2KeepsCPUOptionsWithoutInstanceTypes(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Ec2Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(g.Resources) != 1 || g.Resources[0].Observed.Attributes["cpu_options"] != "" {
-		t.Errorf("recorded %v, want one instance without cpu_options", g.Resources)
+	if len(resources) != 1 || resources[0].Observed.Attributes["cpu_options"] != "" {
+		t.Errorf("recorded %v, want one instance without cpu_options", resources)
 	}
 }

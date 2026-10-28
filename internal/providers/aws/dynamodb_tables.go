@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -36,7 +37,11 @@ type DynamoDbLister struct {
 // resourceParallel at a time, and recorded in the page's order. A listing
 // error fails the service; a table that can't be described is recorded
 // without its replicas, and fails it in part.
-func (g *DynamoDbLister) List() error {
+func (g *DynamoDbLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DynamoDbLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

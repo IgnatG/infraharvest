@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -27,7 +28,11 @@ type EcrLister struct {
 // other repositories: the errors are returned together as a partial error (see harvest.Partial), so what
 // was listed is imported and the listing reads as incomplete rather than
 // as repositories without policies.
-func (g *EcrLister) List() error {
+func (g *EcrLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EcrLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -65,7 +70,7 @@ func (g *EcrLister) repository(client *ecr.Client, repository types.Repository) 
 	resources := []harvest.Resource{harvest.RecordBare(name, name, "aws_ecr_repository", "aws")}
 
 	var errs []error
-	if g.wants("aws_ecr_repository_policy") {
+	if g.Wants("aws_ecr_repository_policy") {
 		_, err := client.GetRepositoryPolicy(g.Context(), &ecr.GetRepositoryPolicyInput{
 			RegistryId:     repository.RegistryId,
 			RepositoryName: repository.RepositoryName,
@@ -78,7 +83,7 @@ func (g *EcrLister) repository(client *ecr.Client, repository types.Repository) 
 			errs = append(errs, fmt.Errorf("the repository policy of %s: %w", name, err))
 		}
 	}
-	if g.wants("aws_ecr_lifecycle_policy") {
+	if g.Wants("aws_ecr_lifecycle_policy") {
 		_, err := client.GetLifecyclePolicy(g.Context(), &ecr.GetLifecyclePolicyInput{
 			RegistryId:     repository.RegistryId,
 			RepositoryName: repository.RepositoryName,

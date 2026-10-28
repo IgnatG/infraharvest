@@ -29,7 +29,7 @@ type Query func(ctx context.Context) ([]Resource, error)
 type queryKey struct{}
 
 // WithQuery returns ctx carrying query, which the QueryLister given ctx
-// (see Lister.SetContext) lists with.
+// lists with.
 func WithQuery(ctx context.Context, query Query) context.Context {
 	return context.WithValue(ctx, queryKey{}, query)
 }
@@ -41,33 +41,32 @@ var errNoQuery = errors.New("this command can't list through Terraform's list re
 // context carries (see WithQuery), and applies the --where filters to what
 // that returns. Its resources have no tags, so --tag filters, which the
 // listers that read tags apply, pass them all.
-type QueryLister struct {
-	ListerBase
-}
+type QueryLister struct{}
 
 // List lists with the context's Query, keeping what it returned when it
 // listed in part.
-func (l *QueryLister) List() error {
-	query, ok := l.Context().Value(queryKey{}).(Query)
+func (QueryLister) List(ctx context.Context, s Settings) ([]Resource, error) {
+	query, ok := ctx.Value(queryKey{}).(Query)
 	if !ok || query == nil {
-		return errNoQuery
+		return nil, errNoQuery
 	}
-	resources, err := query(l.Context())
+	resources, err := query(ctx)
 	if err != nil && !IsPartial(err) {
-		return err
+		return nil, err
 	}
+	var kept []Resource
 	for _, r := range resources {
-		if l.keeps(r) {
-			l.Resources = append(l.Resources, r)
+		if keeps(s.Filters, r) {
+			kept = append(kept, r)
 		}
 	}
-	return err
+	return kept, err
 }
 
-// keeps reports whether r passes the --where filters.
-func (l *QueryLister) keeps(r Resource) bool {
-	for i := range l.Filters() {
-		f := &l.Filters()[i]
+// keeps reports whether r passes the --where filters among filters.
+func keeps(filters []Filter, r Resource) bool {
+	for i := range filters {
+		f := &filters[i]
 		if f.Path == idPath || strings.HasPrefix(f.Path, tagPathPrefix) {
 			continue
 		}

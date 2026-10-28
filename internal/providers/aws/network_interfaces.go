@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -37,7 +38,11 @@ var ownInterfaceTypes = []string{"interface", "efa", "efa-only", "trunk"}
 
 // List lists the network interfaces, page by page. An API error is
 // returned and ends the listing.
-func (g *NetworkInterfaceLister) List() error {
+func (g *NetworkInterfaceLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *NetworkInterfaceLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

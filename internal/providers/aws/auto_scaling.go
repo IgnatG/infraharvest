@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -31,7 +33,11 @@ func autoScalingGroupAttributes() map[string]string {
 
 // List lists, in this order, the groups, the launch
 // configurations and the launch templates. Any error fails the service.
-func (g *AutoScalingLister) List() error {
+func (g *AutoScalingLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *AutoScalingLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

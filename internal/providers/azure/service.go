@@ -5,7 +5,6 @@ package azure
 
 import (
 	"context"
-	"slices"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -16,7 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// serviceSettings are the settings Provider.Select passes each service
+// serviceSettings are the settings Provider.Lister passes each service
 // (see harvest.ListerOf).
 type serviceSettings struct {
 	// subscriptionID is the subscription to list.
@@ -35,13 +34,10 @@ type serviceSettings struct {
 	// azapi is --azapi: resource_graph imports what azurerm has no type
 	// for as azapi_resource (see azapiCandidates).
 	azapi bool
-	// unwanted reports the types the import leaves out whatever is listed
-	// (see Provider.SetUnwantedTypes); nil wants every type.
-	unwanted func(typ string) bool
 }
 
 // Service is what every Azure lister embeds: the service state, and the
-// settings Provider.Select passes it.
+// settings Provider.Lister passes it.
 type Service struct {
 	harvest.ListerOf[serviceSettings]
 }
@@ -52,24 +48,6 @@ type Service struct {
 func (az *Service) clientSettings() (subscriptionID, resourceGroup string, credential azcore.TokenCredential, options *arm.ClientOptions) {
 	s := az.Settings()
 	return s.subscriptionID, s.resourceGroup, s.credential, s.clientOptions
-}
-
-// wants reports whether the import may keep resources of typ: a lister
-// skips the calls that list only resources of a type it doesn't want.
-func (az *Service) wants(typ string) bool {
-	return az.Settings().wants(typ)
-}
-
-// wantsAny reports whether the import may keep resources of any of types:
-// a call that lists several types is skipped only when it wants none.
-func (az *Service) wantsAny(types ...string) bool {
-	return slices.ContainsFunc(types, az.wants)
-}
-
-// wants reports whether the import may keep resources of typ (see
-// Service.wants).
-func (s serviceSettings) wants(typ string) bool {
-	return s.unwanted == nil || !s.unwanted(typ)
 }
 
 // customCloud reports whether the service's clients reach a cloud other

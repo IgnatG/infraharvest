@@ -106,10 +106,10 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 		settingsPath(accountID + "/blobServices/default"): armList(armItem(settingsPath(accountID+"/blobServices/default")+"/blob-logs", "blob-logs", "")),
 	}}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
 	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{Provider: "azurerm"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +132,7 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 		{Type: diagnosticSettingType, ID: settingsPath(vaultID) + "/audit", Name: "secrets_audit", Attributes: map[string]string{"name": "audit", "target_resource_id": vaultID, "resource_group_name": "app"}},
 		{Type: diagnosticSettingType, ID: settingsPath(accountID+"/blobServices/default") + "/blob-logs", Name: "data_blobServices_blob-logs", Attributes: map[string]string{"name": "blob-logs", "target_resource_id": accountID + "/blobServices/default", "resource_group_name": "app"}},
 	}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, wantListed) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, wantListed) {
 		t.Errorf("got\n%+v\nwant\n%+v", got, wantListed)
 	}
 }
@@ -143,18 +143,18 @@ func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 	t.Parallel()
 	transport := &diagnosticTransport{}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
 	g.SetSettings(diagnosticArgs(transport, "app", listedByOthers()[:1]))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{Provider: "azurerm"})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	if want := []string{settingsPath(vaultID)}; !slices.Equal(transport.paths, want) {
 		t.Errorf("asked for %v, want %v", transport.paths, want)
 	}
-	if len(g.Resources) != 0 {
-		t.Errorf("listed %+v, want none", g.Resources)
+	if len(resources) != 0 {
+		t.Errorf("listed %+v, want none", resources)
 	}
 }
 
@@ -173,16 +173,15 @@ func TestDiagnosticSettingFailures(t *testing.T) {
 		},
 	}
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
 	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 
-	err := g.List()
+	resources, err := g.List(t.Context(), harvest.Settings{Provider: "azurerm"})
 
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), vaultID) || strings.Contains(err.Error(), accountID) {
 		t.Errorf("got %v, want the vault's refusal alone, as a partial failure", err)
 	}
-	if len(g.Resources) != 1 || g.Resources[0].Observed.ID != "/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings/activity" {
-		t.Errorf("listed %+v, want the subscription's setting", listedResources(g.Resources))
+	if len(resources) != 1 || resources[0].Observed.ID != "/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings/activity" {
+		t.Errorf("listed %+v, want the subscription's setting", listedResources(resources))
 	}
 }
 

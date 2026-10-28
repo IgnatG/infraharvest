@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordDeviceFarmProject = "arn:aws:devicefarm:us-west-2:123456789012:project:"
@@ -25,13 +27,13 @@ func TestRecordDeviceFarmListsProjectsByARN(t *testing.T) {
 			recordDeviceFarmProject, nextPageToken)
 	})
 	g := &DeviceFarmLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_devicefarm_project", recordDeviceFarmProject + "1a2b", "ios-app", nil},
 		recordedResource{"aws_devicefarm_project", recordDeviceFarmProject + "5e6f", "android app", nil},
 	)
@@ -43,7 +45,6 @@ func TestRecordDeviceFarmReturnsErrors(t *testing.T) {
 		return recordJSONError("ArgumentException")
 	})
 	g := &DeviceFarmLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "ArgumentException")
+	assertRecordedError(t, listError(ctx, g), "ArgumentException")
 }

@@ -33,7 +33,11 @@ type TransitGatewayLister struct {
 // List lists the gateways, then the route tables, then the VPC
 // attachments, each page by page. An error in any of the three fails the
 // service.
-func (g *TransitGatewayLister) List() error {
+func (g *TransitGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *TransitGatewayLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

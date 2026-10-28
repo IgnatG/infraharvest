@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 func TestEbsReturnsDescribeInstancesError(t *testing.T) {
@@ -25,10 +27,9 @@ func TestEbsReturnsDescribeInstancesError(t *testing.T) {
 		return ""
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
 
 	// Before the fix, the ignored error left the response nil and this panicked.
-	err := g.List()
+	_, err := g.List(ctx, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "i-1") {
 		t.Errorf("want the DescribeInstances error naming the instance, got %v", err)
@@ -62,22 +63,22 @@ func TestWafv2SkipsResourceTypesTheRegionLacks(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"WAFInvalidParameterException","message":"resource type not supported in this region"}`))
 	g := NewWafv2RegionalLister()
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_wafv2_web_acl_association", "arn:acl,arn:alb")
+	assertIDs(t, resources, "aws_wafv2_web_acl_association", "arn:acl,arn:alb")
 }
 
 func TestWafv2ReportsOtherAssociationErrors(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"AccessDeniedException","message":"not allowed"}`))
 	g := NewWafv2RegionalLister()
-	g.SetContext(ctx)
 
-	if err := g.List(); err == nil {
+	_, err := g.List(ctx, harvest.Settings{})
+	if err == nil {
 		t.Error("want the ListResourcesForWebACL error")
 	}
 }

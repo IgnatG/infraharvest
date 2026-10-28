@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/devicefarm"
 
@@ -19,7 +21,11 @@ type DeviceFarmLister struct {
 
 // List lists every project as an aws_devicefarm_project, imported
 // by its ARN and named after its name.
-func (g *DeviceFarmLister) List() error {
+func (g *DeviceFarmLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DeviceFarmLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -4,8 +4,12 @@
 package azure
 
 import (
+	"context"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // VirtualNetworkLister lists virtual networks as azurerm_virtual_network,
@@ -15,7 +19,11 @@ type VirtualNetworkLister struct {
 }
 
 // List lists the virtual networks.
-func (az *VirtualNetworkLister) List() error {
+func (az *VirtualNetworkLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *VirtualNetworkLister) list() error {
 	networks, err := az.listVirtualNetworks()
 	if err != nil {
 		return err

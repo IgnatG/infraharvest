@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 func recordWorkspacesAPI(t *testing.T, failing string) func(apiCall) string {
 	return func(call apiCall) string {
@@ -47,13 +51,13 @@ func TestRecordWorkspacesListsDirectoriesWorkspacesAndIPGroups(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordWorkspacesAPI(t, ""))
 	g := &WorkspacesLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_workspaces_directory", "d-1", "d-1", nil},
 		recordedResource{"aws_workspaces_directory", "d-2", "d-2", nil},
 		recordedResource{"aws_workspaces_directory", "d-3", "d-3", nil},
@@ -71,9 +75,8 @@ func TestRecordWorkspacesReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordWorkspacesAPI(t, failing))
 			g := &WorkspacesLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

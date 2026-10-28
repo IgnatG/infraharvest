@@ -29,27 +29,18 @@ import (
 // service, with the ID id-<service>.
 type rootsProvider struct {
 	harvest.Provider
-	service *rootsService
 }
 
 func (p *rootsProvider) Init(context.Context, []string) error  { return nil }
 func (p *rootsProvider) Name() string                          { return "fake" }
 func (p *rootsProvider) Profile() harvest.Profile              { return harvest.Profile{} }
-func (p *rootsProvider) Selected() harvest.Lister              { return p.service }
 func (p *rootsProvider) ProviderBlock() map[string]interface{} { return map[string]interface{}{} }
-func (p *rootsProvider) Select(name string, _ bool) error {
-	p.service = &rootsService{}
-	p.service.Configure(harvest.ListerConfig{Service: name})
-	return nil
-}
+func (p *rootsProvider) Lister(string) (harvest.Lister, error) { return rootsService{}, nil }
 
-type rootsService struct {
-	harvest.ListerBase
-}
+type rootsService struct{}
 
-func (s *rootsService) List() error {
-	s.Resources = []harvest.Resource{harvest.RecordBare("id-"+s.Name(), s.Name(), "fake_thing", "fake")}
-	return nil
+func (rootsService) List(_ context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return []harvest.Resource{harvest.RecordBare("id-"+s.Service, s.Service, "fake_thing", "fake")}, nil
 }
 
 // fakeEngine stands in for the engine binary, the registry and the

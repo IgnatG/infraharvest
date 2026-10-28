@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister records the IDs Terraform imports WAFv2 resources with: ID,
@@ -40,17 +42,17 @@ func TestWafv2ListsWithImportIDs(t *testing.T) {
 		return `{}`
 	})
 	g := NewWafv2RegionalLister()
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_wafv2_web_acl", "a1/edge/REGIONAL")
-	assertIDs(t, g.Resources, "aws_wafv2_web_acl_association", aclARN+","+lbARN)
-	assertIDs(t, g.Resources, "aws_wafv2_ip_set", "i1/office/REGIONAL")
-	assertIDs(t, g.Resources, "aws_wafv2_rule_group", "g1/bots/REGIONAL")
-	for _, r := range g.Resources {
+	assertIDs(t, resources, "aws_wafv2_web_acl", "a1/edge/REGIONAL")
+	assertIDs(t, resources, "aws_wafv2_web_acl_association", aclARN+","+lbARN)
+	assertIDs(t, resources, "aws_wafv2_ip_set", "i1/office/REGIONAL")
+	assertIDs(t, resources, "aws_wafv2_rule_group", "g1/bots/REGIONAL")
+	for _, r := range resources {
 		if r.Address.Type == "aws_wafv2_web_acl_association" && r.RawName != "edge_web" {
 			t.Errorf("association named %q, want edge_web", r.RawName)
 		}

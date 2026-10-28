@@ -6,6 +6,8 @@ package aws
 import (
 	"net/url"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordDocDBNS = "http://rds.amazonaws.com/doc/2014-10-31/"
@@ -69,13 +71,13 @@ func TestRecordDocDBListsClustersSubnetAndParameterGroups(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordDocDBAPI(t, ""))
 	g := &DocDBLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_docdb_cluster", "docs", "docs", nil},
 		recordedResource{"aws_docdb_cluster_instance", "docs-1", "docs-1", nil},
 		recordedResource{"aws_docdb_cluster_instance", "docs-2", "docs-2", nil},
@@ -94,9 +96,8 @@ func TestRecordDocDBReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordDocDBAPI(t, failing))
 			g := &DocDBLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

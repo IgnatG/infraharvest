@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists every VPC by ID, across pages, the default VPC included
@@ -27,13 +29,13 @@ func TestRecordVpcListsVpcs(t *testing.T) {
 			</vpcSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &VpcLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_vpc", "vpc-1", "vpc-1", map[string]string{"is_default": "false"}},
 		recordedResource{"aws_vpc", "vpc-default", "vpc-default", map[string]string{"is_default": "true"}},
 	)
@@ -45,7 +47,6 @@ func TestRecordVpcReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &VpcLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 const recordBatchARN = "arn:aws:batch:us-east-1:123456789012:"
 
@@ -48,13 +52,13 @@ func TestRecordBatchListsEnvironmentsDefinitionsAndQueues(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordBatchAPI(t, ""))
 	g := &BatchLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_batch_compute_environment", "spot", "spot", map[string]string{"compute_environment_name": "spot"}},
 		recordedResource{"aws_batch_compute_environment", "ondemand", "ondemand", map[string]string{"compute_environment_name": "ondemand"}},
 		recordedResource{"aws_batch_job_definition", recordBatchARN + "job-definition/render:3", "render:3", map[string]string{"arn": recordBatchARN + "job-definition/render:3"}},
@@ -70,9 +74,8 @@ func TestRecordBatchReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordBatchAPI(t, failing))
 			g := &BatchLister{}
-			g.SetContext(ctx)
 
-			err := g.List()
+			_, err := g.List(ctx, harvest.Settings{})
 
 			assertRecordedError(t, err, "ClientException")
 		})

@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists the registered domains by name, across pages. It
 // doesn't ask for the deprecated ones.
@@ -22,13 +26,13 @@ func TestRecordSwfListsRegisteredDomains(t *testing.T) {
 		return `{"domainInfos":[{"name":"orders","status":"REGISTERED","arn":"arn:aws:swf:us-east-1:123456789012:/domain/orders"}],"nextPageToken":"` + nextPageToken + `"}`
 	})
 	g := &SWFLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_swf_domain", "orders", "orders", nil},
 		recordedResource{"aws_swf_domain", "billing", "billing", nil},
 	)
@@ -40,7 +44,6 @@ func TestRecordSwfReturnsErrors(t *testing.T) {
 		return recordJSONError("OperationNotPermittedFault")
 	})
 	g := &SWFLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "OperationNotPermittedFault")
+	assertRecordedError(t, listError(ctx, g), "OperationNotPermittedFault")
 }

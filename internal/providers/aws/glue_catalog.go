@@ -23,7 +23,11 @@ type GlueLister struct {
 // catalog databases and tables by an ID that starts with the catalog ID,
 // which is the account's, so the account is looked up first. Any failure,
 // the account lookup included, fails the service.
-func (g *GlueLister) List() error {
+func (g *GlueLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *GlueLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -43,7 +47,7 @@ func (g *GlueLister) List() error {
 		return err
 	}
 	// A call per database, for tables the import may not keep.
-	if !g.wants("aws_glue_catalog_table") {
+	if !g.Wants("aws_glue_catalog_table") {
 		databases = nil
 	}
 	for _, database := range databases {

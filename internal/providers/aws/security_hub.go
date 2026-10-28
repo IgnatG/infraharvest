@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -27,7 +28,11 @@ const securityHubNotEnabled = "not subscribed to AWS Security Hub"
 // enabled Security Hub in the region, then its members and its standards
 // subscriptions. An account that hasn't enabled Security Hub has nothing
 // to list, which is not an error.
-func (g *SecurityhubLister) List() error {
+func (g *SecurityhubLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SecurityhubLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

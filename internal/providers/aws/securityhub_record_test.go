@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 const (
 	recordSTSNS              = "https://sts.amazonaws.com/doc/2011-06-15/"
@@ -64,9 +68,9 @@ func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
 		return api(call)
 	})
 	g := &SecurityhubLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if standardsCalls != 2 {
@@ -75,7 +79,7 @@ func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
 
 	fsbp := recordSecurityHubSubARN + "aws-foundational-security-best-practices/v/1.0.0"
 	cis := recordSecurityHubSubARN + "cis-aws-foundations-benchmark/v/1.4.0"
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_securityhub_account", "123456789012", "123456789012", nil},
 		recordedResource{"aws_securityhub_member", "222222222222", "securityhub_member_222222222222", map[string]string{
 			"account_id": "222222222222", "email": "security@example.com"}},
@@ -99,13 +103,13 @@ func TestRecordSecurityHubNotSubscribed(t *testing.T) {
 		"/members": recordJSONError("UnexpectedCall"),
 	}))
 	g := &SecurityhubLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources)
+	assertRecorded(t, resources)
 }
 
 func TestRecordSecurityHubReturnsErrors(t *testing.T) {
@@ -118,9 +122,8 @@ func TestRecordSecurityHubReturnsErrors(t *testing.T) {
 		t.Run(key, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{key: answer}))
 			g := &SecurityhubLister{}
-			g.SetContext(ctx)
 
-			err := g.List()
+			_, err := g.List(ctx, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDenied")
 		})

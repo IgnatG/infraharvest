@@ -20,7 +20,11 @@ type CodeCommitLister struct {
 
 // List lists the repositories, then the approval rule templates,
 // both by name. Either list failing fails the service.
-func (g *CodeCommitLister) List() error {
+func (g *CodeCommitLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CodeCommitLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

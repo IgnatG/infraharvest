@@ -8,15 +8,23 @@
     "value": ""
   },
   {
-    "check": "zero: Listed is nil",
-    "value": true
-  },
-  {
     "check": "zero: Filters is nil",
     "value": true
   },
   {
     "check": "zero: Verbose",
+    "value": false
+  },
+  {
+    "check": "zero: Wants",
+    "value": true
+  },
+  {
+    "check": "zero: WantsAny",
+    "value": true
+  },
+  {
+    "check": "zero: WantsAny of nothing",
     "value": false
   },
   {
@@ -28,27 +36,67 @@
     "value": true
   },
   {
-    "check": "zero: Prune panics",
-    "value": false
-  },
-  {
-    "check": "zero: after Prune, Resources is nil",
+    "check": "zero: Resources is nil",
     "value": true
   },
   {
-    "check": "set: Name",
+    "check": "zero: Settings",
+    "value": ""
+  },
+  {
+    "check": "run: Name",
     "value": "ec2"
   },
   {
-    "check": "set: Provider",
+    "check": "run: Provider",
     "value": "aws"
   },
   {
-    "check": "set: Verbose",
+    "check": "run: Verbose",
     "value": true
   },
   {
-    "check": "set: Listed",
+    "check": "run: Filters",
+    "value": [
+      {
+        "Service": "vpc",
+        "Path": "id",
+        "Values": [
+          "vpc-1"
+        ]
+      }
+    ]
+  },
+  {
+    "check": "run: Context value",
+    "value": "set"
+  },
+  {
+    "check": "run: Context is the one given",
+    "value": true
+  },
+  {
+    "check": "run: Wants a wanted type",
+    "value": true
+  },
+  {
+    "check": "run: Wants an unwanted type",
+    "value": false
+  },
+  {
+    "check": "run: WantsAny with a wanted type",
+    "value": true
+  },
+  {
+    "check": "run: WantsAny of unwanted types only",
+    "value": false
+  },
+  {
+    "check": "run: typed settings",
+    "value": "eu-west-1"
+  },
+  {
+    "check": "run: returns the listed resources",
     "value": [
       {
         "type": "aws_vpc",
@@ -58,47 +106,7 @@
     ]
   },
   {
-    "check": "set: Listed shares the slice",
-    "value": true
-  },
-  {
-    "check": "set: SetListed(nil) gives nil",
-    "value": true
-  },
-  {
-    "check": "set: Configure with nothing clears the name",
-    "value": ""
-  },
-  {
-    "check": "set: Configure with nothing clears Verbose",
-    "value": false
-  },
-  {
-    "check": "typed settings: zero value",
-    "value": ""
-  },
-  {
-    "check": "typed settings: set, and kept by Configure",
-    "value": "eu-west-1"
-  },
-  {
-    "check": "context: value of the set context",
-    "value": "set"
-  },
-  {
-    "check": "context: is the set context",
-    "value": true
-  },
-  {
-    "check": "context: unset again is Background",
-    "value": true
-  },
-  {
-    "check": "provider: zero Selected is nil",
-    "value": true
-  },
-  {
-    "check": "provider: Selected is the Current field",
+    "check": "run: returns the list's error",
     "value": true
   }
 ]

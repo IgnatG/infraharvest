@@ -97,7 +97,11 @@ type WafLister struct {
 // sets, IP sets, rate-based rules, regex match sets, regex pattern sets,
 // rules, rule groups, size constraint sets, SQL injection match sets and
 // XSS match sets, and returns the first error.
-func (g *WafLister) List() error {
+func (g *WafLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *WafLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

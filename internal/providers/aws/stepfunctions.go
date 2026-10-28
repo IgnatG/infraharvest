@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sfn"
 
@@ -19,7 +21,11 @@ type SfnLister struct {
 // List records the state machines, then the activities, each by
 // its ARN, which is what Terraform imports both by, and named after it.
 // The first error stops the listing and is returned.
-func (g *SfnLister) List() error {
+func (g *SfnLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SfnLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

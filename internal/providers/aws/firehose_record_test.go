@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordFirehoseARN = "arn:aws:firehose:us-east-1:123456789012:deliverystream/"
@@ -41,13 +43,13 @@ func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &FirehoseLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_kinesis_firehose_delivery_stream", recordFirehoseARN + "orders", "orders", map[string]string{"name": "orders"}},
 		recordedResource{"aws_kinesis_firehose_delivery_stream", recordFirehoseARN + "clicks", "clicks", map[string]string{"name": "clicks"}},
 		recordedResource{"aws_kinesis_firehose_delivery_stream", recordFirehoseARN + "audit", "audit", map[string]string{"name": "audit"}},
@@ -67,12 +69,12 @@ func TestRecordFirehoseWithoutStreams(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &FirehoseLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	assertRecorded(t, g.Resources)
+	assertRecorded(t, resources)
 }
 
 // Failing to list the streams, or to find the account, fails the service.
@@ -96,9 +98,8 @@ func TestRecordFirehoseReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &FirehoseLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

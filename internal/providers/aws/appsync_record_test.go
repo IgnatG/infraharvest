@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists GraphQL APIs by ID, named after their names, across
 // pages.
@@ -20,13 +24,13 @@ func TestRecordAppSyncListsGraphqlApis(t *testing.T) {
 			"arn":"arn:aws:appsync:us-east-1:123456789012:apis/api1"}],"nextToken":"` + nextPageToken + `"}`
 	})
 	g := &AppSyncLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_appsync_graphql_api", "api1", "orders", nil},
 		recordedResource{"aws_appsync_graphql_api", "api2", "inventory", nil},
 	)
@@ -38,7 +42,6 @@ func TestRecordAppSyncReturnsErrors(t *testing.T) {
 		return recordJSONError("UnauthorizedException")
 	})
 	g := &AppSyncLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedException")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedException")
 }

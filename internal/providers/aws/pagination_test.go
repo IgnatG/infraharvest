@@ -102,13 +102,13 @@ func TestSqsPaginates(t *testing.T) {
 		return fmt.Sprintf(`{"QueueUrls":["https://sqs.us-east-1.amazonaws.com/123456789012/%s"],"NextToken":%q}`, id, token)
 	})
 	g := &SqsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_sqs_queue",
+	assertIDs(t, resources, "aws_sqs_queue",
 		"https://sqs.us-east-1.amazonaws.com/123456789012/queue-1",
 		"https://sqs.us-east-1.amazonaws.com/123456789012/queue-2")
 }
@@ -120,13 +120,13 @@ func TestKinesisPaginates(t *testing.T) {
 		return fmt.Sprintf(`{"StreamNames":[%q],"HasMoreStreams":%t,"NextToken":%q}`, id, token != "", token)
 	})
 	g := &KinesisLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_kinesis_stream", "stream-1", "stream-2")
+	assertIDs(t, resources, "aws_kinesis_stream", "stream-1", "stream-2")
 }
 
 func TestVpcEndpointPaginates(t *testing.T) {
@@ -138,13 +138,13 @@ func TestVpcEndpointPaginates(t *testing.T) {
 			<nextToken>%s</nextToken></DescribeVpcEndpointsResponse>`, id, token)
 	})
 	g := &VpcEndpointLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_vpc_endpoint", "vpce-1", "vpce-2")
+	assertIDs(t, resources, "aws_vpc_endpoint", "vpce-1", "vpce-2")
 }
 
 func TestBudgetsPaginates(t *testing.T) {
@@ -159,13 +159,13 @@ func TestBudgetsPaginates(t *testing.T) {
 		return fmt.Sprintf(`{"Budgets":[{"BudgetName":%q,"BudgetType":"COST","TimeUnit":"MONTHLY"}],"NextToken":%q}`, id, token)
 	})
 	g := &BudgetsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_budgets_budget", "123456789012:budget-1", "123456789012:budget-2")
+	assertIDs(t, resources, "aws_budgets_budget", "123456789012:budget-1", "123456789012:budget-2")
 }
 
 func TestCloud9Paginates(t *testing.T) {
@@ -178,13 +178,13 @@ func TestCloud9Paginates(t *testing.T) {
 		return fmt.Sprintf(`{"environmentIds":[%q],"nextToken":%q}`, id, token)
 	})
 	g := &Cloud9Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_cloud9_environment_ec2", "env-1", "env-2")
+	assertIDs(t, resources, "aws_cloud9_environment_ec2", "env-1", "env-2")
 }
 
 // wafListOps maps each WAF Classic list operation to the JSON keys of its
@@ -249,39 +249,39 @@ func TestWafPaginates(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertEveryOpPaginated(t, g.Resources, wafListOps)
+	assertEveryOpPaginated(t, resources, wafListOps)
 }
 
 func TestWafRegionalPaginates(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafRegionalLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertEveryOpPaginated(t, g.Resources, wafListOps)
+	assertEveryOpPaginated(t, resources, wafListOps)
 }
 
 func TestWafv2Paginates(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, serveWafPages(t, wafv2ListOps))
 	g := NewWafv2RegionalLister()
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertEveryOpPaginated(t, g.Resources, wafv2ListOps)
+	assertEveryOpPaginated(t, resources, wafv2ListOps)
 }
 
 // Some endpoints, emulators among them, end the last page with an empty
@@ -320,13 +320,13 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 		return ""
 	})
 	g := &AlbLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_lb_listener_rule", "arn:rule-1", "arn:rule-2")
+	assertIDs(t, resources, "aws_lb_listener_rule", "arn:rule-1", "arn:rule-2")
 }
 
 // The target lister used to page with the rule list's token, which looped
@@ -352,7 +352,7 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 		return ""
 	})
 	g := &CloudWatchLister{}
-	g.SetContext(ctx)
+	g.Begin(ctx, harvest.Settings{})
 	config, err := g.sdkConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -433,9 +433,8 @@ func TestIamAccessKeysStopOnError(t *testing.T) {
 		return ""
 	})
 	g := &IamLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	_, err := g.List(ctx, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "Throttling") {
 		t.Errorf("want the ListAccessKeys error, got %v", err)
@@ -463,9 +462,8 @@ func TestSnsSubscriptionsStopOnError(t *testing.T) {
 		return ""
 	})
 	g := &SnsLister{}
-	g.SetContext(ctx)
 
-	err := g.List()
+	_, err := g.List(ctx, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "AuthorizationError") {
 		t.Errorf("want the ListSubscriptionsByTopic error, got %v", err)

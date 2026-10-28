@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // rdsResponse wraps the result of a call of the RDS query API.
@@ -85,22 +87,22 @@ func TestRDSListsWhatTerraformManages(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &RDSLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_rds_cluster", "orders", "reports")
-	assertIDs(t, g.Resources, "aws_rds_cluster_instance", "orders-1")
-	assertIDs(t, g.Resources, "aws_db_instance", "app")
-	assertIDs(t, g.Resources, "aws_db_snapshot", "app-before-upgrade")
-	assertIDs(t, g.Resources, "aws_db_cluster_snapshot", "orders-final")
-	assertIDs(t, g.Resources, "aws_db_proxy", "pool")
-	assertIDs(t, g.Resources, "aws_db_parameter_group", "default.postgres17", "app-postgres17")
-	assertIDs(t, g.Resources, "aws_db_subnet_group", "default", "app", "graph-subnets")
-	assertIDs(t, g.Resources, "aws_db_option_group", "default:postgres-17", "app-options")
-	assertIDs(t, g.Resources, "aws_db_event_subscription", "alerts")
+	assertIDs(t, resources, "aws_rds_cluster", "orders", "reports")
+	assertIDs(t, resources, "aws_rds_cluster_instance", "orders-1")
+	assertIDs(t, resources, "aws_db_instance", "app")
+	assertIDs(t, resources, "aws_db_snapshot", "app-before-upgrade")
+	assertIDs(t, resources, "aws_db_cluster_snapshot", "orders-final")
+	assertIDs(t, resources, "aws_db_proxy", "pool")
+	assertIDs(t, resources, "aws_db_parameter_group", "default.postgres17", "app-postgres17")
+	assertIDs(t, resources, "aws_db_subnet_group", "default", "app", "graph-subnets")
+	assertIDs(t, resources, "aws_db_option_group", "default:postgres-17", "app-options")
+	assertIDs(t, resources, "aws_db_event_subscription", "alerts")
 }
 
 // Every region lists a global cluster, so a region lists it only when its
@@ -150,11 +152,11 @@ func TestRDSListsGlobalClustersInTheirPrimaryRegion(t *testing.T) {
 		return `<ErrorResponse><Error><Code>Unexpected</Code></Error></ErrorResponse>`
 	})
 	g := &RDSLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_rds_global_cluster", "orders", "empty")
+	assertIDs(t, resources, "aws_rds_global_cluster", "orders", "empty")
 }

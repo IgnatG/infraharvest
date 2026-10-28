@@ -70,46 +70,43 @@ func TestExitCode(t *testing.T) {
 }
 
 func TestInitAllServicesResourcesReportsFailedServices(t *testing.T) {
-	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"good", "bad"}}
 
-	failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
+	resources, failures, err := listServices(t.Context(), &fakeProvider{}, callOf(options, ""), options.ListParallel)
 	if err != nil {
 		t.Fatalf("a failing service must not abort the run: %v", err)
 	}
 	if len(failures) != 1 || !strings.Contains(failures[0].Error(), "service bad") {
 		t.Errorf("want one failure for service bad, got %v", failures)
 	}
-	if _, ok := registry.Services["bad"]; ok {
-		t.Error("failed service should be removed from the registry")
+	if _, ok := resources["bad"]; ok {
+		t.Error("a failed service should have no resources")
 	}
-	if got := len(registry.Resources); got != 1 {
-		t.Errorf("want the good service's resource only, got %d resources", got)
+	if got := len(resources["good"]); len(resources) != 1 || got != 1 {
+		t.Errorf("want the good service's resource only, got %v", resources)
 	}
 }
 
 // A service that lists in part keeps what it listed, and fails the import
 // all the same.
 func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
-	registry := harvest.NewRegistry(&fakeProvider{})
 	options := Options{Services: []string{"good", "partial", "bad"}}
 
-	failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
+	resources, failures, err := listServices(t.Context(), &fakeProvider{}, callOf(options, ""), options.ListParallel)
 	if err != nil {
 		t.Fatalf("a partial listing must not abort the run: %v", err)
 	}
 	if len(failures) != 2 || !strings.Contains(failures[0].Error(), "service partial: a zone's records: access denied") || !strings.Contains(failures[1].Error(), "service bad") {
 		t.Errorf("want failures for services partial and bad, got %v", failures)
 	}
-	byService := registry.ByService()
-	if got := byService["partial"]; len(got) != 1 || got[0].Observed.ID != "id-2" {
+	if got := resources["partial"]; len(got) != 1 || got[0].Observed.ID != "id-2" {
 		t.Errorf("want the partial service's resource kept, got %v", got)
 	}
-	if _, ok := byService["bad"]; ok {
-		t.Error("failed service should be removed from the registry")
+	if _, ok := resources["bad"]; ok {
+		t.Error("a failed service should have no resources")
 	}
-	if got := len(registry.Resources); got != 2 {
-		t.Errorf("want the good and the partial services' resources, got %d resources", got)
+	if len(resources) != 2 {
+		t.Errorf("want the good and the partial services' resources, got %v", resources)
 	}
 }
 
@@ -117,10 +114,9 @@ func TestInitAllServicesResourcesKeepsAPartialListing(t *testing.T) {
 // deadline however loaded the runner.
 func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		registry := harvest.NewRegistry(&fakeProvider{})
 		options := Options{Services: []string{"slow", "good"}, ListTimeout: 10 * time.Millisecond}
 
-		failures, err := listServices(t.Context(), registry, callOf(options, ""), options.ListParallel, nil)
+		resources, failures, err := listServices(t.Context(), &fakeProvider{}, callOf(options, ""), options.ListParallel)
 		if err != nil {
 			t.Fatalf("a slow service must not abort the run: %v", err)
 		}
@@ -128,11 +124,11 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 			t.Errorf("want the slow service reported as listed in part, got %v", failures)
 		}
 		// What the slow service listed before its deadline is kept.
-		if got := registry.ByService()["slow"]; len(got) != 1 || got[0].Observed.ID != "id-3" {
+		if got := resources["slow"]; len(got) != 1 || got[0].Observed.ID != "id-3" {
 			t.Errorf("want the slow service's resource kept, got %v", got)
 		}
-		if got := len(registry.Resources); got != 2 {
-			t.Errorf("want the good and the slow services' resources, got %d resources", got)
+		if len(resources) != 2 {
+			t.Errorf("want the good and the slow services' resources, got %v", resources)
 		}
 	})
 }
@@ -141,9 +137,7 @@ func TestInitAllServicesResourcesTimesOutAService(t *testing.T) {
 func TestInitAllServicesResourcesStopsWhenInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	registry := harvest.NewRegistry(&fakeProvider{})
-
-	_, err := listServices(ctx, registry, callOf(Options{Services: []string{"slow", "good"}}, ""), 0, nil)
+	_, _, err := listServices(ctx, &fakeProvider{}, callOf(Options{Services: []string{"slow", "good"}}, ""), 0)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("want the run stopped, got %v", err)
 	}
@@ -172,43 +166,30 @@ func (s fakeScope) ManagedStateSource(source string) string {
 
 type fakeProvider struct {
 	harvest.Provider
-	service *fakeService
 }
 
 func (p *fakeProvider) Init(context.Context, []string) error { return nil }
 func (p *fakeProvider) Name() string                         { return "fake" }
 func (p *fakeProvider) Profile() harvest.Profile             { return harvest.Profile{} }
-func (p *fakeProvider) Selected() harvest.Lister {
-	return p.service
-}
-func (p *fakeProvider) Select(name string, _ bool) error {
-	p.service = &fakeService{}
-	p.service.Configure(harvest.ListerConfig{Service: name})
-	return nil
+func (p *fakeProvider) Lister(string) (harvest.Lister, error) {
+	return fakeService{}, nil
 }
 
-type fakeService struct {
-	harvest.ListerBase
-}
+type fakeService struct{}
 
-func (s *fakeService) List() error {
-	switch s.Name() {
+func (fakeService) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	switch s.Service {
 	case "bad":
-		return errors.New("access denied")
+		return nil, errors.New("access denied")
 	case "partial":
-		s.Resources = []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}
-		return harvest.Partial(errors.New("a zone's records: access denied"))
+		return []harvest.Resource{harvest.RecordBare("id-2", "two", "fake_thing", "fake")}, harvest.Partial(errors.New("a zone's records: access denied"))
 	case "slow":
 		// Lists one, then waits on a call that fails when its context is
 		// done.
-		s.Resources = []harvest.Resource{harvest.RecordBare("id-3", "three", "fake_thing", "fake")}
-		<-s.Context().Done()
-		return s.Context().Err()
+		<-ctx.Done()
+		return []harvest.Resource{harvest.RecordBare("id-3", "three", "fake_thing", "fake")}, ctx.Err()
 	}
-	s.Resources = []harvest.Resource{
-		harvest.RecordBare("id-1", "one", "fake_thing", "fake"),
-	}
-	return nil
+	return []harvest.Resource{harvest.RecordBare("id-1", "one", "fake_thing", "fake")}, nil
 }
 
 // servicesProvider is fakeProvider with the services vpc and s3.
@@ -342,32 +323,11 @@ func (p *catalogueProvider) Services() map[string]harvest.Lister {
 	return services
 }
 
-// The provider of each service listed, new for the service, is given the
-// catalogue of the import, overlay and all, before it makes the service's
-// lister.
-func TestListServicesGivesEachServiceTheCatalogue(t *testing.T) {
-	cat := catalogue.MustBuiltin("aws")
-	registry := harvest.NewRegistry(&catalogueProvider{})
-
-	if _, err := listServices(t.Context(), registry, &callContext{services: []string{"good", "partial"}, cat: cat}, 0, nil); err != nil {
-		t.Fatal(err)
-	}
-	if len(registry.Providers) != 2 {
-		t.Fatalf("want a provider per service, got %d", len(registry.Providers))
-	}
-	for provider := range registry.Providers {
-		if got := provider.(*catalogueProvider).cat; got != cat {
-			t.Errorf("a service's provider has catalogue %p, want %p", got, cat)
-		}
-	}
-}
-
 // dependentProvider is fakeProvider with the service after, which lists
 // from what the other services listed: a resource for each of theirs.
 type dependentProvider struct {
 	fakeProvider
 	listed []harvest.Resource
-	after  *afterService
 }
 
 func (*dependentProvider) Profile() harvest.Profile {
@@ -376,43 +336,32 @@ func (*dependentProvider) Profile() harvest.Profile {
 
 func (p *dependentProvider) SetListedByOthers(resources []harvest.Resource) { p.listed = resources }
 
-func (p *dependentProvider) Select(name string, verbose bool) error {
+func (p *dependentProvider) Lister(name string) (harvest.Lister, error) {
 	if name != "after" {
-		return p.fakeProvider.Select(name, verbose)
+		return p.fakeProvider.Lister(name)
 	}
-	p.after = &afterService{listed: p.listed}
-	p.after.Configure(harvest.ListerConfig{Service: name})
-	return nil
-}
-
-func (p *dependentProvider) Selected() harvest.Lister {
-	if p.after != nil {
-		return p.after
-	}
-	return p.fakeProvider.Selected()
+	return &afterService{listed: p.listed}, nil
 }
 
 // afterService lists a fake_after for each resource its provider was
-// given when it was selected.
+// given when it made the lister.
 type afterService struct {
-	harvest.ListerBase
 	listed []harvest.Resource
 }
 
-func (s *afterService) List() error {
+func (s *afterService) List(context.Context, harvest.Settings) ([]harvest.Resource, error) {
+	var resources []harvest.Resource
 	for _, r := range s.listed {
-		s.Resources = append(s.Resources, harvest.RecordBare(r.Observed.ID+"/after", "after", "fake_after", "fake"))
+		resources = append(resources, harvest.RecordBare(r.Observed.ID+"/after", "after", "fake_after", "fake"))
 	}
-	return nil
+	return resources, nil
 }
 
 // A dependent service lists once the others are done, wherever --services
 // names it, from what they listed: what a service that failed in part
 // listed too, and nothing of one that failed.
 func TestListServicesListsDependentServicesAfterTheOthers(t *testing.T) {
-	registry := harvest.NewRegistry(&dependentProvider{})
-
-	failures, err := listServices(t.Context(), registry, callOf(Options{Services: []string{"after", "good", "bad", "partial"}}, ""), 4, nil)
+	resources, failures, err := listServices(t.Context(), &dependentProvider{}, callOf(Options{Services: []string{"after", "good", "bad", "partial"}}, ""), 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +370,7 @@ func TestListServicesListsDependentServicesAfterTheOthers(t *testing.T) {
 		t.Errorf("want the failures of bad and partial, got %v", failures)
 	}
 	var got []string
-	for _, r := range registry.ByService()["after"] {
+	for _, r := range resources["after"] {
 		got = append(got, r.Observed.ID)
 	}
 	if want := []string{"id-1/after", "id-2/after"}; !slices.Equal(got, want) {

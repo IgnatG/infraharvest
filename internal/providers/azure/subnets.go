@@ -4,6 +4,8 @@
 package azure
 
 import (
+	"context"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -29,12 +31,16 @@ var subnetTypes = []string{
 
 // List lists the subnets, their associations and the service
 // endpoint policies. Any listing that fails fails the service.
-func (az *SubnetLister) List() error {
+func (az *SubnetLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *SubnetLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	// The networks, and a network without its subnets, take a call each,
 	// for subnets and associations the import may not keep.
 	var networks []*armnetwork.VirtualNetwork
-	if az.wantsAny(subnetTypes...) {
+	if az.WantsAny(subnetTypes...) {
 		var err error
 		if networks, err = az.listVirtualNetworks(); err != nil {
 			return err

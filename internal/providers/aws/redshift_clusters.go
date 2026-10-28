@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,7 +24,11 @@ type RedshiftLister struct {
 // List lists, in this order, clusters, parameter groups, subnet
 // groups, event subscriptions and snapshot schedules. Any error fails the
 // service.
-func (g *RedshiftLister) List() error {
+func (g *RedshiftLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *RedshiftLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

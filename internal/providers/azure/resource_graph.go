@@ -92,7 +92,11 @@ func graphPredicate(subscriptionID, resourceGroup string) (string, error) {
 	return predicate, nil
 }
 
-func (g *ResourceGraphLister) List() error {
+func (g *ResourceGraphLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *ResourceGraphLister) list() error {
 	subscriptionID, resourceGroup, credential, options := g.clientSettings()
 	predicate, err := graphPredicate(subscriptionID, resourceGroup)
 	if err != nil {
@@ -115,7 +119,7 @@ func (g *ResourceGraphLister) List() error {
 	}
 	cat := g.catalogue()
 	withoutWorkspaceDataSources(lister.ARMSchemaTree)
-	withoutUnkeptChildren(lister.ARMSchemaTree, keptTypes(cat, g.wants))
+	withoutUnkeptChildren(lister.ARMSchemaTree, keptTypes(cat, g.Wants))
 	groups, err := graphResourceGroups(g.Context(), credential, &clientOptions, subscriptionID, predicate)
 	if err != nil {
 		return err
@@ -149,7 +153,7 @@ func (g *ResourceGraphLister) List() error {
 	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
 	// A partial failure keeps the data sources that were listed, and the
 	// service fails in part (see childListFailures).
-	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources, g.wants)
+	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources, g.Wants)
 	if sourceErr != nil && !harvest.IsPartial(sourceErr) {
 		return sourceErr
 	}
