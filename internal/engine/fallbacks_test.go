@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // An azapi_resource whose pinned API version Terraform rejects, as when
@@ -42,7 +44,7 @@ resource "aws_sqs_queue" "b" {
 			tf.generated = "resource \"azapi_resource\" \"spec\" {\n  type = \"Microsoft.Resources/templateSpecs@2022-02-01\"\n}\n"
 		}
 	}
-	imports := []Import{
+	imports := []rootfile.Import{
 		{Type: "azapi_resource", Name: "spec", ID: pinned, Fallback: spec},
 		{Type: "aws_sqs_queue", Name: "b", ID: "b"},
 	}
@@ -54,10 +56,10 @@ resource "aws_sqs_queue" "b" {
 	if len(result.Rejected) != 0 {
 		t.Errorf("rejected: %+v", result.Rejected)
 	}
-	if got := readFile(t, dir, ImportsFileName); strings.Contains(got, "api-version") || !strings.Contains(got, spec) {
+	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "api-version") || !strings.Contains(got, spec) {
 		t.Errorf("imports.tf doesn't import the spec by its bare ID:\n%s", got)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	if strings.Count(got, `resource "azapi_resource" "spec"`) != 1 || !strings.Contains(got, "@2022-02-01") || !strings.Contains(got, `resource "aws_sqs_queue" "b"`) {
 		t.Errorf("generated.tf:\n%s", got)
 	}

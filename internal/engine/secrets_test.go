@@ -19,6 +19,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
@@ -86,7 +88,7 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 }
 `}
 
-	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_lambda_function", Name: "api", ID: "api"}}, Options{})
+	result, err := Generate(context.Background(), tf, dir, []rootfile.Import{{Type: "aws_lambda_function", Name: "api", ID: "api"}}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,13 +104,13 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 	if wantLog := dir + ": planning generated.tf again: " + string(replanSecrets) + "\n"; logged.String() != wantLog {
 		t.Errorf("log: got %q, want %q", logged.String(), wantLog)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readFile(t, dir, rootfile.GeneratedFileName)
 	for _, line := range []string{"WEBHOOK_SECRET = var.aws_lambda_function_api_webhook_secret", `LOG_LEVEL      = "debug"`, `TABLE_ARN      = "arn:aws:dynamodb:`} {
 		if !strings.Contains(generated, line) {
 			t.Errorf("missing %q in:\n%s", line, generated)
 		}
 	}
-	variables := readFile(t, dir, VariablesFileName)
+	variables := readFile(t, dir, hclfile.VariablesFileName)
 	for _, want := range []string{`variable "aws_lambda_function_api_webhook_secret" {`, "type        = string", "sensitive   = true", "secret store", "TF_VAR_aws_lambda_function_api_webhook_secret"} {
 		if !strings.Contains(variables, want) {
 			t.Errorf("missing %q in variables.tf:\n%s", want, variables)
@@ -117,7 +119,7 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 	if strings.Contains(variables, "default") {
 		t.Errorf("a secret variable has a default:\n%s", variables)
 	}
-	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "`aws_lambda_function_api_webhook_secret`") {
+	if readme := readFile(t, dir, rootfile.ReadmeFileName); !strings.Contains(readme, "`aws_lambda_function_api_webhook_secret`") {
 		t.Errorf("README doesn't list the variable:\n%s", readme)
 	}
 	// Infraharvest's own plans had the value, from outside the output, so
@@ -147,7 +149,7 @@ func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
 func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "api" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "api" {
   function_name = "api"
   environment {
     variables = {
@@ -156,7 +158,7 @@ func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
   }
 }
 `)
-	writeConfig(t, dir, ImportsFileName, `import {
+	writeConfig(t, dir, rootfile.ImportsFileName, `import {
   to = aws_lambda_function.api
   id = "api"
 }
@@ -180,13 +182,13 @@ func TestRedactResultAndCheckReadme(t *testing.T) {
 	value := fakeSecret("readme")
 	// The secret is one Generate found in the configuration: its value
 	// is known.
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "a" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "a" {
   environment {
     variables = { API_SECRET = "`+value+`" }
   }
 }
 `)
-	secrets, _, err := secret.LiteralsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := secret.LiteralsToVariables(filepath.Join(dir, rootfile.GeneratedFileName), nil)
 	if err != nil || len(secrets) != 1 {
 		t.Fatalf("got %+v, %v; want the secret in a variable", secrets, err)
 	}
@@ -215,10 +217,10 @@ func TestRedactResultAndCheckReadme(t *testing.T) {
 		t.Fatal(err)
 	}
 	g6 := leaky.Gate.Named(gate.CheckSecrets)
-	if g6.Passed || len(g6.Details) != 1 || !strings.HasPrefix(g6.Details[0], ReadmeFileName+": ") {
+	if g6.Passed || len(g6.Details) != 1 || !strings.HasPrefix(g6.Details[0], rootfile.ReadmeFileName+": ") {
 		t.Errorf("G6 didn't fail on the README: %+v", g6)
 	}
-	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, gate.CheckSecrets+" | **failed**") {
+	if readme := readFile(t, dir, rootfile.ReadmeFileName); !strings.Contains(readme, gate.CheckSecrets+" | **failed**") {
 		t.Errorf("README doesn't show G6 failing:\n%s", readme)
 	}
 }
@@ -261,13 +263,13 @@ func TestGenerateWritesStringParameterValues(t *testing.T) {
 				}}},
 			}
 
-			result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: tc.name}}, Options{})
+			result, err := Generate(context.Background(), tf, dir, []rootfile.Import{{Type: "aws_ssm_parameter", Name: "app_env", ID: tc.name}}, Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			got := readFile(t, dir, GeneratedFileName)
-			_, statErr := os.Stat(filepath.Join(dir, VariablesFileName))
+			got := readFile(t, dir, rootfile.GeneratedFileName)
+			_, statErr := os.Stat(filepath.Join(dir, hclfile.VariablesFileName))
 			if tc.variable {
 				if len(result.Secrets) != 1 || statErr != nil || !strings.Contains(got, "value = var.aws_ssm_parameter_app_env_value") {
 					t.Errorf("want the value in a variable, got secrets %+v:\n%s", result.Secrets, got)
@@ -346,7 +348,7 @@ resource "aws_lightsail_database" "db" {
 		}},
 	}
 
-	result, err := Generate(context.Background(), tf, dir, []Import{
+	result, err := Generate(context.Background(), tf, dir, []rootfile.Import{
 		{Type: "aws_redshift_cluster", Name: "dw", ID: "dw"},
 		{Type: "aws_secretsmanager_secret_version", Name: "app", ID: "app"},
 		{Type: "aws_lightsail_database", Name: "db", ID: "db"},
@@ -363,7 +365,7 @@ resource "aws_lightsail_database" "db" {
 	if want := []string{"aws_lightsail_database_db_master_password", "aws_secretsmanager_secret_version_app_secret_string"}; !reflect.DeepEqual(variables, want) {
 		t.Errorf("variables: got %v, want %v", variables, want)
 	}
-	got := readFile(t, dir, GeneratedFileName)
+	got := readFile(t, dir, rootfile.GeneratedFileName)
 	start := strings.Index(got, `resource "aws_redshift_cluster"`)
 	if start < 0 {
 		t.Fatalf("the cluster is gone:\n%s", got)

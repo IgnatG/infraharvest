@@ -12,20 +12,22 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // Each call of a scope sees the roots of every other call, before and
 // after it: a regional root refers to the global root's role, and the
 // global root to the regional function.
 func TestScopeRootsGoBothWays(t *testing.T) {
-	role := engine.Import{Type: "aws_iam_role", ID: "app", Name: "app"}
-	fn := engine.Import{Type: "aws_lambda_function", ID: "fn", Name: "fn"}
-	byDirs := []map[string][]engine.Import{
+	role := rootfile.Import{Type: "aws_iam_role", ID: "app", Name: "app"}
+	fn := rootfile.Import{Type: "aws_lambda_function", ID: "fn", Name: "fn"}
+	byDirs := []map[string][]rootfile.Import{
 		{"out/aws/111/global": {role}},
 		nil, // a call that generates nothing
 		{"out/aws/111/eu-west-2": {fn}},
 	}
-	want := map[string][]engine.Import{"out/aws/111/global": {role}, "out/aws/111/eu-west-2": {fn}}
+	want := map[string][]rootfile.Import{"out/aws/111/global": {role}, "out/aws/111/eu-west-2": {fn}}
 	for _, own := range []int{0, 2} {
 		if got := scopeRoots(byDirs, own); !reflect.DeepEqual(got, want) {
 			t.Errorf("call %d: got %v, want %v", own, got, want)
@@ -47,8 +49,8 @@ func TestScopeRootsGoBothWays(t *testing.T) {
 
 	// A call's own directory is its own, whatever another call puts
 	// there; a call on its own sees only its roots.
-	same := []map[string][]engine.Import{{"out/a": {role}}, {"out/a": {fn}}}
-	if got := scopeRoots(same, 1)["out/a"]; !reflect.DeepEqual(got, []engine.Import{fn}) {
+	same := []map[string][]rootfile.Import{{"out/a": {role}}, {"out/a": {fn}}}
+	if got := scopeRoots(same, 1)["out/a"]; !reflect.DeepEqual(got, []rootfile.Import{fn}) {
 		t.Errorf("the call's own directory: got %v", got)
 	}
 	if got := scopeRoots(byDirs[:1], 0); !reflect.DeepEqual(got, byDirs[0]) {
@@ -67,13 +69,13 @@ func TestOtherRootsOfEachRoot(t *testing.T) {
 		OtherRoots:  []engine.RootResource{{Type: "aws_iam_role", ID: "app", Name: "app", Root: "elsewhere"}},
 		DataSources: map[string]engine.DataSource{"aws_vpc": {Type: "aws_vpc", Argument: "id"}, "aws_iam_role": {Type: "aws_iam_role", Argument: "name"}},
 	}
-	byDir := map[string][]engine.Import{}
+	byDir := map[string][]rootfile.Import{}
 	for d := range 4 {
 		dir := fmt.Sprintf("out/root%d", d)
 		for i := range 12 {
 			typ := []string{"aws_vpc", "aws_iam_role", "aws_s3_bucket"}[i%3]
 			// IDs repeat across roots, some named and some not.
-			imp := engine.Import{Type: typ, ID: fmt.Sprintf("id-%d", (i+d)%5)}
+			imp := rootfile.Import{Type: typ, ID: fmt.Sprintf("id-%d", (i+d)%5)}
 			if (i+d)%2 == 0 {
 				imp.Name = fmt.Sprintf("n_%d_%d", d, i)
 			}
@@ -95,7 +97,7 @@ func TestOtherRootsOfEachRoot(t *testing.T) {
 
 // ownRootOptions builds the options of the root in dir on their own, from
 // every other root: what otherRoots.of must return.
-func ownRootOptions(opts engine.Options, byDir map[string][]engine.Import, dir, out string) engine.Options {
+func ownRootOptions(opts engine.Options, byDir map[string][]rootfile.Import, dir, out string) engine.Options {
 	dirOpts := opts
 	dirOpts.External = slices.Clone(opts.External)
 	dirOpts.OtherRoots = slices.Clone(opts.OtherRoots)
@@ -107,7 +109,7 @@ func ownRootOptions(opts engine.Options, byDir map[string][]engine.Import, dir, 
 			if _, ok := opts.DataSources[imp.Type]; ok {
 				dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name})
 			}
-			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: relativePath(out, other)})
+			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: hclfile.Label(imp.Name), Root: relativePath(out, other)})
 		}
 	}
 	unnamed := func(e engine.External) int {

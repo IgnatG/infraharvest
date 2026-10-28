@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -22,13 +21,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// LocalsFileName holds the values lifted out of the generated
-// configuration.
-const LocalsFileName = "locals.tf"
 
 // DefaultTags describes how a provider applies tags to every resource it
 // manages, such as the AWS provider's default_tags.
@@ -85,7 +81,7 @@ var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 // leaves those tags out of the resources, or makes the resources refer to
 // them: the root has them already (see applyDefaultTags).
 func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
-	generatedPath := filepath.Join(dir, GeneratedFileName)
+	generatedPath := filepath.Join(dir, rootfile.GeneratedFileName)
 	generated, err := hclfile.Load(generatedPath)
 	if err != nil {
 		return false, err
@@ -175,7 +171,7 @@ func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schem
 			return false, err
 		}
 		if provider == nil {
-			return false, fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+			return false, fmt.Errorf("%s has no provider %q to apply default tags", rootfile.ProvidersFileName, dt.Provider)
 		}
 		alias := aliasFor(dt)
 		if !hasAlias(providers, dt.Provider, alias) {
@@ -229,7 +225,7 @@ func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
 	if dt.Block == "" {
 		return false, nil
 	}
-	generated, err := hclfile.Load(filepath.Join(staging, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(staging, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -254,7 +250,7 @@ func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
 		return false, err
 	}
 	if provider == nil {
-		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, ProvidersFileName), dt.Provider)
+		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, rootfile.ProvidersFileName), dt.Provider)
 	}
 	if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 		return false, err
@@ -292,7 +288,7 @@ func taggedResources(f *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSc
 			}
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok {
 			return nil, false
 		}
@@ -355,7 +351,7 @@ func applyDefaultTags(dir string, dt DefaultTags) error {
 		return err
 	}
 	if provider == nil {
-		return fmt.Errorf("%s has no provider %q to apply default tags", ProvidersFileName, dt.Provider)
+		return fmt.Errorf("%s has no provider %q to apply default tags", rootfile.ProvidersFileName, dt.Provider)
 	}
 	return setDefaultTags(dir, providers, provider, dt, dt.Applied)
 }
@@ -363,7 +359,7 @@ func applyDefaultTags(dir string, dt DefaultTags) error {
 // loadProvider loads providers.tf and finds the default configuration of
 // the provider named name, the block without an alias, or nil.
 func loadProvider(dir, name string) (*hclfile.File, *hclwrite.Body, error) {
-	providers, err := hclfile.Load(filepath.Join(dir, ProvidersFileName))
+	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -400,7 +396,7 @@ func removeTags(f *hclfile.File, attribute string, remove map[string]string, ski
 		if !ok || skip[r.Address] {
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok {
 			continue
 		}
@@ -436,7 +432,7 @@ func referTags(f *hclfile.File, attribute string, shared map[string]string) bool
 		if !ok {
 			continue
 		}
-		tags, ok := stringMap(attr.Expr)
+		tags, ok := hclfile.StringMap(attr.Expr)
 		if !ok || len(tags) == 0 {
 			continue
 		}
@@ -482,7 +478,7 @@ func addAliasProvider(providers *hclfile.File, provider *hclwrite.Body, dt Defau
 		if !dt.Argument && b.Type() == dt.Block {
 			continue
 		}
-		copied, err := copyBlock(b)
+		copied, err := hclfile.CopyBlock(b)
 		if err != nil {
 			return fmt.Errorf("provider %s: %w", dt.Provider, err)
 		}
@@ -493,29 +489,6 @@ func addAliasProvider(providers *hclfile.File, provider *hclwrite.Body, dt Defau
 	file.AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(fmt.Sprintf("# For the resources without the tags that %s applies to the others.\n", dt.Block))}})
 	file.AppendBlock(block)
 	return nil
-}
-
-// stringMap evaluates a literal map of strings; null is an empty map.
-func stringMap(expr hclsyntax.Expression) (map[string]string, bool) {
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || !v.IsWhollyKnown() {
-		return nil, false
-	}
-	m := map[string]string{}
-	if v.IsNull() {
-		return m, true
-	}
-	if !v.Type().IsMapType() && !v.Type().IsObjectType() {
-		return nil, false
-	}
-	for it := v.ElementIterator(); it.Next(); {
-		k, val := it.Element()
-		if val.IsNull() || val.Type() != cty.String {
-			return nil, false
-		}
-		m[k.AsString()] = val.AsString()
-	}
-	return m, true
 }
 
 func mapValue(m map[string]string) cty.Value {
@@ -536,7 +509,7 @@ func mapValue(m map[string]string) cty.Value {
 // stay the same, so the plan does too. It reports whether it lifted
 // anything.
 func liftLiterals(dir string, taken Names) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return false, err
 	}
@@ -595,9 +568,9 @@ func liftLiterals(dir string, taken Names) (bool, error) {
 				best = u.attr
 			}
 		}
-		name := Label(best)
+		name := hclfile.Label(best)
 		for n := 2; hasLocal(locals, name) || taken["local."+name]; n++ {
-			name = fmt.Sprintf("%s_%d", Label(best), n)
+			name = fmt.Sprintf("%s_%d", hclfile.Label(best), n)
 		}
 		locals[name] = cty.StringVal(value)
 		for _, u := range uses[value] {
@@ -632,7 +605,7 @@ func setLocals(dir string, values map[string]cty.Value) error {
 // readLocals returns the literal locals in locals.tf, if any.
 func readLocals(dir string) (map[string]cty.Value, error) {
 	locals := map[string]cty.Value{}
-	f, err := hclfile.Load(filepath.Join(dir, LocalsFileName))
+	f, err := hclfile.Load(filepath.Join(dir, rootfile.LocalsFileName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return locals, nil
 	}
@@ -646,7 +619,7 @@ func readLocals(dir string) (map[string]cty.Value, error) {
 		for name, attr := range b.Body.Attributes {
 			v, diags := attr.Expr.Value(nil)
 			if diags.HasErrors() {
-				return nil, fmt.Errorf("%s: local.%s isn't a literal", LocalsFileName, name)
+				return nil, fmt.Errorf("%s: local.%s isn't a literal", rootfile.LocalsFileName, name)
 			}
 			locals[name] = v
 		}
@@ -666,44 +639,5 @@ func writeLocals(dir string, locals map[string]cty.Value) error {
 	for _, name := range names {
 		body.SetAttributeValue(name, locals[name])
 	}
-	return fsutil.WriteFile(filepath.Join(dir, LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
-}
-
-// fileBackup holds files' contents to restore; nil for files that didn't
-// exist.
-type fileBackup struct {
-	dir   string
-	files map[string][]byte
-}
-
-func backupFiles(dir string, names ...string) (*fileBackup, error) {
-	b := &fileBackup{dir: dir, files: map[string][]byte{}}
-	for _, name := range names {
-		content, err := os.ReadFile(filepath.Join(dir, name))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			b.files[name] = nil
-		case err != nil:
-			return nil, err
-		default:
-			b.files[name] = content
-		}
-	}
-	return b, nil
-}
-
-func (b *fileBackup) restore() error {
-	for name, content := range b.files {
-		path := filepath.Join(b.dir, name)
-		if content == nil {
-			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			continue
-		}
-		if err := fsutil.WriteFile(path, content, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
+	return fsutil.WriteFile(filepath.Join(dir, rootfile.LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
 }

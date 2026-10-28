@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -54,7 +55,7 @@ func TestAddToRootFailsEveryImportOnACheckpointError(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Run{options: Options{Out: out}}
-	imports := []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
+	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
 
 	failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
@@ -77,22 +78,22 @@ func TestAddToRootLeavesOutWhatTheRootLeftOutAsOwned(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, engine.GeneratedFileName), []byte("resource \"aws_iam_role\" \"app\" {\n  name = \"app\"\n}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte("resource \"aws_iam_role\" \"app\" {\n  name = \"app\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, engine.ImportsFileName), []byte("import {\n  to = aws_iam_role.app\n  id = \"app\"\n}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte("import {\n  to = aws_iam_role.app\n  id = \"app\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	owner := engine.Owner{Tool: "Terraform", Tag: "ManagedBy=Terraform"}
 	previous := &engine.Result{
-		Imported: []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}},
+		Imported: []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}},
 		Owned:    []engine.OwnedResource{{Address: "aws_iam_role.ci", ID: "ci", Owner: owner}},
 	}
 	if err := saveCheckpoint(out, dir, "fp", previous); err != nil {
 		t.Fatal(err)
 	}
 	r := &Run{options: Options{Out: out}, scope: "aws/123/global"}
-	imports := []engine.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "ci", ID: "ci"}}
+	imports := []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "ci", ID: "ci"}}
 
 	added, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
@@ -154,12 +155,12 @@ func TestDecideRootRefusesAnUnfinishedRoot(t *testing.T) {
 
 	out := t.TempDir()
 	started := filepath.Join(out, "aws", "111")
-	write(started, engine.ImportsFileName, engine.GeneratedFileName, engine.ReadmeFileName)
+	write(started, rootfile.ImportsFileName, rootfile.GeneratedFileName, rootfile.ReadmeFileName)
 	if err := saveCheckpoint(out, started, "fp", nil); err != nil {
 		t.Fatal(err)
 	}
 	raw := filepath.Join(out, "aws", "222")
-	write(raw, engine.ImportsFileName, engine.GeneratedFileName)
+	write(raw, rootfile.ImportsFileName, rootfile.GeneratedFileName)
 
 	c := &listedCall{options: Options{Out: out, Incremental: true}}
 	for _, dir := range []string{started, raw} {
@@ -171,12 +172,12 @@ func TestDecideRootRefusesAnUnfinishedRoot(t *testing.T) {
 
 	// A root generated in full, or with its README, is complete.
 	done := filepath.Join(out, "aws", "333")
-	write(done, engine.ImportsFileName, "network.tf")
+	write(done, rootfile.ImportsFileName, "network.tf")
 	if err := saveCheckpoint(out, done, "fp", &engine.Result{Files: []string{"network.tf"}}); err != nil {
 		t.Fatal(err)
 	}
 	withReadme := filepath.Join(out, "aws", "444")
-	write(withReadme, engine.ImportsFileName, engine.GeneratedFileName, engine.ReadmeFileName)
+	write(withReadme, rootfile.ImportsFileName, rootfile.GeneratedFileName, rootfile.ReadmeFileName)
 	for _, dir := range []string{done, withReadme} {
 		if unfinished, err := unfinishedRoot(out, dir); err != nil || unfinished {
 			t.Errorf("%s: unfinished=%v, %v; want a complete root", dir, unfinished, err)
@@ -196,14 +197,14 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	global := filepath.Join(out, "google", "acme", "global")
 	regional := filepath.Join(out, "google", "acme", "us-central1")
 	gone := filepath.Join(out, "google", "acme", "europe-west1")
-	network := engine.Import{Type: "google_compute_network", Name: "main", ID: "projects/acme/global/networks/main"}
-	subnet := engine.Import{Type: "google_compute_subnetwork", Name: "app", ID: "projects/acme/regions/us-central1/subnetworks/app"}
-	rejected := engine.Import{Type: "google_compute_subnetwork", Name: "bad", ID: "projects/acme/regions/us-central1/subnetworks/bad"}
-	eu := engine.Import{Type: "google_compute_subnetwork", Name: "eu", ID: "projects/acme/regions/europe-west1/subnetworks/eu"}
+	network := rootfile.Import{Type: "google_compute_network", Name: "main", ID: "projects/acme/global/networks/main"}
+	subnet := rootfile.Import{Type: "google_compute_subnetwork", Name: "app", ID: "projects/acme/regions/us-central1/subnetworks/app"}
+	rejected := rootfile.Import{Type: "google_compute_subnetwork", Name: "bad", ID: "projects/acme/regions/us-central1/subnetworks/bad"}
+	eu := rootfile.Import{Type: "google_compute_subnetwork", Name: "eu", ID: "projects/acme/regions/europe-west1/subnetworks/eu"}
 	for dir, result := range map[string]*engine.Result{
-		global:   {Imported: []engine.Import{network}},
-		regional: {Imported: []engine.Import{subnet}, Rejected: []engine.Rejection{{Address: "google_compute_subnetwork.bad", ID: rejected.ID}}},
-		gone:     {Imported: []engine.Import{eu}},
+		global:   {Imported: []rootfile.Import{network}},
+		regional: {Imported: []rootfile.Import{subnet}, Rejected: []engine.Rejection{{Address: "google_compute_subnetwork.bad", ID: rejected.ID}}},
+		gone:     {Imported: []rootfile.Import{eu}},
 	} {
 		if err := saveCheckpoint(out, dir, "fp", result); err != nil {
 			t.Fatal(err)
@@ -213,11 +214,11 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, engine.ImportsFileName), []byte("# imports\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte("# imports\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	byDir := map[string][]engine.Import{global: {network, subnet, rejected, eu}}
+	byDir := map[string][]rootfile.Import{global: {network, subnet, rejected, eu}}
 
 	held, err := heldElsewhere(out, byDir)
 	if err != nil {
@@ -228,7 +229,7 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	}
 	r := &Run{options: Options{Out: out}, scope: "acme/global"}
 	r.leaveOutHeld(byDir, held)
-	if want := []engine.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
+	if want := []rootfile.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
 		t.Errorf("global: got %v, want %v", byDir[global], want)
 	}
 	want := []report.Excluded{{Type: subnet.Type, ID: subnet.ID, Reason: whyText(report.InOtherRoot("google/acme/us-central1")), Scope: "acme/global", Owner: report.OwnerTerraformRoot}}
@@ -236,7 +237,7 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 		t.Errorf("excluded:\ngot  %+v\nwant %+v", r.report.Excluded, want)
 	}
 
-	only := map[string][]engine.Import{global: {subnet}}
+	only := map[string][]rootfile.Import{global: {subnet}}
 	r.leaveOutHeld(only, held)
 	if _, ok := only[global]; ok {
 		t.Errorf("a root with nothing left to import is kept: %v", only)
@@ -247,7 +248,7 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 // held elsewhere.
 func TestHeldElsewhereWithoutCheckpoints(t *testing.T) {
 	out := t.TempDir()
-	held, err := heldElsewhere(out, map[string][]engine.Import{filepath.Join(out, "aws", "123"): nil})
+	held, err := heldElsewhere(out, map[string][]rootfile.Import{filepath.Join(out, "aws", "123"): nil})
 	if err != nil || len(held) != 0 {
 		t.Errorf("got %v, %v; want nothing", held, err)
 	}
@@ -258,18 +259,18 @@ func TestHeldElsewhereWithoutCheckpoints(t *testing.T) {
 func TestHeldElsewhereCountsAnAppliedRoot(t *testing.T) {
 	out := t.TempDir()
 	applied, next := filepath.Join(out, "aws", "applied"), filepath.Join(out, "aws", "next")
-	queue := engine.Import{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/orders"}
+	queue := rootfile.Import{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/orders"}
 	if err := os.MkdirAll(applied, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(applied, engine.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(applied, rootfile.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	result := &engine.Result{Imported: []engine.Import{queue}, Addresses: []engine.Managed{{Type: queue.Type, ID: queue.ID, Address: "aws_sqs_queue.orders"}}}
+	result := &engine.Result{Imported: []rootfile.Import{queue}, Addresses: []engine.Managed{{Type: queue.Type, ID: queue.ID, Address: "aws_sqs_queue.orders"}}}
 	if err := saveCheckpoint(out, applied, "fp", result); err != nil {
 		t.Fatal(err)
 	}
-	held, err := heldElsewhere(out, map[string][]engine.Import{next: {queue}})
+	held, err := heldElsewhere(out, map[string][]rootfile.Import{next: {queue}})
 	if err != nil {
 		t.Fatal(err)
 	}

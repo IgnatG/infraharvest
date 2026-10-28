@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // refining returns a Refine that writes refined.tf and edits providers.tf,
@@ -21,7 +23,7 @@ import (
 func refining(got *[]Managed, providers *string, err error) func(context.Context, string, []Managed, *tfjson.ProviderSchemas) ([]string, error) {
 	return func(_ context.Context, dir string, addresses []Managed, _ *tfjson.ProviderSchemas) ([]string, error) {
 		*got = addresses
-		before, rerr := os.ReadFile(filepath.Join(dir, ProvidersFileName))
+		before, rerr := os.ReadFile(filepath.Join(dir, rootfile.ProvidersFileName))
 		if rerr != nil {
 			return nil, rerr
 		}
@@ -29,7 +31,7 @@ func refining(got *[]Managed, providers *string, err error) func(context.Context
 		if werr := os.WriteFile(filepath.Join(dir, "refined.tf"), []byte("# refined\n"), 0o644); werr != nil {
 			return nil, werr
 		}
-		if werr := os.WriteFile(filepath.Join(dir, ProvidersFileName), []byte("# providers, refined\n"), 0o644); werr != nil {
+		if werr := os.WriteFile(filepath.Join(dir, rootfile.ProvidersFileName), []byte("# providers, refined\n"), 0o644); werr != nil {
 			return nil, werr
 		}
 		if err != nil {
@@ -42,10 +44,10 @@ func refining(got *[]Managed, providers *string, err error) func(context.Context
 func generateRefined(t *testing.T, tf *fakeTerraform, refine func(context.Context, string, []Managed, *tfjson.ProviderSchemas) ([]string, error)) *Result {
 	t.Helper()
 	config := map[string][]byte{
-		VersionsFileName:  VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"}),
-		ProvidersFileName: []byte("# providers\n"),
+		rootfile.VersionsFileName:  rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"}),
+		rootfile.ProvidersFileName: []byte("# providers\n"),
 	}
-	result, err := Generate(context.Background(), tf, tf.dir, []Import{{Type: "aws_sqs_queue", Name: "orders", ID: "a"}}, Options{Config: config, Refine: refine})
+	result, err := Generate(context.Background(), tf, tf.dir, []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "a"}}, Options{Config: config, Refine: refine})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func assertUnrefined(t *testing.T, dir, providers string) {
 	if _, err := os.Stat(filepath.Join(dir, "refined.tf")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("refined.tf is still there: %v", err)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != providers {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != providers {
 		t.Errorf("providers.tf: %q, want %q", got, providers)
 	}
 }
@@ -155,7 +157,7 @@ func TestGenerateKeepsRefineWhenTheGateFailsWithoutIt(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "refined.tf")); err != nil {
 		t.Errorf("refined.tf: %v", err)
 	}
-	if got := readFile(t, dir, ProvidersFileName); got != "# providers, refined\n" {
+	if got := readFile(t, dir, rootfile.ProvidersFileName); got != "# providers, refined\n" {
 		t.Errorf("providers.tf: %q, want the refined one", got)
 	}
 }

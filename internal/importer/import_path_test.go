@@ -17,7 +17,9 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -61,22 +63,22 @@ type fakeEngine struct {
 	// options each was generated with, by directory.
 	generated []string
 	opts      map[string]engine.Options
-	imports   map[string][]engine.Import
+	imports   map[string][]rootfile.Import
 	// fail is the error generating a root whose directory ends in it
 	// returns, if set, once it has written the root's files, as the
 	// engine does; leak the root whose secrets check fails.
 	fail, leak string
 	// label, if set, gives the label of each resource the root imports,
 	// for its address; its name otherwise.
-	label func(engine.Import) string
+	label func(rootfile.Import) string
 	// moves, if set, moves each resource of the root the engine options
 	// say an earlier import generated that is at another address now, as
 	// the engine does.
 	moves bool
 	// added are the imports added to each root, by directory, and merged
 	// the roots of each merge, in order.
-	added  map[string][]engine.Import
-	merged [][]engine.MergeRoot
+	added  map[string][]rootfile.Import
+	merged [][]envmerge.MergeRoot
 	// mergeReason, if set, is why the roots of a stack don't merge.
 	mergeReason string
 	// readmes are the roots whose README was written after adding to
@@ -84,8 +86,8 @@ type fakeEngine struct {
 	// cloud, and mergedMoves the moved blocks written into each merged
 	// root, by directory.
 	readmes     []string
-	notInCloud  map[string]map[string][]engine.Import
-	mergedMoves map[string][]engine.Move
+	notInCloud  map[string]map[string][]rootfile.Import
+	mergedMoves map[string][]rootfile.Move
 }
 
 func (f *fakeEngine) tools() *callTools {
@@ -93,28 +95,28 @@ func (f *fakeEngine) tools() *callTools {
 		findBinary: func(context.Context, tfrun.Binary, string, string) (string, error) {
 			return "terraform", nil
 		},
-		rootConfig: func(_ context.Context, _, _ string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
+		rootConfig: func(_ context.Context, _, _ string, p rootfile.Provider, _ []moduleConstraint) (*rootFiles, error) {
 			p.Version = "~> 1.0"
 			return &rootFiles{
-				files:         map[string][]byte{engine.VersionsFileName: []byte("terraform {}\n")},
+				files:         map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")},
 				engineVersion: "1.9.0",
 				provider:      p,
 				version:       goversion.Must(goversion.NewVersion("1.0.0")),
 			}, nil
 		},
-		generate: func(_ context.Context, dir string, _ terraformRun, imports []engine.Import, opts engine.Options, _ *[]byte) (*engine.Result, error) {
+		generate: func(_ context.Context, dir string, _ terraformRun, imports []rootfile.Import, opts engine.Options, _ *[]byte) (*engine.Result, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.generated = append(f.generated, filepath.Base(dir))
 			if f.opts == nil {
-				f.opts, f.imports = map[string]engine.Options{}, map[string][]engine.Import{}
+				f.opts, f.imports = map[string]engine.Options{}, map[string][]rootfile.Import{}
 			}
 			f.opts[filepath.Base(dir)] = opts
 			f.imports[filepath.Base(dir)] = imports
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return nil, err
 			}
-			for _, name := range []string{engine.ImportsFileName, engine.VersionsFileName, engine.GeneratedFileName} {
+			for _, name := range []string{rootfile.ImportsFileName, rootfile.VersionsFileName, rootfile.GeneratedFileName} {
 				if err := os.WriteFile(filepath.Join(dir, name), []byte("# fake\n"), 0o644); err != nil {
 					return nil, err
 				}
@@ -129,7 +131,7 @@ func (f *fakeEngine) tools() *callTools {
 				if err := os.WriteFile(filepath.Join(dir, "fake_thing.tf"), []byte("# fake\n"), 0o644); err != nil {
 					return nil, err
 				}
-				if err := os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), []byte("# fake\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), []byte("# fake\n"), 0o644); err != nil {
 					return nil, err
 				}
 				result.Files = []string{"fake_thing.tf"}
@@ -156,7 +158,7 @@ func (f *fakeEngine) tools() *callTools {
 				result.Removed = opts.Previous.Removed
 			}
 			if len(result.Removed) > 0 {
-				if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(dir, rootfile.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
 					return nil, err
 				}
 			}
@@ -164,33 +166,33 @@ func (f *fakeEngine) tools() *callTools {
 				for _, p := range opts.Previous.Addresses {
 					for _, m := range result.Addresses {
 						if m.Type == p.Type && m.ID == p.ID && m.Address != p.Address {
-							result.Moves = append(result.Moves, engine.Move{From: p.Address, To: m.Address})
+							result.Moves = append(result.Moves, rootfile.Move{From: p.Address, To: m.Address})
 						}
 					}
 				}
 				if len(result.Moves) > 0 {
-					if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
+					if err := os.WriteFile(filepath.Join(dir, rootfile.MovesFileName), []byte("# fake\n"), 0o644); err != nil {
 						return nil, err
 					}
 				}
 			}
 			return result, nil
 		},
-		addTo: func(_ context.Context, _, _ tfrun.Terraform, _, root string, imports []engine.Import, _ engine.Options, _ map[engine.External]string) (*engine.Result, error) {
+		addTo: func(_ context.Context, _, _ tfrun.Terraform, _, root string, imports []rootfile.Import, _ engine.Options, _ map[engine.External]string) (*engine.Result, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.added == nil {
-				f.added = map[string][]engine.Import{}
+				f.added = map[string][]rootfile.Import{}
 			}
 			f.added[filepath.Base(root)] = imports
 			name := engine.AddedFileName(2)
 			return &engine.Result{Imported: imports, Files: []string{name}}, os.WriteFile(filepath.Join(root, name), []byte("# fake\n"), 0o644)
 		},
-		merge: func(_ context.Context, dir string, roots []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+		merge: func(_ context.Context, dir string, roots []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.merged = append(f.merged, roots)
-			result := &engine.MergeResult{Reason: f.mergeReason}
+			result := &envmerge.MergeResult{Reason: f.mergeReason}
 			if f.mergeReason != "" {
 				return result, nil
 			}
@@ -199,7 +201,7 @@ func (f *fakeEngine) tools() *callTools {
 				return nil, err
 			}
 			for _, r := range roots {
-				result.Environments = append(result.Environments, engine.MergedEnvironment{Env: r.Env})
+				result.Environments = append(result.Environments, envmerge.MergedEnvironment{Env: r.Env})
 			}
 			return result, os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# merged\n"), 0o644)
 		},
@@ -207,25 +209,25 @@ func (f *fakeEngine) tools() *callTools {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.readmes = append(f.readmes, filepath.Base(dir))
-			return os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), []byte("# fake\n"), 0o644)
+			return os.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), []byte("# fake\n"), 0o644)
 		},
-		mergedNotInCloud: func(dir string, gone map[string][]engine.Import) error {
+		mergedNotInCloud: func(dir string, gone map[string][]rootfile.Import) error {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.notInCloud == nil {
-				f.notInCloud = map[string]map[string][]engine.Import{}
+				f.notInCloud = map[string]map[string][]rootfile.Import{}
 			}
 			f.notInCloud[filepath.Base(dir)] = gone
 			return nil
 		},
-		mergedMoves: func(dir string, moved []engine.Move, _ []engine.Removal) (gate.Check, error) {
+		mergedMoves: func(dir string, moved []rootfile.Move, _ []rootfile.Removal) (gate.Check, error) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			if f.mergedMoves == nil {
-				f.mergedMoves = map[string][]engine.Move{}
+				f.mergedMoves = map[string][]rootfile.Move{}
 			}
 			f.mergedMoves[filepath.Base(dir)] = moved
-			return gate.Check{Name: gate.CheckMoves, Passed: true}, os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte("# fake\n"), 0o644)
+			return gate.Check{Name: gate.CheckMoves, Passed: true}, os.WriteFile(filepath.Join(dir, rootfile.MovesFileName), []byte("# fake\n"), 0o644)
 		},
 	}
 }
@@ -309,7 +311,7 @@ func TestListCallGeneratesEachRoot(t *testing.T) {
 		t.Fatalf("generated %v, want alpha then beta", f.generated)
 	}
 	alpha := f.opts["alpha"]
-	if string(alpha.Config[engine.VersionsFileName]) != "terraform {}\n" {
+	if string(alpha.Config[rootfile.VersionsFileName]) != "terraform {}\n" {
 		t.Errorf("root files: %v", alpha.Config)
 	}
 	if len(alpha.OtherRoots) != 1 || alpha.OtherRoots[0].ID != "id-beta" || alpha.OtherRoots[0].Root != "fake/beta" {
@@ -350,7 +352,7 @@ func TestListedCallsReferToEachOthersRoots(t *testing.T) {
 		}
 		listed = append(listed, c)
 	}
-	byDirs := []map[string][]engine.Import{listed[0].byDir, listed[1].byDir}
+	byDirs := []map[string][]rootfile.Import{listed[0].byDir, listed[1].byDir}
 	for i, c := range listed {
 		if err := c.generate(t.Context(), scopeRoots(byDirs, i)); err != nil {
 			t.Fatal(err)
@@ -440,7 +442,7 @@ func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
 		}
 	}
 
-	f = &fakeEngine{label: func(imp engine.Import) string {
+	f = &fakeEngine{label: func(imp rootfile.Import) string {
 		if imp.ID == "id-alpha" {
 			return "renamed"
 		}
@@ -471,7 +473,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
 	alpha := filepath.Join(out, "fake", "alpha")
 	moves := []byte("moved {\n  from = fake_thing.old\n  to   = fake_thing.alpha\n}\n")
-	if err := os.WriteFile(filepath.Join(alpha, engine.MovesFileName), moves, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(alpha, rootfile.MovesFileName), moves, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	before, err := readCheckpoint(out, alpha)
@@ -487,7 +489,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha (failed)", "fake/beta"}) {
 		t.Errorf("reported directories %v", got)
 	}
-	for name, want := range map[string][]byte{engine.GeneratedFileName: []byte("# fake\n"), engine.ImportsFileName: []byte("# fake\n"), engine.MovesFileName: moves} {
+	for name, want := range map[string][]byte{rootfile.GeneratedFileName: []byte("# fake\n"), rootfile.ImportsFileName: []byte("# fake\n"), rootfile.MovesFileName: moves} {
 		if got, err := os.ReadFile(filepath.Join(alpha, name)); err != nil || !slices.Equal(got, want) {
 			t.Errorf("alpha's %s: %q, %v, want it as it was, %q", name, got, err, want)
 		}
@@ -547,7 +549,7 @@ func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "NOTES.txt"), notes, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, engine.ReadmeFileName), notes, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), notes, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -567,14 +569,14 @@ func TestListCallRemovesWhatANewRootThatFailsWrote(t *testing.T) {
 			t.Errorf("%s's NOTES.txt: %q, %v, want it kept", service, got, err)
 		}
 		// The README it had, which the engine writes too, is put back.
-		if got, err := os.ReadFile(filepath.Join(dir, engine.ReadmeFileName)); err != nil || !slices.Equal(got, notes) {
+		if got, err := os.ReadFile(filepath.Join(dir, rootfile.ReadmeFileName)); err != nil || !slices.Equal(got, notes) {
 			t.Errorf("%s's README: %q, %v, want it as it was", service, got, err)
 		}
 		if unfinished, err := unfinishedRoot(out, dir); err != nil || !unfinished {
 			t.Errorf("%s: unfinished %v, %v, want its checkpoint to say so", service, unfinished, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(out, "fake", "beta", engine.GeneratedFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(out, "fake", "beta", rootfile.GeneratedFileName)); err != nil {
 		t.Errorf("beta: %v", err)
 	}
 	if failures := errors.Join(run.failures...); len(run.failures) != 2 || !strings.Contains(failures.Error(), "plan failed") || !strings.Contains(failures.Error(), gate.CheckSecrets+" failed") {
@@ -620,7 +622,7 @@ func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
 	alpha := filepath.Join(out, "fake", "alpha")
 
-	f := &fakeEngine{moves: true, label: func(imp engine.Import) string {
+	f := &fakeEngine{moves: true, label: func(imp rootfile.Import) string {
 		if imp.ID == "id-alpha" {
 			return "renamed"
 		}
@@ -643,7 +645,7 @@ func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
 	if err != nil || c == nil || c.Result == nil {
 		t.Fatalf("alpha's checkpoint: %+v, %v", c, err)
 	}
-	if want := []engine.Move{{From: "fake_thing.alpha", To: "fake_thing.renamed"}}; !reflect.DeepEqual(c.Result.Moves, want) {
+	if want := []rootfile.Move{{From: "fake_thing.alpha", To: "fake_thing.renamed"}}; !reflect.DeepEqual(c.Result.Moves, want) {
 		t.Errorf("alpha's moves: %+v, want %+v", c.Result.Moves, want)
 	}
 }
@@ -653,7 +655,7 @@ func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
 func TestListCallResumesAnAppliedRoot(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha"))
-	if err := os.Remove(filepath.Join(out, "fake", "alpha", engine.ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(out, "fake", "alpha", rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 

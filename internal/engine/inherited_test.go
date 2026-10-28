@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // Before, every Google resource repeated the provider block's project
@@ -19,7 +21,7 @@ import (
 func TestOmitInherited(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, ProvidersFileName, `provider "google" {
+	writeConfig(t, dir, rootfile.ProvidersFileName, `provider "google" {
   add_terraform_attribution_label = false
   project                         = "acme"
   region                          = "europe-west2"
@@ -31,7 +33,7 @@ provider "google" {
   region  = "us-central1"
 }
 `)
-	writeConfig(t, dir, GeneratedFileName, `resource "google_pubsub_topic" "orders" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_pubsub_topic" "orders" {
   name    = "orders"
   project = "acme"
 }
@@ -81,7 +83,7 @@ resource "google_dns_record_set" "app" {
 	if err != nil || !changed {
 		t.Fatalf("changed %v, err %v", changed, err)
 	}
-	generated := squashed(readFile(t, dir, GeneratedFileName))
+	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`resource "google_pubsub_topic" "orders" { name = "orders" }`,
 		`resource "google_pubsub_topic" "shared" { name = "shared" project = "elsewhere" }`,
@@ -100,8 +102,8 @@ resource "google_dns_record_set" "app" {
 func TestOmitInheritedWithoutProviderValues(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, ProvidersFileName, "provider \"google\" {\n  add_terraform_attribution_label = false\n}\n")
-	writeConfig(t, dir, GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  project = \"acme\"\n}\n")
+	writeConfig(t, dir, rootfile.ProvidersFileName, "provider \"google\" {\n  add_terraform_attribution_label = false\n}\n")
+	writeConfig(t, dir, rootfile.GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  project = \"acme\"\n}\n")
 	tf := &fakeTerraform{dir: dir}
 	if changed, err := omitInherited(context.Background(), tf, dir, []string{"project"}); changed || err != nil {
 		t.Errorf("changed %v, err %v", changed, err)

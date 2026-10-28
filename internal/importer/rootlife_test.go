@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // mergedRoot generates the root of services in out/fake/all, with a
@@ -27,7 +28,7 @@ func mergedRoot(t *testing.T, out string, services ...string) string {
 	for _, service := range services {
 		blocks = append(blocks, "resource \"fake_thing\" \""+service+"\" {}\n")
 	}
-	if err := os.WriteFile(filepath.Join(dir, engine.GeneratedFileName), []byte(strings.Join(blocks, "\n")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte(strings.Join(blocks, "\n")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := setAside(out, dir); err != nil {
@@ -130,20 +131,20 @@ func TestDecideRoot(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha"))
 	alpha := filepath.Join(out, "fake", "alpha")
-	if err := os.WriteFile(filepath.Join(alpha, engine.GeneratedFileName), []byte("resource \"fake_thing\" \"alpha\" {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(alpha, rootfile.GeneratedFileName), []byte("resource \"fake_thing\" \"alpha\" {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	foreign := filepath.Join(out, "fake", "foreign")
 	writeRootFiles(t, foreign, map[string]string{"main.tf": "# someone's\n"})
 	// A root whose generation started, and didn't finish.
 	unfinished := filepath.Join(out, "fake", "unfinished")
-	writeRootFiles(t, unfinished, map[string]string{engine.GeneratedFileName: "resource \"fake_thing\" \"unfinished\" {}\n"})
+	writeRootFiles(t, unfinished, map[string]string{rootfile.GeneratedFileName: "resource \"fake_thing\" \"unfinished\" {}\n"})
 	if err := saveCheckpoint(out, unfinished, "fp", nil); err != nil {
 		t.Fatal(err)
 	}
 	// A root its stack's merge set aside, with no resources.
 	empty := filepath.Join(out, "fake", "empty")
-	writeRootFiles(t, premergeDir(out, empty), map[string]string{engine.VersionsFileName: "terraform {}\n"})
+	writeRootFiles(t, premergeDir(out, empty), map[string]string{rootfile.VersionsFileName: "terraform {}\n"})
 	fp := func(dir string) string {
 		c, err := readCheckpoint(out, dir)
 		if err != nil || c == nil {
@@ -156,7 +157,7 @@ func TestDecideRoot(t *testing.T) {
 	left := &handovers{out: out, refused: map[string]error{filepath.Clean(alpha): errors.New("alpha is left as it was")}}
 	unreceived := &handovers{
 		out:       out,
-		removals:  map[string][]engine.Removal{filepath.Clean(alpha): {{From: "fake_thing.alpha", Resources: []engine.Departure{{Type: "fake_thing", ID: "id-alpha", Address: "fake_thing.alpha", Root: "fake/beta"}}}}},
+		removals:  map[string][]rootfile.Removal{filepath.Clean(alpha): {{From: "fake_thing.alpha", Resources: []rootfile.Departure{{Type: "fake_thing", ID: "id-alpha", Address: "fake_thing.alpha", Root: "fake/beta"}}}}},
 		generated: map[string]*engine.Result{filepath.Join(out, "fake", "beta"): {}},
 	}
 	for _, tc := range []struct {

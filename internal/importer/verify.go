@@ -23,7 +23,10 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -113,7 +116,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		}
 		// A root environments share plans once per environment, with its
 		// var files.
-		envs, err := engine.MergedEnvironments(dir)
+		envs, err := hclfile.MergedEnvironments(dir)
 		if err != nil {
 			return err
 		}
@@ -133,11 +136,11 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if len(options.Environments) > 0 && !slices.Contains(options.Environments, env) {
 				continue
 			}
-			checks, err := engine.VerifyMerged(ctx, newTF, dir, env, opts)
+			checks, err := envmerge.VerifyMerged(ctx, newTF, dir, env, envmerge.MergeOptions{Gate: engine.FullGate(opts), StateOnly: opts.StateOnly, CommandTimeout: opts.CommandTimeout})
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
-			ids, err := engine.MergedImportIDs(dir, env)
+			ids, err := hclfile.MergedImportIDs(dir, env)
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
@@ -198,7 +201,7 @@ func writeVerified(w io.Writer, results []verifiedRoot, format string) error {
 
 // generatedRoots returns the directories under out that an import
 // generated, sorted: those with a providers.tf, outside .terraform and
-// the copies verify checks roots in (see engine.IsVerifyCopy), the
+// the copies verify checks roots in (see gate.IsVerifyCopy), the
 // generated modules, the bootstrap root and the checkpoints, where an
 // incremental import stages what it adds (see stagingDir).
 func generatedRoots(out string) ([]string, error) {
@@ -208,11 +211,11 @@ func generatedRoots(out string) ([]string, error) {
 			return err
 		}
 		topLevel := path != out && filepath.Dir(path) == filepath.Clean(out)
-		if d.IsDir() && (d.Name() == ".terraform" || engine.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
+		if d.IsDir() && (d.Name() == ".terraform" || gate.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == hclfile.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.
-		if !d.IsDir() && d.Name() == engine.ProvidersFileName {
+		if !d.IsDir() && d.Name() == rootfile.ProvidersFileName {
 			roots = append(roots, filepath.Dir(path))
 		}
 		return nil
@@ -274,7 +277,7 @@ func rootProvider(out, dir string, options VerifyOptions) harvest.Provider {
 // Terraform providers the provider blocks of dir's providers.tf configure,
 // such as google for google-beta; none if it doesn't parse.
 func configuredProviders(dir string) []string {
-	path := filepath.Join(dir, engine.ProvidersFileName)
+	path := filepath.Join(dir, rootfile.ProvidersFileName)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -139,17 +140,17 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 // a resource block for, which its next plan would create again. Those
 // only in a module call, or left out of the root, aren't. A nil h finds
 // none.
-func (h *listedHere) notInCloud(existing map[engine.External]string) []engine.Import {
+func (h *listedHere) notInCloud(existing map[engine.External]string) []rootfile.Import {
 	if h == nil {
 		return nil
 	}
-	var gone []engine.Import
+	var gone []rootfile.Import
 	for e, address := range existing {
 		name, ok := strings.CutPrefix(address, e.Type+".")
 		if !ok || name == "" || !h.types[e.Type] || h.ids[strings.ToLower(e.ID)] {
 			continue
 		}
-		gone = append(gone, engine.Import{Type: e.Type, Name: name, ID: e.ID})
+		gone = append(gone, rootfile.Import{Type: e.Type, Name: name, ID: e.ID})
 	}
 	sort.Slice(gone, func(i, j int) bool {
 		if gone[i].Type != gone[j].Type {
@@ -163,7 +164,7 @@ func (h *listedHere) notInCloud(existing map[engine.External]string) []engine.Im
 // recordNotInCloud records gone, the resources of the root in dir that
 // are no longer in the cloud (see listedHere.notInCloud), in the report,
 // and logs how many there are.
-func (r *Run) recordNotInCloud(dir string, gone []engine.Import) {
+func (r *Run) recordNotInCloud(dir string, gone []rootfile.Import) {
 	if len(gone) == 0 {
 		return
 	}

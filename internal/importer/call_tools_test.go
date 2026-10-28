@@ -13,7 +13,9 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -27,15 +29,15 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	binary := tfrun.Binary{Name: "terraform"}
-	provider := engine.Provider{Name: "aws", Source: "hashicorp/aws"}
-	imports := []engine.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q-1"}}
+	provider := rootfile.Provider{Name: "aws", Source: "hashicorp/aws"}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q-1"}}
 	config := map[string][]byte{"versions.tf": []byte("terraform {}\n")}
 	opts := engine.Options{Config: config}
 	result := &engine.Result{}
-	roots := []engine.MergeRoot{{Env: "dev", Dir: "dev"}, {Env: "prod", Dir: "prod"}}
-	moved := []engine.Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
-	removed := []engine.Removal{{From: "aws_sqs_queue.c"}}
-	gone := map[string][]engine.Import{"prod": imports}
+	roots := []envmerge.MergeRoot{{Env: "dev", Dir: "dev"}, {Env: "prod", Dir: "prod"}}
+	moved := []rootfile.Move{{From: "aws_sqs_queue.a", To: "aws_sqs_queue.b"}}
+	removed := []rootfile.Removal{{From: "aws_sqs_queue.c"}}
+	gone := map[string][]rootfile.Import{"prod": imports}
 	existing := map[engine.External]string{{Type: "aws_vpc", ID: "vpc-1"}: "data.aws_vpc.main"}
 	for _, tc := range []struct {
 		name string
@@ -61,7 +63,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "root",
 			set: func(tools *callTools, args *[]any) {
-				tools.rootConfig = func(_ context.Context, registry, execPath string, p engine.Provider, _ []moduleConstraint) (*rootFiles, error) {
+				tools.rootConfig = func(_ context.Context, registry, execPath string, p rootfile.Provider, _ []moduleConstraint) (*rootFiles, error) {
 					*args = []any{registry, execPath, p}
 					return nil, errStub
 				}
@@ -75,7 +77,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "generate",
 			set: func(tools *callTools, args *[]any) {
-				tools.generate = func(_ context.Context, dir string, _ terraformRun, imps []engine.Import, o engine.Options, _ *[]byte) (*engine.Result, error) {
+				tools.generate = func(_ context.Context, dir string, _ terraformRun, imps []rootfile.Import, o engine.Options, _ *[]byte) (*engine.Result, error) {
 					*args = []any{dir, imps, o.Config}
 					return nil, errStub
 				}
@@ -90,7 +92,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "add",
 			set: func(tools *callTools, args *[]any) {
-				tools.addTo = func(_ context.Context, _, _ tfrun.Terraform, staging, root string, imps []engine.Import, _ engine.Options, ext map[engine.External]string) (*engine.Result, error) {
+				tools.addTo = func(_ context.Context, _, _ tfrun.Terraform, staging, root string, imps []rootfile.Import, _ engine.Options, ext map[engine.External]string) (*engine.Result, error) {
 					*args = []any{staging, root, imps, ext}
 					return nil, errStub
 				}
@@ -129,13 +131,13 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "merge",
 			set: func(tools *callTools, args *[]any) {
-				tools.merge = func(_ context.Context, dir string, r []engine.MergeRoot, _ engine.MergeOptions) (*engine.MergeResult, error) {
+				tools.merge = func(_ context.Context, dir string, r []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 					*args = []any{dir, r}
 					return nil, errStub
 				}
 			},
 			call: func(tools *callTools) error {
-				_, err := tools.mergeRoots(ctx, "merged", roots, engine.MergeOptions{})
+				_, err := tools.mergeRoots(ctx, "merged", roots, envmerge.MergeOptions{})
 				return err
 			},
 			want: []any{"merged", roots},
@@ -143,7 +145,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "vacate merged",
 			set: func(tools *callTools, args *[]any) {
-				tools.vacateMergedRoot = func(dir string, files []string, r []engine.Removal) ([]string, gate.Check, error) {
+				tools.vacateMergedRoot = func(dir string, files []string, r []rootfile.Removal) ([]string, gate.Check, error) {
 					*args = []any{dir, files, r}
 					return nil, gate.Check{}, errStub
 				}
@@ -157,7 +159,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "merged not in cloud",
 			set: func(tools *callTools, args *[]any) {
-				tools.mergedNotInCloud = func(dir string, g map[string][]engine.Import) error {
+				tools.mergedNotInCloud = func(dir string, g map[string][]rootfile.Import) error {
 					*args = []any{dir, g}
 					return errStub
 				}
@@ -168,7 +170,7 @@ func TestCallToolsUseTheToolSet(t *testing.T) {
 		{
 			name: "merged moves",
 			set: func(tools *callTools, args *[]any) {
-				tools.mergedMoves = func(dir string, m []engine.Move, r []engine.Removal) (gate.Check, error) {
+				tools.mergedMoves = func(dir string, m []rootfile.Move, r []rootfile.Removal) (gate.Check, error) {
 					*args = []any{dir, m, r}
 					return gate.Check{}, errStub
 				}
@@ -218,7 +220,7 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 		{
 			name: "root",
 			call: func(tools *callTools, dir string) error {
-				_, err := tools.root(ctx, "", filepath.Join(dir, "terraform"), engine.Provider{Source: "hashicorp/aws"}, nil)
+				_, err := tools.root(ctx, "", filepath.Join(dir, "terraform"), rootfile.Provider{Source: "hashicorp/aws"}, nil)
 				return err
 			},
 			want: "terraform",
@@ -237,14 +239,14 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 				if err := tools.writeReadme(dir, &engine.Result{}); err != nil {
 					return err
 				}
-				_, err := os.Stat(filepath.Join(dir, engine.ReadmeFileName))
+				_, err := os.Stat(filepath.Join(dir, rootfile.ReadmeFileName))
 				return err
 			},
 		},
 		{
 			name: "merge",
 			call: func(tools *callTools, dir string) error {
-				_, err := tools.mergeRoots(ctx, dir, nil, engine.MergeOptions{})
+				_, err := tools.mergeRoots(ctx, dir, nil, envmerge.MergeOptions{})
 				return err
 			},
 			want: "two environments or more",
@@ -261,9 +263,9 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 			// There is no README to add to.
 			name: "merged not in cloud",
 			call: func(tools *callTools, dir string) error {
-				return tools.writeMergedNotInCloud(dir, map[string][]engine.Import{"prod": {{Type: "aws_sqs_queue", Name: "q", ID: "q-1"}}})
+				return tools.writeMergedNotInCloud(dir, map[string][]rootfile.Import{"prod": {{Type: "aws_sqs_queue", Name: "q", ID: "q-1"}}})
 			},
-			want: engine.ReadmeFileName,
+			want: rootfile.ReadmeFileName,
 		},
 	} {
 		for _, tools := range []struct {

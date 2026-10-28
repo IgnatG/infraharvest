@@ -12,12 +12,11 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// ReadmeFileName explains a generated directory and what is left to do.
-const ReadmeFileName = "README.md"
 
 // GitignoreFile keeps state, plans, Terraform's working directory, variable
 // values and infraharvest's checkpoints (.infraharvest) out of version
@@ -66,7 +65,7 @@ func readmeFile(result *Result) []byte {
 	b.WriteString("\n## Next steps\n\n")
 	step := 1
 	if len(result.Secrets) > 0 {
-		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n", step, VariablesFileName)
+		fmt.Fprintf(&b, "%d. Set the secret variables in `%s`. infraharvest never writes secret values into the configuration: set each from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`, and keep the values out of version control (`.gitignore` excludes `.tfvars` files):\n\n", step, hclfile.VariablesFileName)
 		for _, s := range result.Secrets {
 			fmt.Fprintf(&b, "   - `%s`: %s of `%s`\n", s.Variable, s.Attribute, s.Address)
 		}
@@ -77,11 +76,11 @@ func readmeFile(result *Result) []byte {
 	removes := len(result.Removed) > 0 || len(result.Retyped) > 0
 	switch {
 	case len(result.Moves) > 0 && removes:
-		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves, or as forgotten, not destroyed, for those it removes (see Moves),", MovesFileName)
+		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves, or as forgotten, not destroyed, for those it removes (see Moves),", rootfile.MovesFileName)
 	case len(result.Moves) > 0:
-		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves (see Moves),", MovesFileName)
+		planned = fmt.Sprintf("Every resource should be planned for import, or as moved for those `%s` moves (see Moves),", rootfile.MovesFileName)
 	case removes:
-		planned = fmt.Sprintf("Every resource should be planned for import, or as forgotten, not destroyed, for those `%s` removes (see Moves),", MovesFileName)
+		planned = fmt.Sprintf("Every resource should be planned for import, or as forgotten, not destroyed, for those `%s` removes (see Moves),", rootfile.MovesFileName)
 	}
 	if stateOnlyUpdates(result.Gate) {
 		// Such as Google Cloud labels, which an import leaves out of state.
@@ -100,13 +99,13 @@ func readmeFile(result *Result) []byte {
 	}
 	fmt.Fprintf(&b, "%d. %s\n", step+1, apply)
 	if len(result.Moves) > 0 || removes {
-		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import, moved and removed blocks have done their job.\n", step+2, ImportsFileName, MovesFileName)
+		fmt.Fprintf(&b, "%d. Delete `%s` and `%s`: the import, moved and removed blocks have done their job.\n", step+2, rootfile.ImportsFileName, rootfile.MovesFileName)
 	} else {
-		fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, ImportsFileName)
+		fmt.Fprintf(&b, "%d. Delete `%s`: the import blocks have done their job.\n", step+2, rootfile.ImportsFileName)
 	}
 
 	if len(result.Rejected) > 0 {
-		fmt.Fprintf(&b, "\n## Left out\n\nTerraform couldn't import these resources, or generate valid configuration for them. `%s` has their blocks and errors: fix them and move the import blocks into `%s` and the resources into the configuration, or leave the resources out.\n\n", RejectedFileName, ImportsFileName)
+		fmt.Fprintf(&b, "\n## Left out\n\nTerraform couldn't import these resources, or generate valid configuration for them. `%s` has their blocks and errors: fix them and move the import blocks into `%s` and the resources into the configuration, or leave the resources out.\n\n", rootfile.RejectedFileName, rootfile.ImportsFileName)
 		for _, r := range result.Rejected {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
@@ -124,7 +123,7 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- %s.\n", w)
 		}
 	}
-	b.WriteString(checksSection(result.Gate))
+	b.WriteString(gate.ChecksSection(result.Gate))
 	return []byte(b.String())
 }
 
@@ -132,42 +131,14 @@ func readmeFile(result *Result) []byte {
 // now (see Vacate): what is left to do is forget them.
 func handedOverReadme(result *Result) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest generated this root before. Its resources now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s` and `%s`.\n", VersionsFileName, ProvidersFileName, MovesFileName)
+	fmt.Fprintf(&b, "# Handed over resources\n\ninfraharvest generated this root before. Its resources now go to other roots of the output, which import them, so it keeps only what Terraform needs to forget them: `%s`, `%s` and `%s`.\n", rootfile.VersionsFileName, rootfile.ProvidersFileName, rootfile.MovesFileName)
 	b.WriteString("\n## Next steps\n\n")
-	fmt.Fprintf(&b, "1. Run `terraform init` and `terraform plan`. Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", MovesFileName)
+	fmt.Fprintf(&b, "1. Run `terraform init` and `terraform plan`. Every resource the removed blocks in `%s` remove should be planned as forgotten, not destroyed, with no other changes.\n", rootfile.MovesFileName)
 	b.WriteString("2. Run `terraform apply`, before applying the roots the resources go to (see Moves). It removes them from this root's state, and changes nothing in the cloud.\n")
-	fmt.Fprintf(&b, "3. Delete `%s`: the removed blocks have done their job, and the root manages nothing.\n", MovesFileName)
+	fmt.Fprintf(&b, "3. Delete `%s`: the removed blocks have done their job, and the root manages nothing.\n", rootfile.MovesFileName)
 	b.WriteString(movesSection(result))
-	b.WriteString(checksSection(result.Gate))
+	b.WriteString(gate.ChecksSection(result.Gate))
 	return []byte(b.String())
-}
-
-// checksSection lists the verification gate's checks, with their details.
-func checksSection(checks gate.Gate) string {
-	var b strings.Builder
-	if len(checks) > 0 {
-		b.WriteString("\n## Checks\n\ninfraharvest checked this directory after generating it. Secret variables had their values in the plan where infraharvest found them in the configuration, and placeholder values where Terraform doesn't show them.\n\n| Check | Result |\n|---|---|\n")
-		for _, c := range checks {
-			status := "passed"
-			switch {
-			case !c.Passed:
-				status = "**failed**"
-			case c.Skipped:
-				status = "skipped"
-			}
-			fmt.Fprintf(&b, "| %s | %s |\n", c.Name, status)
-		}
-		var details []string
-		for _, c := range checks {
-			for _, d := range c.Details {
-				details = append(details, fmt.Sprintf("- %s: %s", c.Name, d))
-			}
-		}
-		if len(details) > 0 {
-			fmt.Fprintf(&b, "\n%s\n", strings.Join(details, "\n"))
-		}
-	}
-	return b.String()
 }
 
 // stateOnlyUpdates reports whether the plan check passed with resources
@@ -218,9 +189,9 @@ func modulesSection(calls []ModuleCall) string {
 // nothing to import. infraharvest changes nothing the root has, so the
 // blocks stay for people to delete; a removed block wouldn't do, as it
 // only forgets what state has, and the resource isn't there to forget.
-func notInCloudSection(gone []Import) string {
+func notInCloudSection(gone []rootfile.Import) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "\n## No longer in the cloud\n\nThe incremental import that last added to this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan would create them again, and fails while `%s` still has their import blocks. Delete each one's import block, if `%s` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.\n\n", ImportsFileName, ImportsFileName)
+	fmt.Fprintf(&b, "\n## No longer in the cloud\n\nThe incremental import that last added to this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan would create them again, and fails while `%s` still has their import blocks. Delete each one's import block, if `%s` still has it, then either delete its resource block, and anything that refers to it, and plan; or, if it should exist, plan to create it again.\n\n", rootfile.ImportsFileName, rootfile.ImportsFileName)
 	for _, g := range gone {
 		fmt.Fprintf(&b, "- `%s.%s` (`%s`)\n", g.Type, g.Name, g.ID)
 	}
@@ -241,19 +212,19 @@ func movesSection(result *Result) string {
 	var b strings.Builder
 	b.WriteString("\n## Moves\n")
 	if len(result.Moves) > 0 {
-		fmt.Fprintf(&b, "\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", MovesFileName)
+		fmt.Fprintf(&b, "\nThese resources have other addresses than when this root was generated before. The moved blocks in `%s` move them in state, so the plan shows each as moved rather than destroyed and created again.\n\n| From | To |\n|---|---|\n", rootfile.MovesFileName)
 		for _, m := range result.Moves {
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", m.From, m.To)
 		}
 	}
 	if len(result.Retyped) > 0 {
-		fmt.Fprintf(&b, "\nThese resources are of another name of their type now, which no moved block can follow. The removed blocks in `%s` make this root's state forget them where it had them, without destroying them, and the import blocks in `%s` import them again where they are now. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Was | Is now |\n|---|---|\n", MovesFileName, ImportsFileName, VersionsFileName, MovesFileName)
+		fmt.Fprintf(&b, "\nThese resources are of another name of their type now, which no moved block can follow. The removed blocks in `%s` make this root's state forget them where it had them, without destroying them, and the import blocks in `%s` import them again where they are now. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Was | Is now |\n|---|---|\n", rootfile.MovesFileName, rootfile.ImportsFileName, rootfile.VersionsFileName, rootfile.MovesFileName)
 		for _, r := range result.Retyped {
 			fmt.Fprintf(&b, "| `%s` | `%s` |\n", r.From, r.To)
 		}
 	}
 	if len(result.Removed) > 0 {
-		fmt.Fprintf(&b, "\nThese resources go to other roots of the output now. The removed blocks in `%s` make this root's state forget them, without destroying them, and the other roots import them. Apply this root first, then the root each goes to: until then, both would manage it. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Removed | Goes to |\n|---|---|\n", MovesFileName, VersionsFileName, MovesFileName)
+		fmt.Fprintf(&b, "\nThese resources go to other roots of the output now. The removed blocks in `%s` make this root's state forget them, without destroying them, and the other roots import them. Apply this root first, then the root each goes to: until then, both would manage it. Removed blocks with `destroy = false` need Terraform 1.7 or OpenTofu 1.10, so `%s` requires 1.10 or later while `%s` has them.\n\n| Removed | Goes to |\n|---|---|\n", rootfile.MovesFileName, rootfile.VersionsFileName, rootfile.MovesFileName)
 		for _, r := range result.Removed {
 			var roots []string
 			for _, d := range r.Resources {
@@ -300,7 +271,7 @@ func plural(n int, one, many string) string {
 
 // WriteReadme writes the README of dir, a root that holds result.
 func WriteReadme(dir string, result *Result) error {
-	return fsutil.WriteFile(filepath.Join(dir, ReadmeFileName), readmeFile(result), 0o644)
+	return fsutil.WriteFile(filepath.Join(dir, rootfile.ReadmeFileName), readmeFile(result), 0o644)
 }
 
 // checkReadme runs scanSecrets' checks on the README Generate wrote after
@@ -308,11 +279,11 @@ func WriteReadme(dir string, result *Result) error {
 // no file may contain. Should the README hold one, G6 fails and the README
 // is written again to say so.
 func checkReadme(dir string, result *Result, values []string) error {
-	content, err := os.ReadFile(filepath.Join(dir, ReadmeFileName))
+	content, err := os.ReadFile(filepath.Join(dir, rootfile.ReadmeFileName))
 	if err != nil {
 		return err
 	}
-	found := secret.InFile(secret.NewMatcher(values), ReadmeFileName, string(content))
+	found := secret.InFile(secret.NewMatcher(values), rootfile.ReadmeFileName, string(content))
 	if len(found) == 0 {
 		return nil
 	}

@@ -16,7 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/drift"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -27,7 +27,7 @@ var envFingerprint = decisionFingerprint("prod", "dev")
 // change from before to after.
 func decisionFingerprint(before, after any) string {
 	f := driftpolicy.NewDecisions()
-	f.Merge([]report.DriftChange{{Root: "r", Address: "a", Kind: engine.DriftChanged, Before: before, After: after, Outcome: report.DriftKept}}, nil)
+	f.Merge([]report.DriftChange{{Root: "r", Address: "a", Kind: drift.Changed, Before: before, After: after, Outcome: report.DriftKept}}, nil)
 	return f.Changes[0].Fingerprint
 }
 
@@ -67,17 +67,17 @@ func TestDriftAppliesDecisions(t *testing.T) {
 		source      string
 		stale       bool
 	}{
-		{"accepted", envFingerprint, engine.DriftAccept, nil, report.DriftWritten, report.DriftDecidedByEntry, false},
-		{"kept", envFingerprint, engine.DriftKeep, nil, report.DriftKept, report.DriftDecidedByEntry, false},
-		{"changed again", decisionFingerprint("prod", "staging"), engine.DriftAccept, nil, report.DriftKept, report.DriftDecidedByEntry, true},
-		{"changed again, accepted by --accept", decisionFingerprint("prod", "staging"), engine.DriftKeep, []driftpolicy.Rule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, true},
-		{"kept by --keep", envFingerprint, engine.DriftAccept, []driftpolicy.Rule{{Field: "attribute", Pattern: "tags.*"}}, report.DriftKept, report.DriftDecidedByFlag, false},
-		{"accepted by --accept", envFingerprint, engine.DriftKeep, []driftpolicy.Rule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, false},
+		{"accepted", envFingerprint, drift.Accept, nil, report.DriftWritten, report.DriftDecidedByEntry, false},
+		{"kept", envFingerprint, drift.Keep, nil, report.DriftKept, report.DriftDecidedByEntry, false},
+		{"changed again", decisionFingerprint("prod", "staging"), drift.Accept, nil, report.DriftKept, report.DriftDecidedByEntry, true},
+		{"changed again, accepted by --accept", decisionFingerprint("prod", "staging"), drift.Keep, []driftpolicy.Rule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, true},
+		{"kept by --keep", envFingerprint, drift.Accept, []driftpolicy.Rule{{Field: "attribute", Pattern: "tags.*"}}, report.DriftKept, report.DriftDecidedByFlag, false},
+		{"accepted by --accept", envFingerprint, drift.Keep, []driftpolicy.Rule{{Accept: true}}, report.DriftWritten, report.DriftDecidedByFlag, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := driftOutput(t, "aws/1/eu-west-2")
-			f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
+			f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
 			options := driftOptions(out, f)
 			options.Decisions = writeDecisions(t, t.TempDir(), tc.fingerprint, tc.decision)
 			options.Rules = tc.rules
@@ -124,7 +124,7 @@ func TestDriftAppliesDecisions(t *testing.T) {
 func TestDriftWritesDecisions(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-2", "aws/1/global")
-	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
+	f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
 	options := driftOptions(out, f)
 	options.WriteDecisions = true
 	if err := Drift(context.Background(), options, &bytes.Buffer{}); err != nil {
@@ -136,12 +136,12 @@ func TestDriftWritesDecisions(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []driftpolicy.Entry{{Root: "aws/1/eu-west-2", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: driftpolicy.Undecided}}
-	if g.Defaults.Decision != engine.DriftKeep || !reflect.DeepEqual(g.Changes, want) {
+	if g.Defaults.Decision != drift.Keep || !reflect.DeepEqual(g.Changes, want) {
 		t.Errorf("wrote %+v, want the kept change undecided, and not the absorbed one", g)
 	}
 
 	// Decided there, it is still not applied without --decisions.
-	writeDecisions(t, out, envFingerprint, engine.DriftAccept)
+	writeDecisions(t, out, envFingerprint, drift.Accept)
 	if err := os.Rename(filepath.Join(out, "decisions.yaml"), path); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestDriftWritesDecisions(t *testing.T) {
 	if c := envChange(t, readDrift(t, out)); c.Outcome != report.DriftKept || c.DecisionSource != report.DriftDecidedByDefault {
 		t.Errorf("tags.Env: %s from %s, want kept by default", c.Outcome, c.DecisionSource)
 	}
-	if g, err := driftpolicy.LoadDecisions(path); err != nil || len(g.Changes) != 1 || g.Changes[0].Decision != engine.DriftAccept {
+	if g, err := driftpolicy.LoadDecisions(path); err != nil || len(g.Changes) != 1 || g.Changes[0].Decision != drift.Accept {
 		t.Errorf("decisions file %+v (%v), want the decision kept", g, err)
 	}
 
@@ -173,12 +173,12 @@ func TestDriftWritesDecisions(t *testing.T) {
 func TestDriftDecisionsHoldNoSecrets(t *testing.T) {
 	t.Parallel()
 	const before, after = "hunter2-before-0123456789", "s3cr3t-after-9876543210"
-	result := &engine.RootDrift{Backend: "s3", Resources: 1, Changes: []engine.DriftChange{
-		{Address: "aws_db_instance.main", Type: "aws_db_instance", Attribute: "password", Before: before, After: after, Kind: engine.DriftChanged, Outcome: engine.DriftKept},
-		{Address: "aws_db_instance.main", Type: "aws_db_instance", Attribute: "tags.Token", Before: map[string]any{"k": before}, After: []any{after}, Kind: engine.DriftChanged, Outcome: engine.DriftKept},
+	result := &drift.Result{Backend: "s3", Resources: 1, Changes: []drift.Change{
+		{Address: "aws_db_instance.main", Type: "aws_db_instance", Attribute: "password", Before: before, After: after, Kind: drift.Changed, Outcome: drift.Kept},
+		{Address: "aws_db_instance.main", Type: "aws_db_instance", Attribute: "tags.Token", Before: map[string]any{"k": before}, After: []any{after}, Kind: drift.Changed, Outcome: drift.Kept},
 	}}
 	out := driftOutput(t, "aws/1/eu-west-2")
-	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": result}, accepted: report.DriftSecret}
+	f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": result}, accepted: report.DriftSecret}
 	options := driftOptions(out, f)
 	options.WriteDecisions = true
 	options.Rules = []driftpolicy.Rule{{Accept: true}}
@@ -206,10 +206,10 @@ func TestDriftDecisionsHoldNoSecrets(t *testing.T) {
 func TestDriftWritesDecisionsToAFile(t *testing.T) {
 	t.Parallel()
 	out := driftOutput(t, "aws/1/eu-west-2")
-	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
+	f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/1/eu-west-2": reverting}, accepted: report.DriftWritten}
 	options := driftOptions(out, f)
 	options.WriteDecisions = true
-	options.WriteDecisionsTo = writeDecisions(t, t.TempDir(), envFingerprint, engine.DriftAccept)
+	options.WriteDecisionsTo = writeDecisions(t, t.TempDir(), envFingerprint, drift.Accept)
 	var stdout bytes.Buffer
 	if err := Drift(context.Background(), options, &stdout); err != nil {
 		t.Fatal(err)
@@ -221,7 +221,7 @@ func TestDriftWritesDecisionsToAFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(g.Changes) != 1 || g.Changes[0].Decision != engine.DriftAccept || g.Changes[0].Note != "mine" {
+	if len(g.Changes) != 1 || g.Changes[0].Decision != drift.Accept || g.Changes[0].Note != "mine" {
 		t.Errorf("decisions file %+v, want the entry's decision and note kept", g.Changes)
 	}
 	if !strings.Contains(stdout.String(), "decisions: "+options.WriteDecisionsTo) {
@@ -272,7 +272,7 @@ func TestDriftDecidesEachEnvironmentOfAMergedRoot(t *testing.T) {
 	if err := os.WriteFile(decisions, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeDriftCheck{out: out, results: map[string]*engine.RootDrift{"aws/us-east-1": reverting}, accepted: report.DriftWritten}
+	f := &fakeDriftCheck{out: out, results: map[string]*drift.Result{"aws/us-east-1": reverting}, accepted: report.DriftWritten}
 	options := driftOptions(out, f)
 	options.Decisions, options.WriteDecisions = decisions, true
 	options.Environments = []string{config.AllEnvironments}
@@ -297,7 +297,7 @@ func TestDriftDecidesEachEnvironmentOfAMergedRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []driftpolicy.Entry{
-		{Root: "aws/us-east-1", Environment: "dev", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: engine.DriftKeep},
+		{Root: "aws/us-east-1", Environment: "dev", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: drift.Keep},
 		{Root: "aws/us-east-1", Environment: "prod", Address: "aws_s3_bucket.logs", Attribute: "tags.Env", Fingerprint: envFingerprint, Decision: driftpolicy.Undecided},
 	}
 	if !reflect.DeepEqual(written.Changes, want) {

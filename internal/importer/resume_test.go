@@ -12,6 +12,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // claimFor claims the root in dir, under out, for generating it from the
@@ -32,8 +34,8 @@ func TestCheckpoints(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	imports := []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
-	opts := engine.Options{Config: map[string][]byte{engine.VersionsFileName: []byte("terraform {}\n")}}
+	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
+	opts := engine.Options{Config: map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")}}
 	fp, err := fingerprint("1.16.5", imports, opts)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +53,7 @@ func TestCheckpoints(t *testing.T) {
 	if got, err := resumed(out, dir, fp); err != nil || got != nil {
 		t.Fatalf("without the root's files: %v, %v", got, err)
 	}
-	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +64,7 @@ func TestCheckpoints(t *testing.T) {
 	}
 
 	// Other imports or options make another root.
-	other, err := fingerprint("1.16.5", append(imports, engine.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts)
+	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,8 +84,8 @@ func TestCheckpoints(t *testing.T) {
 
 // Listing order varies between runs; the fingerprint doesn't.
 func TestFingerprintIgnoresOrder(t *testing.T) {
-	a := []engine.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
-	b := []engine.Import{a[1], a[0]}
+	a := []rootfile.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
+	b := []rootfile.Import{a[1], a[0]}
 	fa, err := fingerprint("1.16.5", a, engine.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +107,7 @@ func TestClearGenerated(t *testing.T) {
 	}
 	// generated_2.tf is what --incremental added to the root; network.tf
 	// what the checkpoint says the configuration was split into.
-	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName, engine.AddedFileName(2), "network.tf", "notes.md"} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName, engine.AddedFileName(2), "network.tf", "notes.md"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -116,7 +118,7 @@ func TestClearGenerated(t *testing.T) {
 	if err := clearGenerated(out, dir); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{engine.GeneratedFileName: false, engine.ImportsFileName: false, engine.AddedFileName(2): false, "network.tf": false, engine.VersionsFileName: true, "notes.md": true} {
+	for name, want := range map[string]bool{rootfile.GeneratedFileName: false, rootfile.ImportsFileName: false, engine.AddedFileName(2): false, "network.tf": false, rootfile.VersionsFileName: true, "notes.md": true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
 			t.Errorf("%s: exists=%v, want %v", name, err == nil, want)
 		}
@@ -148,14 +150,14 @@ func TestClaimRoot(t *testing.T) {
 
 	// An unrelated root keeps its files, whatever the flags.
 	unrelated := filepath.Join(out, "aws", "111", "eu-west-2")
-	writeRoot(t, unrelated, "main.tf", engine.VariablesFileName, engine.ReadmeFileName)
+	writeRoot(t, unrelated, "main.tf", hclfile.VariablesFileName, rootfile.ReadmeFileName)
 	for _, flags := range [][2]bool{{false, false}, {true, false}, {false, true}} {
 		_, err := claimFor(out, unrelated, flags[0], flags[1])
 		if err == nil || !strings.Contains(err.Error(), unrelated) || !strings.Contains(err.Error(), "main.tf") {
 			t.Errorf("resume, regenerate=%v: want an error naming the directory and main.tf, got %v", flags, err)
 		}
 	}
-	for _, name := range []string{"main.tf", engine.VariablesFileName, engine.ReadmeFileName} {
+	for _, name := range []string{"main.tf", hclfile.VariablesFileName, rootfile.ReadmeFileName} {
 		if !exists(filepath.Join(unrelated, name)) {
 			t.Errorf("%s was removed from the unrelated root", name)
 		}
@@ -173,7 +175,7 @@ func TestClaimRoot(t *testing.T) {
 	if !exists(checkpointPath(out, fresh)) {
 		t.Fatal("no checkpoint for the new root")
 	}
-	writeRoot(t, fresh, engine.ImportsFileName, engine.VersionsFileName, engine.GeneratedFileName)
+	writeRoot(t, fresh, rootfile.ImportsFileName, rootfile.VersionsFileName, rootfile.GeneratedFileName)
 	if got, err := resumed(out, fresh, "fp"); err != nil || got != nil {
 		t.Errorf("resumed a root that didn't finish: %v, %v", got, err)
 	}
@@ -184,11 +186,11 @@ func TestClaimRoot(t *testing.T) {
 	}
 
 	// --resume clears what the import wrote there, and only that.
-	writeRoot(t, fresh, engine.VariablesFileName, engine.ReadmeFileName, "notes.md")
+	writeRoot(t, fresh, hclfile.VariablesFileName, rootfile.ReadmeFileName, "notes.md")
 	if _, err := claimFor(out, fresh, true, false); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{engine.ImportsFileName: false, engine.GeneratedFileName: false, engine.VariablesFileName: false, engine.ReadmeFileName: false, "notes.md": true} {
+	for name, want := range map[string]bool{rootfile.ImportsFileName: false, rootfile.GeneratedFileName: false, hclfile.VariablesFileName: false, rootfile.ReadmeFileName: false, "notes.md": true} {
 		if got := exists(filepath.Join(fresh, name)); got != want {
 			t.Errorf("after --resume, %s: exists=%v, want %v", name, got, want)
 		}
@@ -203,13 +205,13 @@ func TestClaimRoot(t *testing.T) {
 func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "333", "eu-west-2")
-	done := &engine.Result{Imported: []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Files: []string{"network.tf"}}
+	done := &engine.Result{Imported: []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}}, Files: []string{"network.tf"}}
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
 	for name, files := range map[string][]string{
-		"with imports.tf":             {engine.ImportsFileName, engine.VersionsFileName, "network.tf"},
-		"applied, imports.tf deleted": {engine.VersionsFileName, engine.ProvidersFileName, "network.tf"},
+		"with imports.tf":             {rootfile.ImportsFileName, rootfile.VersionsFileName, "network.tf"},
+		"applied, imports.tf deleted": {rootfile.VersionsFileName, rootfile.ProvidersFileName, "network.tf"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := os.RemoveAll(dir); err != nil {
@@ -238,7 +240,7 @@ func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 	if _, err := claimFor(out, dir, false, true); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{"network.tf": false, engine.VersionsFileName: true, "notes.md": true} {
+	for name, want := range map[string]bool{"network.tf": false, rootfile.VersionsFileName: true, "notes.md": true} {
 		if got := exists(filepath.Join(dir, name)); got != want {
 			t.Errorf("after --regenerate, %s: exists=%v, want %v", name, got, want)
 		}
@@ -275,7 +277,7 @@ func TestPreviousAddresses(t *testing.T) {
 	if got, err := previousAddresses(out, dir); err != nil || got != nil {
 		t.Fatalf("without a checkpoint: %v, %v", got, err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, engine.ImportsFileName), []byte(importsOfTwo), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte(importsOfTwo), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	fromImports := []engine.Managed{
@@ -284,7 +286,7 @@ func TestPreviousAddresses(t *testing.T) {
 	}
 	recorded := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}
 	older := &engine.Result{
-		Imported: []engine.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}},
+		Imported: []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}},
 		Modules:  []engine.ModuleCall{{Name: "network", Resources: []string{"aws_vpc.main"}}},
 	}
 	inferred := []engine.Managed{
@@ -304,7 +306,7 @@ func TestPreviousAddresses(t *testing.T) {
 		"an import didn't finish": {checkpoint{}, true, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(dir, engine.ImportsFileName)
+			path := filepath.Join(dir, rootfile.ImportsFileName)
 			if tc.imports {
 				if err := os.WriteFile(path, []byte(importsOfTwo), 0o644); err != nil {
 					t.Fatal(err)
@@ -330,9 +332,9 @@ func TestPreviousAddresses(t *testing.T) {
 func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "666", "eu-west-2")
-	writeRoot(t, dir, engine.VersionsFileName, "network.tf")
+	writeRoot(t, dir, rootfile.VersionsFileName, "network.tf")
 	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
-	done := &engine.Result{Imported: []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	done := &engine.Result{Imported: []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
@@ -387,12 +389,12 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 func TestRefuseReaddressed(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "777", "eu-west-2")
-	writeRoot(t, dir, engine.VersionsFileName, "network.tf", "notes.md")
+	writeRoot(t, dir, rootfile.VersionsFileName, "network.tf", "notes.md")
 	if err := os.WriteFile(filepath.Join(dir, "network.tf"), []byte("# as applied\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
-	done := &engine.Result{Imported: []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	done := &engine.Result{Imported: []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +415,7 @@ func TestRefuseReaddressed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "network.tf"), []byte("# generated again\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeRoot(t, dir, engine.ImportsFileName, engine.ReadmeFileName)
+	writeRoot(t, dir, rootfile.ImportsFileName, rootfile.ReadmeFileName)
 	err = claimed.refuseReaddressed(dir, &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "aws_subnet.a is now aws_subnet.private") || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("want an error naming the root and the new address, got %v", err)
@@ -421,7 +423,7 @@ func TestRefuseReaddressed(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(dir, "network.tf")); err != nil || string(got) != "# as applied\n" {
 		t.Errorf("network.tf: %q, %v", got, err)
 	}
-	for name, want := range map[string]bool{engine.VersionsFileName: true, "notes.md": true, engine.ImportsFileName: false, engine.ReadmeFileName: false} {
+	for name, want := range map[string]bool{rootfile.VersionsFileName: true, "notes.md": true, rootfile.ImportsFileName: false, rootfile.ReadmeFileName: false} {
 		if got := exists(filepath.Join(dir, name)); got != want {
 			t.Errorf("%s: exists=%v, want %v", name, got, want)
 		}
@@ -441,7 +443,7 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 		{Type: "aws_subnet", ID: "subnet-3", Address: "aws_subnet.c"},
 		{Type: "aws_subnet", ID: "gone", Address: "aws_subnet.gone"},
 	}}
-	imports := []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}, {Type: "aws_subnet", Name: "c", ID: "subnet-3"}}
+	imports := []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}, {Type: "aws_subnet", Name: "c", ID: "subnet-3"}}
 	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}}
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2"}
 
@@ -464,19 +466,19 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 func TestResumedRequiresMovesWithImports(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "888", "eu-west-2")
-	writeRoot(t, dir, engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName)
-	result := &engine.Result{Moves: []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}}
+	writeRoot(t, dir, rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName)
+	result := &engine.Result{Moves: []rootfile.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}}
 	if err := saveCheckpoint(out, dir, "fp", result); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := resumed(out, dir, "fp"); err != nil || got != nil {
 		t.Errorf("without moves.tf: %+v, %v, want the root generated again", got, err)
 	}
-	writeRoot(t, dir, engine.MovesFileName)
+	writeRoot(t, dir, rootfile.MovesFileName)
 	if got, err := resumed(out, dir, "fp"); err != nil || !reflect.DeepEqual(got, result) {
 		t.Errorf("with moves.tf: %+v, %v", got, err)
 	}
-	for _, name := range []string{engine.ImportsFileName, engine.MovesFileName} {
+	for _, name := range []string{rootfile.ImportsFileName, rootfile.MovesFileName} {
 		if err := os.Remove(filepath.Join(dir, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -492,19 +494,19 @@ func TestResumedRequiresMovesWithImports(t *testing.T) {
 func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "999", "eu-west-2")
-	writeRoot(t, dir, engine.GeneratedFileName, engine.ImportsFileName, engine.VersionsFileName)
+	writeRoot(t, dir, rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName)
 	moves := "moved {\n  from = aws_subnet.a\n  to   = aws_subnet.private\n}\n"
-	if err := os.WriteFile(filepath.Join(dir, engine.MovesFileName), []byte(moves), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, rootfile.MovesFileName), []byte(moves), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	done := &engine.Result{
-		Imported:  []engine.Import{{Type: "aws_subnet", Name: "private", ID: "subnet-1"}},
+		Imported:  []rootfile.Import{{Type: "aws_subnet", Name: "private", ID: "subnet-1"}},
 		Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}},
 	}
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
-	want := []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}
+	want := []rootfile.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}}
 
 	claimed, err := claimFor(out, dir, false, true)
 	if err != nil {
@@ -514,8 +516,8 @@ func TestClaimRootKeepsTheMovesOfMovesTF(t *testing.T) {
 	if previous == nil || !reflect.DeepEqual(previous.Moved, want) || previous.Labels[engine.External{Type: "aws_subnet", ID: "subnet-1"}] != "private" {
 		t.Fatalf("previous root: %+v", previous)
 	}
-	if exists(filepath.Join(dir, engine.MovesFileName)) {
-		t.Errorf("%s left in the root", engine.MovesFileName)
+	if exists(filepath.Join(dir, rootfile.MovesFileName)) {
+		t.Errorf("%s left in the root", rootfile.MovesFileName)
 	}
 
 	// A run that stopped on the way: the checkpoint still has them.
@@ -545,8 +547,8 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 			{Type: "aws_lb", ID: "arn:lb", Address: "aws_lb.web"},
 			{Type: "aws_s3_bucket_policy", ID: "data", Address: "aws_s3_bucket_policy.data"},
 		},
-		Moves:   []engine.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}},
-		Retyped: []engine.Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"}},
+		Moves:   []rootfile.Move{{From: "aws_subnet.a", To: "aws_subnet.private"}},
+		Retyped: []rootfile.Retype{{Type: "aws_alb", ID: "arn:lb", From: "aws_alb.web", To: "aws_lb.web", Removed: "aws_alb.web"}},
 	}
 	// An aws_alb another root imports as an aws_lb is in that root now.
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2", {Type: "aws_lb", ID: "arn:edge"}: "envs/prod/aws/111/eu-west-2"}
@@ -582,7 +584,7 @@ func TestPutBackKeepsLocalState(t *testing.T) {
 	dir := filepath.Join(out, "aws", "777", "eu-west-2")
 	writeRootFiles(t, dir, map[string]string{"network.tf": "# as applied\n", "terraform.tfstate": "serial 1"})
 	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
-	done := &engine.Result{Imported: []engine.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	done := &engine.Result{Imported: []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}

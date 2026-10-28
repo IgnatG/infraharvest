@@ -19,7 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -484,20 +484,20 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 			t.Errorf("no settings for %s", source)
 		}
 	}
-	var blocks []engine.Provider
+	var blocks []rootfile.Provider
 	for _, name := range providers.Names() {
 		p := providers.New(name)
 		for local, config := range p.ProviderBlock()["provider"].(map[string]interface{}) {
-			blocks = append(blocks, engine.Provider{Name: local, Config: config.(map[string]interface{})})
+			blocks = append(blocks, rootfile.Provider{Name: local, Config: config.(map[string]interface{})})
 		}
 		if m, ok := p.(harvest.ProviderWithModuleProviders); ok {
 			for local, mp := range m.ModuleProviders() {
-				blocks = append(blocks, engine.Provider{Name: local, Source: mp.Source, Config: mp.Config})
+				blocks = append(blocks, rootfile.Provider{Name: local, Source: mp.Source, Config: mp.Config})
 			}
 		}
 	}
 	for _, p := range blocks {
-		content, err := engine.ProvidersFile(p)
+		content, err := rootfile.ProvidersFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}

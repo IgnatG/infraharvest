@@ -6,6 +6,9 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 const (
@@ -34,7 +37,7 @@ var awsARNs = map[string]ARN{
 func TestAddRootVariables(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "app" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "app" {
   function_name = "app"
   role          = "arn:aws:iam::123456789012:role/service-role/app"
 }
@@ -69,7 +72,7 @@ resource "aws_cloudfront_distribution" "web" {
   }
 }
 `)
-	writeConfig(t, dir, VariablesFileName, `variable "ebs_key_arn" {
+	writeConfig(t, dir, hclfile.VariablesFileName, `variable "ebs_key_arn" {
   description = "A secret."
   type        = string
   sensitive   = true
@@ -81,7 +84,7 @@ resource "aws_cloudfront_distribution" "web" {
 		t.Fatalf("want four resources edited, got %v, %v", edited, err)
 	}
 
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		// The ARN of a role, by its name after the path.
 		"role = var.app_role_arn_2",
@@ -104,7 +107,7 @@ resource "aws_cloudfront_distribution" "web" {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	variables := squashed(readFile(t, dir, VariablesFileName))
+	variables := squashed(readFile(t, dir, hclfile.VariablesFileName))
 	for _, want := range []string{
 		`variable "ebs_key_arn" { description = "A secret." type = string sensitive = true }`,
 		`variable "app_role_arn_2" { description = "The ARN of aws_iam_role.app, which the root ` + globalRoot + ` manages. The default is its value when this root was imported." type = string default = "arn:aws:iam::123456789012:role/service-role/app" }`,
@@ -125,7 +128,7 @@ func TestAddLookupsOfWhatAWSManages(t *testing.T) {
 	t.Parallel()
 	keyARN := "arn:aws:kms:eu-west-2:123456789012:key/" + keyID
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_cloudfront_distribution" "web" {
   default_cache_behavior {
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
     origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3"
@@ -150,7 +153,7 @@ resource "aws_rds_cluster" "db" {
   kms_key_id = "`+keyARN+`"
 }
 `)
-	writeConfig(t, dir, DataFileName, dataFileHeader+`
+	writeConfig(t, dir, rootfile.DataFileName, rootfile.DataFileHeader+`
 data "aws_vpc" "vpc_0abc1234" {
   id = "vpc-0abc1234"
 }
@@ -160,7 +163,7 @@ data "aws_vpc" "vpc_0abc1234" {
 	if err != nil || len(edited) != 3 || edited["aws_rds_cluster.db"] {
 		t.Fatalf("want three resources edited, got %v, %v", edited, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id",
 		// A policy AWS doesn't manage, and a key of a database, stay.
@@ -177,7 +180,7 @@ data "aws_vpc" "vpc_0abc1234" {
 	if strings.Count(got, "kms_key_id = data.aws_kms_alias.ebs.target_key_arn") != 2 {
 		t.Errorf("want the volumes' keys read by alias:\n%s", got)
 	}
-	data := squashed(readFile(t, dir, DataFileName))
+	data := squashed(readFile(t, dir, rootfile.DataFileName))
 	for _, want := range []string{
 		`data "aws_vpc" "vpc_0abc1234" { id = "vpc-0abc1234" }`,
 		`data "aws_cloudfront_cache_policy" "caching_disabled" { name = "Managed-CachingDisabled" }`,
@@ -204,7 +207,7 @@ func TestAddRootVariablesReadsGoogleNetworks(t *testing.T) {
 		{Type: "google_compute_firewall", ID: "projects/acme/global/firewalls/allow", Name: "allow", Root: "google/acme/global"},
 	}
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "google_compute_subnetwork" "app" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_compute_subnetwork" "app" {
   name    = "app"
   network = "`+link+`"
 }
@@ -225,7 +228,7 @@ resource "google_compute_subnetwork" "elsewhere" {
 	if err != nil || len(edited) != 3 {
 		t.Fatalf("want three resources edited, got %v, %v", edited, err)
 	}
-	got := squashed(readFile(t, dir, GeneratedFileName))
+	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "network = data.google_compute_network.main.self_link") != 2 {
 		t.Errorf("want the subnetwork and the router to read the network:\n%s", got)
 	}
@@ -237,10 +240,10 @@ resource "google_compute_subnetwork" "elsewhere" {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	if data := squashed(readFile(t, dir, DataFileName)); !strings.Contains(data, `data "google_compute_network" "main" { name = "main" project = "acme" }`) || strings.Count(data, "data \"") != 1 {
+	if data := squashed(readFile(t, dir, rootfile.DataFileName)); !strings.Contains(data, `data "google_compute_network" "main" { name = "main" project = "acme" }`) || strings.Count(data, "data \"") != 1 {
 		t.Errorf("data.tf:\n%s", data)
 	}
-	if variables := squashed(readFile(t, dir, VariablesFileName)); !strings.Contains(variables, `variable "main_network_self_link" { description = "The self link of google_compute_network.main, which the root google/acme/global manages.`) {
+	if variables := squashed(readFile(t, dir, hclfile.VariablesFileName)); !strings.Contains(variables, `variable "main_network_self_link" { description = "The self link of google_compute_network.main, which the root google/acme/global manages.`) {
 		t.Errorf("variables.tf:\n%s", variables)
 	}
 }

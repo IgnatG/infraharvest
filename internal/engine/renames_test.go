@@ -8,6 +8,8 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // renameSource has references in nested blocks, in templates, in index
@@ -39,7 +41,7 @@ resource "aws_security_group" "b" {
 func TestRenameIndex(t *testing.T) {
 	t.Parallel()
 	parse := func() *hclwrite.File {
-		f, diags := hclwrite.ParseConfig([]byte(renameSource), GeneratedFileName, hcl.InitialPos)
+		f, diags := hclwrite.ParseConfig([]byte(renameSource), rootfile.GeneratedFileName, hcl.InitialPos)
 		if diags.HasErrors() {
 			t.Fatal(diags)
 		}

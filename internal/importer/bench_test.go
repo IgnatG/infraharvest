@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // BenchmarkOtherRoots is what generate does for each root of a call before
@@ -19,12 +20,12 @@ func BenchmarkOtherRoots(b *testing.B) {
 	const roots, resources = 60, 500
 	out := b.TempDir()
 	types := []string{"aws_vpc", "aws_subnet", "aws_security_group", "aws_iam_role", "aws_iam_role_policy_attachment", "aws_s3_bucket", "aws_s3_bucket_versioning", "aws_ssm_parameter"}
-	byDir := map[string][]engine.Import{}
+	byDir := map[string][]rootfile.Import{}
 	for d := range roots {
 		dir := filepath.Join(out, fmt.Sprintf("service_%02d", d))
 		for i := range resources {
 			typ := types[i%len(types)]
-			byDir[dir] = append(byDir[dir], engine.Import{Type: typ, Name: fmt.Sprintf("r_%d_%d", d, i), ID: fmt.Sprintf("%s-%02d-%04d", typ, d, i)})
+			byDir[dir] = append(byDir[dir], rootfile.Import{Type: typ, Name: fmt.Sprintf("r_%d_%d", d, i), ID: fmt.Sprintf("%s-%02d-%04d", typ, d, i)})
 		}
 	}
 	opts := engine.Options{DataSources: map[string]engine.DataSource{

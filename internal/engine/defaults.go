@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -79,7 +80,7 @@ func (c defaultCandidate) key() string {
 // them. The providers' schemas don't say what their defaults are, so only
 // the plan can tell a default from a setting: the candidates of every
 // resource are left out at once, and where a resource then plans
-// differently from changes (see changeSignature), its arguments behind
+// differently from changes (see tfrun.ChangeSignature), its arguments behind
 // the difference are put back and the rest left out again, until the plan
 // stays the same; all of its arguments only where none is behind the
 // difference, or in the last round but one. Before each plan, validation,
@@ -92,7 +93,7 @@ func (c defaultCandidate) key() string {
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
 func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
 		return false, nil, err
@@ -112,50 +113,8 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 	restore := func() error { return fsutil.WriteFile(path, original, 0o644) }
 	// keep holds the candidates to put back, by key.
 	keep := map[string]bool{}
-	// What the plan can't settle keeps its constants; nulls still go, as
-	// Terraform treats null as an omitted argument, and so do proven
-	// defaults (see defaultCandidate.proven) of the metadata's own release
-	// where the configuration still validates without them: no plan would
-	// correct a wrong one.
 	nullsOnly := func() (bool, *shownPlan, error) {
-		type pass struct {
-			schemas *tfjson.ProviderSchemas
-			rules   defaultRules
-		}
-		// Without schemas, only nulls are candidates.
-		passes := []pass{{nil, defaultRules{}}}
-		if rules.hints.exact {
-			verified := rules
-			verified.verifiedOnly = true
-			passes = append([]pass{{schemas, verified}}, passes...)
-		}
-		for _, p := range passes {
-			if err := restore(); err != nil {
-				return false, nil, err
-			}
-			f, err := hclfile.Load(path)
-			if err != nil {
-				return false, nil, err
-			}
-			removed := removeDefaults(f, p.schemas, p.rules, keep)
-			if len(removed) == 0 {
-				return false, nil, restore()
-			}
-			if err := f.Save(); err != nil {
-				return false, nil, err
-			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
-				return true, nil, nil
-			}
-			out, err := tf.Validate(ctx)
-			if err != nil {
-				return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
-			}
-			if out.Valid {
-				return true, nil, nil
-			}
-		}
-		return false, nil, restore()
+		return stripNullsOnly(ctx, tf, path, restore, schemas, rules, keep)
 	}
 	// failed counts the rounds in which the plan failed on each resource.
 	failed := map[string]int{}
@@ -189,46 +148,10 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(diags))
 				return nullsOnly()
 			}
-			for address, ds := range assigned {
-				failed[address]++
-				kept := false
-				if failed[address] <= 2 && round < maxDefaultRounds-2 {
-					kept = keepNamed(removed, address, ds, keep)
-					if !kept || failed[address] == 2 {
-						kept = keepSettings(removed, address, keep) || kept
-					}
-				}
-				if !kept {
-					keepAll(removed, address, keep)
-				}
-			}
+			keepWhatErrorsName(removed, assigned, failed, round, keep)
 			continue
 		}
-		differs, noise := false, false
-		for _, rc := range p.ResourceChanges {
-			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
-				continue
-			}
-			if noWorse(changeSignature(rc), changes[rc.Address]) {
-				continue
-			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
-				// Nothing of it was left out: the plan differs from the
-				// one before by itself, as an emulator's may. Proven
-				// defaults count: where the plan differs, the metadata
-				// may be wrong, and the plan corrects it.
-				noise = true
-				continue
-			}
-			differs = true
-			if round == maxDefaultRounds-2 {
-				// There is one round left: keep the resource's constants
-				// rather than plan again.
-				keepAll(removed, rc.Address, keep)
-				continue
-			}
-			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
-		}
+		differs, noise := keepWhatChanged(p, removed, changes, round, keep)
 		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
 			return true, &shownPlan{plan: p, summary: summary}, nil
 		}
@@ -241,13 +164,115 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 	return nullsOnly()
 }
 
+// stripNullsOnly is stripDefaults where the plan can't settle what to
+// leave out, which keeps its constants: it leaves out of generated.tf, in
+// path, only nulls, as Terraform treats null as an omitted argument, and
+// proven defaults (see defaultCandidate.proven) of the metadata's own
+// release where the configuration still validates without them: no plan
+// would correct a wrong one. It reports whether it changed generated.tf;
+// restore puts it back as it was.
+func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, *shownPlan, error) {
+	type pass struct {
+		schemas *tfjson.ProviderSchemas
+		rules   defaultRules
+	}
+	// Without schemas, only nulls are candidates.
+	passes := []pass{{nil, defaultRules{}}}
+	if rules.hints.exact {
+		verified := rules
+		verified.verifiedOnly = true
+		passes = append([]pass{{schemas, verified}}, passes...)
+	}
+	for _, p := range passes {
+		if err := restore(); err != nil {
+			return false, nil, err
+		}
+		f, err := hclfile.Load(path)
+		if err != nil {
+			return false, nil, err
+		}
+		removed := removeDefaults(f, p.schemas, p.rules, keep)
+		if len(removed) == 0 {
+			return false, nil, restore()
+		}
+		if err := f.Save(); err != nil {
+			return false, nil, err
+		}
+		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
+			return true, nil, nil
+		}
+		out, err := tf.Validate(ctx)
+		if err != nil {
+			return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
+		}
+		if out.Valid {
+			return true, nil, nil
+		}
+	}
+	return false, nil, restore()
+}
+
+// keepWhatErrorsName puts back, of removed, what the errors of a failed
+// plan in round name, by the address of the resource each is about
+// (assigned), and counts the round in failed: the arguments they name
+// the first time, and the resource's settings too the second time or
+// where they name none (see defaultCandidate); every argument of the
+// resource from the third time, or in the last round but one.
+func keepWhatErrorsName(removed []defaultCandidate, assigned map[string][]tfjson.Diagnostic, failed map[string]int, round int, keep map[string]bool) {
+	for address, ds := range assigned {
+		failed[address]++
+		kept := false
+		if failed[address] <= 2 && round < maxDefaultRounds-2 {
+			kept = keepNamed(removed, address, ds, keep)
+			if !kept || failed[address] == 2 {
+				kept = keepSettings(removed, address, keep) || kept
+			}
+		}
+		if !kept {
+			keepAll(removed, address, keep)
+		}
+	}
+}
+
+// keepWhatChanged puts back, of removed, the arguments behind each
+// resource whose change in p, the plan of round, is worse than in
+// changes, the plan before (see noWorse): all of its constants in the
+// last round but one. It reports whether a resource with arguments left
+// out differs, and whether one without differs all the same, which is
+// noise, as an emulator's plan may differ by itself. Proven defaults
+// count as left out: where the plan differs, the metadata may be wrong,
+// and the plan corrects it.
+func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[string]string, round int, keep map[string]bool) (differs, noise bool) {
+	for _, rc := range p.ResourceChanges {
+		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
+			continue
+		}
+		if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
+			continue
+		}
+		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
+			noise = true
+			continue
+		}
+		differs = true
+		if round == maxDefaultRounds-2 {
+			// There is one round left: keep the resource's constants
+			// rather than plan again.
+			keepAll(removed, rc.Address, keep)
+			continue
+		}
+		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
+	}
+	return differs, noise
+}
+
 // removeValid leaves the candidates not in keep out of generated.tf, as
 // restore has it, until the configuration validates: the candidates of a
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
 func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
-	path := filepath.Join(dir, GeneratedFileName)
+	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
 			return nil, err
@@ -294,11 +319,11 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore fu
 // assignErrors assigns diags to the resources of dir they are about (see
 // byResource).
 func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -493,7 +518,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		path := append(append([]string(nil), prefix...), name)
 		c := defaultCandidate{address: address, path: path}
 		switch {
-		case isNullLiteral(attr.Expr):
+		case hclfile.IsNullLiteral(attr.Expr):
 			c.null = true
 		case rules.hints.provenSetting(typ, path, attr.Expr):
 			// Left out, it would plan as the default.
@@ -670,11 +695,6 @@ func hasEmptyBlocks(body *hclsyntax.Body) bool {
 	return false
 }
 
-func isNullLiteral(expr hclsyntax.Expression) bool {
-	lit, ok := expr.(*hclsyntax.LiteralValueExpr)
-	return ok && lit.Val.IsNull()
-}
-
 // isConstant reports whether expr is a value that refers to nothing and
 // calls nothing, such as 3600, "/", true, ["a"] or {}, and isn't null.
 func isConstant(expr hclsyntax.Expression) bool {
@@ -736,7 +756,7 @@ func hasConstants(body *hclsyntax.Body) bool {
 // zero value it was.
 func setsComputed(schemas *tfjson.ProviderSchemas, typ string, path []string, body *hclsyntax.Body) bool {
 	for name, attr := range body.Attributes {
-		if s := tfrun.SchemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !isNullLiteral(attr.Expr) && (s == nil || s.Computed) {
+		if s := tfrun.SchemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !hclfile.IsNullLiteral(attr.Expr) && (s == nil || s.Computed) {
 			return true
 		}
 	}

@@ -13,18 +13,9 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-version"
-)
 
-func TestRequiredVersionAndProviderConstraint(t *testing.T) {
-	t.Parallel()
-	v := version.Must(version.NewVersion("1.16.5"))
-	if got, want := RequiredVersion(v), ">= 1.16, < 2.0"; got != want {
-		t.Errorf("RequiredVersion: got %q, want %q", got, want)
-	}
-	if got, want := ProviderConstraint(version.Must(version.NewVersion("6.67.2"))), "~> 6.67"; got != want {
-		t.Errorf("ProviderConstraint: got %q, want %q", got, want)
-	}
-}
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+)
 
 func TestLatestProviderVersion(t *testing.T) {
 	t.Parallel()
@@ -208,7 +199,7 @@ func TestProviderVersionWithinConstraints(t *testing.T) {
 
 func TestPinnedToLock(t *testing.T) {
 	t.Parallel()
-	versions := VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
+	versions := rootfile.VersionsFile(">= 1.5, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.67"})
 	lock := []byte(`provider "registry.terraform.io/hashicorp/aws" {
   version     = "6.30.1"
   constraints = "~> 6.30"
@@ -218,12 +209,12 @@ func TestPinnedToLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := string(VersionsFile(">= 1.5, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})); string(got) != want {
+	if want := string(rootfile.VersionsFile(">= 1.5, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.30"})); string(got) != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
 
 	// A provider the lock doesn't record stays as it is.
-	other := VersionsFile("", Provider{Name: "google", Source: "hashicorp/google", Version: "~> 7.1"})
+	other := rootfile.VersionsFile("", rootfile.Provider{Name: "google", Source: "hashicorp/google", Version: "~> 7.1"})
 	if got, err := pinnedToLock(other, lock); err != nil || string(got) != string(other) {
 		t.Errorf("got %s, %v; want it unchanged", got, err)
 	}

@@ -19,7 +19,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -50,44 +52,44 @@ const maxFillRounds = 2
 // the provider computes from it in state, which stateOnly names for the
 // type (the Google provider's labels and terraform_labels), and nothing
 // in the cloud. A resource that then plans any other change, against
-// changes (see changeSignature), keeps no tags, and is logged; the others
+// changes (see tfrun.ChangeSignature), keeps no tags, and is logged; the others
 // keep theirs. A change of a resource it didn't fill is the plan's own,
 // as an autoscaled group's size may be, and changes nothing. If the
 // configuration doesn't plan, no resource keeps tags. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
 func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et EffectiveTags, values map[string]map[string]any, changes map[string]string, stateOnly map[string][]string, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
-	backup, err := backupFiles(dir, GeneratedFileName)
+	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName)
 	if err != nil {
 		return false, nil, err
 	}
 	left := map[string]bool{}
 	for round := 0; round < maxFillRounds; round++ {
 		if round > 0 {
-			if err := backup.restore(); err != nil {
+			if err := backup.Restore(); err != nil {
 				return false, nil, err
 			}
 		}
 		filled, err := fillTags(dir, et, values, left)
 		if err != nil {
-			return false, nil, errors.Join(err, backup.restore())
+			return false, nil, errors.Join(err, backup.Restore())
 		}
 		if len(filled) == 0 {
 			return false, nil, nil
 		}
 		p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
 		if err != nil {
-			return false, nil, errors.Join(err, backup.restore())
+			return false, nil, errors.Join(err, backup.Restore())
 		}
 		if len(diags) > 0 || p == nil {
-			return false, nil, backup.restore()
+			return false, nil, backup.Restore()
 		}
 		settled := true
 		for _, rc := range p.ResourceChanges {
 			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 				continue
 			}
-			signature := changeSignature(rc)
+			signature := tfrun.ChangeSignature(rc)
 			if signature == changes[rc.Address] {
 				continue
 			}
@@ -107,12 +109,12 @@ func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et E
 		}
 	}
 	// Out of rounds: the resources that settled keep their tags.
-	if err := backup.restore(); err != nil {
+	if err := backup.Restore(); err != nil {
 		return false, nil, err
 	}
 	filled, err := fillTags(dir, et, values, left)
 	if err != nil {
-		return false, nil, errors.Join(err, backup.restore())
+		return false, nil, errors.Join(err, backup.Restore())
 	}
 	logUnfilled(dir, et, left)
 	return len(filled) > 0, nil, nil
@@ -133,7 +135,7 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 // without reserved tags, but for the resources in skip. It returns the
 // addresses of the resources it set.
 func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, GeneratedFileName))
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +151,7 @@ func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, sk
 			continue
 		}
 		if attr, ok := r.Syntax.Body.Attributes[et.Attribute]; ok {
-			if tags, ok := stringMap(attr.Expr); !ok || len(tags) > 0 {
+			if tags, ok := hclfile.StringMap(attr.Expr); !ok || len(tags) > 0 {
 				continue
 			}
 		}

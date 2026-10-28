@@ -13,6 +13,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func writeConfig(t *testing.T, dir, name, content string) *hclfile.File {
@@ -31,7 +32,7 @@ func writeConfig(t *testing.T, dir, name, content string) *hclfile.File {
 func TestByResource(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	imports, err := ImportsFile([]Import{
+	imports, err := rootfile.ImportsFile([]rootfile.Import{
 		{Type: "aws_sqs_queue", Name: "a", ID: "a"},
 		{Type: "aws_sqs_queue", Name: "a2", ID: "a2"},
 		{Type: "aws_vpc", Name: "b", ID: "b"},
@@ -39,8 +40,8 @@ func TestByResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	importsFile := writeConfig(t, dir, ImportsFileName, string(imports))
-	generated := writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "b" {
+	importsFile := writeConfig(t, dir, rootfile.ImportsFileName, string(imports))
+	generated := writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "b" {
   cidr_block = "10.0.0.0/16"
 }
 `)
@@ -88,12 +89,12 @@ func TestOnlyMentioned(t *testing.T) {
 func TestReject(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	imports, err := ImportsFile([]Import{{Type: "aws_vpc", Name: "a", ID: "vpc-a"}, {Type: "aws_vpc", Name: "b", ID: "vpc-b"}})
+	imports, err := rootfile.ImportsFile([]rootfile.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-a"}, {Type: "aws_vpc", Name: "b", ID: "vpc-b"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConfig(t, dir, ImportsFileName, string(imports))
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "a" {
+	writeConfig(t, dir, rootfile.ImportsFileName, string(imports))
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "a" {
   cidr_block = "10.0.0.0/16"
 }
 
@@ -125,10 +126,10 @@ resource "aws_vpc" "a" {
 	if got := rejected.String(); got != wantRejected {
 		t.Errorf("rejected: got:\n%s\nwant:\n%s", got, wantRejected)
 	}
-	if got, want := readFile(t, dir, ImportsFileName), "import {\n  to = aws_vpc.b\n  id = \"vpc-b\"\n}\n"; got != want {
+	if got, want := readFile(t, dir, rootfile.ImportsFileName), "import {\n  to = aws_vpc.b\n  id = \"vpc-b\"\n}\n"; got != want {
 		t.Errorf("imports.tf: got:\n%s\nwant:\n%s", got, want)
 	}
-	if got, want := readFile(t, dir, GeneratedFileName), "resource \"aws_vpc\" \"b\" {\n  cidr_block = \"10.1.0.0/16\"\n}\n"; got != want {
+	if got, want := readFile(t, dir, rootfile.GeneratedFileName), "resource \"aws_vpc\" \"b\" {\n  cidr_block = \"10.1.0.0/16\"\n}\n"; got != want {
 		t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
 	}
 }

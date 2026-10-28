@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -22,6 +23,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -387,21 +390,6 @@ func ObjectKey(expr hclsyntax.Expression) string {
 	return v.AsString()
 }
 
-// VarsDir is the directory of a merged root's var files: the root
-// several environments share keeps what differs between them under it
-// (see the engine's mergedlayout.go). The secrets and standards checks
-// read those files too.
-const VarsDir = "vars"
-
-// IsMergedVarFile reports whether rel, a file of a root by its path in it
-// with forward slashes, is one of the var files a merged root keeps under
-// VarsDir, such as vars/prod/terraform.tfvars or vars/prod/backend.hcl,
-// whose arguments set variables or backend settings: a .tfvars or .hcl
-// file, the only kinds that belong there.
-func IsMergedVarFile(rel string) bool {
-	return strings.HasPrefix(rel, VarsDir+"/") && (strings.HasSuffix(rel, ".tfvars") || strings.HasSuffix(rel, ".hcl"))
-}
-
 // ConstantString returns the value of expr if it is a constant string.
 func ConstantString(expr hclsyntax.Expression) (string, bool) {
 	v, diags := expr.Value(nil)
@@ -453,3 +441,245 @@ func NamesModuleCall(address string) bool {
 	names := AddressNames(address)
 	return len(names) >= 2 && names[len(names)-2] == "module"
 }
+
+// TrimInstanceKey turns aws_vpc.a["x"] or aws_vpc.a[0] into aws_vpc.a.
+func TrimInstanceKey(addr string) string {
+	if i := strings.IndexByte(addr, '['); i >= 0 {
+		return addr[:i]
+	}
+	return addr
+}
+
+// KeyName returns an object key as written: an identifier, or a string.
+func KeyName(expr hclsyntax.Expression) string {
+	if name := hcl.ExprAsKeyword(expr); name != "" {
+		return name
+	}
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
+		return ""
+	}
+	return v.AsString()
+}
+
+// Traversals returns the references of every argument in body, nested
+// blocks' included.
+func Traversals(body *hclsyntax.Body) []hcl.Traversal {
+	var ts []hcl.Traversal
+	for _, attr := range body.Attributes {
+		ts = append(ts, attr.Expr.Variables()...)
+	}
+	for _, b := range body.Blocks {
+		ts = append(ts, Traversals(b.Body)...)
+	}
+	return ts
+}
+
+// StringMap evaluates a literal map of strings; null is an empty map.
+func StringMap(expr hclsyntax.Expression) (map[string]string, bool) {
+	v, diags := expr.Value(nil)
+	if diags.HasErrors() || !v.IsWhollyKnown() {
+		return nil, false
+	}
+	m := map[string]string{}
+	if v.IsNull() {
+		return m, true
+	}
+	if !v.Type().IsMapType() && !v.Type().IsObjectType() {
+		return nil, false
+	}
+	for it := v.ElementIterator(); it.Next(); {
+		k, val := it.Element()
+		if val.IsNull() || val.Type() != cty.String {
+			return nil, false
+		}
+		m[k.AsString()] = val.AsString()
+	}
+	return m, true
+}
+
+// StringAttribute returns an attribute's literal string value, or "".
+func StringAttribute(body *hclsyntax.Body, name string) string {
+	attr, ok := body.Attributes[name]
+	if !ok {
+		return ""
+	}
+	v, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
+		return ""
+	}
+	return v.AsString()
+}
+
+// HasDefault reports whether the variable block b has a default. One
+// without, such as a secret's, takes a value of its own: two of them
+// declared alike are still two values.
+func HasDefault(b *hclsyntax.Block) bool {
+	_, ok := b.Body.Attributes["default"]
+	return ok
+}
+
+// IsNullLiteral reports whether expr is the literal null.
+func IsNullLiteral(expr hclsyntax.Expression) bool {
+	lit, ok := expr.(*hclsyntax.LiteralValueExpr)
+	return ok && lit.Val.IsNull()
+}
+
+// WithoutNullAttributes returns an expression without the attributes of
+// its object constructors that are null, which a variable with optional
+// attributes sets to null itself.
+func WithoutNullAttributes(tokens hclwrite.Tokens) hclwrite.Tokens {
+	src := tokens.Bytes()
+	expr, diags := hclsyntax.ParseExpression(src, "", hcl.InitialPos)
+	if diags.HasErrors() {
+		return tokens
+	}
+	type span struct{ start, end int }
+	var nulls []span
+	_ = hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
+		obj, ok := n.(*hclsyntax.ObjectConsExpr)
+		if !ok {
+			return nil
+		}
+		for _, item := range obj.Items {
+			if IsNullLiteral(item.ValueExpr) {
+				nulls = append(nulls, span{item.KeyExpr.Range().Start.Byte, item.ValueExpr.Range().End.Byte})
+			}
+		}
+		return nil
+	})
+	if len(nulls) == 0 {
+		return tokens
+	}
+	slices.SortFunc(nulls, func(a, b span) int { return a.start - b.start })
+	var out []byte
+	last := 0
+	for _, s := range nulls {
+		out = append(out, src[last:s.start]...)
+		end := s.end
+		// The item's separator: a comma, or the end of its line.
+		for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
+			end++
+		}
+		if end < len(src) && src[end] == ',' {
+			end++
+		}
+		for end < len(src) && (src[end] == ' ' || src[end] == '\t' || src[end] == '\r' || src[end] == '\n') {
+			end++
+		}
+		last = end
+	}
+	out = append(out, src[last:]...)
+	if formatted := FormatExpr(out); formatted != nil {
+		return formatted
+	}
+	return tokens
+}
+
+// ConfigFiles parses the .tf files of dir, in name order, without override
+// files, which only change what the others declare.
+func ConfigFiles(dir string) ([]*File, error) {
+	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	var files []*File
+	for _, path := range paths {
+		name := filepath.Base(path)
+		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
+			continue
+		}
+		f, err := Load(path)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+// CallSource is how a root in dir calls a module from source: a module in
+// a directory, at an absolute path, by its path relative to dir, as
+// Terraform requires; any other source as it is.
+func CallSource(dir, source string) (string, error) {
+	if !filepath.IsAbs(source) {
+		return source, nil
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(abs, source)
+	if err != nil {
+		return "", fmt.Errorf("module %s: %w", source, err)
+	}
+	rel = filepath.ToSlash(rel)
+	if !strings.HasPrefix(rel, "../") {
+		rel = "./" + rel
+	}
+	return rel, nil
+}
+
+// Files and directories of the output that more than the engine, which
+// writes them, reads.
+const (
+	// VariablesFileName declares the variables of a root, or of a
+	// generated module.
+	VariablesFileName = "variables.tf"
+	// BackendFileName configures a root's backend.
+	BackendFileName = "backend.tf"
+	// ModulesDirName is the directory of the output that holds generated
+	// local modules, next to the roots.
+	ModulesDirName = "modules"
+)
+
+// ResourceAddress returns the resource a traversal refers to, or "".
+func ResourceAddress(t hcl.Traversal) string {
+	switch t.RootName() {
+	case "var", "local", "module", "data", "path", "count", "each", "self", "terraform":
+		return ""
+	}
+	if len(t) < 2 {
+		return ""
+	}
+	step, ok := t[1].(hcl.TraverseAttr)
+	if !ok {
+		return ""
+	}
+	return t.RootName() + "." + step.Name
+}
+
+// CopyBlock returns an unattached copy of block, without the comments
+// above it (Terraform's, naming the resource's import ID).
+func CopyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
+	src := block.BuildTokens(nil).Bytes()
+	for {
+		trimmed := bytes.TrimLeft(src, " \t\r\n")
+		if !bytes.HasPrefix(trimmed, []byte("#")) && !bytes.HasPrefix(trimmed, []byte("//")) {
+			src = trimmed
+			break
+		}
+		_, rest, found := bytes.Cut(trimmed, []byte("\n"))
+		if !found {
+			src = nil
+			break
+		}
+		src = rest
+	}
+	parsed, diags := ParseDiagnostics("", src)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("copy a block: %w", diags)
+	}
+	f := parsed.Edit()
+	if len(f.Body().Blocks()) != 1 {
+		return nil, errors.New("copy a block: not one block")
+	}
+	copied := f.Body().Blocks()[0]
+	f.Body().RemoveBlock(copied)
+	return copied, nil
+}
+
+// EvalContext evaluates the constants of generated configuration, in
+// which Terraform writes JSON strings as jsonencode(...).
+var EvalContext = &hcl.EvalContext{Functions: map[string]function.Function{"jsonencode": stdlib.JSONEncodeFunc}}

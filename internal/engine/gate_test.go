@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func change(address string, actions tfjson.Actions, before, after map[string]any) *tfjson.ResourceChange {
@@ -30,13 +31,13 @@ func change(address string, actions tfjson.Actions, before, after map[string]any
 func TestRunGate(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, ImportsFileName, `import {
+	writeConfig(t, dir, rootfile.ImportsFileName, `import {
   to = aws_vpc.main
   id = "vpc-1"
 }
 `)
-	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+	writeConfig(t, dir, rootfile.VersionsFileName, string(rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 `)
@@ -64,13 +65,13 @@ func TestRunGate(t *testing.T) {
 func TestScannersDontSeeSecrets(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, ImportsFileName, `import {
+	writeConfig(t, dir, rootfile.ImportsFileName, `import {
   to = aws_vpc.main
   id = "vpc-1"
 }
 `)
-	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+	writeConfig(t, dir, rootfile.VersionsFileName, string(rootfile.VersionsFile(">= 1.16, < 2.0", rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
   tags = { token = "ghp_`+strings.Repeat("a1", 18)+`" }
 }
@@ -113,20 +114,19 @@ func TestGateCancelled(t *testing.T) {
 		}},
 		{"stopped at a failure", func(cancel func()) gate.Policy {
 			cancel() // as an interrupt while fmt runs
-			return withChecks(gate.Policy{Checks: []string{gate.CheckFormat, gate.CheckValidate}, Diff: true, Edited: []string{GeneratedFileName}})
+			return withChecks(gate.Policy{Checks: []string{gate.CheckFormat, gate.CheckValidate}, Diff: true, Edited: []string{rootfile.GeneratedFileName}})
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+			writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 `)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			var calls []string
-			tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+			tf := &fakeTerraform{dir: dir, unformatted: []string{rootfile.GeneratedFileName}}
 
 			_, _, err := tc.policy(cancel).Run(ctx, tf, dir)
 
@@ -154,7 +154,7 @@ func TestGateCheckOrder(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+			writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
 `)
@@ -203,7 +203,7 @@ func TestGateWithholdsScanners(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+			writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
   tags       = { Name = "`+secret+`" }
 }
@@ -256,6 +256,21 @@ func TestGateBlamesEditedFiles(t *testing.T) {
   to   = aws_subnet.missing
 }
 `
+	// The root the moved blocks move to and from: aws_subnet.b, two
+	// instances of aws_subnet.c and a module call.
+	const config = `resource "aws_subnet" "b" {
+  cidr_block = "10.0.1.0/24"
+}
+
+resource "aws_subnet" "c" {
+  count      = 2
+  cidr_block = "10.0.2.0/24"
+}
+
+module "network" {
+  source = "./modules/network"
+}
+`
 	for _, tc := range []struct {
 		name        string
 		unformatted []string
@@ -272,14 +287,13 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			writeConfig(t, dir, GeneratedFileName, movesCheckConfig)
+			writeConfig(t, dir, rootfile.GeneratedFileName, config)
 			if err := os.MkdirAll(filepath.Join(dir, "modules", "network"), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			// A finding the root has already doesn't fail the edits.
-			writeConfig(t, dir, MovesFileName, strings.NewReplacer("aws_subnet.a", "aws_subnet.z", "missing", "elsewhere").Replace(badMove))
-			var calls []string
-			tf := &fakeDriftTerraform{calls: &calls, unformatted: tc.unformatted}
+			writeConfig(t, dir, rootfile.MovesFileName, strings.NewReplacer("aws_subnet.a", "aws_subnet.z", "missing", "elsewhere").Replace(badMove))
+			tf := &fakeTerraform{dir: dir, unformatted: tc.unformatted}
 			baseline, _, err := withChecks(gate.Policy{Checks: []string{gate.CheckStandards, gate.CheckMoves}}).Run(context.Background(), tf, dir)
 			if err != nil {
 				t.Fatal(err)
@@ -326,13 +340,12 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
 	t.Parallel()
 	const secret = "s3cr3t-value"
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_vpc" "main" {
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
   tags       = { Name = "`+secret+`" }
 }
 `)
-	var calls []string
-	tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+	tf := &fakeTerraform{dir: dir, unformatted: []string{rootfile.GeneratedFileName}}
 	checks, _, err := withChecks(gate.Policy{
 		Checks:    []string{gate.CheckFormat, gate.CheckSecrets},
 		Sensitive: []string{secret},
@@ -347,7 +360,7 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
 
 	// It stops at the first check that fails, here a moved block the
 	// root has without a baseline to judge it by.
-	writeConfig(t, dir, MovesFileName, `moved {
+	writeConfig(t, dir, rootfile.MovesFileName, `moved {
   from = aws_vpc.old
   to   = aws_vpc.missing
 }
@@ -367,7 +380,7 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
 func TestGateVarFiles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, VariablesFileName, `variable "db_password" {
+	writeConfig(t, dir, hclfile.VariablesFileName, `variable "db_password" {
   description = "The password."
   type        = string
   sensitive   = true
@@ -424,10 +437,26 @@ variable "api_token" {
 	}
 }
 
-// withChecks gives p the engine's standards and moves checks, as fullGate
+// withChecks gives p the engine's standards and moves checks, as FullGate
 // does, with no omissions and none of the organisation's own modules.
 func withChecks(p gate.Policy) gate.Policy {
-	full := fullGate(Options{})
+	full := FullGate(Options{})
 	p.Standards, p.Moves = full.Standards, full.Moves
 	return p
+}
+
+// With state, a resource a moved block moves plans as a no-op at its new
+// address, with where it was: the plan check counts it as no change, and
+// not as an import.
+func TestPlanCheckCountsAMoveAsNoChange(t *testing.T) {
+	t.Parallel()
+	moved := &tfjson.ResourceChange{
+		Address: "aws_subnet.b", PreviousAddress: "aws_subnet.a", Type: "aws_subnet", Mode: tfjson.ManagedResourceMode,
+		Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}},
+	}
+	imported := change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
+	check := gate.PlanCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved, imported}}, nil, nil, nil, 1)
+	if !check.Passed || len(check.Changes) != 0 {
+		t.Errorf("want a move and an import passed, got %+v", check)
+	}
 }

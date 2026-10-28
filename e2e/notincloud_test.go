@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -64,7 +64,7 @@ func checkNoLongerInCloud(ctx context.Context, t *testing.T, engineName, execPat
 	if len(coverage.Failures) != 0 || coverage.ExitCode != added.ExitCode {
 		t.Errorf("a queue gone changes the outcome: exit code %d, was %d; failures %v", coverage.ExitCode, added.ExitCode, coverage.Failures)
 	}
-	readme := after[path.Join(gone.Path, engine.ReadmeFileName)]
+	readme := after[path.Join(gone.Path, rootfile.ReadmeFileName)]
 	if !strings.Contains(readme, "## No longer in the cloud") || !strings.Contains(readme, "- `"+gone.Address+"` (`"+gone.ID+"`)") {
 		t.Errorf("the README of %s doesn't list %s as no longer in the cloud:\n%s", gone.Path, gone.Address, readme)
 	}

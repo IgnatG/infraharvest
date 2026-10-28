@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -38,7 +39,7 @@ const generatedBeforeRetry = "generated_before_retry.tf"
 // the result reports what they were imported by. Without such a resource,
 // or with errors it can't pin on resources, it returns diags as they are,
 // for the rounds that leave rejected resources out.
-func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports []Import, diags []tfjson.Diagnostic) ([]tfjson.Diagnostic, error) {
+func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, diags []tfjson.Diagnostic) ([]tfjson.Diagnostic, error) {
 	byAddress := map[string]int{}
 	for i, imp := range imports {
 		if imp.Fallback != "" && imp.Fallback != imp.ID {
@@ -62,12 +63,12 @@ func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports
 		return diags, nil
 	}
 	slices.Sort(retried)
-	generatedPath := filepath.Join(dir, GeneratedFileName)
+	generatedPath := filepath.Join(dir, rootfile.GeneratedFileName)
 	generated, err := hclfile.Load(generatedPath)
 	if err != nil {
 		return nil, err
 	}
-	importsFile, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
+	importsFile, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +99,7 @@ func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports
 	if err := os.Rename(generatedPath, before); err != nil {
 		return nil, err
 	}
-	diags, _, err = tfrun.Plan(ctx, tf, tfexec.GenerateConfigOut(GeneratedFileName))
+	diags, _, err = tfrun.Plan(ctx, tf, tfexec.GenerateConfigOut(rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("terraform plan: %w", err), os.Rename(before, generatedPath))
 	}

@@ -12,6 +12,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -69,7 +70,7 @@ func terraformEnv(ctx context.Context, provider harvest.Provider) (map[string]st
 
 // generateDir runs engine.Generate in dir, seeding it with *lock if set and
 // keeping its lock file in *lock otherwise.
-func generateDir(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
+func generateDir(ctx context.Context, dir string, tr terraformRun, imports []rootfile.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
 	tf, err := tr.in(dir)
 	if err != nil {
 		return nil, err

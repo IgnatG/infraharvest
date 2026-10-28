@@ -6,8 +6,12 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 const pinnedVersions = `terraform {
@@ -33,8 +37,8 @@ func standardRoot(t *testing.T) (string, string) {
 			t.Fatal(err)
 		}
 	}
-	writeConfig(t, root, VersionsFileName, pinnedVersions)
-	writeConfig(t, root, GeneratedFileName, `resource "aws_s3_bucket" "logs" {
+	writeConfig(t, root, rootfile.VersionsFileName, pinnedVersions)
+	writeConfig(t, root, rootfile.GeneratedFileName, `resource "aws_s3_bucket" "logs" {
   bucket = "logs-${var.suffix}"
 }
 
@@ -48,7 +52,7 @@ module "artifacts" {
   version = "5.16.1"
 }
 `)
-	writeConfig(t, root, VariablesFileName, `variable "suffix" {
+	writeConfig(t, root, hclfile.VariablesFileName, `variable "suffix" {
   description = "A secret."
   type        = string
   sensitive   = true
@@ -57,8 +61,8 @@ module "artifacts" {
 	writeConfig(t, module, "main.tf", "resource \"aws_s3_bucket\" \"this\" {\n  bucket = var.bucket\n}\n")
 	writeConfig(t, module, "variables.tf", "variable \"bucket\" {\n  description = \"The bucket.\"\n  type        = string\n}\n")
 	writeConfig(t, module, "outputs.tf", "output \"id\" {\n  description = \"The id.\"\n  value       = aws_s3_bucket.this.id\n}\n")
-	writeConfig(t, module, VersionsFileName, "terraform {\n  required_version = \">= 1.16\"\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \">= 6.14\"\n    }\n  }\n}\n")
-	writeConfig(t, module, ReadmeFileName, "# s3_bucket_0123abcd\n")
+	writeConfig(t, module, rootfile.VersionsFileName, "terraform {\n  required_version = \">= 1.16\"\n  required_providers {\n    aws = {\n      source  = \"hashicorp/aws\"\n      version = \">= 6.14\"\n    }\n  }\n}\n")
+	writeConfig(t, module, rootfile.ReadmeFileName, "# s3_bucket_0123abcd\n")
 	return root, module
 }
 
@@ -113,13 +117,13 @@ func TestCheckStandardsFindings(t *testing.T) {
 	t.Parallel()
 	for rule, breakIt := range map[string]func(t *testing.T, root, module string){
 		"unpinned-required-version": func(t *testing.T, root, _ string) {
-			writeConfig(t, root, VersionsFileName, strings.Replace(pinnedVersions, ">= 1.16, < 2.0", ">= 1.16", 1))
+			writeConfig(t, root, rootfile.VersionsFileName, strings.Replace(pinnedVersions, ">= 1.16, < 2.0", ">= 1.16", 1))
 		},
 		"unpinned-provider-version": func(t *testing.T, root, _ string) {
-			writeConfig(t, root, VersionsFileName, strings.Replace(pinnedVersions, "~> 6.14", ">= 6.14", 1))
+			writeConfig(t, root, rootfile.VersionsFileName, strings.Replace(pinnedVersions, "~> 6.14", ">= 6.14", 1))
 		},
 		"missing-required-version": func(t *testing.T, _, module string) {
-			writeConfig(t, module, VersionsFileName, "terraform {\n}\n")
+			writeConfig(t, module, rootfile.VersionsFileName, "terraform {\n}\n")
 		},
 		"untyped-variable": func(t *testing.T, _, module string) {
 			writeConfig(t, module, "variables.tf", "variable \"bucket\" {\n  description = \"The bucket.\"\n}\n")
@@ -133,18 +137,18 @@ func TestCheckStandardsFindings(t *testing.T) {
 			writeConfig(t, module, "outputs.tf", "output {\n  value = aws_s3_bucket.this.id\n}\n")
 		},
 		"secret-persisted-to-state": func(t *testing.T, root, _ string) {
-			writeConfig(t, root, VariablesFileName, "variable \"suffix\" {\n  description = \"A secret.\"\n  type        = string\n  sensitive   = true\n  default     = \"x\"\n}\n")
+			writeConfig(t, root, hclfile.VariablesFileName, "variable \"suffix\" {\n  description = \"A secret.\"\n  type        = string\n  sensitive   = true\n  default     = \"x\"\n}\n")
 		},
 		"legacy-interpolation": func(t *testing.T, root, _ string) {
 			writeConfig(t, root, "locals.tf", "locals {\n  name = \"${var.suffix}\"\n}\n")
 		},
 		"unpinned-module-version": func(t *testing.T, root, _ string) {
-			content := strings.Replace(readFile(t, root, GeneratedFileName), `version = "5.16.1"`, `version = "~> 5.16"`, 1)
-			writeConfig(t, root, GeneratedFileName, content)
+			content := strings.Replace(readFile(t, root, rootfile.GeneratedFileName), `version = "5.16.1"`, `version = "~> 5.16"`, 1)
+			writeConfig(t, root, rootfile.GeneratedFileName, content)
 		},
 		"deprecated-argument": func(t *testing.T, root, _ string) {
-			content := strings.Replace(readFile(t, root, GeneratedFileName), `bucket = "logs-${var.suffix}"`, "bucket = \"logs-${var.suffix}\"\n  acl    = \"private\"", 1)
-			writeConfig(t, root, GeneratedFileName, content)
+			content := strings.Replace(readFile(t, root, rootfile.GeneratedFileName), `bucket = "logs-${var.suffix}"`, "bucket = \"logs-${var.suffix}\"\n  acl    = \"private\"", 1)
+			writeConfig(t, root, rootfile.GeneratedFileName, content)
 		},
 		"committed-state-file": func(t *testing.T, root, _ string) {
 			// A copy of a state, not the root's local state.
@@ -158,7 +162,7 @@ func TestCheckStandardsFindings(t *testing.T) {
 			}
 		},
 		"module-structure": func(t *testing.T, _, module string) {
-			if err := os.Remove(filepath.Join(module, ReadmeFileName)); err != nil {
+			if err := os.Remove(filepath.Join(module, rootfile.ReadmeFileName)); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -173,6 +177,52 @@ func TestCheckStandardsFindings(t *testing.T) {
 			}
 			if check.Passed || len(check.Details) != 1 || !strings.HasPrefix(check.Details[0], rule+": ") {
 				t.Errorf("want one %s finding, got %v", rule, check.Details)
+			}
+		})
+	}
+}
+
+// goldenHeader is the line before each file of a golden file.
+var goldenHeader = regexp.MustCompile(`(?m)^-- (.+) --$`)
+
+// The merged roots of envmerge's golden files, which its tests hold to
+// every other check of the gate, meet the output standard.
+func TestMergedRootsMeetTheStandard(t *testing.T) {
+	t.Parallel()
+	goldens, err := filepath.Glob(filepath.Join("envmerge", "testdata", "envroot", "*.golden.txt"))
+	if err != nil || len(goldens) == 0 {
+		t.Fatalf("no golden merged roots: %v", err)
+	}
+	for _, golden := range goldens {
+		t.Run(filepath.Base(golden), func(t *testing.T) {
+			t.Parallel()
+			content, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			// Each file follows a -- path -- line.
+			headers := goldenHeader.FindAllStringSubmatchIndex(string(content), -1)
+			for i, h := range headers {
+				end := len(content)
+				if i+1 < len(headers) {
+					end = headers[i+1][0]
+				}
+				name, body := string(content[h[2]:h[3]]), content[h[1]+1:end]
+				path := filepath.Join(dir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, body, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			check, err := FullGate(Options{}).Standards(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !check.Passed {
+				t.Errorf("%s: %s", check.Name, strings.Join(check.Details, "; "))
 			}
 		})
 	}

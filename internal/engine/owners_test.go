@@ -7,6 +7,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 func TestOwnedBy(t *testing.T) {
@@ -53,7 +55,7 @@ resource "aws_iam_role" "other" {
   }
 }
 `
-	imports := []Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "other", ID: "other"}}
+	imports := []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "other", ID: "other"}}
 
 	dir := t.TempDir()
 	result, err := Generate(context.Background(), &fakeTerraform{dir: dir, generated: generated}, dir, imports, Options{})
@@ -67,7 +69,7 @@ resource "aws_iam_role" "other" {
 	if len(result.Imported) != 1 || result.Imported[0].Name != "app" || len(result.Rejected) != 0 {
 		t.Errorf("want only app imported, nothing rejected: %+v", result)
 	}
-	for _, name := range []string{GeneratedFileName, ImportsFileName} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName} {
 		if got := readFile(t, dir, name); strings.Contains(got, "other") {
 			t.Errorf("%s keeps the owned role:\n%s", name, got)
 		}

@@ -6,6 +6,8 @@ package engine
 import (
 	"slices"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // resourceProviders returns the providers of configured, by local name,
@@ -16,7 +18,7 @@ import (
 // each to the release init selects (see pinModuleProviders). An import
 // that names its provider, such as google-beta, is the root's own
 // provider's.
-func resourceProviders(imports []Import, configured map[string]Provider) []string {
+func resourceProviders(imports []rootfile.Import, configured map[string]rootfile.Provider) []string {
 	var names []string
 	for _, imp := range imports {
 		if imp.Provider != "" {

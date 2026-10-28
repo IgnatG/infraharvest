@@ -17,8 +17,8 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -219,8 +219,8 @@ func (h handover) checkHalfDone(t *testing.T) {
 	if !slices.ContainsFunc(half.Directories, func(d report.Directory) bool { return d.Path == first.root && d.Error != "" }) {
 		t.Errorf("a failed root: coverage.json doesn't report %s failed: %+v", first.root, half.Directories)
 	}
-	if _, err := os.Stat(filepath.Join(first.dir, engine.MovesFileName)); err == nil {
-		t.Errorf("a failed root: %s has a %s", first.root, engine.MovesFileName)
+	if _, err := os.Stat(filepath.Join(first.dir, rootfile.MovesFileName)); err == nil {
+		t.Errorf("a failed root: %s has a %s", first.root, rootfile.MovesFileName)
 	}
 	if md := readFile(t, filepath.Join(h.out, report.Dir, "report.md")); !strings.Contains(md, "Handovers not finished") || !strings.Contains(md, i.Warning) {
 		t.Errorf("a failed root: report.md doesn't list the handover with %q:\n%s", i.Warning, md)
@@ -265,7 +265,7 @@ func (h *handover) applyFirst(t *testing.T) appliedRoot {
 	}
 	copyRootFiles(t, applied.dir, applied.work)
 	applyRoot(h.ctx, t, applied.work, h.execPath, h.plugins, nil)
-	if err := os.Remove(filepath.Join(applied.work, engine.ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(applied.work, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 	return applied
@@ -299,9 +299,9 @@ func (h handover) finish(t *testing.T, first appliedRoot) {
 	if len(second.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", second.IncompleteHandovers)
 	}
-	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(from, engine.MovesFileName))), " ")
+	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(from, rootfile.MovesFileName))), " ")
 	if want := "removed { from = " + handedFrom + " lifecycle { destroy = false } }"; !strings.Contains(moves, want) {
-		t.Errorf("%s/%s doesn't have %q:\n%s", fromRoot, engine.MovesFileName, want, moves)
+		t.Errorf("%s/%s doesn't have %q:\n%s", fromRoot, rootfile.MovesFileName, want, moves)
 	}
 	for _, d := range second.Directories {
 		if d.Path == fromRoot && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == gate.CheckMoves && c.Passed && !c.Skipped }) {
@@ -311,8 +311,8 @@ func (h handover) finish(t *testing.T, first appliedRoot) {
 	to := filepath.Join(h.out, filepath.FromSlash(toRoot))
 	// Each README names the other root, for the order to apply them in.
 	for _, readme := range []struct{ dir, other string }{{from, toRoot}, {to, fromRoot}} {
-		if content := readFile(t, filepath.Join(readme.dir, engine.ReadmeFileName)); !strings.Contains(content, readme.other) {
-			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(readme.dir, engine.ReadmeFileName), readme.other, content)
+		if content := readFile(t, filepath.Join(readme.dir, rootfile.ReadmeFileName)); !strings.Contains(content, readme.other) {
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(readme.dir, rootfile.ReadmeFileName), readme.other, content)
 		}
 	}
 

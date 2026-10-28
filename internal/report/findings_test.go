@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // findingsReport is a report of a root whose scanners found something
@@ -26,7 +27,7 @@ func findingsReport() *Report {
 	r.AddListed(Listed{Scope: scope, Service: "s3", Type: "aws_s3_bucket", ID: "acme-data"})
 	r.AddListed(Listed{Scope: scope, Service: "iam", Type: "aws_iam_role", ID: "a"})
 	r.AddDirectory("aws/1/eu-west-2", scope, &engine.Result{
-		Imported: []engine.Import{{Type: "aws_s3_bucket", Name: "logs", ID: "acme-logs"}, {Type: "aws_s3_bucket", Name: "data", ID: "acme-data"}},
+		Imported: []rootfile.Import{{Type: "aws_s3_bucket", Name: "logs", ID: "acme-logs"}, {Type: "aws_s3_bucket", Name: "data", ID: "acme-data"}},
 		Addresses: []engine.Managed{
 			{Type: "aws_s3_bucket", ID: "acme-logs", Address: "aws_s3_bucket.logs"},
 			{Type: "aws_s3_bucket", ID: "acme-data", Address: "module.data.aws_s3_bucket.this[0]"},

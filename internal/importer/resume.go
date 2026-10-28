@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -27,9 +28,9 @@ import (
 // fingerprint identifies what a root is generated from: infraharvest's
 // version, the engine, the imports, the files written besides them, and
 // the options that change the output.
-func fingerprint(engineVersion string, imports []engine.Import, opts engine.Options) (string, error) {
+func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Options) (string, error) {
 	// Imports come in listing order, which varies between runs.
-	imports = append([]engine.Import(nil), imports...)
+	imports = append([]rootfile.Import(nil), imports...)
 	sort.Slice(imports, func(i, j int) bool {
 		if imports[i].Type != imports[j].Type {
 			return imports[i].Type < imports[j].Type
@@ -42,7 +43,7 @@ func fingerprint(engineVersion string, imports []engine.Import, opts engine.Opti
 	}
 	content, err := json.Marshal(struct {
 		Version, Engine string
-		Imports         []engine.Import
+		Imports         []rootfile.Import
 		Config          map[string][]byte
 		Omit, Defaults  map[string][]string
 		StateOnly       map[string][]string
@@ -80,11 +81,11 @@ type claim struct {
 	// ID, and moved the moved blocks its moves.tf had (see
 	// engine.Previous).
 	labels map[engine.External]string
-	moved  []engine.Move
+	moved  []rootfile.Move
 	// removed are the removed blocks its moves.tf had, with those of the
 	// resources the root hands over to other roots now (see
 	// planHandovers).
-	removed []engine.Removal
+	removed []rootfile.Removal
 	// backup is the root as it was before, if it has previous, to put
 	// back when generating it changes what moved blocks can't follow (see
 	// refuseReaddressed).
@@ -140,7 +141,7 @@ func claimRoot(out, dir, fp string, d rootDecision, s *shared) (*claim, error) {
 		// moves.tf, and may have written another.
 		claimed.moved, claimed.removed = c.PendingMoves, c.PendingRemoved
 		if c.Result != nil {
-			if claimed.moved, err = engine.ReadMoves(dir); err != nil {
+			if claimed.moved, err = rootfile.ReadMoves(dir); err != nil {
 				return nil, err
 			}
 			if claimed.removed, err = readRemoved(dir, c.Result); err != nil {
@@ -189,8 +190,8 @@ func keptFiles(dir string) (map[string]savedFile, error) {
 
 // readRemoved returns the removed blocks of dir's moves.tf, with what
 // result, the root's last, says each hands over.
-func readRemoved(dir string, result *engine.Result) ([]engine.Removal, error) {
-	removed, err := engine.ReadRemoved(dir)
+func readRemoved(dir string, result *engine.Result) ([]rootfile.Removal, error) {
+	removed, err := rootfile.ReadRemoved(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -326,12 +327,12 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 // planHandovers), and resources of imports it leaves out, such as those
 // its plan rejected; each by its type or another name of it (see
 // tftypes.Aliases), which result forgets and imports again (see
-// engine.Retype). Applied on the root's state, its next plan would
+// rootfile.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
 // engine.ModuleRefs.Release). A resource the run no longer imports at all,
 // such as one deleted in the cloud since, isn't counted.
-func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []engine.Import, elsewhere map[engine.External]string) error {
+func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []rootfile.Import, elsewhere map[engine.External]string) error {
 	changed := engine.Readdressed(c.previous, result.Addresses, result.Moves)
 	changed = append(changed, engine.Retyped(c.previous, result.Addresses)...)
 	now := map[engine.External]bool{}

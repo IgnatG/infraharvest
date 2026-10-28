@@ -15,7 +15,7 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -101,13 +101,13 @@ func checkMergedRegenerate(ctx context.Context, t *testing.T, fixture *appliedFi
 	if len(coverage.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", coverage.IncompleteHandovers)
 	}
-	moves := readFile(t, filepath.Join(dir, engine.MovesFileName))
+	moves := readFile(t, filepath.Join(dir, rootfile.MovesFileName))
 	for _, want := range []string{"moved {", "removed {", "destroy = false"} {
 		if !strings.Contains(moves, want) {
-			t.Errorf("the merged root's %s has no %q:\n%s", engine.MovesFileName, want, moves)
+			t.Errorf("the merged root's %s has no %q:\n%s", rootfile.MovesFileName, want, moves)
 		}
 	}
-	if readme := readFile(t, filepath.Join(dir, engine.ReadmeFileName)); !strings.Contains(readme, "## Moved blocks") || !strings.Contains(readme, "## Handed over to other roots") || !strings.Contains(readme, "`"+shared+"`") {
+	if readme := readFile(t, filepath.Join(dir, rootfile.ReadmeFileName)); !strings.Contains(readme, "## Moved blocks") || !strings.Contains(readme, "## Handed over to other roots") || !strings.Contains(readme, "`"+shared+"`") {
 		t.Errorf("the merged root's README doesn't list its moves and what it hands over:\n%s", readme)
 	}
 
@@ -167,7 +167,7 @@ const relayout = "--layout={out}/{provider}/{service}/{env}/{account}/{region}/"
 func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out string, more ...string), credentials func(env string), out, execPath, plugins string) {
 	t.Helper()
 	dir := filepath.Join(out, "aws", "us-east-1")
-	if err := os.Remove(filepath.Join(dir, engine.MovesFileName)); err != nil {
+	if err := os.Remove(filepath.Join(dir, rootfile.MovesFileName)); err != nil {
 		t.Fatal(err)
 	}
 	importInto(out, "--regenerate", "--config="+writeConfig(t, regenerateConfig), relayout)
@@ -199,10 +199,10 @@ func checkMergedRelayout(ctx context.Context, t *testing.T, importInto func(out 
 			t.Errorf("the merged root still has %s: %v", name, err)
 		}
 	}
-	if moves := readFile(t, filepath.Join(dir, engine.MovesFileName)); !strings.Contains(moves, "removed {") || !strings.Contains(moves, "destroy = false") {
-		t.Errorf("the merged root's %s:\n%s", engine.MovesFileName, moves)
+	if moves := readFile(t, filepath.Join(dir, rootfile.MovesFileName)); !strings.Contains(moves, "removed {") || !strings.Contains(moves, "destroy = false") {
+		t.Errorf("the merged root's %s:\n%s", rootfile.MovesFileName, moves)
 	}
-	if readme := readFile(t, filepath.Join(dir, engine.ReadmeFileName)); !strings.Contains(readme, "# Handed over resources") || !strings.Contains(readme, "`aws/sqs/") {
+	if readme := readFile(t, filepath.Join(dir, rootfile.ReadmeFileName)); !strings.Contains(readme, "# Handed over resources") || !strings.Contains(readme, "`aws/sqs/") {
 		t.Errorf("the merged root's README doesn't say what it hands over:\n%s", readme)
 	}
 

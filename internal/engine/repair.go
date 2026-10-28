@@ -442,7 +442,7 @@ func (b *nestedBlock) isUnset() bool {
 
 func unsetBody(body *hclsyntax.Body) bool {
 	for _, a := range body.Attributes {
-		if !isNullLiteral(a.Expr) && !isZeroConstant(a.Expr) {
+		if !hclfile.IsNullLiteral(a.Expr) && !isZeroConstant(a.Expr) {
 			return false
 		}
 	}

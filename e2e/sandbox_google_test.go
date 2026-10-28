@@ -27,7 +27,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
@@ -457,7 +457,7 @@ func (s *googleSandbox) checkGoogleImport(ctx context.Context, t *testing.T, cov
 		if filepath.Base(filepath.Dir(dir)) != s.project {
 			t.Errorf("root %s, want one named after the project %s and a region", dir, s.project)
 		}
-		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
+		if rejected, err := os.ReadFile(filepath.Join(dir, rootfile.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
 	}

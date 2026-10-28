@@ -11,6 +11,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // An import records what it does as it goes, root by root and resource by
@@ -198,7 +199,7 @@ func GateFindings(root, env string, managed []engine.Managed, checks gate.Gate) 
 
 // addMoves records what result, of the root at path, moves within it, as
 // moved blocks do or, for a resource of another name of its type now,
-// removed and import blocks (see engine.Retype), hands over to other
+// removed and import blocks (see rootfile.Retype), hands over to other
 // roots, and imports that other roots hand over, which Finish matches
 // with what they record handed over.
 func (r *Report) addMoves(path string, result *engine.Result) {
@@ -224,7 +225,7 @@ func (r *Report) addMoves(path string, result *engine.Result) {
 
 // depart records what removed, the removed blocks of the root at path,
 // hand over to other roots.
-func (r *Report) depart(path string, removed []engine.Removal) {
+func (r *Report) depart(path string, removed []rootfile.Removal) {
 	for _, removal := range removed {
 		for _, d := range removal.Resources {
 			r.Departed = append(r.Departed, Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root})
@@ -237,7 +238,7 @@ func (r *Report) depart(path string, removed []engine.Removal) {
 // before and now are the import IDs of each environment's resources in it
 // by address, and what removed, its removed blocks, hand over to other
 // roots.
-func (r *Report) AddMergedMoves(path string, before, now map[string]map[string]string, removed []engine.Removal) {
+func (r *Report) AddMergedMoves(path string, before, now map[string]map[string]string, removed []rootfile.Removal) {
 	for _, env := range slices.Sorted(maps.Keys(before)) {
 		at := map[string]string{}
 		for address, id := range now[env] {
@@ -261,7 +262,7 @@ func (r *Report) AddIncompleteHandover(i IncompleteHandover) {
 // AddNotInCloud records gone, the resources of the root at path, relative
 // to the output directory, that the listing of scope no longer finds in
 // the cloud.
-func (r *Report) AddNotInCloud(path, scope string, gone []engine.Import) {
+func (r *Report) AddNotInCloud(path, scope string, gone []rootfile.Import) {
 	for _, g := range gone {
 		r.NotInCloud = append(r.NotInCloud, NotInCloud{Path: path, Address: g.Type + "." + g.Name, ID: g.ID, Scope: scope})
 	}
@@ -288,8 +289,8 @@ func (r *Report) NotInCloudAt(path string) []string {
 // environment: at its address there, as imports, the import IDs of each
 // environment's resources in it by address, has it. It returns them, by
 // environment, with their addresses in the merged root.
-func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, imports map[string]map[string]string) map[string][]engine.Import {
-	gone := map[string][]engine.Import{}
+func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, imports map[string]map[string]string) map[string][]rootfile.Import {
+	gone := map[string][]rootfile.Import{}
 	for i, g := range r.NotInCloud {
 		env, ok := envOf[g.Path]
 		if !ok {
@@ -304,7 +305,7 @@ func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, impor
 		}
 		r.NotInCloud[i] = g
 		typ := engine.AddressType(g.Address)
-		gone[env] = append(gone[env], engine.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
+		gone[env] = append(gone[env], rootfile.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
 	}
 	return gone
 }

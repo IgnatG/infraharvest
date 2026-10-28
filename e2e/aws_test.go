@@ -29,8 +29,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -169,7 +170,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	// leaves out, through a data source.
 	readsDefaultGroup := false
 	for _, dir := range generatedDirs(t, out) {
-		if rejected, err := os.ReadFile(filepath.Join(dir, engine.RejectedFileName)); err == nil {
+		if rejected, err := os.ReadFile(filepath.Join(dir, rootfile.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
 		// One root per account and region, each with its own state key.
@@ -181,19 +182,19 @@ func TestAWSRoundTrip(t *testing.T) {
 		if wantKey := "e2e/" + filepath.ToSlash(rel) + "/terraform.tfstate"; !strings.HasPrefix(filepath.ToSlash(rel), "aws/000000000000/") || !strings.Contains(backend, wantKey) || !strings.Contains(backend, "use_lockfile = true") {
 			t.Errorf("%s: want a root per account and region with state key %s:\n%s", rel, wantKey, backend)
 		}
-		versions := readFile(t, filepath.Join(dir, engine.VersionsFileName))
+		versions := readFile(t, filepath.Join(dir, rootfile.VersionsFileName))
 		if !strings.Contains(versions, "required_version") || !strings.Contains(versions, `version = "~> `) {
-			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, engine.VersionsFileName, versions)
+			t.Errorf("%s: %s doesn't pin Terraform and the provider:\n%s", dir, rootfile.VersionsFileName, versions)
 		}
-		if internalLabel.MatchString(readFile(t, filepath.Join(dir, engine.ImportsFileName))) {
+		if internalLabel.MatchString(readFile(t, filepath.Join(dir, rootfile.ImportsFileName))) {
 			t.Errorf("%s: an import address has an r-- label", dir)
 		}
-		readFile(t, filepath.Join(dir, engine.ReadmeFileName))
+		readFile(t, filepath.Join(dir, rootfile.ReadmeFileName))
 		if strings.Contains(configuration(t, dir), "vpc_id = aws_vpc.") {
 			referencedVPC = true
 		}
 		if strings.Contains(configuration(t, dir), "data.aws_security_group.") {
-			readsDefaultGroup = strings.Contains(readFile(t, filepath.Join(dir, engine.DataFileName)), `data "aws_security_group"`)
+			readsDefaultGroup = strings.Contains(readFile(t, filepath.Join(dir, rootfile.DataFileName)), `data "aws_security_group"`)
 		}
 		// Arguments that only repeat a default are left out.
 		if nulls := nullArguments(t, dir); len(nulls) > 0 {
@@ -213,7 +214,7 @@ func TestAWSRoundTrip(t *testing.T) {
 		t.Error("no root refers to the VPC")
 	}
 	if !readsDefaultGroup {
-		t.Errorf("no root reads the default security group through %s", engine.DataFileName)
+		t.Errorf("no root reads the default security group through %s", rootfile.DataFileName)
 	}
 	// Each bucket becomes a call of the curated S3 module, the role shaped
 	// like the iam-role module a call of it, the VPC built like the vpc
@@ -250,9 +251,9 @@ func TestAWSRoundTrip(t *testing.T) {
 			}
 		}
 	}
-	modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "iam_role_*", "main.tf"))
+	modules, err := filepath.Glob(filepath.Join(out, hclfile.ModulesDirName, "iam_role_*", "main.tf"))
 	if err != nil || len(modules) == 0 {
-		t.Errorf("no generated IAM role module under %s (%v)", engine.ModulesDirName, err)
+		t.Errorf("no generated IAM role module under %s (%v)", hclfile.ModulesDirName, err)
 	}
 	seeded := map[string]int{}
 	for _, r := range state {

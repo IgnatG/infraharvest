@@ -15,9 +15,10 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
-	"github.com/zclconf/go-cty/cty/function"
-	"github.com/zclconf/go-cty/cty/function/stdlib"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
 // OmitArguments removes from the resources in path the arguments omit
@@ -216,7 +217,7 @@ func (c omitCondition) holdsIn(resource, body *hclsyntax.Body, path []string) bo
 			if c.valued {
 				return matchesValue(attr.Expr, c.value, resource)
 			}
-			v, diags := attr.Expr.Value(omitEvalContext)
+			v, diags := attr.Expr.Value(hclfile.EvalContext)
 			return diags.HasErrors() || !v.IsNull()
 		}
 		if c.valued {
@@ -237,17 +238,13 @@ func (c omitCondition) holdsIn(resource, body *hclsyntax.Body, path []string) bo
 	return false
 }
 
-// omitEvalContext evaluates the constants of generated configuration, in
-// which Terraform writes JSON strings as jsonencode(...).
-var omitEvalContext = &hcl.EvalContext{Functions: map[string]function.Function{"jsonencode": stdlib.JSONEncodeFunc}}
-
 // matchesValue reports whether expr is a constant whose value matches
 // pattern (see omission), in resource, a resource's body, if there is one.
 func matchesValue(expr hclsyntax.Expression, pattern string, resource *hclsyntax.Body) bool {
 	if len(expr.Variables()) > 0 {
 		return false
 	}
-	v, diags := expr.Value(omitEvalContext)
+	v, diags := expr.Value(hclfile.EvalContext)
 	if diags.HasErrors() || v.IsNull() || !v.IsWhollyKnown() {
 		return false
 	}
@@ -448,7 +445,7 @@ func nthBlockOf(body *hclwrite.Body, typ string, index int) *hclwrite.Block {
 
 // withResourceOmissions returns omit with, under each import's address,
 // the arguments the import itself leaves out (see Import.Omit).
-func withResourceOmissions(omit map[string][]string, imports []Import) map[string][]string {
+func withResourceOmissions(omit map[string][]string, imports []rootfile.Import) map[string][]string {
 	var with map[string][]string
 	for _, imp := range imports {
 		if len(imp.Omit) == 0 {

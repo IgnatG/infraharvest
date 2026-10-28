@@ -8,7 +8,9 @@ import (
 	"net/http"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
@@ -30,31 +32,31 @@ type callTools struct {
 	findBinary func(ctx context.Context, binary tfrun.Binary, explicitPath, cacheDir string) (string, error)
 	// rootConfig renders the root files, as rootConfig does with the
 	// default registry.
-	rootConfig func(ctx context.Context, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error)
+	rootConfig func(ctx context.Context, registry, execPath string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error)
 	// moduleReleases lists the releases of a registry module, as
 	// engine.ModuleReleases does with the default registry.
 	moduleReleases func(ctx context.Context, source string) ([]engine.ModuleRelease, error)
 	// generate generates a root, as generateDir does.
-	generate func(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error)
+	generate func(ctx context.Context, dir string, tr terraformRun, imports []rootfile.Import, opts engine.Options, lock *[]byte) (*engine.Result, error)
 	// addTo adds to a root, as engine.Add does.
-	addTo func(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error)
+	addTo func(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error)
 	// vacateRoot writes a root with removed blocks alone, as engine.Vacate
 	// does.
 	vacateRoot func(dir string, opts engine.Options) (*engine.Result, error)
 	// readme writes the README of a root, as engine.WriteReadme does.
 	readme func(dir string, result *engine.Result) error
 	// merge merges the roots of a stack's environments, as
-	// engine.MergeRoots does.
-	merge func(ctx context.Context, dir string, roots []engine.MergeRoot, opts engine.MergeOptions) (*engine.MergeResult, error)
+	// envmerge.MergeRoots does.
+	merge func(ctx context.Context, dir string, roots []envmerge.MergeRoot, opts envmerge.MergeOptions) (*envmerge.MergeResult, error)
 	// mergedNotInCloud lists in a merged root's README what is no longer
-	// in the cloud, as engine.WriteMergedNotInCloud does.
-	mergedNotInCloud func(dir string, gone map[string][]engine.Import) error
+	// in the cloud, as envmerge.WriteMergedNotInCloud does.
+	mergedNotInCloud func(dir string, gone map[string][]rootfile.Import) error
 	// mergedMoves writes the moved and removed blocks of a merged root,
-	// as engine.WriteMergedMoves does.
-	mergedMoves func(dir string, moved []engine.Move, removed []engine.Removal) (gate.Check, error)
+	// as envmerge.WriteMergedMoves does.
+	mergedMoves func(dir string, moved []rootfile.Move, removed []rootfile.Removal) (gate.Check, error)
 	// vacateMergedRoot writes a merged root with removed blocks alone, as
-	// engine.VacateMerged does.
-	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, gate.Check, error)
+	// envmerge.VacateMerged does.
+	vacateMergedRoot func(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error)
 	// query lists through Terraform's list resources, as tfquery.List
 	// does.
 	query func(ctx context.Context, req tfquery.Request) ([]harvest.Resource, error)
@@ -77,7 +79,7 @@ func (t *callTools) find(ctx context.Context, binary tfrun.Binary, explicitPath,
 }
 
 // root renders the root files of every output directory (see rootConfig).
-func (t *callTools) root(ctx context.Context, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+func (t *callTools) root(ctx context.Context, registry, execPath string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error) {
 	if t != nil && t.rootConfig != nil {
 		return t.rootConfig(ctx, registry, execPath, p, constraints)
 	}
@@ -94,7 +96,7 @@ func (t *callTools) listModuleReleases(ctx context.Context, source string) ([]en
 }
 
 // generateDir generates the root in dir (see generateDir).
-func (t *callTools) generateDir(ctx context.Context, dir string, tr terraformRun, imports []engine.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
+func (t *callTools) generateDir(ctx context.Context, dir string, tr terraformRun, imports []rootfile.Import, opts engine.Options, lock *[]byte) (*engine.Result, error) {
 	if t != nil && t.generate != nil {
 		return t.generate(ctx, dir, tr, imports, opts, lock)
 	}
@@ -103,7 +105,7 @@ func (t *callTools) generateDir(ctx context.Context, dir string, tr terraformRun
 
 // add adds imports to the root in root, generating them in staging (see
 // engine.Add).
-func (t *callTools) add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []engine.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error) {
+func (t *callTools) add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts engine.Options, existing map[engine.External]string) (*engine.Result, error) {
 	if t != nil && t.addTo != nil {
 		return t.addTo(ctx, tf, rootTF, staging, root, imports, opts, existing)
 	}
@@ -128,37 +130,37 @@ func (t *callTools) writeReadme(dir string, result *engine.Result) error {
 	return engine.WriteReadme(dir, result)
 }
 
-// mergeRoots merges roots into the root in dir (see engine.MergeRoots).
-func (t *callTools) mergeRoots(ctx context.Context, dir string, roots []engine.MergeRoot, opts engine.MergeOptions) (*engine.MergeResult, error) {
+// mergeRoots merges roots into the root in dir (see envmerge.MergeRoots).
+func (t *callTools) mergeRoots(ctx context.Context, dir string, roots []envmerge.MergeRoot, opts envmerge.MergeOptions) (*envmerge.MergeResult, error) {
 	if t != nil && t.merge != nil {
 		return t.merge(ctx, dir, roots, opts)
 	}
-	return engine.MergeRoots(ctx, dir, roots, opts)
+	return envmerge.MergeRoots(ctx, dir, roots, opts)
 }
 
 // vacateMerged writes the merged root in dir with removed alone (see
-// engine.VacateMerged).
-func (t *callTools) vacateMerged(dir string, files []string, removed []engine.Removal) ([]string, gate.Check, error) {
+// envmerge.VacateMerged).
+func (t *callTools) vacateMerged(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error) {
 	if t != nil && t.vacateMergedRoot != nil {
 		return t.vacateMergedRoot(dir, files, removed)
 	}
-	return engine.VacateMerged(dir, files, removed)
+	return envmerge.VacateMerged(dir, files, removed)
 }
 
 // writeMergedNotInCloud lists gone in the README of the merged root in
-// dir (see engine.WriteMergedNotInCloud).
-func (t *callTools) writeMergedNotInCloud(dir string, gone map[string][]engine.Import) error {
+// dir (see envmerge.WriteMergedNotInCloud).
+func (t *callTools) writeMergedNotInCloud(dir string, gone map[string][]rootfile.Import) error {
 	if t != nil && t.mergedNotInCloud != nil {
 		return t.mergedNotInCloud(dir, gone)
 	}
-	return engine.WriteMergedNotInCloud(dir, gone)
+	return envmerge.WriteMergedNotInCloud(dir, gone)
 }
 
 // writeMergedMoves writes moved and removed into the merged root in dir,
-// and returns their moves check (see engine.WriteMergedMoves).
-func (t *callTools) writeMergedMoves(dir string, moved []engine.Move, removed []engine.Removal) (gate.Check, error) {
+// and returns their moves check (see envmerge.WriteMergedMoves).
+func (t *callTools) writeMergedMoves(dir string, moved []rootfile.Move, removed []rootfile.Removal) (gate.Check, error) {
 	if t != nil && t.mergedMoves != nil {
 		return t.mergedMoves(dir, moved, removed)
 	}
-	return engine.WriteMergedMoves(dir, moved, removed)
+	return envmerge.WriteMergedMoves(dir, moved, removed)
 }

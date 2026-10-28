@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
@@ -274,7 +274,7 @@ func TestFillMergeFindings(t *testing.T) {
 	checks := gate.Gate{{Name: gate.CheckScanners, Passed: true, Findings: []gate.Finding{
 		{Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag", Resource: "aws_s3_bucket.logs"},
 	}}}
-	result := &engine.MergeResult{Environments: []engine.MergedEnvironment{
+	result := &envmerge.MergeResult{Environments: []envmerge.MergedEnvironment{
 		{Env: "dev", Gate: checks, Imports: map[string]string{"aws_s3_bucket.logs": "acme-dev-logs"}},
 		{Env: "prod", Gate: checks, Imports: map[string]string{"module.logs.aws_s3_bucket.this": "acme-prod-logs"}},
 	}}

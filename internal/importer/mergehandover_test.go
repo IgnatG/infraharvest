@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -47,7 +49,7 @@ func TestPlanMergedHandovers(t *testing.T) {
 		"prod": {"fake_thing.orders": "o2", `fake_thing.this["alerts"]`: "a2"},
 	})
 	shared := filepath.Join(out, "envs", "shared", "fake")
-	c := regenerating(out, map[string][]engine.Import{dev: {thingImport("o1")}, shared: {thingImport("r1"), thingImport("a1")}})
+	c := regenerating(out, map[string][]rootfile.Import{dev: {thingImport("o1")}, shared: {thingImport("r1"), thingImport("a1")}})
 
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
@@ -56,9 +58,9 @@ func TestPlanMergedHandovers(t *testing.T) {
 	if err := h.refusal(dev); err != nil {
 		t.Fatalf("dev refused: %v", err)
 	}
-	want := []engine.Removal{
-		{From: "fake_thing.reports_dev", Resources: []engine.Departure{{Type: "fake_thing", ID: "r1", Address: "fake_thing.reports_dev[0]", Root: "envs/shared/fake"}}},
-		{From: "fake_thing.departed_this_audit", Instance: `fake_thing.this["audit"]`, Resources: []engine.Departure{{Type: "fake_thing", ID: "a1", Address: `fake_thing.this["audit"]`, Root: "envs/shared/fake"}}},
+	want := []rootfile.Removal{
+		{From: "fake_thing.reports_dev", Resources: []rootfile.Departure{{Type: "fake_thing", ID: "r1", Address: "fake_thing.reports_dev[0]", Root: "envs/shared/fake"}}},
+		{From: "fake_thing.departed_this_audit", Instance: `fake_thing.this["audit"]`, Resources: []rootfile.Departure{{Type: "fake_thing", ID: "a1", Address: `fake_thing.this["audit"]`, Root: "envs/shared/fake"}}},
 	}
 	if got := h.merged[stack]; !reflect.DeepEqual(got, want) {
 		t.Errorf("the merged root's removals: got %+v, want %+v", got, want)
@@ -84,7 +86,7 @@ func TestPlanMergedHandoversKeepsWhatAnotherEnvironmentHas(t *testing.T) {
 		"prod": {"fake_thing.orders": "o2"},
 	})
 	shared := filepath.Join(out, "envs", "shared", "fake")
-	c := regenerating(out, map[string][]engine.Import{dev: {thingImport("e1")}, shared: {thingImport("o1"), thingImport("s1")}})
+	c := regenerating(out, map[string][]rootfile.Import{dev: {thingImport("e1")}, shared: {thingImport("o1"), thingImport("s1")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +97,7 @@ func TestPlanMergedHandoversKeepsWhatAnotherEnvironmentHas(t *testing.T) {
 		t.Errorf("excluded %v, want o1, held by fake/stack", got)
 	}
 
-	c = regenerating(out, map[string][]engine.Import{shared: {thingImport("e1"), thingImport("s1")}})
+	c = regenerating(out, map[string][]rootfile.Import{shared: {thingImport("e1"), thingImport("s1")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
@@ -113,17 +115,17 @@ func TestMergedHandovers(t *testing.T) {
 	out := t.TempDir()
 	stack := filepath.Join(out, "fake", "stack")
 	shared := filepath.Join(out, "envs", "shared", "fake")
-	removal := engine.Removal{From: "fake_thing.reports_dev", Resources: []engine.Departure{{Type: "fake_thing", ID: "r1", Address: "fake_thing.reports_dev[0]", Root: "envs/shared/fake"}}}
-	h := &handovers{out: out, merged: map[string][]engine.Removal{stack: {removal}}, generated: map[string]*engine.Result{}}
+	removal := rootfile.Removal{From: "fake_thing.reports_dev", Resources: []rootfile.Departure{{Type: "fake_thing", ID: "r1", Address: "fake_thing.reports_dev[0]", Root: "envs/shared/fake"}}}
+	h := &handovers{out: out, merged: map[string][]rootfile.Removal{stack: {removal}}, generated: map[string]*engine.Result{}}
 	members := []mergeMember{{env: "dev", handovers: h}, {env: "prod", handovers: h}}
 	now := map[string]map[string]string{"dev": {"fake_thing.orders": "o1"}}
 
 	if _, _, why := mergedHandovers(out, stack, members, now); !strings.Contains(why, "didn't import") {
 		t.Errorf("a root that didn't import it: %q", why)
 	}
-	h.record(shared, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "r1", Root: "fake/stack", From: "fake_thing.reports_dev[0]", To: "fake_thing.reports"}}}, nil)
+	h.record(shared, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "r1", Root: "fake/stack", From: "fake_thing.reports_dev[0]", To: "fake_thing.reports"}}}, nil)
 	removals, incomplete, why := mergedHandovers(out, stack, members, now)
-	if why != "" || !reflect.DeepEqual(removals, []engine.Removal{removal}) || len(incomplete) != 0 {
+	if why != "" || !reflect.DeepEqual(removals, []rootfile.Removal{removal}) || len(incomplete) != 0 {
 		t.Errorf("handed over: %+v %+v %q", removals, incomplete, why)
 	}
 	now["dev"]["fake_thing.reports_dev[0]"] = "r1"
@@ -154,10 +156,10 @@ func TestMergedMovesInOneEnvironmentOnly(t *testing.T) {
 // for what it has again or a new removed block takes.
 func TestStillRemoved(t *testing.T) {
 	t.Parallel()
-	kept := []engine.Removal{{From: "aws_sqs_queue.gone"}, {From: "aws_sqs_queue.back"}, {From: "aws_sqs_queue.again"}}
+	kept := []rootfile.Removal{{From: "aws_sqs_queue.gone"}, {From: "aws_sqs_queue.back"}, {From: "aws_sqs_queue.again"}}
 	now := map[string]map[string]string{"dev": {"aws_sqs_queue.back[0]": "q1"}}
-	got := stillRemoved(kept, now, []engine.Removal{{From: "aws_sqs_queue.again"}})
-	if !reflect.DeepEqual(got, []engine.Removal{{From: "aws_sqs_queue.gone"}}) {
+	got := stillRemoved(kept, now, []rootfile.Removal{{From: "aws_sqs_queue.again"}})
+	if !reflect.DeepEqual(got, []rootfile.Removal{{From: "aws_sqs_queue.gone"}}) {
 		t.Errorf("still removed: %+v", got)
 	}
 }
@@ -166,23 +168,23 @@ func TestStillRemoved(t *testing.T) {
 // of what it hands over into its moves.tf.
 func TestMoveMergedHandsOver(t *testing.T) {
 	stack := t.TempDir()
-	writeRootFiles(t, stack, map[string]string{"main.tf": "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n", engine.ReadmeFileName: "# fake/stack\n"})
+	writeRootFiles(t, stack, map[string]string{"main.tf": "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n", rootfile.ReadmeFileName: "# fake/stack\n"})
 	r := NewRun()
 	r.options.Regenerate = true
 	before := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.reports": "q2"}}
 	now := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1"}}
-	result := &engine.MergeResult{Files: []string{"main.tf"}}
-	removed := []engine.Removal{{From: "aws_sqs_queue.reports", Resources: []engine.Departure{{Type: "aws_sqs_queue", ID: "q2", Address: "aws_sqs_queue.reports", Root: "envs/shared/fake"}}}}
+	result := &envmerge.MergeResult{Files: []string{"main.tf"}}
+	removed := []rootfile.Removal{{From: "aws_sqs_queue.reports", Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q2", Address: "aws_sqs_queue.reports", Root: "envs/shared/fake"}}}}
 	if why, err := r.moveMerged(stack, result, before, now, nil, removed); why != "" || err != nil {
 		t.Fatalf("moveMerged: %q, %v", why, err)
 	}
-	if got, err := engine.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "aws_sqs_queue.reports" {
+	if got, err := rootfile.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "aws_sqs_queue.reports" {
 		t.Errorf("moves.tf removes %+v, %v", got, err)
 	}
-	if !slices.Contains(result.Files, engine.MovesFileName) {
+	if !slices.Contains(result.Files, rootfile.MovesFileName) {
 		t.Errorf("the merge's files: %v", result.Files)
 	}
-	if _, err := os.Stat(filepath.Join(stack, engine.MovesFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(stack, rootfile.MovesFileName)); err != nil {
 		t.Error(err)
 	}
 }
@@ -195,9 +197,9 @@ func vacatable(t *testing.T, out string) string {
 	t.Helper()
 	stack := filepath.Join(out, "fake", "stack")
 	writeRootFiles(t, stack, map[string]string{
-		"providers.tf":        "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
-		"main.tf":             "resource \"fake_thing\" \"orders\" {\n  name = \"orders\"\n}\n",
-		engine.ReadmeFileName: "# fake/stack\n",
+		"providers.tf":          "terraform {\n  required_version = \">= 1.5, < 2.0\"\n}\n",
+		"main.tf":               "resource \"fake_thing\" \"orders\" {\n  name = \"orders\"\n}\n",
+		rootfile.ReadmeFileName: "# fake/stack\n",
 	})
 	for _, env := range []string{"dev", "prod"} {
 		writeRootFiles(t, filepath.Join(stack, "vars", env), map[string]string{"terraform.tfvars": "env = \"" + env + "\"\n", "imports.tfvars": "import_ids = {}\n"})
@@ -205,7 +207,7 @@ func vacatable(t *testing.T, out string) string {
 	c := mergeCheckpoint{
 		Members: []mergeCheckpointMember{{Env: "dev", Path: "envs/dev/fake", Account: "111"}, {Env: "prod", Path: "envs/prod/fake", Account: "222"}},
 		Merge:   report.Merge{Path: "fake/stack", Merged: true},
-		Files:   []string{engine.ReadmeFileName, "main.tf", "providers.tf", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars", "vars/prod/terraform.tfvars"},
+		Files:   []string{rootfile.ReadmeFileName, "main.tf", "providers.tf", "vars/dev/imports.tfvars", "vars/dev/terraform.tfvars", "vars/prod/imports.tfvars", "vars/prod/terraform.tfvars"},
 		Imports: map[string]map[string]string{"dev": {"fake_thing.orders": "o1"}, "prod": {"fake_thing.orders": "o2"}},
 	}
 	if err := writeMergeCheckpoint(out, stack, c); err != nil {
@@ -216,7 +218,7 @@ func vacatable(t *testing.T, out string) string {
 
 // regeneratingIn is regenerating, as the call of the scope of account,
 // of a command that imports scopes.
-func regeneratingIn(out, account string, scopes []string, byDir map[string][]engine.Import) *listedCall {
+func regeneratingIn(out, account string, scopes []string, byDir map[string][]rootfile.Import) *listedCall {
 	c := regenerating(out, byDir)
 	c.scope = "fake/" + account + "/global"
 	c.run.shared.scopes = scopes
@@ -234,8 +236,8 @@ func TestVacateMergedRoot(t *testing.T) {
 	stack := vacatable(t, out)
 	dev, prod := filepath.Join(out, "envs", "dev", "new"), filepath.Join(out, "envs", "prod", "new")
 	scopes := []string{"111", "222"}
-	c1 := regeneratingIn(out, "111", scopes, map[string][]engine.Import{dev: {thingImport("o1")}})
-	c2 := regeneratingIn(out, "222", scopes, map[string][]engine.Import{prod: {thingImport("o2")}})
+	c1 := regeneratingIn(out, "111", scopes, map[string][]rootfile.Import{dev: {thingImport("o1")}})
+	c2 := regeneratingIn(out, "222", scopes, map[string][]rootfile.Import{prod: {thingImport("o2")}})
 	for _, c := range []*listedCall{c1, c2} {
 		if err := planHandovers(out, []*listedCall{c}); err != nil {
 			t.Fatal(err)
@@ -247,8 +249,8 @@ func TestVacateMergedRoot(t *testing.T) {
 	if got := c1.handovers.arrivalsOf(dev); len(got) != 1 || got[0].Root != "fake/stack" || got[0].From != "fake_thing.orders" || got[0].ID != "o1" {
 		t.Errorf("dev's arrivals: %+v", got)
 	}
-	c1.handovers.record(dev, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
-	c2.handovers.record(prod, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o2", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+	c1.handovers.record(dev, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+	c2.handovers.record(prod, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o2", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
 
 	r := NewRun()
 	r.options.Out = out
@@ -262,14 +264,14 @@ func TestVacateMergedRoot(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stack, "main.tf")); !os.IsNotExist(err) {
 		t.Errorf("main.tf is still there: %v", err)
 	}
-	if got, err := engine.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "fake_thing.orders" {
+	if got, err := rootfile.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "fake_thing.orders" {
 		t.Errorf("moves.tf removes %+v, %v", got, err)
 	}
 	if len(r.report.Departed) != 2 || r.report.Departed[0].FromRoot != "fake/stack" {
 		t.Errorf("departed %+v", r.report.Departed)
 	}
 	c, err := readMergeCheckpoint(out, stack)
-	if err != nil || c == nil || len(c.Imports) != 0 || !slices.Contains(c.Files, engine.MovesFileName) || slices.Contains(c.Files, "main.tf") {
+	if err != nil || c == nil || len(c.Imports) != 0 || !slices.Contains(c.Files, rootfile.MovesFileName) || slices.Contains(c.Files, "main.tf") {
 		t.Errorf("the checkpoint: %+v, %v", c, err)
 	}
 }
@@ -283,11 +285,11 @@ func TestVacateMergedRootPartly(t *testing.T) {
 	out := t.TempDir()
 	stack := vacatable(t, out)
 	dev := filepath.Join(out, "envs", "dev", "new")
-	c := regeneratingIn(out, "111", []string{"111", "222"}, map[string][]engine.Import{dev: {thingImport("o1")}})
+	c := regeneratingIn(out, "111", []string{"111", "222"}, map[string][]rootfile.Import{dev: {thingImport("o1")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
-	c.handovers.record(dev, &engine.Result{Arrived: []engine.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
+	c.handovers.record(dev, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
 	r := NewRun()
 	r.options.Out = out
 	r.vacating = c.run.vacating
@@ -300,11 +302,11 @@ func TestVacateMergedRootPartly(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stack, "main.tf")); err != nil {
 		t.Errorf("main.tf: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stack, engine.MovesFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(stack, rootfile.MovesFileName)); !os.IsNotExist(err) {
 		t.Errorf("moves.tf: %v", err)
 	}
 
-	c = regeneratingIn(out, "111", []string{"111"}, map[string][]engine.Import{dev: {thingImport("o1")}})
+	c = regeneratingIn(out, "111", []string{"111"}, map[string][]rootfile.Import{dev: {thingImport("o1")}})
 	if err := planHandovers(out, []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}

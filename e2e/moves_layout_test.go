@@ -16,8 +16,8 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -96,7 +96,7 @@ func TestAWSRegenerateLayout(t *testing.T) {
 	workOld := filepath.Join(work, "old")
 	copyRootFiles(t, old, workOld)
 	applyRoot(ctx, t, workOld, execPath, plugins, nil)
-	if err := os.Remove(filepath.Join(workOld, engine.ImportsFileName)); err != nil {
+	if err := os.Remove(filepath.Join(workOld, rootfile.ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,13 +126,13 @@ func TestAWSRegenerateLayout(t *testing.T) {
 	if len(second.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", second.IncompleteHandovers)
 	}
-	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(old, engine.MovesFileName))), " ")
+	moves := strings.Join(strings.Fields(readFile(t, filepath.Join(old, rootfile.MovesFileName))), " ")
 	for _, from := range had {
 		if want := "removed { from = " + from + " lifecycle { destroy = false } }"; !strings.Contains(moves, want) {
-			t.Errorf("%s/%s doesn't have %q:\n%s", oldRoot, engine.MovesFileName, want, moves)
+			t.Errorf("%s/%s doesn't have %q:\n%s", oldRoot, rootfile.MovesFileName, want, moves)
 		}
 	}
-	for _, name := range []string{engine.GeneratedFileName, engine.ImportsFileName} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName} {
 		if _, err := os.Stat(filepath.Join(old, name)); err == nil {
 			t.Errorf("%s keeps its %s", oldRoot, name)
 		}
@@ -143,13 +143,13 @@ func TestAWSRegenerateLayout(t *testing.T) {
 		}
 	}
 	// Each README names the other roots, for the order to apply them in.
-	readme := readFile(t, filepath.Join(old, engine.ReadmeFileName))
+	readme := readFile(t, filepath.Join(old, rootfile.ReadmeFileName))
 	for root := range newRoots {
 		if !strings.Contains(readme, root) {
-			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(old, engine.ReadmeFileName), root, readme)
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(old, rootfile.ReadmeFileName), root, readme)
 		}
-		if content := readFile(t, filepath.Join(out, filepath.FromSlash(root), engine.ReadmeFileName)); !strings.Contains(content, oldRoot) {
-			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(root, engine.ReadmeFileName), oldRoot, content)
+		if content := readFile(t, filepath.Join(out, filepath.FromSlash(root), rootfile.ReadmeFileName)); !strings.Contains(content, oldRoot) {
+			t.Errorf("%s doesn't name %s:\n%s", filepath.Join(root, rootfile.ReadmeFileName), oldRoot, content)
 		}
 	}
 
