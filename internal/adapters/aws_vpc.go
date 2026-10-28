@@ -98,6 +98,17 @@ var awsVPC = Adapter{
 	},
 }
 
+// defaultRouteIdentity is the identity of the route to 0.0.0.0/0 the
+// module adds to a route table, where the route table is imported by its
+// identity: the route table's account, region and ID, and the
+// destination.
+var defaultRouteIdentity = map[string]string{
+	"account_id":             "{account_id}",
+	"region":                 "{region}",
+	"route_table_id":         "{id}",
+	"destination_cidr_block": "0.0.0.0/0",
+}
+
 // vpcPart is a resource of a VPC cluster, read.
 type vpcPart struct {
 	Resource
@@ -372,7 +383,7 @@ func mapVPC(c Cluster) (*Call, error) {
 		if err := vpcSubnets(call, c.Anchor, "public", public, []*vpcPart{publicTable}, vpc.name); err != nil {
 			return nil, err
 		}
-		call.Imports = append(call.Imports, Import{To: "aws_route.public_internet_gateway[0]", Of: publicTable.Address(), Suffix: "_0.0.0.0/0"})
+		call.Imports = append(call.Imports, Import{To: "aws_route.public_internet_gateway[0]", Of: publicTable.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
 		if igw.name != vpc.name {
 			return nil, Declinef("%s isn't named %q, as the module names it", igw.Address(), vpc.name)
 		}
@@ -387,7 +398,7 @@ func mapVPC(c Cluster) (*Call, error) {
 			return nil, err
 		}
 		for i, t := range privateRouteTables {
-			call.Imports = append(call.Imports, Import{To: fmt.Sprintf("aws_route.private_nat_gateway[%d]", i), Of: t.Address(), Suffix: "_0.0.0.0/0"})
+			call.Imports = append(call.Imports, Import{To: fmt.Sprintf("aws_route.private_nat_gateway[%d]", i), Of: t.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
 		}
 		call.Set("enable_nat_gateway", hclwrite.TokensForValue(cty.True))
 		if len(nats) > 1 {

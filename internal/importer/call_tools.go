@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/tfquery"
 )
 
 // callTools are what an Import call reaches outside the process through,
@@ -16,8 +18,9 @@ import (
 // writes each root, whether it generates, adds to or vacates it, or
 // writes the README of a root added to, or merges the roots of a stack's
 // environments, or writes what their merged root no longer finds in the
-// cloud, or its moved blocks, or vacates it. A nil *callTools, or a nil
-// field, uses the real one.
+// cloud, or its moved blocks, or vacates it; and Terraform's list
+// resources, which the query service lists through. A nil *callTools, or
+// a nil field, uses the real one.
 type callTools struct {
 	// findBinary returns the path of the engine binary, as
 	// engine.Binary.Find does.
@@ -46,6 +49,17 @@ type callTools struct {
 	// vacateMergedRoot writes a merged root with removed blocks alone, as
 	// engine.VacateMerged does.
 	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, engine.Check, error)
+	// query lists through Terraform's list resources, as tfquery.List
+	// does.
+	query func(ctx context.Context, req tfquery.Request) ([]harvest.Resource, error)
+}
+
+// listQuery lists through Terraform's list resources (see tfquery.List).
+func (t *callTools) listQuery(ctx context.Context, req tfquery.Request) ([]harvest.Resource, error) {
+	if t != nil && t.query != nil {
+		return t.query(ctx, req)
+	}
+	return tfquery.List(ctx, req)
 }
 
 // find returns the path of binary (see engine.Binary.Find).

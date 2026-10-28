@@ -68,24 +68,29 @@ func checkQuery(provider harvest.Provider, options Options) error {
 }
 
 // queryDiscoverer is the query service's discoverer: its lister lists
-// with query, which its context carries (see harvest.WithQuery).
+// with the query its context carries (see harvest.WithQuery), which query
+// makes of what the call's other services listed, listedByOthers: the
+// service lists once they are done (see listServices).
 type queryDiscoverer struct {
 	discovery.Discoverer
-	query harvest.Query
+	query          func(listedByOthers []harvest.Resource) harvest.Query
+	listedByOthers []harvest.Resource
 }
 
 // Discover lists with ctx carrying the query.
-func (d queryDiscoverer) Discover(ctx context.Context) ([]harvest.Resource, error) {
-	return d.Discoverer.Discover(harvest.WithQuery(ctx, d.query))
+func (d *queryDiscoverer) Discover(ctx context.Context) ([]harvest.Resource, error) {
+	return d.Discoverer.Discover(harvest.WithQuery(ctx, d.query(d.listedByOthers)))
 }
 
 // query returns how the query service of the call c lists through
 // provider, the service's own: with Terraform at tfquery.Minimum or newer,
-// found or downloaded as the call's toolchain is, the credentials
+// found or downloaded as the call's toolchain is, the provider release
+// the call's roots pin (see Run.callRoot), resolved from the modules of
+// what the call's other services listed, listedByOthers, the credentials
 // provider gives Terraform (see terraformEnv), its provider block, and
 // its scope (see harvest.ProviderWithQueryScope), in a working directory
 // under the output directory's CheckpointDir.
-func (r *Run) query(c *callContext, provider harvest.Provider) harvest.Query {
+func (r *Run) query(c *callContext, provider harvest.Provider, listedByOthers []harvest.Resource) harvest.Query {
 	options := c.options
 	return func(ctx context.Context) ([]harvest.Resource, error) {
 		cacheDir, err := infraharvestCacheDir()
@@ -94,6 +99,11 @@ func (r *Run) query(c *callContext, provider harvest.Provider) harvest.Query {
 		}
 		binary := tfquery.Binary()
 		execPath, err := r.tools.find(ctx, binary, options.TerraformPath, filepath.Join(cacheDir, binary.Name))
+		if err != nil {
+			return nil, err
+		}
+		_, _, constraints := registryModules(ctx, provider, modulesMode(options), map[string][]harvest.Resource{"": listedByOthers})
+		root, err := r.callRoot(ctx, c, binary.Registry, execPath, engineProvider(provider), constraints)
 		if err != nil {
 			return nil, err
 		}
@@ -106,14 +116,14 @@ func (r *Run) query(c *callContext, provider harvest.Provider) harvest.Query {
 			PluginCacheDir: filepath.Join(cacheDir, "plugins"),
 			Env:            env,
 			Parent:         filepath.Join(options.Out, CheckpointDir),
-			Provider:       engineProvider(provider),
+			Provider:       root.provider,
 			ProviderName:   provider.Name(),
 			Types:          slices.Compact(slices.Sorted(slices.Values(options.QueryTypes))),
 		}
 		if scoped, ok := provider.(harvest.ProviderWithQueryScope); ok {
 			req.Config, req.InScope = scoped.QueryConfig(), scoped.InQueryScope
 		}
-		return tfquery.List(ctx, req)
+		return r.tools.listQuery(ctx, req)
 	}
 }
 

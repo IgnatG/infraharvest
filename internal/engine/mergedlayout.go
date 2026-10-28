@@ -16,6 +16,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // The layout of a merged root (see mergedRootFiles), the one root several
@@ -373,28 +375,46 @@ func MergedEnvironments(dir string) ([]string, error) {
 
 // MergedImportIDs returns the import IDs vars/<env>/imports.tfvars of the
 // root environments share in dir gives env's resources, by their
-// addresses in the root; none once it is deleted, after the first apply.
+// addresses in the root, with, for those it imports by identity, the
+// identity's ID (see tftypes.IdentityID); none once it is deleted, after
+// the first apply.
 func MergedImportIDs(dir, env string) (map[string]string, error) {
 	path := filepath.Join(dir, filepath.FromSlash(importVarsPath(env)))
 	f, err := readVarFile(path)
 	if f == nil {
 		return nil, err
 	}
-	attr, ok := f.syntax.Attributes[importIDsVariableName]
-	if !ok {
-		return nil, nil
-	}
-	v, diags := attr.Expr.Value(nil)
-	if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
-		return nil, fmt.Errorf("%s: %s isn't a map of literal IDs", path, importIDsVariableName)
-	}
-	ids := map[string]string{}
-	for it := v.ElementIterator(); it.Next(); {
-		k, id := it.Element()
-		if id.IsNull() || !id.Type().Equals(cty.String) {
-			return nil, fmt.Errorf("%s: the ID of %s isn't a string", path, k.AsString())
+	var ids map[string]string
+	if attr, ok := f.syntax.Attributes[importIDsVariableName]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
+			return nil, fmt.Errorf("%s: %s isn't a map of literal IDs", path, importIDsVariableName)
 		}
-		ids[k.AsString()] = id.AsString()
+		ids = map[string]string{}
+		for it := v.ElementIterator(); it.Next(); {
+			k, id := it.Element()
+			if id.IsNull() || !id.Type().Equals(cty.String) {
+				return nil, fmt.Errorf("%s: the ID of %s isn't a string", path, k.AsString())
+			}
+			ids[k.AsString()] = id.AsString()
+		}
+	}
+	if attr, ok := f.syntax.Attributes[importIdentitiesVariableName]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
+			return nil, fmt.Errorf("%s: %s isn't a map of literal identities", path, importIdentitiesVariableName)
+		}
+		if ids == nil {
+			ids = map[string]string{}
+		}
+		for it := v.ElementIterator(); it.Next(); {
+			k, identity := it.Element()
+			values, ok := literalIdentity(identity)
+			if !ok {
+				return nil, fmt.Errorf("%s: the identity of %s isn't an object of literal values", path, k.AsString())
+			}
+			ids[k.AsString()] = tftypes.IdentityID(values)
+		}
 	}
 	return ids, nil
 }

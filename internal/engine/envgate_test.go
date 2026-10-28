@@ -139,21 +139,37 @@ func (f *mergeFake) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) 
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	ids, diags := file.Body.(*hclsyntax.Body).Attributes[importIDsVariableName].Expr.Value(nil)
+	attrs := file.Body.(*hclsyntax.Body).Attributes
+	ids, diags := attrs[importIDsVariableName].Expr.Value(nil)
 	if diags.HasErrors() {
 		return nil, diags
 	}
-	p := &tfjson.Plan{}
+	importing := map[string]*tfjson.Importing{}
 	for it := ids.ElementIterator(); it.Next(); {
 		address, id := it.Element()
-		change := &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}, Importing: &tfjson.Importing{ID: id.AsString()}}
-		if f.changed[address.AsString()] > 0 {
-			f.changed[address.AsString()]--
+		importing[address.AsString()] = &tfjson.Importing{ID: id.AsString()}
+	}
+	if attr, ok := attrs[importIdentitiesVariableName]; ok {
+		identities, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+		for it := identities.ElementIterator(); it.Next(); {
+			address, identity := it.Element()
+			values, _ := literalIdentity(identity)
+			importing[address.AsString()] = &tfjson.Importing{Identity: values}
+		}
+	}
+	p := &tfjson.Plan{}
+	for _, address := range slices.Sorted(maps.Keys(importing)) {
+		change := &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}, Importing: importing[address]}
+		if f.changed[address] > 0 {
+			f.changed[address]--
 			change.Actions = tfjson.Actions{tfjson.ActionUpdate}
 			change.Before = map[string]interface{}{"visibility_timeout_seconds": 30}
 			change.After = map[string]interface{}{"visibility_timeout_seconds": 60}
 		}
-		p.ResourceChanges = append(p.ResourceChanges, &tfjson.ResourceChange{Address: address.AsString(), Mode: tfjson.ManagedResourceMode, Change: change})
+		p.ResourceChanges = append(p.ResourceChanges, &tfjson.ResourceChange{Address: address, Mode: tfjson.ManagedResourceMode, Change: change})
 	}
 	return p, nil
 }
