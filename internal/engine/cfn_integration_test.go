@@ -19,12 +19,6 @@ import (
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
-// guessedNameErrors are the validation errors of a name the converter
-// derived from CloudFormation's and reported as a guess: the user is told
-// to check those, so they are logged, not failed. Any other error, such
-// as a sensitive count or a value of the wrong type, fails.
-var guessedNameErrors = []string{"Unsupported argument", "Unsupported block type", "Invalid resource type", "Missing required argument", "Unsupported attribute"}
-
 // TestConvertedTemplatesValidate converts each template of pkg/cfn's
 // golden tests and runs terraform validate on the result, with the latest
 // AWS provider, which needs no credentials. It downloads Terraform and the
@@ -92,12 +86,11 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("terraform validate: %v", err)
 			}
+			// Only the errors about names the converter reported as
+			// guesses are excused (see cfnGuesses.excuses).
+			guesses := newCFNGuesses(res.Diagnostics)
 			for _, d := range tfrun.ErrorDiagnostics(validation.Diagnostics) {
-				guessed := false
-				for _, summary := range guessedNameErrors {
-					guessed = guessed || d.Summary == summary
-				}
-				if guessed {
+				if guesses.excuses(d) {
 					t.Logf("a guessed name: %s", tfrun.FormatDiagnostic(d))
 					continue
 				}
