@@ -76,16 +76,17 @@ func TestSchemaRejects(t *testing.T) {
 	t.Parallel()
 	schema := loadSchema(t)
 	for name, file := range map[string]string{
-		"unknown field":    "provider: aws\ntypes:\n  aws_vpc:\n    imports: x\n",
-		"no provider":      "types: {}\n",
-		"template":         "provider: aws\ntypes:\n  aws_vpc:\n    import_id: vpc\n",
-		"skip reason":      "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - ids: [vpc-1]\n",
-		"cloud control":    "provider: aws\ntypes:\n  aws_vpc:\n    cloud_control: { type: VPC, identifier: VpcId }\n",
-		"data source type": "provider: aws\ntypes:\n  aws_vpc:\n    data_source: { type: Vpc, argument: id }\n",
-		"inventory":        "provider: google\ntypes:\n  google_x:\n    inventory: { name: x }\n",
-		"attribute prefix": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [] }\n",
-		"attribute suffix": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_suffixes: { name: [] }\n",
-		"omitted value":    "provider: aws\ntypes:\n  aws_vpc:\n    omit: [\"=x\"]\n",
+		"unknown field":     "provider: aws\ntypes:\n  aws_vpc:\n    imports: x\n",
+		"no provider":       "types: {}\n",
+		"template":          "provider: aws\ntypes:\n  aws_vpc:\n    import_id: vpc\n",
+		"skip reason":       "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - ids: [vpc-1]\n",
+		"cloud control":     "provider: aws\ntypes:\n  aws_vpc:\n    cloud_control: { type: VPC, identifier: VpcId }\n",
+		"data source type":  "provider: aws\ntypes:\n  aws_vpc:\n    data_source: { type: Vpc, argument: id }\n",
+		"inventory":         "provider: google\ntypes:\n  google_x:\n    inventory: { name: x }\n",
+		"attribute prefix":  "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [] }\n",
+		"attribute suffix":  "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attribute_suffixes: { name: [] }\n",
+		"attribute present": "provider: aws\ntypes:\n  aws_vpc:\n    skip:\n      - reason: r\n        attributes_present: [\"\"]\n",
+		"omitted value":     "provider: aws\ntypes:\n  aws_vpc:\n    omit: [\"=x\"]\n",
 	} {
 		if err := schema.Validate(yamlToJSON(t, []byte(file))); err == nil {
 			t.Errorf("%s: the schema accepts\n%s", name, file)
@@ -251,6 +252,7 @@ func TestCheckRejects(t *testing.T) {
 		"inventory name":          "provider: google\ntypes:\n  google_x:\n    inventory: { type: compute.googleapis.com/Network, name: \"//x/[\" }\n",
 		"empty attribute prefix":  "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attribute_prefixes: { name: [\"\"] }\n",
 		"empty attribute suffix":  "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attribute_suffixes: { name: [\"\"] }\n",
+		"empty attribute present": "provider: aws\ntypes:\n  aws_x:\n    skip:\n      - reason: r\n        attributes_present: [\"\"]\n",
 		"inventory types apart":   "provider: google\ntypes:\n  google_x:\n    inventory: { type: compute.googleapis.com/Disk, name: \"//compute.googleapis.com/projects/*/zones/*/disks/*\" }\n  google_y:\n    inventory: { type: compute.googleapis.com/disk }\n",
 		"repeated argument":       "provider: aws\ntypes:\n  aws_x:\n    omit: [a, a]\n",
 		"default without a value": "provider: google\ntypes:\n  google_x:\n    defaults: [storage_class]\n",
@@ -537,6 +539,40 @@ types:
 		{map[string]string{"role": "roles/editor"}, ""},
 	} {
 		if got := c.Skipped("google_project_iam_member", "id", tt.attributes); got != tt.want {
+			t.Errorf("%v: got %q, want %q", tt.attributes, got, tt.want)
+		}
+	}
+}
+
+// Rules by an attribute being there, whatever its value, even an empty
+// one, with the other conditions they set.
+func TestSkippedByPresence(t *testing.T) {
+	t.Parallel()
+	c := parseCatalogue(t, `
+provider: google
+types:
+  google_compute_instance:
+    skip:
+      - reason: Dataproc
+        attributes_present: [labels.goog-dataproc-cluster-name]
+      - reason: both labels
+        attributes_present: [labels.a, labels.b]
+        attribute_prefixes: { asset.name: [batch-] }
+`)
+	for _, tt := range []struct {
+		attributes map[string]string
+		want       string
+	}{
+		{map[string]string{"labels.goog-dataproc-cluster-name": "etl"}, "Dataproc"},
+		{map[string]string{"labels.goog-dataproc-cluster-name": ""}, "Dataproc"},
+		{map[string]string{"labels.goog-dataproc-cluster-uuid": "0c3a"}, ""},
+		{map[string]string{"labels.goog-dataproc-cluster-name-x": "etl"}, ""},
+		{nil, ""},
+		{map[string]string{"labels.a": "", "labels.b": "1", "asset.name": "batch-1"}, "both labels"},
+		{map[string]string{"labels.a": "", "asset.name": "batch-1"}, ""},
+		{map[string]string{"labels.a": "", "labels.b": "1", "asset.name": "web-1"}, ""},
+	} {
+		if got := c.Skipped("google_compute_instance", "id", tt.attributes); got != tt.want {
 			t.Errorf("%v: got %q, want %q", tt.attributes, got, tt.want)
 		}
 	}

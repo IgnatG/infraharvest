@@ -155,11 +155,14 @@ types:
     # The cloud_asset service records asset.created_by_group=true on an
     # instance that has the created-by metadata key, which a managed
     # instance group sets on each instance it creates.
+    # Dataproc labels the VMs of a cluster with goog-dataproc-cluster-name.
     skip:
       - reason: GKE creates it for a cluster's nodes and deletes it with them
         attribute_prefixes: { asset.name: [gke-] }
       - reason: a managed instance group creates it, and deletes and recreates it as it scales and updates; select it to import it
         attributes: { asset.created_by_group: "true" }
+      - reason: Dataproc creates it for a cluster's nodes and deletes it with the cluster
+        attributes_present: [labels.goog-dataproc-cluster-name]
   google_compute_instance_group:
     inventory:
       type: compute.googleapis.com/InstanceGroup
