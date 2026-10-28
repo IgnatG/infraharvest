@@ -67,9 +67,9 @@ func TestStripDefaultsWithSchemaMetadata(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{importedPlan("aws_thing.a")}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: exactHints(thingMetadata())})
-	if err != nil || !stripped || last == nil {
-		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
+	stripped, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: exactHints(thingMetadata())})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v", stripped, err)
 	}
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{`name = "a"`, "computed = false", "retries = 0"} {
@@ -97,7 +97,7 @@ func TestStripDefaultsWithOtherReleaseMetadata(t *testing.T) {
 		resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"retries": 0}, map[string]any{"retries": 3}),
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
-	if _, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: otherMajorHints(thingMetadata())}); err != nil {
+	if _, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: otherMajorHints(thingMetadata())}); err != nil {
 		t.Fatal(err)
 	}
 	if calls := strings.Join(tf.calls, ","); calls != "schema,validate,plan,show,validate,plan,show" {
@@ -138,7 +138,7 @@ func TestStripDefaultsProvenDefaultsNeedNoValidation(t *testing.T) {
 			dir, changes := provenRoot(t)
 			tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{importedPlan("aws_thing.a")}}
 
-			stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: hints})
+			stripped, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: hints})
 			if err != nil || !stripped {
 				t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 			}
@@ -164,9 +164,9 @@ func TestStripDefaultsCorrectsWrongProvenDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{wrong, importedPlan("aws_thing.a")}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
-	if err != nil || !stripped || last == nil {
-		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v, %v", stripped, last, err)
+	stripped, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: sameMajorHints(thingMetadata())})
+	if err != nil || !stripped {
+		t.Fatalf("want defaults stripped and the plan handed back, got %v, %v", stripped, err)
 	}
 	if calls := strings.Join(tf.calls, ","); calls != "schema,plan,show,plan,show" {
 		t.Errorf("calls: %s", calls)
@@ -183,7 +183,7 @@ func TestStripDefaultsKeepsSameMajorDefaultsOnErrors(t *testing.T) {
 	dir, changes := provenRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: sameMajorHints(thingMetadata())})
+	stripped, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: sameMajorHints(thingMetadata())})
 	if err != nil || !stripped {
 		t.Fatalf("want the null stripped, got %v, %v", stripped, err)
 	}
@@ -199,7 +199,7 @@ func TestStripDefaultsKeepsProvenDefaultsOutOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{hints: exactHints(thingMetadata())})
+	stripped, _, err := settleDefaults(tf, dir, changes, defaultRules{hints: exactHints(thingMetadata())})
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls and proven defaults stripped, got %v, %v", stripped, err)
 	}
@@ -214,8 +214,10 @@ func TestStripDefaultsKeepsProvenDefaultsOutOnErrors(t *testing.T) {
 			t.Errorf("generated.tf still has %s:\n%s", gone, got)
 		}
 	}
-	if calls := strings.Join(tf.calls, ","); !strings.HasSuffix(calls, ",validate") {
-		t.Errorf("want a validation of what is left out last, got calls: %s", calls)
+	// What is left out is validated, and only then the pass plans, for the
+	// baseline of the passes after it.
+	if calls := strings.Join(tf.calls, ","); !strings.HasSuffix(calls, ",validate,plan,show") {
+		t.Errorf("want a validation of what is left out, then the plan of the baseline, got calls: %s", calls)
 	}
 }
 

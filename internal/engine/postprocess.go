@@ -8,14 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
@@ -24,17 +22,17 @@ import (
 )
 
 // postProcess improves the configuration once it plans, with the passes of
-// tidyPasses, in their order: the tags an import leaves out (see
+// tidying.passes, in their order: the tags an import leaves out (see
 // fillEffectiveTags), arguments that only repeat a default (see
 // stripDefaults), references between resources (see
 // addReferencesSkipping), to resources it doesn't manage (see
 // addDataSourcesSkipping), to what other roots manage (see
 // addRootVariables) and to what the cloud or the provider defines (see
 // addLookups), shared tags (see applyTagLift) and repeated identifiers
-// (see liftLiterals). The steps between two passes that plan
-// on their own are checked together by one plan, and only if it changes,
-// each against the plan before it, undone if the plan changes, the
-// references by resource (see verifySteps). Secret variables get their
+// (see liftLiterals). The passes between two that plan on their own are
+// checked together by one plan, and only if it changes, each against the
+// plan before it, undone if the plan changes, the references by resource
+// (see tidying.run). Secret variables get their
 // values in these plans where Generate found them, and placeholder values
 // where Terraform doesn't show them. If the configuration doesn't plan
 // even so, only the literal lift is made, checked by validation. Last,
@@ -57,37 +55,7 @@ func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, se
 		return nil, liftLiteralsValidated(ctx, tf, dir, r.taken)
 	}
 	t := &tidying{ctx: ctx, tf: tf, dir: dir, r: r, vars: vars, baseline: *baseline, values: values}
-	passes := t.passes()
-	if err := checkPassOrder(passes); err != nil {
-		return nil, err
-	}
-	var steps []tidyStep
-	verify := func() error {
-		err := verifySteps(ctx, tf, dir, t.baseline, vars, steps)
-		steps = nil
-		return err
-	}
-	for _, p := range passes {
-		if p.step != nil {
-			step, err := p.step()
-			if err != nil {
-				return nil, err
-			}
-			if step != nil {
-				steps = append(steps, *step)
-			}
-			continue
-		}
-		// The steps before a pass that plans on its own are checked
-		// against the plan they compare with before it changes.
-		if err := verify(); err != nil {
-			return nil, err
-		}
-		if err := p.run(); err != nil {
-			return nil, err
-		}
-	}
-	if err := verify(); err != nil {
+	if err := t.run(t.passes()); err != nil {
 		return nil, err
 	}
 	return t.declined, nil
@@ -110,189 +78,107 @@ const (
 	passLocalModules   = "local modules"
 )
 
-// tidyPass is one of postProcess's passes over the configuration. It names
-// the passes it must run after, which checkPassOrder holds the order of
-// tidyPasses to.
-type tidyPass struct {
-	name  string
-	after []string
-	// run makes a pass that plans on its own, such as one that changes the
-	// plan the passes after it compare with.
-	run func() error
-	// step, instead of run, returns the edit verifySteps checks together
-	// with the steps next to it, or nil where the run makes none.
-	step func() (*tidyStep, error)
-}
-
-// tidying is what postProcess's passes share: the plan they compare with,
-// as the passes before them left it, and what the curated modules leave
-// for the passes after them.
-type tidying struct {
-	ctx  context.Context
-	tf   tfrun.Terraform
-	dir  string
-	r    *run
-	vars []tfexec.PlanOption
-
-	baseline Baseline
-	values   map[string]map[string]any
-
-	// declined are the clusters synthesize didn't move into a curated
-	// module, with why, and lists the lengths of the list outputs of the
-	// calls it made.
-	declined []ModuleCall
-	lists    map[string]int
-}
-
-// passes returns postProcess's passes in the order it runs them. A pass
-// the run doesn't make, such as the data sources of a run without external
+// passes returns postProcess's passes, declared in the order they usually
+// run in, which what they run after (see tidyPass.after) settles. A pass the
+// run doesn't make, such as the data sources of a run without external
 // resources, does nothing.
 func (t *tidying) passes() []tidyPass {
 	ctx, tf, dir, opts, taken := t.ctx, t.tf, t.dir, t.r.opts, t.r.taken
+	// eachResource makes a pass that makes less of itself for the
+	// resources a plan blames it for (see resourceEdit).
+	eachResource := func(name string, after []string, edit func(skip map[string]int) (map[string]bool, error), enabled bool) tidyPass {
+		return tidyPass{name: name, after: after, rounds: maxEditRounds, start: func() (*tidyEdit, error) {
+			if !enabled {
+				return nil, nil
+			}
+			return &tidyEdit{edit: resourceEdit(edit)}, nil
+		}}
+	}
 	return []tidyPass{
 		// Tags an import leaves out of the configuration first: they are
 		// what the passes below compare with, and the shared ones go to a
 		// local.
-		{name: passEffectiveTags, run: t.fillEffectiveTags},
+		{name: passEffectiveTags, alone: true, policy: StateOnly, rounds: maxFillRounds, rebases: true, stopped: "the configuration stopped planning after writing its tags", start: t.effectiveTags},
 		// Next, so the passes below see only the arguments that matter.
-		{name: passDefaults, after: []string{passEffectiveTags}, run: t.stripDefaults},
-		{name: passReferences, after: []string{passDefaults}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{rootfile.GeneratedFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addReferencesSkipping(dir, t.values, skip)
-			}}, nil
-		}},
+		{name: passDefaults, after: []string{passEffectiveTags}, alone: true, policy: FewerChanges, rounds: maxDefaultRounds, rebases: true, stopped: "the configuration stopped planning after leaving out defaults", start: t.defaults},
+		eachResource(passReferences, []string{passDefaults}, func(skip map[string]int) (map[string]bool, error) {
+			return addReferencesSkipping(dir, t.values, skip)
+		}, true),
 		// After the references: data sources are for what the root
 		// doesn't manage.
-		{name: passDataSources, after: []string{passReferences}, step: func() (*tidyStep, error) {
-			if len(opts.External) == 0 {
-				return nil, nil
-			}
-			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
-			}}, nil
-		}},
+		eachResource(passDataSources, []string{passReferences}, func(skip map[string]int) (map[string]bool, error) {
+			return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
+		}, len(opts.External) > 0),
 		// After the data sources: variables are for what they can't read.
-		{name: passRootVariables, after: []string{passReferences, passDataSources}, step: func() (*tidyStep, error) {
-			if len(opts.OtherRoots) == 0 {
-				return nil, nil
-			}
-			return &tidyStep{files: []string{rootfile.GeneratedFileName, hclfile.VariablesFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
-			}}, nil
-		}},
+		eachResource(passRootVariables, []string{passReferences, passDataSources}, func(skip map[string]int) (map[string]bool, error) {
+			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
+		}, len(opts.OtherRoots) > 0),
 		// Lookups are for what nothing the import lists has.
-		{name: passLookups, after: []string{passReferences, passDataSources, passRootVariables}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(skip map[string]int) (map[string]bool, error) {
-				return addLookups(dir, taken, skip)
-			}}, nil
-		}},
-		{name: passTagLift, after: []string{passEffectiveTags, passDefaults}, step: t.tagLift},
+		eachResource(passLookups, []string{passReferences, passDataSources, passRootVariables}, func(skip map[string]int) (map[string]bool, error) {
+			return addLookups(dir, taken, skip)
+		}, true),
+		{name: passTagLift, after: []string{passEffectiveTags, passDefaults}, start: t.tagLift},
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
-		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, step: func() (*tidyStep, error) {
-			return &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return liftLiterals(dir, taken) }}, nil
+		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, start: func() (*tidyEdit, error) {
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return liftLiterals(dir, taken) })}, nil
 		}},
-		// After the steps above, as clusters reach the modules through the
+		// After the passes above, as clusters reach the modules through the
 		// references.
-		{name: passCuratedModules, after: []string{passReferences, passDataSources, passRootVariables, passLookups, passLiterals}, run: t.synthesize},
-		{name: passOutputLists, after: []string{passCuratedModules}, step: func() (*tidyStep, error) {
+		{name: passCuratedModules, after: []string{passReferences, passDataSources, passRootVariables, passLookups, passLiterals}, alone: true, policy: StateOnly, rounds: untilSettled, rebases: true, stopped: "the configuration stopped planning after moving resources into modules", start: t.synthesize},
+		{name: passOutputLists, after: []string{passCuratedModules}, start: func() (*tidyEdit, error) {
 			if len(t.lists) == 0 {
 				return nil, nil
 			}
 			lists := t.lists
-			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) {
+			return &tidyEdit{edit: plainEdit(func() (bool, error) {
 				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
-			}}, nil
+			})}, nil
 		}},
-		{name: passProjects, after: []string{passCuratedModules}, step: func() (*tidyStep, error) {
+		{name: passProjects, after: []string{passCuratedModules}, start: func() (*tidyEdit, error) {
 			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return referModulesToResources(dir) }}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return referModulesToResources(dir) })}, nil
 		}},
 		// After the curated modules, whose calls take the project from the
 		// resources.
-		{name: passInherited, after: []string{passCuratedModules}, step: func() (*tidyStep, error) {
+		{name: passInherited, after: []string{passCuratedModules}, start: func() (*tidyEdit, error) {
 			if len(opts.Inherited) == 0 {
 				return nil, nil
 			}
-			return &tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) }}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) })}, nil
 		}},
 		// Last: curated modules first, and the resources left no longer
 		// repeat what the provider sets.
-		{name: passLocalModules, after: []string{passCuratedModules, passInherited}, run: t.liftModules},
+		{name: passLocalModules, after: []string{passCuratedModules, passInherited}, alone: true, start: t.localModules},
 	}
 }
 
-// checkPassOrder reports a pass of passes that runs before a pass it must
-// run after, or names one passes doesn't have.
-func checkPassOrder(passes []tidyPass) error {
-	at := map[string]int{}
-	for i, p := range passes {
-		at[p.name] = i
-	}
-	for i, p := range passes {
-		for _, name := range p.after {
-			j, ok := at[name]
-			if !ok {
-				return fmt.Errorf("the %s pass runs after the %s pass, which there isn't", p.name, name)
-			}
-			if j > i {
-				return fmt.Errorf("the %s pass runs before the %s pass, which it must run after", p.name, name)
-			}
-		}
-	}
-	return nil
-}
-
-// replan makes the plan last shows, or a new one, what the passes after
-// compare with; stopped is the error should the configuration no longer
-// plan.
-func (t *tidying) replan(last *shownPlan, stopped string) error {
-	baseline, values, err := replanValues(t.ctx, t.tf, t.vars, last, t.baseline.stateOnly)
-	if err != nil {
-		return err
-	}
-	if baseline == nil {
-		return errors.New(stopped)
-	}
-	t.baseline, t.values = *baseline, values
-	return nil
-}
-
-// fillEffectiveTags writes the tags an import leaves out of the
-// configuration, with Options.EffectiveTags (see fillEffectiveTags).
-func (t *tidying) fillEffectiveTags() error {
+// effectiveTags writes the tags an import leaves out of the configuration,
+// with Options.EffectiveTags (see fillEffectiveTags).
+func (t *tidying) effectiveTags() (*tidyEdit, error) {
 	et := t.r.opts.EffectiveTags
 	if et == nil {
-		return nil
+		return nil, nil
 	}
-	filled, last, err := fillEffectiveTags(t.ctx, t.tf, t.dir, *et, t.values, t.baseline, t.vars)
-	if err != nil || !filled {
-		return err
-	}
-	return t.replan(last, "the configuration stopped planning after writing its tags")
+	return fillEffectiveTags(t.dir, *et, t.values), nil
 }
 
-// stripDefaults leaves out the arguments that only repeat a default (see
+// defaults leaves out the arguments that only repeat a default (see
 // stripDefaults).
-func (t *tidying) stripDefaults() error {
+func (t *tidying) defaults() (*tidyEdit, error) {
 	opts := t.r.opts
 	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty, hints: schemaHintsFor(t.dir, opts.SchemaMetadata)}
 	if et := opts.EffectiveTags; et != nil {
 		rules.tags = et.Attribute
 	}
-	stripped, last, err := stripDefaults(t.ctx, t.tf, t.dir, t.baseline, t.vars, rules)
-	if err != nil || !stripped {
-		return err
-	}
-	// Leaving out a default may remove changes: compare with the new plan.
-	return t.replan(last, "the configuration stopped planning after leaving out defaults")
+	return stripDefaults(t.ctx, t.tf, t.dir, rules)
 }
 
-// tagLift is the step that moves the tags every resource shares into
+// tagLift is the pass that moves the tags every resource shares into
 // local.tags, with the run's default tags (see applyTagLift).
-func (t *tidying) tagLift() (*tidyStep, error) {
+func (t *tidying) tagLift() (*tidyEdit, error) {
 	if t.r.opts.DefaultTags == nil {
 		return nil, nil
 	}
@@ -303,37 +189,24 @@ func (t *tidying) tagLift() (*tidyStep, error) {
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	tags := &tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.ProvidersFileName, rootfile.LocalsFileName}, edit: func() (bool, error) { return applyTagLift(dir, dt, schemas) }}
+	tags := &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(dir, dt, schemas) })}
 	if dt.Block != "" && dt.Applied == nil {
 		// Where the provider can't apply the tags without changing a
 		// resource's, the resources still share them through the local.
 		local := dt
 		local.Block, local.Argument = "", false
-		tags.fallback = func() (bool, error) { return applyTagLift(dir, local, schemas) }
+		tags.otherwise = func() (bool, error) { return applyTagLift(dir, local, schemas) }
 	}
 	return tags, nil
 }
 
-// synthesize moves clusters into calls of curated modules, with the run's
-// adapters (see synthesize). Module calls may update arguments import
-// can't set.
-func (t *tidying) synthesize() error {
-	if len(t.r.opts.Adapters) == 0 {
-		return nil
-	}
-	var err error
-	t.declined, t.baseline, t.lists, err = synthesize(t.ctx, t.tf, t.dir, t.r, t.values, t.baseline, t.vars)
-	return err
-}
-
-// liftModules moves clusters that repeat with the same shape into local
+// localModules moves clusters that repeat with the same shape into local
 // modules, in the run's modules directory (see liftModules).
-func (t *tidying) liftModules() error {
+func (t *tidying) localModules() (*tidyEdit, error) {
 	if t.r.opts.ModulesDir == "" {
-		return nil
+		return nil, nil
 	}
-	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules, t.baseline, t.vars)
-	return err
+	return liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules), nil
 }
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration
@@ -355,193 +228,6 @@ func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, 
 		return backup.Restore()
 	}
 	return nil
-}
-
-// tidyStep is one of postProcess's edits of the configuration, which a
-// plan checks (see verifySteps).
-type tidyStep struct {
-	// files are those the step may change.
-	files []string
-	edit  func() (bool, error)
-	// each, instead of edit, is checked by resource (see verifyEach).
-	each func(skip map[string]int) (map[string]bool, error)
-	// fallback, if set, is the edit to try when the plan rejects edit.
-	fallback func() (bool, error)
-}
-
-// apply makes the step's edit, or its edit by resource with nothing
-// skipped, and reports whether it changed anything.
-func (s tidyStep) apply() (bool, error) {
-	if s.each == nil {
-		return s.edit()
-	}
-	edited, err := s.each(map[string]int{})
-	return len(edited) > 0, err
-}
-
-// verifySteps makes steps, in order, and keeps what the plan accepts of
-// them. Every plan with import blocks reads every imported resource
-// again, so it first makes them all and plans once (see verifyTogether).
-// Only if that plan differs does it check them one at a time, each step
-// against the plan before it (see verify) and undone if the plan
-// changes, by resource where the step has each (see verifyEach), and
-// with its fallback where the plan rejects its edit. Either way, what it
-// keeps has every resource plan the change it had.
-func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, steps []tidyStep) error {
-	if len(steps) > 1 {
-		settled, err := verifyTogether(ctx, tf, dir, baseline, vars, steps)
-		if err != nil || settled {
-			return err
-		}
-	}
-	for _, step := range steps {
-		var kept bool
-		var err error
-		if step.each != nil {
-			_, err = verifyEach(ctx, tf, dir, baseline, vars, step.each, step.files...)
-		} else {
-			kept, err = verify(ctx, tf, dir, baseline, vars, step.edit, step.files...)
-		}
-		if err == nil && !kept && step.fallback != nil {
-			_, err = verify(ctx, tf, dir, baseline, vars, step.fallback, step.files...)
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// verifyTogether makes the edit of every step, in order, each on the
-// files as the ones before it left them, and keeps them all if the
-// configuration then plans, with vars, as verify requires: Exact to
-// baseline. It reports whether that settled the steps: it kept
-// them, or none of them changed anything. Otherwise, as when one edit
-// fails, it leaves the files as they were, for the steps to be checked
-// one at a time.
-func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
-	var files []string
-	for _, s := range steps {
-		for _, f := range s.files {
-			if !slices.Contains(files, f) {
-				files = append(files, f)
-			}
-		}
-	}
-	backup, err := fsutil.BackupFiles(dir, files...)
-	if err != nil {
-		return false, err
-	}
-	changed := false
-	for _, s := range steps {
-		edited, err := s.apply()
-		if err != nil {
-			// The step may fail only on top of another's edit: let the
-			// steps one at a time tell.
-			return false, backup.Restore()
-		}
-		changed = changed || edited
-	}
-	if !changed {
-		return true, backup.Restore()
-	}
-	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-	if err != nil {
-		return false, errors.Join(err, backup.Restore())
-	}
-	if baseline.Judge(shownPlan{p, summary}, diags, Exact).Accepted() {
-		return true, nil
-	}
-	return false, backup.Restore()
-}
-
-// verify makes edit, which changes files in dir, and keeps it only if the
-// configuration then plans, with vars, as baseline allows under Exact: without
-// errors, with the same change summary, and with each resource the baseline
-// has planning the same change it had (see tfrun.ChangeSignature): the same
-// actions, on the same attributes. Resources the baseline doesn't have, such
-// as those moved into module calls since, are judged by the totals. It reports
-// whether it kept the edit.
-func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
-	backup, err := fsutil.BackupFiles(dir, files...)
-	if err != nil {
-		return false, err
-	}
-	changed, err := edit()
-	if err != nil {
-		// The edit may have changed some of the files before failing.
-		return false, errors.Join(err, backup.Restore())
-	}
-	if !changed {
-		return false, nil
-	}
-	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-	if err != nil {
-		return false, errors.Join(err, backup.Restore())
-	}
-	if baseline.Judge(shownPlan{p, summary}, diags, Exact).Accepted() {
-		return true, nil
-	}
-	return false, backup.Restore()
-}
-
-// maxEditRounds bounds how often verifyEach plans an edit.
-const maxEditRounds = 3
-
-// verifyEach makes edit, which changes files in dir by resource, and
-// keeps what the plan accepts of it: where a resource then plans
-// differently from the baseline, its planned change before the edit (see
-// tfrun.ChangeSignature), or an error is about it, it makes edit again on the
-// files as they were, with that resource's level in skip raised, until
-// the plan, with vars, is Exact to baseline, in at most maxEditRounds plans (see
-// gate.Verifier). edit returns the resources it changed. It undoes the edit
-// if the plan still differs then, or differs in a way no resource it
-// changed explains, and reports whether it kept any of it.
-func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
-	backup, err := fsutil.BackupFiles(dir, files...)
-	if err != nil {
-		return false, err
-	}
-	skip := map[string]int{}
-	retry := false
-	kept, err := gate.Verifier[string, bool]{
-		Edit: func(context.Context) ([]string, error) {
-			if retry {
-				if err := backup.Restore(); err != nil {
-					return nil, err
-				}
-			}
-			retry = true
-			resources, err := edit(skip)
-			return sortedKeys(resources), err
-		},
-		Verify: func(ctx context.Context) (*gate.Verdict[string, bool], error) {
-			p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-			if err != nil {
-				return nil, err
-			}
-			verdict := baseline.Judge(shownPlan{p, summary}, diags, Exact)
-			if verdict.Accepted() {
-				return nil, nil
-			}
-			blamed, err := blame(dir, diags, verdict)
-			return &gate.Verdict[string, bool]{Blamed: blamed}, err
-		},
-		Drop: func(blamed map[string]bool) {
-			for address := range blamed {
-				skip[address]++
-			}
-		},
-		Rounds: maxEditRounds,
-	}.Run(ctx)
-	if err != nil {
-		// The edit may have changed some of the files before failing.
-		return false, errors.Join(err, backup.Restore())
-	}
-	if !kept {
-		return false, backup.Restore()
-	}
-	return true, nil
 }
 
 // dataReaders returns the resources of generated that refer to the data

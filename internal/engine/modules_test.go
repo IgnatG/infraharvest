@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,7 +190,7 @@ func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, Baseline{}, nil)
+	kept, err := settleLocalModules(t, tf, dir, modulesDir, Baseline{})
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}
@@ -209,7 +208,7 @@ func TestLiftModulesKeeps(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, Baseline{}, nil)
+	kept, err := settleLocalModules(t, tf, dir, modulesDir, Baseline{})
 	if err != nil || !kept {
 		t.Fatalf("want the modules kept, got kept=%v err=%v", kept, err)
 	}
@@ -341,7 +340,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
 	changes := map[string]string{"aws_iam_policy.read": tfrun.ChangeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 
-	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, Baseline{changes: changes}, nil)
+	kept, err := settleLocalModules(t, tf, dir, modulesDir, Baseline{changes: changes})
 	if err != nil || kept {
 		t.Fatalf("want the modules undone, got kept=%v err=%v", kept, err)
 	}

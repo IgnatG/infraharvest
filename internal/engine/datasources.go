@@ -58,7 +58,7 @@ type DataSource struct {
 // sources to data.tf. Like addReferencesSkipping, a value counts if it
 // identifies a resource on its own, or if the argument is named after the
 // resource's type. Data sources are named other than those in taken. It
-// leaves the resources in skip as they are (see verifyEach), and returns
+// leaves the resources in skip as they are (see tidying.settle), and returns
 // the resources it changed.
 func addDataSourcesSkipping(dir string, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it, and

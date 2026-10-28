@@ -4,8 +4,6 @@
 package engine
 
 import (
-	"context"
-	"errors"
 	"log"
 	"maps"
 	"path/filepath"
@@ -13,13 +11,10 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
-	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -40,74 +35,57 @@ type EffectiveTags struct {
 	ReservedPrefix string
 }
 
-// maxFillRounds bounds how often fillEffectiveTags plans.
+// maxFillRounds bounds how often the pass that fills the tags plans.
 const maxFillRounds = 2
 
-// fillEffectiveTags writes each resource's tags, without reserved ones,
-// from its imported et.Effective into et.Attribute, where the generated
-// configuration doesn't set it: values are the imported attribute values
-// by address (see planValues). The plan then updates et.Attribute and what
-// the provider computes from it in state, which stateOnly names for the
-// type (the Google provider's labels and terraform_labels), and nothing
-// in the cloud. A resource that then plans any other change, against
-// baseline (see StateOnly), keeps no tags, and is logged; the others keep
-// theirs. A change of a resource it didn't fill is the plan's own,
-// as an autoscaled group's size may be, and changes nothing. If the
-// configuration doesn't plan, no resource keeps tags. It reports whether
-// it changed generated.tf and, where a plan showed generated.tf as it
-// leaves it, that plan (see shownPlan).
-func fillEffectiveTags(ctx context.Context, tf tfrun.Terraform, dir string, et EffectiveTags, values map[string]map[string]any, baseline Baseline, vars []tfexec.PlanOption) (bool, *shownPlan, error) {
-	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName)
-	if err != nil {
-		return false, nil, err
-	}
+// fillEffectiveTags is the edit of the pass that writes each resource's
+// tags, without reserved ones, from its imported et.Effective into
+// et.Attribute, where the generated configuration doesn't set it: values are
+// the imported attribute values by address (see valuesOf). The plan then
+// updates et.Attribute and what the provider computes from it in state,
+// which the baseline's state-only rules name for the type (the Google
+// provider's labels and terraform_labels), and nothing in the cloud
+// (see StateOnly). A resource that then plans any other change, against the
+// baseline, keeps no tags, and is logged; the others keep theirs. A change
+// of a resource it didn't fill is the plan's own, as an autoscaled group's
+// size may be, and changes nothing. If the configuration doesn't plan, no
+// resource keeps tags. Where the rounds end with resources left, the
+// resources that settled keep their tags, with no plan to check them: the
+// pass rebases onto a new plan.
+func fillEffectiveTags(dir string, et EffectiveTags, values map[string]map[string]any) *tidyEdit {
 	left := map[string]bool{}
-	for round := 0; round < maxFillRounds; round++ {
-		if round > 0 {
-			if err := backup.Restore(); err != nil {
-				return false, nil, err
+	var filled []string
+	return &tidyEdit{
+		edit: func(*tidyAttempt) (edited, error) {
+			var err error
+			filled, err = fillTags(dir, et, values, left)
+			return edited{other: len(filled) > 0}, err
+		},
+		review: func(_ *tidyAttempt, r tidyReview) (tidyDecision, error) {
+			if r.verdict.Failed {
+				return tidyDecision{outcome: tidyReject}, nil
 			}
-		}
-		filled, err := fillTags(dir, et, values, left)
-		if err != nil {
-			return false, nil, errors.Join(err, backup.Restore())
-		}
-		if len(filled) == 0 {
-			return false, nil, nil
-		}
-		p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-		if err != nil {
-			return false, nil, errors.Join(err, backup.Restore())
-		}
-		shown := shownPlan{p, summary}
-		verdict := baseline.Judge(shown, diags, StateOnly)
-		if verdict.Failed {
-			return false, nil, backup.Restore()
-		}
-		settled := true
-		for _, rc := range verdict.Changed {
-			if !slices.Contains(filled, rc.Address) {
-				// Tags on other resources can't change it.
-				continue
+			settled := true
+			for _, rc := range r.verdict.Changed {
+				if !slices.Contains(filled, rc.Address) {
+					// Tags on other resources can't change it.
+					continue
+				}
+				left[rc.Address] = true
+				settled = false
 			}
-			left[rc.Address] = true
-			settled = false
-		}
-		if settled {
+			if !settled {
+				return tidyDecision{outcome: tidyRetry}, nil
+			}
 			logUnfilled(dir, et, left)
-			return true, &shownPlan{plan: p, summary: summary}, nil
-		}
+			return tidyDecision{outcome: tidyAccept}, nil
+		},
+		unplanned: func(*tidyAttempt) (bool, error) {
+			settled, err := fillTags(dir, et, values, left)
+			logUnfilled(dir, et, left)
+			return len(settled) > 0, err
+		},
 	}
-	// Out of rounds: the resources that settled keep their tags.
-	if err := backup.Restore(); err != nil {
-		return false, nil, err
-	}
-	filled, err := fillTags(dir, et, values, left)
-	if err != nil {
-		return false, nil, errors.Join(err, backup.Restore())
-	}
-	logUnfilled(dir, et, left)
-	return len(filled) > 0, nil, nil
 }
 
 // logUnfilled logs the resources fillEffectiveTags left without their
