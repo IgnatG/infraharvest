@@ -39,9 +39,7 @@ on:
         options: [terraform, tofu]
         default: terraform
 
-permissions:
-  contents: read
-  id-token: write # OpenID Connect, for the roles
+permissions: {}
 
 # One run at a time: each imports the whole of its regions, so another
 # run's estate would show up in its import, and change between its runs.
@@ -56,6 +54,9 @@ jobs:
     name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the roles
     # go test gets the test's own deadline plus the 30 minutes its cleanup
     # destroy has, and a margin, so that it never stops a destroy halfway
     # (the cfn estate's test 90 minutes, then 30 for what its stacks

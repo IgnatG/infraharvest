@@ -29,9 +29,7 @@ on:
         options: [terraform, tofu]
         default: terraform
 
-permissions:
-  contents: read
-  id-token: write # OpenID Connect, for the service accounts
+permissions: {}
 
 # One run at a time: each imports the whole project, so another run's
 # estate would show up in its import.
@@ -46,6 +44,9 @@ jobs:
     name: round-trip (${{ inputs.engine }})
     runs-on: ubuntu-latest
     environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the service accounts
     timeout-minutes: 120
     env:
       E2E_ENGINE: ${{ inputs.engine }}
