@@ -143,6 +143,9 @@ type driftEditor struct {
 	// sensitive are the values the plans mark sensitive, and forms the
 	// forms text quotes them in: no edit may write one.
 	sensitive, forms []string
+	// secretForms are forms and the secrets a report hides among the
+	// plans' other values (see driftSecretForms): no reason may quote one.
+	secretForms []string
 	// providerTagged are, by a resource's address and the path of a key
 	// of its tags, why the resource can't leave out a key the provider's
 	// default tags give it.
@@ -209,6 +212,7 @@ func newDriftEditor(refresh, code *tfjson.Plan, defaults map[string][]string) *d
 	}
 	e.sensitive = sortedKeys(seen)
 	e.forms = textForms(e.sensitive)
+	e.secretForms = driftSecretForms(nil, refresh, code)
 	return e
 }
 

@@ -55,9 +55,9 @@ func (c *converter) writeResource(w *hclWriter, ri *resourceInfo) {
 		di, ok := c.resources[d]
 		switch {
 		case !ok:
-			c.report(Error, path+".DependsOn", fmt.Sprintf("DependsOn names %s, which isn't a resource of the template", d))
+			c.report(Error, path+".DependsOn", fmt.Sprintf("DependsOn names %q, which isn't a resource of the template", d))
 		case di.skip != "":
-			c.report(Warning, path+".DependsOn", fmt.Sprintf("DependsOn names %s, which isn't converted; the dependency is left out", d))
+			c.report(Warning, path+".DependsOn", fmt.Sprintf("DependsOn names %q, which isn't converted; the dependency is left out", d))
 		default:
 			deps = append(deps, di.tfType+"."+di.tfName)
 		}
@@ -135,7 +135,7 @@ func (c *converter) policies(r *Resource, path string) bool {
 		case "Snapshot":
 			c.remark(Info, path+".DeletionPolicy", "DeletionPolicy Snapshot: CloudFormation snapshots the resource before it deletes it. Set the resource's own final snapshot arguments, such as skip_final_snapshot and final_snapshot_identifier on aws_db_instance")
 		default:
-			c.report(Warning, path+".DeletionPolicy", fmt.Sprintf("DeletionPolicy %s isn't one the converter knows, and isn't converted", p))
+			c.report(Warning, path+".DeletionPolicy", fmt.Sprintf("DeletionPolicy %q isn't one the converter knows, and isn't converted", p))
 		}
 	}
 	if r.UpdateReplacePolicy != nil {
@@ -147,7 +147,7 @@ func (c *converter) policies(r *Resource, path string) bool {
 		case "Snapshot":
 			c.remark(Info, path+".UpdateReplacePolicy", "UpdateReplacePolicy Snapshot: CloudFormation snapshots the old resource when an update replaces it, and Terraform doesn't")
 		default:
-			c.report(Warning, path+".UpdateReplacePolicy", fmt.Sprintf("UpdateReplacePolicy %s isn't one the converter knows, and isn't converted", p))
+			c.report(Warning, path+".UpdateReplacePolicy", fmt.Sprintf("UpdateReplacePolicy %q isn't one the converter knows, and isn't converted", p))
 		}
 	}
 	return prevent
