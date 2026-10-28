@@ -6,7 +6,6 @@ package engine
 import (
 	"path/filepath"
 	"regexp"
-	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
 
@@ -27,7 +26,7 @@ func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (ma
 		addr := ""
 		switch {
 		case d.Address != "":
-			addr = trimInstanceKey(d.Address)
+			addr = hclfile.TrimInstanceKey(d.Address)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == GeneratedFileName:
 			addr = generated.ResourceAt(d.Range.Start.Line)
 		case d.Range != nil && filepath.Base(d.Range.Filename) == ImportsFileName:
@@ -42,14 +41,6 @@ func byResource(diags []tfjson.Diagnostic, generated, imports *hclfile.File) (ma
 		assigned[addr] = append(assigned[addr], d)
 	}
 	return assigned, unassigned
-}
-
-// trimInstanceKey turns aws_vpc.a["x"] or aws_vpc.a[0] into aws_vpc.a.
-func trimInstanceKey(addr string) string {
-	if i := strings.IndexByte(addr, '['); i >= 0 {
-		return addr[:i]
-	}
-	return addr
 }
 
 var addressLike = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_-]*\.[A-Za-z_][A-Za-z0-9_-]*`)

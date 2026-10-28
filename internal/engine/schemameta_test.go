@@ -124,7 +124,7 @@ func provenRoot(t *testing.T) (string, map[string]string) {
 		t.Fatal(err)
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
-	return dir, map[string]string{"aws_thing.a": changeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	return dir, map[string]string{"aws_thing.a": tfrun.ChangeSignature(resourceChange("aws_thing.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 }
 
 // Nulls and proven defaults alone need no validation, for the metadata's

@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"encoding/json"
@@ -17,6 +17,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // A generated module of a bucket and its versioning, as modularize
@@ -248,9 +249,9 @@ func testModule(t *testing.T, dir string, calls int, files map[string]string) *d
 // moduleDrift is a change, the next apply would revert, to the attribute
 // of the resource of type typ at address, in a module call, whose new
 // value in the cloud is value.
-func moduleDrift(address, typ, attribute string, value any) *DriftChange {
+func moduleDrift(address, typ, attribute string, value any) *Change {
 	calls, _, _, _ := splitModuleAddress(address)
-	return &DriftChange{Address: address, Type: typ, ModuleAddress: "module." + calls[0].name, Attribute: attribute, Kind: DriftChanged, Outcome: DriftReverts, value: value}
+	return &Change{Address: address, Type: typ, ModuleAddress: "module." + calls[0].name, Attribute: attribute, Kind: Changed, Outcome: Reverts, value: value}
 }
 
 func TestDriftModuleSourceMapping(t *testing.T) {
@@ -271,7 +272,7 @@ func TestDriftModuleSourceMapping(t *testing.T) {
 		name   string
 		file   string
 		after  map[string]any
-		change *DriftChange
+		change *Change
 		// want is the file as the edit leaves it, or what it has, if
 		// contains; neither means there is no edit, for reason.
 		want, contains string
@@ -567,12 +568,12 @@ module "teams" {
 			e := testEditor(map[string]map[string]any{tc.change.Address: tc.after})
 			e.modules, e.adapters = modules(t), adapters.For("aws")
 			if tc.env != "" {
-				e.env, e.envVars = tc.env, envVarsPath(tc.env)
+				e.env, e.envVars = tc.env, hclfile.EnvVarsPath(tc.env)
 			}
 			contents := byteFiles(tc.files)
 			contents["main.tf"] = []byte(tc.file)
 			before := maps.Clone(contents)
-			_, applied, failed, err := e.apply(contents, []*DriftChange{tc.change})
+			_, applied, failed, err := e.apply(contents, []*Change{tc.change})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -619,7 +620,7 @@ module "teams" {
 // driftModuleRoot writes a root at aws/123/eu-west-2 of an output directory,
 // with root's files, and the modules under modules/ by their directory
 // names, and the modules.json of an init, whose calls, by key, call the
-// modules by those names; it returns the root and where Drift stages it.
+// modules by those names; it returns the root and where Check stages it.
 func driftModuleRoot(t *testing.T, root map[string]string, modules map[string]map[string]string, calls map[string]string) (dir, staging string) {
 	t.Helper()
 	dir, staging = acceptRoot(t, root)
@@ -700,15 +701,15 @@ func TestDriftAcceptsIntoAModuleCall(t *testing.T) {
 		moduleTags("module.app.aws_s3_bucket.this", "aws_s3_bucket", noop, "dev", "dev"),
 		moduleTags("module.app.aws_sqs_queue.this", "aws_sqs_queue", noop, "dev", "dev"),
 	}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range result.Changes {
-		if c.Outcome != DriftWritten || c.ModuleAddress != "module.app" {
+		if c.Outcome != Written || c.ModuleAddress != "module.app" {
 			t.Errorf("%s %s: %s: %s", c.Address, c.Attribute, c.Outcome, c.Reason)
 		}
-		want := DriftSource{File: "main.tf", Line: 5, Expression: `"prod"`, ModulePath: "../../../modules/app_0a1b2c3d/main.tf:3 var.tags"}
+		want := Source{File: "main.tf", Line: 5, Expression: `"prod"`, ModulePath: "../../../modules/app_0a1b2c3d/main.tf:3 var.tags"}
 		if c.Address == "module.app.aws_sqs_queue.this" {
 			want.ModulePath = "../../../modules/app_0a1b2c3d/main.tf:8 var.tags"
 		}
@@ -742,12 +743,12 @@ func TestDriftModuleCallEditLeaks(t *testing.T) {
 		moduleTags("module.app.aws_s3_bucket.this", "aws_s3_bucket", noop, "dev", "dev"),
 		moduleTags("module.app.aws_sqs_queue.this", "aws_sqs_queue", update, "prod", "dev"),
 	}}
-	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, DriftOptions{})
+	result, copied, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code, edited}, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := outcomes(result)["module.app.aws_s3_bucket.this tags.Env"]
-	if c.Outcome != DriftRejectedByPlan || !strings.Contains(c.Reason, "module.app.aws_sqs_queue.this") {
+	if c.Outcome != RejectedByPlan || !strings.Contains(c.Reason, "module.app.aws_sqs_queue.this") {
 		t.Errorf("bucket: %s: %s", c.Outcome, c.Reason)
 	}
 	if got := readFile(t, dir, "main.tf"); got != appCall {

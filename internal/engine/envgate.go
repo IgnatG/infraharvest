@@ -454,7 +454,7 @@ func (g *mergeGate) plan(ctx context.Context, tf tfrun.Terraform, m *stackMerge,
 	defer func() { _ = g.removeOverride() }()
 	// The merge has just written every var file the environment plans
 	// with: one that isn't there fails the plan.
-	vars, _, err := varFileOptions(g.dir, varFiles(m.envs[env], true))
+	vars, _, err := tfrun.VarFileOptions(g.dir, hclfile.VarFiles(m.envs[env], true))
 	if err != nil {
 		return gate.Check{}, nil, err
 	}
@@ -640,9 +640,9 @@ func (g *mergeGate) result(m *stackMerge, w *rootWriter, files map[string][]byte
 	for _, b := range w.copied {
 		result.Variables = append(result.Variables, b.Labels()[0])
 	}
-	result.Variables = append(result.Variables, importIDsVariableName)
+	result.Variables = append(result.Variables, hclfile.ImportIDsVariableName)
 	if m.importsByIdentity() {
-		result.Variables = append(result.Variables, importIdentitiesVariableName)
+		result.Variables = append(result.Variables, hclfile.ImportIdentitiesVariableName)
 	}
 	sort.Strings(result.Variables)
 	sort.Slice(result.Residue, func(i, j int) bool {
@@ -752,7 +752,7 @@ func WriteMergedMoves(dir string, moved []Move, removed []Removal) (gate.Check, 
 // their addresses in the merged root (see notInCloudSection).
 func WriteMergedNotInCloud(dir string, gone map[string][]Import) error {
 	var b strings.Builder
-	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `" + importVarsPath("<env>") + "` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
+	b.WriteString("\n## No longer in the cloud\n\nThe incremental import that last merged this root didn't find these resources, though it listed every resource of their type where they were: they have been deleted since. The next plan of their environment would create them again, and fails while its `" + hclfile.ImportVarsPath("<env>") + "` still has their import IDs. Delete each one's import ID there, if it is still there, then either delete the resource from the code, or leave it out of that environment, and plan; or, if it should exist, plan to create it again.\n\n")
 	for _, env := range slices.Sorted(maps.Keys(gone)) {
 		for _, g := range gone[env] {
 			fmt.Fprintf(&b, "- `%s.%s` (`%s`), of %s\n", g.Type, g.Name, g.ID, env)

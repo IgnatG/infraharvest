@@ -439,7 +439,7 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		}
 		if tmpl, ok := item.ValueExpr.(*hclsyntax.TemplateExpr); ok {
 			if v, ok := hclfile.LiteralString(tmpl); ok {
-				if tokens, ok := target(keyName(item.KeyExpr), v); ok {
+				if tokens, ok := target(hclfile.KeyName(item.KeyExpr), v); ok {
 					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: tokens})
 					replaced = true
 					continue
@@ -456,18 +456,6 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 		return nil, false
 	}
 	return hclwrite.TokensForObject(attrs), true
-}
-
-// keyName returns an object key as written: an identifier, or a string.
-func keyName(expr hclsyntax.Expression) string {
-	if name := hcl.ExprAsKeyword(expr); name != "" {
-		return name
-	}
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
-		return ""
-	}
-	return v.AsString()
 }
 
 // dependencies are the references between resources, from referrer to

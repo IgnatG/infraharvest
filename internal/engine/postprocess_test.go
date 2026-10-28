@@ -57,7 +57,7 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 	t.Parallel()
 	baseline := tfrun.ChangeSummary{Change: 1}
 	updatesTags := resourceChange("aws_subnet.a", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"tags": map[string]any{}}, map[string]any{"tags": map[string]any{"a": "b"}})
-	changes := map[string]string{"aws_subnet.a": changeSignature(updatesTags)}
+	changes := map[string]string{"aws_subnet.a": tfrun.ChangeSignature(updatesTags)}
 	edit := func(dir string) func() (bool, error) {
 		return func() (bool, error) {
 			return true, os.WriteFile(filepath.Join(dir, GeneratedFileName), []byte("# edited\n"), 0o644)

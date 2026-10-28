@@ -39,7 +39,6 @@ const (
 	ProvidersFileName = "providers.tf"
 	ImportsFileName   = "imports.tf"
 	GeneratedFileName = "generated.tf"
-	VariablesFileName = "variables.tf"
 	// RejectedFileName holds resources left out of the configuration. It is
 	// not a .tf file, so Terraform doesn't load it.
 	RejectedFileName = "rejected.hcl"
@@ -914,7 +913,7 @@ func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Nam
 
 // writeVariables writes variables.tf, or removes it if there are no secrets.
 func writeVariables(dir string, secrets []secret.Variable, schemas *tfjson.ProviderSchemas) error {
-	path := filepath.Join(dir, VariablesFileName)
+	path := filepath.Join(dir, hclfile.VariablesFileName)
 	if len(secrets) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err

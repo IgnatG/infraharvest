@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Values of --modules: which modules hold clusters of resources.
@@ -38,9 +38,9 @@ func modulesFromRegistry(mode string) bool {
 func moduleOptions(mode, out string, resolved []adapters.Adapter) (moduleAdapters []adapters.Adapter, modulesDir string) {
 	switch {
 	case modulesFromRegistry(mode):
-		return resolved, filepath.Join(out, engine.ModulesDirName)
+		return resolved, filepath.Join(out, hclfile.ModulesDirName)
 	case mode == ModulesLocal:
-		return nil, filepath.Join(out, engine.ModulesDirName)
+		return nil, filepath.Join(out, hclfile.ModulesDirName)
 	}
 	return nil, ""
 }

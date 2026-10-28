@@ -95,7 +95,7 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true, importIdentitiesVariableName: true}}
+	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{hclfile.ImportIDsVariableName: true, hclfile.ImportIdentitiesVariableName: true}}
 	if w.p.Name == "" {
 		return nil, nil, errors.New("the roots name no provider")
 	}
@@ -141,18 +141,18 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	files[VariablesFileName] = variables
+	files[hclfile.VariablesFileName] = variables
 	terraform, err := w.terraformBlock(files)
 	if err != nil {
 		return nil, nil, err
 	}
 	files[ProvidersFileName] = formatHCL(string(terraform) + string(providers))
-	files[commonVarsPath] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in " + envVarsPath("<env>") + ".\n")
+	files[hclfile.CommonVarsPath] = []byte("# Values every environment shares, which the defaults in variables.tf don't\n# give: none yet. Each environment's own are in " + hclfile.EnvVarsPath("<env>") + ".\n")
 	for e, env := range m.envs {
-		files[envVarsPath(env)] = w.tfvarsFile(e)
-		files[importVarsPath(env)] = w.importVarsFile(e)
+		files[hclfile.EnvVarsPath(env)] = w.tfvarsFile(e)
+		files[hclfile.ImportVarsPath(env)] = w.importVarsFile(e)
 		if backend := w.backendConfig(e); backend != nil {
-			files[backendConfigPath(env)] = backend
+			files[hclfile.BackendConfigPath(env)] = backend
 		}
 	}
 	files[ReadmeFileName] = w.readme()
@@ -632,7 +632,7 @@ func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, e
 	}
 	sort.Slice(blocks, func(i, j int) bool { return blocks[i].address < blocks[j].address })
 	var b strings.Builder
-	b.WriteString("# Each environment imports its resources on its first apply, with their IDs\n# from " + importVarsPath("<env>") + ". Delete this file, and those, after it.\n")
+	b.WriteString("# Each environment imports its resources on its first apply, with their IDs\n# from " + hclfile.ImportVarsPath("<env>") + ". Delete this file, and those, after it.\n")
 	for _, blk := range blocks {
 		b.WriteString("\n" + blk.text)
 	}
@@ -830,7 +830,7 @@ func (w *rootWriter) defaultTagsText() string {
 		case w.sameTemplate(normal):
 			fields = append(fields, name+" = "+exprText(w.m.renderTemplate(hclwrite.TokensForValue(cty.StringVal(normal[0])))))
 		default:
-			v := &envVariable{name: uniqueEnvName(w.used, Label(k)+"_tag", ""), what: k + " tag the provider applies to every resource", ty: cty.String, values: map[int]hclwrite.Tokens{}}
+			v := &envVariable{name: uniqueEnvName(w.used, hclfile.Label(k)+"_tag", ""), what: k + " tag the provider applies to every resource", ty: cty.String, values: map[int]hclwrite.Tokens{}}
 			for e := range w.m.roots {
 				v.values[e] = hclwrite.TokensForValue(cty.StringVal(values[e]))
 			}
@@ -935,7 +935,7 @@ func (w *rootWriter) rootBackend(env int) (string, []string, map[string]hclwrite
 	if len(src) == 0 {
 		return "", nil, nil
 	}
-	f, err := hclfile.Parse(backendFileName, src)
+	f, err := hclfile.Parse(hclfile.BackendFileName, src)
 	if err != nil {
 		return "", nil, nil
 	}
@@ -995,7 +995,7 @@ func (w *rootWriter) backendConfig(env int) []byte {
 		return nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# The %s backend's settings for the %s environment: terraform init\n# -backend-config=%s.\n", want, w.m.envs[env], backendConfigPath(w.m.envs[env]))
+	fmt.Fprintf(&b, "# The %s backend's settings for the %s environment: terraform init\n# -backend-config=%s.\n", want, w.m.envs[env], hclfile.BackendConfigPath(w.m.envs[env]))
 	typ, names, values := w.rootBackend(env)
 	if typ != want {
 		fmt.Fprintf(&b, "# The %s root had no %s backend: set these.\n", w.m.envs[env], want)
@@ -1098,14 +1098,14 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 		body.AppendUnstructuredTokens(b.BuildTokens(nil))
 	}
 	body.AppendNewline()
-	imports := body.AppendNewBlock("variable", []string{importIDsVariableName}).Body()
-	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
+	imports := body.AppendNewBlock("variable", []string{hclfile.ImportIDsVariableName}).Body()
+	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+hclfile.ImportVarsPath("<env>")+" sets it for imports.tf."))
 	imports.SetAttributeRaw("type", hclfile.ParseExpr("map(string)"))
 	imports.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
 	if w.m.importsByIdentity() {
 		body.AppendNewline()
-		identities := body.AppendNewBlock("variable", []string{importIdentitiesVariableName}).Body()
-		identities.SetAttributeValue("description", cty.StringVal("The identity of each resource the environment imports by identity rather than by import ID, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
+		identities := body.AppendNewBlock("variable", []string{hclfile.ImportIdentitiesVariableName}).Body()
+		identities.SetAttributeValue("description", cty.StringVal("The identity of each resource the environment imports by identity rather than by import ID, by its address: "+hclfile.ImportVarsPath("<env>")+" sets it for imports.tf."))
 		identities.SetAttributeRaw("type", hclfile.ParseExpr("map(map(string))"))
 		identities.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
 	}
@@ -1190,13 +1190,13 @@ func (w *rootWriter) importVarsFile(env int) []byte {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# The import ID of each resource of the %s environment, for imports.tf on\n# its first apply. Delete this file with imports.tf after it.\n", w.m.envs[env])
-	fmt.Fprintf(&b, "%s = %s\n", importIDsVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
+	fmt.Fprintf(&b, "%s = %s\n", hclfile.ImportIDsVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
 	if w.m.importsByIdentity() {
 		attrs := make([]hclwrite.ObjectAttrTokens, 0, len(identities))
 		for _, address := range slices.Sorted(maps.Keys(identities)) {
 			attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(address)), Value: hclwrite.TokensForValue(identityValue(identities[address]))})
 		}
-		fmt.Fprintf(&b, "%s = %s\n", importIdentitiesVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
+		fmt.Fprintf(&b, "%s = %s\n", hclfile.ImportIdentitiesVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
 	}
 	return formatHCL(b.String())
 }
@@ -1212,7 +1212,7 @@ func formatHCL(src string) []byte {
 func (w *rootWriter) readme() []byte {
 	var b strings.Builder
 	b.WriteString("# " + w.title() + "\n\n")
-	fmt.Fprintf(&b, "Generated by infraharvest: one root whose code every environment shares (%s). What differs between them is in `%s/<env>/`: `%s` holds the values that differ from the defaults in `variables.tf`, `%s` the IDs `imports.tf` imports, and `%s` where the state is kept.\n\n", strings.Join(w.m.envs, ", "), hclfile.VarsDir, envVarsFileName, importVarsFileName, backendConfigFileName)
+	fmt.Fprintf(&b, "Generated by infraharvest: one root whose code every environment shares (%s). What differs between them is in `%s/<env>/`: `%s` holds the values that differ from the defaults in `variables.tf`, `%s` the IDs `imports.tf` imports, and `%s` where the state is kept.\n\n", strings.Join(w.m.envs, ", "), hclfile.VarsDir, hclfile.EnvVarsFileName, hclfile.ImportVarsFileName, hclfile.BackendConfigFileName)
 	regions := slices.ContainsFunc(w.m.roots, func(r envRoot) bool { return r.region != "" })
 	header := "| Environment | `env` | " + w.m.profile.ScopeTitle + " |"
 	rule := "|---|---|---|"
@@ -1232,7 +1232,7 @@ func (w *rootWriter) readme() []byte {
 	env := w.m.envs[0]
 	fmt.Fprintf(&b, "Run each environment with its own credentials: the provider block sets no role of its own. For %s, and likewise for the others:\n\n```sh\n", env)
 	if w.backendType() != "" {
-		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=%s\n", backendConfigPath(env))
+		fmt.Fprintf(&b, "terraform init -reconfigure -backend-config=%s\n", hclfile.BackendConfigPath(env))
 	} else {
 		fmt.Fprintf(&b, "terraform init\nterraform workspace select -or-create %s\n", env)
 	}
@@ -1244,7 +1244,7 @@ func (w *rootWriter) readme() []byte {
 		fmt.Fprintf(&b, "Without a backend, each environment keeps its state in the workspace named after it, in `%s/<env>/`, which `infraharvest drift` reads.", tfrun.WorkspaceStateDir)
 	}
 	b.WriteString(" Plan each environment before its first apply: it should import every resource and change nothing else.\n\n")
-	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, importVarsPath("<env>"), importVarsPath("<env>"))
+	fmt.Fprintf(&b, "## After the first apply\n\nOnce every environment has been applied, delete `%s` and each `%s`, and leave `-var-file=%s` out of the commands.\n", ImportsFileName, hclfile.ImportVarsPath("<env>"), hclfile.ImportVarsPath("<env>"))
 	b.WriteString(w.arrivals())
 	var secrets []string
 	for _, v := range w.variables() {

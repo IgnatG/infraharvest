@@ -253,7 +253,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 // sensitiveVariables returns the variables the root in dir declares
 // sensitive.
 func sensitiveVariables(dir string) (map[string]bool, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return nil, err
 	}

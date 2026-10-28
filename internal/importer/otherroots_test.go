@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Each call of a scope sees the roots of every other call, before and
@@ -107,7 +108,7 @@ func ownRootOptions(opts engine.Options, byDir map[string][]engine.Import, dir, 
 			if _, ok := opts.DataSources[imp.Type]; ok {
 				dirOpts.External = append(dirOpts.External, engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name})
 			}
-			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: relativePath(out, other)})
+			dirOpts.OtherRoots = append(dirOpts.OtherRoots, engine.RootResource{Type: imp.Type, ID: imp.ID, Name: hclfile.Label(imp.Name), Root: relativePath(out, other)})
 		}
 	}
 	unnamed := func(e engine.External) int {

@@ -81,7 +81,7 @@ func moduleRoot(t *testing.T, generated string) (string, string) {
 	}
 	writeConfig(t, dir, ImportsFileName, string(content))
 	writeConfig(t, dir, VersionsFileName, string(VersionsFile(">= 1.16, < 2.0", Provider{Name: "aws", Source: "hashicorp/aws", Version: "~> 6.14"})))
-	return dir, filepath.Join(out, ModulesDirName)
+	return dir, filepath.Join(out, hclfile.ModulesDirName)
 }
 
 func TestModularize(t *testing.T) {
@@ -130,7 +130,7 @@ func TestModularize(t *testing.T) {
 	}
 
 	root := readFile(t, dir, GeneratedFileName)
-	source := "../../../" + ModulesDirName + "/" + filepath.Base(module)
+	source := "../../../" + hclfile.ModulesDirName + "/" + filepath.Base(module)
 	for _, want := range []string{
 		`module "logs" {`,
 		`source = "` + source + `"`,
@@ -359,7 +359,7 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 		change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionUpdate}, map[string]any{"policy": "a"}, map[string]any{"policy": "b"}),
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: bucketSchemas, shown: shown}
-	changes := map[string]string{"aws_iam_policy.read": changeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
+	changes := map[string]string{"aws_iam_policy.read": tfrun.ChangeSignature(change("aws_iam_policy.read", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 
 	kept, err := liftModules(context.Background(), tf, dir, modulesDir, &ModuleRefs{}, tfrun.ChangeSummary{}, changes, nil)
 	if err != nil || kept {
@@ -376,14 +376,14 @@ func TestLiftModulesUndoesWhenAResourcePlansDifferently(t *testing.T) {
 func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 	t.Parallel()
 	dir, _ := moduleRoot(t, twoBuckets)
-	modulesDir := filepath.Join(dir, ModulesDirName)
+	modulesDir := filepath.Join(dir, hclfile.ModulesDirName)
 
 	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
 
-	want := `source = "./` + ModulesDirName + "/" + filepath.Base(created[0]) + `"`
+	want := `source = "./` + hclfile.ModulesDirName + "/" + filepath.Base(created[0]) + `"`
 	if root := readFile(t, dir, GeneratedFileName); !strings.Contains(root, want) {
 		t.Errorf("generated.tf misses %q:\n%s", want, root)
 	}
@@ -392,8 +392,8 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 func TestLocalSource(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ rel, want string }{
-		{filepath.Join("..", "..", "..", ModulesDirName), "../../../modules/vpc"},
-		{ModulesDirName, "./modules/vpc"},
+		{filepath.Join("..", "..", "..", hclfile.ModulesDirName), "../../../modules/vpc"},
+		{hclfile.ModulesDirName, "./modules/vpc"},
 		{".", "./vpc"},
 	} {
 		if got := localSource(c.rel, "vpc"); got != c.want {

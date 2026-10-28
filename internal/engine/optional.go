@@ -13,14 +13,12 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // optionalTypeTokens is the type of a generated module's variable, with
 // every attribute of its objects optional, such as a route table's routes:
 // a call then sets only the attributes it has values for (see
-// withoutNullAttributes), instead of a dozen nulls per object.
+// hclfile.WithoutNullAttributes), instead of a dozen nulls per object.
 func optionalTypeTokens(ty cty.Type) (hclwrite.Tokens, error) {
 	f, diags := hclwrite.ParseConfig([]byte("type = "+optionalTypeString(ty)+"\n"), "type", hcl.InitialPos)
 	if diags.HasErrors() {
@@ -63,57 +61,6 @@ func optionalTypeString(ty cty.Type) string {
 		return "object({ " + strings.Join(attrs, ", ") + " })"
 	}
 	return typeexpr.TypeString(ty)
-}
-
-// withoutNullAttributes returns an expression without the attributes of
-// its object constructors that are null, which a variable with optional
-// attributes (see optionalTypeTokens) sets to null itself.
-func withoutNullAttributes(tokens hclwrite.Tokens) hclwrite.Tokens {
-	src := tokens.Bytes()
-	expr, diags := hclsyntax.ParseExpression(src, "", hcl.InitialPos)
-	if diags.HasErrors() {
-		return tokens
-	}
-	type span struct{ start, end int }
-	var nulls []span
-	_ = hclsyntax.VisitAll(expr, func(n hclsyntax.Node) hcl.Diagnostics {
-		obj, ok := n.(*hclsyntax.ObjectConsExpr)
-		if !ok {
-			return nil
-		}
-		for _, item := range obj.Items {
-			if isNullLiteral(item.ValueExpr) {
-				nulls = append(nulls, span{item.KeyExpr.Range().Start.Byte, item.ValueExpr.Range().End.Byte})
-			}
-		}
-		return nil
-	})
-	if len(nulls) == 0 {
-		return tokens
-	}
-	slices.SortFunc(nulls, func(a, b span) int { return a.start - b.start })
-	var out []byte
-	last := 0
-	for _, s := range nulls {
-		out = append(out, src[last:s.start]...)
-		end := s.end
-		// The item's separator: a comma, or the end of its line.
-		for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
-			end++
-		}
-		if end < len(src) && src[end] == ',' {
-			end++
-		}
-		for end < len(src) && (src[end] == ' ' || src[end] == '\t' || src[end] == '\r' || src[end] == '\n') {
-			end++
-		}
-		last = end
-	}
-	out = append(out, src[last:]...)
-	if formatted := hclfile.FormatExpr(out); formatted != nil {
-		return formatted
-	}
-	return tokens
 }
 
 // hasObjects reports whether ty is or holds an object type, whose

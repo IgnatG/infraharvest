@@ -27,6 +27,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
@@ -348,7 +349,7 @@ func generatedTimes(t *testing.T, out string) map[string]int64 {
 
 // growingFiles are the files of a root whose blocks an incremental import
 // may add to anywhere, not only after the root's own.
-var growingFiles = []string{engine.ImportsFileName, engine.DataFileName, engine.VariablesFileName, engine.LocalsFileName}
+var growingFiles = []string{engine.ImportsFileName, engine.DataFileName, hclfile.VariablesFileName, engine.LocalsFileName}
 
 // addedConfiguration returns, by file, the configuration an incremental
 // import added to the .tf files of the output, from before to after: a new

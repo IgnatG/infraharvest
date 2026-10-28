@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
@@ -19,21 +19,21 @@ import (
 )
 
 // driftSession is one check of a root for drift: the root in dir, the
-// staged copy of it Drift plans in staging, and, for a root environments
+// staged copy of it Check plans in staging, and, for a root environments
 // share, the environment checked, env, whose backend settings, state,
 // import IDs and var files it reads. Where a root of its own and a root
-// environments share differ, the session says which, so that Drift is
+// environments share differ, the session says which, so that Check is
 // the same steps for both.
 type driftSession struct {
 	dir, staging string
 	// env is the environment checked, "" for a root of its own.
 	env  string
-	opts DriftOptions
+	opts Options
 	// files are the root's configuration files, and backend the type of
 	// its backend (see rootBackend).
 	files   []*hclfile.File
 	backend string
-	// imports are env's import IDs, by address (see MergedImportIDs).
+	// imports are env's import IDs, by address (see hclfile.MergedImportIDs).
 	imports map[string]string
 	// staged says the copy was made, to remove.
 	staged bool
@@ -52,10 +52,10 @@ type driftSession struct {
 }
 
 // openDriftSession reads the root in dir to check it as opts say, or
-// fails with an UnsupportedBackendError for a backend Drift doesn't read
+// fails with an UnsupportedBackendError for a backend Check doesn't read
 // state from.
-func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, error) {
-	files, err := configFiles(dir)
+func openDriftSession(dir, staging string, opts Options) (*driftSession, error) {
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, er
 	}
 	s := &driftSession{dir: dir, staging: staging, env: opts.Environment, opts: opts, files: files, backend: backend}
 	if s.env != "" {
-		if s.imports, err = MergedImportIDs(dir, s.env); err != nil {
+		if s.imports, err = hclfile.MergedImportIDs(dir, s.env); err != nil {
 			return nil, err
 		}
 	}
@@ -77,7 +77,7 @@ func openDriftSession(dir, staging string, opts DriftOptions) (*driftSession, er
 // var files, which the plans read from the copy, where an accepted change
 // is edited first. It reports whether the state has resources: without,
 // there is nothing to check, and no copy. Checks of the root's other
-// environments wait until it is done (see DriftOptions.WithRootLock).
+// environments wait until it is done (see Options.WithRootLock).
 func (s *driftSession) stage(ctx context.Context, tf tfrun.DriftTerraform) (bool, error) {
 	locked := s.opts.WithRootLock
 	if locked == nil {
@@ -107,7 +107,7 @@ func (s *driftSession) pullAndStage(ctx context.Context, tf tfrun.DriftTerraform
 	if err := stageVarFiles(s.dir, s.staging, s.env); err != nil {
 		return false, err
 	}
-	s.vars, s.varFiles, err = mergedVarFiles(s.staging, s.env)
+	s.vars, s.varFiles, err = tfrun.VarFileOptions(s.staging, hclfile.ExistingVarFiles(s.staging, s.env))
 	return true, err
 }
 
@@ -156,7 +156,7 @@ func (s *driftSession) notApplied(inState map[string]bool) []string {
 // the copy without one (see variablePlaceholders), and returns their
 // names.
 func (s *driftSession) placeholders() ([]string, error) {
-	files, err := configFiles(s.staging)
+	files, err := hclfile.ConfigFiles(s.staging)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +214,7 @@ func (s *driftSession) contents() (map[string][]byte, error) {
 // share, it edits only env's var file, and the blocks env alone has (see
 // envOnlyFlags).
 func (s *driftSession) editor(refresh, code *tfjson.Plan, root map[string][]byte) (*driftEditor, error) {
-	e := newDriftEditor(refresh, code, s.opts.Defaults)
+	e := newDriftEditor(refresh, code, s.opts.Rules)
 	e.modules = loadDriftModules(s.dir, s.opts.DataDir)
 	e.adapters = s.opts.Adapters
 	if err := addModuleFiles(root, s.dir, s.opts.OutDir, e.modules); err != nil {
@@ -224,7 +224,7 @@ func (s *driftSession) editor(refresh, code *tfjson.Plan, root map[string][]byte
 	if s.env == "" {
 		return e, nil
 	}
-	e.env, e.envVars = s.env, envVarsPath(s.env)
+	e.env, e.envVars = s.env, hclfile.EnvVarsPath(s.env)
 	var err error
 	if e.ownFlags, err = envOnlyFlags(s.dir, s.env, s.files); err != nil {
 		return nil, err
@@ -235,7 +235,7 @@ func (s *driftSession) editor(refresh, code *tfjson.Plan, root map[string][]byte
 // accept takes the accepted changes into the root's code, root, as the
 // editor finds them, where the plan of the edited copy and the checks of
 // the verification gate say it can (see acceptDrift).
-func (s *driftSession) accept(ctx context.Context, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, e *driftEditor) error {
+func (s *driftSession) accept(ctx context.Context, root map[string][]byte, accepted []*Change, code *tfjson.Plan, e *driftEditor) error {
 	if len(accepted) == 0 {
 		return nil
 	}

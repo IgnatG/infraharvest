@@ -79,7 +79,7 @@ func (c defaultCandidate) key() string {
 // them. The providers' schemas don't say what their defaults are, so only
 // the plan can tell a default from a setting: the candidates of every
 // resource are left out at once, and where a resource then plans
-// differently from changes (see changeSignature), its arguments behind
+// differently from changes (see tfrun.ChangeSignature), its arguments behind
 // the difference are put back and the rest left out again, until the plan
 // stays the same; all of its arguments only where none is behind the
 // difference, or in the last round but one. Before each plan, validation,
@@ -209,7 +209,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 				continue
 			}
-			if noWorse(changeSignature(rc), changes[rc.Address]) {
+			if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
 				continue
 			}
 			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
@@ -227,7 +227,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 				keepAll(removed, rc.Address, keep)
 				continue
 			}
-			keepChanged(removed, rc.Address, newlyChanged(changeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
+			keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
 		}
 		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
 			return true, &shownPlan{plan: p, summary: summary}, nil
@@ -493,7 +493,7 @@ func removeIn(address, typ string, prefix []string, syntax *hclsyntax.Body, writ
 		path := append(append([]string(nil), prefix...), name)
 		c := defaultCandidate{address: address, path: path}
 		switch {
-		case isNullLiteral(attr.Expr):
+		case hclfile.IsNullLiteral(attr.Expr):
 			c.null = true
 		case rules.hints.provenSetting(typ, path, attr.Expr):
 			// Left out, it would plan as the default.
@@ -670,11 +670,6 @@ func hasEmptyBlocks(body *hclsyntax.Body) bool {
 	return false
 }
 
-func isNullLiteral(expr hclsyntax.Expression) bool {
-	lit, ok := expr.(*hclsyntax.LiteralValueExpr)
-	return ok && lit.Val.IsNull()
-}
-
 // isConstant reports whether expr is a value that refers to nothing and
 // calls nothing, such as 3600, "/", true, ["a"] or {}, and isn't null.
 func isConstant(expr hclsyntax.Expression) bool {
@@ -736,7 +731,7 @@ func hasConstants(body *hclsyntax.Body) bool {
 // zero value it was.
 func setsComputed(schemas *tfjson.ProviderSchemas, typ string, path []string, body *hclsyntax.Body) bool {
 	for name, attr := range body.Attributes {
-		if s := tfrun.SchemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !isNullLiteral(attr.Expr) && (s == nil || s.Computed) {
+		if s := tfrun.SchemaAttribute(schemas, typ, append(append([]string(nil), path...), name)); !hclfile.IsNullLiteral(attr.Expr) && (s == nil || s.Computed) {
 			return true
 		}
 	}

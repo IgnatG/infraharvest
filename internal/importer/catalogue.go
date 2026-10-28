@@ -128,11 +128,12 @@ func catalogueVerifyOptions(cat *catalogue.Catalogue, v *goversion.Version) engi
 	return engine.Options{Omit: cat.Omit(v), StateOnly: cat.StateOnly(v)}
 }
 
-// catalogueDriftOptions returns the engine's drift options of what cat
-// knows about its provider's resource types, for roots that pin the
-// provider release line of v: the arguments kept only in state, whose
-// changes aren't drift, their defaults, and the arguments to leave out.
-// The rest of the options are the caller's.
-func catalogueDriftOptions(cat *catalogue.Catalogue, v *goversion.Version) engine.DriftOptions {
-	return engine.DriftOptions{StateOnly: cat.StateOnly(v), Defaults: cat.Defaults(v), Omit: cat.Omit(v)}
+// catalogueDriftOptions returns the engine's options of what cat knows
+// about its provider's resource types that drift needs, for roots that
+// pin the provider release line of v: the arguments kept only in state,
+// whose changes aren't drift, and, for the rules the edits accepting
+// changes are held to (see engine.DriftRules), their defaults and the
+// arguments to leave out. The rest of the options are the caller's.
+func catalogueDriftOptions(cat *catalogue.Catalogue, v *goversion.Version) engine.Options {
+	return engine.Options{StateOnly: cat.StateOnly(v), Defaults: cat.Defaults(v), Omit: cat.Omit(v)}
 }

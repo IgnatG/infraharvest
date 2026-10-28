@@ -1,13 +1,14 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"bytes"
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -80,7 +81,7 @@ func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
 
 // reparse returns the configuration of contents, as parseDriftConfig
 // does, parsing again only the files whose content isn't what cfg parsed,
-// as the edits since have left them; cfg itself where none is. Drift
+// as the edits since have left them; cfg itself where none is. Check
 // edits one change at a time, each found in the files as the edits before
 // left them, and an edit touches a file or two of the many.
 func (cfg *driftConfig) reparse(contents map[string][]byte) (*driftConfig, error) {
@@ -90,7 +91,7 @@ func (cfg *driftConfig) reparse(contents map[string][]byte) (*driftConfig, error
 func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftConfig, error) {
 	parsed := map[string]*driftConfig{}
 	changed := prev == nil
-	for _, name := range sortedKeys(contents) {
+	for _, name := range slices.Sorted(maps.Keys(contents)) {
 		if isModuleFile(name) {
 			continue
 		}
@@ -114,7 +115,7 @@ func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftCo
 	cfg.parsed = parsed
 	// In the order of the names, so that of two files that declare the
 	// same, the later one's is kept.
-	for _, name := range sortedKeys(parsed) {
+	for _, name := range slices.Sorted(maps.Keys(parsed)) {
 		cfg.add(parsed[name])
 	}
 	return cfg, nil
@@ -146,7 +147,7 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 			cfg.calls[b.Labels[0]] = driftBlock{file: name, f: f, b: b}
 		}
 	}
-	for _, t := range allTraversals(f.Syntax) {
+	for _, t := range hclfile.Traversals(f.Syntax) {
 		if t.RootName() != "local" || len(t) < 2 {
 			continue
 		}
@@ -158,7 +159,7 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 		if b.Type == "variable" || b.Type == "output" {
 			continue
 		}
-		for _, t := range allTraversals(b.Body) {
+		for _, t := range hclfile.Traversals(b.Body) {
 			if t.RootName() != "var" || len(t) < 2 {
 				continue
 			}

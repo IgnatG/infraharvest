@@ -291,7 +291,7 @@ resource "aws_ssm_parameter" "api_key" {
 		return m
 	}
 	prodRoot := awsEnvRoot(t, "prod", []string{"prd"}, "222222222222", prod, ids("prd", "222222222222", "aws_db_instance.main", "aws_sqs_queue.refunds", "aws_ssm_parameter.api_key"), files, nil, "")
-	variables, err := hclfile.Parse(VariablesFileName, []byte(`variable "shop_prd_api_key" {
+	variables, err := hclfile.Parse(hclfile.VariablesFileName, []byte(`variable "shop_prd_api_key" {
   description = "The value of aws_ssm_parameter.api_key."
   type        = string
   sensitive   = true
@@ -480,7 +480,7 @@ func TestMergedRootFiles(t *testing.T) {
 			{"lambda.tf", "for_each = var.api_tracing_config == null ? [] : [var.api_tracing_config]"},
 			{ImportsFileName, `id = var.import_ids["aws_sqs_queue.orders"]`},
 			{ImportsFileName, "for_each = [for k in [0] : k if var.deploy_vpn]"},
-			{VariablesFileName, `condition     = contains(["dev", "prd"], var.env)`},
+			{hclfile.VariablesFileName, `condition     = contains(["dev", "prd"], var.env)`},
 			{"vars/prod/terraform.tfvars", `env = "prd"`},
 			{"vars/prod/terraform.tfvars", "deploy_vpn = true"},
 			{"vars/prod/backend.hcl", `bucket       = "shop-tfstate-222222222222"`},
@@ -505,7 +505,7 @@ func TestMergedRootFiles(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		variables := string(files[VariablesFileName])
+		variables := string(files[hclfile.VariablesFileName])
 		for _, want := range []string{
 			// The value two of three have is the default.
 			"variable \"app_retention_in_days\" {\n  description = \"The retention_in_days of aws_cloudwatch_log_group.app.\"\n  type        = number\n  default     = 7\n}",
@@ -535,7 +535,7 @@ func TestMergedRootFiles(t *testing.T) {
 				t.Errorf("%s doesn't hold %s:\n%s", tc.file, tc.want, files[tc.file])
 			}
 		}
-		if _, ok := files[backendConfigPath("dev")]; ok {
+		if _, ok := files[hclfile.BackendConfigPath("dev")]; ok {
 			t.Error("a backend.hcl for roots without a backend")
 		}
 		if strings.Contains(string(files[ProvidersFileName]), "backend") {
@@ -553,7 +553,7 @@ func TestMergedRootFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "# The dev root had no s3 backend: set these.\n# bucket = \"\"\n# key = \"\"\n# region = \"\"\n# encrypt = \"\"\n# use_lockfile = \"\"\n"
-		if got := string(files[backendConfigPath("dev")]); !strings.HasSuffix(got, want) {
+		if got := string(files[hclfile.BackendConfigPath("dev")]); !strings.HasSuffix(got, want) {
 			t.Errorf("dev's backend.hcl:\n%s\nwant it to end in\n%s", got, want)
 		}
 	})

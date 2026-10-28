@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -20,7 +21,7 @@ import (
 // which merging reads from the root's files, are left out. The root's
 // files hold no credentials, so neither does its configuration.
 func RootProvider(dir, name string) (Provider, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return Provider{}, err
 	}

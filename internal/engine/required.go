@@ -4,11 +4,7 @@
 package engine
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,6 +15,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // minimumVersion is the oldest Terraform release generated configuration
@@ -87,7 +84,7 @@ var features = []struct {
 // module it calls, as Terraform installed them, requires. It stays
 // within that release's major version.
 func requireMinimumVersion(dir string) error {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return err
 	}
@@ -97,7 +94,7 @@ func requireMinimumVersion(dir string) error {
 			need = v
 		}
 	}
-	modules, err := installedModules(dir)
+	modules, err := tfrun.InstalledModules(dir, "")
 	if err != nil {
 		return err
 	}
@@ -112,8 +109,8 @@ func requireMinimumVersion(dir string) error {
 		}
 	}
 	for _, m := range modules {
-		if top, _, _ := strings.Cut(m.key, "."); called[top] {
-			raise(requiredByModule(m.dir))
+		if top, _, _ := strings.Cut(m.Key, "."); called[top] {
+			raise(requiredByModule(m.Dir))
 		}
 	}
 	path := filepath.Join(dir, VersionsFileName)
@@ -125,7 +122,7 @@ func requireMinimumVersion(dir string) error {
 	changed := false
 	blocks := versions.Edit().Body().Blocks()
 	for i, b := range versions.Syntax.Blocks {
-		if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) || stringAttribute(b.Body, "required_version") == want {
+		if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) || hclfile.StringAttribute(b.Body, "required_version") == want {
 			continue
 		}
 		blocks[i].Body().SetAttributeValue("required_version", cty.StringVal(want))
@@ -168,61 +165,10 @@ func shortVersion(v *version.Version) string {
 	return fmt.Sprintf("%d.%d.%d", s[0], s[1], s[2])
 }
 
-// installedModule is a module call Terraform installed for a root: its
-// key, such as vpc or vpc.nat for a module that one calls, and the
-// directory it is in.
-type installedModule struct {
-	key, dir string
-}
-
-// installedModules returns the modules Terraform installed for the root in
-// dir, as its modules.json lists them; none if it installed none.
-func installedModules(dir string) ([]installedModule, error) {
-	return installedModulesIn(dir, "")
-}
-
-// installedModulesIn is installedModules for a root whose init kept its
-// working files in dataDir, its TF_DATA_DIR, or .terraform in dir for "".
-// Terraform lists the modules it downloaded into a dataDir named by an
-// absolute path by their absolute paths, and the others relative to dir.
-func installedModulesIn(dir, dataDir string) ([]installedModule, error) {
-	if dataDir == "" {
-		dataDir = filepath.Join(dir, ".terraform")
-	}
-	content, err := os.ReadFile(filepath.Join(dataDir, "modules", "modules.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var manifest struct {
-		Modules []struct {
-			Key string `json:"Key"`
-			Dir string `json:"Dir"`
-		} `json:"Modules"`
-	}
-	if err := json.Unmarshal(content, &manifest); err != nil {
-		return nil, fmt.Errorf("modules.json: %w", err)
-	}
-	var modules []installedModule
-	for _, m := range manifest.Modules {
-		if m.Key == "" || m.Dir == "" {
-			continue
-		}
-		path := filepath.FromSlash(m.Dir)
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, path)
-		}
-		modules = append(modules, installedModule{key: m.Key, dir: path})
-	}
-	return modules, nil
-}
-
 // requiredByModule returns the lowest Terraform version the module in dir
 // requires, or nil if it says none.
 func requiredByModule(dir string) *version.Version {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		// A module infraharvest can't read is Terraform's to judge.
 		return nil
@@ -230,7 +176,7 @@ func requiredByModule(dir string) *version.Version {
 	var need *version.Version
 	for _, f := range files {
 		for _, b := range f.Syntax.Blocks {
-			constraint := stringAttribute(b.Body, "required_version")
+			constraint := hclfile.StringAttribute(b.Body, "required_version")
 			if b.Type != "terraform" || constraint == "" {
 				continue
 			}
@@ -264,7 +210,7 @@ func callsProviderFunction(body *hclsyntax.Body) bool {
 // sets a write-only argument, which the providers name *_wo.
 func setsWriteOnly(body *hclsyntax.Body) bool {
 	for name, attr := range body.Attributes {
-		if strings.HasSuffix(name, "_wo") && !isNullLiteral(attr.Expr) {
+		if strings.HasSuffix(name, "_wo") && !hclfile.IsNullLiteral(attr.Expr) {
 			return true
 		}
 	}
@@ -283,7 +229,7 @@ func setsWriteOnly(body *hclsyntax.Body) bool {
 // written (see WriteMergedMoves). Unlike requireMinimumVersion, it never
 // lowers it, as what the root's modules need isn't known here.
 func raiseRequiredVersion(dir string) error {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return err
 	}
@@ -296,7 +242,7 @@ func raiseRequiredVersion(dir string) error {
 			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) {
 				continue
 			}
-			if lower, err := lowerBound(stringAttribute(b.Body, "required_version")); err == nil {
+			if lower, err := lowerBound(hclfile.StringAttribute(b.Body, "required_version")); err == nil {
 				if v, err := version.NewVersion(strings.TrimPrefix(lower, ">= ")); err == nil && !need.GreaterThan(v) {
 					continue
 				}

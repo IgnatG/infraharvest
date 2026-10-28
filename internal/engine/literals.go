@@ -175,15 +175,15 @@ func schemaType(schemas *tfjson.ProviderSchemas, mode, typ string, path []string
 
 // moduleVariableTypes returns the types of the variables of the modules
 // the root in dir calls, by call and variable, as Terraform installed the
-// modules (see installedModules).
+// modules (see tfrun.InstalledModules).
 func moduleVariableTypes(dir string) (map[string]map[string]cty.Type, error) {
-	modules, err := installedModules(dir)
+	modules, err := tfrun.InstalledModules(dir, "")
 	if err != nil {
 		return nil, err
 	}
 	types := map[string]map[string]cty.Type{}
 	for _, m := range modules {
-		files, err := configFiles(m.dir)
+		files, err := hclfile.ConfigFiles(m.Dir)
 		if err != nil {
 			continue
 		}
@@ -199,7 +199,7 @@ func moduleVariableTypes(dir string) (map[string]map[string]cty.Type, error) {
 				}
 			}
 		}
-		types[m.key] = variables
+		types[m.Key] = variables
 	}
 	return types, nil
 }
@@ -207,7 +207,7 @@ func moduleVariableTypes(dir string) (map[string]map[string]cty.Type, error) {
 // typeLiteralsOf types the literals of dir (see typeLiterals), with the
 // providers' schemas tf has, which it reads only if dir has literals.
 func typeLiteralsOf(ctx context.Context, tf tfrun.Terraform, dir string) error {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return err
 	}

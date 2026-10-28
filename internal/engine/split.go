@@ -21,7 +21,7 @@ import (
 // reservedFiles are the files of a root that hold something else than its
 // resources, which no Import.File may name.
 var reservedFiles = []string{
-	GeneratedFileName, ImportsFileName, VersionsFileName, ProvidersFileName, VariablesFileName,
+	GeneratedFileName, ImportsFileName, VersionsFileName, ProvidersFileName, hclfile.VariablesFileName,
 	LocalsFileName, DataFileName, MovesFileName, "backend.tf", "outputs.tf", "main.tf",
 }
 

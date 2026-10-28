@@ -125,8 +125,7 @@ func TestGateCancelled(t *testing.T) {
 `)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			var calls []string
-			tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+			tf := &fakeTerraform{dir: dir, unformatted: []string{GeneratedFileName}}
 
 			_, _, err := tc.policy(cancel).Run(ctx, tf, dir)
 
@@ -278,8 +277,7 @@ func TestGateBlamesEditedFiles(t *testing.T) {
 			}
 			// A finding the root has already doesn't fail the edits.
 			writeConfig(t, dir, MovesFileName, strings.NewReplacer("aws_subnet.a", "aws_subnet.z", "missing", "elsewhere").Replace(badMove))
-			var calls []string
-			tf := &fakeDriftTerraform{calls: &calls, unformatted: tc.unformatted}
+			tf := &fakeTerraform{dir: dir, unformatted: tc.unformatted}
 			baseline, _, err := withChecks(gate.Policy{Checks: []string{gate.CheckStandards, gate.CheckMoves}}).Run(context.Background(), tf, dir)
 			if err != nil {
 				t.Fatal(err)
@@ -331,8 +329,7 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
   tags       = { Name = "`+secret+`" }
 }
 `)
-	var calls []string
-	tf := &fakeDriftTerraform{calls: &calls, unformatted: []string{GeneratedFileName}}
+	tf := &fakeTerraform{dir: dir, unformatted: []string{GeneratedFileName}}
 	checks, _, err := withChecks(gate.Policy{
 		Checks:    []string{gate.CheckFormat, gate.CheckSecrets},
 		Sensitive: []string{secret},
@@ -367,7 +364,7 @@ func TestDiffGateWithoutEditedFiles(t *testing.T) {
 func TestGateVarFiles(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, VariablesFileName, `variable "db_password" {
+	writeConfig(t, dir, hclfile.VariablesFileName, `variable "db_password" {
   description = "The password."
   type        = string
   sensitive   = true

@@ -191,13 +191,13 @@ func (n *normaliser) denormalise(s string) string {
 func (n *normaliser) label(label string) string {
 	// Without the r_ that Label puts before a digit, which may be the
 	// scope's.
-	if rest, ok := strings.CutPrefix(label, "r_"); ok && startsWithDigit(rest) {
+	if rest, ok := strings.CutPrefix(label, "r_"); ok && hclfile.StartsWithDigit(rest) {
 		label = rest
 	}
 	s := "_" + label + "_"
 	drop := make([]string, 0, len(n.words)+2)
 	for _, w := range append(slices.Clone(n.words), n.scope, n.region, n.group) {
-		if words := labelWords(w); len(words) > 0 {
+		if words := hclfile.LabelWords(w); len(words) > 0 {
 			drop = append(drop, strings.Join(words, "_"))
 		}
 	}
@@ -210,7 +210,7 @@ func (n *normaliser) label(label string) string {
 	switch {
 	case s == "":
 		return mainLabel
-	case startsWithDigit(s):
+	case hclfile.StartsWithDigit(s):
 		return "r_" + s
 	}
 	return s
@@ -624,7 +624,7 @@ func assignLabels(resources []*stackResource, envs []string) {
 	for _, l := range all {
 		label := l.base
 		if used[l.r.resourceType+"."+label] && l.r.coverage() == 1 {
-			label = l.base + "_" + Label(envs[l.first])
+			label = l.base + "_" + hclfile.Label(envs[l.first])
 		}
 		label = uniqueIn(used, l.r.resourceType, label)
 		l.r.label = label

@@ -47,7 +47,7 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 	if !ok {
 		return lookup{}, false
 	}
-	return lookup{typ: found.Type, name: Label(snakeCase(found.Label)), args: found.Arguments, attribute: found.Attribute}, true
+	return lookup{typ: found.Type, name: hclfile.Label(snakeCase(found.Label)), args: found.Arguments, attribute: found.Attribute}, true
 }
 
 // dataBlocks names the data sources of lookups, other than those in

@@ -51,7 +51,7 @@ module "logs" {
   vpc_id = "vpc-0abc1234"
 }
 `)
-	writeConfig(t, dir, VariablesFileName, `variable "aws_ssm_parameter_token_value" {
+	writeConfig(t, dir, hclfile.VariablesFileName, `variable "aws_ssm_parameter_token_value" {
   type      = string
   sensitive = true
 }
@@ -68,7 +68,7 @@ module "logs" {
 
 func TestRootNames(t *testing.T) {
 	t.Parallel()
-	files, err := configFiles(existingRoot(t))
+	files, err := hclfile.ConfigFiles(existingRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestExisting(t *testing.T) {
 
 func TestAppliedTags(t *testing.T) {
 	t.Parallel()
-	files, err := configFiles(existingRoot(t))
+	files, err := hclfile.ConfigFiles(existingRoot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestAppliedTags(t *testing.T) {
   }
 }
 `)
-	files, err = configFiles(literal)
+	files, err = hclfile.ConfigFiles(literal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestAppliedTags(t *testing.T) {
 
 	none := t.TempDir()
 	writeConfig(t, none, ProvidersFileName, awsProviders)
-	files, err = configFiles(none)
+	files, err = hclfile.ConfigFiles(none)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ import {
   }
 }
 `)
-	writeConfig(t, staging, VariablesFileName, `variable "aws_instance_web_user_data" {
+	writeConfig(t, staging, hclfile.VariablesFileName, `variable "aws_instance_web_user_data" {
   type      = string
   sensitive = true
 }
@@ -316,7 +316,7 @@ import {
 			t.Errorf("imports.tf misses %q:\n%s", want, imports)
 		}
 	}
-	if variables := readFile(t, root, VariablesFileName); strings.Count(variables, "variable ") != 2 {
+	if variables := readFile(t, root, hclfile.VariablesFileName); strings.Count(variables, "variable ") != 2 {
 		t.Errorf("variables.tf: want both variables:\n%s", variables)
 	}
 	locals := squashed(readFile(t, root, LocalsFileName))
@@ -329,7 +329,7 @@ import {
   name = "jobs"
 }
 `)
-	for _, name := range []string{DataFileName, ImportsFileName, LocalsFileName, VariablesFileName} {
+	for _, name := range []string{DataFileName, ImportsFileName, LocalsFileName, hclfile.VariablesFileName} {
 		if err := os.Remove(filepath.Join(staging, name)); err != nil {
 			t.Fatal(err)
 		}
@@ -548,7 +548,7 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
   tags = { env = "prod" }
 }
 `)
-	files, err := configFiles(root)
+	files, err := hclfile.ConfigFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +819,7 @@ func TestMergeReusesTheRootsLookupsAndVariables(t *testing.T) {
 	subnetwork := `description = "The self link of google_compute_subnetwork.app, which the root google/acme-prod/us-central1 manages. The default is its value when this root was imported."
   type        = string
   default     = "https://www.googleapis.com/compute/v1/projects/acme-prod/regions/us-central1/subnetworks/app"`
-	writeConfig(t, root, VariablesFileName, `variable "app_subnetwork_self_link" {
+	writeConfig(t, root, hclfile.VariablesFileName, `variable "app_subnetwork_self_link" {
   `+subnetwork+`
 }
 
@@ -847,7 +847,7 @@ data "google_compute_network" "other" {
   project = "acme-prod"
 }
 `)
-	writeConfig(t, staging, VariablesFileName, `variable "app_subnetwork_self_link_2" {
+	writeConfig(t, staging, hclfile.VariablesFileName, `variable "app_subnetwork_self_link_2" {
   `+subnetwork+`
 }
 
@@ -876,7 +876,7 @@ variable "token_2" {
 	if strings.Count(data, "data ") != 2 || strings.Contains(data, "main_2") || !strings.Contains(data, `data "google_compute_network" "other"`) {
 		t.Errorf("data.tf: want the root's lookup and the new one:\n%s", data)
 	}
-	variables := readFile(t, root, VariablesFileName)
+	variables := readFile(t, root, hclfile.VariablesFileName)
 	if strings.Count(variables, "variable ") != 3 || strings.Contains(variables, "app_subnetwork_self_link_2") || !strings.Contains(variables, `variable "token_2"`) {
 		t.Errorf("variables.tf: want the root's variables and the secret's:\n%s", variables)
 	}

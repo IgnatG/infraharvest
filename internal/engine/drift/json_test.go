@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"testing"
@@ -75,7 +75,7 @@ func TestDriftComparesPoliciesAsDocuments(t *testing.T) {
 		t.Errorf("a reformatted policy: changes %+v, want none", got)
 	}
 	got := classifyDrift(refresh(changed), nil, nil, false)
-	if len(got) != 1 || got[0].Attribute != "policy" || got[0].Kind != DriftChanged {
+	if len(got) != 1 || got[0].Attribute != "policy" || got[0].Kind != Changed {
 		t.Errorf("a changed policy: changes %+v, want one of policy", got)
 	}
 }

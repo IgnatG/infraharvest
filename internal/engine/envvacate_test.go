@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // vacatedFixture writes a merged root of dev and prod into dir, with a
@@ -17,7 +19,7 @@ func vacatedFixture(t *testing.T, dir string) []string {
 	t.Helper()
 	files := map[string]string{
 		ProvidersFileName:            "terraform {\n  required_version = \">= 1.5, < 2.0\"\n\n  backend \"s3\" {}\n}\n\nprovider \"aws\" {\n  region = var.aws_region\n\n  default_tags {\n    tags = {\n      Environment = var.env\n    }\n  }\n}\n",
-		VariablesFileName:            "variable \"env\" {\n  description = \"The environment.\"\n  type        = string\n\n  validation {\n    condition     = contains([\"dev\", \"prd\"], var.env)\n    error_message = \"env must be one of dev, prd.\"\n  }\n}\n\nvariable \"aws_region\" {\n  description = \"The region.\"\n  type        = string\n}\n\nvariable \"orders_timeout\" {\n  description = \"The orders queue's visibility timeout.\"\n  type        = number\n}\n\nvariable \"import_ids\" {\n  description = \"The import IDs.\"\n  type        = map(string)\n  default     = {}\n}\n",
+		hclfile.VariablesFileName:    "variable \"env\" {\n  description = \"The environment.\"\n  type        = string\n\n  validation {\n    condition     = contains([\"dev\", \"prd\"], var.env)\n    error_message = \"env must be one of dev, prd.\"\n  }\n}\n\nvariable \"aws_region\" {\n  description = \"The region.\"\n  type        = string\n}\n\nvariable \"orders_timeout\" {\n  description = \"The orders queue's visibility timeout.\"\n  type        = number\n}\n\nvariable \"import_ids\" {\n  description = \"The import IDs.\"\n  type        = map(string)\n  default     = {}\n}\n",
 		LocalsFileName:               "locals {\n  naming_prefix = \"shop-${var.env}\"\n}\n",
 		"sqs.tf":                     "resource \"aws_sqs_queue\" \"orders\" {\n  name                       = \"${local.naming_prefix}-orders\"\n  visibility_timeout_seconds = var.orders_timeout\n}\n",
 		ImportsFileName:              "import {\n  to = aws_sqs_queue.orders\n  id = var.import_ids[\"aws_sqs_queue.orders\"]\n}\n",
@@ -66,7 +68,7 @@ func TestVacateMerged(t *testing.T) {
 	if err != nil || !check.Passed {
 		t.Fatalf("VacateMerged: %+v, %v", check, err)
 	}
-	want := []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
+	want := []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, hclfile.VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl", "vars/prod/terraform.tfvars"}
 	if !slices.Equal(left, want) {
 		t.Errorf("left %v, want %v", left, want)
 	}
@@ -75,7 +77,7 @@ func TestVacateMerged(t *testing.T) {
 			t.Errorf("%s is still there: %v", name, err)
 		}
 	}
-	variables := readFile(t, dir, VariablesFileName)
+	variables := readFile(t, dir, hclfile.VariablesFileName)
 	if !strings.Contains(variables, `variable "env"`) || !strings.Contains(variables, `variable "aws_region"`) || strings.Contains(variables, "orders_timeout") || strings.Contains(variables, "import_ids") {
 		t.Errorf("variables.tf:\n%s", variables)
 	}
@@ -132,12 +134,12 @@ func TestVacateMergedGoneEnvironments(t *testing.T) {
 	}{
 		"backend of an environment without values": {
 			gone:   []string{"vars/prod/terraform.tfvars"},
-			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl"},
+			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, hclfile.VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/dev/terraform.tfvars", "vars/prod/backend.hcl"},
 			readme: "for dev.",
 		},
 		"shared values without environments": {
 			gone:   []string{"vars/dev/terraform.tfvars", "vars/prod/terraform.tfvars"},
-			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/prod/backend.hcl"},
+			want:   []string{".gitignore", ReadmeFileName, MovesFileName, ProvidersFileName, hclfile.VariablesFileName, "vars/common.tfvars", "vars/dev/backend.hcl", "vars/prod/backend.hcl"},
 			readme: "terraform init -reconfigure -backend-config=vars/<env>/backend.hcl",
 		},
 	} {

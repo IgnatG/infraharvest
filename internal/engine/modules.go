@@ -26,11 +26,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// ModulesDirName is the directory of the output that holds generated local
-// modules, next to the roots.
-const ModulesDirName = "modules"
 
 // moduleOutputs are the attributes a generated module outputs for each of
 // its resources, where the resource has them: the ones references between
@@ -192,7 +189,7 @@ func findClusters(f *hclfile.File) []*cluster {
 		parentType := AddressType(r.Address)
 		used := map[string]bool{"this": true}
 		for _, k := range kids {
-			base := Label(strings.TrimPrefix(AddressType(k.Address), parentType+"_"))
+			base := hclfile.Label(strings.TrimPrefix(AddressType(k.Address), parentType+"_"))
 			slot := base
 			for n := 2; used[slot]; n++ {
 				slot = fmt.Sprintf("%s_%d", base, n)
@@ -549,7 +546,7 @@ func externalReferencesFollowable(f *hclfile.File, moved map[string]string, grou
 	}
 	for _, r := range f.Resources() {
 		_, isMoved := moved[r.Address]
-		for _, t := range allTraversals(r.Syntax.Body) {
+		for _, t := range hclfile.Traversals(r.Syntax.Body) {
 			target := resourceAddress(t)
 			call, ok := moved[target]
 			if !ok || (isMoved && sameCall(moved[r.Address], call)) {
@@ -575,17 +572,6 @@ func sameCall(a, b string) bool {
 	ca, _, _ := strings.Cut(a, "\x00")
 	cb, _, _ := strings.Cut(b, "\x00")
 	return ca == cb
-}
-
-func allTraversals(body *hclsyntax.Body) []hcl.Traversal {
-	var ts []hcl.Traversal
-	for _, attr := range body.Attributes {
-		ts = append(ts, attr.Expr.Variables()...)
-	}
-	for _, b := range body.Blocks {
-		ts = append(ts, allTraversals(b.Body)...)
-	}
-	return ts
 }
 
 // moduleVariablesFile renders a group's variables.tf: a variable per
@@ -718,7 +704,7 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 			for _, in := range g.inputs {
 				value := in.values[ci]
 				if hasObjects(in.ty) {
-					value = withoutNullAttributes(value)
+					value = hclfile.WithoutNullAttributes(value)
 				}
 				callBlock.Body().SetAttributeRaw(in.variable, value)
 			}
@@ -767,14 +753,14 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	backup, err := backupFiles(dir, GeneratedFileName, ImportsFileName)
+	backup, err := fsutil.BackupFiles(dir, GeneratedFileName, ImportsFileName)
 	if err != nil {
 		return false, err
 	}
 	_, changed, err := modularize(dir, modulesDir, refs, schemas)
 	undo := func() error {
 		// What another root calls stays (see ModuleRefs).
-		return errors.Join(refs.Release(dir), backup.restore())
+		return errors.Join(refs.Release(dir), backup.Restore())
 	}
 	if err != nil {
 		return false, errors.Join(err, undo())

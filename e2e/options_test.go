@@ -32,6 +32,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -351,7 +352,7 @@ func TestAWSOptionsLayout(t *testing.T) {
 				if d.Path != regional+"s3" || m.Version != adapters.S3Bucket().Version {
 					t.Errorf("%s calls %s %s, want it called at %s from %ss3", d.Path, m.Source, m.Version, adapters.S3Bucket().Version, regional)
 				}
-			case strings.HasPrefix(path.Join(d.Path, m.Source), engine.ModulesDirName+"/iam_role_"):
+			case strings.HasPrefix(path.Join(d.Path, m.Source), hclfile.ModulesDirName+"/iam_role_"):
 				roles++
 			default:
 				// Such as the VPC, alone in its root, as a call of the vpc
@@ -363,7 +364,7 @@ func TestAWSOptionsLayout(t *testing.T) {
 	if buckets != 2 || roles != 2 {
 		t.Errorf("%d calls of %s and %d of a generated IAM role module, want 2 of each", buckets, adapters.S3Bucket().Source, roles)
 	}
-	if modules, err := filepath.Glob(filepath.Join(out, engine.ModulesDirName, "iam_role_*", "main.tf")); err != nil || len(modules) != 1 {
+	if modules, err := filepath.Glob(filepath.Join(out, hclfile.ModulesDirName, "iam_role_*", "main.tf")); err != nil || len(modules) != 1 {
 		t.Errorf("generated IAM role modules: %v (%v), want one", modules, err)
 	}
 	// The report names a newer release of the module than the one called.
@@ -392,8 +393,8 @@ func TestAWSOptionsModules(t *testing.T) {
 	e := seedOptions(t)
 
 	none, _, _ := e.importAWS(t, report.ExitOK, "--services=s3,iam,sqs", "--modules=none")
-	if _, err := os.Stat(filepath.Join(none, engine.ModulesDirName)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("--modules=none wrote %s (%v)", engine.ModulesDirName, err)
+	if _, err := os.Stat(filepath.Join(none, hclfile.ModulesDirName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("--modules=none wrote %s (%v)", hclfile.ModulesDirName, err)
 	}
 	for rel, dir := range optionsRoots(t, none) {
 		for _, b := range configBlocks(t, dir) {
@@ -430,7 +431,7 @@ func TestAWSOptionsModules(t *testing.T) {
 			if m.Version != "" || (!strings.HasPrefix(m.Source, "./") && !strings.HasPrefix(m.Source, "../")) {
 				t.Errorf("--modules=local: %s calls %s %s, not a generated local module", d.Path, m.Source, m.Version)
 			}
-			if strings.HasPrefix(path.Join(d.Path, m.Source), engine.ModulesDirName+"/iam_role_") {
+			if strings.HasPrefix(path.Join(d.Path, m.Source), hclfile.ModulesDirName+"/iam_role_") {
 				roles++
 			}
 		}

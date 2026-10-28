@@ -24,6 +24,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -113,7 +114,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		}
 		// A root environments share plans once per environment, with its
 		// var files.
-		envs, err := engine.MergedEnvironments(dir)
+		envs, err := hclfile.MergedEnvironments(dir)
 		if err != nil {
 			return err
 		}
@@ -137,7 +138,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
-			ids, err := engine.MergedImportIDs(dir, env)
+			ids, err := hclfile.MergedImportIDs(dir, env)
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
@@ -208,7 +209,7 @@ func generatedRoots(out string) ([]string, error) {
 			return err
 		}
 		topLevel := path != out && filepath.Dir(path) == filepath.Clean(out)
-		if d.IsDir() && (d.Name() == ".terraform" || engine.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == engine.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
+		if d.IsDir() && (d.Name() == ".terraform" || engine.IsVerifyCopy(d.Name()) || (topLevel && (d.Name() == hclfile.ModulesDirName || d.Name() == config.BootstrapDir || d.Name() == CheckpointDir))) {
 			return filepath.SkipDir
 		}
 		// Every root configures its provider; modules don't.

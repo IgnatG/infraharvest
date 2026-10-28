@@ -23,10 +23,8 @@ import (
 
 // The variables a merged root always has, or has for its placeholders.
 const (
-	envVariableName              = "env"
-	importIDsVariableName        = "import_ids"
-	importIdentitiesVariableName = "import_identities"
-	resourceGroupVariableName    = "resource_group_name"
+	envVariableName           = "env"
+	resourceGroupVariableName = "resource_group_name"
 )
 
 // stackMerge is how the roots of one stack, one per environment, become
@@ -412,7 +410,7 @@ func (m *stackMerge) split(r *stackResource, reason string) {
 		}
 		part := &stackResource{resourceType: r.resourceType, rule: r.rule, members: make([]*envResource, len(r.members)), seq: r.seq, residue: reason}
 		part.members[e] = member
-		part.label = uniqueIn(used, r.resourceType, r.label+"_"+Label(m.envs[e]))
+		part.label = uniqueIn(used, r.resourceType, r.label+"_"+hclfile.Label(m.envs[e]))
 		member.stack = part
 		m.resources = append(m.resources, part)
 	}
@@ -706,7 +704,7 @@ func (m *stackMerge) nameVariables() {
 	for _, d := range m.rootData {
 		collect(d.body)
 	}
-	used := map[string]bool{importIDsVariableName: true, importIdentitiesVariableName: true, resourceGroupVariableName: true}
+	used := map[string]bool{hclfile.ImportIDsVariableName: true, hclfile.ImportIdentitiesVariableName: true, resourceGroupVariableName: true}
 	for _, v := range variables {
 		v.name = uniqueEnvName(used, v.name, v.resourceType)
 		if !v.hasDefault {
@@ -983,7 +981,7 @@ func workloadOf(templates []hclwrite.Tokens) string {
 				for start > 0 && (isWordByte(s[start-1]) || s[start-1] == '-' || s[start-1] == '_') {
 					start--
 				}
-				if w := strings.TrimLeft(s[start:i], "-_"); w != "" && !startsWithDigit(w) {
+				if w := strings.TrimLeft(s[start:i], "-_"); w != "" && !hclfile.StartsWithDigit(w) {
 					counts[w]++
 				}
 				from = i + 1
@@ -1653,8 +1651,8 @@ func (m *stackMerge) importsByIdentity() bool {
 type importBy struct{ argument, variable string }
 
 var (
-	importByID       = importBy{"id", importIDsVariableName}
-	importByIdentity = importBy{"identity", importIdentitiesVariableName}
+	importByID       = importBy{"id", hclfile.ImportIDsVariableName}
+	importByIdentity = importBy{"identity", hclfile.ImportIdentitiesVariableName}
 )
 
 // value is the argument of an import block that imports the instance

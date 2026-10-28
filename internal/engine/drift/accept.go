@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"context"
@@ -29,25 +29,25 @@ import (
 // all), and the outcome of each change the next apply would revert: kept,
 // or, accepted, a secret or a hand edit where sources, by change, say so.
 // It returns the accepted changes the code can take by an edit.
-func decideDrift(changes []DriftChange, sources []codeSource, accept func(DriftChange) bool) []*DriftChange {
-	var accepted []*DriftChange
+func decideDrift(changes []Change, sources []codeSource, accept func(Change) bool) []*Change {
+	var accepted []*Change
 	for i := range changes {
 		c := &changes[i]
-		c.Decision = DriftKeep
+		c.Decision = Keep
 		if accept != nil && accept(*c) {
-			c.Decision = DriftAccept
+			c.Decision = Accept
 		}
-		if c.Outcome != DriftReverts {
+		if c.Outcome != Reverts {
 			continue
 		}
 		src := sources[i]
 		switch {
-		case c.Decision == DriftKeep:
-			c.Outcome = DriftKept
+		case c.Decision == Keep:
+			c.Outcome = Kept
 		case src.Secret:
-			c.Outcome, c.Reason = DriftSecret, src.Reason
+			c.Outcome, c.Reason = Secret, src.Reason
 		case src.Edit == nil:
-			c.Outcome, c.Reason = DriftManual, src.Reason
+			c.Outcome, c.Reason = Manual, src.Reason
 		default:
 			accepted = append(accepted, c)
 		}
@@ -59,8 +59,8 @@ func decideDrift(changes []DriftChange, sources []codeSource, accept func(DriftC
 // one the edits couldn't take, and returns the others of changes, and
 // whether it unshared a change of shared tags (see unshare), whose
 // members it returns in its place.
-func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]*DriftChange, bool) {
-	var left []*DriftChange
+func settleDrift(changes []*Change, failed map[*Change]codeSource) ([]*Change, bool) {
+	var left []*Change
 	unshared := false
 	for _, c := range changes {
 		src, ok := failed[c]
@@ -71,9 +71,9 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 			left = append(left, unshare(c, src.Reason)...)
 			unshared = true
 		case src.Secret:
-			c.Outcome, c.Reason = DriftSecret, src.Reason
+			c.Outcome, c.Reason = Secret, src.Reason
 		default:
-			c.Outcome, c.Reason = DriftManual, src.Reason
+			c.Outcome, c.Reason = Manual, src.Reason
 		}
 	}
 	return left, unshared
@@ -85,13 +85,13 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 // without refreshing, with vars. Each resource an accepted change is of
 // must then plan no change to it, and no other change than the plan of
 // the code had, code, but on what is secret or kept only in state; every
-// other resource must plan what code has it plan (see changeSignature),
+// other resource must plan what code has it plan (see tfrun.ChangeSignature),
 // which an edit of a local others use would break. Then the edited files
 // must pass the format, validate, standards, moves and secrets checks
 // (see driftChecks). The edits the plan or a check blames are left out
 // (see judgeDrift and checkBlame; one that blames no file blames them
 // all), and the others planned and checked again, in at most as many
-// rounds as there are edits (see verifier); a change of shared tags
+// rounds as there are edits (see gate.Verifier); a change of shared tags
 // whose edit is blamed, or can't be made, is accepted at each resource
 // it covers instead (see unshare). Only then are the edits made in the
 // root's own files, which are restored if writing one fails. For a root
@@ -99,7 +99,7 @@ func settleDrift(changes []*DriftChange, failed map[*DriftChange]codeSource) ([]
 // var file too, the only file edited (see variableResolver.env), and a change
 // written gets its source there. Each accepted change ends written,
 // rejected by the plan or a check, a hand edit or a secret.
-func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging string, root map[string][]byte, accepted []*DriftChange, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts DriftOptions) error {
+func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging string, root map[string][]byte, accepted []*Change, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts Options) error {
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
 		return fmt.Errorf("terraform providers schema: %w", err)
@@ -115,11 +115,11 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			staged[name] = content
 		}
 	}
-	standards, err := checkStandards(staging, opts.Omit, ownModuleDirs(opts.Adapters))
+	standards, err := opts.Rules.Standards(staging)
 	if err != nil {
 		return err
 	}
-	moves, err := checkMoves(staging)
+	moves, err := opts.Rules.Moves(staging)
 	if err != nil {
 		return err
 	}
@@ -139,14 +139,14 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 	written := map[string]bool{}
 	var edited map[string][]byte
 	var names []string
-	var applied map[*DriftChange]codeSource
-	passed, err := verifier[*DriftChange, driftRejection]{
-		edit: func(context.Context) ([]*DriftChange, error) {
+	var applied map[*Change]codeSource
+	passed, err := gate.Verifier[*Change, driftRejection]{
+		Edit: func(context.Context) ([]*Change, error) {
 			// A change of shared tags whose edit can't be made has its
 			// members edited before anything is planned.
 			for unshared := true; unshared && len(pending) > 0; {
 				edited = maps.Clone(staged)
-				var failed map[*DriftChange]codeSource
+				var failed map[*Change]codeSource
 				var err error
 				names, applied, failed, err = editor.apply(edited, pending)
 				if err != nil {
@@ -162,14 +162,14 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			}
 			// The files an earlier round edited are as they were, but for
 			// this round's edits.
-			for _, name := range sortedKeys(written) {
+			for _, name := range slices.Sorted(maps.Keys(written)) {
 				if err := fsutil.WriteFile(stagedPath(staging, name), edited[name], 0o600); err != nil {
 					return nil, err
 				}
 			}
 			return pending, nil
 		},
-		verify: func(ctx context.Context) (*verdict[*DriftChange, driftRejection], error) {
+		Verify: func(ctx context.Context) (*gate.Verdict[*Change, driftRejection], error) {
 			p, _, diags, err := tfrun.ShowPlan(ctx, stf, planOpts)
 			if err != nil {
 				return nil, secret.RedactError(err, editor.secretForms)
@@ -181,17 +181,17 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 			if err != nil || failedCheck == "" {
 				return nil, err
 			}
-			failure := &verdict[*DriftChange, driftRejection]{
-				blamed: map[*DriftChange]driftRejection{},
-				why:    driftRejection{DriftRejectedByCheck, "the edited code fails " + secret.RedactText(failedCheck, editor.secretForms)},
+			failure := &gate.Verdict[*Change, driftRejection]{
+				Blamed: map[*Change]driftRejection{},
+				Why:    driftRejection{RejectedByCheck, "the edited code fails " + secret.RedactText(failedCheck, editor.secretForms)},
 			}
 			for _, c := range checkBlame(pending, applied, files) {
-				failure.blamed[c] = failure.why
+				failure.Blamed[c] = failure.Why
 			}
 			return failure, nil
 		},
-		drop: func(rejected map[*DriftChange]driftRejection) {
-			var left []*DriftChange
+		Drop: func(rejected map[*Change]driftRejection) {
+			var left []*Change
 			for _, c := range pending {
 				r, ok := rejected[c]
 				switch {
@@ -208,16 +208,16 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		},
 		// A check that can't tell which edited files fail it fails them
 		// all.
-		blameAll: true,
-		rounds:   rounds,
-	}.run(ctx)
+		BlameAll: true,
+		Rounds:   rounds,
+	}.Run(ctx)
 	if err != nil {
 		return err
 	}
 	if !passed {
 		// Only the bound, which no round reaches, leaves changes pending.
 		for _, c := range pending {
-			c.Outcome, c.Reason = DriftRejectedByPlan, fmt.Sprintf("the edits weren't settled in %d plans", rounds)
+			c.Outcome, c.Reason = RejectedByPlan, fmt.Sprintf("the edits weren't settled in %d plans", rounds)
 		}
 		return nil
 	}
@@ -231,7 +231,7 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		// The root's files are the staged copy's, but for its backend and
 		// the sources of local modules: the same edits must apply.
 		for _, c := range pending {
-			c.Outcome, c.Reason = DriftRejectedByPlan, "the root's files differ from the copy the edits were planned in: edit them by hand"
+			c.Outcome, c.Reason = RejectedByPlan, "the root's files differ from the copy the edits were planned in: edit them by hand"
 		}
 		return nil
 	}
@@ -247,7 +247,7 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		}
 	}
 	for _, c := range pending {
-		c.Outcome, c.Reason = DriftWritten, applied[c].Note
+		c.Outcome, c.Reason = Written, applied[c].Note
 		if cfg != nil {
 			c.Source = reportSource(cfg, editor.resolve(cfg, c), editor.forms)
 		}
@@ -261,14 +261,14 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 	if write == nil {
 		write = fsutil.WriteFile
 	}
-	backup, err := backupFiles(dir, names...)
+	backup, err := fsutil.BackupFiles(dir, names...)
 	if err != nil {
 		return err
 	}
 	for _, name := range names {
 		if err := write(filepath.Join(dir, name), contents[name], 0o644); err != nil {
 			werr := fmt.Errorf("write the accepted changes into %s: %w", name, err)
-			if rerr := backup.restore(); rerr != nil {
+			if rerr := backup.Restore(); rerr != nil {
 				return errors.Join(werr, fmt.Errorf("restore the root's files: %w", rerr))
 			}
 			return fmt.Errorf("%w; the root's files were restored", werr)
@@ -289,9 +289,9 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 // makes from them, are blamed for first, then those of the resources it refers to, else
 // all of them. A change of shared tags is judged on every resource it
 // covers. Reasons have the values of forms redacted.
-func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*DriftChange, sources map[*DriftChange]codeSource, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*DriftChange]string {
-	rejected := map[*DriftChange]string{}
-	reject := func(c *DriftChange, reason string) {
+func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*Change, sources map[*Change]codeSource, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*Change]string {
+	rejected := map[*Change]string{}
+	reject := func(c *Change, reason string) {
 		if _, ok := rejected[c]; !ok {
 			rejected[c] = secret.RedactText(reason, forms)
 		}
@@ -327,7 +327,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 			}
 		}
 	}
-	byAddress := map[string][]*DriftChange{}
+	byAddress := map[string][]*Change{}
 	for _, c := range pending {
 		if c.shared != nil {
 			for _, a := range c.Covers {
@@ -397,7 +397,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 	if !blamed {
 		referred := referredTo(contents, leaked)
 		for _, c := range pending {
-			if referred[trimInstanceKey(c.Address)] {
+			if referred[hclfile.TrimInstanceKey(c.Address)] {
 				reject(c, reason)
 				blamed = true
 			}
@@ -417,7 +417,7 @@ func sameAsBaseline(rc, base *tfjson.ResourceChange) bool {
 	if base == nil {
 		return rc.Change.Actions.NoOp() || rc.Change.Actions.Read()
 	}
-	return changeSignature(rc) == changeSignature(base)
+	return tfrun.ChangeSignature(rc) == tfrun.ChangeSignature(base)
 }
 
 // planLeaves returns the attributes a plan changes for rc, as drift
@@ -428,15 +428,15 @@ func planLeaves(rc *tfjson.ResourceChange, stateOnly map[string][]string) []valu
 
 // diagnosticOf reports whether d is about the edit of c, made as src
 // says in contents: in its resource, or in the file and block it edits.
-func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src codeSource, contents map[string][]byte) bool {
+func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, contents map[string][]byte) bool {
 	if c.shared != nil {
 		if d.Address != "" {
-			return slices.ContainsFunc(c.Covers, func(a string) bool { return trimInstanceKey(a) == trimInstanceKey(d.Address) })
+			return slices.ContainsFunc(c.Covers, func(a string) bool { return hclfile.TrimInstanceKey(a) == hclfile.TrimInstanceKey(d.Address) })
 		}
 		return d.Range != nil && src.Edit != nil && filepath.Base(d.Range.Filename) == src.Edit.File
 	}
 	if d.Address != "" {
-		return trimInstanceKey(d.Address) == trimInstanceKey(c.Address)
+		return hclfile.TrimInstanceKey(d.Address) == hclfile.TrimInstanceKey(c.Address)
 	}
 	if d.Range == nil || src.Edit == nil || filepath.Base(d.Range.Filename) != src.Edit.File {
 		return false
@@ -446,7 +446,7 @@ func diagnosticOf(d tfjson.Diagnostic, c *DriftChange, src codeSource, contents 
 		return true
 	}
 	if address := f.ResourceAt(d.Range.Start.Line); address != "" {
-		return address == trimInstanceKey(c.Address)
+		return address == hclfile.TrimInstanceKey(c.Address)
 	}
 	for _, b := range f.Syntax.Blocks {
 		switch {
@@ -470,11 +470,11 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 		return referred
 	}
 	for _, address := range addresses {
-		b, ok := cfg.blocks[trimInstanceKey(address)]
+		b, ok := cfg.blocks[hclfile.TrimInstanceKey(address)]
 		if !ok {
 			continue
 		}
-		for _, t := range allTraversals(b.b.Body) {
+		for _, t := range hclfile.Traversals(b.b.Body) {
 			if len(t) < 2 {
 				continue
 			}
@@ -494,8 +494,8 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 // values p and sensitive have that no file may hold. It returns the
 // check that fails, with what it found, and the edited files it fails
 // on, none where it can't tell; or "".
-func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves gate.Check, sensitive []string, opts DriftOptions) (string, []string, error) {
-	policy := fullGate(Options{Omit: opts.Omit, Adapters: opts.Adapters})
+func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves gate.Check, sensitive []string, opts Options) (string, []string, error) {
+	policy := gate.Policy{Standards: opts.Rules.Standards, Moves: opts.Rules.Moves}
 	policy.Checks = []string{gate.CheckFormat, gate.CheckValidate, gate.CheckStandards, gate.CheckMoves, gate.CheckSecrets}
 	policy.Sensitive = append(secret.InPlan(p), sensitive...)
 	policy.Baseline = gate.Gate{standards, moves}
@@ -516,8 +516,8 @@ func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, 
 
 // checkBlame returns the changes of pending whose edits, made as sources
 // say, are in files, the edited files a check fails on.
-func checkBlame(pending []*DriftChange, sources map[*DriftChange]codeSource, files []string) []*DriftChange {
-	var blamed []*DriftChange
+func checkBlame(pending []*Change, sources map[*Change]codeSource, files []string) []*Change {
+	var blamed []*Change
 	for _, c := range pending {
 		src := sources[c]
 		if src.Edit == nil {
@@ -543,13 +543,13 @@ type driftRejection struct {
 // changes of rejected, each for its reason (see judgeDrift). A verifier
 // that blames all of a round's edits where none of them is blamed rejects
 // them by the plan too.
-func planRejection(rejected map[*DriftChange]string) *verdict[*DriftChange, driftRejection] {
-	failure := &verdict[*DriftChange, driftRejection]{
-		blamed: map[*DriftChange]driftRejection{},
-		why:    driftRejection{DriftRejectedByPlan, "the plan of the edited code doesn't take the edits"},
+func planRejection(rejected map[*Change]string) *gate.Verdict[*Change, driftRejection] {
+	failure := &gate.Verdict[*Change, driftRejection]{
+		Blamed: map[*Change]driftRejection{},
+		Why:    driftRejection{RejectedByPlan, "the plan of the edited code doesn't take the edits"},
 	}
 	for c, reason := range rejected {
-		failure.blamed[c] = driftRejection{DriftRejectedByPlan, reason}
+		failure.Blamed[c] = driftRejection{RejectedByPlan, reason}
 	}
 	return failure
 }

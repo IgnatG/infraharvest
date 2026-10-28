@@ -207,6 +207,8 @@ type fakeTerraform struct {
 	generatingMode os.FileMode
 	// statePlans counts the plans given a state file (-state).
 	statePlans int
+	// unformatted are the files FormatCheck finds unformatted.
+	unformatted []string
 }
 
 func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
@@ -338,7 +340,7 @@ func (f *fakeTerraform) ShowPlanFile(context.Context, string, ...tfexec.ShowOpti
 // one's address has a change marked as importing, unchanged unless the
 // plan says otherwise.
 func (f *fakeTerraform) withImports(p *tfjson.Plan) (*tfjson.Plan, error) {
-	files, err := configFiles(f.dir)
+	files, err := hclfile.ConfigFiles(f.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -373,7 +375,7 @@ func (f *fakeTerraform) withImports(p *tfjson.Plan) (*tfjson.Plan, error) {
 
 func (f *fakeTerraform) FormatCheck(context.Context, ...tfexec.FormatOption) (bool, []string, error) {
 	f.calls = append(f.calls, "fmt")
-	return true, nil, nil
+	return len(f.unformatted) == 0, f.unformatted, nil
 }
 
 func (f *fakeTerraform) SetStdout(io.Writer) {}
@@ -406,7 +408,7 @@ func TestGenerate(t *testing.T) {
 			t.Errorf("%s not written: %v", name, err)
 		}
 	}
-	for _, name := range []string{VariablesFileName, RejectedFileName} {
+	for _, name := range []string{hclfile.VariablesFileName, RejectedFileName} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err == nil {
 			t.Errorf("%s written without secrets or rejections", name)
 		}
@@ -534,7 +536,7 @@ func TestSameFiles(t *testing.T) {
 		t.Errorf("changed: got %v, %v", same, err)
 	}
 	writeConfig(t, dir, GeneratedFileName, "# a\n")
-	writeConfig(t, dir, VariablesFileName, "# variables\n")
+	writeConfig(t, dir, hclfile.VariablesFileName, "# variables\n")
 	if same, err := sameFiles(dir, before); err != nil || same {
 		t.Errorf("a file more: got %v, %v", same, err)
 	}
@@ -841,7 +843,7 @@ func TestGenerateMovesSecretsToVariables(t *testing.T) {
   sensitive   = true
 }
 `
-	if got := readFile(t, dir, VariablesFileName); got != wantVariables {
+	if got := readFile(t, dir, hclfile.VariablesFileName); got != wantVariables {
 		t.Errorf("variables.tf: got:\n%s\nwant:\n%s", got, wantVariables)
 	}
 }
@@ -867,7 +869,7 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 	if len(result.Secrets) != 0 || len(result.Rejected) != 1 {
 		t.Errorf("want the resource left out with its secret, got %+v", result)
 	}
-	if _, err := os.Stat(filepath.Join(dir, VariablesFileName)); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, hclfile.VariablesFileName)); err == nil {
 		t.Error("variables.tf kept without secrets")
 	}
 }

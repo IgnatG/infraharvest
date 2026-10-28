@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func TestVerifier(t *testing.T) {
 	tests := []struct {
 		name string
 		// verify judges the edits a round made: nil passes them.
-		verify   func(made []string) *verdict[string, string]
+		verify   func(made []string) *Verdict[string, string]
 		blameAll bool
 		rounds   int
 		passed   bool
@@ -26,7 +26,7 @@ func TestVerifier(t *testing.T) {
 		dropped  map[string]string
 	}{{
 		name:     "everything passes",
-		verify:   func([]string) *verdict[string, string] { return nil },
+		verify:   func([]string) *Verdict[string, string] { return nil },
 		rounds:   3,
 		passed:   true,
 		verifies: 1,
@@ -34,9 +34,9 @@ func TestVerifier(t *testing.T) {
 		dropped:  map[string]string{},
 	}, {
 		name: "one edit blamed and the others retried",
-		verify: func(made []string) *verdict[string, string] {
+		verify: func(made []string) *Verdict[string, string] {
 			if slices.Contains(made, "b") {
-				return &verdict[string, string]{blamed: map[string]string{"b": "b breaks the plan"}}
+				return &Verdict[string, string]{Blamed: map[string]string{"b": "b breaks the plan"}}
 			}
 			return nil
 		},
@@ -47,8 +47,8 @@ func TestVerifier(t *testing.T) {
 		dropped:  map[string]string{"b": "b breaks the plan"},
 	}, {
 		name: "nothing attributable rejects them all",
-		verify: func([]string) *verdict[string, string] {
-			return &verdict[string, string]{why: "the plan fails"}
+		verify: func([]string) *Verdict[string, string] {
+			return &Verdict[string, string]{Why: "the plan fails"}
 		},
 		blameAll: true,
 		rounds:   3,
@@ -56,9 +56,9 @@ func TestVerifier(t *testing.T) {
 		dropped:  map[string]string{"a": "the plan fails", "b": "the plan fails", "c": "the plan fails"},
 	}, {
 		name: "nothing attributable ends the rounds without blameAll",
-		verify: func([]string) *verdict[string, string] {
+		verify: func([]string) *Verdict[string, string] {
 			// An edit the round didn't make tells nothing of those it made.
-			return &verdict[string, string]{blamed: map[string]string{"z": "z breaks the plan"}}
+			return &Verdict[string, string]{Blamed: map[string]string{"z": "z breaks the plan"}}
 		},
 		rounds:   3,
 		verifies: 1,
@@ -66,8 +66,8 @@ func TestVerifier(t *testing.T) {
 		dropped:  map[string]string{},
 	}, {
 		name: "the round bound is reached",
-		verify: func(made []string) *verdict[string, string] {
-			return &verdict[string, string]{blamed: map[string]string{made[0]: made[0] + " breaks the plan"}}
+		verify: func(made []string) *Verdict[string, string] {
+			return &Verdict[string, string]{Blamed: map[string]string{made[0]: made[0] + " breaks the plan"}}
 		},
 		rounds:   2,
 		verifies: 2,
@@ -75,7 +75,7 @@ func TestVerifier(t *testing.T) {
 		dropped:  map[string]string{"a": "a breaks the plan", "b": "b breaks the plan"},
 	}, {
 		name: "an error ends the rounds",
-		verify: func([]string) *verdict[string, string] {
+		verify: func([]string) *Verdict[string, string] {
 			return nil
 		},
 		rounds:   3,
@@ -90,16 +90,16 @@ func TestVerifier(t *testing.T) {
 			dropped := map[string]string{}
 			var made []string
 			verifies := 0
-			passed, err := verifier[string, string]{
-				edit: func(context.Context) ([]string, error) {
+			passed, err := Verifier[string, string]{
+				Edit: func(context.Context) ([]string, error) {
 					made = slices.Clone(left)
 					return made, nil
 				},
-				verify: func(context.Context) (*verdict[string, string], error) {
+				Verify: func(context.Context) (*Verdict[string, string], error) {
 					verifies++
 					return tt.verify(made), tt.err
 				},
-				drop: func(blamed map[string]string) {
+				Drop: func(blamed map[string]string) {
 					for e, why := range blamed {
 						dropped[e] = why
 					}
@@ -108,9 +108,9 @@ func TestVerifier(t *testing.T) {
 						return ok
 					})
 				},
-				blameAll: tt.blameAll,
-				rounds:   tt.rounds,
-			}.run(context.Background())
+				BlameAll: tt.blameAll,
+				Rounds:   tt.rounds,
+			}.Run(context.Background())
 			if !errors.Is(err, tt.err) {
 				t.Fatalf("err = %v, want %v", err, tt.err)
 			}

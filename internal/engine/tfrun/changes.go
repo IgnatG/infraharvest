@@ -10,6 +10,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // Leaf is one attribute of a resource a plan changes, by its path, such as
@@ -108,4 +110,19 @@ func WithoutIndexes(path string) string {
 // before and after, or that will only be known after apply, sorted.
 func ChangedAttributes(before, after, afterUnknown any) []string {
 	return TopLevel(ChangedLeaves(before, after, afterUnknown))
+}
+
+// ChangeSignature describes a resource's planned change: its actions and
+// the attributes that change.
+func ChangeSignature(rc *tfjson.ResourceChange) string {
+	return strings.Join(ActionNames(rc.Change.Actions), ",") + ":" + strings.Join(ChangedAttributes(rc.Change.Before, rc.Change.After, rc.Change.AfterUnknown), ",")
+}
+
+// ActionNames returns the names of actions, such as create and delete.
+func ActionNames(actions tfjson.Actions) []string {
+	names := make([]string, 0, len(actions))
+	for _, a := range actions {
+		names = append(names, string(a))
+	}
+	return names
 }

@@ -6,6 +6,8 @@ package engine
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const (
@@ -69,7 +71,7 @@ resource "aws_cloudfront_distribution" "web" {
   }
 }
 `)
-	writeConfig(t, dir, VariablesFileName, `variable "ebs_key_arn" {
+	writeConfig(t, dir, hclfile.VariablesFileName, `variable "ebs_key_arn" {
   description = "A secret."
   type        = string
   sensitive   = true
@@ -104,7 +106,7 @@ resource "aws_cloudfront_distribution" "web" {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
 	}
-	variables := squashed(readFile(t, dir, VariablesFileName))
+	variables := squashed(readFile(t, dir, hclfile.VariablesFileName))
 	for _, want := range []string{
 		`variable "ebs_key_arn" { description = "A secret." type = string sensitive = true }`,
 		`variable "app_role_arn_2" { description = "The ARN of aws_iam_role.app, which the root ` + globalRoot + ` manages. The default is its value when this root was imported." type = string default = "arn:aws:iam::123456789012:role/service-role/app" }`,
@@ -240,7 +242,7 @@ resource "google_compute_subnetwork" "elsewhere" {
 	if data := squashed(readFile(t, dir, DataFileName)); !strings.Contains(data, `data "google_compute_network" "main" { name = "main" project = "acme" }`) || strings.Count(data, "data \"") != 1 {
 		t.Errorf("data.tf:\n%s", data)
 	}
-	if variables := squashed(readFile(t, dir, VariablesFileName)); !strings.Contains(variables, `variable "main_network_self_link" { description = "The self link of google_compute_network.main, which the root google/acme/global manages.`) {
+	if variables := squashed(readFile(t, dir, hclfile.VariablesFileName)); !strings.Contains(variables, `variable "main_network_self_link" { description = "The self link of google_compute_network.main, which the root google/acme/global manages.`) {
 		t.Errorf("variables.tf:\n%s", variables)
 	}
 }

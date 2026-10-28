@@ -28,33 +28,10 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
-// configFiles parses the .tf files of dir, in name order, without override
-// files, which only change what the others declare.
-func configFiles(dir string) ([]*hclfile.File, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(paths)
-	var files []*hclfile.File
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
-			continue
-		}
-		f, err := hclfile.Load(path)
-		if err != nil {
-			return nil, err
-		}
-		files = append(files, f)
-	}
-	return files, nil
-}
-
 // HasConfiguration reports whether dir holds a root with resources or
 // module calls, such as one an earlier import generated.
 func HasConfiguration(dir string) (bool, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return false, err
 	}
@@ -104,7 +81,7 @@ func rootNames(files []*hclfile.File) Names {
 // its address if it is a resource block of the root, so that what is
 // added can refer to it; "" if not, such as inside a module.
 func Existing(dir string, previous *Result) (map[External]string, error) {
-	files, err := configFiles(dir)
+	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +145,7 @@ func appliedTags(files []*hclfile.File, dt DefaultTags) (map[string]string, bool
 	if expr == nil {
 		return nil, false
 	}
-	if tags, ok := stringMap(expr); ok {
+	if tags, ok := hclfile.StringMap(expr); ok {
 		return tags, true
 	}
 	traversal, diags := hcl.AbsTraversalForExpr(expr)
@@ -188,7 +165,7 @@ func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) 
 	for _, f := range files {
 		for _, b := range f.Syntax.Blocks {
 			if attr, ok := b.Body.Attributes[name]; ok && b.Type == "locals" {
-				return stringMap(attr.Expr)
+				return hclfile.StringMap(attr.Expr)
 			}
 		}
 	}
@@ -228,7 +205,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 			return nil, err
 		}
 	}
-	files, err := configFiles(root)
+	files, err := hclfile.ConfigFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +224,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	fileOf := blockFiles(result.Imported, result.Modules)
 	// The providers that added module calls use go into providers.tf and
 	// the file of the root's required_providers (see mergeProviders).
-	names := []string{DataFileName, ImportsFileName, VariablesFileName, LocalsFileName, RejectedFileName, tfrun.LockFileName, ProvidersFileName, VersionsFileName}
+	names := []string{DataFileName, ImportsFileName, hclfile.VariablesFileName, LocalsFileName, RejectedFileName, tfrun.LockFileName, ProvidersFileName, VersionsFileName}
 	if required := requiredProvidersFile(files); !slices.Contains(names, required) {
 		names = append(names, required)
 	}
@@ -256,7 +233,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 			names = append(names, name)
 		}
 	}
-	backup, err := backupFiles(root, names...)
+	backup, err := fsutil.BackupFiles(root, names...)
 	if err != nil {
 		return nil, err
 	}
@@ -268,14 +245,14 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	}
 	undo := func() error {
 		for _, name := range added {
-			if _, backedUp := backup.files[name]; backedUp {
+			if slices.Contains(names, name) {
 				continue
 			}
 			if err := os.Remove(filepath.Join(root, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 		}
-		return backup.restore()
+		return backup.Restore()
 	}
 	if err != nil {
 		return nil, errors.Join(err, undo())
@@ -452,7 +429,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 	if err != nil {
 		return nil, err
 	}
-	rootFiles, err := configFiles(root)
+	rootFiles, err := hclfile.ConfigFiles(root)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +523,7 @@ func merge(staging, root string, existing map[External]string, sources map[strin
 			return added, err
 		}
 	}
-	if err := appendBlocks(filepath.Join(root, VariablesFileName), "", variables); err != nil {
+	if err := appendBlocks(filepath.Join(root, hclfile.VariablesFileName), "", variables); err != nil {
 		return added, err
 	}
 	if err := mergeLocals(staging, root); err != nil {
@@ -593,7 +570,7 @@ func dataKey(b *hclsyntax.Block, sources map[string]DataSource) string {
 		if source.Type != b.Labels[0] {
 			continue
 		}
-		if id := stringAttribute(b.Body, source.Argument); id != "" {
+		if id := hclfile.StringAttribute(b.Body, source.Argument); id != "" {
 			return source.Type + "\x00" + id
 		}
 	}
@@ -612,7 +589,7 @@ func rootDeclarations(files []*hclfile.File) map[string][]string {
 			switch {
 			case b.Type == "data" && len(b.Labels) == 2:
 				address = []string{"data", b.Labels[0], b.Labels[1]}
-			case b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b):
+			case b.Type == "variable" && len(b.Labels) == 1 && hclfile.HasDefault(b):
 				address = []string{"var", b.Labels[0]}
 			default:
 				continue
@@ -624,14 +601,6 @@ func rootDeclarations(files []*hclfile.File) map[string][]string {
 		}
 	}
 	return declared
-}
-
-// hasDefault reports whether the variable block b has a default. One
-// without, such as a secret's, takes a value of its own: two of them
-// declared alike are still two values.
-func hasDefault(b *hclsyntax.Block) bool {
-	_, ok := b.Body.Attributes["default"]
-	return ok
 }
 
 // declarationKey identifies what the data or variable block b declares:
@@ -665,7 +634,7 @@ func declarationKey(b *hclsyntax.Block, src []byte) string {
 // same (see rootDeclarations): references to those in generated's blocks
 // refer to root's instead, which has another name.
 func stagedVariables(staging string, declared map[string][]string, generated *hclfile.File) ([]*hclwrite.Block, error) {
-	staged, err := hclfile.LoadOptional(filepath.Join(staging, VariablesFileName))
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, hclfile.VariablesFileName))
 	if err != nil || staged == nil {
 		return nil, err
 	}
@@ -675,7 +644,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 		if i >= len(blocks) {
 			break
 		}
-		if b.Type == "variable" && len(b.Labels) == 1 && hasDefault(b) {
+		if b.Type == "variable" && len(b.Labels) == 1 && hclfile.HasDefault(b) {
 			if replacement, ok := declared[declarationKey(b, staged.Src)]; ok {
 				for _, block := range generated.Edit().Body().Blocks() {
 					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
@@ -696,7 +665,7 @@ func mergeLocals(staging, root string) error {
 	if err != nil || staged == nil {
 		return err
 	}
-	rootFiles, err := configFiles(root)
+	rootFiles, err := hclfile.ConfigFiles(root)
 	if err != nil {
 		return err
 	}
@@ -707,7 +676,7 @@ func mergeLocals(staging, root string) error {
 	}
 	used := map[string]bool{}
 	for _, b := range providers.Syntax.Blocks {
-		for _, t := range allTraversals(b.Body) {
+		for _, t := range hclfile.Traversals(b.Body) {
 			if t.RootName() == "local" && len(t) > 1 {
 				if attr, ok := t[1].(hcl.TraverseAttr); ok {
 					used[attr.Name] = true

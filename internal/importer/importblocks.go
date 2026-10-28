@@ -12,6 +12,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -168,7 +169,7 @@ func newOtherRoots(opts engine.Options, byDir map[string][]engine.Import, out st
 			if _, ok := opts.DataSources[imp.Type]; ok {
 				o.external = append(o.external, ofRoot[engine.External]{value: engine.External{Type: imp.Type, ID: imp.ID, Name: imp.Name}, dir: dir})
 			}
-			o.resources = append(o.resources, ofRoot[engine.RootResource]{value: engine.RootResource{Type: imp.Type, ID: imp.ID, Name: engine.Label(imp.Name), Root: root}, dir: dir})
+			o.resources = append(o.resources, ofRoot[engine.RootResource]{value: engine.RootResource{Type: imp.Type, ID: imp.ID, Name: hclfile.Label(imp.Name), Root: root}, dir: dir})
 		}
 	}
 	// A name before none: the data source that reads it is named by it.

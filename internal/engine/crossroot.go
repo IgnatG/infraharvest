@@ -126,7 +126,7 @@ func rootLookup(v rootValue) (lookup, bool) {
 	if name == "" {
 		name = found.Label
 	}
-	return lookup{typ: found.Type, name: Label(name), args: found.Arguments, attribute: found.Attribute}, true
+	return lookup{typ: found.Type, name: hclfile.Label(name), args: found.Arguments, attribute: found.Attribute}, true
 }
 
 // byARN returns the resources whose ARN value is: by the catalogue's ARN
@@ -214,7 +214,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, VariablesFileName)
+	path := filepath.Join(dir, hclfile.VariablesFileName)
 	variables, err := hclfile.LoadOptional(path)
 	if err != nil {
 		return nil, err
@@ -243,7 +243,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		if label == "" {
 			label = v.resource.ID
 		}
-		label = Label(label)
+		label = hclfile.Label(label)
 		if word := v.resource.Type[strings.LastIndex(v.resource.Type, "_")+1:]; !slices.Contains(strings.Split(label, "_"), word) && !strings.HasPrefix(v.attribute, word+"_") {
 			label += "_" + word
 		}

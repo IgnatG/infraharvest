@@ -1,10 +1,11 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package drift
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -165,14 +166,14 @@ func (eachResolver) overVariable(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 		return v.hand(w, x, fmt.Sprintf("%s, which other blocks use too, sets it: change it in %s by hand", source, w.e.envVars))
 	}
 	file := w.e.envVars
-	vars := mergedVars(w.cfg.files)
-	if vars.own(w.e.env) == nil {
+	vars := hclfile.MergedVars(w.cfg.files)
+	if vars.Own(w.e.env) == nil {
 		return v.noVarFile(w, x)
 	}
 	if val, ok := w.envValue(v.name); ok {
 		inner := *w
-		inner.file, inner.f = val.file, val.f
-		src := inner.entry(val.attr.Expr, source+" in "+file, field, path, i)
+		inner.file, inner.f = val.Path, val.File
+		src := inner.entry(val.Attr.Expr, source+" in "+file, field, path, i)
 		if src.Edit != nil || src.Kind == sourceLiteral || src.Kind == sourceAbsent {
 			src.Kind = sourceVariable
 		}
@@ -199,7 +200,7 @@ func (eachResolver) overVariable(w *driftWalk, x *hclsyntax.ScopeTraversalExpr, 
 		return unset
 	}
 	value := slices.Concat(vf.f.Src[rng.Start.Byte:edit.Start], edit.Text, vf.f.Src[edit.End:rng.End.Byte])
-	set, _ := vars.set(w.e.env, v.name, value)
+	set, _ := vars.Set(w.e.env, v.name, value)
 	return codeSource{File: w.file, Range: x.Range(), Kind: sourceVariable, instance: true, Edit: &set}
 }
 
@@ -220,7 +221,7 @@ func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path [
 	var src codeSource
 	set := false
 	for j := range item.Items {
-		if keyName(item.Items[j].KeyExpr) == field {
+		if hclfile.KeyName(item.Items[j].KeyExpr) == field {
 			src = w.expr(item.Items[j].ValueExpr, holder{}, path, i)
 			set = true
 			break
@@ -240,7 +241,7 @@ func (w *driftWalk) entry(obj hclsyntax.Expression, source, field string, path [
 // eachFieldUses counts the references in block to each.value.<field>.
 func eachFieldUses(block *hclsyntax.Block, field string) int {
 	n := 0
-	for _, t := range allTraversals(block.Body) {
+	for _, t := range hclfile.Traversals(block.Body) {
 		if t.RootName() != "each" || len(t) < 3 {
 			continue
 		}
@@ -268,7 +269,7 @@ func importUses(cfg *driftConfig, root, name, address string) int {
 				continue
 			}
 			rng := to.Expr.Range()
-			if rng.End.Byte > len(f.Src) || trimInstanceKey(strings.Join(strings.Fields(string(f.Src[rng.Start.Byte:rng.End.Byte])), "")) != address {
+			if rng.End.Byte > len(f.Src) || hclfile.TrimInstanceKey(strings.Join(strings.Fields(string(f.Src[rng.Start.Byte:rng.End.Byte])), "")) != address {
 				continue
 			}
 			n += blockUses(b, root, name)
@@ -283,11 +284,11 @@ func importUses(cfg *driftConfig, root, name, address string) int {
 // : 0, which no other environment sets true (see envOnlyFlags), as for a
 // feature, or residue, only it has. The other environments have no
 // instance of the block, so the edit reaches only this one's.
-func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource) bool {
+func (e *driftEditor) ownBlock(cfg *driftConfig, c *Change, src codeSource) bool {
 	if c.ModuleAddress != "" || c.shared != nil || src.Edit == nil {
 		return false
 	}
-	b, ok := cfg.blocks[trimInstanceKey(c.Address)]
+	b, ok := cfg.blocks[hclfile.TrimInstanceKey(c.Address)]
 	if !ok {
 		return false
 	}
@@ -319,9 +320,9 @@ func (e *driftEditor) ownBlock(cfg *driftConfig, c *DriftChange, src codeSource)
 // envOnlyFlags returns the bool variables, declared in files, of the root
 // environments share in dir that environment env alone sets true, such as
 // the deploy_ variables of the features, and residue, only it has (see
-// mergedVars.ownFlags).
+// hclfile.MergedVars.ownFlags).
 func envOnlyFlags(dir, env string, files []*hclfile.File) (map[string]bool, error) {
-	envs, err := MergedEnvironments(dir)
+	envs, err := hclfile.MergedEnvironments(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -346,11 +347,11 @@ func envOnlyFlags(dir, env string, files []*hclfile.File) (map[string]bool, erro
 			defaults[b.Labels[0]] = value
 		}
 	}
-	vars, err := loadMergedVars(dir, append(envs, env))
+	vars, err := hclfile.LoadMergedVars(dir, append(envs, env))
 	if err != nil {
 		return nil, err
 	}
-	return vars.ownFlags(env, defaults), nil
+	return vars.OwnFlags(env, defaults), nil
 }
 
 // variableUses returns why var.name, which other arguments use too,
@@ -366,7 +367,7 @@ func envOnlyFlags(dir, env string, files []*hclfile.File) (map[string]bool, erro
 func (w *driftWalk) variableUses(name string, sub []pathStep) string {
 	file := w.e.envVars
 	shared := fmt.Sprintf("var.%s, which other arguments use too, sets it: change it in %s by hand if they should all take the cloud's value", name, file)
-	for _, fileName := range sortedKeys(w.cfg.files) {
+	for _, fileName := range slices.Sorted(maps.Keys(w.cfg.files)) {
 		if fileName == file {
 			continue
 		}
@@ -384,8 +385,8 @@ func (w *driftWalk) variableUses(name string, sub []pathStep) string {
 				return shared
 			}
 			instances := 0
-			for _, instance := range sortedKeys(w.e.current) {
-				if trimInstanceKey(instance) != address {
+			for _, instance := range slices.Sorted(maps.Keys(w.e.current)) {
+				if hclfile.TrimInstanceKey(instance) != address {
 					continue
 				}
 				instances++
@@ -450,7 +451,7 @@ func exprVarPaths(expr hclsyntax.Expression, path, name string, paths *[]string)
 		}
 	case *hclsyntax.ObjectConsExpr:
 		for _, item := range x.Items {
-			key := keyName(item.KeyExpr)
+			key := hclfile.KeyName(item.KeyExpr)
 			if key == "" {
 				if usesVariable(item.KeyExpr, name) || usesVariable(item.ValueExpr, name) {
 					return false
