@@ -50,7 +50,7 @@ func referModulesToResources(dir string) (bool, error) {
 			continue
 		}
 		if attr, ok := r.Syntax.Body.Attributes[refs.Attribute]; ok {
-			if value, ok := constantString(attr.Expr); ok && value != "" {
+			if value, ok := hclfile.ConstantString(attr.Expr); ok && value != "" {
 				if targets[typ] == nil {
 					targets[typ] = &moduleTarget{refs: refs, byValue: map[string][]string{}}
 				}
@@ -86,7 +86,7 @@ func referModulesToResources(dir string) (bool, error) {
 				}
 				switch expr := attr.Expr.(type) {
 				case *hclsyntax.TemplateExpr:
-					if value, ok := literalString(expr); ok {
+					if value, ok := hclfile.LiteralString(expr); ok {
 						if t, ok := reference(value); ok {
 							body.SetAttributeTraversal(name, t)
 							changed = true
@@ -119,7 +119,7 @@ func referInTuple(expr *hclsyntax.TupleConsExpr, reference func(string) (hcl.Tra
 		if !ok {
 			return nil, false
 		}
-		s, ok := literalString(template)
+		s, ok := hclfile.LiteralString(template)
 		if !ok {
 			return nil, false
 		}

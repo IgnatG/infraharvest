@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package secret
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
-// fuzzToken makes a credential in a format credentialFormat knows, a
+// fuzzToken makes a credential in a format CredentialFormat knows, a
 // GitHub fine-grained token, from seed. Made at run time, as fakeSecret's
 // values are, so that secret scanners don't take the source for a leak.
 func fuzzToken(seed string) string {
@@ -57,8 +57,8 @@ func FuzzSecretsInJSONString(f *testing.F) {
 	f.Add(" {", "", "{\"nested\":1}")
 	f.Fuzz(func(t *testing.T, value, key, filler string) {
 		_ = secretsInJSONString(nil, value, "container_definitions", key)
-		_ = secretReason(key, value, true)
-		_ = secretReason(key, value, false)
+		_ = Reason(key, value, true)
+		_ = Reason(key, value, false)
 
 		token := fuzzToken(value + key)
 		doc, err := json.Marshal([]any{
@@ -158,12 +158,12 @@ EOT
 `)
 	f.Fuzz(func(t *testing.T, content string) {
 		if parsed, err := hclfile.Parse("generated.tf", []byte(content)); err == nil {
-			_ = literalSecrets(parsed)
+			_ = Literals(parsed)
 		}
-		path := filepath.Join(t.TempDir(), GeneratedFileName)
+		path := filepath.Join(t.TempDir(), generatedFile)
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, _, _ = literalSecretsToVariables(path, nil)
+		_, _, _ = LiteralsToVariables(path, nil)
 	})
 }

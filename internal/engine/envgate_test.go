@@ -22,6 +22,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -502,7 +503,7 @@ func checkGoneMerged(t *testing.T, dir string, result *MergeResult, gone, id str
 	if imports := readFile(t, dir, ImportsFileName); !strings.Contains(imports, "to = "+strings.TrimSuffix(at, "[0]")) {
 		t.Errorf("imports.tf lost the import block of %s:\n%s", at, imports)
 	}
-	if plan := result.Environments[0].Gate[2]; !strings.Contains(strings.Join(plan.Details, "\n"), goneChange) {
+	if plan := result.Environments[0].Gate[2]; !strings.Contains(strings.Join(plan.Details, "\n"), "no longer in the cloud: the plan creates it again") {
 		t.Errorf("dev's plan check: %+v", plan)
 	}
 }
@@ -768,22 +769,22 @@ func TestVerifyMerged(t *testing.T) {
 	if result, err := MergeRoots(context.Background(), dir, mergeRoots(t, dir, nil, &overrides), MergeOptions{Profile: mergeProfiles["aws"]}); err != nil || result.Reason != "" {
 		t.Fatalf("merge: %v %+v", err, result)
 	}
-	gate, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
+	checks, err := VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !gate.Passed() {
-		t.Errorf("gate: %+v", gate)
+	if !checks.Passed() {
+		t.Errorf("gate: %+v", checks)
 	}
 	// Once applied, imports.tf goes, and nothing is imported.
 	if err := os.Remove(filepath.Join(dir, ImportsFileName)); err != nil {
 		t.Fatal(err)
 	}
-	gate, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
+	checks, err = VerifyMerged(context.Background(), prodFake, dir, "prod", Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan := gate.check(CheckPlan); plan.Passed {
+	if plan := checks.Named(gate.CheckPlan); plan.Passed {
 		t.Errorf("a plan that imports what imports.tf no longer has passes: %+v", plan)
 	}
 }
@@ -1045,12 +1046,12 @@ func TestMergeRootsScannersDontSeeLaterSecrets(t *testing.T) {
 		return sensitiveFake{mergeFake: prod, value: "222222222222"}, nil
 	}
 	ran := false
-	spy := Scanner{Name: "spy", Run: func(context.Context, string) ([]Finding, error) {
+	spy := gate.Scanner{Name: "spy", Run: func(context.Context, string) ([]gate.Finding, error) {
 		ran = true
 		return nil, nil
 	}}
 
-	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Scanners: []Scanner{spy}})
+	result, err := MergeRoots(context.Background(), dir, roots, MergeOptions{Profile: mergeProfiles["aws"], Scanners: []gate.Scanner{spy}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1058,7 +1059,7 @@ func TestMergeRootsScannersDontSeeLaterSecrets(t *testing.T) {
 	if ran {
 		t.Error("a scanner ran on a merged root holding prod's secret")
 	}
-	if result.Passed() || !strings.Contains(result.Reason, CheckSecrets) {
+	if result.Passed() || !strings.Contains(result.Reason, gate.CheckSecrets) {
 		t.Errorf("merged with prod's secret in its files: %s", result.Reason)
 	}
 }

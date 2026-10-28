@@ -137,13 +137,13 @@ func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
 	for _, r := range generated.Resources() {
 		tags := map[string]string{}
 		for _, name := range []string{"tags", "labels", "terraform_labels", "effective_labels"} {
-			obj, ok := attributeExpr(r.Syntax.Body, name).(*hclsyntax.ObjectConsExpr)
+			obj, ok := hclfile.AttributeExpr(r.Syntax.Body, name).(*hclsyntax.ObjectConsExpr)
 			if !ok {
 				continue
 			}
 			for _, item := range obj.Items {
-				if k := objectKey(item.KeyExpr); k != "" {
-					tags[k] = stringLiteral(item.ValueExpr)
+				if k := hclfile.ObjectKey(item.KeyExpr); k != "" {
+					tags[k] = hclfile.StringLiteral(item.ValueExpr)
 				}
 			}
 		}

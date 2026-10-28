@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
@@ -50,10 +51,10 @@ type callTools struct {
 	mergedNotInCloud func(dir string, gone map[string][]engine.Import) error
 	// mergedMoves writes the moved and removed blocks of a merged root,
 	// as engine.WriteMergedMoves does.
-	mergedMoves func(dir string, moved []engine.Move, removed []engine.Removal) (engine.Check, error)
+	mergedMoves func(dir string, moved []engine.Move, removed []engine.Removal) (gate.Check, error)
 	// vacateMergedRoot writes a merged root with removed blocks alone, as
 	// engine.VacateMerged does.
-	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, engine.Check, error)
+	vacateMergedRoot func(dir string, files []string, removed []engine.Removal) ([]string, gate.Check, error)
 	// query lists through Terraform's list resources, as tfquery.List
 	// does.
 	query func(ctx context.Context, req tfquery.Request) ([]harvest.Resource, error)
@@ -137,7 +138,7 @@ func (t *callTools) mergeRoots(ctx context.Context, dir string, roots []engine.M
 
 // vacateMerged writes the merged root in dir with removed alone (see
 // engine.VacateMerged).
-func (t *callTools) vacateMerged(dir string, files []string, removed []engine.Removal) ([]string, engine.Check, error) {
+func (t *callTools) vacateMerged(dir string, files []string, removed []engine.Removal) ([]string, gate.Check, error) {
 	if t != nil && t.vacateMergedRoot != nil {
 		return t.vacateMergedRoot(dir, files, removed)
 	}
@@ -155,7 +156,7 @@ func (t *callTools) writeMergedNotInCloud(dir string, gone map[string][]engine.I
 
 // writeMergedMoves writes moved and removed into the merged root in dir,
 // and returns their moves check (see engine.WriteMergedMoves).
-func (t *callTools) writeMergedMoves(dir string, moved []engine.Move, removed []engine.Removal) (engine.Check, error) {
+func (t *callTools) writeMergedMoves(dir string, moved []engine.Move, removed []engine.Removal) (gate.Check, error) {
 	if t != nil && t.mergedMoves != nil {
 		return t.mergedMoves(dir, moved, removed)
 	}

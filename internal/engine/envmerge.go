@@ -18,6 +18,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // The variables a merged root always has, or has for its placeholders.
@@ -1576,7 +1577,7 @@ func (m *stackMerge) targets(env int, tokens hclwrite.Tokens) []*stackResource {
 // sensitive reports whether the provider marks the attribute at path of
 // resourceType sensitive.
 func (m *stackMerge) sensitive(resourceType string, path []string) bool {
-	attr := schemaAttribute(m.schemas, resourceType, path)
+	attr := tfrun.SchemaAttribute(m.schemas, resourceType, path)
 	return attr != nil && attr.Sensitive
 }
 

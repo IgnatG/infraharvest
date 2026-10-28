@@ -263,14 +263,6 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	}
 }
 
-func TestPlaceholders(t *testing.T) {
-	t.Parallel()
-	vars := placeholders([]Secret{{Variable: "a"}, {Variable: "b", ty: ssmSchemas.Schemas["registry.terraform.io/hashicorp/aws"].ResourceSchemas["aws_ssm_parameter"].Block.Attributes["value"].AttributeType}})
-	if len(vars) != 2 {
-		t.Errorf("want a value per secret, got %d", len(vars))
-	}
-}
-
 func plannedImports(values map[string]map[string]any) *tfjson.Plan {
 	p := &tfjson.Plan{}
 	for address, attrs := range values {

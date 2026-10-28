@@ -321,7 +321,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 	for _, name := range attributeNames(syntax) {
 		switch expr := syntax.Attributes[name].Expr.(type) {
 		case *hclsyntax.TemplateExpr:
-			v, ok := literalString(expr)
+			v, ok := hclfile.LiteralString(expr)
 			if !ok {
 				continue
 			}
@@ -353,7 +353,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 	}
 	if all {
 		for _, name := range unresolved {
-			v, _ := literalString(syntax.Attributes[name].Expr.(*hclsyntax.TemplateExpr))
+			v, _ := hclfile.LiteralString(syntax.Attributes[name].Expr.(*hclsyntax.TemplateExpr))
 			if rp, ok := byValue[v]; ok {
 				body.SetAttributeRaw(name, rp.tokens())
 				changed = true
@@ -397,7 +397,7 @@ func referenceTuple(argument string, expr *hclsyntax.TupleConsExpr, target func(
 			}
 		}
 		if tmpl, ok := e.(*hclsyntax.TemplateExpr); ok {
-			if v, ok := literalString(tmpl); ok {
+			if v, ok := hclfile.LiteralString(tmpl); ok {
 				if tokens, ok := target(argument, v); ok {
 					elems = append(elems, tokens)
 					replaced = true
@@ -438,7 +438,7 @@ func referenceObject(expr *hclsyntax.ObjectConsExpr, target func(argument, value
 			return nil, false
 		}
 		if tmpl, ok := item.ValueExpr.(*hclsyntax.TemplateExpr); ok {
-			if v, ok := literalString(tmpl); ok {
+			if v, ok := hclfile.LiteralString(tmpl); ok {
 				if tokens, ok := target(keyName(item.KeyExpr), v); ok {
 					attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: key, Value: tokens})
 					replaced = true
@@ -468,17 +468,6 @@ func keyName(expr hclsyntax.Expression) string {
 		return ""
 	}
 	return v.AsString()
-}
-
-func literalString(expr *hclsyntax.TemplateExpr) (string, bool) {
-	if !expr.IsStringLiteral() {
-		return "", false
-	}
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || v.IsNull() || !v.Type().Equals(cty.String) {
-		return "", false
-	}
-	return v.AsString(), true
 }
 
 // dependencies are the references between resources, from referrer to

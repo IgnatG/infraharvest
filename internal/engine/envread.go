@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -43,7 +44,7 @@ type MergeRoot struct {
 	Provider Provider
 	// Secrets are the root's secret variables, whose arguments its plan
 	// gives placeholder values (see placeholders).
-	Secrets []Secret
+	Secrets []secret.Variable
 	// Terraform returns a Terraform runner in a directory with the
 	// environment's credentials, which plans the merged root as the
 	// environment; nil for an environment the run didn't import, whose

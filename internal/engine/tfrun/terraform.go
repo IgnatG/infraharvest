@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,6 +37,9 @@ const (
 	// workspace's state in: the default one's in the root, each other
 	// one's under terraform.tfstate.d.
 	LocalStateFileName = "terraform.tfstate"
+	// WorkspaceStateDir holds the local state of each workspace but the
+	// default one, in terraform.tfstate.d/<workspace>/terraform.tfstate.
+	WorkspaceStateDir = "terraform.tfstate.d"
 	// LockFileName is Terraform's dependency lock file.
 	LockFileName = ".terraform.lock.hcl"
 )
@@ -415,4 +419,12 @@ func (s *statelessTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...
 	// change the backend that terraform init records in the root.
 	state := tfexec.State(s.state) //nolint:staticcheck // see above
 	return s.Terraform.PlanJSON(ctx, w, append(slices.Clone(opts), state)...)
+}
+
+// LocalStateFile reports whether name is a file Terraform's local backend
+// keeps a root's state in, its backups and its lock, which the output's
+// .gitignore leaves out; its workspaces' states are in the directory
+// WorkspaceStateDir.
+func LocalStateFile(name string) bool {
+	return strings.HasPrefix(name, LocalStateFileName) || name == ".terraform.tfstate.lock.info"
 }

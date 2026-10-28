@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 // An import records what it does as it goes, root by root and resource by
@@ -176,13 +177,14 @@ func (r *Report) addFindings(path, scope string, result *engine.Result) {
 	}
 }
 
-// GateFindings returns what the scanners of gate found in the root at
-// root, as env plans it for a root environments share, each about the
-// resource of managed, what the root imports, at the address it names, if
-// any (see engine.ResourceAt), with its type and import ID.
-func GateFindings(root, env string, managed []engine.Managed, gate engine.Gate) []Finding {
+// GateFindings returns what the scanners of checks, a root's gate, found
+// in the root at root, as env plans it for a root environments share,
+// each about the resource of managed, what the root imports, at the
+// address it names, if any (see engine.ResourceAt), with its type and
+// import ID.
+func GateFindings(root, env string, managed []engine.Managed, checks gate.Gate) []Finding {
 	var findings []Finding
-	for _, c := range gate {
+	for _, c := range checks {
 		for _, f := range c.Findings {
 			finding := Finding{Root: root, Environment: env, Address: f.Resource, Scanner: f.Scanner, Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}
 			if m, ok := engine.ResourceAt(managed, f.Resource); ok {

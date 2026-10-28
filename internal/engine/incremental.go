@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -289,22 +290,22 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	// Verify's does, although staging calls none of them. Only staging's
 	// plan knew the secret values to look for: where root has the ones it
 	// found, its secrets check fails and its scanners don't run either.
-	secrets := staged.check(CheckSecrets)
+	secrets := staged.Named(gate.CheckSecrets)
 	policy := fullGate(opts)
-	policy.plan = func() (Check, []string, error) { return staged.check(CheckPlan), nil, nil }
-	policy.withheld = &secrets
-	gate, _, err := policy.run(ctx, rootTF, root)
+	policy.Plan = func() (gate.Check, []string, error) { return staged.Named(gate.CheckPlan), nil, nil }
+	policy.Withheld = &secrets
+	checks, _, err := policy.Run(ctx, rootTF, root)
 	if err != nil {
 		return nil, errors.Join(err, undo())
 	}
 	// A secret value in root, which the output must never keep, undoes
 	// the addition.
-	for _, c := range gate {
-		if c.Name == CheckSecrets && !c.Passed {
+	for _, c := range checks {
+		if c.Name == gate.CheckSecrets && !c.Passed {
 			return nil, errors.Join(fmt.Errorf("%s failed, so nothing is added: %s", c.Name, strings.Join(c.Details, "; ")), undo())
 		}
 	}
-	result.Gate = gate
+	result.Gate = checks
 	if err := os.RemoveAll(staging); err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -303,8 +304,8 @@ func (h handover) finish(t *testing.T, first appliedRoot) {
 		t.Errorf("%s/%s doesn't have %q:\n%s", fromRoot, engine.MovesFileName, want, moves)
 	}
 	for _, d := range second.Directories {
-		if d.Path == fromRoot && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == engine.CheckMoves && c.Passed && !c.Skipped }) {
-			t.Errorf("%s: the gate doesn't pass %s: %+v", fromRoot, engine.CheckMoves, d.Checks)
+		if d.Path == fromRoot && !slices.ContainsFunc(d.Checks, func(c report.Check) bool { return c.Name == gate.CheckMoves && c.Passed && !c.Skipped }) {
+			t.Errorf("%s: the gate doesn't pass %s: %+v", fromRoot, gate.CheckMoves, d.Checks)
 		}
 	}
 	to := filepath.Join(h.out, filepath.FromSlash(toRoot))

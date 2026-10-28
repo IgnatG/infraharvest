@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 var googleLabels = EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"}
@@ -174,13 +176,13 @@ func TestFillEffectiveTags(t *testing.T) {
 func TestStateOnlyOf(t *testing.T) {
 	t.Parallel()
 	stateOnly := map[string][]string{"*": {"labels"}, "google_compute_network": {"delete_bgp_always_compare_med"}}
-	if got := strings.Join(stateOnlyOf(stateOnly, "google_compute_network"), ","); got != "labels,delete_bgp_always_compare_med" {
+	if got := strings.Join(gate.StateOnlyOf(stateOnly, "google_compute_network"), ","); got != "labels,delete_bgp_always_compare_med" {
 		t.Errorf("google_compute_network: %s", got)
 	}
-	if got := strings.Join(stateOnlyOf(stateOnly, "google_pubsub_topic"), ","); got != "labels" {
+	if got := strings.Join(gate.StateOnlyOf(stateOnly, "google_pubsub_topic"), ","); got != "labels" {
 		t.Errorf("google_pubsub_topic: %s", got)
 	}
-	if got := stateOnlyOf(map[string][]string{"aws_iam_role": {"force_detach_policies"}}, "aws_iam_role"); len(got) != 1 {
+	if got := gate.StateOnlyOf(map[string][]string{"aws_iam_role": {"force_detach_policies"}}, "aws_iam_role"); len(got) != 1 {
 		t.Errorf("aws_iam_role: %v", got)
 	}
 }

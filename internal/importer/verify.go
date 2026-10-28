@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -79,7 +80,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	scanners := engine.DefaultScanners(policies)
+	scanners := gate.DefaultScanners(policies)
 	var results []verifiedRoot
 	var failed []string
 	for _, dir := range roots {
@@ -96,13 +97,13 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		newTF := func(d string) (tfrun.Terraform, error) {
 			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
 		}
-		record := func(root verifiedRoot, gate engine.Gate, managed []engine.Managed) {
-			root.Findings = report.GateFindings(root.Path, root.Environment, managed, gate)
+		record := func(root verifiedRoot, checks gate.Gate, managed []engine.Managed) {
+			root.Findings = report.GateFindings(root.Path, root.Environment, managed, checks)
 			name := root.Path
 			if root.Environment != "" {
 				name += " (" + root.Environment + ")"
 			}
-			for _, c := range gate {
+			for _, c := range checks {
 				root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
 				if !c.Passed {
 					failed = append(failed, fmt.Sprintf("%s: %s failed: %s", name, c.Name, strings.Join(c.Details, "; ")))
@@ -117,7 +118,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			return err
 		}
 		if len(envs) == 0 {
-			gate, err := engine.Verify(ctx, newTF, dir, opts)
+			checks, err := engine.Verify(ctx, newTF, dir, opts)
 			if err != nil {
 				return fmt.Errorf("%s: %w", dir, err)
 			}
@@ -125,14 +126,14 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s: %w", dir, err)
 			}
-			record(verifiedRoot{Path: relativePath(out, dir)}, gate, managed)
+			record(verifiedRoot{Path: relativePath(out, dir)}, checks, managed)
 			continue
 		}
 		for _, env := range envs {
 			if len(options.Environments) > 0 && !slices.Contains(options.Environments, env) {
 				continue
 			}
-			gate, err := engine.VerifyMerged(ctx, newTF, dir, env, opts)
+			checks, err := engine.VerifyMerged(ctx, newTF, dir, env, opts)
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
@@ -140,7 +141,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 			if err != nil {
 				return fmt.Errorf("%s (%s): %w", dir, env, err)
 			}
-			record(verifiedRoot{Path: relativePath(out, dir), Environment: env}, gate, engine.MergedManaged(ids))
+			record(verifiedRoot{Path: relativePath(out, dir), Environment: env}, checks, engine.MergedManaged(ids))
 		}
 	}
 	if err := writeVerified(w, results, format); err != nil {

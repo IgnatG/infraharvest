@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 const movesCheckConfig = `resource "aws_subnet" "b" {
@@ -85,7 +87,7 @@ removed {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !check.Passed || check.Name != CheckMoves {
+	if !check.Passed || check.Name != gate.CheckMoves {
 		t.Errorf("want the moves check passed, got %+v", check)
 	}
 }
@@ -234,7 +236,7 @@ func TestPlanCheckCountsAMoveAsNoChange(t *testing.T) {
 		Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}},
 	}
 	imported := change("aws_vpc.main", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
-	check := planCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved, imported}}, nil, nil, nil, 1)
+	check := gate.PlanCheck(&tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved, imported}}, nil, nil, nil, 1)
 	if !check.Passed || len(check.Changes) != 0 {
 		t.Errorf("want a move and an import passed, got %+v", check)
 	}

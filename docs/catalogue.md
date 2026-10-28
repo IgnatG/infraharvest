@@ -153,7 +153,7 @@ The generated files are read out of the HashiCorp providers' code (`hashicorp/te
 
 The binary embeds both, and MPL-2.0 lets it be distributed as a larger work under AGPL-3.0-only (its section 3.3) on condition that the MPL-2.0 files stay under MPL-2.0 and that recipients are told so, and where their source is (its section 3.2). `NOTICE`, at the repository's root, says that: which files are MPL-2.0, which provider release each was read from, with its address, and that the files are in infraharvest's source at the same release. Every release archive and image carries `NOTICE`, `LICENSE`, `LICENSES/MPL-2.0.txt` and `LICENSES/Apache-2.0.txt` (the image in `/usr/share/doc/infraharvest/`, its licence label `AGPL-3.0-only AND MPL-2.0 AND Apache-2.0`). The schema-metadata workflows write `NOTICE` with the files (`.github/scripts/schema-metadata-notice.sh`), and a test of the package fails if it names another release than a file records.
 
-The binary also embeds OPA's capabilities file (`internal/engine/conftest_capabilities.json`, see [Your own policies](output.md#your-own-policies)), copied unchanged from OPA 1.21.1, which is Apache-2.0. `REUSE.toml` marks it so, with the licence in `LICENSES/Apache-2.0.txt`, and `NOTICE` names the OPA release and the file's address in OPA's repository, as Apache-2.0 asks (its section 4).
+The binary also embeds OPA's capabilities file (`internal/engine/gate/conftest_capabilities.json`, see [Your own policies](output.md#your-own-policies)), copied unchanged from OPA 1.21.1, which is Apache-2.0. `REUSE.toml` marks it so, with the licence in `LICENSES/Apache-2.0.txt`, and `NOTICE` names the OPA release and the file's address in OPA's repository, as Apache-2.0 asks (its section 4).
 
 ### Regenerating
 

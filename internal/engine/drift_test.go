@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -211,7 +212,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		driftResource("module.data.aws_s3_bucket.this", "aws_s3_bucket", tfjson.Actions{tfjson.ActionNoop}, map[string]any{}, map[string]any{}),
 		sensitiveChange(driftResource("aws_db_instance.db", "aws_db_instance", tfjson.Actions{tfjson.ActionUpdate},
 			map[string]any{"password": "new-secret-value"},
-			map[string]any{"password": placeholderString}), map[string]any{"password": true}),
+			map[string]any{"password": secret.PlaceholderValue}), map[string]any{"password": true}),
 		driftResource("aws_sqs_queue.gone", "aws_sqs_queue", tfjson.Actions{tfjson.ActionCreate}, nil, map[string]any{"name": "gone"}),
 	}}
 	importing := driftResource("aws_s3_bucket.fresh", "aws_s3_bucket", tfjson.Actions{tfjson.ActionNoop}, map[string]any{}, map[string]any{})
@@ -257,7 +258,7 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 		t.Fatalf("%d plans, want 2", len(copied.planOpts))
 	}
 	refreshOpts, codeOpts := copied.planOpts[0], copied.planOpts[1]
-	for _, want := range []tfexec.PlanOption{tfexec.RefreshOnly(true), tfexec.Lock(false), tfexec.Var("drift_test_db_password=" + placeholderString), tfexec.Out(filepath.Join(staging, "refresh.tfplan"))} {
+	for _, want := range []tfexec.PlanOption{tfexec.RefreshOnly(true), tfexec.Lock(false), tfexec.Var("drift_test_db_password=" + secret.PlaceholderValue), tfexec.Out(filepath.Join(staging, "refresh.tfplan"))} {
 		if !hasOption(refreshOpts, want) {
 			t.Errorf("the refresh-only plan has no option %#v", want)
 		}
@@ -325,10 +326,10 @@ func TestDriftClassifiesEachChange(t *testing.T) {
 	for _, c := range result.Changes {
 		byKey[c.Address+" "+c.Attribute] = c
 	}
-	if c := byKey["aws_db_instance.db password"]; c.Before != redacted || c.After != redacted {
+	if c := byKey["aws_db_instance.db password"]; c.Before != secret.Redacted || c.After != secret.Redacted {
 		t.Errorf("a sensitive change shows %v -> %v", c.Before, c.After)
 	}
-	if c := byKey["aws_security_group.web description"]; c.After != "rotated "+redacted {
+	if c := byKey["aws_security_group.web description"]; c.After != "rotated "+secret.Redacted {
 		t.Errorf("a secret value in another attribute shows as %v", c.After)
 	}
 	if c := byKey["aws_security_group.web ingress[0].cidr_blocks[0]"]; !strings.Contains(c.Reason, "replaces") {
@@ -428,7 +429,7 @@ func TestDriftSecretForms(t *testing.T) {
 			map[string]any{"container_definitions": `[{"environment":[{"name":"GITHUB_TOKEN","value":"` + token + `"}]}]`},
 			map[string]any{"tags": map[string]any{token: "x"}}),
 	}}
-	got := redactText("old-secret-value new-secret-value "+token+" db-prod", driftSecretForms(nil, p))
+	got := secret.RedactText("old-secret-value new-secret-value "+token+" db-prod", driftSecretForms(nil, p))
 	if want := "(sensitive value) (sensitive value) (sensitive value) db-prod"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -663,7 +664,7 @@ func TestDriftLeavesFoldTagsAndLabels(t *testing.T) {
 func TestRedactDriftValue(t *testing.T) {
 	t.Parallel()
 	token := "ghp_" + strings.Repeat("a1B2", 9)
-	forms := textForms([]string{"hunter22-secret"})
+	forms := secret.TextForms([]string{"hunter22-secret"})
 	for _, tc := range []struct {
 		name string
 		v    any
@@ -671,18 +672,18 @@ func TestRedactDriftValue(t *testing.T) {
 		want any
 	}{
 		{"a credential, whatever its key", map[string]any{"token": token, "name": "web", "list": []any{"hunter22-secret"}}, "settings",
-			map[string]any{"token": redacted, "name": "web", "list": []any{redacted}}},
-		{"a key that names a secret", "Summer2026!", "DB_PASSWORD", redacted},
+			map[string]any{"token": secret.Redacted, "name": "web", "list": []any{secret.Redacted}}},
+		{"a key that names a secret", "Summer2026!", "DB_PASSWORD", secret.Redacted},
 		{"a key that names what identifies a secret", "db-password", "DB_PASSWORD_SECRET_NAME", "db-password"},
 		{"a key that names a secret, and a value that holds none", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db", "DB_PASSWORD", "arn:aws:secretsmanager:eu-west-1:123456789012:secret:db"},
 		{"a random-looking value", "a1b2c3d4e5f6a7b8c9d0", "etag", "a1b2c3d4e5f6a7b8c9d0"},
 		{"entries of a map, nested", map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": "Summer2026!", "hosts": []any{"a", "b"}}}, "variables",
-			map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": redacted, "hosts": []any{"a", "b"}}}},
+			map[string]any{"LOG_LEVEL": "debug", "db": map[string]any{"api_key": secret.Redacted, "hosts": []any{"a", "b"}}}},
 		{"map keys in a credential format", map[string]any{token: "a", "ghp_" + strings.Repeat("z9Y8", 9): "b", "Env": "prod"}, "tags",
-			map[string]any{redacted + " #1": "a", redacted + " #2": "b", "Env": "prod"}},
-		{"a list under a key that names a secret", []any{"Summer2026!", "Winter2026!"}, "passwords", []any{redacted, redacted}},
+			map[string]any{secret.Redacted + " #1": "a", secret.Redacted + " #2": "b", "Env": "prod"}},
+		{"a list under a key that names a secret", []any{"Summer2026!", "Winter2026!"}, "passwords", []any{secret.Redacted, secret.Redacted}},
 		{"the value of a name/value pair", []any{map[string]any{"name": "DB_PASSWORD", "value": "Summer2026!"}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}, "env",
-			[]any{map[string]any{"name": "DB_PASSWORD", "value": redacted}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}},
+			[]any{map[string]any{"name": "DB_PASSWORD", "value": secret.Redacted}, map[string]any{"name": "LOG_LEVEL", "value": "debug"}}},
 		{"a pair that names a secret kept elsewhere", map[string]any{"name": "DB_PASSWORD", "type": "SECRETS_MANAGER", "value": "prod/db:password"}, "environment_variable",
 			map[string]any{"name": "DB_PASSWORD", "type": "SECRETS_MANAGER", "value": "prod/db:password"}},
 		{"a JSON document", `{"environment":[{"name":"DB_PASSWORD","value":"Summer2026!"}],"image":"web"}`, "container_definitions",
@@ -695,7 +696,7 @@ func TestRedactDriftValue(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
 		}
 	}
-	if got := redactDriftValue(map[string]any{"a": "b"}, "a", true, nil); got != redacted {
+	if got := redactDriftValue(map[string]any{"a": "b"}, "a", true, nil); got != secret.Redacted {
 		t.Errorf("a sensitive value shows as %v", got)
 	}
 }
@@ -725,9 +726,9 @@ func TestClassifyDriftRedactsSecretsByName(t *testing.T) {
 		got[c.Attribute] = c.After
 	}
 	want := map[string]any{
-		"environment[0].variables.DB_PASSWORD": redacted,
+		"environment[0].variables.DB_PASSWORD": secret.Redacted,
 		"environment[0].variables.LOG_LEVEL":   "debug",
-		"settings":                             map[string]any{"api_key": redacted, "region": "eu-west-1"},
+		"settings":                             map[string]any{"api_key": secret.Redacted, "region": "eu-west-1"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)

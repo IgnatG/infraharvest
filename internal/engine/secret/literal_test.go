@@ -1,21 +1,20 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package secret
 
 import (
-	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // fakeSecret makes a 64-character hex secret from seed, like the Lambda
@@ -25,6 +24,35 @@ func fakeSecret(seed string) string {
 	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:])
 }
+
+// writeGenerated writes content into the generated configuration of dir
+// and loads it.
+func writeGenerated(t *testing.T, dir, content string) *hclfile.File {
+	t.Helper()
+	path := filepath.Join(dir, generatedFile)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := hclfile.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// readGenerated returns the generated configuration of dir.
+func readGenerated(t *testing.T, dir string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(dir, generatedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
+}
+
+// generatedFile is the file Terraform generates configuration into, which
+// the engine moves secrets out of.
+const generatedFile = "generated.tf"
 
 // assertNotWritten fails if any file under dir holds one of values.
 func assertNotWritten(t *testing.T, dir string, values ...string) {
@@ -49,101 +77,12 @@ func assertNotWritten(t *testing.T, dir string, values ...string) {
 	}
 }
 
-// The sandbox run wrote two Lambda environment secrets verbatim: the
-// provider doesn't mark map values sensitive, so Terraform generated them.
-// Moving them changes generated.tf, so Generate says it plans again.
-func TestGenerateMovesEnvironmentSecretsToVariables(t *testing.T) {
-	var logged bytes.Buffer
-	writer, flags := log.Writer(), log.Flags()
-	log.SetOutput(&logged)
-	log.SetFlags(0)
-	t.Cleanup(func() {
-		log.SetOutput(writer)
-		log.SetFlags(flags)
-	})
-	dir := t.TempDir()
-	// The engine writes the secrets' var file under the temporary
-	// directory, which the fake then reads it from.
-	secretsTemp := t.TempDir()
-	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
-		t.Setenv(name, secretsTemp)
-	}
-	secret := fakeSecret("webhook")
-	tf := &fakeTerraform{dir: dir, secretsTemp: secretsTemp, generated: `resource "aws_lambda_function" "api" {
-  function_name = "api"
-  role          = "arn:aws:iam::123456789012:role/api"
-  environment {
-    variables = {
-      LOG_LEVEL      = "debug"
-      TABLE_ARN      = "arn:aws:dynamodb:eu-west-2:123456789012:table/orders"
-      WEBHOOK_SECRET = "` + secret + `"
-    }
-  }
-}
-`}
-
-	result, err := Generate(context.Background(), tf, dir, []Import{{Type: "aws_lambda_function", Name: "api", ID: "api"}}, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []Secret{{Variable: "aws_lambda_function_api_webhook_secret", Address: "aws_lambda_function.api", Attribute: "environment.variables.WEBHOOK_SECRET"}}
-	var got []Secret
-	for _, s := range result.Secrets {
-		got = append(got, Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("secrets: got %+v, want %+v", got, want)
-	}
-	if wantLog := dir + ": planning generated.tf again: " + string(replanSecrets) + "\n"; logged.String() != wantLog {
-		t.Errorf("log: got %q, want %q", logged.String(), wantLog)
-	}
-	generated := readFile(t, dir, GeneratedFileName)
-	for _, line := range []string{"WEBHOOK_SECRET = var.aws_lambda_function_api_webhook_secret", `LOG_LEVEL      = "debug"`, `TABLE_ARN      = "arn:aws:dynamodb:`} {
-		if !strings.Contains(generated, line) {
-			t.Errorf("missing %q in:\n%s", line, generated)
-		}
-	}
-	variables := readFile(t, dir, VariablesFileName)
-	for _, want := range []string{`variable "aws_lambda_function_api_webhook_secret" {`, "type        = string", "sensitive   = true", "secret store", "TF_VAR_aws_lambda_function_api_webhook_secret"} {
-		if !strings.Contains(variables, want) {
-			t.Errorf("missing %q in variables.tf:\n%s", want, variables)
-		}
-	}
-	if strings.Contains(variables, "default") {
-		t.Errorf("a secret variable has a default:\n%s", variables)
-	}
-	if readme := readFile(t, dir, ReadmeFileName); !strings.Contains(readme, "`aws_lambda_function_api_webhook_secret`") {
-		t.Errorf("README doesn't list the variable:\n%s", readme)
-	}
-	// Infraharvest's own plans had the value, from outside the output, so
-	// the plan stays clean; the file is gone afterwards.
-	if len(tf.varFiles) == 0 {
-		t.Fatal("no plan was given the secret's value")
-	}
-	for path, content := range tf.varFiles {
-		if !strings.Contains(content, secret) {
-			t.Errorf("var file %s lacks the value: %s", path, content)
-		}
-		if strings.HasPrefix(path, dir) {
-			t.Errorf("var file %s is in the output", path)
-		}
-		if _, err := os.Stat(path); err == nil {
-			t.Errorf("var file %s left behind", path)
-		}
-	}
-	if !result.Gate.check(CheckSecrets).Passed {
-		t.Errorf("G6 failed: %+v", result.Gate.check(CheckSecrets))
-	}
-	assertNotWritten(t, dir, secret)
-}
-
 func TestLiteralSecretsInContainerDefinitions(t *testing.T) {
 	t.Parallel()
 	password := fakeSecret("db")[:24]
 	token := fakeSecret("token")
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "app" {
+	writeGenerated(t, dir, `resource "aws_ecs_task_definition" "app" {
   family = "app"
   container_definitions = jsonencode([{
     environment = [{ name = "DB_PASSWORD", value = "`+password+`" }, { name = "PORT", value = "8080" }]
@@ -159,7 +98,7 @@ resource "aws_ecs_task_definition" "legacy" {
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +114,7 @@ resource "aws_ecs_task_definition" "legacy" {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readGenerated(t, dir)
 	for _, want := range []string{
 		`value = var.aws_ecs_task_definition_app_db_password`,
 		`value = "8080"`,
@@ -197,7 +136,7 @@ func TestLiteralSecretsLeaveOutPolicyConditions(t *testing.T) {
 	t.Parallel()
 	key := "github_pat_" + fakeSecret("pat")[:40]
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_role" "ci" {
+	writeGenerated(t, dir, `resource "aws_iam_role" "ci" {
   name = "ci"
   assume_role_policy = jsonencode({
     Statement = [{
@@ -219,7 +158,7 @@ resource "aws_iam_role" "legacy" {
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +169,7 @@ resource "aws_iam_role" "legacy" {
 	if want := []string{`jsondecode(assume_role_policy).Statement[0].Condition.StringEquals["aws:RequestTag/api"]`}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readGenerated(t, dir)
 	for _, want := range []string{`= "sts.amazonaws.com"`, `= "repo:octo/app:environment:prod"`, `repo:octo/app:ref:refs/heads/main`} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("missing %q in:\n%s", want, generated)
@@ -245,7 +184,7 @@ func TestLiteralSecretsInAppSettingsAndEnv(t *testing.T) {
 	password := fakeSecret("sql")[:20]
 	token := fakeSecret("run")
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "azurerm_linux_web_app" "web" {
+	writeGenerated(t, dir, `resource "azurerm_linux_web_app" "web" {
   name = "web"
   app_settings = {
     API_KEY                  = "`+apiKey+`"
@@ -273,7 +212,7 @@ resource "google_cloud_run_v2_service" "api" {
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), Names{"var.azurerm_linux_web_app_web_api_key": true})
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), map[string]bool{"var.azurerm_linux_web_app_web_api_key": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +230,7 @@ resource "google_cloud_run_v2_service" "api" {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readGenerated(t, dir)
 	for _, want := range []string{`"@Microsoft.KeyVault(`, `WEBSITE_RUN_FROM_PACKAGE = "1"`, `value = "production"`, `value = var.google_cloud_run_v2_service_api_upstream_token`} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("missing %q in:\n%s", want, generated)
@@ -353,8 +292,8 @@ func TestSecretReason(t *testing.T) {
 		{"source_code_hash", secret, false, false},
 		{"description", "keep the API secret safe", true, false},
 	} {
-		if got := secretReason(tc.key, tc.value, tc.freeForm) != ""; got != tc.secret {
-			t.Errorf("secretReason(%q, %q, %v): got secret %v, want %v", tc.key, tc.value, tc.freeForm, got, tc.secret)
+		if got := Reason(tc.key, tc.value, tc.freeForm) != ""; got != tc.secret {
+			t.Errorf("Reason(%q, %q, %v): got secret %v, want %v", tc.key, tc.value, tc.freeForm, got, tc.secret)
 		}
 	}
 }
@@ -379,7 +318,7 @@ func TestKeyWords(t *testing.T) {
 func TestAccessKeyTagWarning(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_iam_user" "ci" {
+	writeGenerated(t, dir, `resource "aws_iam_user" "ci" {
   name = "ci"
   tags = {
     `+testKeyID+` = "github-actions"
@@ -387,7 +326,7 @@ func TestAccessKeyTagWarning(t *testing.T) {
 }
 `)
 
-	secrets, warnings, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, warnings, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,36 +336,6 @@ func TestAccessKeyTagWarning(t *testing.T) {
 	}
 	if len(warnings) != 1 || !strings.Contains(warnings[0], "aws_iam_user.ci") || strings.Contains(warnings[0], testKeyID) {
 		t.Errorf("want one warning naming the user without the whole ID, got %q", warnings)
-	}
-}
-
-// The gate fails a root with a secret value left in it, such as one an
-// edit put back.
-func TestScanSecretsFailsOnPlantedSecret(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_lambda_function" "api" {
-  function_name = "api"
-  environment {
-    variables = {
-      API_SECRET = "`+fakeSecret("planted")+`"
-    }
-  }
-}
-`)
-	writeConfig(t, dir, ImportsFileName, `import {
-  to = aws_lambda_function.api
-  id = "api"
-}
-`)
-
-	check, err := scanSecrets(dir, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if check.Passed || len(check.Details) != 1 || !strings.Contains(check.Details[0], "generated.tf: environment.variables.API_SECRET of resource.aws_lambda_function.api holds a secret value") {
-		t.Errorf("want G6 to fail on the secret, got %+v", check)
 	}
 }
 
@@ -475,7 +384,7 @@ func TestLiteralSecretsInScripts(t *testing.T) {
 	userData := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nyum install -y mysql\nexport DB_PASSWORD='" + password + "'\n"))
 	clean := base64.StdEncoding.EncodeToString([]byte("#!/bin/bash\nmkdir -p /opt/app\nexport DB_PASSWORD=$(aws secretsmanager get-secret-value --secret-id db --query SecretString --output text)\n"))
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_launch_template" "app" {
+	writeGenerated(t, dir, `resource "aws_launch_template" "app" {
   name      = "app"
   user_data = "`+userData+`"
 }
@@ -494,7 +403,7 @@ resource "google_compute_instance" "web" {
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -506,7 +415,7 @@ resource "google_compute_instance" "web" {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	generated := readFile(t, dir, GeneratedFileName)
+	generated := readGenerated(t, dir)
 	for _, want := range []string{clean, `enable-oslogin = "TRUE"`} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("missing %q in:\n%s", want, generated)
@@ -543,13 +452,13 @@ func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
 	t.Parallel()
 	token := fakeSecret("token")
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+	writeGenerated(t, dir, `resource "aws_ecs_task_definition" "legacy" {
   family                = "legacy"
   container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"},{\"name\":\"OLD_API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +466,7 @@ func TestLiteralSecretsRepeatedInAJSONString(t *testing.T) {
 	if len(secrets) != 1 || secrets[0].Variable != "aws_ecs_task_definition_legacy_api_token" {
 		t.Errorf("want one variable, got %+v", secrets)
 	}
-	if n := strings.Count(readFile(t, dir, GeneratedFileName), "${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}"); n != 2 {
+	if n := strings.Count(readGenerated(t, dir), "${jsonencode(var.aws_ecs_task_definition_legacy_api_token)}"); n != 2 {
 		t.Errorf("the variable is read %d times, want 2", n)
 	}
 	assertNotWritten(t, dir, token)
@@ -569,13 +478,13 @@ func TestLiteralSecretsJSONEncodedOtherwise(t *testing.T) {
 	t.Parallel()
 	token := fakeSecret("amp")[:32] + "&" + fakeSecret("amp")[32:]
 	dir := t.TempDir()
-	writeConfig(t, dir, GeneratedFileName, `resource "aws_ecs_task_definition" "legacy" {
+	writeGenerated(t, dir, `resource "aws_ecs_task_definition" "legacy" {
   family                = "legacy"
   container_definitions = "[{\"environment\":[{\"name\":\"API_TOKEN\",\"value\":\"`+token+`\"}],\"name\":\"web\"}]"
 }
 `)
 
-	secrets, _, err := literalSecretsToVariables(filepath.Join(dir, GeneratedFileName), nil)
+	secrets, _, err := LiteralsToVariables(filepath.Join(dir, generatedFile), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -583,7 +492,7 @@ func TestLiteralSecretsJSONEncodedOtherwise(t *testing.T) {
 	if len(secrets) != 1 {
 		t.Fatalf("want one variable, got %+v", secrets)
 	}
-	if generated := readFile(t, dir, GeneratedFileName); strings.Contains(generated, "jsonencode(") {
+	if generated := readGenerated(t, dir); strings.Contains(generated, "jsonencode(") {
 		t.Errorf("the value is read in place:\n%s", generated)
 	}
 	assertNotWritten(t, dir, token)

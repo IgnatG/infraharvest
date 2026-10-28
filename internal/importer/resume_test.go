@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 // claimFor claims the root in dir, under out, for generating it from the
@@ -37,7 +38,7 @@ func TestCheckpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result := &engine.Result{Imported: imports, Gate: engine.Gate{{Name: engine.CheckPlan, Passed: true}}}
+	result := &engine.Result{Imported: imports, Gate: gate.Gate{{Name: gate.CheckPlan, Passed: true}}}
 
 	// Nothing recorded yet.
 	if got, err := resumed(out, dir, fp); err != nil || got != nil {

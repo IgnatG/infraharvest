@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -154,7 +155,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	// The verification gate may only fail on what the emulator leaves out.
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
-			if !c.Passed && (c.Name != engine.CheckPlan || !emulatorGapsOnly(c.Details)) {
+			if !c.Passed && (c.Name != gate.CheckPlan || !emulatorGapsOnly(c.Details)) {
 				t.Errorf("%s: %s failed: %v", d.Path, c.Name, c.Details)
 			}
 		}
@@ -680,7 +681,7 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	}
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
-			if !c.Passed && (c.Name != engine.CheckPlan || !emulatorGapsOnly(c.Details)) {
+			if !c.Passed && (c.Name != gate.CheckPlan || !emulatorGapsOnly(c.Details)) {
 				t.Errorf("--incremental: %s: %s failed: %v", d.Path, c.Name, c.Details)
 			}
 		}

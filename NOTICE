@@ -34,6 +34,6 @@ It lists OPA's built-in functions, keywords and features, and infraharvest
 gives conftest those of them it lets policies use; the file is unchanged
 and stays under Apache-2.0.
 
-internal/engine/conftest_capabilities.json
+internal/engine/gate/conftest_capabilities.json
   from OPA 1.21.1 (capabilities/v1.21.1.json), Copyright The OPA Authors
   source: https://github.com/open-policy-agent/opa/blob/v1.21.1/capabilities/v1.21.1.json

@@ -873,7 +873,7 @@ func (r *Run) goneFrom(dir string) []string {
 
 // treeBackup is what a directory held: each file under it, but in
 // Terraform's working directory and local state (see
-// engine.LocalStateFile), such as its workspaces' in terraform.tfstate.d,
+// tfrun.LocalStateFile), such as its workspaces' in terraform.tfstate.d,
 // by path relative to it: restoring it never writes state back.
 type treeBackup struct {
 	dir   string
@@ -890,10 +890,10 @@ func backupTree(dir string) (*treeBackup, error) {
 			}
 			return err
 		}
-		if d.IsDir() && (d.Name() == ".terraform" || engine.LocalStateFile(d.Name())) {
+		if d.IsDir() && (d.Name() == ".terraform" || tfrun.LocalStateFile(d.Name())) {
 			return filepath.SkipDir
 		}
-		if engine.LocalStateFile(d.Name()) {
+		if tfrun.LocalStateFile(d.Name()) {
 			return nil
 		}
 		if !d.Type().IsRegular() {

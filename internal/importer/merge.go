@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -346,7 +347,7 @@ func mergeRefusal(out, stack string, members []mergeMember, adopted bool) string
 
 // localStateRefusal returns why the root in dir, under out, isn't merged,
 // if it holds local state, such as the terraform.tfstate of a root
-// applied without a backend (see engine.LocalStateFile): merging sets the
+// applied without a backend (see tfrun.LocalStateFile): merging sets the
 // root aside, and its state stays where it is, with no root to apply it.
 func localStateRefusal(out, dir string) string {
 	entries, err := os.ReadDir(dir)
@@ -358,7 +359,7 @@ func localStateRefusal(out, dir string) string {
 	}
 	var state []string
 	for _, e := range entries {
-		if engine.LocalStateFile(e.Name()) {
+		if tfrun.LocalStateFile(e.Name()) {
 			state = append(state, e.Name())
 		}
 	}
@@ -419,7 +420,7 @@ func premergeDir(out, dir string) string {
 }
 
 // copyRoot copies the files directly in the root at from, but Terraform's
-// working directory and local state (see engine.LocalStateFile), into
+// working directory and local state (see tfrun.LocalStateFile), into
 // to, which it empties first: the state stays where Terraform keeps it.
 func copyRoot(from, to string) error {
 	if err := os.RemoveAll(to); err != nil {
@@ -433,7 +434,7 @@ func copyRoot(from, to string) error {
 		return err
 	}
 	for _, e := range entries {
-		if !e.Type().IsRegular() || engine.LocalStateFile(e.Name()) {
+		if !e.Type().IsRegular() || tfrun.LocalStateFile(e.Name()) {
 			continue
 		}
 		content, err := os.ReadFile(filepath.Join(from, e.Name()))
@@ -462,7 +463,7 @@ func removeRoot(out, dir string) error {
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		switch {
-		case e.Type().IsRegular() && !engine.LocalStateFile(e.Name()):
+		case e.Type().IsRegular() && !tfrun.LocalStateFile(e.Name()):
 			if err := os.Remove(path); err != nil {
 				return err
 			}

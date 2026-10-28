@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package secret
 
 import (
 	"encoding/base64"
@@ -36,8 +36,8 @@ import (
 // ECS container definition, an App Service's app settings, a Cloud Run
 // container's env. The functions below find the secrets among those values,
 // by the name they go by and by their shape, so that Generate moves them
-// into sensitive variables (see literalSecretsToVariables) and the
-// verification gate fails on any that remains (see literalSecrets).
+// into sensitive variables (see LiteralsToVariables) and the
+// verification gate fails on any that remains (see Literals).
 
 // foundSecret is a secret value written in a string literal of the
 // configuration.
@@ -76,11 +76,11 @@ func secretsInBody(body *hclsyntax.Body, prefix string) []foundSecret {
 	sort.Strings(names)
 	// A name/value pair, such as a Cloud Run container's env block or a
 	// CodeBuild environment_variable, names its value.
-	pairName := stringLiteral(attributeExpr(body, "name"))
+	pairName := hclfile.StringLiteral(hclfile.AttributeExpr(body, "name"))
 	if pairName == "" {
-		pairName = stringLiteral(attributeExpr(body, "key"))
+		pairName = hclfile.StringLiteral(hclfile.AttributeExpr(body, "key"))
 	}
-	reference := isReferenceType(stringLiteral(attributeExpr(body, "type")))
+	reference := IsReferenceType(hclfile.StringLiteral(hclfile.AttributeExpr(body, "type")))
 	for _, name := range names {
 		expr := body.Attributes[name].Expr
 		switch {
@@ -106,7 +106,7 @@ func secretsInBody(body *hclsyntax.Body, prefix string) []foundSecret {
 		if tagAttribute(b.Type) {
 			// Tags written as blocks, such as an Auto Scaling group's.
 			for _, f := range secretsInBody(b.Body, prefix+segment+".") {
-				if f.reason != "" && credentialFormat(f.value) != "" {
+				if f.reason != "" && CredentialFormat(f.value) != "" {
 					found = append(found, f)
 				}
 			}
@@ -117,33 +117,15 @@ func secretsInBody(body *hclsyntax.Body, prefix string) []foundSecret {
 	return found
 }
 
-// isReferenceType reports whether the type of a name/value pair says its
+// IsReferenceType reports whether the type of a name/value pair says its
 // value names a secret kept elsewhere, as a CodeBuild environment
 // variable of type PARAMETER_STORE or SECRETS_MANAGER does.
-func isReferenceType(t string) bool {
+func IsReferenceType(t string) bool {
 	switch strings.ToUpper(t) {
 	case "PARAMETER_STORE", "SECRETS_MANAGER", "SECRET_MANAGER", "SECRETSMANAGER":
 		return true
 	}
 	return false
-}
-
-func attributeExpr(body *hclsyntax.Body, name string) hclsyntax.Expression {
-	if attr, ok := body.Attributes[name]; ok {
-		return attr.Expr
-	}
-	return nil
-}
-
-// stringLiteral returns the value of a string literal, "" for anything
-// else (see literalString).
-func stringLiteral(expr hclsyntax.Expression) string {
-	t, ok := expr.(*hclsyntax.TemplateExpr)
-	if !ok {
-		return ""
-	}
-	s, _ := literalString(t)
-	return s
 }
 
 // secretsInExpr returns the secrets in expr, found at path under key.
@@ -160,7 +142,7 @@ func secretsInExpr(expr hclsyntax.Expression, path, key string, freeForm, tags b
 func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags, condition bool) []foundSecret {
 	switch e := expr.(type) {
 	case *hclsyntax.TemplateExpr:
-		value := stringLiteral(e)
+		value := hclfile.StringLiteral(e)
 		if value == "" {
 			return nil
 		}
@@ -183,22 +165,22 @@ func secretsInPolicy(expr hclsyntax.Expression, path, key string, freeForm, tags
 		if condition {
 			keyName = ""
 		}
-		if reason := secretReason(keyName, value, freeForm && !tags); reason != "" {
+		if reason := Reason(keyName, value, freeForm && !tags); reason != "" {
 			return []foundSecret{{attribute: path, key: key, value: value, reason: reason, literal: e, whole: true}}
 		}
 		return nil
 	case *hclsyntax.ObjectConsExpr:
 		values := map[string]string{}
 		for _, item := range e.Items {
-			if k := objectKey(item.KeyExpr); k != "" {
-				values[k] = stringLiteral(item.ValueExpr)
+			if k := hclfile.ObjectKey(item.KeyExpr); k != "" {
+				values[k] = hclfile.StringLiteral(item.ValueExpr)
 			}
 		}
 		pairName := firstOf(values, "name", "Name", "key", "Key")
-		reference := isReferenceType(firstOf(values, "type", "Type"))
+		reference := IsReferenceType(firstOf(values, "type", "Type"))
 		var found []foundSecret
 		for _, item := range e.Items {
-			k := objectKey(item.KeyExpr)
+			k := hclfile.ObjectKey(item.KeyExpr)
 			if k == "" {
 				continue
 			}
@@ -237,16 +219,6 @@ func firstOf(values map[string]string, keys ...string) string {
 	return ""
 }
 
-// objectKey returns the key of an object constructor's item, "" if it
-// isn't a constant.
-func objectKey(expr hclsyntax.Expression) string {
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
-		return ""
-	}
-	return v.AsString()
-}
-
 // pathSegment renders a key as the next step of a path: .name, or
 // ["key"] when it isn't an identifier.
 func pathSegment(k string) string {
@@ -282,7 +254,7 @@ func secretsInJSONString(e *hclsyntax.TemplateExpr, value, path, key string) []f
 			if condition {
 				keyName = ""
 			}
-			if reason := secretReason(keyName, v, true); reason != "" {
+			if reason := Reason(keyName, v, true); reason != "" {
 				found = append(found, foundSecret{attribute: at, key: name, value: v, reason: reason, literal: e, outer: path, outerKey: key})
 			}
 		case map[string]any:
@@ -348,7 +320,7 @@ var (
 
 // scriptSecret says why the script value holds a secret, or returns "": a
 // credential format anywhere in it, or a line that sets a key whose name
-// says it is a secret (see secretReason) to a value of its own, not one it
+// says it is a secret (see Reason) to a value of its own, not one it
 // reads from elsewhere, as "$DB_PASSWORD" or "$(aws secretsmanager ...)"
 // does. A script in base64 is decoded first.
 func scriptSecret(value string) string {
@@ -358,7 +330,7 @@ func scriptSecret(value string) string {
 			text = string(decoded)
 		}
 	}
-	if name := credentialFormat(text); name != "" {
+	if name := CredentialFormat(text); name != "" {
 		return "the script holds what looks like a " + name
 	}
 	for _, line := range strings.Split(text, "\n") {
@@ -369,7 +341,7 @@ func scriptSecret(value string) string {
 		for _, re := range scriptAssignment {
 			for _, m := range re.FindAllStringSubmatch(line, -1) {
 				key, v := m[1], strings.Trim(m[2], `"'`)
-				if secretKeyName(key) && scriptValue(v) && secretReason(key, v, true) != "" {
+				if IsName(key) && scriptValue(v) && Reason(key, v, true) != "" {
 					return "the script sets " + key + ", whose name says it is a secret"
 				}
 			}
@@ -385,22 +357,22 @@ func scriptValue(v string) bool {
 	return v != "" && !strings.ContainsAny(v[:1], "$`<@%") && !strings.Contains(v, "$(") && !strings.Contains(v, "${")
 }
 
-// secretReason says why value, going by key, is a secret, or returns "".
-// Credential formats (see credentialFormat) are secrets anywhere. A value
-// whose key names a secret (see secretKeyName), or that looks random
+// Reason says why value, going by key, is a secret, or returns "".
+// Credential formats (see CredentialFormat) are secrets anywhere. A value
+// whose key names a secret (see IsName), or that looks random
 // enough to be one (see highEntropy), is a secret only where freeForm says
 // the key is a name someone chose. A value whose key names a secret is one
 // unless it holds no secret at all (see noSecret): spaces and digits don't
 // make it plain, as a passphrase or a PIN has them. Any other value must
 // also not be plainly something else (see plainValue).
-func secretReason(key, value string, freeForm bool) string {
-	if name := credentialFormat(value); name != "" {
+func Reason(key, value string, freeForm bool) string {
+	if name := CredentialFormat(value); name != "" {
 		return "looks like a " + name
 	}
 	if !freeForm {
 		return ""
 	}
-	if secretKeyName(key) {
+	if IsName(key) {
 		if noSecret(value) {
 			return ""
 		}
@@ -438,9 +410,9 @@ func authorizationHeader(value string) bool {
 		(strings.ContainsAny(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(token, "abcdefghijklmnopqrstuvwxyz")))
 }
 
-// credentialFormat returns the name of the credential format value has,
+// CredentialFormat returns the name of the credential format value has,
 // such as a private key, or "".
-func credentialFormat(value string) string {
+func CredentialFormat(value string) string {
 	if authorizationHeader(value) {
 		return "credential in an Authorization header"
 	}
@@ -503,7 +475,7 @@ func noSecret(value string) bool {
 			return false
 		}
 		for k := range u.Query() {
-			if secretKeyName(k) || strings.EqualFold(k, "sig") || strings.EqualFold(k, "key") || strings.EqualFold(k, "code") {
+			if IsName(k) || strings.EqualFold(k, "sig") || strings.EqualFold(k, "key") || strings.EqualFold(k, "code") {
 				return false
 			}
 		}
@@ -570,9 +542,9 @@ var identifierWords = map[string]bool{
 	"INTERVAL": true, "AGE": true, "RETRIES": true, "BEHAVIOR": true, "BEHAVIOUR": true,
 }
 
-// secretKeyName reports whether key names a secret, such as API_SECRET,
+// IsName reports whether key names a secret, such as API_SECRET,
 // DB_PASSWORD or clientSecret, but not SECRET_ARN or ACCESS_KEY_ID.
-func secretKeyName(key string) bool {
+func IsName(key string) bool {
 	words := keyWords(key)
 	if len(words) == 0 || identifierWords[words[len(words)-1]] {
 		return false
@@ -650,12 +622,12 @@ var awsAccessKeyIDTag = regexp.MustCompile(`^(AKIA|ASIA)[0-9A-Z]{16}$`)
 func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 	var warnings []string
 	for _, name := range []string{"tags", "tags_all"} {
-		obj, ok := attributeExpr(body, name).(*hclsyntax.ObjectConsExpr)
+		obj, ok := hclfile.AttributeExpr(body, name).(*hclsyntax.ObjectConsExpr)
 		if !ok {
 			continue
 		}
 		for _, item := range obj.Items {
-			if k := objectKey(item.KeyExpr); awsAccessKeyIDTag.MatchString(k) {
+			if k := hclfile.ObjectKey(item.KeyExpr); awsAccessKeyIDTag.MatchString(k) {
 				warnings = append(warnings, fmt.Sprintf("%s has a tag named after the AWS access key ID %s…%s. An access key ID alone isn't a secret, but check that the tag is meant to be there and that the key's secret isn't kept anywhere near it", address, k[:4], k[len(k)-4:]))
 			}
 		}
@@ -663,7 +635,7 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 	return warnings
 }
 
-// literalSecretsToVariables moves each secret value written in the
+// LiteralsToVariables moves each secret value written in the
 // resources of the file at path into a new sensitive variable, named after
 // the resource and the key the value goes by, other than the variables in
 // taken, and rewrites the file. A value inside the JSON document of a
@@ -671,9 +643,9 @@ func accessKeyTagWarnings(address string, body *hclsyntax.Body) []string {
 // jsonencode writes it as the string has it; otherwise the whole string
 // moves into the variable.
 // It returns the variables, with the values, which infraharvest's own plans
-// need (see secretValues), and warnings about tags named after AWS access
+// need (see Values), and warnings about tags named after AWS access
 // key IDs.
-func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, error) {
+func LiteralsToVariables(path string, taken map[string]bool) ([]Variable, []string, error) {
 	file, err := hclfile.Load(path)
 	if err != nil {
 		return nil, nil, err
@@ -690,7 +662,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 		text       string
 	}
 	var edits []edit
-	var secrets []Secret
+	var secrets []Variable
 	var warnings []string
 	name := func(address, key string) string {
 		base := strings.Trim(notInVariableName.ReplaceAllString(address+"_"+strings.ToLower(key), "_"), "_")
@@ -716,7 +688,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 			if f.whole {
 				v := name(address, f.key)
 				edits = append(edits, edit{f.literal.SrcRange.Start.Byte, f.literal.SrcRange.End.Byte, keepNewline(src, f.literal.SrcRange, "var."+v)})
-				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, ty: cty.String})
+				secrets = append(secrets, Variable{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, Type: cty.String})
 				continue
 			}
 			if _, ok := inJSON[f.literal]; !ok {
@@ -743,7 +715,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				whole := inJSON[literal][0]
 				v := name(address, whole.outerKey)
 				edits = append(edits, edit{start, end, keepNewline(src, literal.SrcRange, "var."+v)})
-				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: whole.outer, key: whole.outerKey, value: stringLiteral(literal), ty: cty.String})
+				secrets = append(secrets, Variable{Variable: v, Address: address, Attribute: whole.outer, key: whole.outerKey, value: hclfile.StringLiteral(literal), Type: cty.String})
 				continue
 			}
 			// jsonencode writes the quotes and escapes what the variable
@@ -758,7 +730,7 @@ func literalSecretsToVariables(path string, taken Names) ([]Secret, []string, er
 				byValue[f.value] = true
 				v := name(address, f.key)
 				text = strings.ReplaceAll(text, `\"`+f.value+`\"`, `${jsonencode(var.`+v+`)}`)
-				secrets = append(secrets, Secret{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, ty: cty.String})
+				secrets = append(secrets, Variable{Variable: v, Address: address, Attribute: f.attribute, key: f.key, value: f.value, Type: cty.String})
 			}
 			edits = append(edits, edit{start, end, text})
 		}
@@ -786,16 +758,16 @@ func keepNewline(src []byte, rng hcl.Range, text string) string {
 	return text
 }
 
-// secretValues holds the values of the secret variables infraharvest
+// Values holds the values of the secret variables infraharvest
 // found in the configuration, for its own plans: in a .tfvars.json file in
-// a private temporary directory outside the output, which remove deletes.
+// a private temporary directory outside the output, which Remove deletes.
 // They are never written into the output.
-type secretValues struct {
+type Values struct {
 	dir  string
 	path string // "" while no secret has a value
 }
 
-func newSecretValues() (*secretValues, error) {
+func NewValues() (*Values, error) {
 	// What a run killed before it could remove its own goes, once per
 	// process.
 	removeStaleOnce.Do(func() { removeStaleSecretValues(os.TempDir(), time.Now().Add(-staleSecretsAge)) })
@@ -803,24 +775,24 @@ func newSecretValues() (*secretValues, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &secretValues{dir: dir}, nil
+	return &Values{dir: dir}, nil
 }
 
-// The temporary directories of secretValues, and the file in each.
+// The temporary directories of Values, and the file in each.
 const (
 	secretValuesPattern = "infraharvest-secrets-"
 	secretValuesFile    = "secrets.tfvars.json"
 )
 
-// staleSecretsAge is how old a secretValues directory is when no run uses
+// staleSecretsAge is how old a Values directory is when no run uses
 // it any more: a run that was killed left it.
 const staleSecretsAge = 24 * time.Hour
 
-// removeStaleOnce has newSecretValues remove stale directories once per
+// removeStaleOnce has NewValues remove stale directories once per
 // process.
 var removeStaleOnce sync.Once
 
-// removeStaleSecretValues removes the secretValues directories in parent
+// removeStaleSecretValues removes the Values directories in parent
 // that neither changed nor had their values file change since before.
 func removeStaleSecretValues(parent string, before time.Time) {
 	dirs, err := filepath.Glob(filepath.Join(parent, secretValuesPattern+"*"))
@@ -841,8 +813,8 @@ func removeStaleSecretValues(parent string, before time.Time) {
 	}
 }
 
-// write replaces the file with the values of the secrets that have one.
-func (s *secretValues) write(secrets []Secret) error {
+// Write replaces the file with the values of the secrets that have one.
+func (s *Values) Write(secrets []Variable) error {
 	values := map[string]string{}
 	for _, secret := range secrets {
 		if secret.value != "" {
@@ -865,50 +837,50 @@ func (s *secretValues) write(secrets []Secret) error {
 	return nil
 }
 
-// options are the plan options that set the variables, if any.
-func (s *secretValues) options() []tfexec.PlanOption {
+// Options are the plan options that set the variables, if any.
+func (s *Values) Options() []tfexec.PlanOption {
 	if s == nil || s.path == "" {
 		return nil
 	}
 	return []tfexec.PlanOption{tfexec.VarFile(s.path)}
 }
 
-// remove deletes the file and its directory.
-func (s *secretValues) remove() {
+// Remove deletes the file and its directory.
+func (s *Values) Remove() {
 	if s != nil {
 		_ = os.RemoveAll(s.dir)
 	}
 }
 
-// redact replaces the secret values in s, such as a diagnostic that quotes
+// Redact replaces the secret values in s, such as a diagnostic that quotes
 // the value it rejects, with "(sensitive value)", in the escaped forms text
-// quotes them in too (see textForms).
-func redact(s string, secrets []Secret) string {
-	return redactText(s, textForms(knownValues(secrets)))
+// quotes them in too (see TextForms).
+func Redact(s string, secrets []Variable) string {
+	return RedactText(s, TextForms(KnownValues(secrets)))
 }
 
-// redactBytes is redact for file content.
-func redactBytes(b []byte, secrets []Secret) []byte {
-	return []byte(redact(string(b), secrets))
+// RedactBytes is redact for file content.
+func RedactBytes(b []byte, secrets []Variable) []byte {
+	return []byte(Redact(string(b), secrets))
 }
 
-// readsLiteralSecrets reports whether literalSecrets reads the file rel: a
+// readsLiteralSecrets reports whether Literals reads the file rel: a
 // .tf or .hcl file, or a merged root's var file.
 func readsLiteralSecrets(rel string) bool {
-	return strings.HasSuffix(rel, ".tf") || strings.HasSuffix(rel, ".hcl") || isMergedVarFile(rel)
+	return strings.HasSuffix(rel, ".tf") || strings.HasSuffix(rel, ".hcl") || hclfile.IsMergedVarFile(rel)
 }
 
-// literalSecrets returns, for a .tf or .hcl file, a finding for each
+// Literals returns, for a .tf or .hcl file, a finding for each
 // secret value secretsInBody finds in any of its blocks; and for a merged
-// root's var file (see isMergedVarFile), in its arguments too, the values it
+// root's var file (see hclfile.IsMergedVarFile), in its arguments too, the values it
 // sets, as secretsInBody judges a provider's arguments.
-func literalSecrets(f *hclfile.File) []string {
+func Literals(f *hclfile.File) []string {
 	rel, body := f.Path, f.Syntax
 	if !readsLiteralSecrets(rel) {
 		return nil
 	}
 	var findings []string
-	if isMergedVarFile(rel) {
+	if hclfile.IsMergedVarFile(rel) {
 		names := make([]string, 0, len(body.Attributes))
 		for name := range body.Attributes {
 			names = append(names, name)
@@ -932,40 +904,9 @@ func literalSecrets(f *hclfile.File) []string {
 	return findings
 }
 
-// withoutRejected returns the secrets of resources rejections doesn't
-// name.
-func withoutRejected(secrets []Secret, rejections []Rejection) []Secret {
-	left := map[string]bool{}
-	for _, r := range rejections {
-		left[r.Address] = true
-	}
-	var kept []Secret
-	for _, s := range secrets {
-		if !left[s.Address] {
-			kept = append(kept, s)
-		}
-	}
-	return kept
-}
-
-// withVariables returns taken with the variables of secrets added.
-func withVariables(taken Names, secrets []Secret) Names {
-	if len(secrets) == 0 {
-		return taken
-	}
-	names := Names{}
-	for name := range taken {
-		names[name] = true
-	}
-	for _, s := range secrets {
-		names["var."+s.Variable] = true
-	}
-	return names
-}
-
-// knownValues returns the values of the secrets infraharvest found, which
+// KnownValues returns the values of the secrets infraharvest found, which
 // no file may contain.
-func knownValues(secrets []Secret) []string {
+func KnownValues(secrets []Variable) []string {
 	var values []string
 	for _, s := range secrets {
 		if len(s.value) >= minSecretLength {

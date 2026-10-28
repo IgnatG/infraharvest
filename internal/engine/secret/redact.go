@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package secret
 
 import (
 	"bytes"
@@ -18,34 +18,34 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// redacted is what a secret value is replaced with in text infraharvest
+// Redacted is what a secret value is replaced with in text infraharvest
 // shows or writes.
-const redacted = "(sensitive value)"
+const Redacted = "(sensitive value)"
 
-// redactingTerraform is a Terraform whose plans never show the secret
+// RedactingTerraform is a Terraform whose plans never show the secret
 // values it hides: Generate's own plans have the values of the secrets it
-// moved into variables (see secretValues), and providers quote a value
+// moved into variables (see Values), and providers quote a value
 // they reject in their errors, such as `expected ..., got "<value>"`,
 // which Terraform doesn't scrub. Every plan's diagnostics go through here,
 // so the errors, logs, checks and README Generate writes from them hold
 // none of the values.
-type redactingTerraform struct {
+type RedactingTerraform struct {
 	tfrun.Terraform
 
 	mu     sync.Mutex
 	values []string
-	forms  []string // values, as text may quote them (see textForms)
+	forms  []string // values, as text may quote them (see TextForms)
 }
 
-// hide adds the values of secrets to those the plans' output leaves out.
-func (r *redactingTerraform) hide(secrets []Secret) {
+// Hide adds the values of secrets to those the plans' output leaves out.
+func (r *RedactingTerraform) Hide(secrets []Variable) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.values = append(r.values, knownValues(secrets)...)
-	r.forms = textForms(r.values)
+	r.values = append(r.values, KnownValues(secrets)...)
+	r.forms = TextForms(r.values)
 }
 
-func (r *redactingTerraform) hidden() []string {
+func (r *RedactingTerraform) hidden() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.forms
@@ -53,7 +53,7 @@ func (r *redactingTerraform) hidden() []string {
 
 // PlanJSON plans, with the hidden values replaced in every message of the
 // machine-readable output and in the error.
-func (r *redactingTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+func (r *RedactingTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
 	forms := r.hidden()
 	if len(forms) == 0 {
 		return r.Terraform.PlanJSON(ctx, w, opts...)
@@ -63,7 +63,7 @@ func (r *redactingTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...
 	if _, werr := w.Write(redactUIOutput(out.Bytes(), forms)); werr != nil && err == nil {
 		err = werr
 	}
-	return changed, redactError(err, forms)
+	return changed, RedactError(err, forms)
 }
 
 // redactedError is an error whose message had secret values replaced; it
@@ -77,23 +77,23 @@ func (e *redactedError) Error() string { return e.msg }
 
 func (e *redactedError) Unwrap() error { return e.err }
 
-// redactError returns err with the values of forms replaced in its
+// RedactError returns err with the values of forms replaced in its
 // message; it still unwraps to err.
-func redactError(err error, forms []string) error {
+func RedactError(err error, forms []string) error {
 	if err == nil {
 		return nil
 	}
-	if msg := redactText(err.Error(), forms); msg != err.Error() {
+	if msg := RedactText(err.Error(), forms); msg != err.Error() {
 		return &redactedError{msg: msg, err: err}
 	}
 	return err
 }
 
-// textForms returns values and the forms text quotes them in: escaped as a
+// TextForms returns values and the forms text quotes them in: escaped as a
 // JSON string (with and without HTML escaping) and as a Go or HCL quoted
 // string, longest first, so that a longer form is replaced before a value
 // it holds.
-func textForms(values []string) []string {
+func TextForms(values []string) []string {
 	seen := map[string]bool{}
 	var forms []string
 	add := func(s string) {
@@ -123,10 +123,10 @@ func textForms(values []string) []string {
 	return forms
 }
 
-// redactText replaces each of forms in s with "(sensitive value)".
-func redactText(s string, forms []string) string {
+// RedactText replaces each of forms in s with "(sensitive value)".
+func RedactText(s string, forms []string) string {
 	for _, f := range forms {
-		s = strings.ReplaceAll(s, f, redacted)
+		s = strings.ReplaceAll(s, f, Redacted)
 	}
 	return s
 }
@@ -153,7 +153,7 @@ func redactUIOutput(out []byte, forms []string) []byte {
 			b.Write(line)
 			continue
 		}
-		b.WriteString(redactText(string(line), forms))
+		b.WriteString(RedactText(string(line), forms))
 	}
 	return b.Bytes()
 }
@@ -163,13 +163,13 @@ func redactUIOutput(out []byte, forms []string) []byte {
 func redactJSON(v any, forms []string) (any, bool) {
 	switch v := v.(type) {
 	case string:
-		clean := redactText(v, forms)
+		clean := RedactText(v, forms)
 		return clean, clean != v
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		changed := false
 		for k, sub := range v {
-			cleanKey := redactText(k, forms)
+			cleanKey := RedactText(k, forms)
 			cleanSub, subChanged := redactJSON(sub, forms)
 			out[cleanKey] = cleanSub
 			changed = changed || subChanged || cleanKey != k
@@ -186,33 +186,4 @@ func redactJSON(v any, forms []string) (any, bool) {
 		return out, changed
 	}
 	return v, false
-}
-
-// redactResult replaces the values of secrets in the text of result that
-// came from plans, which WriteReadme and the report show: the gate's
-// details, why module calls were declined, the errors of what was left out
-// and the warnings. Plans redact their own output already (see
-// redactingTerraform); this also covers text made before a value was
-// hidden.
-func redactResult(result *Result, secrets []Secret) {
-	forms := textForms(knownValues(secrets))
-	if len(forms) == 0 {
-		return
-	}
-	for i := range result.Gate {
-		for j, d := range result.Gate[i].Details {
-			result.Gate[i].Details[j] = redactText(d, forms)
-		}
-	}
-	for i := range result.Modules {
-		result.Modules[i].Declined = redactText(result.Modules[i].Declined, forms)
-	}
-	for i := range result.Rejected {
-		for j, e := range result.Rejected[i].Errors {
-			result.Rejected[i].Errors[j] = redactText(e, forms)
-		}
-	}
-	for i, w := range result.Warnings {
-		result.Warnings[i] = redactText(w, forms)
-	}
 }

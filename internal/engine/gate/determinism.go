@@ -1,9 +1,11 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package gate
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -50,5 +52,5 @@ func nondeterministicCalls(rel, content string) []string {
 		}
 		return nil
 	})
-	return sortedKeys(calls)
+	return slices.Sorted(maps.Keys(calls))
 }

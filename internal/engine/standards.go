@@ -19,12 +19,10 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
-
-// CheckStandards is the verification gate's built-in standards check (G4).
-const CheckStandards = "G4 standards"
 
 // exactVersion is a registry module version pinned exactly.
 var exactVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
@@ -37,12 +35,12 @@ var moduleFiles = []string{"main.tf", "variables.tf", "outputs.tf", VersionsFile
 // described variables and outputs; no legacy interpolation; no secret
 // variable with a default other than null; none of the arguments omit
 // leaves out; no state files but a root's local state (see
-// LocalStateFile); only .tf files, and under vars only a merged
+// tfrun.LocalStateFile); only .tf files, and under vars only a merged
 // root's var files (see checkVarFiles). Each finding names its rule. The
 // organisation's own modules in directories, own, are its to shape: the
 // root's call of one is checked, not the module.
-func checkStandards(dir string, omit map[string][]string, own []string) (Check, error) {
-	check := Check{Name: CheckStandards, Passed: true}
+func checkStandards(dir string, omit map[string][]string, own []string) (gate.Check, error) {
+	check := gate.Check{Name: gate.CheckStandards, Passed: true}
 	fail := func(rule, format string, args ...any) {
 		check.Passed = false
 		check.Details = append(check.Details, rule+": "+fmt.Sprintf(format, args...))
@@ -74,14 +72,6 @@ func checkStandards(dir string, omit map[string][]string, own []string) (Check, 
 	return check, nil
 }
 
-// LocalStateFile reports whether name is a file Terraform's local backend
-// keeps a root's state in, its backups and its lock, which the output's
-// .gitignore leaves out (see GitignoreFile); its workspaces' states are
-// in the directory workspaceStateDir.
-func LocalStateFile(name string) bool {
-	return strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info"
-}
-
 // standardsIn checks the files of dir, a root or a module, naming them
 // relative to base, and returns the local module directories it calls.
 func standardsIn(base, dir string, root bool, omit map[string][]string, fail func(rule, format string, args ...any)) ([]string, error) {
@@ -99,7 +89,7 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 		case strings.HasSuffix(name, ".tofu") || strings.HasSuffix(name, ".tf.json"):
 			fail("cross-dialect-syntax", "%s: only .tf files work on both Terraform and OpenTofu", rel(base, filepath.Join(dir, name)))
 			continue
-		case root && LocalStateFile(name):
+		case root && tfrun.LocalStateFile(name):
 			// The state of a root applied without a backend, which the
 			// output's .gitignore keeps out of version control.
 			continue
@@ -166,7 +156,7 @@ func standardsIn(base, dir string, root bool, omit map[string][]string, fail fun
 func checkTerraformBlock(b *hclsyntax.Block, root bool, where func(hcl.Range) string, fail func(rule, format string, args ...any)) bool {
 	attr, ok := b.Body.Attributes["required_version"]
 	if ok && root {
-		if v, ok := constantString(attr.Expr); !ok || !strings.Contains(v, "<") {
+		if v, ok := hclfile.ConstantString(attr.Expr); !ok || !strings.Contains(v, "<") {
 			fail("unpinned-required-version", "%s: required_version must stay within one major release", where(attr.SrcRange))
 		}
 	}
@@ -226,7 +216,7 @@ func isNull(expr hclsyntax.Expression) bool {
 // .tfvars and .hcl files, each of which parses, and none that sets a
 // variable the root declares sensitive.
 func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {
-	vars := filepath.Join(dir, varsDirName)
+	vars := filepath.Join(dir, hclfile.VarsDir)
 	if info, err := os.Stat(vars); err != nil || !info.IsDir() {
 		return nil
 	}
@@ -239,8 +229,8 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 			return err
 		}
 		name := rel(dir, path)
-		if !isMergedVarFile(name) {
-			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, varsDirName)
+		if !hclfile.IsMergedVarFile(name) {
+			fail("unexpected-var-file", "%s: only .tfvars and .hcl files belong under %s", name, hclfile.VarsDir)
 			return nil
 		}
 		f, err := hclfile.Load(path)
@@ -290,7 +280,7 @@ func checkModuleCall(dir string, b *hclsyntax.Block, where func(hcl.Range) strin
 	if !ok {
 		return ""
 	}
-	source, ok := constantString(attr.Expr)
+	source, ok := hclfile.ConstantString(attr.Expr)
 	if !ok {
 		return ""
 	}
@@ -305,7 +295,7 @@ func checkModuleCall(dir string, b *hclsyntax.Block, where func(hcl.Range) strin
 		version, ok := b.Body.Attributes["version"]
 		v := ""
 		if ok {
-			v, _ = constantString(version.Expr)
+			v, _ = hclfile.ConstantString(version.Expr)
 		}
 		if !exactVersion.MatchString(v) {
 			fail("unpinned-module-version", "%s: module %s must pin an exact version", where(b.DefRange()), b.Labels[0])
@@ -338,14 +328,6 @@ func checkOmitted(b *hclsyntax.Block, omit map[string][]string, where func(hcl.R
 			}
 		}
 	}
-}
-
-func constantString(expr hclsyntax.Expression) (string, bool) {
-	v, diags := expr.Value(nil)
-	if diags.HasErrors() || v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
-		return "", false
-	}
-	return v.AsString(), true
 }
 
 // rel names path relative to dir, with forward slashes; "." for dir.

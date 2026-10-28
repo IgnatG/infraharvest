@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 )
 
 // generateAgain generates the queues of imports into a new directory, as
@@ -361,8 +363,8 @@ func TestGenerateForgetsAndImportsAgainWhatIsOfAnotherNameOfItsType(t *testing.T
 			t.Errorf("README.md misses %q:\n%s", want, readme)
 		}
 	}
-	if !result.Gate.check(CheckMoves).Passed {
-		t.Errorf("moves check: %+v", result.Gate.check(CheckMoves))
+	if !result.Gate.Named(gate.CheckMoves).Passed {
+		t.Errorf("moves check: %+v", result.Gate.Named(gate.CheckMoves))
 	}
 }
 

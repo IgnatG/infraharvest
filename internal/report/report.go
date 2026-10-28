@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/report/mdtext"
@@ -233,7 +234,7 @@ type Finding struct {
 // String describes f as the check's details do: its rule, severity,
 // place and message.
 func (f Finding) String() string {
-	return engine.Finding{Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}.String()
+	return gate.Finding{Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}.String()
 }
 
 // sortFindings sorts findings by root and environment; in each, those
