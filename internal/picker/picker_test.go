@@ -238,3 +238,21 @@ func TestRowsAreCached(t *testing.T) {
 		t.Errorf("opening a group: %d rows, want 7: %q", got, labels(m))
 	}
 }
+
+// A name the cloud gives a resource, with a terminal escape sequence in it,
+// is drawn with the sequence shown, not sent to the terminal.
+func TestRowsShowEscapesInNames(t *testing.T) {
+	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: []selection.Resource{
+		{Type: "aws_s3_bucket", ID: "logs\x1b[2J", Name: "\x1b]0;owned\x07", Scope: euWest, Include: true},
+	}}
+	m := New("selection.yaml", f)
+	press(m, "down", "right")
+	for _, label := range labels(m) {
+		if strings.ContainsAny(label, "\x1b\x07") {
+			t.Errorf("the row %q holds a control character", label)
+		}
+	}
+	if got := labels(m); !strings.Contains(strings.Join(got, "|"), `logs\x1b[2J`) {
+		t.Errorf("rows %q don't show the escape", got)
+	}
+}
