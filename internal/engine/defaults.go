@@ -113,50 +113,8 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 	restore := func() error { return fsutil.WriteFile(path, original, 0o644) }
 	// keep holds the candidates to put back, by key.
 	keep := map[string]bool{}
-	// What the plan can't settle keeps its constants; nulls still go, as
-	// Terraform treats null as an omitted argument, and so do proven
-	// defaults (see defaultCandidate.proven) of the metadata's own release
-	// where the configuration still validates without them: no plan would
-	// correct a wrong one.
 	nullsOnly := func() (bool, *shownPlan, error) {
-		type pass struct {
-			schemas *tfjson.ProviderSchemas
-			rules   defaultRules
-		}
-		// Without schemas, only nulls are candidates.
-		passes := []pass{{nil, defaultRules{}}}
-		if rules.hints.exact {
-			verified := rules
-			verified.verifiedOnly = true
-			passes = append([]pass{{schemas, verified}}, passes...)
-		}
-		for _, p := range passes {
-			if err := restore(); err != nil {
-				return false, nil, err
-			}
-			f, err := hclfile.Load(path)
-			if err != nil {
-				return false, nil, err
-			}
-			removed := removeDefaults(f, p.schemas, p.rules, keep)
-			if len(removed) == 0 {
-				return false, nil, restore()
-			}
-			if err := f.Save(); err != nil {
-				return false, nil, err
-			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
-				return true, nil, nil
-			}
-			out, err := tf.Validate(ctx)
-			if err != nil {
-				return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
-			}
-			if out.Valid {
-				return true, nil, nil
-			}
-		}
-		return false, nil, restore()
+		return stripNullsOnly(ctx, tf, path, restore, schemas, rules, keep)
 	}
 	// failed counts the rounds in which the plan failed on each resource.
 	failed := map[string]int{}
@@ -190,46 +148,10 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(diags))
 				return nullsOnly()
 			}
-			for address, ds := range assigned {
-				failed[address]++
-				kept := false
-				if failed[address] <= 2 && round < maxDefaultRounds-2 {
-					kept = keepNamed(removed, address, ds, keep)
-					if !kept || failed[address] == 2 {
-						kept = keepSettings(removed, address, keep) || kept
-					}
-				}
-				if !kept {
-					keepAll(removed, address, keep)
-				}
-			}
+			keepWhatErrorsName(removed, assigned, failed, round, keep)
 			continue
 		}
-		differs, noise := false, false
-		for _, rc := range p.ResourceChanges {
-			if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
-				continue
-			}
-			if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
-				continue
-			}
-			if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
-				// Nothing of it was left out: the plan differs from the
-				// one before by itself, as an emulator's may. Proven
-				// defaults count: where the plan differs, the metadata
-				// may be wrong, and the plan corrects it.
-				noise = true
-				continue
-			}
-			differs = true
-			if round == maxDefaultRounds-2 {
-				// There is one round left: keep the resource's constants
-				// rather than plan again.
-				keepAll(removed, rc.Address, keep)
-				continue
-			}
-			keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
-		}
+		differs, noise := keepWhatChanged(p, removed, changes, round, keep)
 		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
 			return true, &shownPlan{plan: p, summary: summary}, nil
 		}
@@ -240,6 +162,108 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 	}
 	log.Printf("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, maxDefaultRounds)
 	return nullsOnly()
+}
+
+// stripNullsOnly is stripDefaults where the plan can't settle what to
+// leave out, which keeps its constants: it leaves out of generated.tf, in
+// path, only nulls, as Terraform treats null as an omitted argument, and
+// proven defaults (see defaultCandidate.proven) of the metadata's own
+// release where the configuration still validates without them: no plan
+// would correct a wrong one. It reports whether it changed generated.tf;
+// restore puts it back as it was.
+func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, *shownPlan, error) {
+	type pass struct {
+		schemas *tfjson.ProviderSchemas
+		rules   defaultRules
+	}
+	// Without schemas, only nulls are candidates.
+	passes := []pass{{nil, defaultRules{}}}
+	if rules.hints.exact {
+		verified := rules
+		verified.verifiedOnly = true
+		passes = append([]pass{{schemas, verified}}, passes...)
+	}
+	for _, p := range passes {
+		if err := restore(); err != nil {
+			return false, nil, err
+		}
+		f, err := hclfile.Load(path)
+		if err != nil {
+			return false, nil, err
+		}
+		removed := removeDefaults(f, p.schemas, p.rules, keep)
+		if len(removed) == 0 {
+			return false, nil, restore()
+		}
+		if err := f.Save(); err != nil {
+			return false, nil, err
+		}
+		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
+			return true, nil, nil
+		}
+		out, err := tf.Validate(ctx)
+		if err != nil {
+			return false, nil, errors.Join(fmt.Errorf("terraform validate: %w", err), restore())
+		}
+		if out.Valid {
+			return true, nil, nil
+		}
+	}
+	return false, nil, restore()
+}
+
+// keepWhatErrorsName puts back, of removed, what the errors of a failed
+// plan in round name, by the address of the resource each is about
+// (assigned), and counts the round in failed: the arguments they name
+// the first time, and the resource's settings too the second time or
+// where they name none (see defaultCandidate); every argument of the
+// resource from the third time, or in the last round but one.
+func keepWhatErrorsName(removed []defaultCandidate, assigned map[string][]tfjson.Diagnostic, failed map[string]int, round int, keep map[string]bool) {
+	for address, ds := range assigned {
+		failed[address]++
+		kept := false
+		if failed[address] <= 2 && round < maxDefaultRounds-2 {
+			kept = keepNamed(removed, address, ds, keep)
+			if !kept || failed[address] == 2 {
+				kept = keepSettings(removed, address, keep) || kept
+			}
+		}
+		if !kept {
+			keepAll(removed, address, keep)
+		}
+	}
+}
+
+// keepWhatChanged puts back, of removed, the arguments behind each
+// resource whose change in p, the plan of round, is worse than in
+// changes, the plan before (see noWorse): all of its constants in the
+// last round but one. It reports whether a resource with arguments left
+// out differs, and whether one without differs all the same, which is
+// noise, as an emulator's plan may differ by itself. Proven defaults
+// count as left out: where the plan differs, the metadata may be wrong,
+// and the plan corrects it.
+func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[string]string, round int, keep map[string]bool) (differs, noise bool) {
+	for _, rc := range p.ResourceChanges {
+		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
+			continue
+		}
+		if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
+			continue
+		}
+		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
+			noise = true
+			continue
+		}
+		differs = true
+		if round == maxDefaultRounds-2 {
+			// There is one round left: keep the resource's constants
+			// rather than plan again.
+			keepAll(removed, rc.Address, keep)
+			continue
+		}
+		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
+	}
+	return differs, noise
 }
 
 // removeValid leaves the candidates not in keep out of generated.tf, as
