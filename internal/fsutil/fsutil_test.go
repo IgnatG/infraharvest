@@ -360,7 +360,7 @@ func TestCheckContained(t *testing.T) {
 }
 
 // MkdirPrivate creates a directory private, with its parents as
-// os.MkdirAll does, and leaves one that exists as it is.
+// os.MkdirAll does, and makes one that exists private too.
 func TestMkdirPrivate(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -388,7 +388,31 @@ func TestMkdirPrivate(t *testing.T) {
 	if err := MkdirPrivate(dir); err != nil {
 		t.Fatal(err)
 	}
-	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o750 {
-		t.Errorf("an existing directory isn't left as it is: %v, %v", info.Mode(), err)
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("an existing directory isn't made private: %v, %v", info.Mode(), err)
+	}
+
+	// A link isn't followed to make what it leads to private, nor is a
+	// file taken for a directory.
+	elsewhere := t.TempDir()
+	if err := os.Chmod(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(out, "link")
+	if err := os.Symlink(elsewhere, link); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	if err := MkdirPrivate(link); err == nil {
+		t.Error("a link was taken for a directory")
+	}
+	if info, err := os.Stat(elsewhere); err != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("what a link leads to was changed: %v, %v", info.Mode(), err)
+	}
+	file := filepath.Join(out, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := MkdirPrivate(file); err == nil {
+		t.Error("a file was taken for a directory")
 	}
 }
