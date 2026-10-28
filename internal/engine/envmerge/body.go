@@ -371,16 +371,18 @@ func (b *bodyMerger) dynamic(in []envBody, path []string, prefix, typ string) *m
 }
 
 // blocksKey is a key of the nested blocks of body, in environment env,
-// with references renamed: the same for the same blocks.
-func (m *stackMerge) blocksKey(env int, body *hclwrite.Body) string {
+// with references renamed: the same for the same blocks. It calls note,
+// if set, with each resource it writes a reference to (see
+// renamedNoting).
+func (m *stackMerge) blocksKey(env int, body *hclwrite.Body, note func(*stackResource)) string {
 	var b strings.Builder
 	for _, blk := range body.Blocks() {
 		b.WriteString(blk.Type())
 		b.WriteString("{")
 		for _, name := range slices.Sorted(maps.Keys(blk.Body().Attributes())) {
-			fmt.Fprintf(&b, "%s=%s;", name, exprKey(m.renamed(env, blk.Body().GetAttribute(name).Expr().BuildTokens(nil))))
+			fmt.Fprintf(&b, "%s=%s;", name, exprKey(m.renamedNoting(env, blk.Body().GetAttribute(name).Expr().BuildTokens(nil), note)))
 		}
-		b.WriteString(m.blocksKey(env, blk.Body()))
+		b.WriteString(m.blocksKey(env, blk.Body(), note))
 		b.WriteString("}")
 	}
 	return b.String()
@@ -420,10 +422,20 @@ func (m *stackMerge) template(in []envBody, values []hclwrite.Tokens) (hclwrite.
 // reference to a resource of env's root made to the merged root's
 // instance of it (see stackResource.instance).
 func (m *stackMerge) renamed(env int, tokens hclwrite.Tokens) hclwrite.Tokens {
+	return m.renamedNoting(env, tokens, nil)
+}
+
+// renamedNoting is renamed, calling note, if set, with each resource it
+// writes a reference to: how that resource is written decides what it
+// gives.
+func (m *stackMerge) renamedNoting(env int, tokens hclwrite.Tokens, note func(*stackResource)) hclwrite.Tokens {
 	return renameTokens(tokens, func(address string) (hclwrite.Tokens, bool) {
 		r, ok := m.index[env][address]
 		if !ok || r.stack == nil {
 			return nil, false
+		}
+		if note != nil {
+			note(r.stack)
 		}
 		return hclwrite.TokensForTraversal(r.stack.instance()), true
 	})

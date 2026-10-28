@@ -52,7 +52,7 @@ var rootSchemas = func() *tfjson.ProviderSchemas {
 // awsEnvRoot returns environment env's AWS root of generated, in account,
 // with its files by address, the provider's default tags and its backend
 // if bucket is set.
-func awsEnvRoot(t *testing.T, env string, tokens []string, account, generated string, ids, files, tags map[string]string, bucket string) envRoot {
+func awsEnvRoot(t testing.TB, env string, tokens []string, account, generated string, ids, files, tags map[string]string, bucket string) envRoot {
 	t.Helper()
 	root := testEnvRoot(t, env, tokens, account, generated, ids)
 	root.region = "eu-west-2"
