@@ -71,14 +71,42 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 			"self_link": "network_self_link",
 		}},
 	}
-	network := Read(c.Anchor.Address(), c.Anchor.Body)
+	project, err := googleNetworkArguments(call, c.Anchor)
+	if err != nil {
+		return nil, err
+	}
+	subnets, rules, secondary, err := googleNetworkMembers(call, c, project)
+	if err != nil {
+		return nil, err
+	}
+	if len(subnets) == 0 {
+		// Such as in the global root, when an earlier import put the
+		// subnetworks in their regions' roots: the call would read as a
+		// network without subnetworks, subnets = [], while they are
+		// managed elsewhere.
+		return nil, Declinef("%s has no subnetworks in this root, which the module's subnets would take", c.Anchor.Address())
+	}
+	call.Set("subnets", hclwrite.TokensForTuple(subnets))
+	if len(secondary) > 0 {
+		call.Set("secondary_ranges", hclwrite.TokensForObject(secondary))
+	}
+	if len(rules) > 0 {
+		call.Set("firewall_rules", hclwrite.TokensForTuple(rules))
+	}
+	return call, nil
+}
+
+// googleNetworkArguments maps the network's own arguments, declining an
+// auto mode network, and returns its project.
+func googleNetworkArguments(call *Call, anchor Resource) (hclwrite.Tokens, error) {
+	network := Read(anchor.Address(), anchor.Body)
 	name, ok := network.Attr("name")
 	if !ok {
-		return nil, Declinef("%s has no name", c.Anchor.Address())
+		return nil, Declinef("%s has no name", anchor.Address())
 	}
 	project, ok := network.Attr("project")
 	if !ok {
-		return nil, Declinef("%s has no project", c.Anchor.Address())
+		return nil, Declinef("%s has no project", anchor.Address())
 	}
 	call.Set("project_id", project)
 	call.Set("network_name", name)
@@ -86,7 +114,7 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 	if isAuto, isLiteral := literalBool(auto); !ok || !isLiteral || isAuto {
 		// Its subnetworks belong to the network, not to the module; left
 		// out, the argument is true.
-		return nil, Declinef("%s is an auto mode network", c.Anchor.Address())
+		return nil, Declinef("%s is an auto mode network", anchor.Address())
 	}
 	call.Set("auto_create_subnetworks", hclwrite.TokensForValue(cty.False))
 	// The module's default is GLOBAL, Google's REGIONAL: always set it.
@@ -114,18 +142,22 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 	if err := network.Done(); err != nil {
 		return nil, err
 	}
+	return project, nil
+}
 
-	var subnets, rules []hclwrite.Tokens
-	var secondary []hclwrite.ObjectAttrTokens
+// googleNetworkMembers maps the network's subnetworks onto the module's
+// subnets, with their secondary ranges, and its firewall rules onto its
+// firewall_rules, declining members in another project or network.
+func googleNetworkMembers(call *Call, c Cluster, project hclwrite.Tokens) (subnets, rules []hclwrite.Tokens, secondary []hclwrite.ObjectAttrTokens, err error) {
 	subnetKeys := map[string]bool{}
 	secondaryNames := map[string]bool{}
 	for _, m := range c.Members {
 		r := Read(m.Address(), m.Body)
 		if !r.RefersTo("network", c.Anchor) {
-			return nil, Declinef("%s doesn't refer to %s", m.Address(), c.Anchor.Address())
+			return nil, nil, nil, Declinef("%s doesn't refer to %s", m.Address(), c.Anchor.Address())
 		}
 		if p, ok := r.Attr("project"); !ok || !sameTokens(p, project) {
-			return nil, Declinef("%s isn't in the network's project, as the module puts it", m.Address())
+			return nil, nil, nil, Declinef("%s isn't in the network's project, as the module puts it", m.Address())
 		}
 		r.IgnoreDeletionPolicy()
 		// The module has no input for it; Google's default is off.
@@ -134,10 +166,10 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		case "google_compute_subnetwork":
 			subnet, key, ranges, err := googleSubnet(r, m)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			if subnetKeys[key] {
-				return nil, Declinef("%s: two subnetworks are %s", c.Anchor.Address(), key)
+				return nil, nil, nil, Declinef("%s: two subnetworks are %s", c.Anchor.Address(), key)
 			}
 			subnetKeys[key] = true
 			subnets = append(subnets, subnet)
@@ -151,7 +183,7 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 				// The module keys secondary ranges by subnetwork name alone.
 				_, subnetName, _ := strings.Cut(key, "/")
 				if secondaryNames[subnetName] {
-					return nil, Declinef("%s: two subnetworks named %s have secondary ranges", c.Anchor.Address(), subnetName)
+					return nil, nil, nil, Declinef("%s: two subnetworks named %s have secondary ranges", c.Anchor.Address(), subnetName)
 				}
 				secondaryNames[subnetName] = true
 				secondary = append(secondary, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(subnetName)), Value: ranges})
@@ -159,30 +191,16 @@ func mapGoogleNetwork(c Cluster) (*Call, error) {
 		case "google_compute_firewall":
 			rule, ruleName, err := googleFirewallRule(r, m)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			rules = append(rules, rule)
 			call.Addresses[m.Address()] = "module.firewall_rules.google_compute_firewall.rules[" + strconv.Quote(ruleName) + "]"
 		}
 		if err := r.Done(); err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
-	if len(subnets) == 0 {
-		// Such as in the global root, when an earlier import put the
-		// subnetworks in their regions' roots: the call would read as a
-		// network without subnetworks, subnets = [], while they are
-		// managed elsewhere.
-		return nil, Declinef("%s has no subnetworks in this root, which the module's subnets would take", c.Anchor.Address())
-	}
-	call.Set("subnets", hclwrite.TokensForTuple(subnets))
-	if len(secondary) > 0 {
-		call.Set("secondary_ranges", hclwrite.TokensForObject(secondary))
-	}
-	if len(rules) > 0 {
-		call.Set("firewall_rules", hclwrite.TokensForTuple(rules))
-	}
-	return call, nil
+	return subnets, rules, secondary, nil
 }
 
 // googleSubnet maps a subnetwork onto an element of the module's subnets,

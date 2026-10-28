@@ -66,8 +66,26 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 		}},
 	}
 	b := Read(c.Anchor.Address(), c.Anchor.Body)
-	if err := b.Require(call, Pair{"name", "name"}, Pair{"project", "project_id"}, Pair{"location", "location"}); err != nil {
+	if err := googleBucketArguments(call, c.Anchor.Address(), b); err != nil {
 		return nil, err
+	}
+	if err := googleBucketBlocks(call, c.Anchor.Address(), b); err != nil {
+		return nil, err
+	}
+	if err := googleBucketLists(call, c.Anchor.Address(), b); err != nil {
+		return nil, err
+	}
+	if err := b.Done(); err != nil {
+		return nil, err
+	}
+	return call, nil
+}
+
+// googleBucketArguments maps the bucket's own arguments, declining those
+// the module has no input for unless they are at their defaults.
+func googleBucketArguments(call *Call, address string, b *Reader) error {
+	if err := b.Require(call, Pair{"name", "name"}, Pair{"project", "project_id"}, Pair{"location", "location"}); err != nil {
+		return err
 	}
 	b.CopyAs(call,
 		Pair{"force_destroy", "force_destroy"},
@@ -95,14 +113,19 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 	} {
 		if value, ok := b.Attr(d.arg); ok {
 			if v, isLiteral := literal(value); !isLiteral || !v.RawEquals(d.want) {
-				return nil, Declinef("%s sets %s, which the module can't", c.Anchor.Address(), d.arg)
+				return Declinef("%s sets %s, which the module can't", address, d.arg)
 			}
 		}
 	}
+	return nil
+}
 
+// googleBucketBlocks maps the bucket's nested blocks that the module takes
+// as inputs of their own.
+func googleBucketBlocks(call *Call, address string, b *Reader) error {
 	versioning := hclwrite.TokensForValue(cty.False)
 	if block, err := b.Block("versioning"); err != nil {
-		return nil, err
+		return err
 	} else if block != nil {
 		if enabled, ok := block.Attr("enabled"); ok {
 			versioning = enabled
@@ -111,7 +134,7 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 	call.Set("versioning", versioning)
 
 	if block, err := b.Block("autoclass"); err != nil {
-		return nil, err
+		return err
 	} else if block != nil {
 		if enabled, ok := block.Attr("enabled"); ok {
 			call.Set("autoclass", enabled)
@@ -119,12 +142,12 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 		// Google's default when autoclass is on; the module can't set another.
 		if class, ok := block.Attr("terminal_storage_class"); ok {
 			if v, _ := literalString(class); v != "NEARLINE" {
-				return nil, Declinef("%s has autoclass end in %s, which the module can't set", c.Anchor.Address(), string(class.Bytes()))
+				return Declinef("%s has autoclass end in %s, which the module can't set", address, string(class.Bytes()))
 			}
 		}
 	}
 	if block, err := b.Block("hierarchical_namespace"); err != nil {
-		return nil, err
+		return err
 	} else if block != nil {
 		if enabled, ok := block.Attr("enabled"); ok {
 			call.Set("hierarchical_namespace", enabled)
@@ -132,7 +155,7 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 	}
 	// The module always sets a soft delete policy: pass the bucket's.
 	if block, err := b.Block("soft_delete_policy"); err != nil {
-		return nil, err
+		return err
 	} else if block != nil {
 		var o Object
 		o.Copy(block, "retention_duration_seconds")
@@ -150,7 +173,7 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 	} {
 		block, err := b.Block(nested.block)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if block != nil {
 			var o Object
@@ -159,7 +182,7 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 		}
 	}
 	if block, err := b.Block("logging"); err != nil {
-		return nil, err
+		return err
 	} else if block != nil {
 		if value, ok := block.Attr("log_bucket"); ok {
 			call.Set("log_bucket", value)
@@ -168,6 +191,12 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 			call.Set("log_object_prefix", value)
 		}
 	}
+	return nil
+}
+
+// googleBucketLists maps the bucket's repeated blocks, its CORS settings
+// and lifecycle rules, onto the module's lists of them.
+func googleBucketLists(call *Call, address string, b *Reader) error {
 	var cors []hclwrite.Tokens
 	for _, block := range b.Blocks("cors") {
 		var o Object
@@ -179,19 +208,16 @@ func mapGoogleStorageBucket(c Cluster) (*Call, error) {
 	}
 	var rules []hclwrite.Tokens
 	for _, block := range b.Blocks("lifecycle_rule") {
-		rule, err := googleLifecycleRule(c.Anchor.Address(), block)
+		rule, err := googleLifecycleRule(address, block)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		rules = append(rules, rule)
 	}
 	if rules != nil {
 		call.Set("lifecycle_rules", hclwrite.TokensForTuple(rules))
 	}
-	if err := b.Done(); err != nil {
-		return nil, err
-	}
-	return call, nil
+	return nil
 }
 
 // googleLifecycleRule maps a lifecycle rule onto an element of the

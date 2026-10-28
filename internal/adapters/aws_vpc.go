@@ -139,14 +139,107 @@ const (
 	privateRoute
 )
 
+// vpcMembers are the members of a VPC cluster, read.
+type vpcMembers struct {
+	igw                *vpcPart
+	nats, eips, tables []*vpcPart
+	associations       []*vpcPart
+	subnets            []*vpcSubnet
+}
+
+// vpcRouting is how a VPC's route tables route: by route table, its kind,
+// and, by private route table, the NAT gateway it routes to; the one public
+// route table, and the private ones, a single one or one for each NAT
+// gateway.
+type vpcRouting struct {
+	kinds         map[string]vpcRoute
+	natOf         map[string]*vpcPart
+	publicTable   *vpcPart
+	privateTables []*vpcPart
+}
+
 func mapVPC(c Cluster) (*Call, error) {
 	vpc, err := readVPCPart(c.Anchor)
 	if err != nil {
 		return nil, err
 	}
+	call, err := vpcCall(c.Anchor, vpc)
+	if err != nil {
+		return nil, err
+	}
+	m, err := readVPCMembers(call, c)
+	if err != nil {
+		return nil, err
+	}
+	routing, err := routeVPCTables(c.Anchor, m)
+	if err != nil {
+		return nil, err
+	}
+	if err := associateVPCSubnets(c.Anchor, m, routing.kinds); err != nil {
+		return nil, err
+	}
+	public, private, err := splitVPCSubnets(c.Anchor, m, routing)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkVPCNATs(c.Anchor, m, routing); err != nil {
+		return nil, err
+	}
+	// The module puts a single NAT gateway in the first public subnet, or
+	// one in each public subnet, in order, and the subnets of each kind in
+	// the zones of azs, in order.
+	public, nats, err := orderVPCNATs(c.Anchor, public, m.nats)
+	if err != nil {
+		return nil, err
+	}
+	eipOf, err := vpcEIPs(c.Anchor, nats, m.eips)
+	if err != nil {
+		return nil, err
+	}
+	azs := make([]string, 0, len(public))
+	for _, s := range public {
+		azs = append(azs, s.az)
+	}
+	if private, err = alignSubnets(c.Anchor, private, &azs); err != nil {
+		return nil, err
+	}
+	privateRouteTables, err := vpcPrivateRouteTables(c.Anchor, public, private, nats, routing)
+	if err != nil {
+		return nil, err
+	}
+	call.Set("azs", hclwrite.TokensForValue(stringList(azs)))
+	if len(public) > 0 {
+		if err := setVPCPublic(call, c.Anchor, public, routing.publicTable, m.igw, vpc.name); err != nil {
+			return nil, err
+		}
+	}
+	if len(private) > 0 {
+		if err := setVPCPrivate(call, c.Anchor, private, privateRouteTables, nats, eipOf, azs, vpc.name); err != nil {
+			return nil, err
+		}
+	}
+	parts := slices.Concat([]*vpcPart{vpc, m.igw, routing.publicTable}, nats, m.eips, routing.privateTables, subnetParts(m.subnets))
+	if err := vpcTags(call, parts, map[string][]*vpcPart{
+		"vpc_tags":                 {vpc},
+		"igw_tags":                 {m.igw},
+		"nat_gateway_tags":         nats,
+		"nat_eip_tags":             m.eips,
+		"public_route_table_tags":  {routing.publicTable},
+		"private_route_table_tags": routing.privateTables,
+		"public_subnet_tags":       subnetParts(public),
+		"private_subnet_tags":      subnetParts(private),
+	}); err != nil {
+		return nil, err
+	}
+	return call, nil
+}
+
+// vpcCall starts the call with the VPC's own arguments, its addresses and
+// outputs, and the module's management of the VPC's defaults turned off.
+func vpcCall(anchor Resource, vpc *vpcPart) (*Call, error) {
 	call := &Call{
-		Addresses: map[string]string{c.Anchor.Address(): "aws_vpc.this[0]"},
-		Outputs: map[string]map[string]string{c.Anchor.Address(): {
+		Addresses: map[string]string{anchor.Address(): "aws_vpc.this[0]"},
+		Outputs: map[string]map[string]string{anchor.Address(): {
 			"arn":                       "vpc_arn",
 			"cidr_block":                "vpc_cidr_block",
 			"default_network_acl_id":    "default_network_acl_id",
@@ -184,109 +277,123 @@ func mapVPC(c Cluster) (*Call, error) {
 	for _, arg := range []string{"manage_default_network_acl", "manage_default_route_table", "manage_default_security_group"} {
 		call.Set(arg, hclwrite.TokensForValue(cty.False))
 	}
+	return call, nil
+}
 
-	var igw *vpcPart
-	var nats, eips, tables, associations []*vpcPart
-	var subnets []*vpcSubnet
+// readVPCMembers reads the cluster's members. Of its route tables it reads
+// those of the subnets; the others, such as the VPC's main route table,
+// which the module leaves alone, it leaves in the root.
+func readVPCMembers(call *Call, c Cluster) (vpcMembers, error) {
+	var m vpcMembers
 	var tableResources []Resource
-	for _, m := range c.Members {
-		switch m.Type {
+	for _, r := range c.Members {
+		switch r.Type {
 		case "aws_subnet":
-			s, err := readVPCSubnet(m, c.Anchor)
+			s, err := readVPCSubnet(r, c.Anchor)
 			if err != nil {
-				return nil, err
+				return m, err
 			}
-			subnets = append(subnets, s)
+			m.subnets = append(m.subnets, s)
 			continue
 		case "aws_route_table_association":
-			associations = append(associations, &vpcPart{Resource: m, r: Read(m.Address(), m.Body)})
+			m.associations = append(m.associations, &vpcPart{Resource: r, r: Read(r.Address(), r.Body)})
 			continue
 		case "aws_route_table":
-			tableResources = append(tableResources, m)
+			tableResources = append(tableResources, r)
 			continue
 		}
-		p, err := readVPCPart(m)
+		p, err := readVPCPart(r)
 		if err != nil {
-			return nil, err
+			return m, err
 		}
-		switch m.Type {
+		switch r.Type {
 		case "aws_internet_gateway":
 			if !p.r.RefersTo("vpc_id", c.Anchor) {
-				return nil, Declinef("%s isn't attached to %s", m.Address(), c.Anchor.Address())
+				return m, Declinef("%s isn't attached to %s", r.Address(), c.Anchor.Address())
 			}
-			igw = p
+			m.igw = p
 		case "aws_nat_gateway":
-			nats = append(nats, p)
+			m.nats = append(m.nats, p)
 		case "aws_eip":
-			eips = append(eips, p)
+			m.eips = append(m.eips, p)
 		}
 	}
-	// The route tables of the subnets; the others, such as the VPC's main
-	// route table, which the module leaves alone, stay in the root.
 	for _, t := range tableResources {
-		if !slices.ContainsFunc(associations, func(a *vpcPart) bool { return a.r.RefersTo("route_table_id", t) }) {
+		if !slices.ContainsFunc(m.associations, func(a *vpcPart) bool { return a.r.RefersTo("route_table_id", t) }) {
 			call.Left = append(call.Left, t.Address())
 			continue
 		}
 		p, err := readVPCPart(t)
 		if err != nil {
-			return nil, err
+			return m, err
 		}
 		if !p.r.RefersTo("vpc_id", c.Anchor) {
-			return nil, Declinef("%s isn't in %s", t.Address(), c.Anchor.Address())
+			return m, Declinef("%s isn't in %s", t.Address(), c.Anchor.Address())
 		}
-		tables = append(tables, p)
+		m.tables = append(m.tables, p)
 	}
+	return m, nil
+}
 
-	kinds := map[string]vpcRoute{}
-	// natOf has, by private route table, the NAT gateway it routes to.
-	natOf := map[string]*vpcPart{}
-	var publicTable *vpcPart
-	var privateTables []*vpcPart
-	for _, t := range tables {
-		kind, nat, err := vpcRouteKind(t, igw, nats)
+// routeVPCTables sorts the route tables into the public one and the
+// private ones, declining a VPC with two that route the same way.
+func routeVPCTables(vpc Resource, m vpcMembers) (vpcRouting, error) {
+	routing := vpcRouting{kinds: map[string]vpcRoute{}, natOf: map[string]*vpcPart{}}
+	for _, t := range m.tables {
+		kind, nat, err := vpcRouteKind(t, m.igw, m.nats)
 		if err != nil {
-			return nil, err
+			return routing, err
 		}
-		kinds[t.Address()] = kind
+		routing.kinds[t.Address()] = kind
 		switch {
-		case kind == publicRoute && publicTable == nil:
-			publicTable = t
-		case kind == privateRoute && !slices.ContainsFunc(privateTables, func(p *vpcPart) bool { return natOf[p.Address()] == nat }):
-			privateTables = append(privateTables, t)
-			natOf[t.Address()] = nat
+		case kind == publicRoute && routing.publicTable == nil:
+			routing.publicTable = t
+		case kind == privateRoute && !slices.ContainsFunc(routing.privateTables, func(p *vpcPart) bool { return routing.natOf[p.Address()] == nat }):
+			routing.privateTables = append(routing.privateTables, t)
+			routing.natOf[t.Address()] = nat
 		default:
-			return nil, Declinef("%s has more than one route table that routes the same way, and the module makes one per gateway", c.Anchor.Address())
+			return routing, Declinef("%s has more than one route table that routes the same way, and the module makes one per gateway", vpc.Address())
 		}
 	}
-	for _, a := range associations {
+	return routing, nil
+}
+
+// associateVPCSubnets gives each subnet the route table an association
+// associates it with, and whether that makes it public.
+func associateVPCSubnets(vpc Resource, m vpcMembers, kinds map[string]vpcRoute) error {
+	for _, a := range m.associations {
 		var subnet *vpcSubnet
-		for _, s := range subnets {
+		for _, s := range m.subnets {
 			if a.r.RefersTo("subnet_id", s.Resource) {
 				subnet = s
 			}
 		}
 		var table *vpcPart
-		for _, t := range tables {
+		for _, t := range m.tables {
 			if a.r.RefersTo("route_table_id", t.Resource) {
 				table = t
 			}
 		}
 		if subnet == nil || table == nil {
-			return nil, Declinef("%s doesn't associate a subnet of %s with one of its route tables", a.Address(), c.Anchor.Address())
+			return Declinef("%s doesn't associate a subnet of %s with one of its route tables", a.Address(), vpc.Address())
 		}
 		if err := a.r.Done(); err != nil {
-			return nil, err
+			return err
 		}
 		subnet.association = a
 		subnet.table = table
 		subnet.public = kinds[table.Address()] == publicRoute
 	}
+	return nil
+}
 
-	var public, private []*vpcSubnet
-	for _, s := range subnets {
+// splitVPCSubnets splits the subnets into public and private ones,
+// declining gateways and route tables the module would make only for
+// subnets of a kind the VPC lacks.
+func splitVPCSubnets(vpc Resource, m vpcMembers, routing vpcRouting) (public, private []*vpcSubnet, err error) {
+	for _, s := range m.subnets {
 		if s.association == nil {
-			return nil, Declinef("%s has no route table of its own, and the module associates every subnet with one", s.Address())
+			return nil, nil, Declinef("%s has no route table of its own, and the module associates every subnet with one", s.Address())
 		}
 		if s.public {
 			public = append(public, s)
@@ -295,31 +402,41 @@ func mapVPC(c Cluster) (*Call, error) {
 		}
 	}
 	switch {
-	case igw != nil && len(public) == 0:
-		return nil, Declinef("%s has an internet gateway but no public subnet, and the module makes one only for public subnets", c.Anchor.Address())
-	case publicTable != nil && len(public) == 0, len(privateTables) > 0 && len(private) == 0:
-		return nil, Declinef("%s has a route table without subnets, and the module makes one only for subnets", c.Anchor.Address())
+	case m.igw != nil && len(public) == 0:
+		return nil, nil, Declinef("%s has an internet gateway but no public subnet, and the module makes one only for public subnets", vpc.Address())
+	case routing.publicTable != nil && len(public) == 0, len(routing.privateTables) > 0 && len(private) == 0:
+		return nil, nil, Declinef("%s has a route table without subnets, and the module makes one only for subnets", vpc.Address())
 	}
-	for _, nat := range nats {
+	return public, private, nil
+}
+
+// checkVPCNATs declines NAT gateways the module wouldn't make: regional
+// ones, ones no private route table routes to, and ones without an
+// Elastic IP.
+func checkVPCNATs(vpc Resource, m vpcMembers, routing vpcRouting) error {
+	for _, nat := range m.nats {
 		switch {
 		case mustAttr(nat.r, "subnet_id") == nil:
-			return nil, Declinef("%s is a regional NAT gateway, in no subnet, and the module makes zonal ones", nat.Address())
-		case !slices.ContainsFunc(privateTables, func(t *vpcPart) bool { return natOf[t.Address()] == nat }):
-			return nil, Declinef("%s has a NAT gateway no private route table routes to, and the module routes the private subnets through it", c.Anchor.Address())
-		case len(eips) == 0:
-			return nil, Declinef("%s has no Elastic IP of its own", nat.Address())
+			return Declinef("%s is a regional NAT gateway, in no subnet, and the module makes zonal ones", nat.Address())
+		case !slices.ContainsFunc(routing.privateTables, func(t *vpcPart) bool { return routing.natOf[t.Address()] == nat }):
+			return Declinef("%s has a NAT gateway no private route table routes to, and the module routes the private subnets through it", vpc.Address())
+		case len(m.eips) == 0:
+			return Declinef("%s has no Elastic IP of its own", nat.Address())
 		}
 	}
+	return nil
+}
 
-	// The module puts a single NAT gateway in the first public subnet, or
-	// one in each public subnet, in order, and the subnets of each kind in
-	// the zones of azs, in order.
+// orderVPCNATs sorts the public subnets and the NAT gateways as the module
+// places them: a single NAT gateway's subnet first, or with one in each
+// zone, the NAT gateways in the order of their subnets.
+func orderVPCNATs(vpc Resource, public []*vpcSubnet, nats []*vpcPart) ([]*vpcSubnet, []*vpcPart, error) {
 	sortSubnets(public)
 	switch {
 	case len(nats) == 1:
 		i := slices.IndexFunc(public, func(s *vpcSubnet) bool { return nats[0].r.RefersTo("subnet_id", s.Resource) })
 		if i < 0 {
-			return nil, Declinef("%s isn't in a public subnet of %s", nats[0].Address(), c.Anchor.Address())
+			return nil, nil, Declinef("%s isn't in a public subnet of %s", nats[0].Address(), vpc.Address())
 		}
 		first := public[i]
 		public = append([]*vpcSubnet{first}, slices.Delete(public, i, i+1)...)
@@ -329,104 +446,96 @@ func mapVPC(c Cluster) (*Call, error) {
 		for _, s := range public {
 			i := slices.IndexFunc(nats, func(n *vpcPart) bool { return n.r.RefersTo("subnet_id", s.Resource) })
 			if i < 0 {
-				return nil, Declinef("%s has no NAT gateway, and with one in each zone the module makes one in each public subnet", s.Address())
+				return nil, nil, Declinef("%s has no NAT gateway, and with one in each zone the module makes one in each public subnet", s.Address())
 			}
 			natsByZone = append(natsByZone, nats[i])
 		}
 		for _, nat := range nats {
 			if !slices.Contains(natsByZone, nat) {
-				return nil, Declinef("%s isn't in a public subnet of %s, or shares it with another", nat.Address(), c.Anchor.Address())
+				return nil, nil, Declinef("%s isn't in a public subnet of %s, or shares it with another", nat.Address(), vpc.Address())
 			}
 		}
 		nats = natsByZone
 	}
-	// eipOf has, by NAT gateway, its Elastic IP.
+	return public, nats, nil
+}
+
+// vpcEIPs returns, by NAT gateway, its Elastic IP, declining Elastic IPs
+// that are no NAT gateway's.
+func vpcEIPs(vpc Resource, nats, eips []*vpcPart) (map[string]*vpcPart, error) {
 	eipOf := map[string]*vpcPart{}
 	for _, nat := range nats {
 		i := slices.IndexFunc(eips, func(e *vpcPart) bool { return nat.r.RefersTo("allocation_id", e.Resource) })
 		if i < 0 {
-			return nil, Declinef("%s doesn't use an Elastic IP of %s", nat.Address(), c.Anchor.Address())
+			return nil, Declinef("%s doesn't use an Elastic IP of %s", nat.Address(), vpc.Address())
 		}
 		eipOf[nat.Address()] = eips[i]
 	}
 	for _, e := range eips {
 		if !slices.ContainsFunc(nats, func(n *vpcPart) bool { return eipOf[n.Address()] == e }) {
-			return nil, Declinef("%s isn't the Elastic IP of a NAT gateway of %s", e.Address(), c.Anchor.Address())
+			return nil, Declinef("%s isn't the Elastic IP of a NAT gateway of %s", e.Address(), vpc.Address())
 		}
 	}
-	azs := make([]string, 0, len(public))
-	for _, s := range public {
-		azs = append(azs, s.az)
+	return eipOf, nil
+}
+
+// vpcPrivateRouteTables returns the private route tables in the module's
+// order. With a NAT gateway in each zone, each private subnet routes
+// through the one in its zone, the module's private route table of the
+// same index.
+func vpcPrivateRouteTables(vpc Resource, public, private []*vpcSubnet, nats []*vpcPart, routing vpcRouting) ([]*vpcPart, error) {
+	if len(nats) <= 1 {
+		return routing.privateTables, nil
 	}
-	if private, err = alignSubnets(c.Anchor, private, &azs); err != nil {
-		return nil, err
+	if len(private) != len(public) {
+		return nil, Declinef("%s has %d public and %d private subnets, and with a NAT gateway in each zone the module pairs them by zone", vpc.Address(), len(public), len(private))
 	}
-	// With a NAT gateway in each zone, each private subnet routes through
-	// the one in its zone, the module's private route table of the same
-	// index.
-	privateRouteTables := privateTables
+	tables := make([]*vpcPart, 0, len(private))
+	for i, s := range private {
+		if routing.natOf[s.table.Address()] != nats[i] {
+			return nil, Declinef("%s doesn't route through the NAT gateway in its zone, and the module routes each private subnet through the one in its zone", s.Address())
+		}
+		tables = append(tables, s.table)
+	}
+	return tables, nil
+}
+
+// setVPCPublic maps the public subnets, their route table with its
+// default route, and the internet gateway.
+func setVPCPublic(call *Call, vpc Resource, public []*vpcSubnet, table, igw *vpcPart, name string) error {
+	if err := vpcSubnets(call, vpc, "public", public, []*vpcPart{table}, name); err != nil {
+		return err
+	}
+	call.Imports = append(call.Imports, Import{To: "aws_route.public_internet_gateway[0]", Of: table.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
+	if igw.name != name {
+		return Declinef("%s isn't named %q, as the module names it", igw.Address(), name)
+	}
+	call.Addresses[igw.Address()] = "aws_internet_gateway.this[0]"
+	call.Outputs[igw.Address()] = map[string]string{"arn": "igw_arn", "id": "igw_id"}
+	return igw.r.Done()
+}
+
+// setVPCPrivate maps the private subnets, their route tables with their
+// default routes, and the NAT gateways with their Elastic IPs.
+func setVPCPrivate(call *Call, vpc Resource, private []*vpcSubnet, tables, nats []*vpcPart, eipOf map[string]*vpcPart, azs []string, name string) error {
+	if err := vpcSubnets(call, vpc, "private", private, tables, name); err != nil {
+		return err
+	}
+	for i, t := range tables {
+		call.Imports = append(call.Imports, Import{To: fmt.Sprintf("aws_route.private_nat_gateway[%d]", i), Of: t.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
+	}
+	call.Set("enable_nat_gateway", hclwrite.TokensForValue(cty.True))
 	if len(nats) > 1 {
-		if len(private) != len(public) {
-			return nil, Declinef("%s has %d public and %d private subnets, and with a NAT gateway in each zone the module pairs them by zone", c.Anchor.Address(), len(public), len(private))
-		}
-		privateRouteTables = make([]*vpcPart, 0, len(private))
-		for i, s := range private {
-			if natOf[s.table.Address()] != nats[i] {
-				return nil, Declinef("%s doesn't route through the NAT gateway in its zone, and the module routes each private subnet through the one in its zone", s.Address())
-			}
-			privateRouteTables = append(privateRouteTables, s.table)
+		call.Set("one_nat_gateway_per_az", hclwrite.TokensForValue(cty.True))
+	} else {
+		call.Set("single_nat_gateway", hclwrite.TokensForValue(cty.True))
+	}
+	for i, nat := range nats {
+		if err := vpcNAT(call, vpc, i, nat, eipOf[nat.Address()], name+"-"+azs[i]); err != nil {
+			return err
 		}
 	}
-	call.Set("azs", hclwrite.TokensForValue(stringList(azs)))
-
-	if len(public) > 0 {
-		if err := vpcSubnets(call, c.Anchor, "public", public, []*vpcPart{publicTable}, vpc.name); err != nil {
-			return nil, err
-		}
-		call.Imports = append(call.Imports, Import{To: "aws_route.public_internet_gateway[0]", Of: publicTable.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
-		if igw.name != vpc.name {
-			return nil, Declinef("%s isn't named %q, as the module names it", igw.Address(), vpc.name)
-		}
-		call.Addresses[igw.Address()] = "aws_internet_gateway.this[0]"
-		call.Outputs[igw.Address()] = map[string]string{"arn": "igw_arn", "id": "igw_id"}
-		if err := igw.r.Done(); err != nil {
-			return nil, err
-		}
-	}
-	if len(private) > 0 {
-		if err := vpcSubnets(call, c.Anchor, "private", private, privateRouteTables, vpc.name); err != nil {
-			return nil, err
-		}
-		for i, t := range privateRouteTables {
-			call.Imports = append(call.Imports, Import{To: fmt.Sprintf("aws_route.private_nat_gateway[%d]", i), Of: t.Address(), Suffix: "_0.0.0.0/0", Identity: defaultRouteIdentity})
-		}
-		call.Set("enable_nat_gateway", hclwrite.TokensForValue(cty.True))
-		if len(nats) > 1 {
-			call.Set("one_nat_gateway_per_az", hclwrite.TokensForValue(cty.True))
-		} else {
-			call.Set("single_nat_gateway", hclwrite.TokensForValue(cty.True))
-		}
-		for i, nat := range nats {
-			if err := vpcNAT(call, c.Anchor, i, nat, eipOf[nat.Address()], vpc.name+"-"+azs[i]); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	parts := slices.Concat([]*vpcPart{vpc, igw, publicTable}, nats, eips, privateTables, subnetParts(subnets))
-	if err := vpcTags(call, parts, map[string][]*vpcPart{
-		"vpc_tags":                 {vpc},
-		"igw_tags":                 {igw},
-		"nat_gateway_tags":         nats,
-		"nat_eip_tags":             eips,
-		"public_route_table_tags":  {publicTable},
-		"private_route_table_tags": privateTables,
-		"public_subnet_tags":       subnetParts(public),
-		"private_subnet_tags":      subnetParts(private),
-	}); err != nil {
-		return nil, err
-	}
-	return call, nil
+	return nil
 }
 
 // readVPCPart reads a resource's tags: its Name tag, which the module sets

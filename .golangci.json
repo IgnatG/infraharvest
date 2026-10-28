@@ -23,6 +23,7 @@
     "default": "standard",
     "enable": [
       "depguard",
+      "funlen",
       "gocritic",
       "revive",
       "unconvert",
@@ -35,9 +36,27 @@
         "common-false-positives",
         "legacy",
         "std-error-handling"
+      ],
+      "rules": [
+        {
+          "path": "_test\\.go$",
+          "linters": [
+            "funlen"
+          ]
+        },
+        {
+          "path": "internal/engine/",
+          "linters": [
+            "funlen"
+          ]
+        }
       ]
     },
     "settings": {
+      "funlen": {
+        "lines": 120,
+        "statements": -1
+      },
       "depguard": {
         "rules": {
           "engine": {
