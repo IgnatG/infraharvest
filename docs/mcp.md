@@ -44,3 +44,29 @@ The agent can propose a selection, but only a person can start an import. The co
 ```sh
 claude mcp add infraharvest -- infraharvest mcp
 ```
+
+## With HashiCorp's Terraform MCP server
+
+[HashiCorp's Terraform MCP server](https://developer.hashicorp.com/terraform/mcp-server) and `infraharvest mcp` do different jobs, and an agent can use both. Theirs looks things up: provider documentation (`search_provider_docs`, `get_provider_details`), registry modules (`search_modules`, `get_module_details`), policies, and with an HCP Terraform or Terraform Enterprise token, workspaces, runs and variables. infraharvest's adopts what already exists in the cloud: it lists it, imports what the user confirms into roots that plan with no changes, and checks them for drift, each import and drift run confirmed by the user. Add both to Claude Code, theirs as its [README](https://github.com/hashicorp/terraform-mcp-server) shows, with Docker:
+
+```sh
+claude mcp add terraform -s user -t stdio -- docker run -i --rm hashicorp/terraform-mcp-server
+claude mcp add infraharvest -- infraharvest mcp
+```
+
+For example, asked to bring a team's existing storage under Terraform:
+
+1. infraharvest's `discover` lists the resources into `selection.yaml`, and the agent goes through what it includes and excludes with the user.
+2. infraharvest's `import` asks the user to confirm, then writes the roots; its `report` says what was imported and left out.
+3. The Terraform server's `search_provider_docs` or `get_provider_details` explains an argument of the generated code the user asks about, and `search_modules` finds a module for what they want to build next to it.
+4. The user applies the roots. Later, infraharvest's `drift` shows what changed in the cloud since, and `drift_accept`, once the user confirms, takes the changes they choose into the code.
+
+## Agent skill
+
+[`skills/infraharvest/SKILL.md`](https://github.com/IgnatG/infraharvest/blob/main/skills/infraharvest/SKILL.md) is an [Agent Skill](https://agentskills.io) that teaches a coding agent the workflow above: discover, review the selection with the user, import once they confirm, verify, and leave applying to them; audit; drift and accepting it. It tells the agent never to apply or write secrets, to use the MCP tools when they are there and the command line otherwise, and what the exit codes mean. To install it for Claude Code, copy the directory into `~/.claude/skills/` for every project, or into a project's `.claude/skills/`:
+
+```sh
+git clone --depth 1 https://github.com/IgnatG/infraharvest.git
+mkdir -p ~/.claude/skills
+cp -r infraharvest/skills/infraharvest ~/.claude/skills/
+```
