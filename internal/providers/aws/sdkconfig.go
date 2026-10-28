@@ -185,6 +185,28 @@ type runConfigs struct {
 	// resolved. Tests set it, on a run of their own, to fake the API.
 	fixed *aws.Config
 
+	// credentialsMu guards credentials.
+	credentialsMu sync.Mutex
+	// credentialsFlight resolves the credentials of each profile and role
+	// once at a time, as resolving them may prompt for an MFA code: the
+	// first region to need them resolves them, and the others wait for
+	// them and share the answer.
+	credentialsFlight singleflight.Group
+	// credentials are the credentials the run resolved so far, by profile
+	// and role, which the configuration of every region of them shares: a
+	// profile's role that needs MFA asks for the code once, not once per
+	// region, and a role is assumed once. They are the run's, not the
+	// process's: they depend on the environment, the shared files and the
+	// session a role's MFA code opened, any of which can change before the
+	// next run, which resolves them again.
+	credentials map[credentialsKey]sharedCredentials
+
+	// accountsMu guards callerAccounts.
+	accountsMu sync.Mutex
+	// callerAccounts are the account IDs callerAccount found, by the
+	// credentials they are of.
+	callerAccounts map[*aws.CredentialsCache]string
+
 	// scansMu guards stackScans.
 	scansMu sync.Mutex
 	// stackScans are the regions the run scanned lately (see
@@ -202,34 +224,15 @@ type runConfigsKey struct{}
 func configsOf(l *ratelimit.Limiter) *runConfigs {
 	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
 		return &runConfigs{
-			configs:       map[configKey]aws.Config{},
-			baseProviders: map[configKey]aws.CredentialsProvider{},
-			buildFailures: map[configKey]buildFailure{},
-			stackScans:    map[stackScanKey]stackScan{},
+			configs:        map[configKey]aws.Config{},
+			baseProviders:  map[configKey]aws.CredentialsProvider{},
+			buildFailures:  map[configKey]buildFailure{},
+			credentials:    map[credentialsKey]sharedCredentials{},
+			callerAccounts: map[*aws.CredentialsCache]string{},
+			stackScans:     map[stackScanKey]stackScan{},
 		}
 	})
 }
-
-var (
-	// credentialsMu guards resolvedCredentials.
-	credentialsMu sync.Mutex
-	// credentialsFlight resolves the credentials of each profile and role
-	// once at a time, as resolving them may prompt for an MFA code: the
-	// first region to need them resolves them, and the others wait for
-	// them and share the answer.
-	credentialsFlight singleflight.Group
-	// resolvedCredentials are the credentials resolved so far, by profile
-	// and role, which the configuration of every region of them shares: a
-	// profile's role that needs MFA asks for the code once, not once per
-	// region, and a role is assumed once. They are the process's, not a
-	// run's, so that a server's next run doesn't ask for the code again.
-	resolvedCredentials = map[credentialsKey]sharedCredentials{}
-	// accountsMu guards callerAccounts.
-	accountsMu sync.Mutex
-	// callerAccounts are the account IDs callerAccount found, by the
-	// credentials they are of.
-	callerAccounts = map[*aws.CredentialsCache]string{}
-)
 
 // cacheKey returns the key of the service's configuration, from its
 // arguments.
@@ -265,7 +268,7 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 		if cfg, ok, err := run.cached(key); ok {
 			return cfg, err
 		}
-		cfg, base, err := s.buildConfig(key)
+		cfg, base, err := s.buildConfig(run, key)
 		run.mu.Lock()
 		defer run.mu.Unlock()
 		if err != nil {
@@ -299,12 +302,12 @@ func (r *runConfigs) cached(key configKey) (aws.Config, bool, error) {
 }
 
 // buildConfig loads the configuration of key and gives it the credentials
-// of its profile and role: those another region resolved already, or else
-// it resolves them and, with a role, assumes it, and keeps them for the
-// other regions. It returns the configuration and its credentials from
+// of its profile and role: those another region of run resolved already,
+// or else it resolves them and, with a role, assumes it, and keeps them
+// for the run's other regions. It returns the configuration and its credentials from
 // before any role. It never sets an environment variable: the region and
 // the profile are given to the SDK directly.
-func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvider, error) {
+func (s *Service) buildConfig(run *runConfigs, key configKey) (aws.Config, aws.CredentialsProvider, error) {
 	ctx := s.Context()
 	cfg, err := config.LoadDefaultConfig(ctx, s.configOptions(key)...)
 	if err != nil {
@@ -319,7 +322,7 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 	}
 	cfg.HTTPClient = ratelimit.Like(ratelimit.FromContext(ctx)).Client(base)
 
-	resolved, err := resolveCredentials(ctx, credentialsKey{profile: key.profile, roleARN: key.roleARN}, cfg)
+	resolved, err := run.resolveCredentials(ctx, credentialsKey{profile: key.profile, roleARN: key.roleARN}, cfg)
 	if err != nil {
 		return aws.Config{}, nil, err
 	}
@@ -328,25 +331,25 @@ func (s *Service) buildConfig(key configKey) (aws.Config, aws.CredentialsProvide
 }
 
 // resolveCredentials returns the credentials of shared: those another
-// region resolved already, or else it resolves those cfg loaded and, with
-// a role, assumes it, and keeps them for the other regions. Credentials
-// that fail to resolve aren't kept.
-func resolveCredentials(ctx context.Context, shared credentialsKey, cfg aws.Config) (sharedCredentials, error) {
-	if resolved, ok := keptCredentials(shared); ok {
+// region of the run resolved already, or else it resolves those cfg
+// loaded and, with a role, assumes it, and keeps them for the run's other
+// regions. Credentials that fail to resolve aren't kept.
+func (r *runConfigs) resolveCredentials(ctx context.Context, shared credentialsKey, cfg aws.Config) (sharedCredentials, error) {
+	if resolved, ok := r.keptCredentials(shared); ok {
 		return resolved, nil
 	}
-	resolved, err, _ := credentialsFlight.Do(shared.flightKey(), func() (any, error) {
+	resolved, err, _ := r.credentialsFlight.Do(shared.flightKey(), func() (any, error) {
 		// Another flight of shared may have ended since they were read.
-		if resolved, ok := keptCredentials(shared); ok {
+		if resolved, ok := r.keptCredentials(shared); ok {
 			return resolved, nil
 		}
 		resolved, err := newCredentials(ctx, shared, cfg)
 		if err != nil {
 			return nil, err
 		}
-		credentialsMu.Lock()
-		resolvedCredentials[shared] = resolved
-		credentialsMu.Unlock()
+		r.credentialsMu.Lock()
+		r.credentials[shared] = resolved
+		r.credentialsMu.Unlock()
 		return resolved, nil
 	})
 	if err != nil {
@@ -355,12 +358,12 @@ func resolveCredentials(ctx context.Context, shared credentialsKey, cfg aws.Conf
 	return resolved.(sharedCredentials), nil
 }
 
-// keptCredentials returns the credentials of shared resolved already, and
-// whether there are any.
-func keptCredentials(shared credentialsKey) (sharedCredentials, bool) {
-	credentialsMu.Lock()
-	defer credentialsMu.Unlock()
-	resolved, ok := resolvedCredentials[shared]
+// keptCredentials returns the credentials of shared the run resolved
+// already, and whether there are any.
+func (r *runConfigs) keptCredentials(shared credentialsKey) (sharedCredentials, bool) {
+	r.credentialsMu.Lock()
+	defer r.credentialsMu.Unlock()
+	resolved, ok := r.credentials[shared]
 	return resolved, ok
 }
 
@@ -437,16 +440,16 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 
 // callerAccount returns the ID of the account cfg's credentials are of. It
 // asks STS once for the credentials of a configuration sdkConfig built,
-// which every region of one profile and role shares, and remembers the
-// answer: the scope of an import, the default selection and the listers
-// that need the account then don't each ask again.
+// which every region of one profile and role shares, and the run
+// remembers the answer: the scope of an import, the default selection and
+// the listers that need the account then don't each ask again.
 func (s *Service) callerAccount(cfg aws.Config) (*string, error) {
+	run := s.configs()
 	cache, cached := cfg.Credentials.(*aws.CredentialsCache)
-	cached = cached && s.configs().fixed == nil
 	if cached {
-		accountsMu.Lock()
-		account, ok := callerAccounts[cache]
-		accountsMu.Unlock()
+		run.accountsMu.Lock()
+		account, ok := run.callerAccounts[cache]
+		run.accountsMu.Unlock()
 		if ok {
 			return aws.String(account), nil
 		}
@@ -456,9 +459,9 @@ func (s *Service) callerAccount(cfg aws.Config) (*string, error) {
 		return nil, err
 	}
 	if cached && identity.Account != nil {
-		accountsMu.Lock()
-		callerAccounts[cache] = *identity.Account
-		accountsMu.Unlock()
+		run.accountsMu.Lock()
+		run.callerAccounts[cache] = *identity.Account
+		run.accountsMu.Unlock()
 	}
 	return identity.Account, nil
 }

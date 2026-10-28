@@ -48,9 +48,9 @@ func New(perSecond float64) *Limiter {
 var std = New(DefaultRate)
 
 // Default is the Limiter, at DefaultRate, of the calls whose context
-// carries no run's (see FromContext), such as those a command makes before
-// its runs, to find the accounts it imports. It is a fixed fallback: a run
-// limits its own calls with a Limiter of its own (see NewContext).
+// carries no run's (see FromContext). It is a fixed fallback: a run
+// limits its own calls with a Limiter of its own (see NewContext), those
+// it makes before it lists too, such as to find the accounts it imports.
 func Default() *Limiter {
 	return std
 }

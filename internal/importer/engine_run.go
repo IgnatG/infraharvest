@@ -179,6 +179,17 @@ func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
 	return s.limiter
 }
 
+// WithLimiter returns ctx carrying the limiter of the command's listings,
+// of perSecond requests a second, which every Import call of the command
+// gets too (see shared.rateLimiter): the calls the command makes before
+// its Import calls, such as those finding the accounts or the stacks it
+// imports, are then of the run, and share with the Import calls what the
+// providers keep for the run, such as the credentials they resolved, so
+// that a profile whose role needs MFA asks for the code once.
+func (r *Run) WithLimiter(ctx context.Context, perSecond float64) context.Context {
+	return ratelimit.NewContext(ctx, r.shared.rateLimiter(perSecond))
+}
+
 // callSlots returns the slots the Import calls of the command take while
 // they list or generate, n of them, made on first use: the regions of
 // accounts imported at once share --parallel with the accounts, so no more

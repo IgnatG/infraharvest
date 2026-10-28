@@ -199,7 +199,10 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		if check {
 			return nil
 		}
-		p, err := planScopes(ctx, options)
+		// The scopes are planned in the run, so that what the providers
+		// resolve to plan them, such as the credentials, serves the Import
+		// calls too.
+		p, err := planScopes(run.WithLimiter(ctx, options.RateLimit), options)
 		if err != nil {
 			return err
 		}
