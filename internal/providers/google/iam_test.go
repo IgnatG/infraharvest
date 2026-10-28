@@ -86,6 +86,7 @@ func TestIamList(t *testing.T) {
 // after the role and the whole member, such as
 // roles_viewer_serviceaccount_deployer_acme_iam_gserviceaccount_com.
 func TestGrantName(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct{ role, member, title, want string }{
 		{"roles/viewer", "serviceAccount:deployer@acme.iam.gserviceaccount.com", "", "deployer_viewer"},
 		{"roles/cloudscheduler.serviceAgent", "serviceAccount:service-123@gcp-sa-cloudscheduler.iam.gserviceaccount.com", "", "service-123_cloudscheduler.serviceAgent"},

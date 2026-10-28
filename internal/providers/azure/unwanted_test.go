@@ -14,6 +14,7 @@ import (
 // The provider hands the services what reports the types the import
 // leaves out, as it hands them its other settings.
 func TestSelectPassesUnwantedTypes(t *testing.T) {
+	t.Parallel()
 	p := &Provider{subscriptionID: "sub"}
 	p.SetUnwantedTypes(func(typ string) bool { return typ == "azurerm_subnet" })
 	if err := p.Select("subnet", false); err != nil {
@@ -30,6 +31,7 @@ func TestSelectPassesUnwantedTypes(t *testing.T) {
 // out whatever is listed asks only for the parents, and lists none of
 // the children.
 func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
+	t.Parallel()
 	const (
 		rg       = "/subscriptions/sub/resourceGroups/rg1/providers/"
 		ids      = rg + "Microsoft.ManagedIdentity/userAssignedIdentities"
@@ -122,6 +124,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 // diagnostic_setting asks no resource for its settings when the import
 // leaves them out whatever is listed.
 func TestDiagnosticSettingSkipsUnwantedSettings(t *testing.T) {
+	t.Parallel()
 	transport := &diagnosticTransport{}
 	args := diagnosticArgs(transport, "", listedByOthers())
 	args[unwantedKey] = func(typ string) bool { return typ == diagnosticSettingType }

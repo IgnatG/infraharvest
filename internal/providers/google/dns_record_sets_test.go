@@ -57,7 +57,7 @@ func newDNSRecordSets(t *testing.T, region string) *DNSRecordSetsLister {
 	t.Helper()
 	g := &DNSRecordSetsLister{}
 	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
-	g.SetContext(t.Context())
+	g.SetContext(fastRetries(t))
 	return g
 }
 
@@ -109,6 +109,7 @@ func TestDNSRecordSetsList(t *testing.T) {
 // type: before, the zone's DNS name was in the name twice, once as the
 // zone's name and again at the end of the set's.
 func TestRecordSetName(t *testing.T) {
+	t.Parallel()
 	zone := &dns.ManagedZone{Name: "shop", DnsName: "shop.example.com."}
 	for _, tt := range []struct{ name, typ, want string }{
 		{"app.shop.example.com.", "A", "shop-app-A"},

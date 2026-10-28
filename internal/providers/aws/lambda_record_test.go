@@ -78,8 +78,10 @@ func recordLambdaAPI(t *testing.T, override map[string]string) func(apiCall) str
 // older versions the functions use, from the list of layers without a call
 // per layer; a layer of another account isn't listed.
 func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
-	useFakeAPI(t, recordLambdaAPI(t, nil))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordLambdaAPI(t, nil))
 	g := &LambdaLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -106,6 +108,7 @@ func TestRecordLambdaListsFunctionsMappingsAndLayers(t *testing.T) {
 // A function without a resource policy is not an error (above); any other
 // error, and a policy that isn't JSON, are returned.
 func TestRecordLambdaReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		path, answer, want string
 	}{
@@ -117,8 +120,9 @@ func TestRecordLambdaReturnsErrors(t *testing.T) {
 		"ListLayers":                     {"/2018-10-31/layers", recordJSONError("AccessDeniedException"), "AccessDeniedException"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			useFakeAPI(t, recordLambdaAPI(t, map[string]string{tc.path: tc.answer}))
+			ctx := useFakeAPI(t, recordLambdaAPI(t, map[string]string{tc.path: tc.answer}))
 			g := &LambdaLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), tc.want)
 		})

@@ -39,10 +39,11 @@ var liveStackStatuses = func() []cftypes.StackStatus {
 // once. CloudFormation throttles each region on its own.
 const stackScanParallel = 4
 
-// stackScanMemory is how long a region's scan is reused (see regionStacks):
-// long enough for the regional calls of an import to reuse what its global
-// call scanned, short enough for a server that outlives the import to see
-// the stacks change.
+// stackScanMemory is how long a region's scan is reused (see
+// runConfigs.regionStacks): long enough for the regional calls of an
+// import to reuse what its global call scanned, short enough for a long
+// run to see the stacks change. A run's scans are its own: the next run
+// scans again.
 const stackScanMemory = 15 * time.Minute
 
 // stackScanKey picks a region's scan: of the credentials of a
@@ -58,13 +59,6 @@ type stackScan struct {
 	managed map[string][]stackResource
 	at      time.Time
 }
-
-var (
-	// stackScansMu guards stackScans.
-	stackScansMu sync.Mutex
-	// stackScans are the regions scanned lately (see stackScanMemory).
-	stackScans = map[stackScanKey]stackScan{}
-)
 
 // cloudFormationManaged returns the resources the CloudFormation stacks of
 // the region config names manage, by physical ID, with the stack's name
@@ -89,6 +83,7 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 			regions = append(regions, aws.ToString(r.RegionName))
 		}
 	}
+	run := p.service(ctx).configs()
 	found := make([]map[string][]stackResource, len(regions))
 	errs := make([]error, len(regions))
 	slots := make(chan struct{}, stackScanParallel)
@@ -99,7 +94,7 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 			defer wg.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			found[i], errs[i] = regionStacks(ctx, config, region)
+			found[i], errs[i] = run.regionStacks(ctx, config, region)
 		}()
 	}
 	wg.Wait()
@@ -117,19 +112,18 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 }
 
 // regionStacks returns what the stacks of region manage (see
-// stackResources), from config's credentials. A region scanned in full
-// lately with the same credentials isn't scanned again: an import's
+// stackResources), from config's credentials. A region the run scanned in
+// full lately with the same credentials isn't scanned again: an import's
 // regional calls reuse what its global call scanned, as the global call
 // comes first. What a scan that failed found is returned with its error,
 // and not remembered.
-func regionStacks(ctx context.Context, config aws.Config, region string) (map[string][]stackResource, error) {
+func (r *runConfigs) regionStacks(ctx context.Context, config aws.Config, region string) (map[string][]stackResource, error) {
 	credentials, remember := config.Credentials.(*aws.CredentialsCache)
-	remember = remember && testConfig == nil
 	key := stackScanKey{credentials: credentials, region: region}
 	if remember {
-		stackScansMu.Lock()
-		scan, ok := stackScans[key]
-		stackScansMu.Unlock()
+		r.scansMu.Lock()
+		scan, ok := r.stackScans[key]
+		r.scansMu.Unlock()
 		if ok && time.Since(scan.at) < stackScanMemory {
 			return scan.managed, nil
 		}
@@ -141,9 +135,9 @@ func regionStacks(ctx context.Context, config aws.Config, region string) (map[st
 		return managed, err
 	}
 	if remember {
-		stackScansMu.Lock()
-		stackScans[key] = stackScan{managed: managed, at: time.Now()}
-		stackScansMu.Unlock()
+		r.scansMu.Lock()
+		r.stackScans[key] = stackScan{managed: managed, at: time.Now()}
+		r.scansMu.Unlock()
 	}
 	return managed, nil
 }

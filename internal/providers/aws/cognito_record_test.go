@@ -48,8 +48,10 @@ func recordCognitoAPI(t *testing.T, failing string) func(apiCall) string {
 // The lister lists identity pools, then user pools, then each user pool's
 // clients, by ID, named <name>_<ID>, across pages.
 func TestRecordCognitoListsPoolsAndClients(t *testing.T) {
-	useFakeAPI(t, recordCognitoAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordCognitoAPI(t, ""))
 	g := &CognitoLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -66,10 +68,12 @@ func TestRecordCognitoListsPoolsAndClients(t *testing.T) {
 }
 
 func TestRecordCognitoReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListIdentityPools", "ListUserPools", "ListUserPoolClients"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordCognitoAPI(t, failing))
+			ctx := useFakeAPI(t, recordCognitoAPI(t, failing))
 			g := &CognitoLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "NotAuthorizedException")
 		})

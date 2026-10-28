@@ -29,7 +29,8 @@ const recordRouteTablesPage1 = `<routeTableSet>
 // table is named after its VPC; one table without a subnet or with
 // several, after its ID.
 func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeRouteTables" {
 			return recordUnexpected(t, call)
 		}
@@ -46,6 +47,7 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 		return recordEC2(call.Op, fmt.Sprintf(`%s<nextToken>%s</nextToken>`, recordRouteTablesPage1, nextPageToken))
 	})
 	g := &RouteTableLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -69,7 +71,8 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 // main one: only then is it recorded as_created, which the catalogue
 // skips by default.
 func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeRouteTables" {
 			return recordUnexpected(t, call)
 		}
@@ -86,6 +89,7 @@ func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
 			`</routeTableSet>`)
 	})
 	g := &RouteTableLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -111,13 +115,15 @@ func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
 
 // An error on any page fails the service.
 func TestRecordRouteTableReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if recordSecondPage(call) {
 			return recordEC2Error()
 		}
 		return recordEC2(call.Op, fmt.Sprintf(`%s<nextToken>%s</nextToken>`, recordRouteTablesPage1, nextPageToken))
 	})
 	g := &RouteTableLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }
@@ -126,6 +132,7 @@ func TestRecordRouteTableReturnsErrors(t *testing.T) {
 // which the import names after that resource: before, it was labelled
 // rtb_0a1b2c3d.
 func TestRouteTableName(t *testing.T) {
+	t.Parallel()
 	association := func(main bool, subnet string) types.RouteTableAssociation {
 		return types.RouteTableAssociation{Main: aws.Bool(main), SubnetId: aws.String(subnet)}
 	}

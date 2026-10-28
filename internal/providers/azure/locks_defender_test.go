@@ -14,6 +14,7 @@ import (
 // Locks are listed in --resource-group when it is set, else in the whole
 // subscription; a lock without a name is skipped.
 func TestManagementLockListsTheScope(t *testing.T) {
+	t.Parallel()
 	const lock = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks/keep"
 	for resourceGroup, wantPath := range map[string]string{
 		"rg1": "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Authorization/locks",
@@ -43,6 +44,7 @@ func TestManagementLockListsTheScope(t *testing.T) {
 // that the catalogue leaves out the lock Azure Backup puts on a storage
 // account, and locks in groups the default selection leaves out.
 func TestLockAttributes(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	for _, tc := range []struct {
 		id, name string
@@ -68,6 +70,7 @@ func TestLockAttributes(t *testing.T) {
 // are listed for the whole subscription, and with --resource-group nothing
 // is asked for or listed.
 func TestDefenderListersListTheSubscription(t *testing.T) {
+	t.Parallel()
 	const (
 		contacts = "/subscriptions/sub/providers/Microsoft.Security/securityContacts"
 		pricings = "/subscriptions/sub/providers/Microsoft.Security/pricings"
@@ -129,6 +132,7 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 
 // A list that fails fails the service, rather than listing nothing.
 func TestLockAndDefenderListersFailWhenTheListFails(t *testing.T) {
+	t.Parallel()
 	for service, g := range map[string]harvest.Lister{
 		"management_lock":                      &ManagementLockLister{},
 		"security_center_contact":              &SecurityCenterContactLister{},

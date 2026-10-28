@@ -9,7 +9,8 @@ import "testing"
 // included (the catalogue skips those), recording its retention and KMS key
 // when it has them.
 func TestRecordLogsListsLogGroups(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeLogGroups" {
 			return recordUnexpected(t, call)
 		}
@@ -23,6 +24,7 @@ func TestRecordLogsListsLogGroups(t *testing.T) {
 			"nextToken":"` + nextPageToken + `"}`
 	})
 	g := &LogsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -37,10 +39,12 @@ func TestRecordLogsListsLogGroups(t *testing.T) {
 }
 
 func TestRecordLogsReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &LogsLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

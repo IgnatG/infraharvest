@@ -16,9 +16,10 @@ import (
 // which a cluster that authenticates through the aws-auth ConfigMap alone
 // doesn't have.
 func TestEksListsClusterPartsWithImportIDs(t *testing.T) {
+	t.Parallel()
 	const admin = "arn:aws:iam::123456789012:role/platform/admin"
 	const policy = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Path {
 		case "/clusters":
 			return `{"clusters":["web","legacy"]}`
@@ -53,6 +54,7 @@ func TestEksListsClusterPartsWithImportIDs(t *testing.T) {
 		return `{"__type":"ResourceNotFoundException"}`
 	})
 	g := &EksLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -76,8 +78,9 @@ func TestEksListsClusterPartsWithImportIDs(t *testing.T) {
 // page's order, each after its parts, however their answers come back:
 // here the first cluster's answers come last.
 func TestEksKeepsTheClustersOrder(t *testing.T) {
+	t.Parallel()
 	names := []string{"c0", "c1", "c2", "c3", "c4", "c5"}
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path == "/clusters" {
 			return `{"clusters":["` + strings.Join(names, `","`) + `"]}`
 		}
@@ -100,6 +103,7 @@ func TestEksKeepsTheClustersOrder(t *testing.T) {
 		return `{"__type":"ResourceNotFoundException"}`
 	})
 	g := &EksLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

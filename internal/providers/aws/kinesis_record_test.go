@@ -9,7 +9,8 @@ import "testing"
 // This records the rest: each stream by name, with its name as an
 // attribute, from ListStreams' StreamNames.
 func TestRecordKinesisListsStreamsByName(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListStreams" {
 			return recordUnexpected(t, call)
 		}
@@ -19,6 +20,7 @@ func TestRecordKinesisListsStreamsByName(t *testing.T) {
 				{"StreamName":"clicks","StreamARN":"arn:aws:kinesis:us-east-1:123456789012:stream/clicks","StreamStatus":"ACTIVE"}]}`
 	})
 	g := &KinesisLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -31,10 +33,12 @@ func TestRecordKinesisListsStreamsByName(t *testing.T) {
 }
 
 func TestRecordKinesisReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &KinesisLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

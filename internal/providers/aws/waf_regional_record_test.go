@@ -37,14 +37,16 @@ func recordWafRegionalAPI(t *testing.T, associations map[[2]string]string) func(
 // resource's. A type the region rejects as an invalid parameter, or a web
 // ACL gone since it was listed, is skipped.
 func TestRecordWafRegionalListsEveryType(t *testing.T) {
+	t.Parallel()
 	mainID, backupID := recordWafID(0, 1), recordWafID(0, 2)
-	useFakeAPI(t, recordWafRegionalAPI(t, map[[2]string]string{
+	ctx := useFakeAPI(t, recordWafRegionalAPI(t, map[[2]string]string{
 		{mainID, "APPLICATION_LOAD_BALANCER"}:   `{"ResourceArns":["` + recordWafRegionalALB + `"]}`,
 		{mainID, "API_GATEWAY"}:                 `{"ResourceArns":["` + recordWafRegionalStage + `"]}`,
 		{backupID, "APPLICATION_LOAD_BALANCER"}: recordJSONError("WAFInvalidParameterException"),
 		{backupID, "API_GATEWAY"}:               recordJSONError("WAFNonexistentItemException"),
 	}))
 	g := &WafRegionalLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -69,10 +71,12 @@ func TestRecordWafRegionalListsEveryType(t *testing.T) {
 // An error from any list operation is returned, and the operations after it
 // are not called.
 func TestRecordWafRegionalReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, o := range recordWafOps {
 		t.Run(o.op, func(t *testing.T) {
-			useFakeAPI(t, recordWafErrorAPI(t, o.op))
+			ctx := useFakeAPI(t, recordWafErrorAPI(t, o.op))
 			g := &WafRegionalLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "WAFInternalErrorException")
 		})
@@ -82,14 +86,16 @@ func TestRecordWafRegionalReturnsErrors(t *testing.T) {
 // An error listing a web ACL's resources, other than the two that skip a
 // resource type, is returned.
 func TestRecordWafRegionalReturnsAssociationErrors(t *testing.T) {
+	t.Parallel()
 	mainID, backupID := recordWafID(0, 1), recordWafID(0, 2)
-	useFakeAPI(t, recordWafRegionalAPI(t, map[[2]string]string{
+	ctx := useFakeAPI(t, recordWafRegionalAPI(t, map[[2]string]string{
 		{mainID, "APPLICATION_LOAD_BALANCER"}:   `{"ResourceArns":[]}`,
 		{mainID, "API_GATEWAY"}:                 recordJSONError("WAFInternalErrorException"),
 		{backupID, "APPLICATION_LOAD_BALANCER"}: fmt.Sprintf(`{"ResourceArns":[%q]}`, recordWafRegionalALB),
 		{backupID, "API_GATEWAY"}:               `{"ResourceArns":[]}`,
 	}))
 	g := &WafRegionalLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "WAFInternalErrorException")
 }
@@ -97,8 +103,10 @@ func TestRecordWafRegionalReturnsAssociationErrors(t *testing.T) {
 // A page that sends back the marker it was asked with is an error, not an
 // endless listing.
 func TestRecordWafRegionalReturnsRepeatedMarkerError(t *testing.T) {
-	useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWafRepeatedMarkerAPI(t))
 	g := &WafRegionalLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "pagination did not advance")
 }
@@ -106,8 +114,10 @@ func TestRecordWafRegionalReturnsRepeatedMarkerError(t *testing.T) {
 // As in the WAF lister, an ID of eight characters or fewer ends the name
 // whole.
 func TestRecordWafRegionalNamesShortIDs(t *testing.T) {
-	useFakeAPI(t, recordWafShortIDAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordWafShortIDAPI(t))
 	g := &WafRegionalLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

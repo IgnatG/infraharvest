@@ -403,6 +403,7 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 // What the provider passes each service is what picks its SDK
 // configuration and region.
 func TestServiceReadsTheProviderArgs(t *testing.T) {
+	t.Parallel()
 	p := &Provider{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
 	s := &Service{}
 	s.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
@@ -421,6 +422,7 @@ func TestServiceReadsTheProviderArgs(t *testing.T) {
 // The settings a service gets come back as they went in, and those of
 // another type as none.
 func TestServiceSettingsRoundTrip(t *testing.T) {
+	t.Parallel()
 	want := serviceSettings{region: "eu-west-2", profile: "audit", roleARN: "arn:aws:iam::111122223333:role/reader"}
 	args := want.args()
 	if got := settingsOf(args); got != want {

@@ -22,8 +22,9 @@ func newCloudControlLister(service string) *CloudControlLister {
 }
 
 func TestCloudControlLister(t *testing.T) {
+	t.Parallel()
 	var listed []string
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		var in struct{ TypeName, NextToken string }
 		if call.Op != "ListResources" || json.Unmarshal([]byte(call.Body), &in) != nil {
 			t.Errorf("unexpected call %+v", call)
@@ -45,6 +46,7 @@ func TestCloudControlLister(t *testing.T) {
 		return `{"ResourceDescriptions":[]}`
 	})
 	g := newCloudControlLister("eventbridge")
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -58,10 +60,12 @@ func TestCloudControlLister(t *testing.T) {
 }
 
 func TestCloudControlListerFails(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return `{"__type":"AccessDeniedException","Message":"not allowed"}`
 	})
 	g := newCloudControlLister("athena")
+	g.SetContext(ctx)
 
 	err := g.List()
 	if err == nil || !strings.Contains(err.Error(), "AWS::Athena::WorkGroup") || harvest.IsPartial(err) {
@@ -73,7 +77,8 @@ func TestCloudControlListerFails(t *testing.T) {
 // types: what they list is kept, and the listing reads as partial, naming
 // the type. A type Cloud Control has no list handler for lists nothing.
 func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		var in struct{ TypeName string }
 		if err := json.Unmarshal([]byte(call.Body), &in); err != nil {
 			t.Fatal(err)
@@ -89,6 +94,7 @@ func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
 		return `{"ResourceDescriptions":[]}`
 	})
 	g := newCloudControlLister("eventbridge")
+	g.SetContext(ctx)
 
 	err := g.List()
 
@@ -102,6 +108,7 @@ func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
 // named apart from the service listers, and imports each Terraform type
 // once.
 func TestCloudControlServices(t *testing.T) {
+	t.Parallel()
 	supported := (&Provider{}).Services()
 	types := map[string]string{}
 	for name, ts := range cloudControlServices() {
@@ -129,6 +136,7 @@ func TestCloudControlServices(t *testing.T) {
 // service, once SetCatalogue gives the provider the overlay: Services has
 // the service, and Select makes its Cloud Control lister.
 func TestCloudControlServicesOfTheOverlay(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	overlay := "provider: aws\nservice: ivs\ntypes:\n  aws_ivs_channel:\n    cloud_control: { type: \"AWS::IVS::Channel\", identifier: Arn }\n"
 	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
@@ -164,6 +172,7 @@ func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 }
 
 func TestCloudControlName(t *testing.T) {
+	t.Parallel()
 	for id, want := range map[string]string{
 		"arn:aws:codeartifact:us-east-1:123456789012:repository/shop/npm":                            "npm",
 		"arn:aws:codeartifact:us-east-1:123456789012:domain/shop":                                    "shop",
@@ -185,6 +194,7 @@ const CloudFormationSchemasEnv = "INFRAHARVEST_CFN_SCHEMAS"
 
 // Every Cloud Control type names the identifier its import IDs come from.
 func TestCloudControlIdentifiers(t *testing.T) {
+	t.Parallel()
 	for service, types := range cloudControlServices() {
 		for _, typ := range types {
 			if typ.Identifier == "" || strings.Contains(typ.Identifier, "/") {
@@ -199,6 +209,7 @@ func TestCloudControlIdentifiers(t *testing.T) {
 // identifiers stay the Terraform import IDs. The cloudcontrol workflow runs
 // it against the published schemas every week.
 func TestCloudControlIdentifiersMatchSchemas(t *testing.T) {
+	t.Parallel()
 	dir := os.Getenv(CloudFormationSchemasEnv)
 	if dir == "" {
 		t.Skip(CloudFormationSchemasEnv + " is not set")

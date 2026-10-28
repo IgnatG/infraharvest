@@ -20,8 +20,9 @@ var recordCallerIdentity = recordQuery("GetCallerIdentity", "https://sts.amazona
 // built from its name, the region and the account, which it asks for once,
 // with the name as an attribute. No stream is described.
 func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
+	t.Parallel()
 	identities := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "GetCallerIdentity":
 			identities++
@@ -40,6 +41,7 @@ func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &FirehoseLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -57,13 +59,15 @@ func TestRecordFirehoseListsDeliveryStreams(t *testing.T) {
 
 // A region without streams doesn't ask for the account.
 func TestRecordFirehoseWithoutStreams(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListDeliveryStreams" {
 			return `{"DeliveryStreamNames":[],"HasMoreDeliveryStreams":false}`
 		}
 		return recordUnexpected(t, call)
 	})
 	g := &FirehoseLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -73,9 +77,10 @@ func TestRecordFirehoseWithoutStreams(t *testing.T) {
 
 // Failing to list the streams, or to find the account, fails the service.
 func TestRecordFirehoseReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListDeliveryStreams", "GetCallerIdentity"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case "GetCallerIdentity":
 					if failing == call.Op {
@@ -91,6 +96,7 @@ func TestRecordFirehoseReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &FirehoseLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})
@@ -99,6 +105,7 @@ func TestRecordFirehoseReturnsErrors(t *testing.T) {
 
 // A region's partition is the one its name tells.
 func TestPartitionOf(t *testing.T) {
+	t.Parallel()
 	for region, want := range map[string]string{
 		"eu-west-2":      "aws",
 		"us-east-1":      "aws",

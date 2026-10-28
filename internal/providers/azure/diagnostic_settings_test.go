@@ -98,6 +98,7 @@ func listedByOthers() []harvest.Resource {
 // no request, nor does what isn't a Resource Manager ID; a setting without
 // a name is left out.
 func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
+	t.Parallel()
 	const subscriptionPath = "/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings"
 	transport := &diagnosticTransport{bodies: map[string]string{
 		subscriptionPath:      armList(armItem(strings.ToLower(subscriptionPath)+"/activity", "activity", `{"logs":[{"category":"Administrative","enabled":true}]}`)),
@@ -138,6 +139,7 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 // With --resource-group, the subscription's settings aren't the group's:
 // only those of what the other services listed are asked for.
 func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
+	t.Parallel()
 	transport := &diagnosticTransport{}
 	g := &DiagnosticSettingLister{}
 	g.Configure(harvest.ListerConfig{Provider: "azurerm", Settings: diagnosticArgs(transport, "app", listedByOthers()[:1])})
@@ -158,6 +160,7 @@ func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 // the settings of the others are kept; one whose type or SKU has none
 // (400) or that is gone (404) has none.
 func TestDiagnosticSettingFailures(t *testing.T) {
+	t.Parallel()
 	transport := &diagnosticTransport{
 		bodies: map[string]string{
 			"/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings": armList(armItem("/subscriptions/sub/providers/microsoft.insights/diagnosticSettings/activity", "activity", "")),
@@ -183,6 +186,7 @@ func TestDiagnosticSettingFailures(t *testing.T) {
 // Refused, throttled, timed out and failed lists, and lists without an
 // answer, leave settings out; the others have none to leave out.
 func TestDiagnosticListFailed(t *testing.T) {
+	t.Parallel()
 	for status, want := range map[int]bool{
 		http.StatusBadRequest:          false,
 		http.StatusNotFound:            false,
@@ -209,6 +213,7 @@ func TestDiagnosticListFailed(t *testing.T) {
 // of types that can have diagnostic settings, are asked about, and no
 // diagnostic setting is.
 func TestDiagnosticTargets(t *testing.T) {
+	t.Parallel()
 	listed := append(listedByOthers(),
 		harvest.Record(settingsPath(vaultID)+"/audit", "secrets_audit", diagnosticSettingType, "azurerm", nil),
 		harvest.Record("/subscriptions/sub/resourceGroups/app/providers/Microsoft.Web/sites/api", "api", "aws_thing", "aws", nil),
@@ -230,6 +235,7 @@ func TestDiagnosticTargets(t *testing.T) {
 // of what is in a group another resource manages, and imports a setting
 // by its target and name.
 func TestDiagnosticSettingCatalogue(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	const aks = "/subscriptions/sub/resourceGroups/app/providers/Microsoft.ContainerService/managedClusters/aks"
 	for _, tc := range []struct {
@@ -260,6 +266,7 @@ func TestDiagnosticSettingCatalogue(t *testing.T) {
 // Every type that can have diagnostic settings is in the list once,
 // whatever its case, as <namespace>/<type>.
 func TestDiagnosticSettingTypes(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for _, typ := range diagnosticSettingTypes {
 		key := strings.ToUpper(typ)

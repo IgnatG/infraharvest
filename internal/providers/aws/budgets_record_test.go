@@ -18,7 +18,8 @@ func recordBudgetsCallerIdentity(call apiCall) string {
 // This records the rest: the budgets of the caller's account, named after
 // the budget, with no attributes.
 func TestRecordBudgetsListsBudgetsOfTheAccount(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "GetCallerIdentity":
 			return recordBudgetsCallerIdentity(call)
@@ -33,6 +34,7 @@ func TestRecordBudgetsListsBudgetsOfTheAccount(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &BudgetsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -46,25 +48,28 @@ func TestRecordBudgetsListsBudgetsOfTheAccount(t *testing.T) {
 
 // Neither the account nor the budgets can be left out.
 func TestRecordBudgetsReturnsErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("GetCallerIdentity", func(t *testing.T) {
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			if call.Op == "GetCallerIdentity" {
 				return recordQueryError(recordBudgetsSTSNS, "AccessDenied")
 			}
 			return recordUnexpected(t, call)
 		})
 		g := &BudgetsLister{}
+		g.SetContext(ctx)
 
 		assertRecordedError(t, g.List(), "AccessDenied")
 	})
 	t.Run("DescribeBudgets", func(t *testing.T) {
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			if call.Op == "GetCallerIdentity" {
 				return recordBudgetsCallerIdentity(call)
 			}
 			return recordJSONError("AccessDeniedException")
 		})
 		g := &BudgetsLister{}
+		g.SetContext(ctx)
 
 		assertRecordedError(t, g.List(), "AccessDeniedException")
 	})

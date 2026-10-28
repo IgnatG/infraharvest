@@ -12,6 +12,7 @@ import (
 )
 
 func TestSubscriptionsIn(t *testing.T) {
+	t.Parallel()
 	transport := &fakeTransport{body: `{"totalRecords":4,"count":4,"resultTruncated":"false","data":[
 		{"subscriptionId":"sub-b","state":"Enabled"},
 		{"subscriptionId":"sub-a","state":"Warned"},

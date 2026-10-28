@@ -122,8 +122,8 @@ func scopeStacksAPI(t *testing.T) func(apiCall) string {
 // resolveScope resolves app by name and old by its stack ID.
 func resolveScope(t *testing.T) *StackScope {
 	t.Helper()
-	useFakeAPI(t, scopeStacksAPI(t))
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"app", scopeOldStack, scopeAppStack}, awsCatalogue())
+	ctx := useFakeAPI(t, scopeStacksAPI(t))
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app", scopeOldStack, scopeAppStack}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +138,7 @@ func resolveScope(t *testing.T) *StackScope {
 // stacks never imported; and each resource of a live stack says what keeps
 // it from being retained.
 func TestResolveStacks(t *testing.T) {
+	t.Parallel()
 	scope := resolveScope(t)
 
 	var names []string
@@ -208,9 +209,10 @@ func TestResolveStacks(t *testing.T) {
 
 // A stack that isn't there fails, saying a deleted one is found by its ID.
 func TestResolveStacksNotFound(t *testing.T) {
-	useFakeAPI(t, scopeStacksAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, scopeStacksAPI(t))
 
-	_, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"gone"}, awsCatalogue())
+	_, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"gone"}, awsCatalogue())
 
 	if err == nil || !strings.Contains(err.Error(), "--cfn-stack gone: no such stack") || !strings.Contains(err.Error(), "by its stack ID") {
 		t.Errorf("got %v", err)
@@ -220,7 +222,8 @@ func TestResolveStacksNotFound(t *testing.T) {
 // A stack named as nested in another is warned about, as is one a service
 // manages.
 func TestResolveStacksWarns(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeStacks":
 			return recordQuery(call.Op, recordCfnNS, `<Stacks><member><StackId>arn:aws:cloudformation:eu-west-2:123456789012:stack/awseb-e-abc-stack/4</StackId><StackName>awseb-e-abc-stack</StackName><StackStatus>CREATE_COMPLETE</StackStatus>`+
@@ -233,7 +236,7 @@ func TestResolveStacksWarns(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 
-	scope, err := ResolveStacks(t.Context(), "default", "", "eu-west-2", []string{"awseb-e-abc-stack"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"awseb-e-abc-stack"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,6 +255,7 @@ func TestResolveStacksWarns(t *testing.T) {
 // resource takes nothing, whatever has its physical ID. Each stack lists
 // what each resource matched, with the templates for the report.
 func TestImportScope(t *testing.T) {
+	t.Parallel()
 	scope := resolveScope(t)
 	p := &Provider{region: GlobalPseudoRegion}
 	p.SetStackScope(scope)
@@ -316,6 +320,7 @@ func TestImportScope(t *testing.T) {
 // form: a YAML one its short-form tags and order, a JSON one its keys in
 // order, as JSON.
 func TestTemplateWithRetain(t *testing.T) {
+	t.Parallel()
 	yamlTemplate, err := parseTemplate(scopeAppTemplate)
 	if err != nil {
 		t.Fatal(err)
@@ -376,6 +381,7 @@ func TestTemplateWithRetain(t *testing.T) {
 // its physical ID, but not by a property name that is the other's logical
 // ID: LogsPolicy's key Bucket doesn't name the bucket Bucket.
 func TestRefersTo(t *testing.T) {
+	t.Parallel()
 	template, err := parseTemplate(`Resources:
   Bucket:
     Type: AWS::S3::Bucket
@@ -417,6 +423,7 @@ func TestRefersTo(t *testing.T) {
 // RetainExceptOnCreate retains on deletion; a policy set by a function
 // isn't evaluated.
 func TestRetainProblems(t *testing.T) {
+	t.Parallel()
 	template, err := parseTemplate(`Resources:
   Member:
     Type: AWS::RDS::DBInstance

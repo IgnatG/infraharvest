@@ -11,8 +11,9 @@ import (
 // The lister lists every analyzer, whatever its type or status, across
 // pages, by name, with no attributes. Archive rules are not listed.
 func TestRecordAccessAnalyzerListsAnalyzersByName(t *testing.T) {
+	t.Parallel()
 	const arn = "arn:aws:access-analyzer:us-east-1:123456789012:analyzer/"
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path != "/analyzer" {
 			return recordUnexpected(t, call)
 		}
@@ -28,6 +29,7 @@ func TestRecordAccessAnalyzerListsAnalyzersByName(t *testing.T) {
 			{"name":"org","arn":"%sorg","type":"ORGANIZATION","status":"CREATING"}],"nextToken":%q}`, arn, arn, nextPageToken)
 	})
 	g := &AccessAnalyzerLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -41,10 +43,12 @@ func TestRecordAccessAnalyzerListsAnalyzersByName(t *testing.T) {
 }
 
 func TestRecordAccessAnalyzerReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &AccessAnalyzerLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

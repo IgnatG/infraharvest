@@ -34,6 +34,7 @@ func writeFile(t *testing.T, name, content string) string {
 // token file for OIDC, Azure DevOps' variables, the managed identity API
 // version, ARM_USE_CLI and a certificate passed in the environment.
 func TestLoadAuthConfigReadsAzurermSettings(t *testing.T) {
+	t.Parallel()
 	certificate := []byte("pkcs12 bytes")
 	cfg, err := loadAuthConfig(envOf(map[string]string{
 		"ARM_OIDC_TOKEN":                         " id-token\n",
@@ -84,6 +85,7 @@ func TestLoadAuthConfigReadsAzurermSettings(t *testing.T) {
 // them; a file that disagrees with the variable, or can't be read, is an
 // error that shows neither value.
 func TestLoadAuthConfigReadsTheClientFiles(t *testing.T) {
+	t.Parallel()
 	idFile := writeFile(t, "client-id", "client\n")
 	secretFile := writeFile(t, "client-secret", "  s3cret \n")
 	cfg, err := loadAuthConfig(envOf(map[string]string{
@@ -125,6 +127,7 @@ func TestLoadAuthConfigReadsTheClientFiles(t *testing.T) {
 // ID and tenant ID AKS sets, as azurerm does; an ARM_ ID that differs is
 // an error.
 func TestLoadAuthConfigAKSWorkloadIdentity(t *testing.T) {
+	t.Parallel()
 	aks := map[string]string{
 		"ARM_USE_AKS_WORKLOAD_IDENTITY": "true",
 		"AZURE_FEDERATED_TOKEN_FILE":    "/var/run/secrets/azure/tokens/azure-identity-token",
@@ -169,6 +172,7 @@ func TestLoadAuthConfigAKSWorkloadIdentity(t *testing.T) {
 // an OIDC token, Azure DevOps OIDC, GitHub-style OIDC, a managed identity,
 // then the Azure CLI unless ARM_USE_CLI turns it off.
 func TestSignInMethodOrderWithAzurermSettings(t *testing.T) {
+	t.Parallel()
 	oidc := authConfig{
 		useOIDC:                true,
 		oidcToken:              "id-token",
@@ -208,6 +212,7 @@ func TestSignInMethodOrderWithAzurermSettings(t *testing.T) {
 // OIDC without a token next to ARM_USE_MSI signs in as the identity, as
 // azurerm does.
 func TestNewCredentialFailsInsteadOfFallingBack(t *testing.T) {
+	t.Parallel()
 	application := authConfig{tenantID: "tenant", clientID: "client", cloud: cloud.AzurePublic}
 	for name, tc := range map[string]struct {
 		edit func(*authConfig)
@@ -233,6 +238,7 @@ func TestNewCredentialFailsInsteadOfFallingBack(t *testing.T) {
 }
 
 func TestNewCredentialAzurermTypes(t *testing.T) {
+	t.Parallel()
 	certificate, err := os.ReadFile(writeTestCertificate(t))
 	if err != nil {
 		t.Fatal(err)
@@ -269,6 +275,7 @@ func TestNewCredentialAzurermTypes(t *testing.T) {
 }
 
 func TestNewCredentialPassesTheMSIAPIVersion(t *testing.T) {
+	t.Parallel()
 	credential, err := newCredential(authConfig{useMSI: true, msiEndpoint: "https://msi.example/token", msiAPIVersion: "2019-08-01"})
 	if err != nil {
 		t.Fatal(err)
@@ -297,6 +304,7 @@ func TestNewCredentialPassesTheMSIAPIVersion(t *testing.T) {
 // The token files are read on each sign-in, so a token AKS rotates is
 // picked up; tokens that disagree, or an empty one, are errors.
 func TestIDToken(t *testing.T) {
+	t.Parallel()
 	file := writeFile(t, "token", "first\n")
 	cfg := authConfig{oidcTokenFiles: []tokenFile{{"AZURE_FEDERATED_TOKEN_FILE", file}}}
 	if token, err := cfg.idToken(); err != nil || token != "first" {
@@ -338,6 +346,7 @@ func TestIDToken(t *testing.T) {
 }
 
 func TestFetchADOIDToken(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/oidc" {
 			t.Errorf("request %s %s", r.Method, r.URL)

@@ -4,6 +4,7 @@
 package google
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -68,30 +69,21 @@ func sqlAdmin(t *testing.T) (server *httptest.Server, requested func() []string)
 	}
 }
 
-// newCloudSQL is a lister of region of the project acme, with none of the
-// instance lists of other tests kept: a server on the same port would
-// otherwise give a test another's.
+// newCloudSQL is a lister of region of the project acme, in a run of its
+// own (see fastRetries), so that it keeps none of the instance lists of
+// other tests: a server on the same port would otherwise give a test
+// another's.
 func newCloudSQL(t *testing.T, region string) *CloudSQLLister {
 	t.Helper()
-	forgetSQLInstances(t)
-	return cloudSQLLister(t, region)
+	return cloudSQLLister(fastRetries(t), region)
 }
 
-// forgetSQLInstances drops the instance lists the tests' run has kept
-// (see testCaches), now and when the test ends.
-func forgetSQLInstances(t *testing.T) {
-	t.Helper()
-	testCaches().sqlInstances.forget()
-	t.Cleanup(testCaches().sqlInstances.forget)
-}
-
-// cloudSQLLister is a lister of region of the project acme, with the
-// test's context.
-func cloudSQLLister(t *testing.T, region string) *CloudSQLLister {
-	t.Helper()
+// cloudSQLLister is a lister of region of the project acme, in the run of
+// ctx.
+func cloudSQLLister(ctx context.Context, region string) *CloudSQLLister {
 	g := &CloudSQLLister{}
 	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
-	g.SetContext(t.Context())
+	g.SetContext(ctx)
 	return g
 }
 
@@ -151,14 +143,14 @@ func TestCloudSQLList(t *testing.T) {
 func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 	server, requested := sqlAdmin(t)
 	t.Setenv(EndpointEnv, server.URL)
-	forgetSQLInstances(t)
+	ctx := fastRetries(t)
 
 	regions := []string{"us-central1", "europe-west1", "us-central1", "asia-east1"}
 	listers := make([]*CloudSQLLister, len(regions))
 	errs := make([]error, len(regions))
 	var wg sync.WaitGroup
 	for i, region := range regions {
-		listers[i] = cloudSQLLister(t, region)
+		listers[i] = cloudSQLLister(ctx, region)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -189,7 +181,7 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 
 // An instance list that fails is kept, so that the imports of the
 // project's other regions don't make the failing call again: they fail
-// too, without a request. A process that lists afresh lists again.
+// too, without a request. A run that lists afresh lists again.
 func TestCloudSQLKeepsAFailure(t *testing.T) {
 	server, _ := sqlAdmin(t)
 	var mu sync.Mutex
@@ -210,10 +202,11 @@ func TestCloudSQLKeepsAFailure(t *testing.T) {
 	t.Cleanup(failOnce.Close)
 	t.Setenv(EndpointEnv, failOnce.URL)
 
-	if err := newCloudSQL(t, "us-central1").List(); err == nil {
+	ctx := fastRetries(t)
+	if err := cloudSQLLister(ctx, "us-central1").List(); err == nil {
 		t.Fatal("the failed list succeeded")
 	}
-	if err := cloudSQLLister(t, "europe-west1").List(); err == nil {
+	if err := cloudSQLLister(ctx, "europe-west1").List(); err == nil {
 		t.Error("another region's import listed again after the failure")
 	}
 	mu.Lock()
@@ -348,10 +341,10 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			t.Setenv(EndpointEnv, server.URL)
 			// An earlier listing of the import that found otherwise
 			// doesn't count: this one's outcome replaces it.
-			testCaches().setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
-			t.Cleanup(func() { testCaches().setSQLDatabasesUnlisted("acme", "us-central1", false) })
+			ctx := fastRetries(t)
+			cachesOf(ctx).setSQLDatabasesUnlisted("acme", "us-central1", !tt.partialType)
 
-			g := newCloudSQL(t, "us-central1")
+			g := cloudSQLLister(ctx, "us-central1")
 			err := g.List()
 			if got := err != nil; got != tt.partial {
 				t.Fatalf("error %v, want one: %v", err, tt.partial)
@@ -367,11 +360,11 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 			if len(g.Resources) != 1 || g.Resources[0].Observed.ID != "projects/acme/instances/orders/databases/app" {
 				t.Errorf("resources %v, want the database of orders", g.Resources)
 			}
-			p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}}
+			p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}, caches: cachesOf(ctx)}
 			if got := slices.Contains(p.PartialTypes(), sqlDatabaseType); got != tt.partialType {
 				t.Errorf("partial types %v, want %s among them: %v", p.PartialTypes(), sqlDatabaseType, tt.partialType)
 			}
-			other := &Provider{projectName: "acme", region: compute.Region{Name: "europe-west1"}}
+			other := &Provider{projectName: "acme", region: compute.Region{Name: "europe-west1"}, caches: cachesOf(ctx)}
 			if got := other.PartialTypes(); slices.Contains(got, sqlDatabaseType) {
 				t.Errorf("another region's partial types %v, want no %s", got, sqlDatabaseType)
 			}
@@ -421,9 +414,9 @@ func TestCloudSQLListsDatabasesAtOnce(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
-	t.Cleanup(func() { testCaches().setSQLDatabasesUnlisted("acme", "us-central1", false) })
 
-	g := newCloudSQL(t, "us-central1")
+	ctx := fastRetries(t)
+	g := cloudSQLLister(ctx, "us-central1")
 	err := g.List()
 
 	// secret's failure alone fails the listing, in part.
@@ -444,13 +437,14 @@ func TestCloudSQLListsDatabasesAtOnce(t *testing.T) {
 		t.Errorf("resources:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 	// stopped's databases are left out, not taken for deleted.
-	p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}}
+	p := &Provider{projectName: "acme", region: compute.Region{Name: "us-central1"}, caches: cachesOf(ctx)}
 	if !slices.Contains(p.PartialTypes(), sqlDatabaseType) {
 		t.Errorf("partial types %v, want %s among them", p.PartialTypes(), sqlDatabaseType)
 	}
 }
 
 func TestOwnsDatabases(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		instanceType, master string
 		want                 bool

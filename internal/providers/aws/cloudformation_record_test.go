@@ -21,7 +21,8 @@ const (
 // the deleted ones, by name, followed by its instances, each list across
 // pages.
 func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "ListStacks":
@@ -72,6 +73,7 @@ func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &CloudFormationLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -93,9 +95,10 @@ func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordCloudFormationReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListStacks", "ListStackSets", "ListStackInstances"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordQueryError(recordCfnNS, "AccessDenied")
@@ -109,6 +112,7 @@ func TestRecordCloudFormationReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &CloudFormationLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

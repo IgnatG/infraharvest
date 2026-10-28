@@ -57,6 +57,7 @@ func values(items []*string) []string {
 
 // Every page is walked in order; nil items and empty pages add nothing.
 func TestListAllWalksEveryPage(t *testing.T) {
+	t.Parallel()
 	pages := [][]*string{
 		{to.Ptr("a"), nil, to.Ptr("b")},
 		{},
@@ -80,6 +81,7 @@ func TestListAllWalksEveryPage(t *testing.T) {
 // listAll stops at the first page that fails, with the items of the pages
 // before it and the error.
 func TestListAllStopsAtAFailingPage(t *testing.T) {
+	t.Parallel()
 	pages := [][]*string{{to.Ptr("a")}, {to.Ptr("b")}, {to.Ptr("c")}}
 	got, err := listAll(t.Context(), pagerOf(pages, 1), pageItems)
 	if !errors.Is(err, errPageFailed) {
@@ -98,6 +100,7 @@ func TestListAllStopsAtAFailingPage(t *testing.T) {
 // clientSettings reads what Select passes, and gives zero values for
 // arguments that are missing or of another type rather than panicking.
 func TestClientSettings(t *testing.T) {
+	t.Parallel()
 	options := &arm.ClientOptions{}
 	s := &Service{}
 	s.Configure(harvest.ListerConfig{Settings: map[string]interface{}{
@@ -132,6 +135,7 @@ func TestClientSettings(t *testing.T) {
 // recordBare adds a resource of the service's provider with no
 // attributes.
 func TestRecordBare(t *testing.T) {
+	t.Parallel()
 	s := &Service{}
 	s.Configure(harvest.ListerConfig{Provider: "azurerm"})
 	const id = "/subscriptions/sub/resourceGroups/rg1"

@@ -41,6 +41,7 @@ func unwantedCallKey(call apiCall) string {
 // calls, and still lists the parents. With every type wanted, it makes
 // them.
 func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
+	t.Parallel()
 	const (
 		wafACL    = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/a1"
 		lambdaFn  = "arn:aws:lambda:us-east-1:123456789012:function:report"
@@ -274,7 +275,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var mu sync.Mutex
 			children := 0
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				key := unwantedCallKey(call)
 				if answer, ok := tc.parents[key]; ok {
 					return answer
@@ -292,6 +293,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 				p := &Provider{}
 				p.SetUnwantedTypes(func(typ string) bool { return slices.Contains(unwanted, typ) })
 				g := p.withUnwanted(tc.lister())
+				g.SetContext(ctx)
 				if err := g.List(); err != nil {
 					t.Fatal(err)
 				}
@@ -323,11 +325,12 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 // call per web ACL and resource type, only when the import may keep the
 // associations.
 func TestWafRegionalSkipsUnwantedAssociations(t *testing.T) {
+	t.Parallel()
 	for _, unwanted := range []bool{false, true} {
 		lists := recordWafAPI(t)
 		var mu sync.Mutex
 		asked := 0
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			if call.Op != "ListResourcesForWebACL" {
 				return lists(call)
 			}
@@ -339,6 +342,7 @@ func TestWafRegionalSkipsUnwantedAssociations(t *testing.T) {
 		p := &Provider{}
 		p.SetUnwantedTypes(func(typ string) bool { return unwanted && typ == "aws_wafregional_web_acl_association" })
 		g := p.withUnwanted(&WafRegionalLister{})
+		g.SetContext(ctx)
 		if err := g.List(); err != nil {
 			t.Fatal(err)
 		}

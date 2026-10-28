@@ -71,8 +71,10 @@ func recordRoute53API(t *testing.T, failing ...string) func(apiCall) string {
 // <zone>_<name>_<type>_<set identifier>, its name with the trailing dot and
 // with \052 unescaped to *.
 func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
-	useFakeAPI(t, recordRoute53API(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordRoute53API(t))
 	g := &Route53Lister{}
+	g.SetContext(ctx)
 
 	// Zone Z2's records fail to list: the error says so, and is partial,
 	// as the other zone and the health checks are listed all the same.
@@ -102,9 +104,11 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 // that fails fails the service; health checks that fail to list, once the
 // zones are listed, leave the listing partial.
 func TestRecordRoute53ReturnsErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("zones", func(t *testing.T) {
-		useFakeAPI(t, recordRoute53API(t, "/2013-04-01/hostedzone"))
+		ctx := useFakeAPI(t, recordRoute53API(t, "/2013-04-01/hostedzone"))
 		g := &Route53Lister{}
+		g.SetContext(ctx)
 
 		if err := g.List(); err == nil || harvest.IsPartial(err) {
 			t.Errorf("want the error returned, not partial, got %v", err)
@@ -116,8 +120,9 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 		)
 	})
 	t.Run("health checks", func(t *testing.T) {
-		useFakeAPI(t, recordRoute53API(t, "/2013-04-01/healthcheck"))
+		ctx := useFakeAPI(t, recordRoute53API(t, "/2013-04-01/healthcheck"))
 		g := &Route53Lister{}
+		g.SetContext(ctx)
 
 		if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "health checks") {
 			t.Errorf("want the partial error of the health checks, got %v", err)

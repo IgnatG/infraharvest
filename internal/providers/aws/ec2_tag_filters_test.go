@@ -16,6 +16,7 @@ import (
 // --tag owner writes it, becomes tag-key, which matches whatever the value.
 // Filters on IDs, other attributes or other services are not passed on.
 func TestEC2TagFilters(t *testing.T) {
+	t.Parallel()
 	got := ec2TagFilters([]harvest.Filter{
 		{Path: "tags.env", Values: []string{"prod", "dev"}},
 		{Path: "tags.owner"},

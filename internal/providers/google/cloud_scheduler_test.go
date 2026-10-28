@@ -19,7 +19,7 @@ func newSchedulerJobs(t *testing.T, region string) *SchedulerJobsLister {
 	t.Helper()
 	g := &SchedulerJobsLister{}
 	g.Configure(harvest.ListerConfig{Provider: "google", Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: region}}})
-	g.SetContext(t.Context())
+	g.SetContext(fastRetries(t))
 	return g
 }
 

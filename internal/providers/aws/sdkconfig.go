@@ -180,6 +180,16 @@ type runConfigs struct {
 	// buildFailures are the configurations that failed to build lately (see
 	// failureMemory).
 	buildFailures map[configKey]buildFailure
+	// fixed, when set, is the configuration of every service of the run,
+	// and its credentials the base credentials: nothing is built or
+	// resolved. Tests set it, on a run of their own, to fake the API.
+	fixed *aws.Config
+
+	// scansMu guards stackScans.
+	scansMu sync.Mutex
+	// stackScans are the regions the run scanned lately (see
+	// stackScanMemory).
+	stackScans map[stackScanKey]stackScan
 }
 
 // runConfigsKey is the key of the run's configurations kept with its
@@ -195,6 +205,7 @@ func configsOf(l *ratelimit.Limiter) *runConfigs {
 			configs:       map[configKey]aws.Config{},
 			baseProviders: map[configKey]aws.CredentialsProvider{},
 			buildFailures: map[configKey]buildFailure{},
+			stackScans:    map[stackScanKey]stackScan{},
 		}
 	})
 }
@@ -218,9 +229,6 @@ var (
 	// callerAccounts are the account IDs callerAccount found, by the
 	// credentials they are of.
 	callerAccounts = map[*aws.CredentialsCache]string{}
-	// testConfig, when set, is the configuration of every service, and its
-	// credentials the base credentials. Tests set it to fake the API.
-	testConfig *aws.Config
 )
 
 // cacheKey returns the key of the service's configuration, from its
@@ -245,10 +253,10 @@ func (s *Service) configs() *runConfigs {
 // build fails again at once for a while (see failureMemory), so that the
 // other services of an import don't each resolve the credentials again.
 func (s *Service) sdkConfig() (aws.Config, error) {
-	if testConfig != nil {
-		return *testConfig, nil
-	}
 	key, run := s.cacheKey(), s.configs()
+	if run.fixed != nil {
+		return *run.fixed, nil
+	}
 	if cfg, ok, err := run.cached(key); ok {
 		return cfg, err
 	}
@@ -434,7 +442,7 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 // that need the account then don't each ask again.
 func (s *Service) callerAccount(cfg aws.Config) (*string, error) {
 	cache, cached := cfg.Credentials.(*aws.CredentialsCache)
-	cached = cached && testConfig == nil
+	cached = cached && s.configs().fixed == nil
 	if cached {
 		accountsMu.Lock()
 		account, ok := callerAccounts[cache]
@@ -458,16 +466,16 @@ func (s *Service) callerAccount(cfg aws.Config) (*string, error) {
 // baseCredentials returns the credentials of the service's configuration
 // from before any role is assumed, refreshed if they have expired.
 func (s *Service) baseCredentials() (aws.Credentials, error) {
-	if testConfig != nil {
-		if testConfig.Credentials == nil {
-			return aws.Credentials{}, errors.New("the test configuration has no credentials")
+	run := s.configs()
+	if run.fixed != nil {
+		if run.fixed.Credentials == nil {
+			return aws.Credentials{}, errors.New("the fixed configuration has no credentials")
 		}
-		return testConfig.Credentials.Retrieve(s.Context())
+		return run.fixed.Credentials.Retrieve(s.Context())
 	}
 	if _, err := s.sdkConfig(); err != nil {
 		return aws.Credentials{}, err
 	}
-	run := s.configs()
 	run.mu.Lock()
 	provider := run.baseProviders[s.cacheKey()]
 	run.mu.Unlock()

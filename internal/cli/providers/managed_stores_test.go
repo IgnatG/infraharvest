@@ -14,16 +14,14 @@ import (
 // A backend whose provider isn't compiled in fails, naming the backend and
 // the build tag that adds it, instead of reading nothing.
 func TestManagedStoresNotCompiledIn(t *testing.T) {
-	saved := compiledStores
-	t.Cleanup(func() { compiledStores = saved })
-	compiledStores = managed.Stores{}
-
+	t.Parallel()
+	stores := managedStores(managed.Stores{})
 	for source, want := range map[string][]string{
 		"s3://acme-state/imported/":                         {"s3 backend", "-tags minimal,aws"},
 		"gs://acme-state/imported/":                         {"gcs backend", "-tags minimal,google"},
 		"https://acmestate.blob.core.windows.net/tfstate/a": {"azurerm backend", "-tags minimal,azure"},
 	} {
-		_, err := managed.Load(context.Background(), []string{source}, managedStores())
+		_, err := managed.Load(context.Background(), []string{source}, stores)
 		if err == nil {
 			t.Errorf("%s: want an error", source)
 			continue
@@ -34,7 +32,7 @@ func TestManagedStoresNotCompiledIn(t *testing.T) {
 			}
 		}
 	}
-	if managedStores().HCPTerraform == nil {
+	if stores.HCPTerraform == nil {
 		t.Error("HCP Terraform's store is in every build")
 	}
 }

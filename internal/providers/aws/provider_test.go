@@ -17,6 +17,7 @@ var _ harvest.ProviderWithCatalogue = (*Provider)(nil)
 // The services of AWS services at end of support are services, which *
 // leaves out: they are imported only when named.
 func TestEndOfSupportServicesAreOptIn(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	services := p.Services()
 	wildcard := importer.Services(p)
@@ -37,6 +38,7 @@ func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 // has for it, and refuses a name that isn't a service. The query
 // service's lister, which asks AWS nothing itself, isn't wrapped.
 func TestSelectMakesTheServicesLister(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	for name, want := range p.Services() {
 		if err := p.Select(name, false); err != nil {

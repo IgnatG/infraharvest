@@ -32,7 +32,7 @@ func TestRecordSqsListsQueuesByURL(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				if call.Op != "ListQueues" {
 					return recordUnexpected(t, call)
 				}
@@ -47,6 +47,7 @@ func TestRecordSqsListsQueuesByURL(t *testing.T) {
 				return `{"QueueUrls":["` + recordSQSURL + `orders","` + recordSQSURL + `orders-dlq.fifo"]}`
 			})
 			g := &SqsLister{}
+			g.SetContext(ctx)
 
 			if err := g.List(); err != nil {
 				t.Fatal(err)
@@ -61,10 +62,12 @@ func TestRecordSqsListsQueuesByURL(t *testing.T) {
 }
 
 func TestRecordSqsReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDenied")
 	})
 	g := &SqsLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDenied")
 }

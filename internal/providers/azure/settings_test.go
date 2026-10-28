@@ -17,6 +17,7 @@ import (
 // what the other services listed among them, and a missing one as its
 // zero value.
 func TestServiceSettingsRoundTrip(t *testing.T) {
+	t.Parallel()
 	want := serviceSettings{
 		subscriptionID: "sub",
 		resourceGroup:  "rg1",

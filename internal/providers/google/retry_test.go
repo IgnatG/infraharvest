@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -18,13 +17,17 @@ import (
 
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
+
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
-// TestMain makes the waits between retries short, so that the tests of
-// failing calls don't wait for Google's backoff.
-func TestMain(m *testing.M) {
-	retryDelay = time.Millisecond
-	os.Exit(m.Run())
+// fastRetries returns a context of a run of its own whose retries wait a
+// millisecond (see runRetryDelay), so that the tests of failing calls don't
+// wait for Google's backoff.
+func fastRetries(t *testing.T) context.Context {
+	run := ratelimit.Like(ratelimit.Default())
+	ratelimit.Kept(run, retryDelayKey{}, func() time.Duration { return time.Millisecond })
+	return ratelimit.NewContext(t.Context(), run)
 }
 
 // failingServer answers each request with the next of statuses, then
@@ -68,7 +71,7 @@ func (f *failingServer) count() int {
 func networks(t *testing.T, server *httptest.Server) (*compute.NetworkList, error) {
 	t.Helper()
 	t.Setenv(EndpointEnv, server.URL)
-	svc, err := compute.NewService(t.Context(), clientOptions(t.Context())...)
+	svc, err := compute.NewService(t.Context(), clientOptions(fastRetries(t))...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,10 +200,11 @@ func TestNoRetryForALongRetryAfter(t *testing.T) {
 
 // A request's body is sent again whole with each retry.
 func TestRetrySendsTheBodyAgain(t *testing.T) {
+	t.Parallel()
 	f := &failingServer{statuses: []int{http.StatusServiceUnavailable}}
 	server := httptest.NewServer(f)
 	defer server.Close()
-	client := &http.Client{Transport: retryTransport{base: http.DefaultTransport}}
+	client := &http.Client{Transport: retryTransport{base: http.DefaultTransport, delay: time.Millisecond}}
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL, strings.NewReader(`{"options":{}}`))
 	if err != nil {
 		t.Fatal(err)
@@ -217,6 +221,7 @@ func TestRetrySendsTheBodyAgain(t *testing.T) {
 
 // A retry stops waiting when the request's context ends.
 func TestRetryStopsWithTheContext(t *testing.T) {
+	t.Parallel()
 	f := &failingServer{statuses: []int{http.StatusServiceUnavailable}}
 	server := httptest.NewServer(f)
 	defer server.Close()
@@ -239,6 +244,7 @@ func TestRetryStopsWithTheContext(t *testing.T) {
 }
 
 func TestRetryAfter(t *testing.T) {
+	t.Parallel()
 	for header, want := range map[string]time.Duration{
 		"":      -1,
 		"2":     2 * time.Second,

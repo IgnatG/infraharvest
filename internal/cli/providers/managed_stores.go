@@ -17,12 +17,13 @@ import (
 var compiledStores managed.Stores
 
 // managedStores returns the stores the provider commands read
-// --managed-state with: those compiled in, HCP Terraform's, which is
+// --managed-state with: compiled, those of the providers compiled in (see
+// compiledStores), HCP Terraform's, which is
 // plain HTTP and in every build, and, for a backend whose provider isn't
 // compiled in, one that fails, naming the backend and the build tag that
 // adds it, rather than reading nothing.
-func managedStores() managed.Stores {
-	stores := compiledStores
+func managedStores(compiled managed.Stores) managed.Stores {
+	stores := compiled
 	stores.HCPTerraform = hcp.New
 	if stores.S3 == nil {
 		stores.S3 = func(context.Context, string, string) (managed.ObjectStore, error) {

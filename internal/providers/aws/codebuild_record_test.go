@@ -10,7 +10,8 @@ import (
 
 // The lister lists each CodeBuild project by name, across pages.
 func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListProjects" {
 			return recordUnexpected(t, call)
 		}
@@ -20,6 +21,7 @@ func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
 		return fmt.Sprintf(`{"projects":["web-build","web-tests"],"nextToken":%q}`, nextPageToken)
 	})
 	g := &CodeBuildLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -33,10 +35,12 @@ func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
 }
 
 func TestRecordCodeBuildReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &CodeBuildLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

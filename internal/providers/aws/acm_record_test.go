@@ -15,7 +15,8 @@ const recordACMCertificate = "arn:aws:acm:us-east-1:123456789012:certificate/"
 // type: the catalogue leaves out by status those that will never be in
 // use again.
 func TestRecordACMListsCertificates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListCertificates" {
 			return recordUnexpected(t, call)
 		}
@@ -29,6 +30,7 @@ func TestRecordACMListsCertificates(t *testing.T) {
 			{"CertificateArn":"` + recordACMCertificate + `c-3","DomainName":"api.example.com"}],"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &ACMLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -45,10 +47,12 @@ func TestRecordACMListsCertificates(t *testing.T) {
 }
 
 func TestRecordACMReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &ACMLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

@@ -9,7 +9,8 @@ import (
 )
 
 func TestEbsReturnsDescribeInstancesError(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		const ns = `xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"`
 		switch call.Op {
 		case "DescribeVolumes":
@@ -24,6 +25,7 @@ func TestEbsReturnsDescribeInstancesError(t *testing.T) {
 		return ""
 	})
 	g := &EbsLister{}
+	g.SetContext(ctx)
 
 	// Before the fix, the ignored error left the response nil and this panicked.
 	err := g.List()
@@ -57,8 +59,10 @@ func serveWafv2Associations(associationError string) func(apiCall) string {
 // A region that lacks a resource type rejects ListResourcesForWebACL for
 // it; that must not hide the associations of the other types.
 func TestWafv2SkipsResourceTypesTheRegionLacks(t *testing.T) {
-	useFakeAPI(t, serveWafv2Associations(`{"__type":"WAFInvalidParameterException","message":"resource type not supported in this region"}`))
+	t.Parallel()
+	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"WAFInvalidParameterException","message":"resource type not supported in this region"}`))
 	g := NewWafv2RegionalLister()
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -68,8 +72,10 @@ func TestWafv2SkipsResourceTypesTheRegionLacks(t *testing.T) {
 }
 
 func TestWafv2ReportsOtherAssociationErrors(t *testing.T) {
-	useFakeAPI(t, serveWafv2Associations(`{"__type":"AccessDeniedException","message":"not allowed"}`))
+	t.Parallel()
+	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"AccessDeniedException","message":"not allowed"}`))
 	g := NewWafv2RegionalLister()
+	g.SetContext(ctx)
 
 	if err := g.List(); err == nil {
 		t.Error("want the ListResourcesForWebACL error")

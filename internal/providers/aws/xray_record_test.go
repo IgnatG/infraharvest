@@ -17,7 +17,8 @@ func recordXraySamplingRule(name string, priority int) string {
 // The lister lists sampling rules by name, across pages, but the built-in
 // Default rule, which can't be deleted.
 func TestRecordXrayListsSamplingRules(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path != "/GetSamplingRules" {
 			return recordUnexpected(t, call)
 		}
@@ -28,6 +29,7 @@ func TestRecordXrayListsSamplingRules(t *testing.T) {
 			"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &XrayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -40,10 +42,12 @@ func TestRecordXrayListsSamplingRules(t *testing.T) {
 }
 
 func TestRecordXrayReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("ThrottledException")
 	})
 	g := &XrayLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "ThrottledException")
 }

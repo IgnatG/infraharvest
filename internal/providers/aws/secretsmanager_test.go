@@ -9,8 +9,9 @@ import "testing"
 // as the master password RDS manages for a database, and the secrets
 // scheduled for deletion, which it asks not to be listed.
 func TestSecretsManagerLeavesOutServiceSecrets(t *testing.T) {
+	t.Parallel()
 	const arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:"
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListSecrets" {
 			t.Errorf("unexpected call %s", call.Op)
 			return `{"__type":"InvalidRequestException"}`
@@ -24,6 +25,7 @@ func TestSecretsManagerLeavesOutServiceSecrets(t *testing.T) {
 			{"ARN":"` + arn + `old-MnOpQr","Name":"old","DeletedDate":1767225600}]}`
 	})
 	g := &SecretsManagerLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

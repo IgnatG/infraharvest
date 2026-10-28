@@ -23,6 +23,7 @@ import (
 // Inventory doesn't find and the query service, and cloud_asset lists
 // every type the catalogue maps from it.
 func TestServices(t *testing.T) {
+	t.Parallel()
 	var names []string
 	for name := range (&Provider{}).Services() {
 		names = append(names, name)
@@ -40,6 +41,7 @@ func TestServices(t *testing.T) {
 // A name that isn't a service, such as networks, which cloud_asset
 // lists, fails and says how to find the services.
 func TestSelectUnknownService(t *testing.T) {
+	t.Parallel()
 	p := &Provider{}
 	for _, name := range []string{"widgets", "networks", "sslCertificates"} {
 		if err := p.Select(name, false); err == nil || err.Error() != `not a service of google; "infraharvest services google" lists them` {
@@ -153,6 +155,7 @@ func TestInitStopsWithItsContext(t *testing.T) {
 // targets the import's project and region: google-beta for google, and
 // google for google-beta.
 func TestModuleProviders(t *testing.T) {
+	t.Parallel()
 	ga := &Provider{projectName: "acme-prod"}
 	ga.region.Name = "europe-west1"
 	if got := ga.ModuleProviders(); len(got) != 1 || got["google-beta"].Source != "hashicorp/google-beta" || got["google-beta"].Config["project"] != "acme-prod" || got["google-beta"].Config["region"] != "europe-west1" {

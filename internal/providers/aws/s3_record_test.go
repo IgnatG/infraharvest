@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -45,12 +46,21 @@ var recordS3Buckets = []struct{ name, location, policy string }{
 	{"denied-policy", `<LocationConstraint ` + recordS3NS + `>eu-west-1</LocationConstraint>`, `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`},
 }
 
-// useRecordS3API serves recordS3Buckets, or listError for ListBuckets when
-// it is set.
-func useRecordS3API(t *testing.T, listError string) {
+// useS3API returns a context whose listers send their S3 requests to
+// handle, in region (see useFakeAPI).
+func useS3API(t *testing.T, region string, handle func(bucket string, call apiCall) string) context.Context {
 	t.Helper()
-	useFakeAPI(t, func(apiCall) string { return "" })
-	testConfig.HTTPClient = &recordS3API{handle: func(bucket string, call apiCall) string {
+	cfg := fakeConfig(func(apiCall) string { return "" })
+	cfg.Region = region
+	cfg.HTTPClient = &recordS3API{handle: handle}
+	return fakeRun(t, cfg)
+}
+
+// useRecordS3API returns a context whose listers are served
+// recordS3Buckets, or listError for ListBuckets when it is set, in region.
+func useRecordS3API(t *testing.T, region, listError string) context.Context {
+	t.Helper()
+	return useS3API(t, region, func(bucket string, call apiCall) string {
 		if bucket == "" {
 			if listError != "" {
 				return listError
@@ -75,7 +85,7 @@ func useRecordS3API(t *testing.T, listError string) {
 			}
 		}
 		return recordUnexpected(t, call)
-	}}
+	})
 }
 
 // The lister lists the buckets in the region of its arguments, by name,
@@ -85,8 +95,10 @@ func useRecordS3API(t *testing.T, listError string) {
 // get is left out; one whose policy it can't get is listed without it.
 // Both failures make the listing partial, naming the bucket.
 func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
-	useRecordS3API(t, "")
+	t.Parallel()
+	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
 
 	err := g.List()
@@ -109,8 +121,10 @@ func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 // location can't be read might be in any region, so it makes every
 // region's listing partial.
 func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
-	useRecordS3API(t, "")
+	t.Parallel()
+	ctx := useRecordS3API(t, "us-east-1", "")
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "us-east-1"}})
 
 	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
@@ -125,8 +139,8 @@ func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 // ListBuckets is asked for the region's buckets, and where its answer
 // gives each bucket's region, no bucket's location is read.
 func TestRecordS3UsesTheListedRegions(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string { return "" })
-	testConfig.HTTPClient = &recordS3API{handle: func(bucket string, call apiCall) string {
+	t.Parallel()
+	ctx := useS3API(t, "us-east-1", func(bucket string, call apiCall) string {
 		if bucket != "" {
 			if call.Query.Has("policy") {
 				return `<Error><Code>NoSuchBucketPolicy</Code></Error>`
@@ -140,8 +154,9 @@ func TestRecordS3UsesTheListedRegions(t *testing.T) {
 			`<Bucket><Name>logs-eu</Name><BucketRegion>eu-west-1</BucketRegion></Bucket>` +
 			`<Bucket><Name>other</Name><BucketRegion>us-east-1</BucketRegion></Bucket>` +
 			`</Buckets></ListAllMyBucketsResult>`
-	}}
+	})
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
 
 	if err := g.List(); err != nil {
@@ -154,9 +169,10 @@ func TestRecordS3UsesTheListedRegions(t *testing.T) {
 // Without a region (ProfileRegion), the lister lists the buckets of the region
 // the SDK resolved.
 func TestRecordS3WithoutRegion(t *testing.T) {
-	useRecordS3API(t, "")
-	testConfig.Region = "eu-west-1"
+	t.Parallel()
+	ctx := useRecordS3API(t, "eu-west-1", "")
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": ProfileRegion}})
 
 	if err := g.List(); !harvest.IsPartial(err) {
@@ -167,8 +183,10 @@ func TestRecordS3WithoutRegion(t *testing.T) {
 }
 
 func TestRecordS3ReturnsListBucketsError(t *testing.T) {
-	useRecordS3API(t, `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`)
+	t.Parallel()
+	ctx := useRecordS3API(t, "us-east-1", `<Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`)
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
 
 	assertRecordedError(t, g.List(), "AccessDenied")
@@ -177,9 +195,9 @@ func TestRecordS3ReturnsListBucketsError(t *testing.T) {
 // The buckets' locations and policies are read several buckets at once,
 // and recorded in the listed order.
 func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
+	t.Parallel()
 	locations, policies := newOverlap(3), newOverlap(3)
-	useFakeAPI(t, func(apiCall) string { return "" })
-	testConfig.HTTPClient = &recordS3API{handle: func(bucket string, call apiCall) string {
+	ctx := useS3API(t, "us-east-1", func(bucket string, call apiCall) string {
 		switch {
 		case bucket == "":
 			return `<ListAllMyBucketsResult ` + recordS3NS + `><Buckets>` +
@@ -196,8 +214,9 @@ func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
 			return `<Error><Code>NoSuchBucketPolicy</Code></Error>`
 		}
 		return recordUnexpected(t, call)
-	}}
+	})
 	g := &S3Lister{}
+	g.SetContext(ctx)
 	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"region": "eu-west-1"}})
 
 	if err := g.List(); err != nil {

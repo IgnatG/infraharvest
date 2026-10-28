@@ -66,8 +66,10 @@ func recordDocDBAPI(t *testing.T, failing string) func(apiCall) string {
 // family but the default ones, all by name. The RDS API's Aurora and
 // Neptune clusters and groups are left out.
 func TestRecordDocDBListsClustersSubnetAndParameterGroups(t *testing.T) {
-	useFakeAPI(t, recordDocDBAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordDocDBAPI(t, ""))
 	g := &DocDBLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -87,10 +89,12 @@ func TestRecordDocDBListsClustersSubnetAndParameterGroups(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordDocDBReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeDBClusters", "DescribeDBClusterParameterGroups"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordDocDBAPI(t, failing))
+			ctx := useFakeAPI(t, recordDocDBAPI(t, failing))
 			g := &DocDBLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

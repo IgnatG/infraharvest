@@ -16,6 +16,7 @@ import (
 // resource is gone, or whose operation the endpoint doesn't offer, leaves
 // nothing to list and is no failure; without failures, there is no error.
 func TestPartFailures(t *testing.T) {
+	t.Parallel()
 	var none partFailures
 	none.add("nothing", nil)
 	if err := none.err(); err != nil {

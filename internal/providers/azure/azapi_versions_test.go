@@ -45,6 +45,7 @@ const providersAnswer = `{"namespace": "Microsoft.AzureFleet", "resourceTypes": 
 // gets none, which leaves the version to azapi, and other types aren't
 // asked about.
 func TestWithAPIVersions(t *testing.T) {
+	t.Parallel()
 	const rg = "/subscriptions/sub/resourceGroups/rg1"
 	fleet := rg + "/providers/Microsoft.AzureFleet/fleets/"
 	resources := []harvest.Resource{
@@ -109,6 +110,7 @@ func (f *refusingTransport) Do(r *http.Request) (*http.Response, error) {
 // again by the next subscription, rather than left without versions for
 // the rest of the run.
 func TestWithAPIVersionsAsksAgainAfterAFailure(t *testing.T) {
+	t.Parallel()
 	transport := &refusingTransport{fakeTransport: fakeTransport{body: providersAnswer}}
 	options := &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}}
 	cache := &versionCache{}

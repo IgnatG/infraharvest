@@ -11,7 +11,8 @@ import (
 // The lister names a distribution after its alias or comment, and lists
 // only the account's own cache policies.
 func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch {
 		case strings.HasSuffix(call.Path, "/distribution"):
 			return `<DistributionList><IsTruncated>false</IsTruncated><Items>
@@ -29,6 +30,7 @@ func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
 		return `<Error><Code>NotFound</Code></Error>`
 	})
 	g := &CloudFrontLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -51,9 +53,10 @@ func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
 // that returns the marker it was asked with fails the listing rather than
 // being asked for again forever.
 func TestCloudFrontCachePolicyPages(t *testing.T) {
+	t.Parallel()
 	for _, repeat := range []bool{false, true} {
 		calls := 0
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			switch {
 			case strings.HasSuffix(call.Path, "/distribution"):
 				return `<DistributionList><IsTruncated>false</IsTruncated></DistributionList>`
@@ -77,6 +80,7 @@ func TestCloudFrontCachePolicyPages(t *testing.T) {
 			return `<Error><Code>NotFound</Code></Error>`
 		})
 		g := &CloudFrontLister{}
+		g.SetContext(ctx)
 
 		err := g.List()
 

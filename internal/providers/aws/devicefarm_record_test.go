@@ -13,7 +13,8 @@ const recordDeviceFarmProject = "arn:aws:devicefarm:us-west-2:123456789012:proje
 // The lister lists each Device Farm project by ARN, named after its name,
 // across pages.
 func TestRecordDeviceFarmListsProjectsByARN(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListProjects" {
 			return recordUnexpected(t, call)
 		}
@@ -24,6 +25,7 @@ func TestRecordDeviceFarmListsProjectsByARN(t *testing.T) {
 			recordDeviceFarmProject, nextPageToken)
 	})
 	g := &DeviceFarmLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -36,10 +38,12 @@ func TestRecordDeviceFarmListsProjectsByARN(t *testing.T) {
 }
 
 func TestRecordDeviceFarmReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("ArgumentException")
 	})
 	g := &DeviceFarmLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "ArgumentException")
 }
