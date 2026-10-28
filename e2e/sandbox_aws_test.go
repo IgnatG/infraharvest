@@ -793,7 +793,7 @@ func checkSandboxDrift(ctx context.Context, t *testing.T, s *sandbox, estate *sa
 // local state it has, as the process's identity, and returns the plan.
 func planned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) *tfjson.Plan {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -815,7 +815,7 @@ func planned(ctx context.Context, t *testing.T, dir, execPath, plugins string, v
 // its local state, as the process's identity.
 func applyPlanned(ctx context.Context, t *testing.T, dir, execPath, plugins string, vars []tfexec.PlanOption) {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

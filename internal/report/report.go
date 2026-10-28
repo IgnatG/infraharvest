@@ -347,6 +347,9 @@ type Directory struct {
 	Modules []Module `json:"modules,omitempty"`
 	// Checks are the verification gate's results.
 	Checks []Check `json:"checks,omitempty"`
+	// Plans count the Terraform plans generating the directory ran, by
+	// step, each of which imports every resource of it again.
+	Plans []Plans `json:"plans,omitempty"`
 	// Error is why nothing in the directory was imported.
 	Error string `json:"error,omitempty"`
 	// MergedInto is the root, relative to the output directory, that the
@@ -367,6 +370,15 @@ type LeftOut struct {
 	Address string   `json:"address"`
 	ID      string   `json:"id"`
 	Errors  []string `json:"errors"`
+}
+
+// Plans counts the plans a step of generating a directory ran, failed
+// ones included, and the plan files it read back (shows): generate,
+// prepare, repair, secrets, tidy, finish, refine or gate.
+type Plans struct {
+	Step  string `json:"step"`
+	Plans int    `json:"plans"`
+	Shows int    `json:"shows"`
 }
 
 // Secret is a variable to set before planning.
@@ -987,6 +999,7 @@ func (r *Report) Markdown() string {
 	writeSection(&b, "Excluded", "The selection left these resources out.", r.excludedLines())
 	writeSection(&b, "Failed checks", "These directories were generated, but failed a check of the verification gate. Each directory's README lists its checks.", proseLines(r.FailedChecks()))
 	writeSection(&b, "Skipped checks", "These checks couldn't run on these directories, so they checked nothing. They don't fail the import.", proseLines(r.SkippedChecks()))
+	writeSection(&b, "Terraform plans", "The plans generating each directory ran, by step: each imports every resource of the directory again.", d.plans)
 	writeSection(&b, "Failed directories", "Nothing in these directories was imported.", d.errors)
 	writeSection(&b, "Failures", "These parts of the import couldn't run, or ran only in part: services that couldn't be listed, accounts or projects that couldn't be reached, tags or default selections that couldn't be read, and what stopped the run.", proseLines(r.Failures))
 	return b.String()
@@ -1083,7 +1096,7 @@ func (r *Report) tagsMarkdown(b *strings.Builder) {
 // directoryMarkdown has the list items of the report's sections that
 // gather what each directory has.
 type directoryMarkdown struct {
-	leftOut, secrets, warnings, modules, declined, errors []string
+	leftOut, secrets, warnings, modules, declined, plans, errors []string
 }
 
 // directoryLines returns the list items of each directory's resources
@@ -1113,11 +1126,26 @@ func (r *Report) directoryLines() directoryMarkdown {
 		for _, w := range dir.Warnings {
 			d.warnings = append(d.warnings, fmt.Sprintf("- `%s`: %s.", dir.Path, mdtext.Prose(w)))
 		}
+		if len(dir.Plans) > 0 {
+			d.plans = append(d.plans, plansLine(dir))
+		}
 		if dir.Error != "" {
 			d.errors = append(d.errors, fmt.Sprintf("- `%s`: %s", dir.Path, mdtext.Prose(dir.Error)))
 		}
 	}
 	return d
+}
+
+// plansLine returns the list item of the plans generating dir ran: their
+// total, then each step's.
+func plansLine(dir Directory) string {
+	total := 0
+	steps := make([]string, 0, len(dir.Plans))
+	for _, p := range dir.Plans {
+		total += p.Plans
+		steps = append(steps, fmt.Sprintf("%s %d", p.Step, p.Plans))
+	}
+	return fmt.Sprintf("- `%s`: %d (%s)", dir.Path, total, strings.Join(steps, ", "))
 }
 
 // notInCloudLines returns a list item for each resource the roots have

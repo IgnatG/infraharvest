@@ -87,6 +87,10 @@ type Result struct {
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
 	NotInCloud []rootfile.Import `json:"-"`
+	// Plans count the plans Generate ran for the root, by step (see the
+	// step constants), and the plan files it showed: each plan imports
+	// every resource of the root again.
+	Plans []tfrun.StepPlans `json:",omitempty"`
 }
 
 // Options configure Generate.
@@ -264,6 +268,30 @@ const (
 	replanSecrets      replanReason = "secrets moved into variables"
 )
 
+// The steps of generate that Result.Plans counts plans by.
+const (
+	// stepGenerate has Terraform generate the configuration, and import
+	// again what it rejected with an import ID to fall back on.
+	stepGenerate = "generate"
+	// stepPrepare plans the configuration again once edits that come before
+	// anything reads it, such as sorting its resources, changed it.
+	stepPrepare = "prepare"
+	// stepRepair plans again after repairing the configuration or leaving
+	// out what still had errors.
+	stepRepair = "repair"
+	// stepSecrets makes secret attributes read from variables.
+	stepSecrets = "secrets"
+	// stepTidy post-processes the configuration, each edit checked by a
+	// plan.
+	stepTidy = "tidy"
+	// stepFinish lays out the root's files.
+	stepFinish = "finish"
+	// stepRefine runs Options.Refine.
+	stepRefine = "refine"
+	// stepGate runs the verification gate.
+	stepGate = "gate"
+)
+
 // Generate writes opts.Config and an import block per resource into dir,
 // then runs Terraform to generate the configuration of every imported
 // resource into generated.tf, without the arguments opts.Omit names.
@@ -311,9 +339,11 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	}
 	defer removeEmptyState()
 	redacting := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
+	counting := &tfrun.Counting{Terraform: redacting}
 	g := &generation{
-		tf:        &schemaCache{Terraform: redacting},
+		tf:        &schemaCache{Terraform: counting},
 		redacting: redacting,
+		counting:  counting,
 		dir:       dir,
 		generated: generated,
 		imports:   relabelled(imports, r.taken, r.opts.TidyLabels, r.opts.Previous),
@@ -326,6 +356,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	if err != nil {
 		return nil, err
 	}
+	counting.Step(stepGenerate)
 	reasons, err := g.planGenerated(ctx)
 	if err != nil {
 		return nil, err
@@ -348,18 +379,22 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	if err := g.leaveOut(); err != nil {
 		return nil, err
 	}
+	counting.Step(stepSecrets)
 	if err := g.secretVariables(ctx); err != nil {
 		return nil, err
 	}
+	counting.Step(stepTidy)
 	if err := g.tidy(ctx); err != nil {
 		return nil, err
 	}
+	counting.Step(stepFinish)
 	if err := g.finish(ctx); err != nil {
 		return nil, err
 	}
 	if err := g.gate(ctx); err != nil {
 		return nil, err
 	}
+	g.result.Plans = counting.Counts()
 	// The README shows the gate's details, which come from plans that had
 	// the secret values: the gate couldn't scan it, so it is scanned here.
 	redactResult(g.result, g.literal)
@@ -376,7 +411,9 @@ type generation struct {
 	// with redacting.
 	tf        tfrun.Terraform
 	redacting *secret.RedactingTerraform
-	dir       string
+	// counting counts tf's plans by the step generate is at.
+	counting *tfrun.Counting
+	dir      string
 	// generated is the path of generated.tf.
 	generated string
 	imports   []rootfile.Import
@@ -541,10 +578,12 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 			why[i] = string(reason)
 		}
 		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(why, ", "))
+		g.counting.Step(stepPrepare)
 		if err := g.replan(ctx); err != nil {
 			return err
 		}
 	}
+	g.counting.Step(stepRepair)
 	repaired := false
 	for round := 0; ; round++ {
 		errs, err := unresolved("terraform plan", g.dir, g.diags)
@@ -623,12 +662,32 @@ func (g *generation) secretVariables(ctx context.Context) error {
 			kept = append(kept, s)
 		}
 	}
+	// Both read the imported objects from one plan: planUntilValid's last,
+	// if it had no errors, or else the first of their own that has none.
+	// What an import reads doesn't depend on the configuration, so the
+	// edits since then, and their own, don't change what it shows.
+	var imported *tfjson.Plan
+	if g.last != nil {
+		imported = g.last.plan
+	}
+	importedPlan := func(vars []tfexec.PlanOption) func() (*tfjson.Plan, error) {
+		return func() (*tfjson.Plan, error) {
+			if imported != nil {
+				return imported, nil
+			}
+			p, _, _, err := tfrun.ShowPlan(ctx, g.tf, vars)
+			imported = p
+			return p, err
+		}
+	}
 	var err error
-	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, g.r.secrets.Options()); err != nil {
+	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, importedPlan(g.r.secrets.Options())); err != nil {
 		return err
 	}
+	// The secrets read from variables now: they plan with placeholders.
+	vars := append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...)
 	var public bool
-	if g.result.Secrets, public, err = secret.PublicToLiterals(ctx, g.tf, filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, g.r.secrets); err != nil {
+	if g.result.Secrets, public, err = secret.PublicToLiterals(filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, importedPlan(vars)); err != nil {
 		return err
 	}
 	if public {
@@ -654,10 +713,12 @@ func (g *generation) tidy(ctx context.Context) error {
 		return err
 	}
 	// The last plan of planUntilValid is postProcess's first if nothing
-	// changed since: the same files, and no secret variables, whose values
-	// its plans get otherwise.
+	// changed since: the same files, and the same values of the secret
+	// variables, which planUntilValid's plans got from the secrets
+	// hideSecrets found, and postProcess's get from those the root keeps,
+	// with placeholders for the secrets without a value.
 	last := g.last
-	if last != nil && (g.r.secrets != nil || len(g.result.Secrets) > 0) {
+	if last != nil && (len(secret.Placeholders(g.result.Secrets)) > 0 || !secret.SameValues(g.literal, g.result.Secrets)) {
 		last = nil
 	}
 	if last != nil {
@@ -750,6 +811,7 @@ func (g *generation) gate(ctx context.Context) error {
 	var unrefined map[string][]byte
 	warned := len(g.result.Warnings)
 	if g.opts.Refine != nil {
+		g.counting.Step(stepRefine)
 		var err error
 		if unrefined, err = refine(ctx, g.tf, g.dir, g.result, g.opts); err != nil {
 			return err
@@ -757,6 +819,7 @@ func (g *generation) gate(ctx context.Context) error {
 	}
 	// The gate checks the modules the run may call, which for Add's are
 	// fewer than the caller's (see adding).
+	g.counting.Step(stepGate)
 	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.secrets, unrefined, warned)
 }
 
@@ -838,9 +901,9 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // validates the result. It leaves out resources that still don't validate,
 // adding them to rejections and out. It returns literal's variables first.
 // Secret attributes the imported objects hold no value for are left out of
-// the configuration instead (see secret.WithoutUnset); vars are the options the
-// plan that tells them apart needs.
-func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]secret.Variable, error) {
+// the configuration instead (see secret.WithoutUnset); imported returns the
+// plan that shows those objects, or nil if the root doesn't plan.
+func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, imported func() (*tfjson.Plan, error)) ([]secret.Variable, error) {
 	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -854,11 +917,12 @@ func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Nam
 		found = secret.WithoutWriteOnly(found, schemas)
 	}
 	if len(found) > 0 {
-		var unset bool
-		if found, unset, err = secret.WithoutUnset(ctx, tf, found, schemas, vars); err != nil {
+		p, err := imported()
+		if err != nil {
 			return nil, err
 		}
-		if unset {
+		var unset bool
+		if found, unset = secret.WithoutUnset(found, schemas, p); unset {
 			if err := generated.Save(); err != nil {
 				return nil, err
 			}

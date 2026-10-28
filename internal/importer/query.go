@@ -115,6 +115,7 @@ func (r *Run) query(c *callContext, provider harvest.Provider, listedByOthers []
 			ExecPath:       execPath,
 			PluginCacheDir: filepath.Join(cacheDir, "plugins"),
 			Env:            env,
+			Schemas:        &r.shared.schemas,
 			Parent:         filepath.Join(options.Out, CheckpointDir),
 			Provider:       root.provider,
 			ProviderName:   provider.Name(),

@@ -570,7 +570,7 @@ func checkGoogleLabels(ctx context.Context, t *testing.T, s *googleSandbox, cove
 // default_labels.
 func plannedLabels(ctx context.Context, t *testing.T, dir, execPath, plugins string) map[string]map[string]any {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

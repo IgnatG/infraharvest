@@ -64,6 +64,9 @@ type Request struct {
 	// such as its credentials.
 	ExecPath, PluginCacheDir string
 	Env                      map[string]string
+	// Schemas is the providers' schemas cache of the run the listing is
+	// part of, which its roots share, if set (see tfrun.SchemaCache).
+	Schemas *tfrun.SchemaCache
 	// Parent is where the working directory goes, such as the output
 	// directory's .infraharvest: it is made private, and removed when the
 	// listing is done.
@@ -95,13 +98,13 @@ type terraform interface {
 // runner makes the Terraform runner of a working directory, and
 // versionOf reads a binary's version; tests replace them.
 type runner struct {
-	newTerraform func(dir, execPath, pluginCacheDir string, env map[string]string) (terraform, error)
+	newTerraform func(dir, execPath, pluginCacheDir string, env map[string]string, schemas *tfrun.SchemaCache) (terraform, error)
 	versionOf    func(ctx context.Context, execPath string) (*version.Version, error)
 }
 
 var defaultRunner = runner{
-	newTerraform: func(dir, execPath, pluginCacheDir string, env map[string]string) (terraform, error) {
-		return tfrun.New(dir, execPath, pluginCacheDir, env)
+	newTerraform: func(dir, execPath, pluginCacheDir string, env map[string]string, schemas *tfrun.SchemaCache) (terraform, error) {
+		return tfrun.New(dir, execPath, pluginCacheDir, env, schemas)
 	},
 	versionOf: tfrun.BinaryVersion,
 }
@@ -151,7 +154,7 @@ func (r runner) list(ctx context.Context, req Request) ([]harvest.Resource, erro
 			return nil, err
 		}
 	}
-	tf, err := r.newTerraform(dir, req.ExecPath, req.PluginCacheDir, req.Env)
+	tf, err := r.newTerraform(dir, req.ExecPath, req.PluginCacheDir, req.Env, req.Schemas)
 	if err != nil {
 		return nil, err
 	}

@@ -121,7 +121,7 @@ func resourceAddresses(t *testing.T, dir string) map[string]bool {
 // selectWorkspace selects workspace in the root in dir, initialised.
 func selectWorkspace(ctx context.Context, t *testing.T, dir, execPath, plugins, workspace string) {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plu
 	t.Helper()
 	for _, env := range envs {
 		credentials(env)
-		tf, err := tfrun.New(dir, execPath, plugins, nil)
+		tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +193,7 @@ func applyMergedWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plu
 // env's workspace, which the environment has applied it into.
 func workspace(ctx context.Context, t *testing.T, dir, execPath, plugins, env string) *tfrun.Runner {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

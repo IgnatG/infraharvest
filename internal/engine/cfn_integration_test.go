@@ -81,7 +81,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			tf, err := tfrun.New(dir, execPath, filepath.Join(cache, "plugins"), nil)
+			tf, err := tfrun.New(dir, execPath, filepath.Join(cache, "plugins"), nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

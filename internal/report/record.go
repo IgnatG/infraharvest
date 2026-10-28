@@ -128,8 +128,8 @@ func (r *Report) AddFailedDirectory(path, scope string, err error) {
 // with forward slashes, whose resources, listed in scope, Generate left as
 // result: what it imports, at its address in the root, in the module call
 // Generate moved it into if any; what it left out; its module calls,
-// secrets, warnings and checks; and what it moves, within it and between
-// roots (see Move).
+// secrets, warnings, checks and plans; and what it moves, within it and
+// between roots (see Move).
 func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 	d := Directory{Path: path, Scope: scope, Warnings: result.Warnings}
 	// A result without addresses, as in a checkpoint an older release
@@ -157,6 +157,9 @@ func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 	}
 	for _, c := range result.Gate {
 		d.Checks = append(d.Checks, Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
+	}
+	for _, p := range result.Plans {
+		d.Plans = append(d.Plans, Plans(p))
 	}
 	r.addFindings(path, scope, result)
 	r.addMoves(path, result)

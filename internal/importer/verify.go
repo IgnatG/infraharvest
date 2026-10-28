@@ -84,6 +84,8 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		return err
 	}
 	scanners := gate.DefaultScanners(policies)
+	// The roots' checks share the providers' schemas they read.
+	schemas := &tfrun.SchemaCache{}
 	var results []verifiedRoot
 	var failed []string
 	for _, dir := range roots {
@@ -98,7 +100,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
 		newTF := func(d string) (tfrun.Terraform, error) {
-			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil)
+			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil, schemas)
 		}
 		record := func(root verifiedRoot, checks gate.Gate, managed []engine.Managed) {
 			root.Findings = report.GateFindings(root.Path, root.Environment, managed, checks)

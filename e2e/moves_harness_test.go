@@ -39,7 +39,7 @@ func seedApplied(ctx context.Context, t *testing.T, name, execPath, plugins stri
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(readFile(t, filepath.Join("testdata", name, "main.tf"))), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,6 @@
 package secret
 
 import (
-	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -147,19 +146,19 @@ func isSecretNull(attr *hclwrite.Attribute) bool {
 // make the plan set it, and a placeholder could break the provider's rules
 // for it.
 // An attribute the schema requires keeps its variable, as does one of a
-// nested block whose imported blocks don't all lack it. It plans once,
-// with the attributes still null as Terraform generated them; if that plan
-// doesn't succeed, found is returned as it is. It reports whether it
-// removed any attribute.
-func WithoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]Sensitive, schemas *tfjson.ProviderSchemas, vars []tfexec.PlanOption) (map[string][]Sensitive, bool, error) {
-	p, _, _, err := tfrun.ShowPlan(ctx, tf, vars)
-	if err != nil || p == nil {
-		return found, false, err
+// nested block whose imported blocks don't all lack it. It reads the
+// imported objects from imported, any plan of the root that imports them,
+// since what an import reads doesn't depend on the configuration; without
+// one, found is returned as it is.
+// It reports whether it removed any attribute.
+func WithoutUnset(found map[string][]Sensitive, schemas *tfjson.ProviderSchemas, imported *tfjson.Plan) (map[string][]Sensitive, bool) {
+	if imported == nil {
+		return found, false
 	}
-	imported := map[string]any{}
-	for _, rc := range p.ResourceChanges {
+	objects := map[string]any{}
+	for _, rc := range imported.ResourceChanges {
 		if rc.Change != nil && rc.Change.Before != nil {
-			imported[rc.Address] = rc.Change.Before
+			objects[rc.Address] = rc.Change.Before
 		}
 	}
 	kept := map[string][]Sensitive{}
@@ -167,7 +166,7 @@ func WithoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]Se
 	for address, secrets := range found {
 		resourceType := strings.SplitN(address, ".", 2)[0]
 		for _, s := range secrets {
-			before, ok := imported[address]
+			before, ok := objects[address]
 			attr := tfrun.SchemaAttribute(schemas, resourceType, s.schemaPath)
 			if !ok || attr == nil || attr.Required || !allUnset(valuesAt(before, s.schemaPath)) {
 				kept[address] = append(kept[address], s)
@@ -177,7 +176,7 @@ func WithoutUnset(ctx context.Context, tf tfrun.Terraform, found map[string][]Se
 			removed = true
 		}
 	}
-	return kept, removed, nil
+	return kept, removed
 }
 
 // valuesAt returns the values at path in v, an imported object as a plan
@@ -362,10 +361,10 @@ func isPublic(rule catalogue.SecretWhen, when string) bool {
 // path, the values of the secrets publicSensitive says aren't secret, as
 // the plan shows them, and returns the other secrets, and whether it
 // wrote any, which leaves their variables to declare no more. Values that look like secrets all the same
-// (see Reason) stay in their variables. It plans only if a secret
-// may be public, with the values of known, if set, for the secrets Generate
-// found (see Values).
-func PublicToLiterals(ctx context.Context, tf tfrun.Terraform, path string, secrets []Variable, known *Values) ([]Variable, bool, error) {
+// (see Reason) stay in their variables. It calls imported, which returns a
+// plan of the root that shows the objects it imports, or nil if the root
+// doesn't plan, only if a secret may be public.
+func PublicToLiterals(path string, secrets []Variable, imported func() (*tfjson.Plan, error)) ([]Variable, bool, error) {
 	generated, err := hclfile.Load(path)
 	if err != nil {
 		return nil, false, err
@@ -391,15 +390,15 @@ func PublicToLiterals(ctx context.Context, tf tfrun.Terraform, path string, secr
 	if !possible {
 		return secrets, false, nil
 	}
-	p, _, _, err := tfrun.ShowPlan(ctx, tf, append(Placeholders(secrets), known.Options()...))
+	p, err := imported()
 	if err != nil || p == nil {
 		return secrets, false, err
 	}
-	imported := map[string]map[string]any{}
+	objects := map[string]map[string]any{}
 	for _, rc := range p.ResourceChanges {
 		if rc.Change != nil {
 			if before, ok := rc.Change.Before.(map[string]any); ok {
-				imported[rc.Address] = before
+				objects[rc.Address] = before
 			}
 		}
 	}
@@ -411,7 +410,7 @@ func PublicToLiterals(ctx context.Context, tf tfrun.Terraform, path string, secr
 			kept = append(kept, s)
 			continue
 		}
-		value, isString := imported[s.Address][rule.Argument].(string)
+		value, isString := objects[s.Address][rule.Argument].(string)
 		name := hclfile.StringLiteral(hclfile.AttributeExpr(bodies[s.Address], "name"))
 		if !isString || Reason(name, value, true) != "" {
 			kept = append(kept, s)

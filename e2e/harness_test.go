@@ -44,7 +44,7 @@ func seed(ctx context.Context, t *testing.T, fixture, execPath, pluginCache stri
 	if err := os.WriteFile(filepath.Join(dir, "main.tf"), content, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tf, err := tfrun.New(dir, execPath, pluginCache, nil)
+	tf, err := tfrun.New(dir, execPath, pluginCache, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func configBlocks(t *testing.T, dir string) []*hclsyntax.Block {
 // imports.
 func checkNoChanges(ctx context.Context, t *testing.T, dir, execPath, pluginCache string, vars []tfexec.PlanOption) map[string]int {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, pluginCache, nil)
+	tf, err := tfrun.New(dir, execPath, pluginCache, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +386,7 @@ func addedConfiguration(t *testing.T, before, after map[string]string) map[strin
 // has and opts, such as tfexec.Refresh(false), and returns the plan.
 func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, opts ...tfexec.PlanOption) *tfjson.Plan {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, 
 // into the local state it has.
 func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
 	t.Helper()
-	tf, err := tfrun.New(dir, execPath, plugins, env)
+	tf, err := tfrun.New(dir, execPath, plugins, env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

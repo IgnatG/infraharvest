@@ -378,7 +378,7 @@ func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (envmerge.Mer
 	}
 	var runner func(string) (tfrun.Terraform, error)
 	if !m.restored {
-		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins")}
+		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins"), schemas: &s.run.shared.schemas}
 		var err error
 		if tr.env, err = terraformEnv(ctx, m.provider); err != nil {
 			return envmerge.MergeRoot{}, err

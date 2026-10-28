@@ -283,6 +283,58 @@ func TestGenerate(t *testing.T) {
 	}
 }
 
+// Generate counts its plans, and the plan files it shows, by the step
+// that ran them, for the report.
+func TestGenerateCountsPlansByStep(t *testing.T) {
+	t.Parallel()
+	rejected := errorAt(3, "Invalid combination of arguments", `"multivalue_answer_routing_policy": all of `+"`multivalue_answer_routing_policy,set_identifier`"+` must be specified`)
+	for _, tc := range []struct {
+		name    string
+		tf      fakeTerraform
+		imports []rootfile.Import
+		want    []tfrun.StepPlans
+	}{{
+		name:    "nothing to repair",
+		imports: []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "a"}},
+		want:    []tfrun.StepPlans{{Step: stepGenerate, Plans: 1}, {Step: stepTidy, Plans: 1, Shows: 1}, {Step: stepGate, Plans: 1, Shows: 1}},
+	}, {
+		name: "sorted",
+		tf: fakeTerraform{generated: `resource "aws_sqs_queue" "b" {
+}
+
+resource "aws_sqs_queue" "a" {
+}
+`},
+		imports: []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}},
+		want:    []tfrun.StepPlans{{Step: stepGenerate, Plans: 1}, {Step: stepPrepare, Plans: 1, Shows: 1}, {Step: stepGate, Plans: 1, Shows: 1}},
+	}, {
+		name: "repaired",
+		tf: fakeTerraform{
+			generated:   invalidGenerated,
+			plans:       []fakePlan{{diags: []tfjson.Diagnostic{rejected}}},
+			validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
+		},
+		imports: []rootfile.Import{{Type: "aws_route53_record", Name: "a", ID: "Z1_example.internal_A"}},
+		want:    []tfrun.StepPlans{{Step: stepGenerate, Plans: 1}, {Step: stepRepair, Plans: 1, Shows: 1}, {Step: stepGate, Plans: 1, Shows: 1}},
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			tf := tc.tf
+			tf.dir = dir
+
+			result, err := Generate(context.Background(), &tf, dir, tc.imports, Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !reflect.DeepEqual(result.Plans, tc.want) {
+				t.Errorf("plans: got %+v, want %+v (calls %v)", result.Plans, tc.want, tf.calls)
+			}
+		})
+	}
+}
+
 // A root applied without a backend keeps its state in terraform.tfstate,
 // which Generate's plans don't read: with it, Terraform would skip the
 // import of each resource it has, and generate no configuration for it.

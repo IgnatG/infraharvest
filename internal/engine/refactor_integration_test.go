@@ -138,7 +138,7 @@ func TestRefactorBlocksWithRealEngines(t *testing.T) {
 func checkRefactorBlocks(ctx context.Context, t *testing.T, execPath, plugins string) {
 	dir := t.TempDir()
 	writeRefactorRoot(t, dir, refactorBefore, "x", "y")
-	tf, err := tfrun.New(dir, execPath, plugins, nil)
+	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

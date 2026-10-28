@@ -5,8 +5,12 @@ package tfrun
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -48,10 +52,69 @@ func TestSchemaKey(t *testing.T) {
 	}
 }
 
+// A run's roots read the providers' schemas once through the run's
+// cache, and another run, with a cache of its own, reads them again: no
+// run keeps them for another.
+func TestProvidersSchemaCachePerRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Terraform is a shell script")
+	}
+	base := t.TempDir()
+	reads := filepath.Join(base, "reads")
+	fake := filepath.Join(base, "terraform")
+	script := "#!/bin/sh\ncase \"$1\" in\n" +
+		"version) echo '{\"terraform_version\":\"1.9.0\"}' ;;\n" +
+		"providers) echo read >> " + reads + "; echo '{\"format_version\":\"1.0\"}' ;;\n" +
+		"esac\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock := []byte("provider \"registry.terraform.io/hashicorp/aws\" {\n  version = \"6.0.0\"\n}\n")
+	root := 0
+	read := func(schemas *SchemaCache) {
+		t.Helper()
+		root++
+		dir := filepath.Join(base, fmt.Sprintf("root%d", root))
+		tf, err := New(dir, fake, filepath.Join(base, "plugins"), nil, schemas)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, LockFileName), lock, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := tf.ProvidersSchema(t.Context()); err != nil || got.FormatVersion != "1.0" {
+			t.Fatalf("got %v, %v", got, err)
+		}
+	}
+	countReads := func() int {
+		t.Helper()
+		content, err := os.ReadFile(reads)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+		return strings.Count(string(content), "read")
+	}
+
+	first := &SchemaCache{}
+	read(first)
+	read(first)
+	if n := countReads(); n != 1 {
+		t.Errorf("one run's two roots read the schemas %d times, want once", n)
+	}
+	read(&SchemaCache{})
+	if n := countReads(); n != 2 {
+		t.Errorf("after another run, the schemas were read %d times, want twice", n)
+	}
+	read(nil)
+	if n := countReads(); n != 3 {
+		t.Errorf("after a runner without a cache, the schemas were read %d times, want three times", n)
+	}
+}
+
 // The store reads each key's schemas once, and doesn't keep a failure.
 func TestSchemaStore(t *testing.T) {
 	t.Parallel()
-	s := &schemaStore{}
+	s := &SchemaCache{}
 	reads := 0
 	want := &tfjson.ProviderSchemas{FormatVersion: "1.0"}
 	read := func() (*tfjson.ProviderSchemas, error) {
@@ -87,7 +150,7 @@ func TestSchemaStoreReadsOnceForConcurrentCallers(t *testing.T) {
 	const callers = 8
 	want := &tfjson.ProviderSchemas{FormatVersion: "1.0"}
 	for _, fail := range []bool{false, true} {
-		s := &schemaStore{}
+		s := &SchemaCache{}
 		var reads atomic.Int32
 		release := make(chan struct{})
 		read := func() (*tfjson.ProviderSchemas, error) {
