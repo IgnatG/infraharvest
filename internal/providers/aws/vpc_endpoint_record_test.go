@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // TestVpcEndpointPaginates (pagination_test.go) pins the IDs across two
 // pages. This records the rest: every endpoint, whatever its type, by ID and
@@ -31,13 +35,13 @@ func TestRecordVpcEndpointListsEndpoints(t *testing.T) {
 			</vpcEndpointSet>`)
 	})
 	g := &VpcEndpointLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_vpc_endpoint", "vpce-s3", "s3", nil},
 		recordedResource{"aws_vpc_endpoint", "vpce-ssm", "ssm", nil},
 		recordedResource{"aws_vpc_endpoint", "vpce-svc", "vpce-svc", nil},
@@ -51,9 +55,8 @@ func TestRecordVpcEndpointReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &VpcEndpointLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }
 
 func TestVpcEndpointName(t *testing.T) {

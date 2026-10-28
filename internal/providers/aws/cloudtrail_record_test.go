@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 const recordCloudTrailARN = "arn:aws:cloudtrail:"
 
@@ -25,13 +29,13 @@ func TestRecordCloudTrailListsTheRegionsOwnTrails(t *testing.T) {
 			{"Name":"elsewhere","TrailARN":"` + recordCloudTrailARN + `eu-west-1:123456789012:trail/elsewhere","HomeRegion":"eu-west-1","IsMultiRegionTrail":true}]}`
 	})
 	g := &CloudTrailLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cloudtrail", recordCloudTrailARN + "us-east-1:123456789012:trail/audit", "audit", nil},
 		recordedResource{"aws_cloudtrail", recordCloudTrailARN + "us-east-1:123456789012:trail/local", "local", nil},
 	)
@@ -43,7 +47,6 @@ func TestRecordCloudTrailReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &CloudTrailLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

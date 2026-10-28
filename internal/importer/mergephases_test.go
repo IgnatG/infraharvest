@@ -40,7 +40,7 @@ func remergeStack(t *testing.T, out string, f *fakeEngine, queues ...string) (*R
 		Files:   []string{"main.tf"},
 		Imports: map[string]map[string]string{"dev": ids},
 	}
-	if err := writeMergeCheckpoint(out, stack, c); err != nil {
+	if err := mergeCheckpoints.write(out, stack, c); err != nil {
 		t.Fatal(err)
 	}
 	return run, stack, members

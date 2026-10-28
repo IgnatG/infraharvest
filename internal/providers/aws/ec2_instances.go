@@ -40,7 +40,11 @@ var ec2FilterServiceNames = []string{"instance", "ec2_instance"}
 
 // List lists the live instances, page by page. A DescribeInstances
 // error is returned and ends the listing.
-func (g *Ec2Lister) List() error {
+func (g *Ec2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *Ec2Lister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

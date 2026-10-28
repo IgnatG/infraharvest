@@ -60,16 +60,16 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	if describes != 1 {
 		t.Errorf("DescribeInstances called %d times, want once", describes)
 	}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil},
 		// vai- and the CRC-32 of "/dev/sdf-i-1-vol-1-".
 		recordedResource{"aws_volume_attachment", "vai-3944550031", "i-1:/dev/sdf",
@@ -97,13 +97,13 @@ func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil},
 		recordedResource{"aws_volume_attachment", volumeAttachmentID("/dev/xvda", "vol-1", "i-gone"), "i-gone:/dev/xvda",
 			map[string]string{"device_name": "/dev/xvda", "volume_id": "vol-1", "instance_id": "i-gone"}},
@@ -120,13 +120,13 @@ func TestRecordEbsDescribesNoInstancesForDetachedVolumes(t *testing.T) {
 		return recordEC2(call.Op, `<volumeSet><item><volumeId>vol-1</volumeId><status>available</status><attachmentSet/></item></volumeSet>`)
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources, recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil})
+	assertRecorded(t, resources, recordedResource{"aws_ebs_volume", "vol-1", "vol-1", nil})
 }
 
 // The tag filters that concern volumes, or every service, are passed to
@@ -158,19 +158,19 @@ func TestRecordEbsPassesTagFilters(t *testing.T) {
 		return recordEC2(call.Op, `<volumeSet/>`)
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
-	g.SetFilters([]harvest.Filter{
+	filters := []harvest.Filter{
 		{Service: "ebs_volume", Path: "tags.env", Values: []string{"prod", "dev"}},
 		{Service: "instance", Path: "tags.role", Values: []string{"web"}},
 		{Path: "tags.team", Values: []string{"data"}},
 		{Service: "ebs_volume", Path: "id", Values: []string{"vol-9"}},
-	})
+	}
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{Filters: filters})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources)
+	assertRecorded(t, resources)
 }
 
 func TestRecordEbsReturnsDescribeVolumesErrors(t *testing.T) {
@@ -179,7 +179,6 @@ func TestRecordEbsReturnsDescribeVolumesErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &EbsLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

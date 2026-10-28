@@ -6,6 +6,8 @@ package aws
 import (
 	"net/url"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -44,13 +46,13 @@ func TestRecordBeanstalkListsApplicationsAndEnvironments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &BeanstalkLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_elastic_beanstalk_application", "web", "web", nil},
 		recordedResource{"aws_elastic_beanstalk_application", "worker", "worker", nil},
 		recordedResource{"aws_elastic_beanstalk_environment", "e-abc123", "web-prod", nil},
@@ -74,9 +76,8 @@ func TestRecordBeanstalkReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &BeanstalkLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "InsufficientPrivilegesException")
+			assertRecordedError(t, listError(ctx, g), "InsufficientPrivilegesException")
 		})
 	}
 }

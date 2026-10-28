@@ -4,7 +4,11 @@
 package azure
 
 import (
+	"context"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // SecurityCenterContactLister lists the subscription's Microsoft Defender
@@ -17,7 +21,11 @@ type SecurityCenterContactLister struct {
 }
 
 // List lists the security contacts, unless --resource-group is set.
-func (az *SecurityCenterContactLister) List() error {
+func (az *SecurityCenterContactLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *SecurityCenterContactLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	if resourceGroup != "" {
 		return nil

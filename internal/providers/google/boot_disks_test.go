@@ -167,13 +167,14 @@ func TestCloudAssetListsBootDisksOncePerProject(t *testing.T) {
 
 	regions := []string{"", "us-central1", "europe-west1", "us-central1"}
 	errs := make([]error, len(regions))
+	ctx := testRun(t)
 	var wg sync.WaitGroup
 	for i, region := range regions {
 		g := assetLister(t, nil, region)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = g.List()
+			_, errs[i] = g.List(ctx, harvest.Settings{Provider: "google"})
 		}()
 	}
 	wg.Wait()
@@ -262,15 +263,15 @@ func TestCloudAssetInstancesUnknown(t *testing.T) {
 	instances := &fakeInstances{pages: bootDiskPages, fail: 1}
 	computeAndAssets(t, &fakeAssetSearch{results: bootDiskAssets[:2], perPage: 500}, instances)
 	g := assetLister(t, nil, "us-central1")
-	err := g.List()
+	resources, err := g.List(testRun(t), harvest.Settings{Provider: "google"})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "managed instance groups") {
 		t.Fatalf("error %v, want a partial one about managed instance groups", err)
 	}
 	cat := catalogue.MustBuiltin("google")
-	if len(g.Resources) != 2 {
-		t.Fatalf("got %v", byID(g.Resources))
+	if len(resources) != 2 {
+		t.Fatalf("got %v", byID(resources))
 	}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes); skipped != "" {
 			t.Errorf("%s: left out by default: %s", r.Observed.ID, skipped)
 		}
@@ -296,14 +297,14 @@ func TestCloudAssetBootDisksUnknown(t *testing.T) {
 			cat := catalogue.MustBuiltin("google")
 			for range 2 {
 				g := assetLister(t, nil, "us-central1")
-				err := g.List()
+				resources, err := g.List(testRun(t), harvest.Settings{Provider: "google"})
 				if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "acme-prod") {
 					t.Fatalf("error %v, want a partial one naming the project", err)
 				}
-				if len(g.Resources) != len(bootDiskAssets) {
-					t.Fatalf("got %v", byID(g.Resources))
+				if len(resources) != len(bootDiskAssets) {
+					t.Fatalf("got %v", byID(resources))
 				}
-				for _, r := range g.Resources {
+				for _, r := range resources {
 					a := r.Observed.Attributes
 					disk := strings.Contains(r.Observed.ID, "/disks/")
 					if (a[bootDiskAttribute] == "unknown") != disk || a[bootDiskOfAttribute] != "" {

@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"net/url"
 	"strings"
 
@@ -27,7 +28,11 @@ type SnsLister struct {
 // ListSubscriptions, which leaves out what other accounts subscribed to
 // the account's topics. Any listing error, a topic's subscriptions
 // included, fails the service, with what was read up to it recorded.
-func (g *SnsLister) List() error {
+func (g *SnsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SnsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -62,7 +67,7 @@ func (g *SnsLister) topic(svc *sns.Client, topicARN *string) ([]harvest.Resource
 	arn := aws.ToString(topicARN)
 	resources := []harvest.Resource{harvest.RecordBare(arn, snsLastPart(arn), "aws_sns_topic", "aws")}
 	// One call per topic, for subscriptions the import may not keep.
-	if !g.wants("aws_sns_topic_subscription") {
+	if !g.Wants("aws_sns_topic_subscription") {
 		return resources, nil
 	}
 	pages := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)

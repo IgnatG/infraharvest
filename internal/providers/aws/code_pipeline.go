@@ -20,7 +20,11 @@ type CodePipelineLister struct {
 
 // List lists the pipelines, then the webhooks. Either list
 // failing fails the service.
-func (g *CodePipelineLister) List() error {
+func (g *CodePipelineLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CodePipelineLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

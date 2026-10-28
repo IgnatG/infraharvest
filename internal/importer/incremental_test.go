@@ -47,7 +47,7 @@ func TestStagingDirStaysUnderTheOutput(t *testing.T) {
 func TestAddToRootFailsEveryImportOnACheckpointError(t *testing.T) {
 	out := t.TempDir()
 	dir := filepath.Join(out, "aws", "123")
-	path := checkpointPath(out, dir)
+	path := rootCheckpoints.path(out, dir)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -188,46 +188,28 @@ func TestDecideRootRefusesAnUnfinishedRoot(t *testing.T) {
 // An incremental import leaves out what another root of the output
 // imports, naming that root: a subnetwork an earlier import put in its
 // region's root isn't imported again into the global root, where imports
-// now put subnetworks. The roots being imported, a root whose import
-// blocks are gone but with no configuration left either, and what a root
-// left out don't count, and a root left with nothing to import is
-// dropped.
+// now put subnetworks. A root left with nothing to import is dropped.
 func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
-	out := t.TempDir()
-	global := filepath.Join(out, "google", "acme", "global")
-	regional := filepath.Join(out, "google", "acme", "us-central1")
-	gone := filepath.Join(out, "google", "acme", "europe-west1")
+	m := newMemoryOutput("out")
+	global, regional := filepath.Join("out", "google", "acme", "global"), filepath.Join("out", "google", "acme", "us-central1")
 	network := rootfile.Import{Type: "google_compute_network", Name: "main", ID: "projects/acme/global/networks/main"}
 	subnet := rootfile.Import{Type: "google_compute_subnetwork", Name: "app", ID: "projects/acme/regions/us-central1/subnetworks/app"}
 	rejected := rootfile.Import{Type: "google_compute_subnetwork", Name: "bad", ID: "projects/acme/regions/us-central1/subnetworks/bad"}
 	eu := rootfile.Import{Type: "google_compute_subnetwork", Name: "eu", ID: "projects/acme/regions/europe-west1/subnetworks/eu"}
-	for dir, result := range map[string]*engine.Result{
-		global:   {Imported: []rootfile.Import{network}},
-		regional: {Imported: []rootfile.Import{subnet}, Rejected: []engine.Rejection{{Address: "google_compute_subnetwork.bad", ID: rejected.ID}}},
-		gone:     {Imported: []rootfile.Import{eu}},
-	} {
-		if err := saveCheckpoint(out, dir, "fp", result); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, dir := range []string{global, regional} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte("# imports\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	m.root(global).checkpoint = &checkpoint{Result: &engine.Result{Imported: []rootfile.Import{network}}}
+	m.root(regional).checkpoint = &checkpoint{Result: &engine.Result{Imported: []rootfile.Import{subnet}, Rejected: []engine.Rejection{{Address: "google_compute_subnetwork.bad", ID: rejected.ID}}}}
+	m.root(regional).configured = true
+	m.root(regional).imports = []engine.Managed{{Type: subnet.Type, ID: subnet.ID, Address: "google_compute_subnetwork.app"}}
 	byDir := map[string][]rootfile.Import{global: {network, subnet, rejected, eu}}
 
-	held, err := heldElsewhere(out, byDir)
+	held, err := m.index().heldElsewhere(byDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := map[engine.External]string{{Type: subnet.Type, ID: subnet.ID}: "google/acme/us-central1"}; !reflect.DeepEqual(held, want) {
 		t.Fatalf("held elsewhere: got %v, want %v", held, want)
 	}
-	r := &Run{options: Options{Out: out}, scope: "acme/global"}
+	r := &Run{options: Options{Out: "out"}, scope: "acme/global"}
 	r.leaveOutHeld(byDir, held)
 	if want := []rootfile.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
 		t.Errorf("global: got %v, want %v", byDir[global], want)
@@ -241,40 +223,5 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	r.leaveOutHeld(only, held)
 	if _, ok := only[global]; ok {
 		t.Errorf("a root with nothing left to import is kept: %v", only)
-	}
-}
-
-// With no checkpoints, as before an output's first import, nothing is
-// held elsewhere.
-func TestHeldElsewhereWithoutCheckpoints(t *testing.T) {
-	out := t.TempDir()
-	held, err := heldElsewhere(out, map[string][]rootfile.Import{filepath.Join(out, "aws", "123"): nil})
-	if err != nil || len(held) != 0 {
-		t.Errorf("got %v, %v; want nothing", held, err)
-	}
-}
-
-// A root applied since, its import blocks deleted, still holds what its
-// checkpoint records.
-func TestHeldElsewhereCountsAnAppliedRoot(t *testing.T) {
-	out := t.TempDir()
-	applied, next := filepath.Join(out, "aws", "applied"), filepath.Join(out, "aws", "next")
-	queue := rootfile.Import{Type: "aws_sqs_queue", Name: "orders", ID: "https://sqs/orders"}
-	if err := os.MkdirAll(applied, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(applied, rootfile.GeneratedFileName), []byte("# generated\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	result := &engine.Result{Imported: []rootfile.Import{queue}, Addresses: []engine.Managed{{Type: queue.Type, ID: queue.ID, Address: "aws_sqs_queue.orders"}}}
-	if err := saveCheckpoint(out, applied, "fp", result); err != nil {
-		t.Fatal(err)
-	}
-	held, err := heldElsewhere(out, map[string][]rootfile.Import{next: {queue}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := map[engine.External]string{{Type: queue.Type, ID: queue.ID}: "aws/applied"}; !reflect.DeepEqual(held, want) {
-		t.Errorf("held: got %v, want %v", held, want)
 	}
 }

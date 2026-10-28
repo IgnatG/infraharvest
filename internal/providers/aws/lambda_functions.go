@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,7 +39,11 @@ type lambdaResourcePolicy struct {
 // versions: each layer's latest, and those the functions use. Any error
 // fails the service, except that a function without a resource policy
 // simply has no permissions.
-func (g *LambdaLister) List() error {
+func (g *LambdaLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *LambdaLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -96,13 +101,13 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) er
 // type.
 func (g *LambdaLister) functionParts(svc *lambda.Client, functionARN, functionName string) ([]harvest.Resource, error) {
 	var permissions []harvest.Resource
-	if g.wants("aws_lambda_permission") {
+	if g.Wants("aws_lambda_permission") {
 		var err error
 		if permissions, err = g.permissions(svc, functionARN); err != nil {
 			return nil, err
 		}
 	}
-	if !g.wants("aws_lambda_function_event_invoke_config") {
+	if !g.Wants("aws_lambda_function_event_invoke_config") {
 		return permissions, nil
 	}
 	configs, err := g.eventInvokeConfigs(svc, functionARN, functionName)

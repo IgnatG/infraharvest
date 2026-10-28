@@ -25,7 +25,11 @@ type MediaLiveLister struct {
 // with the next. When some lists fail, their errors are returned together
 // as a partial error (see harvest.Partial); when every one fails, as the
 // service's failure.
-func (g *MediaLiveLister) List() error {
+func (g *MediaLiveLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *MediaLiveLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

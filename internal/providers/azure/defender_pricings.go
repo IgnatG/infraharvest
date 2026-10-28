@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity"
@@ -27,7 +28,11 @@ type SecurityCenterSubscriptionPricingLister struct {
 
 // List lists the pricings, unless --resource-group is set. The
 // list isn't paged: one call returns every plan.
-func (az *SecurityCenterSubscriptionPricingLister) List() error {
+func (az *SecurityCenterSubscriptionPricingLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *SecurityCenterSubscriptionPricingLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	if resourceGroup != "" {
 		return nil

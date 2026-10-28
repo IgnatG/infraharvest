@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/datapipeline"
 
@@ -21,7 +23,11 @@ type DataPipelineLister struct {
 
 // List lists the pipelines page by page and returns the first
 // error.
-func (g *DataPipelineLister) List() error {
+func (g *DataPipelineLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DataPipelineLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

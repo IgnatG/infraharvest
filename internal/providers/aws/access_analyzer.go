@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
 
@@ -19,7 +21,11 @@ type AccessAnalyzerLister struct {
 // List lists every analyzer, whatever its type or status, by
 // name: Terraform imports an analyzer by its name. The analyzers' archive
 // rules are not listed.
-func (g *AccessAnalyzerLister) List() error {
+func (g *AccessAnalyzerLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *AccessAnalyzerLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

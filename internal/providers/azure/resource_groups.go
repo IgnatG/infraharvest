@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v4"
@@ -25,7 +26,11 @@ type ResourceGroupLister struct {
 // listed is an error; one that fails later keeps the groups listed before
 // it, and the listing fails in part (see harvest.Partial), so that the
 // groups it left out aren't taken for deleted.
-func (az *ResourceGroupLister) List() error {
+func (az *ResourceGroupLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *ResourceGroupLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	client, err := armresources.NewResourceGroupsClient(subscriptionID, credential, options)
 	if err != nil {

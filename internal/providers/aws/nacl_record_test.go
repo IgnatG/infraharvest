@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists every network ACL by ID, across pages: a VPC's default
@@ -28,13 +30,13 @@ func TestRecordNaclListsNetworkACLs(t *testing.T) {
 			</networkAclSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &NaclLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_default_network_acl", "acl-default", "acl-default", map[string]string{"as_created": "true"}},
 		recordedResource{"aws_network_acl", "acl-private", "acl-private", nil},
 		recordedResource{"aws_network_acl", "acl-unflagged", "acl-unflagged", nil},
@@ -47,9 +49,8 @@ func TestRecordNaclReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &NaclLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }
 
 // A default ACL is as AWS created it when it has no tags and no rules but
@@ -82,14 +83,14 @@ func TestRecordNaclMarksDefaultACLsAsCreated(t *testing.T) {
 			`</networkAclSet>`)
 	})
 	g := &NaclLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	asCreated := map[string]string{"as_created": "true"}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_default_network_acl", "acl-new", "acl-new", asCreated},
 		recordedResource{"aws_default_network_acl", "acl-new-ipv6", "acl-new-ipv6", asCreated},
 		recordedResource{"aws_default_network_acl", "acl-tagged", "acl-tagged", nil},

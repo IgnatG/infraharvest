@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -57,7 +58,11 @@ func wafv2ImportID(id, name *string, scope types.Scope) string {
 // List lists the web ACLs (with their associations), IP sets,
 // regex pattern sets, rule groups and logging configurations, in that
 // order. Any error stops the listing and is returned.
-func (g *Wafv2Lister) List() error {
+func (g *Wafv2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *Wafv2Lister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -101,7 +106,7 @@ func (g *Wafv2Lister) listWebACLs(svc *wafv2.Client) error {
 			// A CloudFront distribution names its web ACL itself, so
 			// only regional web ACLs have associations: a call per
 			// resource type, for associations the import may not keep.
-			if g.scope == types.ScopeRegional && g.wants("aws_wafv2_web_acl_association") {
+			if g.scope == types.ScopeRegional && g.Wants("aws_wafv2_web_acl_association") {
 				if err := g.listWebACLAssociations(svc, acl); err != nil {
 					return nil, err
 				}

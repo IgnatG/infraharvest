@@ -63,16 +63,13 @@ func TestQueryLister(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			l := &QueryLister{}
-			l.SetFilters(tt.filters)
 			ctx := context.Background()
 			if tt.query != nil {
 				ctx = WithQuery(ctx, tt.query)
 			}
-			l.SetContext(ctx)
-			err := l.List()
+			listed, err := (QueryLister{}).List(ctx, Settings{Filters: tt.filters})
 			var got []string
-			for _, r := range l.Listed() {
+			for _, r := range listed {
 				got = append(got, r.Observed.ID)
 			}
 			if !reflect.DeepEqual(got, tt.want) {

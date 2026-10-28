@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"log"
 	"slices"
 
@@ -33,7 +34,11 @@ type Cloud9Lister struct {
 // environment has no Terraform type, so it is logged and skipped, and so is
 // one the description leaves out, which was deleted in between. An error
 // from any call is returned at once.
-func (g *Cloud9Lister) List() error {
+func (g *Cloud9Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *Cloud9Lister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

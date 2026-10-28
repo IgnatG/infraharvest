@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,14 +17,12 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // moduleOutputs are the attributes a generated module outputs for each of
@@ -689,43 +686,30 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 	return imports.Save()
 }
 
-// liftModules is post-processing's module step: it moves repeated clusters
-// into generated modules under modulesDir, whose users refs counts,
-// installs them, and keeps the change only if the plan, with vars, still
-// has the baseline's totals and each resource left in the root plans the
-// change it had (see sameChanges), as verify checks an edit.
-func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
-	schemas, err := tf.ProvidersSchema(ctx)
-	if err != nil {
-		return false, fmt.Errorf("terraform providers schema: %w", err)
+// liftModules is post-processing's module pass: it moves repeated clusters
+// into generated modules under modulesDir, whose users refs counts, and
+// installs them, as the module calls need. The pass keeps the change only if
+// the plan is still Exact to the baseline. Undoing it releases the modules
+// it wrote, but for those another root calls (see ModuleRefs).
+func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs) *tidyEdit {
+	return &tidyEdit{
+		edit: func(*tidyAttempt) (edited, error) {
+			schemas, err := tf.ProvidersSchema(ctx)
+			if err != nil {
+				return edited{}, fmt.Errorf("terraform providers schema: %w", err)
+			}
+			_, changed, err := modularize(dir, modulesDir, refs, schemas)
+			if err != nil || !changed {
+				return edited{}, err
+			}
+			// The module calls need their modules installed.
+			if err := tfrun.Init(ctx, tf); err != nil {
+				return edited{}, fmt.Errorf("terraform init: %w", err)
+			}
+			return edited{other: true}, nil
+		},
+		undo: func() error { return refs.Release(dir) },
 	}
-	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.ImportsFileName)
-	if err != nil {
-		return false, err
-	}
-	_, changed, err := modularize(dir, modulesDir, refs, schemas)
-	undo := func() error {
-		// What another root calls stays (see ModuleRefs).
-		return errors.Join(refs.Release(dir), backup.Restore())
-	}
-	if err != nil {
-		return false, errors.Join(err, undo())
-	}
-	if !changed {
-		return false, nil
-	}
-	// The module calls need their modules installed.
-	if err := tfrun.Init(ctx, tf); err != nil {
-		return false, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
-	}
-	p, summary, diags, err := tfrun.ShowPlan(ctx, tf, vars)
-	if err != nil {
-		return false, errors.Join(err, undo())
-	}
-	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
-		return true, nil
-	}
-	return false, undo()
 }
 
 // moduleVersionsFile renders a generated module's versions.tf from its

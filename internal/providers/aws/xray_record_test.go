@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 func recordXraySamplingRule(name string, priority int) string {
@@ -29,13 +31,13 @@ func TestRecordXrayListsSamplingRules(t *testing.T) {
 			"NextToken":"` + nextPageToken + `"}`
 	})
 	g := &XrayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_xray_sampling_rule", "api", "api", nil},
 		recordedResource{"aws_xray_sampling_rule", "checkout", "checkout", nil},
 	)
@@ -47,7 +49,6 @@ func TestRecordXrayReturnsErrors(t *testing.T) {
 		return recordJSONError("ThrottledException")
 	})
 	g := &XrayLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "ThrottledException")
+	assertRecordedError(t, listError(ctx, g), "ThrottledException")
 }

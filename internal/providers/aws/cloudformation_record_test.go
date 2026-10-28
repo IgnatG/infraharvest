@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const (
@@ -73,13 +75,13 @@ func TestRecordCloudFormationListsStacksAndStackSets(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &CloudFormationLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cloudformation_stack", recordCfnStack + "web/1", "web", map[string]string{"name": "web"}},
 		recordedResource{"aws_cloudformation_stack", recordCfnStack + "broken/9", "broken", map[string]string{"name": "broken"}},
 		recordedResource{"aws_cloudformation_stack", recordCfnStack + "db/2", "db", map[string]string{"name": "db"}},
@@ -112,9 +114,8 @@ func TestRecordCloudFormationReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &CloudFormationLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

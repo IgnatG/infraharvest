@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 
@@ -24,7 +26,11 @@ type IgwLister struct {
 
 // List lists the attached internet gateways, page by page. An API
 // error is returned and ends the listing.
-func (g *IgwLister) List() error {
+func (g *IgwLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *IgwLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

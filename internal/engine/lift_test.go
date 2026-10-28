@@ -162,8 +162,7 @@ func TestCommonTags(t *testing.T) {
 // liftTagsVerified lifts tags in dir as postProcess does, against an empty
 // baseline.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
-	return verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) },
-		rootfile.GeneratedFileName, rootfile.ProvidersFileName, rootfile.LocalsFileName)
+	return tidier(tf, dir, Baseline{}).settle(tidyPass{}, &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) })})
 }
 
 func liftTagsDir(t *testing.T) (string, *fakeTerraform) {

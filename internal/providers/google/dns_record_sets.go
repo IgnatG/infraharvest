@@ -36,7 +36,11 @@ type DNSRecordSetsLister struct {
 // List lists every zone's record sets, from every page. A
 // project without the Cloud DNS API enabled has no zones: that is logged,
 // and lists nothing. Any other failure is an error.
-func (g *DNSRecordSetsLister) List() error {
+func (g *DNSRecordSetsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *DNSRecordSetsLister) list() error {
 	region := g.Settings().region
 	if region.Name != "" {
 		return nil
@@ -46,7 +50,7 @@ func (g *DNSRecordSetsLister) List() error {
 		return err
 	}
 	// The record sets take a call per zone, and the zones one more.
-	if !g.Settings().wants(dnsRecordSetType) {
+	if !g.Wants(dnsRecordSetType) {
 		return nil
 	}
 	ctx := g.Context()

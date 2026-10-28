@@ -4,7 +4,11 @@
 package azure
 
 import (
+	"context"
+
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // NetworkSecurityGroupLister lists network security groups as
@@ -20,7 +24,11 @@ type NetworkSecurityGroupLister struct {
 // the group list, which carries them; only a group that came back without
 // them, as some emulators answer, has its rules listed on their own. Any
 // listing that fails fails the service.
-func (az *NetworkSecurityGroupLister) List() error {
+func (az *NetworkSecurityGroupLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *NetworkSecurityGroupLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	groupsClient, err := armnetwork.NewSecurityGroupsClient(subscriptionID, credential, options)
 	if err != nil {
@@ -49,7 +57,7 @@ func (az *NetworkSecurityGroupLister) List() error {
 		az.recordTagged(*group.ID, *group.Name, "azurerm_network_security_group", group.Tags)
 		// A group without its rules takes a call, for rules the import
 		// may not keep.
-		if !az.wants("azurerm_network_security_rule") {
+		if !az.Wants("azurerm_network_security_rule") {
 			continue
 		}
 		rules, err := az.rulesOf(rulesClient, group)

@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordGlueSTSNS = "https://sts.amazonaws.com/doc/2011-06-15/"
@@ -59,13 +61,13 @@ func TestRecordGlueListsCrawlersCatalogJobsAndTriggers(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordGlueAPI(t, ""))
 	g := &GlueLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_glue_crawler", "sales-crawler", "sales-crawler", nil},
 		recordedResource{"aws_glue_crawler", "logs-crawler", "logs-crawler", nil},
 		recordedResource{"aws_glue_catalog_database", "123456789012:sales", "sales", nil},
@@ -86,9 +88,8 @@ func TestRecordGlueReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordGlueAPI(t, failing))
 			g := &GlueLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

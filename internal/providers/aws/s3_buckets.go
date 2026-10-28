@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,7 +35,11 @@ type S3Lister struct {
 // listed without it, and those failures are returned together as a partial
 // error (see partFailures). The buckets of a page are read resourceParallel
 // at a time, and recorded in the page's order.
-func (g *S3Lister) List() error {
+func (g *S3Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *S3Lister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

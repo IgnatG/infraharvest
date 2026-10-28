@@ -69,11 +69,12 @@ func excludedIDs(run *Run) []string {
 // imports it, knowing where from.
 func TestPlanHandoversBetweenRootsOfTheRun(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	m.earlier(old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
 	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a")}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	h := c.handovers
@@ -98,11 +99,12 @@ func TestPlanHandoversBetweenRootsOfTheRun(t *testing.T) {
 // and the two are told to be one handover.
 func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, engine.Managed{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}, thing("b", "fake_thing.b"))
+	m.earlier(old, engine.Managed{Type: "aws_alb", ID: "arn:lb", Address: "aws_alb.web"}, thing("b", "fake_thing.b"))
 	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	h := c.handovers
@@ -126,7 +128,7 @@ func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
 
 	// Left out of a root the run doesn't generate, it stays there.
 	c = regenerating(out, map[string][]rootfile.Import{next: {{Type: "aws_lb", ID: "arn:lb", Name: "web"}, thingImport("c")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if got := excludedIDs(c.run); !slices.Equal(got, []string{"arn:lb fake/old"}) {
@@ -139,11 +141,12 @@ func TestPlanHandoversAcrossAnotherNameOfItsType(t *testing.T) {
 // would go to.
 func TestPlanHandoversLeavesOutWhatARootNotInTheRunHas(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	m.earlier(old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
 	c := regenerating(out, map[string][]rootfile.Import{next: {thingImport("a"), thingImport("c")}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if got := excludedIDs(c.run); !slices.Equal(got, []string{"a fake/old"}) {
@@ -161,13 +164,14 @@ func TestPlanHandoversLeavesOutWhatARootNotInTheRunHas(t *testing.T) {
 // its removed blocks alone, by the call of the first root they go to.
 func TestPlanHandoversVacatesARootThatHasNothingLeft(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old := filepath.Join(out, "fake", "old")
 	alpha, beta := filepath.Join(out, "fake", "alpha"), filepath.Join(out, "fake", "beta")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	m.earlier(old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
 	first := regenerating(out, map[string][]rootfile.Import{beta: {thingImport("b")}})
 	second := regenerating(out, map[string][]rootfile.Import{alpha: {thingImport("a")}})
 
-	if err := planHandovers(out, []*listedCall{first, second}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{first, second}); err != nil {
 		t.Fatal(err)
 	}
 	if imports, ok := second.byDir[old]; !ok || len(imports) != 0 {
@@ -202,11 +206,12 @@ func TestPlanHandoversHandsOverSomeInstancesAlone(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
+			m := newMemoryOutput(out)
 			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-			earlierRoot(t, out, old, tt.had...)
+			m.earlier(old, tt.had...)
 			c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}})
 
-			if err := planHandovers(out, []*listedCall{c}); err != nil {
+			if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 				t.Fatal(err)
 			}
 			if err := c.handovers.refusal(old); err != nil {
@@ -243,14 +248,13 @@ func TestPlanHandoversRefusesWhatARemovedBlockCantTake(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
+			m := newMemoryOutput(out)
 			old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-			earlierRoot(t, out, old, tt.had...)
+			m.earlier(old, tt.had...)
 			c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a"), thingImport("c")}})
-			if err := saveCheckpoint(out, old, "fp", &engine.Result{Addresses: tt.had, Modules: []engine.ModuleCall{{Name: "eks", Source: "terraform-aws-modules/eks/aws"}}}); err != nil {
-				t.Fatal(err)
-			}
+			m.root(old).checkpoint = &checkpoint{Fingerprint: "fp", Result: &engine.Result{Addresses: tt.had, Modules: []engine.ModuleCall{{Name: "eks", Source: "terraform-aws-modules/eks/aws"}}}}
 
-			if err := planHandovers(out, []*listedCall{c}); err != nil {
+			if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 				t.Fatal(err)
 			}
 			if err := c.handovers.refusal(old); err == nil || !strings.Contains(err.Error(), tt.want) {
@@ -269,11 +273,12 @@ func TestPlanHandoversRefusesWhatARemovedBlockCantTake(t *testing.T) {
 // A whole module call that goes gets one removed block, for the call.
 func TestPlanHandoversRemovesAWholeModuleCall(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, thing("a", "module.m.fake_thing.x[0]"), thing("b", "module.m.fake_thing.x[1]"), thing("c", "fake_thing.c"))
+	m.earlier(old, thing("a", "module.m.fake_thing.x[0]"), thing("b", "module.m.fake_thing.x[1]"), thing("c", "fake_thing.c"))
 	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("c")}, next: {thingImport("a"), thingImport("b")}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if got := c.handovers.removalsOf(old); len(got) != 1 || got[0].From != "module.m" || len(got[0].Resources) != 2 {
@@ -286,15 +291,14 @@ func TestPlanHandoversRemovesAWholeModuleCall(t *testing.T) {
 // resource over to a root left as it was is left as it was too.
 func TestPlanHandoversRefusesWhatMovesTFStillMoves(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next, other := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next"), filepath.Join(out, "fake", "other")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
-	if err := os.WriteFile(filepath.Join(old, rootfile.MovesFileName), []byte("moved {\n  from = fake_thing.was\n  to   = fake_thing.a\n}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	earlierRoot(t, out, other, thing("c", "fake_thing.c"), thing("d", "fake_thing.d"))
+	m.earlier(old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	m.root(old).moves = []rootfile.Move{{From: "fake_thing.was", To: "fake_thing.a"}}
+	m.earlier(other, thing("c", "fake_thing.c"), thing("d", "fake_thing.d"))
 	c := regenerating(out, map[string][]rootfile.Import{old: {thingImport("b"), thingImport("c")}, next: {thingImport("a")}, other: {thingImport("d")}})
 
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.handovers.refusal(old); err == nil || !strings.Contains(err.Error(), "moves.tf still moves it") {
@@ -311,11 +315,12 @@ func TestPlanHandoversRefusesWhatMovesTFStillMoves(t *testing.T) {
 // Without --regenerate, nothing is handed over.
 func TestPlanHandoversOnlyWithRegenerate(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"))
+	m.earlier(old, thing("a", "fake_thing.a"))
 	c := regenerating(out, map[string][]rootfile.Import{next: {thingImport("a")}})
 	c.options.Regenerate = false
-	if err := planHandovers(out, []*listedCall{c, nil}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c, nil}); err != nil {
 		t.Fatal(err)
 	}
 	if c.handovers != nil || len(c.byDir[next]) != 1 {
@@ -362,7 +367,7 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 			t.Errorf("alpha keeps %s", name)
 		}
 	}
-	c, err := readCheckpoint(out, alpha)
+	c, err := rootCheckpoints.read(out, alpha)
 	if err != nil || c == nil || c.Result == nil || len(c.Result.Removed) != 1 {
 		t.Fatalf("alpha's checkpoint: %+v, %v", c, err)
 	}
@@ -426,10 +431,11 @@ func readFileIn(t *testing.T, dir, name string) string {
 // to, unless those hand resources over to it too.
 func TestHandoversOrderRootsAfterWhereTheirResourcesGo(t *testing.T) {
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	a, b, c := filepath.Join(out, "fake", "a"), filepath.Join(out, "fake", "b"), filepath.Join(out, "fake", "c")
-	earlierRoot(t, out, a, thing("x", "fake_thing.x"), thing("y", "fake_thing.y"))
+	m.earlier(a, thing("x", "fake_thing.x"), thing("y", "fake_thing.y"))
 	call := regenerating(out, map[string][]rootfile.Import{a: {thingImport("y")}, b: {thingImport("z")}, c: {thingImport("x")}})
-	if err := planHandovers(out, []*listedCall{call}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{call}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := call.handovers.order([]string{a, b, c}), []string{b, c, a}; !slices.Equal(got, want) {
@@ -446,10 +452,11 @@ func TestHandoversOrderRootsAfterWhereTheirResourcesGo(t *testing.T) {
 func halfHandedOver(t *testing.T) (c *listedCall, old, next string) {
 	t.Helper()
 	out := t.TempDir()
+	m := newMemoryOutput(out)
 	old, next = filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
-	earlierRoot(t, out, old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
+	m.earlier(old, thing("a", "fake_thing.a"), thing("b", "fake_thing.b"))
 	c = regenerating(out, map[string][]rootfile.Import{old: {thingImport("b")}, next: {thingImport("a")}})
-	if err := planHandovers(out, []*listedCall{c}); err != nil {
+	if err := planHandovers(m.index(), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	return c, old, next

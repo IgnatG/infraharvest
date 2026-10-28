@@ -99,15 +99,15 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EcsLister{}
-	g.SetContext(ctx)
 
 	// The descriptions that fail are returned as a partial error.
-	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "service/apps/batch-8") || !strings.Contains(err.Error(), "service/jobs/worker") {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "service/apps/batch-8") || !strings.Contains(err.Error(), "service/jobs/worker") {
 		t.Errorf("want a partial error naming the services not described, got %v", err)
 	}
 
 	// Task definitions come last, in no particular order: sort them.
-	resources := slices.Clone(g.Resources)
+	resources = slices.Clone(resources)
 	first := slices.IndexFunc(resources, func(r harvest.Resource) bool { return r.Address.Type == "aws_ecs_task_definition" })
 	if first >= 0 {
 		slices.SortFunc(resources[first:], func(a, b harvest.Resource) int { return strings.Compare(a.Observed.ID, b.Observed.ID) })
@@ -148,9 +148,8 @@ func TestRecordEcsReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &EcsLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDeniedException")
+			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 		})
 	}
 }

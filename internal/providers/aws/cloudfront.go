@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
@@ -20,7 +22,11 @@ type CloudFrontLister struct {
 
 // List lists the distributions, then the cache policies. Any
 // error stops the listing and is returned.
-func (g *CloudFrontLister) List() error {
+func (g *CloudFrontLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudFrontLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

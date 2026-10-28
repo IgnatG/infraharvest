@@ -82,10 +82,14 @@ type diagnosticTarget struct {
 	attributes map[string]string
 }
 
-func (az *DiagnosticSettingLister) List() error {
+func (az *DiagnosticSettingLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *DiagnosticSettingLister) list() error {
 	s := az.Settings()
 	// Every target takes a call, for settings the import may not keep.
-	if !s.wants(diagnosticSettingType) {
+	if !az.Wants(diagnosticSettingType) {
 		return nil
 	}
 	client, err := armmonitor.NewDiagnosticSettingsClient(s.credential, s.clientOptions)

@@ -6,6 +6,8 @@ package aws
 import (
 	"maps"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordAutoScalingNS = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
@@ -51,9 +53,9 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &AutoScalingLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,7 +66,7 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 	}
 	webAttributes := maps.Clone(groupAttributes)
 	webAttributes["tags.eks:nodegroup-name"] = "workers"
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_autoscaling_group", "web", "web", webAttributes},
 		recordedResource{"aws_autoscaling_group", "batch", "batch", groupAttributes},
 		recordedResource{"aws_launch_configuration", "web-v3", "web-v3", map[string]string{"user_data_base64": "="}},
@@ -94,9 +96,8 @@ func TestRecordAutoScalingReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &AutoScalingLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "UnauthorizedOperation")
+			assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 		})
 	}
 }

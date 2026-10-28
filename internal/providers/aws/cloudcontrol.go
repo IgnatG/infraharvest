@@ -86,7 +86,11 @@ type CloudControlLister struct {
 // their errors, each naming its type, are returned together as a partial
 // error (see harvest.Partial), so what the others listed is imported; when
 // every type fails, as the service's failure.
-func (g *CloudControlLister) List() error {
+func (g *CloudControlLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.listTypes)
+}
+
+func (g *CloudControlLister) listTypes() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -94,7 +98,7 @@ func (g *CloudControlLister) List() error {
 	client := cloudcontrol.NewFromConfig(config)
 	var errs []error
 	for _, t := range g.types {
-		if err := g.list(g.Context(), client, t); err != nil {
+		if err := g.listType(g.Context(), client, t); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", t.CloudFormation, err))
 		}
 	}
@@ -104,10 +108,10 @@ func (g *CloudControlLister) List() error {
 	return harvest.Partial(errors.Join(errs...))
 }
 
-// list adds the resources of one type, if the region has the type. A type
+// listType adds the resources of one type, if the region has the type. A type
 // Cloud Control can't list there, which has no list handler, is logged and
 // lists nothing.
-func (g *CloudControlLister) list(ctx context.Context, client cloudcontrol.ListResourcesAPIClient, t cloudControlType) error {
+func (g *CloudControlLister) listType(ctx context.Context, client cloudcontrol.ListResourcesAPIClient, t cloudControlType) error {
 	p := cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)

@@ -5,6 +5,7 @@ package aws
 
 import (
 	"cmp"
+	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -27,7 +28,11 @@ type ElasticIPLister struct {
 // which the import names after the instance's Name tag, and otherwise after
 // its allocation ID. A Name tag of its own comes first. A NAT gateway's
 // address usually goes into the VPC module call with its gateway.
-func (g *ElasticIPLister) List() error {
+func (g *ElasticIPLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *ElasticIPLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"log"
 	"slices"
@@ -30,7 +31,11 @@ type EcsLister struct {
 // service; failing to list or describe a cluster's services leaves out
 // only those services, and the failures are returned together as a partial
 // error (see partFailures).
-func (g *EcsLister) List() error {
+func (g *EcsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EcsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

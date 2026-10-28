@@ -5,6 +5,7 @@ package aws
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"strings"
 
@@ -29,7 +30,11 @@ type KmsLister struct {
 // the service; a key or an alias whose key can't be described, and a key
 // whose grants can't be listed, is left out, and the failures are returned
 // together as a partial error (see partFailures).
-func (g *KmsLister) List() error {
+func (g *KmsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *KmsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -100,7 +105,7 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 		grants := make([][]harvest.Resource, len(listable))
 		grantErrs := make([]error, len(listable))
 		// One call per key, for grants the import may not keep.
-		if l.g.wants("aws_kms_grant") {
+		if l.g.Wants("aws_kms_grant") {
 			inParallel(len(listable), resourceParallel, func(i int) {
 				id := listable[i]
 				grants[i], grantErrs[i] = l.grants(id, cmp.Or(names[id], id))

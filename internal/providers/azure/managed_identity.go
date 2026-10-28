@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -26,7 +27,11 @@ type ManagedIdentityLister struct {
 	Service
 }
 
-func (az *ManagedIdentityLister) List() error {
+func (az *ManagedIdentityLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *ManagedIdentityLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	identities, err := armmsi.NewUserAssignedIdentitiesClient(subscriptionID, credential, options)
 	if err != nil {
@@ -59,7 +64,7 @@ func (az *ManagedIdentityLister) List() error {
 		}
 		az.recordTagged(*identity.ID, *identity.Name, "azurerm_user_assigned_identity", identity.Tags)
 		// A call per identity, for credentials the import may not keep.
-		if !az.wants("azurerm_federated_identity_credential") {
+		if !az.Wants("azurerm_federated_identity_credential") {
 			continue
 		}
 		// Federated credentials are listed under the identity's own resource

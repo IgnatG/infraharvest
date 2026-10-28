@@ -276,7 +276,8 @@ type departing struct {
 // such as part of a call a module from the registry makes (see
 // handOver), is left as it was and reported as failed, and they are left
 // out of the roots they would go to too.
-func planHandovers(out string, calls []*listedCall) error {
+func planHandovers(x *outputIndex, calls []*listedCall) error {
+	out := x.out
 	var live []*listedCall
 	for _, c := range calls {
 		if c != nil {
@@ -304,7 +305,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	if live[0].run != nil {
 		s = live[0].run.shared
 	}
-	gone, err := departures(out, assigned, s)
+	gone, err := departures(x, assigned, s)
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func planHandovers(out string, calls []*listedCall) error {
 	for _, dir := range sortedDirs(gone) {
 		leaving := gone[dir]
 		if _, inRun := callOf[dir]; !inRun {
-			previous, err := s.previousAddressesOf(out, dir)
+			previous, err := s.previousAddressesOf(x, dir)
 			if err != nil {
 				return err
 			}
@@ -333,7 +334,7 @@ func planHandovers(out string, calls []*listedCall) error {
 			owner.byDir[dir] = nil
 			callOf[dir] = owner
 		}
-		removals, why, err := handOver(out, dir, leaving, s)
+		removals, why, err := handOver(x, dir, leaving, s)
 		if err != nil {
 			return err
 		}
@@ -365,7 +366,7 @@ func planHandovers(out string, calls []*listedCall) error {
 		}
 	}
 	// And what goes from the roots environments share to other roots.
-	if err := planMergedHandovers(out, h, callOf, assigned, stays); err != nil {
+	if err := planMergedHandovers(x, h, callOf, assigned, stays); err != nil {
 		return err
 	}
 	for _, dir := range sortedDirs(h.removals) {
@@ -424,8 +425,8 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, 
 	}
 }
 
-// departures returns, by the directory of each root the checkpoints under
-// out record, the resources an earlier import put in it, by where it put
+// departures returns, by the directory of each root the checkpoints x
+// records, the resources an earlier import put in it, by where it put
 // them, or where its own state has them (see shared.previousAddressesOf,
 // with s), that assigned, the root of the run each resource goes to by
 // type and import ID, puts in another root now, as their type or, if
@@ -435,30 +436,30 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, 
 // their import blocks deleted; a root whose import didn't finish counts
 // only while it is generated again (see checkpoint.Pending). A checkpoint
 // that can't be read is logged and passed over.
-func departures(out string, assigned map[engine.External]string, s *shared) (map[string][]departing, error) {
-	dirs, err := checkpointDirs(out)
+func departures(x *outputIndex, assigned map[engine.External]string, s *shared) (map[string][]departing, error) {
+	roots, err := x.recordedRoots()
 	if err != nil {
 		return nil, err
 	}
 	gone := map[string][]departing{}
-	for _, dir := range dirs {
-		dir = filepath.Clean(dir)
-		names, err := tfFiles(dir)
+	for _, r := range roots {
+		dir := r.dir
+		has, err := r.configured()
 		if err != nil {
 			return nil, err
 		}
-		if len(names) == 0 {
+		if !has {
 			continue
 		}
-		c, err := readCheckpoint(out, dir)
+		c, err := r.checkpoint()
 		if err != nil {
-			log.Printf("%s: %v; what that root has isn't handed over to the others (--regenerate)", relativePath(out, dir), err)
+			log.Printf("%s: %v; what that root has isn't handed over to the others (--regenerate)", relativePath(x.out, dir), err)
 			continue
 		}
 		if c == nil || (c.Result == nil && len(c.Pending) == 0) {
 			continue
 		}
-		previous, err := s.previousAddressesOf(out, dir)
+		previous, err := s.previousAddressesOf(x, dir)
 		if err != nil {
 			return nil, err
 		}
@@ -498,16 +499,17 @@ func assignedAs(assigned map[engine.External]string, p engine.Managed) (engine.E
 // yet mustn't move it, nor an address only inferred name it. Where the
 // root's own state has its resources, s says (see
 // shared.previousAddressesOf).
-func handOver(out, dir string, leaving []departing, s *shared) ([]rootfile.Removal, []string, error) {
-	previous, err := s.previousAddressesOf(out, dir)
+func handOver(x *outputIndex, dir string, leaving []departing, s *shared) ([]rootfile.Removal, []string, error) {
+	previous, err := s.previousAddressesOf(x, dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	moved, err := pendingMoves(out, dir)
+	out, root := x.out, x.root(dir)
+	moved, err := root.pendingMoves()
 	if err != nil {
 		return nil, nil, err
 	}
-	c, err := readCheckpoint(out, dir)
+	c, err := root.checkpoint()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -515,7 +517,7 @@ func handOver(out, dir string, leaving []departing, s *shared) ([]rootfile.Remov
 	if c != nil && c.Result != nil {
 		calls = c.Result.Modules
 	}
-	pending, err := rootfile.ReadRemoved(dir)
+	pending, err := root.removedTF()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -576,20 +578,6 @@ func handOver(out, dir string, leaving []departing, s *shared) ([]rootfile.Remov
 		}
 	}
 	return removals, problems, nil
-}
-
-// pendingMoves returns the moved blocks the root in dir may not have
-// applied yet: those of its moves.tf or, while a run that stopped
-// generates it again, those its checkpoint kept (see claimRoot).
-func pendingMoves(out, dir string) ([]rootfile.Move, error) {
-	c, err := readCheckpoint(out, dir)
-	if err != nil || c == nil {
-		return nil, err
-	}
-	if c.Result == nil {
-		return c.PendingMoves, nil
-	}
-	return rootfile.ReadMoves(dir)
 }
 
 // sortedDirs returns the keys of m, sorted.

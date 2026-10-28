@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,11 @@ type SecurityLister struct {
 
 // List reads every security group, then every rule, and records
 // them. Errors are returned.
-func (g *SecurityLister) List() error {
+func (g *SecurityLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SecurityLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -18,7 +20,11 @@ type KinesisLister struct {
 // List records every stream as an aws_kinesis_stream, imported by
 // its name, which it also records as the name attribute. Any listing error
 // fails the service.
-func (g *KinesisLister) List() error {
+func (g *KinesisLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *KinesisLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

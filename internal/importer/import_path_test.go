@@ -29,27 +29,18 @@ import (
 // service, with the ID id-<service>.
 type rootsProvider struct {
 	harvest.Provider
-	service *rootsService
 }
 
 func (p *rootsProvider) Init(context.Context, []string) error  { return nil }
 func (p *rootsProvider) Name() string                          { return "fake" }
 func (p *rootsProvider) Profile() harvest.Profile              { return harvest.Profile{} }
-func (p *rootsProvider) Selected() harvest.Lister              { return p.service }
 func (p *rootsProvider) ProviderBlock() map[string]interface{} { return map[string]interface{}{} }
-func (p *rootsProvider) Select(name string, _ bool) error {
-	p.service = &rootsService{}
-	p.service.Configure(harvest.ListerConfig{Service: name})
-	return nil
-}
+func (p *rootsProvider) Lister(string) (harvest.Lister, error) { return rootsService{}, nil }
 
-type rootsService struct {
-	harvest.ListerBase
-}
+type rootsService struct{}
 
-func (s *rootsService) List() error {
-	s.Resources = []harvest.Resource{harvest.RecordBare("id-"+s.Name(), s.Name(), "fake_thing", "fake")}
-	return nil
+func (rootsService) List(_ context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return []harvest.Resource{harvest.RecordBare("id-"+s.Service, s.Service, "fake_thing", "fake")}, nil
 }
 
 // fakeEngine stands in for the engine binary, the registry and the
@@ -273,7 +264,7 @@ func importPath(t *testing.T, options pathImport) *Run {
 	if c == nil {
 		t.Fatal("no call listed")
 	}
-	if err := planHandovers(options.Out, []*listedCall{c}); err != nil {
+	if err := planHandovers(run.outputIndex(options.Out), []*listedCall{c}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.generate(t.Context(), c.byDir); err != nil {
@@ -327,7 +318,7 @@ func TestListCallGeneratesEachRoot(t *testing.T) {
 		t.Errorf("discovered %v", run.discovered)
 	}
 	for _, service := range []string{"alpha", "beta"} {
-		c, err := readCheckpoint(out, filepath.Join(out, "fake", service))
+		c, err := rootCheckpoints.read(out, filepath.Join(out, "fake", service))
 		if err != nil || c == nil || c.Result == nil {
 			t.Errorf("%s: want a finished checkpoint, got %+v, %v", service, c, err)
 		}
@@ -423,7 +414,7 @@ func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
 	alpha := filepath.Join(out, "fake", "alpha")
-	before, err := readCheckpoint(out, alpha)
+	before, err := rootCheckpoints.read(out, alpha)
 	if err != nil || before == nil || len(before.Result.Addresses) != 1 {
 		t.Fatalf("alpha's checkpoint: %+v, %v", before, err)
 	}
@@ -460,7 +451,7 @@ func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
 	if len(run.failures) != 1 || !strings.Contains(run.failures[0].Error(), "is now fake_thing.renamed") {
 		t.Errorf("failures %v, want alpha refused with its new address", run.failures)
 	}
-	if after, err := readCheckpoint(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
+	if after, err := rootCheckpoints.read(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
 		t.Errorf("alpha's checkpoint: %+v, %v, want it as it was, %+v", after, err, before)
 	}
 }
@@ -476,7 +467,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(alpha, rootfile.MovesFileName), moves, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	before, err := readCheckpoint(out, alpha)
+	before, err := rootCheckpoints.read(out, alpha)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +485,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 			t.Errorf("alpha's %s: %q, %v, want it as it was, %q", name, got, err, want)
 		}
 	}
-	if after, err := readCheckpoint(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
+	if after, err := rootCheckpoints.read(out, alpha); err != nil || !reflect.DeepEqual(after, before) {
 		t.Errorf("alpha's checkpoint: %+v, %v, want it as it was, %+v", after, err, before)
 	}
 
@@ -641,7 +632,7 @@ func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
 	if label := previous.Labels[engine.External{Type: "fake_thing", ID: "id-alpha"}]; label != "alpha" {
 		t.Errorf("alpha's previous label: %q", label)
 	}
-	c, err := readCheckpoint(out, alpha)
+	c, err := rootCheckpoints.read(out, alpha)
 	if err != nil || c == nil || c.Result == nil {
 		t.Fatalf("alpha's checkpoint: %+v, %v", c, err)
 	}

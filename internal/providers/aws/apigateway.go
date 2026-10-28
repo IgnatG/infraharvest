@@ -5,6 +5,7 @@ package aws
 
 import (
 	"cmp"
+	"context"
 	"maps"
 	"slices"
 	"strings"
@@ -39,7 +40,11 @@ func (api restAPIRef) part(parts ...string) string {
 
 // List lists the REST APIs with their parts, then the VPC links,
 // usage plans and API keys. Any error stops the listing and is returned.
-func (g *APIGatewayLister) List() error {
+func (g *APIGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *APIGatewayLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -92,7 +97,7 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client) error {
 				{g.listDocumentationParts, []string{"aws_api_gateway_documentation_part"}},
 				{g.listAuthorizers, []string{"aws_api_gateway_authorizer"}},
 			} {
-				if !g.wantsAny(part.types...) {
+				if !g.WantsAny(part.types...) {
 					continue
 				}
 				if err := part.list(svc, api); err != nil {

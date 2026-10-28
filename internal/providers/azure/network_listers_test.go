@@ -109,7 +109,8 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 		g := &VirtualNetworkLister{}
 		g.SetSettings(fakeArgs(transport, resourceGroup))
 
-		if err := g.List(); err != nil {
+		resources, err := g.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -117,7 +118,7 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 			t.Errorf("resource group %q: requested %v, want %s", resourceGroup, transport.paths, wantPath)
 		}
 		want := []listedResource{{Type: "azurerm_virtual_network", ID: network, Name: "net1"}}
-		if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+		if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 			t.Errorf("resource group %q: got %+v, want %+v", resourceGroup, got, want)
 		}
 	}
@@ -135,7 +136,8 @@ func TestNetworkInterfaceRecordsItsEndpoint(t *testing.T) {
 	)}
 	g := &NetworkInterfaceLister{}
 	g.SetSettings(fakeArgs(transport, "rg1"))
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	want := []listedResource{
@@ -143,7 +145,7 @@ func TestNetworkInterfaceRecordsItsEndpoint(t *testing.T) {
 		{Type: "azurerm_network_interface", ID: network + "networkInterfaces/pls.nic", Name: "pls.nic", Attributes: map[string]string{"private_link_service": network + "privateLinkServices/pls"}},
 		{Type: "azurerm_network_interface", ID: network + "networkInterfaces/vm1-nic", Name: "vm1-nic"},
 	}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
@@ -254,7 +256,8 @@ func TestListersHonourTheResourceGroup(t *testing.T) {
 		transport := &routedTransport{bodies: tc.bodies}
 		tc.lister.SetSettings(routedArgs(transport, tc.resourceGroup))
 
-		if err := tc.lister.List(); err != nil {
+		listed, err := tc.lister.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Errorf("%s, resource group %q: %v", tc.service, tc.resourceGroup, err)
 			continue
 		}
@@ -263,7 +266,7 @@ func TestListersHonourTheResourceGroup(t *testing.T) {
 			t.Errorf("%s, resource group %q: requested %v, want %v", tc.service, tc.resourceGroup, transport.paths, tc.wantPaths)
 		}
 		var types []string
-		for _, r := range tc.lister.Listed() {
+		for _, r := range listed {
 			types = append(types, r.Address.Type)
 		}
 		if !reflect.DeepEqual(types, tc.wantTypes) {
@@ -280,8 +283,9 @@ func TestResourceGroupThatIsMissingIsAnError(t *testing.T) {
 	g := &ResourceGroupLister{}
 	g.SetSettings(routedArgs(transport, "missing"))
 
-	if err := g.List(); err == nil {
-		t.Errorf("listed %v, want an error", g.Resources)
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err == nil {
+		t.Errorf("listed %v, want an error", resources)
 	}
 }
 
@@ -301,20 +305,21 @@ func TestResourceGroupPageThatFailsIsPartial(t *testing.T) {
 	}
 	g := &ResourceGroupLister{}
 	g.SetSettings(routedArgs(transport, ""))
-	err := g.List()
+	resources, err := g.List(t.Context(), harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AuthorizationFailed") {
 		t.Errorf("a later page failing: got %v, want the refusal as a partial error", err)
 	}
 	want := []listedResource{{Type: "azurerm_resource_group", ID: "/subscriptions/sub/resourceGroups/rg1", Name: "rg1"}}
-	if got := listedResources(g.Listed()); !reflect.DeepEqual(got, want) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("a later page failing: listed %+v, want %+v", got, want)
 	}
 
 	transport = &routedTransport{refused: map[string]bool{groups: true}}
 	g = &ResourceGroupLister{}
 	g.SetSettings(routedArgs(transport, ""))
-	if err := g.List(); err == nil || harvest.IsPartial(err) || len(g.Listed()) != 0 {
-		t.Errorf("the first page failing: got %v, listed %v, want a full failure", err, g.Listed())
+	resources, err = g.List(t.Context(), harvest.Settings{})
+	if err == nil || harvest.IsPartial(err) || len(resources) != 0 {
+		t.Errorf("the first page failing: got %v, listed %v, want a full failure", err, resources)
 	}
 }
 
@@ -348,7 +353,8 @@ func TestSubnetListsAssociationsAndPolicies(t *testing.T) {
 	g := &SubnetLister{}
 	g.SetSettings(routedArgs(transport, "rg1"))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -370,7 +376,7 @@ func TestSubnetListsAssociationsAndPolicies(t *testing.T) {
 		{Type: "azurerm_subnet", ID: bare, Name: "bare"},
 		{Type: "azurerm_subnet_service_endpoint_storage_policy", ID: storage, Name: "storage"},
 	}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v\nwant %+v", got, want)
 	}
 }
@@ -396,7 +402,8 @@ func TestNetworkSecurityGroupListsRules(t *testing.T) {
 	g := &NetworkSecurityGroupLister{}
 	g.SetSettings(routedArgs(transport, ""))
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -407,7 +414,7 @@ func TestNetworkSecurityGroupListsRules(t *testing.T) {
 		{Type: "azurerm_network_security_group", ID: groupB, Name: "db"},
 		{Type: "azurerm_network_security_rule", ID: groupB + "/securityRules/https", Name: "db_https"},
 	}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, want) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v\nwant %+v", got, want)
 	}
 }
@@ -422,8 +429,9 @@ func TestNetworkSecurityGroupFailsWhenRulesFail(t *testing.T) {
 	g := &NetworkSecurityGroupLister{}
 	g.SetSettings(routedArgs(transport, "rg1"))
 
-	if err := g.List(); err == nil {
-		t.Errorf("listed %v, want an error", g.Resources)
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err == nil {
+		t.Errorf("listed %v, want an error", resources)
 	}
 }
 
@@ -473,10 +481,11 @@ func TestResourceManagerListersRecordTags(t *testing.T) {
 	} {
 		transport := &fakeTransport{body: tc.body}
 		tc.lister.SetSettings(fakeArgs(transport, "rg1"))
-		if err := tc.lister.List(); err != nil {
+		listed, err := tc.lister.List(t.Context(), harvest.Settings{})
+		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
-		if got := listedResources(tc.lister.Listed()); !reflect.DeepEqual(got, tc.want) {
+		if got := listedResources(listed); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
 		}
 	}
@@ -514,7 +523,8 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	}}
 	g := &NetworkSecurityGroupLister{}
 	g.SetSettings(routedArgs(groups, "rg1"))
-	if err := g.List(); err != nil {
+	resources, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{rg + "networkSecurityGroups", unset + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
@@ -528,7 +538,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		{Type: "azurerm_network_security_group", ID: bare, Name: "bare"},
 		{Type: "azurerm_network_security_rule", ID: bare + "/securityRules/ssh", Name: "bare_ssh"},
 	}
-	if got := listedResources(g.Resources); !reflect.DeepEqual(got, wantGroups) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, wantGroups) {
 		t.Errorf("security groups: got %+v\nwant %+v", got, wantGroups)
 	}
 
@@ -545,7 +555,8 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 	}}
 	s := &SubnetLister{}
 	s.SetSettings(routedArgs(networks, "rg1"))
-	if err := s.List(); err != nil {
+	resources, err = s.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{rg + "virtualNetworks", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
@@ -559,7 +570,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		},
 		{Type: "azurerm_subnet", ID: standalone, Name: "db"},
 	}
-	if got := listedResources(s.Resources); !reflect.DeepEqual(got, wantSubnets) {
+	if got := listedResources(resources); !reflect.DeepEqual(got, wantSubnets) {
 		t.Errorf("subnets: got %+v\nwant %+v", got, wantSubnets)
 	}
 }
@@ -592,7 +603,8 @@ func TestNetworkListersAskAgainForEmptyChildrenInACustomCloud(t *testing.T) {
 	}}
 	g := &NetworkSecurityGroupLister{}
 	g.SetSettings(custom(groups))
-	if err := g.List(); err != nil {
+	_, err := g.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{rg + "networkSecurityGroups", group + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
@@ -605,10 +617,11 @@ func TestNetworkListersAskAgainForEmptyChildrenInACustomCloud(t *testing.T) {
 	}}
 	s := &SubnetLister{}
 	s.SetSettings(custom(networks))
-	if err := s.List(); err != nil {
+	resources, err := s.List(t.Context(), harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := listedResources(s.Resources), []listedResource{{Type: "azurerm_subnet", ID: subnet, Name: "db"}}; !reflect.DeepEqual(got, want) {
+	if got, want := listedResources(resources), []listedResource{{Type: "azurerm_subnet", ID: subnet, Name: "db"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("subnets: got %+v, want %+v", got, want)
 	}
 }

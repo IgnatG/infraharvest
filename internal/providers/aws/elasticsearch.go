@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
 	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice/types"
@@ -23,7 +25,11 @@ type EsLister struct {
 // manages OpenSearch domains with. A domain whose engine the answer
 // doesn't name is taken for an Elasticsearch one. ListDomainNames answers
 // with all the domains at once.
-func (g *EsLister) List() error {
+func (g *EsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *EsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

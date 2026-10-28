@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -34,7 +35,11 @@ type RouteTableLister struct {
 
 // List lists every route table and its associations, page by page.
 // An API error fails the service.
-func (g *RouteTableLister) List() error {
+func (g *RouteTableLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *RouteTableLister) list() error {
 	cfg, err := g.sdkConfig()
 	if err != nil {
 		return err

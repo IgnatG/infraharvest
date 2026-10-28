@@ -21,7 +21,11 @@ type WorkspacesLister struct {
 
 // List lists the directories, then the workspaces, then the IP
 // groups. Any list failing fails the service.
-func (g *WorkspacesLister) List() error {
+func (g *WorkspacesLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *WorkspacesLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

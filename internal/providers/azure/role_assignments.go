@@ -78,7 +78,11 @@ type authorizationRow struct {
 
 // List lists the assignments and custom roles of the run's scope: the
 // subscription, or --resource-group and what is in it.
-func (az *RoleAssignmentLister) List() error {
+func (az *RoleAssignmentLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return az.Run(ctx, s, az.list)
+}
+
+func (az *RoleAssignmentLister) list() error {
 	subscriptionID, resourceGroup, credential, options := az.clientSettings()
 	predicate, err := graphPredicate(subscriptionID, resourceGroup)
 	if err != nil {

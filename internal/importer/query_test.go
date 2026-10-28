@@ -27,7 +27,6 @@ import (
 // lists fake_vpc.
 type queryProvider struct {
 	fakeProvider
-	lister harvest.Lister
 }
 
 func (*queryProvider) Services() map[string]harvest.Lister {
@@ -42,12 +41,11 @@ func (*queryProvider) ProviderBlock() map[string]interface{} {
 	return map[string]interface{}{"provider": map[string]interface{}{"fake": map[string]interface{}{"region": "eu-west-2"}}}
 }
 
-func (p *queryProvider) Selected() harvest.Lister { return p.lister }
-
-func (p *queryProvider) Select(name string, verbose bool) error {
-	p.lister = &harvest.QueryLister{}
-	p.lister.Configure(harvest.ListerConfig{Service: name, Provider: "fake", Verbose: verbose})
-	return nil
+func (p *queryProvider) Lister(name string) (harvest.Lister, error) {
+	if name == harvest.QueryService {
+		return &harvest.QueryLister{}, nil
+	}
+	return p.fakeProvider.Lister(name)
 }
 
 // The query service needs --query-types, and --query-types the query
@@ -86,7 +84,7 @@ func TestCheckQuery(t *testing.T) {
 // provider, and the other services list as they do.
 func TestListServicesGivesTheQueryServiceItsQuery(t *testing.T) {
 	t.Parallel()
-	registry := harvest.NewRegistry(&queryProvider{})
+	provider := &queryProvider{}
 	options := Options{Services: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}}
 	c := callOf(options, "")
 	volume := harvest.RecordIdentity(map[string]string{"id": "vol-1", "region": "eu-west-2"}, "vol-1", "fake_volume", "fake")
@@ -95,16 +93,16 @@ func TestListServicesGivesTheQueryServiceItsQuery(t *testing.T) {
 		asked = p
 		return func(context.Context) ([]harvest.Resource, error) { return []harvest.Resource{volume}, nil }
 	}
-	failures, err := listServices(t.Context(), registry, c, 1, nil)
+	resources, failures, err := listServices(t.Context(), provider, c, 1)
 	if err != nil || len(failures) > 0 {
 		t.Fatalf("%v, %v", err, failures)
 	}
-	got := registry.ByService()[harvest.QueryService]
+	got := resources[harvest.QueryService]
 	if !reflect.DeepEqual(got, []harvest.Resource{volume}) {
 		t.Errorf("listed %+v", got)
 	}
-	if asked == nil || !registry.Providers[asked] {
-		t.Error("the query isn't the query service's own provider's")
+	if asked != harvest.Provider(provider) {
+		t.Error("the query isn't the call's provider's")
 	}
 }
 

@@ -196,10 +196,11 @@ func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue,
 func listAssetsIn(t *testing.T, cat *catalogue.Catalogue, region string) []harvest.Resource {
 	t.Helper()
 	g := assetLister(t, cat, region)
-	if err := g.List(); err != nil {
+	resources, err := g.List(testRun(t), harvest.Settings{Provider: "google"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	return g.Resources
+	return resources
 }
 
 // assetLister is a lister of region (global for "") of the project
@@ -208,8 +209,6 @@ func listAssetsIn(t *testing.T, cat *catalogue.Catalogue, region string) []harve
 func assetLister(t *testing.T, cat *catalogue.Catalogue, region string) *CloudAssetLister {
 	t.Helper()
 	g := &CloudAssetLister{}
-	g.SetContext(testRun(t))
-	g.Configure(harvest.ListerConfig{Provider: "google"})
 	g.SetSettings(listerSettings{project: "acme-prod", region: compute.Region{Name: region}, catalogue: cat})
 	return g
 }
@@ -309,25 +308,26 @@ func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 
 	regions := []string{"", "us-central1", "europe-west1", "us-central1", ""}
 	listers := make([]*CloudAssetLister, len(regions))
+	resources := make([][]harvest.Resource, len(regions))
 	errs := make([]error, len(regions))
+	ctx := testRun(t)
 	var wg sync.WaitGroup
 	for i, region := range regions {
 		listers[i] = assetLister(t, nil, region)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = listers[i].List()
+			resources[i], errs[i] = listers[i].List(ctx, harvest.Settings{Provider: "google"})
 		}()
 	}
 	wg.Wait()
 
-	got := make([][]harvest.Resource, len(regions))
-	for i, g := range listers {
+	for i := range listers {
 		if errs[i] != nil {
 			t.Fatalf("%q: %v", regions[i], errs[i])
 		}
-		got[i] = g.Resources
 	}
+	got := resources
 	if len(search.requests) != 1 {
 		t.Errorf("got %d searches, want 1", len(search.requests))
 	}
@@ -364,7 +364,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	for range 2 {
-		if err := assetLister(t, nil, "").List(); err == nil {
+		if _, err := assetLister(t, nil, "").List(testRun(t), harvest.Settings{Provider: "google"}); err == nil {
 			t.Fatal("the failed search succeeded")
 		}
 	}
@@ -422,7 +422,8 @@ func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 	server := httptest.NewServer(search)
 	t.Cleanup(server.Close)
 	t.Setenv(EndpointEnv, server.URL)
-	if err := assetLister(t, nil, "").List(); err == nil || !strings.Contains(err.Error(), "every asset type") {
+	_, err := assetLister(t, nil, "").List(testRun(t), harvest.Settings{Provider: "google"})
+	if err == nil || !strings.Contains(err.Error(), "every asset type") {
 		t.Errorf("error %v, want one saying every type is rejected", err)
 	}
 }
@@ -504,10 +505,7 @@ func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	}
 	cat := catalogue.MustBuiltin("google")
 	p.SetCatalogue(cat)
-	if err := p.Select(cloudAssetService, false); err != nil {
-		t.Fatal(err)
-	}
-	if selectedSettings(t, p).catalogue != cat {
+	if listerSettingsOf(t, p, cloudAssetService).catalogue != cat {
 		t.Error("the service doesn't get the import's catalogue")
 	}
 }
@@ -586,8 +584,8 @@ func TestCloudAssetSearchesOncePerRun(t *testing.T) {
 	list := func(ctx context.Context, region string) {
 		t.Helper()
 		g := assetLister(t, nil, region)
-		g.SetContext(ctx)
-		if err := g.List(); err != nil {
+		_, err := g.List(ctx, harvest.Settings{})
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

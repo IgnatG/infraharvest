@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
@@ -21,7 +23,11 @@ type SesLister struct {
 // List lists, in this order, domain identities, email identities,
 // templates, configuration sets, and receipt rule sets each followed by its
 // rules. Any error fails the service.
-func (g *SesLister) List() error {
+func (g *SesLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SesLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -102,7 +108,7 @@ func (g *SesLister) listReceiptRuleSets(client *ses.Client) error {
 			name := aws.ToString(ruleSet.Name)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_ses_receipt_rule_set", "aws"))
 			// A call per rule set, for rules the import may not keep.
-			if !g.wants("aws_ses_receipt_rule") {
+			if !g.Wants("aws_ses_receipt_rule") {
 				continue
 			}
 			if err := g.listReceiptRules(client, name); err != nil {

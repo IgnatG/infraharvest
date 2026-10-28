@@ -64,7 +64,11 @@ type CloudSQLLister struct {
 // part (see harvest.Partial): the other instances' databases are kept,
 // and the run says that some are missing rather than reading them as
 // deleted.
-func (g *CloudSQLLister) List() error {
+func (g *CloudSQLLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudSQLLister) list() error {
 	region := g.Settings().region
 	if region.Name == "" {
 		return nil
@@ -78,7 +82,7 @@ func (g *CloudSQLLister) List() error {
 	// What an earlier listing of the import left out isn't this one's.
 	caches.setSQLDatabasesUnlisted(project, region.Name, false)
 	// The databases take a call per instance, and the instances one more.
-	if !g.Settings().wants(sqlDatabaseType) {
+	if !g.Wants(sqlDatabaseType) {
 		return nil
 	}
 	svc, err := sqladmin.NewService(ctx, clientOptions(ctx)...)

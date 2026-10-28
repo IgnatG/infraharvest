@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists the users, then the groups, each followed by its
 // memberships, of the first IAM Identity Center instance's identity store.
@@ -51,13 +55,13 @@ func TestRecordIdentityStoreListsUsersGroupsAndMemberships(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IdentityStoreLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_identitystore_user", "d-1/u-1", "alice", map[string]string{
 			"identity_store_id": "d-1", "display_name": "Alice Smith", "user_name": "alice"}},
 		recordedResource{"aws_identitystore_user", "d-1/u-2", "bob", map[string]string{
@@ -84,13 +88,13 @@ func TestRecordIdentityStoreWithoutInstance(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IdentityStoreLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources)
+	assertRecorded(t, resources)
 }
 
 // Every error is returned.
@@ -115,9 +119,8 @@ func TestRecordIdentityStoreReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &IdentityStoreLister{}
-			g.SetContext(ctx)
 
-			err := g.List()
+			_, err := g.List(ctx, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDeniedException")
 		})

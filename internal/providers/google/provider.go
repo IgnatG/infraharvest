@@ -28,7 +28,6 @@ var (
 	_ harvest.ProviderWithPartialTypes    = (*Provider)(nil)
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
-	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
 	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
 )
 
@@ -52,7 +51,6 @@ const regionLookupTimeout = time.Minute
 // what Cloud Asset Inventory doesn't find (iam, cloudsql, schedulerJobs,
 // dns).
 type Provider struct {
-	harvest.ProviderBase
 	// projectName is the ID of the project to list.
 	projectName string
 	// region is the region to list, with an empty name for global.
@@ -62,9 +60,6 @@ type Provider struct {
 	// catalogue is the catalogue of the import (see SetCatalogue), nil
 	// until it is set.
 	catalogue *catalogue.Catalogue
-	// unwanted reports the types the import leaves out whatever is listed
-	// (see SetUnwantedTypes); nil wants every type.
-	unwanted func(typ string) bool
 	// caches are those of the run Init was given (see cachesOf), which
 	// PartialTypes, given no context, reads.
 	caches *runCaches
@@ -174,45 +169,39 @@ func (p *Provider) Name() string {
 	return providerName
 }
 
-// Services returns a new lister for every service: cloud_asset, and those
-// that list through an API of their own what Cloud Asset Inventory
-// doesn't find, and the query service's, which lists through Terraform.
-func (*Provider) Services() map[string]harvest.Lister {
-	return map[string]harvest.Lister{
-		cloudAssetService:    &CloudAssetLister{},
-		iamService:           &IamLister{},
-		cloudSQLService:      &CloudSQLLister{},
-		schedulerJobService:  &SchedulerJobsLister{},
-		dnsService:           &DNSRecordSetsLister{},
-		harvest.QueryService: &harvest.QueryLister{},
-	}
+// services makes a new lister for each service the provider lists, by
+// --services name.
+var services = map[string]func() harvest.Lister{
+	cloudAssetService:    func() harvest.Lister { return &CloudAssetLister{} },
+	iamService:           func() harvest.Lister { return &IamLister{} },
+	cloudSQLService:      func() harvest.Lister { return &CloudSQLLister{} },
+	schedulerJobService:  func() harvest.Lister { return &SchedulerJobsLister{} },
+	dnsService:           func() harvest.Lister { return &DNSRecordSetsLister{} },
+	harvest.QueryService: func() harvest.Lister { return &harvest.QueryLister{} },
 }
 
-// Select makes the service called name the provider's current one,
-// with a new lister, and passes it the region, the project and the
-// catalogue.
-func (p *Provider) Select(name string, verbose bool) error {
-	service, ok := p.Services()[name]
-	if !ok {
-		return errors.New("not a service of google; \"infraharvest services google\" lists them")
+// Services returns a new lister, as Lister makes it, for every service:
+// cloud_asset, and those that list through an API of their own what Cloud
+// Asset Inventory doesn't find, and the query service's, which lists
+// through Terraform.
+func (p *Provider) Services() map[string]harvest.Lister {
+	supported := make(map[string]harvest.Lister, len(services))
+	for name := range services {
+		supported[name], _ = p.Lister(name)
 	}
-	p.Current = service
-	service.Configure(harvest.ListerConfig{
-		Service:  name,
-		Provider: p.Name(),
-		Verbose:  verbose,
-	})
-	if l, ok := service.(harvest.SettingsTaker[listerSettings]); ok {
-		l.SetSettings(listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted})
-	}
-	return nil
+	return supported
 }
 
-// SetUnwantedTypes takes what reports the types the import leaves out
-// whatever is listed, which the listers get: they skip the calls that
-// list only those (see wants).
-func (p *Provider) SetUnwantedTypes(unwanted func(typ string) bool) {
-	p.unwanted = unwanted
+// Lister returns a new lister for the service called name, with the
+// region, the project and the catalogue.
+func (p *Provider) Lister(name string) (harvest.Lister, error) {
+	newLister := func(name string) harvest.Lister {
+		if newLister, ok := services[name]; ok {
+			return newLister()
+		}
+		return nil
+	}
+	return harvest.ListerFor(providerName, name, newLister, listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue})
 }
 
 // ProviderBlock returns the provider block, for the project and, but

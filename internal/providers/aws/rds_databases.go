@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -44,7 +45,11 @@ type RDSLister struct {
 }
 
 // List lists each kind in turn and returns the first error.
-func (g *RDSLister) List() error {
+func (g *RDSLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *RDSLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

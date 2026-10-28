@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/swf"
 	swftypes "github.com/aws/aws-sdk-go-v2/service/swf/types"
@@ -20,7 +22,11 @@ type SWFLister struct {
 // what Terraform imports a domain by. Deprecated domains are left out:
 // deprecating a domain is how it is deleted, and Terraform reads a
 // deprecated domain as gone.
-func (g *SWFLister) List() error {
+func (g *SWFLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SWFLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

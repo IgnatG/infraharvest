@@ -6,6 +6,8 @@ package aws
 import (
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 func recordCognitoAPI(t *testing.T, failing string) func(apiCall) string {
@@ -51,13 +53,13 @@ func TestRecordCognitoListsPoolsAndClients(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordCognitoAPI(t, ""))
 	g := &CognitoLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cognito_identity_pool", "us-east-1:1111", "customers_us-east-1:1111", nil},
 		recordedResource{"aws_cognito_identity_pool", "us-east-1:2222", "partners_us-east-1:2222", nil},
 		recordedResource{"aws_cognito_user_pool", "us-east-1_AAA", "customers_us-east-1_AAA", nil},
@@ -73,9 +75,8 @@ func TestRecordCognitoReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordCognitoAPI(t, failing))
 			g := &CognitoLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "NotAuthorizedException")
+			assertRecordedError(t, listError(ctx, g), "NotAuthorizedException")
 		})
 	}
 }

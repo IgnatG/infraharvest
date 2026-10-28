@@ -10,6 +10,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordRouteTablesPage1 = `<routeTableSet>
@@ -47,13 +49,13 @@ func TestRecordRouteTableListsTablesAndAssociations(t *testing.T) {
 		return recordEC2(call.Op, fmt.Sprintf(`%s<nextToken>%s</nextToken>`, recordRouteTablesPage1, nextPageToken))
 	})
 	g := &RouteTableLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_route_table", "rtb-main", "vpc-1 main", map[string]string{"main": "true", "vpc_id": "vpc-1"}},
 		recordedResource{"aws_main_route_table_association", "rtbassoc-main", "vpc-1", map[string]string{
 			"vpc_id": "vpc-1", "route_table_id": "rtb-main"}},
@@ -89,14 +91,14 @@ func TestRecordRouteTableMarksMainTablesAsCreated(t *testing.T) {
 			`</routeTableSet>`)
 	})
 	g := &RouteTableLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	got := map[string]map[string]string{}
-	for _, r := range g.Resources {
+	for _, r := range resources {
 		if r.Address.Type == "aws_route_table" {
 			got[r.Observed.ID] = r.Observed.Attributes
 		}
@@ -123,9 +125,8 @@ func TestRecordRouteTableReturnsErrors(t *testing.T) {
 		return recordEC2(call.Op, fmt.Sprintf(`%s<nextToken>%s</nextToken>`, recordRouteTablesPage1, nextPageToken))
 	})
 	g := &RouteTableLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }
 
 // A route table without a Name tag is named after what it serves, by ID,

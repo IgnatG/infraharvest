@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists every Data Pipeline pipeline by ID, named by its name as
 // AWS gives it, across pages. Names need not be unique, so two pipelines can
@@ -23,13 +27,13 @@ func TestRecordDataPipelineListsPipelines(t *testing.T) {
 			"marker":"` + nextPageToken + `","hasMoreResults":true}`
 	})
 	g := &DataPipelineLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_datapipeline_pipeline", "df-0100000000000000001", "orders-etl", nil},
 		recordedResource{"aws_datapipeline_pipeline", "df-0200000000000000002", "orders-etl", nil},
 		recordedResource{"aws_datapipeline_pipeline", "df-0300000000000000003", "nightly export", nil},
@@ -42,7 +46,6 @@ func TestRecordDataPipelineReturnsErrors(t *testing.T) {
 		return recordJSONError("InvalidRequestException")
 	})
 	g := &DataPipelineLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "InvalidRequestException")
+	assertRecordedError(t, listError(ctx, g), "InvalidRequestException")
 }

@@ -25,7 +25,7 @@ func claimFor(out, dir string, resume, regenerate bool) (*claim, error) {
 	if d.mode == rootRefused {
 		return nil, d.reason
 	}
-	return claimRoot(out, dir, "fp", d, nil)
+	return claimRoot(newDiskIndex(out), dir, "fp", d, nil)
 }
 
 func TestCheckpoints(t *testing.T) {
@@ -162,7 +162,7 @@ func TestClaimRoot(t *testing.T) {
 			t.Errorf("%s was removed from the unrelated root", name)
 		}
 	}
-	if exists(checkpointPath(out, unrelated)) {
+	if exists(rootCheckpoints.path(out, unrelated)) {
 		t.Error("the unrelated root got a checkpoint")
 	}
 
@@ -172,7 +172,7 @@ func TestClaimRoot(t *testing.T) {
 	if _, err := claimFor(out, fresh, false, false); err != nil {
 		t.Fatal(err)
 	}
-	if !exists(checkpointPath(out, fresh)) {
+	if !exists(rootCheckpoints.path(out, fresh)) {
 		t.Fatal("no checkpoint for the new root")
 	}
 	writeRoot(t, fresh, rootfile.ImportsFileName, rootfile.VersionsFileName, rootfile.GeneratedFileName)
@@ -229,7 +229,7 @@ func TestClaimRootRefusesARootAnImportFinished(t *testing.T) {
 					t.Errorf("%s was removed", name)
 				}
 			}
-			if c, err := readCheckpoint(out, dir); err != nil || c.Fingerprint != "earlier" || !reflect.DeepEqual(c.Result, done) {
+			if c, err := rootCheckpoints.read(out, dir); err != nil || c.Fingerprint != "earlier" || !reflect.DeepEqual(c.Result, done) {
 				t.Errorf("the earlier checkpoint changed: %+v, %v", c, err)
 			}
 		})
@@ -267,64 +267,6 @@ import {
 }
 `
 
-// The previous addresses come from the checkpoint, then the root's
-// import blocks, then what the checkpoint says it imported; a root whose
-// import didn't finish has none.
-func TestPreviousAddresses(t *testing.T) {
-	out := t.TempDir()
-	dir := filepath.Join(out, "aws", "555", "eu-west-2")
-	writeRoot(t, dir)
-	if got, err := previousAddresses(out, dir); err != nil || got != nil {
-		t.Fatalf("without a checkpoint: %v, %v", got, err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, rootfile.ImportsFileName), []byte(importsOfTwo), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fromImports := []engine.Managed{
-		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"},
-		{Type: "aws_vpc", ID: "vpc-1", Address: "module.network.aws_vpc.this[0]"},
-	}
-	recorded := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}
-	older := &engine.Result{
-		Imported: []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}},
-		Modules:  []engine.ModuleCall{{Name: "network", Resources: []string{"aws_vpc.main"}}},
-	}
-	inferred := []engine.Managed{
-		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a", Unverified: true},
-		{Type: "aws_vpc", ID: "vpc-1", Address: "module.network", Unverified: true},
-	}
-	pending := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.pending"}}
-	for name, tc := range map[string]struct {
-		checkpoint checkpoint
-		imports    bool
-		want       []engine.Managed
-	}{
-		"recorded":                {checkpoint{Result: &engine.Result{Imported: older.Imported, Addresses: recorded}}, true, recorded},
-		"from imports.tf":         {checkpoint{Result: older}, true, fromImports},
-		"inferred":                {checkpoint{Result: older}, false, inferred},
-		"pending":                 {checkpoint{Pending: pending}, true, pending},
-		"an import didn't finish": {checkpoint{}, true, nil},
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(dir, rootfile.ImportsFileName)
-			if tc.imports {
-				if err := os.WriteFile(path, []byte(importsOfTwo), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			} else if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				t.Fatal(err)
-			}
-			if err := writeCheckpoint(out, dir, tc.checkpoint); err != nil {
-				t.Fatal(err)
-			}
-			got, err := previousAddresses(out, dir)
-			if err != nil || !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("got %+v, %v, want %+v", got, err, tc.want)
-			}
-		})
-	}
-}
-
 // Generating a root again saves where its resources were in its
 // checkpoint before anything is removed, so that a run interrupted on the
 // way loses neither them nor the files to remove: the next --resume
@@ -346,7 +288,7 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 	if !reflect.DeepEqual(claimed.previous, addresses) {
 		t.Errorf("previous: got %+v, want %+v", claimed.previous, addresses)
 	}
-	c, err := readCheckpoint(out, dir)
+	c, err := rootCheckpoints.read(out, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +312,7 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 	if exists(filepath.Join(dir, "network.tf")) {
 		t.Error("network.tf wasn't removed")
 	}
-	if c, err := readCheckpoint(out, dir); err != nil || !reflect.DeepEqual(c.Pending, addresses) {
+	if c, err := rootCheckpoints.read(out, dir); err != nil || !reflect.DeepEqual(c.Pending, addresses) {
 		t.Errorf("checkpoint after the interruption: %+v, %v", c, err)
 	}
 
@@ -378,7 +320,7 @@ func TestClaimRootKeepsThePreviousAddressesUntilTheRootIsGenerated(t *testing.T)
 	if err := saveCheckpoint(out, dir, "fp", done); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := readCheckpoint(out, dir); err != nil || c.Pending != nil || c.PendingFiles != nil {
+	if c, err := rootCheckpoints.read(out, dir); err != nil || c.Pending != nil || c.PendingFiles != nil {
 		t.Errorf("checkpoint once generated: %+v, %v", c, err)
 	}
 }
@@ -398,7 +340,7 @@ func TestRefuseReaddressed(t *testing.T) {
 	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(checkpointPath(out, dir))
+	before, err := os.ReadFile(rootCheckpoints.path(out, dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +370,7 @@ func TestRefuseReaddressed(t *testing.T) {
 			t.Errorf("%s: exists=%v, want %v", name, got, want)
 		}
 	}
-	if after, err := os.ReadFile(checkpointPath(out, dir)); err != nil || string(after) != string(before) {
+	if after, err := os.ReadFile(rootCheckpoints.path(out, dir)); err != nil || string(after) != string(before) {
 		t.Errorf("checkpoint: %s, %v, want it as it was:\n%s", after, err, before)
 	}
 }

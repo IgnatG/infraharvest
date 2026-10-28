@@ -117,7 +117,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
 	if options.Incremental {
 		// What an earlier import put in another root stays there.
-		held, err := heldElsewhere(options.Out, placed.byDir)
+		held, err := run.outputIndex(options.Out).heldElsewhere(placed.byDir)
 		if err != nil {
 			return nil, err
 		}
@@ -134,12 +134,12 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 type callContext struct {
 	options Options
 	// cat is the catalogue of the import, the built-in one with the
-	// --catalogue overlay merged in; the provider of each service listed
-	// is given it (see listServices).
+	// --catalogue overlay merged in; the provider is given it (see
+	// Run.prepareCall).
 	cat *catalogue.Catalogue
 	// unwanted reports whether the import leaves out every resource of a
 	// type whatever is listed (see selection.Unwanted), whose listing the
-	// provider of each service listed may skip (see listServices); nil for
+	// provider's listers may skip (see listServices); nil for
 	// discover, which lists every type, so that the selection file can
 	// include any.
 	unwanted func(typ string) bool
@@ -467,8 +467,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 	dirOf := layoutDirs(layout.root, options.Out, providerDir(provider), envOf)
 	p := &placement{}
 	if len(layout.envNames) > 0 {
-		p.kept = newKeptRoots(options.Out)
-		p.kept.shared = r.shared
+		p.kept = newKeptRoots(r.outputIndex(options.Out), r.shared)
 		unsplit := layoutDirs(layout.unsplit, options.Out, providerDir(provider), byEnvTags(layout.unsplit))
 		if err := p.kept.split(resources.byService, dirOf, unsplit, c.importID, options.Regenerate); err != nil {
 			return nil, err

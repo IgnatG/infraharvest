@@ -15,6 +15,8 @@ import (
 	"google.golang.org/api/compute/v1"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // With an emulator set, Google API calls go there, keeping their paths.
@@ -106,6 +108,10 @@ func TestSupportedServicesAreNew(t *testing.T) {
 	t.Parallel()
 	a, b := (&Provider{}).Services(), (&Provider{}).Services()
 	for name, g := range a {
+		if name == harvest.QueryService {
+			// It keeps nothing, so a lister of its own is the same as another.
+			continue
+		}
 		if g == b[name] {
 			t.Errorf("%s: both providers share a lister", name)
 		}

@@ -5,6 +5,8 @@ package aws
 
 import (
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 const recordOrgARN = "arn:aws:organizations::111111111111:"
@@ -129,13 +131,13 @@ func TestRecordOrganizationListsTreeAndPolicies(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordOrgAPI(t, "111111111111", ""))
 	g := &OrganizationLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources, append([]recordedResource{
+	assertRecorded(t, resources, append([]recordedResource{
 		{"aws_organizations_organization", "o-1", "o-1", map[string]string{"id": "o-1", "arn": recordOrgARN + "organization/o-1"}},
 	}, recordOrgTree()...)...)
 }
@@ -146,13 +148,13 @@ func TestRecordOrganizationLeavesTheOrganizationToItsManagementAccount(t *testin
 	t.Parallel()
 	ctx := useFakeAPI(t, recordOrgAPI(t, "222222222222", ""))
 	g := &OrganizationLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources, recordOrgTree()...)
+	assertRecorded(t, resources, recordOrgTree()...)
 }
 
 // Every error is returned, the walk's included: a part of the tree left
@@ -166,9 +168,8 @@ func TestRecordOrganizationReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordOrgAPI(t, "111111111111", failing))
 			g := &OrganizationLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "AccessDenied")
+			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
 	}
 }

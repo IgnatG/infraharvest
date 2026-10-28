@@ -6,6 +6,8 @@ package aws
 import (
 	"fmt"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The lister lists every subnet by ID, across pages, default subnets
@@ -27,13 +29,13 @@ func TestRecordSubnetListsSubnets(t *testing.T) {
 			</subnetSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &SubnetLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_subnet", "subnet-a", "subnet-a", map[string]string{"vpc_id": "vpc-1"}},
 		recordedResource{"aws_subnet", "subnet-b", "subnet-b", map[string]string{"vpc_id": "vpc-1"}},
 		recordedResource{"aws_subnet", "subnet-default-a", "subnet-default-a", map[string]string{"vpc_id": "vpc-default"}},
@@ -46,7 +48,6 @@ func TestRecordSubnetReturnsErrors(t *testing.T) {
 		return recordEC2Error()
 	})
 	g := &SubnetLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "UnauthorizedOperation")
+	assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 }

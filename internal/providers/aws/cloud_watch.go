@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
@@ -20,7 +22,11 @@ type CloudWatchLister struct {
 
 // List lists, in this order, metric alarms, dashboards, and event
 // rules with their targets. Any error fails the service.
-func (g *CloudWatchLister) List() error {
+func (g *CloudWatchLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *CloudWatchLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -86,7 +92,7 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client) error {
 			name := aws.ToString(rule.Name)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudwatch_event_rule", "aws"))
 			// A call per rule, for targets the import may not keep.
-			if !g.wants("aws_cloudwatch_event_target") {
+			if !g.Wants("aws_cloudwatch_event_target") {
 				continue
 			}
 			if err := g.createTargets(client, name); err != nil {

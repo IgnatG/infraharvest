@@ -11,21 +11,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// The provider hands the services what reports the types the import
-// leaves out, as it hands them its other settings.
-func TestSelectPassesUnwantedTypes(t *testing.T) {
-	t.Parallel()
-	p := &Provider{subscriptionID: "sub"}
-	p.SetUnwantedTypes(func(typ string) bool { return typ == "azurerm_subnet" })
-	if err := p.Select("subnet", false); err != nil {
-		t.Fatal(err)
-	}
-	s := p.Selected().(*SubnetLister).Settings()
-	if s.wants("azurerm_subnet") || !s.wants("azurerm_virtual_network") {
-		t.Errorf("subnets wanted %v, networks %v; want false, true", s.wants("azurerm_subnet"), s.wants("azurerm_virtual_network"))
-	}
-}
-
 // A lister asks for the parts of each resource it lists only when the
 // import may keep their type: one whose child types the import leaves
 // out whatever is listed asks only for the parents, and lists none of
@@ -89,13 +74,14 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 	} {
 		for _, unwanted := range []bool{false, true} {
 			transport := &routedTransport{bodies: tc.bodies}
-			args := routedArgs(transport, "rg1")
+			settings := harvest.Settings{}
 			if unwanted {
-				args.unwanted = func(typ string) bool { return slices.Contains(tc.unwanted, typ) }
+				settings.Unwanted = func(typ string) bool { return slices.Contains(tc.unwanted, typ) }
 			}
 			lister := tc.lister()
-			lister.SetSettings(args)
-			if err := lister.List(); err != nil {
+			lister.SetSettings(routedArgs(transport, "rg1"))
+			resources, err := lister.List(t.Context(), settings)
+			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
 			want := tc.wantedPaths
@@ -106,7 +92,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 				t.Errorf("%s, unwanted %v: requested %v, want %v", tc.name, unwanted, transport.paths, want)
 			}
 			parents, children := 0, 0
-			for _, r := range lister.Listed() {
+			for _, r := range resources {
 				switch {
 				case r.Address.Type == tc.parent:
 					parents++
@@ -126,15 +112,14 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 func TestDiagnosticSettingSkipsUnwantedSettings(t *testing.T) {
 	t.Parallel()
 	transport := &diagnosticTransport{}
-	args := diagnosticArgs(transport, "", listedByOthers())
-	args.unwanted = func(typ string) bool { return typ == diagnosticSettingType }
 	g := &DiagnosticSettingLister{}
-	g.Configure(harvest.ListerConfig{Provider: "azurerm"})
-	g.SetSettings(args)
-	if err := g.List(); err != nil {
+	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
+	unwanted := func(typ string) bool { return typ == diagnosticSettingType }
+	resources, err := g.List(t.Context(), harvest.Settings{Provider: "azurerm", Unwanted: unwanted})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(transport.paths) != 0 || len(g.Listed()) != 0 {
-		t.Errorf("asked for %v and listed %d, want neither", transport.paths, len(g.Listed()))
+	if len(transport.paths) != 0 || len(resources) != 0 {
+		t.Errorf("asked for %v and listed %d, want neither", transport.paths, len(resources))
 	}
 }

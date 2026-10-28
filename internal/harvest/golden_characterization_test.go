@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -96,14 +97,14 @@ type goldenCtxKey struct{}
 
 // The declarations below fail to compile if the API's signatures change.
 
-type goldenLister struct{ ListerBase }
+type goldenLister struct{ ListerOf[string] }
 
-func (*goldenLister) List() error { return nil }
+func (*goldenLister) List(context.Context, Settings) ([]Resource, error) { return nil, nil }
 
-type goldenProvider struct{ ProviderBase }
+type goldenProvider struct{}
 
 func (*goldenProvider) Init(context.Context, []string) error  { return nil }
-func (*goldenProvider) Select(string, bool) error             { return nil }
+func (*goldenProvider) Lister(string) (Lister, error)         { return nil, nil }
 func (*goldenProvider) Name() string                          { return "golden" }
 func (*goldenProvider) Profile() Profile                      { return Profile{} }
 func (*goldenProvider) Services() map[string]Lister           { return nil }
@@ -143,9 +144,8 @@ var (
 	_ = ModuleProvider{Source: "", Config: map[string]interface{}{}}
 	_ = Resource{Address: &Address{Type: ""}, Observed: &Observation{ID: "", Attributes: map[string]string{}}, RawName: "", Provider: ""}
 	_ = Filter{Service: "", Path: "", Values: []string{}}
-	_ = ListerBase{Resources: []Resource{}}
-	_ = ListerConfig{Service: "", Provider: "", Verbose: false}
-	_ = ListerOf[string]{ListerBase: ListerBase{}}
+	_ = Settings{Service: "", Provider: "", Verbose: false, Filters: []Filter{}, Unwanted: func(string) bool { return false }}
+	_ = ListerOf[string]{Resources: []Resource{}}
 
 	_ SettingsTaker[string] = (*ListerOf[string])(nil)
 )
@@ -166,20 +166,18 @@ func TestGoldenAPISignatures(t *testing.T) {
 	goldenSignature[func(string, interface{}) bool](hasPath)
 	goldenSignature[func(*Filter, Resource) bool]((*Filter).Keeps)
 	goldenSignature[func(*Filter, string) bool]((*Filter).AppliesTo)
-	goldenSignature[func(*ProviderBase) Lister]((*ProviderBase).Selected)
-	goldenSignature[func(*ListerBase) context.Context]((*ListerBase).Context)
-	goldenSignature[func(*ListerBase, context.Context)]((*ListerBase).SetContext)
-	goldenSignature[func(*ListerBase, []Filter)]((*ListerBase).SetFilters)
-	goldenSignature[func(*ListerBase) []Filter]((*ListerBase).Filters)
-	goldenSignature[func(*ListerBase)]((*ListerBase).Prune)
-	goldenSignature[func(*ListerBase, ListerConfig)]((*ListerBase).Configure)
-	goldenSignature[func(*ListerBase) string]((*ListerBase).Name)
-	goldenSignature[func(*ListerBase) string]((*ListerBase).Provider)
-	goldenSignature[func(*ListerBase) bool]((*ListerBase).Verbose)
-	goldenSignature[func(*ListerOf[string]) string]((*ListerOf[string]).Settings)
-	goldenSignature[func(*ListerOf[string], string)]((*ListerOf[string]).SetSettings)
-	goldenSignature[func(*ListerBase) []Resource]((*ListerBase).Listed)
-	goldenSignature[func(*ListerBase, []Resource)]((*ListerBase).SetListed)
+	goldenSignature[func([]Resource, []Filter) []Resource](Prune)
+	goldenSignature[func(Settings, string) bool](Settings.Wants)
+	goldenSignature[func(Settings, ...string) bool](Settings.WantsAny)
+	goldenSignature[func(*ListerOf[string], context.Context, Settings, func() error) ([]Resource, error)]((*ListerOf[string]).Run)
+	goldenSignature[func(*ListerOf[string], context.Context, Settings)]((*ListerOf[string]).Begin)
+	goldenSignature[func(*ListerOf[string]) context.Context]((*ListerOf[string]).Context)
+	goldenSignature[func(*ListerOf[string]) []Filter]((*ListerOf[string]).Filters)
+	goldenSignature[func(*ListerOf[string]) string]((*ListerOf[string]).Name)
+	goldenSignature[func(*ListerOf[string]) string]((*ListerOf[string]).Provider)
+	goldenSignature[func(*ListerOf[string]) bool]((*ListerOf[string]).Verbose)
+	goldenSignature[func(*ListerOf[string], string) bool]((*ListerOf[string]).Wants)
+	goldenSignature[func(*ListerOf[string], ...string) bool]((*ListerOf[string]).WantsAny)
 	t.Log("the API has the signatures the golden tests expect")
 }
 
@@ -453,11 +451,9 @@ func TestGoldenPrune(t *testing.T) {
 		name      string
 		resources []Resource
 		filters   []Filter
-		set       bool
 	}{
 		{name: "no filters drops duplicates", resources: several},
 		{name: "empty filter slice drops duplicates", resources: several, filters: []Filter{}},
-		{name: "no filters set drops duplicates", resources: several, set: true},
 		{name: "nil resources, no filters", resources: nil},
 		{name: "nil resources, a filter", resources: nil, filters: []Filter{id("vpc", "vpc-1")}},
 		{name: "empty resources, a filter", resources: []Resource{}, filters: []Filter{id("vpc", "vpc-1")}},
@@ -486,29 +482,17 @@ func TestGoldenPrune(t *testing.T) {
 	}
 
 	type result struct {
-		Case        string               `json:"case"`
-		ViaFunction []goldenResourceView `json:"prune"`
-		ViaMethod   []goldenResourceView `json:"pruneMethod"`
-	}
-	newLister := func(resources []Resource, filters []Filter, set bool) *ListerBase {
-		var copied []Resource
-		if resources != nil {
-			copied = make([]Resource, len(resources))
-			copy(copied, resources)
-		}
-		s := &ListerBase{Resources: copied, filters: filters}
-		if set {
-			s.SetFilters(filters)
-		}
-		return s
+		Case   string               `json:"case"`
+		Pruned []goldenResourceView `json:"prune"`
 	}
 	got := make([]result, 0, len(cases))
 	for _, c := range cases {
-		viaFunc := newLister(c.resources, c.filters, c.set)
-		prune(viaFunc)
-		viaMethod := newLister(c.resources, c.filters, c.set)
-		viaMethod.Prune()
-		got = append(got, result{Case: c.name, ViaFunction: goldenResourceViews(viaFunc.Resources), ViaMethod: goldenResourceViews(viaMethod.Resources)})
+		var copied []Resource
+		if c.resources != nil {
+			copied = make([]Resource, len(c.resources))
+			copy(copied, c.resources)
+		}
+		got = append(got, result{Case: c.name, Pruned: goldenResourceViews(Prune(copied, c.filters))})
 	}
 	goldenCheck(t, "prune", got)
 }
@@ -608,51 +592,46 @@ func TestGoldenListerAccessors(t *testing.T) {
 	var got []check
 	record := func(name string, value any) { got = append(got, check{Check: name, Value: value}) }
 
-	var zero ListerBase
+	var zero ListerOf[string]
 	record("zero: Name", zero.Name())
 	record("zero: Provider", zero.Provider())
-	record("zero: Listed is nil", zero.Listed() == nil)
 	record("zero: Filters is nil", zero.Filters() == nil)
 	record("zero: Verbose", zero.Verbose())
+	record("zero: Wants", zero.Wants("aws_vpc"))
+	record("zero: WantsAny", zero.WantsAny("aws_vpc", "aws_subnet"))
+	record("zero: WantsAny of nothing", zero.WantsAny())
 	record("zero: Context is Background", zero.Context() == context.Background())
 	record("zero: Context has no Done channel", zero.Context().Done() == nil)
-	record("zero: Prune panics", goldenPanics(zero.Prune))
-	record("zero: after Prune, Resources is nil", zero.Resources == nil)
-
-	var s ListerBase
-	s.Configure(ListerConfig{Service: "ec2", Provider: "aws", Verbose: true})
-	resources := []Resource{RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")}
-	s.SetListed(resources)
-	record("set: Name", s.Name())
-	record("set: Provider", s.Provider())
-	record("set: Verbose", s.Verbose())
-	record("set: Listed", goldenResourceViews(s.Listed()))
-	record("set: Listed shares the slice", &s.Listed()[0] == &resources[0])
-	s.SetListed(nil)
-	record("set: SetListed(nil) gives nil", s.Listed() == nil)
-	s.Configure(ListerConfig{})
-	record("set: Configure with nothing clears the name", s.Name())
-	record("set: Configure with nothing clears Verbose", s.Verbose())
-
-	var typed ListerOf[string]
-	record("typed settings: zero value", typed.Settings())
-	typed.SetSettings("eu-west-1")
-	typed.Configure(ListerConfig{Service: "ec2"})
-	record("typed settings: set, and kept by Configure", typed.Settings())
+	record("zero: Resources is nil", zero.Resources == nil)
+	record("zero: Settings", zero.Settings())
 
 	ctx := context.WithValue(context.Background(), goldenCtxKey{}, "set")
-	s.SetContext(ctx)
-	record("context: value of the set context", s.Context().Value(goldenCtxKey{}))
-	record("context: is the set context", s.Context() == ctx)
-	var none context.Context
-	s.SetContext(none)
-	record("context: unset again is Background", s.Context() == context.Background())
-
-	var p ProviderBase
-	record("provider: zero Selected is nil", p.Selected() == nil)
-	lister := &goldenLister{}
-	p.Current = lister
-	record("provider: Selected is the Current field", p.Selected() == Lister(lister))
+	filters := []Filter{{Service: "vpc", Path: "id", Values: []string{"vpc-1"}}}
+	settings := Settings{
+		Service: "ec2", Provider: "aws", Verbose: true, Filters: filters,
+		Unwanted: func(typ string) bool { return typ == "aws_iam_access_key" },
+	}
+	var s ListerOf[string]
+	s.SetSettings("eu-west-1")
+	listed := []Resource{RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")}
+	listErr := errors.New("listing failed")
+	resources, err := s.Run(ctx, settings, func() error {
+		record("run: Name", s.Name())
+		record("run: Provider", s.Provider())
+		record("run: Verbose", s.Verbose())
+		record("run: Filters", s.Filters())
+		record("run: Context value", s.Context().Value(goldenCtxKey{}))
+		record("run: Context is the one given", s.Context() == ctx)
+		record("run: Wants a wanted type", s.Wants("aws_vpc"))
+		record("run: Wants an unwanted type", s.Wants("aws_iam_access_key"))
+		record("run: WantsAny with a wanted type", s.WantsAny("aws_iam_access_key", "aws_vpc"))
+		record("run: WantsAny of unwanted types only", s.WantsAny("aws_iam_access_key"))
+		record("run: typed settings", s.Settings())
+		s.Resources = append(s.Resources, listed...)
+		return listErr
+	})
+	record("run: returns the listed resources", goldenResourceViews(resources))
+	record("run: returns the list's error", err == listErr)
 
 	goldenCheck(t, "lister_accessors", got)
 }

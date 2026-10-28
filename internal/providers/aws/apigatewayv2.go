@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"net/url"
 	"strings"
 
@@ -31,7 +32,11 @@ type APIGatewayV2Lister struct {
 // links. Models and route responses exist only for WebSocket APIs, so an
 // HTTP API isn't asked for them. Any error stops the listing and is
 // returned.
-func (g *APIGatewayV2Lister) List() error {
+func (g *APIGatewayV2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *APIGatewayV2Lister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err
@@ -45,18 +50,18 @@ func (g *APIGatewayV2Lister) List() error {
 	for _, api := range apis {
 		// Each part takes a call or more per API, so those of types the
 		// import doesn't keep are skipped.
-		responses := !api.http && g.wants("aws_apigatewayv2_route_response")
+		responses := !api.http && g.Wants("aws_apigatewayv2_route_response")
 		for _, part := range []struct {
 			list   func(*apigatewayv2.Client, string) error
 			wanted bool
 		}{
-			{g.listStages, g.wants("aws_apigatewayv2_stage")},
-			{g.listModels, !api.http && g.wants("aws_apigatewayv2_model")},
-			{g.listIntegrations, g.wants("aws_apigatewayv2_integration")},
+			{g.listStages, g.Wants("aws_apigatewayv2_stage")},
+			{g.listModels, !api.http && g.Wants("aws_apigatewayv2_model")},
+			{g.listIntegrations, g.Wants("aws_apigatewayv2_integration")},
 			{func(svc *apigatewayv2.Client, apiID string) error {
 				return g.listRoutes(svc, apiID, responses)
-			}, responses || g.wants("aws_apigatewayv2_route")},
-			{g.listAuthorizers, g.wants("aws_apigatewayv2_authorizer")},
+			}, responses || g.Wants("aws_apigatewayv2_route")},
+			{g.listAuthorizers, g.Wants("aws_apigatewayv2_authorizer")},
 		} {
 			if !part.wanted {
 				continue

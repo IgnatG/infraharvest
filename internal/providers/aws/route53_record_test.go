@@ -74,11 +74,11 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordRoute53API(t))
 	g := &Route53Lister{}
-	g.SetContext(ctx)
 
 	// Zone Z2's records fail to list: the error says so, and is partial,
 	// as the other zone and the health checks are listed all the same.
-	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "records of zone Z2") {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "records of zone Z2") {
 		t.Fatalf("want the partial error of zone Z2's records, got %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestRecordRoute53ListsZonesRecordsAndHealthChecks(t *testing.T) {
 		return recordedResource{"aws_route53_record", id, label, map[string]string{
 			"name": name, "zone_id": "Z1", "type": typ, "set_identifier": setID, "apex": apex}}
 	}
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_route53_zone", "Z1", "example.com", map[string]string{"name": "example.com.", "force_destroy": "false"}},
 		record("Z1_example.com._NS_", "example.com NS", "example.com", "NS", "", "true"),
 		record("Z1_example.com._SOA_", "example.com SOA", "example.com", "SOA", "", "true"),
@@ -108,13 +108,13 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 	t.Run("zones", func(t *testing.T) {
 		ctx := useFakeAPI(t, recordRoute53API(t, "/2013-04-01/hostedzone"))
 		g := &Route53Lister{}
-		g.SetContext(ctx)
 
-		if err := g.List(); err == nil || harvest.IsPartial(err) {
+		resources, err := g.List(ctx, harvest.Settings{})
+		if err == nil || harvest.IsPartial(err) {
 			t.Errorf("want the error returned, not partial, got %v", err)
 		}
 
-		assertRecorded(t, g.Resources,
+		assertRecorded(t, resources,
 			recordedResource{"aws_route53_health_check", "hc-1", "example.com HTTPS", nil},
 			recordedResource{"aws_route53_health_check", "hc-2", "example.com TCP", nil},
 		)
@@ -122,14 +122,14 @@ func TestRecordRoute53ReturnsErrors(t *testing.T) {
 	t.Run("health checks", func(t *testing.T) {
 		ctx := useFakeAPI(t, recordRoute53API(t, "/2013-04-01/healthcheck"))
 		g := &Route53Lister{}
-		g.SetContext(ctx)
 
-		if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "health checks") {
+		resources, err := g.List(ctx, harvest.Settings{})
+		if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "health checks") {
 			t.Errorf("want the partial error of the health checks, got %v", err)
 		}
 
-		assertIDs(t, g.Resources, "aws_route53_zone", "Z1", "Z2")
-		assertIDs(t, g.Resources, "aws_route53_health_check")
+		assertIDs(t, resources, "aws_route53_zone", "Z1", "Z2")
+		assertIDs(t, resources, "aws_route53_health_check")
 	})
 }
 
@@ -158,14 +158,14 @@ func TestRecordRoute53RecordsLinkedService(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Route53Lister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
 	const principal = "servicediscovery.amazonaws.com"
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_route53_zone", "Z3", "svc.local", map[string]string{"name": "svc.local.", "force_destroy": "false", "linked_service": principal}},
 		recordedResource{"aws_route53_record", "Z3_api.svc.local._A_", "api A", map[string]string{
 			"name": "api.svc.local", "zone_id": "Z3", "type": "A", "set_identifier": "", "apex": "false", "linked_service": principal}},

@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -26,7 +27,11 @@ type LogsLister struct {
 // but not a group of the same name that sets retention or encryption, as
 // configuration that creates the group before the function does. Any
 // listing error fails the service.
-func (g *LogsLister) List() error {
+func (g *LogsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *LogsLister) list() error {
 	config, err := g.sdkConfig()
 	if err != nil {
 		return err

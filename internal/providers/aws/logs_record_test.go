@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // The lister lists every log group by name, across pages, Lambda's own
 // included, recording its retention and KMS key when it has them, and a
@@ -25,13 +29,13 @@ func TestRecordLogsListsLogGroups(t *testing.T) {
 			"nextToken":"` + nextPageToken + `"}`
 	})
 	g := &LogsLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		recordedResource{"aws_cloudwatch_log_group", "/app/web", "/app/web", map[string]string{
 			"retention_in_days": "30", "kms_key_id": "arn:aws:kms:us-east-1:123456789012:key/k-1"}},
 		recordedResource{"aws_cloudwatch_log_group", "/aws/lambda/resize", "/aws/lambda/resize", map[string]string{"as_created": "true"}},
@@ -46,7 +50,6 @@ func TestRecordLogsReturnsErrors(t *testing.T) {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &LogsLister{}
-	g.SetContext(ctx)
 
-	assertRecordedError(t, g.List(), "AccessDeniedException")
+	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
 }

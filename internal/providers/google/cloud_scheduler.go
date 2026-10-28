@@ -4,6 +4,7 @@
 package google
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -32,7 +33,11 @@ type SchedulerJobsLister struct {
 // Cloud Scheduler API enabled, or a region the service isn't offered in,
 // has no jobs to list: that is logged, and lists nothing. Any other
 // failure is an error.
-func (g *SchedulerJobsLister) List() error {
+func (g *SchedulerJobsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
+	return g.Run(ctx, s, g.list)
+}
+
+func (g *SchedulerJobsLister) list() error {
 	region := g.Settings().region
 	if region.Name == "" {
 		return nil

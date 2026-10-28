@@ -308,7 +308,7 @@ func TestProviderBlock(t *testing.T) {
 }
 
 // Every call returns listers of its own, so concurrent services never
-// share one.
+// share one: those that keep what they list.
 func TestServicesAreFresh(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
@@ -317,15 +317,19 @@ func TestServicesAreFresh(t *testing.T) {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
+		if name == harvest.QueryService {
+			// It keeps nothing, so a lister of its own is the same as another.
+			continue
+		}
 		if second[name] == g {
 			t.Errorf("%s: the same lister twice", name)
 		}
 	}
 }
 
-// Select hands the service the provider's settings and makes it the
-// current one; an unknown service is an error.
-func TestSelect(t *testing.T) {
+// Lister hands the service the provider's settings, in a lister of its own
+// each time; an unknown service is an error.
+func TestLister(t *testing.T) {
 	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	credential := azcore.TokenCredential(fakeCredential{})
@@ -335,15 +339,13 @@ func TestSelect(t *testing.T) {
 	listed := []harvest.Resource{harvest.RecordBare("/subscriptions/sub/resourceGroups/rg1", "rg1", "azurerm_resource_group", "azurerm")}
 	p.SetListedByOthers(listed)
 
-	if err := p.Select("virtual_network", true); err != nil {
+	lister, err := p.Lister("virtual_network")
+	if err != nil {
 		t.Fatal(err)
 	}
-	s, ok := p.Selected().(*VirtualNetworkLister)
+	s, ok := lister.(*VirtualNetworkLister)
 	if !ok {
-		t.Fatalf("service %T", p.Selected())
-	}
-	if s.Name() != "virtual_network" || !s.Verbose() || s.Provider() != "azurerm" {
-		t.Errorf("name %q, verbose %v, provider %q", s.Name(), s.Verbose(), s.Provider())
+		t.Fatalf("service %T", lister)
 	}
 	want := serviceSettings{
 		subscriptionID: "sub",
@@ -357,12 +359,12 @@ func TestSelect(t *testing.T) {
 		t.Errorf("settings %#v, want %#v", got, want)
 	}
 
-	previous := p.Selected()
-	if err := p.Select("virtual_network", false); err != nil || p.Selected() == previous {
-		t.Errorf("a second Select: %v, same lister %v", err, p.Selected() == previous)
+	again, err := p.Lister("virtual_network")
+	if err != nil || again == lister {
+		t.Errorf("a second Lister: %v, same lister %v", err, again == lister)
 	}
 
-	err := p.Select("virtual_machine", false)
+	_, err = p.Lister("virtual_machine")
 	if err == nil || err.Error() != `not a service of azure; "infraharvest services azure" lists them` {
 		t.Errorf("unknown service: %v", err)
 	}

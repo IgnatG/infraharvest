@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -20,11 +21,12 @@ import (
 
 // failingService is a service whose listing fails with err.
 type failingService struct {
-	harvest.ListerBase
 	err error
 }
 
-func (f *failingService) List() error { return f.err }
+func (f *failingService) List(context.Context, harvest.Settings) ([]harvest.Resource, error) {
+	return nil, f.err
+}
 
 // A service AWS doesn't offer in the region is skipped; every other error,
 // timeouts included, is returned.
@@ -50,7 +52,7 @@ func TestGuardedListerSkipsOnlyServicesUnavailableInTheRegion(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			guard := &guardedLister{lister: &failingService{err: tc.err}}
 
-			err := guard.List()
+			_, err := guard.List(t.Context(), harvest.Settings{Service: "sqs"})
 
 			if tc.skip && err != nil {
 				t.Errorf("want the service skipped, got %v", err)

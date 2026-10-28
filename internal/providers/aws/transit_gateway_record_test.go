@@ -3,7 +3,11 @@
 
 package aws
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
 
 // recordTransitGatewayAPI answers the transit gateway lister with two pages
 // of each list, failing the operations in failing.
@@ -53,13 +57,13 @@ func TestRecordTransitGatewayListsGatewaysRouteTablesAndAttachments(t *testing.T
 	t.Parallel()
 	ctx := useFakeAPI(t, recordTransitGatewayAPI(t))
 	g := &TransitGatewayLister{}
-	g.SetContext(ctx)
 
-	if err := g.List(); err != nil {
+	resources, err := g.List(ctx, harvest.Settings{})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	assertRecorded(t, g.Resources,
+	assertRecorded(t, resources,
 		// The owner is recorded, for what another account shares (see
 		// excludeShared).
 		recordedResource{"aws_ec2_transit_gateway", "tgw-1", "tgw-1", map[string]string{"owner_id": "123456789012"}},
@@ -78,9 +82,8 @@ func TestRecordTransitGatewayReturnsErrors(t *testing.T) {
 		t.Run(failing, func(t *testing.T) {
 			ctx := useFakeAPI(t, recordTransitGatewayAPI(t, failing))
 			g := &TransitGatewayLister{}
-			g.SetContext(ctx)
 
-			assertRecordedError(t, g.List(), "UnauthorizedOperation")
+			assertRecordedError(t, listError(ctx, g), "UnauthorizedOperation")
 		})
 	}
 }
