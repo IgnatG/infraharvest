@@ -258,7 +258,7 @@ jobs:
             echo
             cat "$RUNNER_TEMP/opa-capabilities/report.md"
             echo
-            echo "Before merging, read the new built-in functions: one that reaches the network, reads files or the environment, or loads a schema goes into \`deniedBuiltins\` in \`internal/engine/gate/conftest_capabilities.go\`, and into the list in docs/output.md."
+            echo "Before merging, read the new built-in functions: one that reaches the network, reads files or the environment, or loads a schema goes into \`deniedBuiltins\` in \`internal/engine/gate/conftest_capabilities.go\`, and into the list in docs/output.md. Bump the conftest the tests workflow installs (\`Install conftest\` in .github/workflows/test.yml) to the newest release too, with its checksum."
             echo
             echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
           } > "$RUNNER_TEMP/body.md"

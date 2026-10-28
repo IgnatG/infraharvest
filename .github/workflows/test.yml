@@ -98,6 +98,24 @@ jobs:
     # anyway.
     - name: Build
       run: go build -o infraharvest .
+    # The gate's test of the OPA capabilities runs real policies through
+    # conftest, and skips without it. The release is the one
+    # internal/engine/gate/conftest_capabilities.go names: bump both
+    # together, with the archive's checksum from the release's
+    # checksums.txt.
+    - name: Install conftest
+      env:
+        VERSION: 0.71.1
+        SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+      run: |
+        archive="$RUNNER_TEMP/conftest.tar.gz"
+        curl -sSfL --retry 3 -o "$archive" \
+          "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz"
+        echo "$SHA256  $archive" | sha256sum -c -
+        mkdir -p "$RUNNER_TEMP/conftest"
+        tar -xzf "$archive" -C "$RUNNER_TEMP/conftest" conftest
+        "$RUNNER_TEMP/conftest/conftest" --version
+        echo "$RUNNER_TEMP/conftest" >> "$GITHUB_PATH"
     # Each package's statements its own tests run, for visibility: no
     # threshold. The total goes to the run's summary, the profile is
     # uploaded (go tool cover -html=coverage.out shows it). The tests run in
