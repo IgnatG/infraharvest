@@ -51,3 +51,17 @@ runs:
       if: inputs.scanners == 'true'
       with:
         version: v0.75.0
+    # An install can end in success with nothing on PATH (setup-opentofu
+    # once did): stop here, where it reads as a broken install, rather
+    # than in a test, where it reads as a failure of infraharvest.
+    - name: Check the installs
+      shell: bash
+      env:
+        ENGINE: ${{ inputs.engine }}
+        SCANNERS: ${{ inputs.scanners }}
+      run: |
+        "$ENGINE" version
+        if [ "$SCANNERS" = true ]; then
+          tflint --version
+          trivy --version
+        fi
