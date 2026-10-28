@@ -34,7 +34,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	cache := t.TempDir()
-	execPath, err := tfrun.FindTerraform(ctx, "", filepath.Join(cache, "terraform"))
+	execPath, err := tfrun.TerraformBinary.Find(ctx, "", filepath.Join(cache, "terraform"))
 	if err != nil {
 		t.Fatal(err)
 	}
