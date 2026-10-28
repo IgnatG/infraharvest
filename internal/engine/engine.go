@@ -87,6 +87,10 @@ type Result struct {
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
 	NotInCloud []rootfile.Import `json:"-"`
+	// Plans count the plans Generate ran for the root, by step (see the
+	// step constants), and the plan files it showed: each plan imports
+	// every resource of the root again.
+	Plans []tfrun.StepPlans `json:",omitempty"`
 }
 
 // Options configure Generate.
@@ -264,6 +268,30 @@ const (
 	replanSecrets      replanReason = "secrets moved into variables"
 )
 
+// The steps of generate that Result.Plans counts plans by.
+const (
+	// stepGenerate has Terraform generate the configuration, and import
+	// again what it rejected with an import ID to fall back on.
+	stepGenerate = "generate"
+	// stepPrepare plans the configuration again once edits that come before
+	// anything reads it, such as sorting its resources, changed it.
+	stepPrepare = "prepare"
+	// stepRepair plans again after repairing the configuration or leaving
+	// out what still had errors.
+	stepRepair = "repair"
+	// stepSecrets makes secret attributes read from variables.
+	stepSecrets = "secrets"
+	// stepTidy post-processes the configuration, each edit checked by a
+	// plan.
+	stepTidy = "tidy"
+	// stepFinish lays out the root's files.
+	stepFinish = "finish"
+	// stepRefine runs Options.Refine.
+	stepRefine = "refine"
+	// stepGate runs the verification gate.
+	stepGate = "gate"
+)
+
 // Generate writes opts.Config and an import block per resource into dir,
 // then runs Terraform to generate the configuration of every imported
 // resource into generated.tf, without the arguments opts.Omit names.
@@ -311,9 +339,11 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	}
 	defer removeEmptyState()
 	redacting := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
+	counting := &tfrun.Counting{Terraform: redacting}
 	g := &generation{
-		tf:        &schemaCache{Terraform: redacting},
+		tf:        &schemaCache{Terraform: counting},
 		redacting: redacting,
+		counting:  counting,
 		dir:       dir,
 		generated: generated,
 		imports:   relabelled(imports, r.taken, r.opts.TidyLabels, r.opts.Previous),
@@ -326,6 +356,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	if err != nil {
 		return nil, err
 	}
+	counting.Step(stepGenerate)
 	reasons, err := g.planGenerated(ctx)
 	if err != nil {
 		return nil, err
@@ -348,18 +379,22 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	if err := g.leaveOut(); err != nil {
 		return nil, err
 	}
+	counting.Step(stepSecrets)
 	if err := g.secretVariables(ctx); err != nil {
 		return nil, err
 	}
+	counting.Step(stepTidy)
 	if err := g.tidy(ctx); err != nil {
 		return nil, err
 	}
+	counting.Step(stepFinish)
 	if err := g.finish(ctx); err != nil {
 		return nil, err
 	}
 	if err := g.gate(ctx); err != nil {
 		return nil, err
 	}
+	g.result.Plans = counting.Counts()
 	// The README shows the gate's details, which come from plans that had
 	// the secret values: the gate couldn't scan it, so it is scanned here.
 	redactResult(g.result, g.literal)
@@ -376,7 +411,9 @@ type generation struct {
 	// with redacting.
 	tf        tfrun.Terraform
 	redacting *secret.RedactingTerraform
-	dir       string
+	// counting counts tf's plans by the step generate is at.
+	counting *tfrun.Counting
+	dir      string
 	// generated is the path of generated.tf.
 	generated string
 	imports   []rootfile.Import
@@ -541,10 +578,12 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason)
 			why[i] = string(reason)
 		}
 		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(why, ", "))
+		g.counting.Step(stepPrepare)
 		if err := g.replan(ctx); err != nil {
 			return err
 		}
 	}
+	g.counting.Step(stepRepair)
 	repaired := false
 	for round := 0; ; round++ {
 		errs, err := unresolved("terraform plan", g.dir, g.diags)
@@ -770,6 +809,7 @@ func (g *generation) gate(ctx context.Context) error {
 	var unrefined map[string][]byte
 	warned := len(g.result.Warnings)
 	if g.opts.Refine != nil {
+		g.counting.Step(stepRefine)
 		var err error
 		if unrefined, err = refine(ctx, g.tf, g.dir, g.result, g.opts); err != nil {
 			return err
@@ -777,6 +817,7 @@ func (g *generation) gate(ctx context.Context) error {
 	}
 	// The gate checks the modules the run may call, which for Add's are
 	// fewer than the caller's (see adding).
+	g.counting.Step(stepGate)
 	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.secrets, unrefined, warned)
 }
 

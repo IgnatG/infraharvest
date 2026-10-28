@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // Each kind of exclusion gives its reason and owner, and Finish counts
@@ -111,6 +112,39 @@ func TestAddDirectoryOutcome(t *testing.T) {
 	r.Finish(map[string]int{"aws_sqs_queue": 1, "aws_lb": 1}, nil, false)
 	if want := (CoverageTotal{Discovered: 2, Imported: 1, LeftOut: 1}); r.Totals != want {
 		t.Errorf("totals %+v, want %+v", r.Totals, want)
+	}
+}
+
+// A directory's plans, by step, go into coverage.json as Generate
+// counted them, and into report.md as a total with each step's.
+func TestAddDirectoryPlans(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.AddDirectory("aws/sqs", "", &engine.Result{
+		Imported: []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"}},
+		Plans:    []tfrun.StepPlans{{Step: "generate", Plans: 1}, {Step: "tidy", Plans: 2, Shows: 2}, {Step: "gate", Plans: 1, Shows: 1}},
+	})
+	r.AddDirectory("aws/sns", "", &engine.Result{})
+	var b bytes.Buffer
+	if err := r.WriteJSON(&b); err != nil {
+		t.Fatal(err)
+	}
+	const want = `"plans": [
+        {
+          "step": "generate",
+          "plans": 1,
+          "shows": 0
+        },
+        {
+          "step": "tidy",
+          "plans": 2,
+          "shows": 2
+        },`
+	if got := b.String(); !strings.Contains(got, want) || strings.Count(got, `"plans": [`) != 1 {
+		t.Errorf("want the plans of aws/sqs only:\n%s", got)
+	}
+	if md := r.Markdown(); !strings.Contains(md, "\n## Terraform plans\n") || !strings.Contains(md, "\n- `aws/sqs`: 4 (generate 1, tidy 2, gate 1)\n") || strings.Contains(md, "`aws/sns`:") {
+		t.Errorf("want the plans of aws/sqs only:\n%s", md)
 	}
 }
 
