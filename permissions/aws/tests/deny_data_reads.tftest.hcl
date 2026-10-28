@@ -64,6 +64,7 @@ run "data_reads_denied" {
       "dynamodb:DescribeTable",
       "es:DescribeDomain",
       "lambda:GetFunction",
+      "cognito-idp:DescribeUserPoolClient",
       "ssm:GetParameter",
       "cassandra:Select",
       "logs:DescribeLogGroups",
