@@ -191,16 +191,23 @@ func CheckContained(root string, skip ...string) error {
 // MkdirPrivate creates dir, with its parents, and makes it private (see
 // MakePrivate) as it creates it, so that what is written into it is
 // private too, whatever its parent lets others read. A dir that exists
-// already is left as it is.
+// already is made private too, as a run of an older version may have made
+// it open; one that is a link, or isn't a directory, is refused.
 func MkdirPrivate(dir string) error {
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return err
 	}
 	if err := os.Mkdir(dir, 0o700); err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return nil
+		if !errors.Is(err, fs.ErrExist) {
+			return err
 		}
-		return err
+		info, statErr := os.Lstat(dir)
+		if statErr != nil {
+			return statErr
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s isn't a directory", dir)
+		}
 	}
 	_, err := MakePrivate(dir)
 	return err

@@ -32,9 +32,17 @@ variable "run_id" {
   default     = ""
 }
 
+variable "permissions_boundary_arn" {
+  description = "The permissions boundary of every IAM role the estate creates, which the fixture role may create no role without (see aws-bootstrap). Empty creates them without, as on an emulator."
+  type        = string
+  default     = ""
+}
+
 locals {
   # The tags every resource carries, so a sweep finds what a run left.
   sandbox_tags = { for k, v in { infraharvest-sandbox = var.suffix, infraharvest-sandbox-run = var.run_id } : k => v if v != "" }
+
+  permissions_boundary = var.permissions_boundary_arn == "" ? null : var.permissions_boundary_arn
 }
 
 provider "aws" {
@@ -114,14 +122,14 @@ resource "aws_cloudformation_stack" "app" {
       }
       Role = {
         Type = "AWS::IAM::Role"
-        Properties = {
+        Properties = merge({
           RoleName = "${local.name}-seed"
           AssumeRolePolicyDocument = {
             Version   = "2012-10-17"
             Statement = [{ Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole" }]
           }
           ManagedPolicyArns = ["arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"]
-        }
+        }, local.permissions_boundary == null ? {} : { PermissionsBoundary = local.permissions_boundary })
       }
       # The provider of the custom resource Seed, which logs each request's
       # type, for the test to tell whether it was called, and answers success.

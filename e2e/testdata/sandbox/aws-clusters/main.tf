@@ -29,9 +29,17 @@ variable "run_id" {
   default     = ""
 }
 
+variable "permissions_boundary_arn" {
+  description = "The permissions boundary of every IAM role the estate creates, which the fixture role may create no role without (see aws-bootstrap). Empty creates them without, as on an emulator."
+  type        = string
+  default     = ""
+}
+
 locals {
   # The tags every resource carries, so a sweep finds what a run left.
   sandbox_tags = { for k, v in { infraharvest-sandbox = var.suffix, infraharvest-sandbox-run = var.run_id } : k => v if v != "" }
+
+  permissions_boundary = var.permissions_boundary_arn == "" ? null : var.permissions_boundary_arn
 }
 
 provider "aws" {
@@ -198,9 +206,10 @@ data "aws_iam_policy_document" "eks_trust" {
 }
 
 resource "aws_iam_role" "eks" {
-  name               = "${local.name}-eks"
-  assume_role_policy = data.aws_iam_policy_document.eks_trust.json
-  tags               = local.tags
+  name                 = "${local.name}-eks"
+  assume_role_policy   = data.aws_iam_policy_document.eks_trust.json
+  permissions_boundary = local.permissions_boundary
+  tags                 = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "eks" {
@@ -243,9 +252,10 @@ data "aws_iam_policy_document" "viewer_trust" {
 
 # Allowed nothing in AWS: only to read the cluster's default namespace.
 resource "aws_iam_role" "viewer" {
-  name               = "${local.name}-viewer"
-  assume_role_policy = data.aws_iam_policy_document.viewer_trust.json
-  tags               = local.tags
+  name                 = "${local.name}-viewer"
+  assume_role_policy   = data.aws_iam_policy_document.viewer_trust.json
+  permissions_boundary = local.permissions_boundary
+  tags                 = local.tags
 }
 
 resource "aws_eks_access_entry" "viewer" {

@@ -151,7 +151,7 @@ The test points the listers and the azurerm provider at the emulator as a custom
 
 [`TestSandboxAWS`](sandbox_aws_test.go) runs against a real AWS account, for what the emulators can't show: VPCs with NAT gateways, an EC2 instance, a Lambda function, REST and HTTP APIs, WAF and CloudFront, resources in two regions, and the attributes AWS returns that Floci doesn't. The `sandbox-aws` workflow runs it, started by hand (`gh workflow run sandbox-aws.yml -f engine=terraform`, the main estate by default), and only after a reviewer of the `sandbox` environment approves the run:
 
-1. It signs in to two roles through GitHub's OpenID Connect, with no stored keys: `AWS_FIXTURE_ROLE_ARN` creates and destroys the estate, and `AWS_READONLY_ROLE_ARN`, the [read-only template](../docs/permissions.md#aws) (ReadOnlyAccess and the data-read deny), imports it, as a user would. Both are variables of the environment, with `AWS_REGION` and, optionally, `AWS_SECOND_REGION` (by default `eu-west-1`).
+1. It signs in to two roles through GitHub's OpenID Connect, with no stored keys: `AWS_FIXTURE_ROLE_ARN` creates and destroys the estate, and `AWS_READONLY_ROLE_ARN`, the [read-only template](../docs/permissions.md#aws) (ReadOnlyAccess and the data-read deny), imports it, as a user would. Both are variables of the environment, with `AWS_REGION`, `AWS_BOUNDARY_POLICY_ARN` (the permissions boundary of the roles the estate creates) and, optionally, `AWS_SECOND_REGION` (by default `eu-west-1`). A one-time bootstrap creates them (see [Setting up the AWS sandbox](#setting-up-the-aws-sandbox)).
 2. Terraform creates [`testdata/sandbox/aws`](testdata/sandbox/aws/main.tf) as the fixture role, every resource tagged `infraharvest-sandbox=<engine>` and `infraharvest-sandbox-run=<run id>` (the `run_id` variable, from `TF_VAR_run_id`): most of it in `AWS_REGION`, and a queue and a parameter in the second region, through a provider alias.
 3. `infraharvest import aws --all --regions=<region>,<second region>` imports the resources of those services as the read-only role, and the generated configuration must plan as imports with no changes. Unlike on Floci, no attribute is excused as an emulator gap. Each region gets a root of its own with its own resources, and the global ones (IAM, Route 53, CloudFront) are imported once, into the global root. Both VPCs become calls of the vpc module: one with a single NAT gateway, one with a NAT gateway in each of two zones (`one_nat_gateway_per_az`).
 4. The test interrupts that import, which goes one region at a time, as Ctrl-C would, when it starts on the second region's root, the last, and runs it again with `--resume` and both regions at once (`--parallel=2`): the log must show the two regions listing at the same time, the roots generated before the interrupt stay as they were, and the interrupted one comes out as it does when the test generates it again from nothing, one region at a time. So the output doesn't depend on `--parallel`, at no more calls to AWS than the resume makes anyway.
@@ -202,6 +202,36 @@ gh workflow run sandbox-aws.yml -f estate=environments -f engine=terraform
 ```
 
 Each estate has an SQS queue, with a visibility timeout of 30 seconds in `dev` and 120 in `prd`, an S3 bucket and a SecureString SSM parameter, whose value differs; `prd` alone has an alerts queue. Every resource is tagged `Environment=dev` or `Environment=prd`, as well as `infraharvest-sandbox=<engine>` and the run's tag, and named `ih-sbx-<engine>-<env>-...`. The sandbox has one account, so [`TestSandboxAWSEnvironments`](sandbox_aws_environments_test.go) maps the estates to `dev` and `prod` by tag alone (`environments.<env>.tags`, with `tokens: [prd]` for `prod`), naming no account: that tests merging, not each environment's own credentials. It imports the region (`--services=s3,sqs,ssm`, `--modules=none`) as the read-only role and checks that nothing fails or is left out, that the two environments' roots merge into `aws/<region>`, every check of each environment's gate passing, with the timeout a variable each environment's `terraform.tfvars` sets, the alerts queue counted by a `deploy_` variable only `prod` sets, and the parameters' values one sensitive variable that no var file sets and no file of the output holds. Planned as each environment, with its var files and its secret, the merged root must import what that environment has and change nothing; any other root the import writes, such as one of the account's resources without an `Environment` tag, must plan as imports with no changes too. Nothing in the estate bills by the hour, so a run costs well under a cent; the test allows 30 minutes and its destroy 30 more. The environments estate has never run yet: until it has, what this section says is what the test checks, not what it has been seen to pass.
+
+### Setting up the AWS sandbox
+
+[`testdata/sandbox/aws-bootstrap`](testdata/sandbox/aws-bootstrap/main.tf) creates what the workflow needs, once: the two roles, trusting the GitHub tokens of the `sandbox` environment alone (the subject `repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox`, the repository's immutable subject for it, with no wildcard), and the permissions boundary of the estates' roles. The read-only role is `permissions/aws`, the template users apply: ReadOnlyAccess without the reads of data, so the import is checked with the deny in place. The fixture role is PowerUserAccess, which leaves IAM out, and may manage only the roles and instance profiles named `ih-sbx-*`, which the estates create, and create a role only with the boundary (`infraharvest-sandbox-boundary`: everything PowerUserAccess allows, nothing in IAM but service-linked roles), which the estates set on every role (`permissions_boundary_arn`, from the environment's `AWS_BOUNDARY_POLICY_ARN`). So a run can't change the two roles, the OIDC provider or any other role of the account, nor sign in to a role, nor make a role that can do more than the fixture role.
+
+```sh
+git clone https://github.com/IgnatG/infraharvest.git
+cd infraharvest/e2e/testdata/sandbox/aws-bootstrap
+terraform init
+terraform apply
+terraform output -raw gh_commands
+```
+
+Apply it as an administrator of the account. `-var region=<region>` sets another region than `eu-west-2`, and `-var create_github_oidc_provider=true` creates the account's GitHub OIDC provider, which an account that never signed in to GitHub has none of. An account that already has the roles (the sandbox's was made by hand) imports them first, then applies, which replaces their policies:
+
+```sh
+terraform import aws_iam_role.fixture infraharvest-ci-fixture
+terraform import aws_iam_role_policy_attachment.fixture_power_user infraharvest-ci-fixture/arn:aws:iam::aws:policy/PowerUserAccess
+terraform import aws_iam_role_policy.fixture_iam infraharvest-ci-fixture:fixture-iam
+terraform import module.readonly.aws_iam_role.readonly infraharvest-ci-readonly
+terraform import module.readonly.aws_iam_role_policy_attachment.read_only_access infraharvest-ci-readonly/arn:aws:iam::aws:policy/ReadOnlyAccess
+```
+
+The last command prints the `gh variable set` commands that set the environment's variables, `AWS_BOUNDARY_POLICY_ARN` among them. Run them where `gh` is signed in as an administrator of the repository, then start a run:
+
+```sh
+gh workflow run sandbox-aws.yml -R IgnatG/infraharvest -f engine=terraform
+```
+
+The roles the estates make are for Lambda, EC2, EKS, Step Functions and a CloudFormation stack, with managed policies that stay inside the boundary. A run that fails with an access denied for IAM names what the fixture role's policy ([`main.tf`](testdata/sandbox/aws-bootstrap/main.tf)) lacks.
 
 ## Azure sandbox (a real subscription)
 

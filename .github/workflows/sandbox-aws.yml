@@ -62,6 +62,9 @@ jobs:
       SANDBOX_AWS_READONLY_PROFILE: readonly
       # Tags every resource of the estate with this run, for the sweep.
       TF_VAR_run_id: ${{ github.run_id }}
+      # The boundary every role of the estate is created with, which the
+      # fixture role may not create one without (see aws-bootstrap).
+      TF_VAR_permissions_boundary_arn: ${{ vars.AWS_BOUNDARY_POLICY_ARN }}
     steps:
     - name: Directories
       run: |
