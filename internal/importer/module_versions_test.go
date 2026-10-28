@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -32,7 +34,10 @@ func TestResolveAdapters(t *testing.T) {
 		{Source: "acme/missing/aws", Version: "3.0.0"},
 	}
 
-	used, newer, constraints := resolveAdapters(t.Context(), registry.Client(), registry.URL, list, "registry.terraform.io/hashicorp/aws", false)
+	releasesOf := func(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
+		return engine.ModuleReleases(ctx, registry.Client(), registry.URL, source)
+	}
+	used, newer, constraints := resolveAdapters(t.Context(), releasesOf, list, "registry.terraform.io/hashicorp/aws", false)
 	if used[0].Version != "1.0.0" || used[1].Version != "3.0.0" {
 		t.Errorf("tested versions: %+v", used)
 	}
@@ -43,7 +48,7 @@ func TestResolveAdapters(t *testing.T) {
 		t.Errorf("constraints of the tested versions: %+v", constraints)
 	}
 
-	used, newer, constraints = resolveAdapters(t.Context(), registry.Client(), registry.URL, list, "hashicorp/aws", true)
+	used, newer, constraints = resolveAdapters(t.Context(), releasesOf, list, "hashicorp/aws", true)
 	if used[0].Version != "2.0.0" || len(newer) != 0 {
 		t.Errorf("latest-untested: %+v, %+v", used, newer)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 
 	goversion "github.com/hashicorp/go-version"
 
@@ -26,19 +27,19 @@ type moduleConstraint struct {
 	constraint      goversion.Constraints
 }
 
-// resolveAdapters looks up the releases of the adapters' modules in the
-// registry at registryURL ("" for the public registry). Each adapter calls
+// resolveAdapters looks up the releases of the adapters' modules with
+// releasesOf (see Run.moduleReleases). Each adapter calls
 // the version it is tested with; with untested, the newest release
 // instead. It returns the adapters to use, the modules with a newer
 // release than the one used, and what the versions used accept of the
 // provider at providerSource. An adapter whose module can't be looked up
 // keeps its tested version.
-func resolveAdapters(ctx context.Context, client *http.Client, registryURL string, list []adapters.Adapter, providerSource string, untested bool) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
+func resolveAdapters(ctx context.Context, releasesOf func(ctx context.Context, source string) ([]engine.ModuleRelease, error), list []adapters.Adapter, providerSource string, untested bool) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
 	used := make([]adapters.Adapter, 0, len(list))
 	var newer []report.ModuleVersion
 	var constraints []moduleConstraint
 	for _, a := range list {
-		releases, err := engine.ModuleReleases(ctx, client, registryURL, a.Source)
+		releases, err := releasesOf(ctx, a.Source)
 		if err != nil {
 			log.Printf("%s: %v; calling the tested version %s", a.Source, err, a.Version)
 			used = append(used, a)
@@ -64,6 +65,53 @@ func resolveAdapters(ctx context.Context, client *http.Client, registryURL strin
 		}
 	}
 	return used, newer, constraints
+}
+
+// moduleReleases are the releases of the registry modules a command
+// looks up, by module source, each looked up once and shared by every
+// Import call of the command: the query service resolves the roots' pin
+// from the same modules the toolchain resolves again (see Run.callRoot),
+// and the calls of --parallel run at once. The command looks them up in
+// one registry, so the source alone tells them apart.
+type moduleReleases struct {
+	mu sync.Mutex
+	of map[string]*moduleReleaseLookup
+}
+
+// moduleReleaseLookup is the lookup of one module's releases, which the
+// calls that want them wait for.
+type moduleReleaseLookup struct {
+	mu       sync.Mutex
+	done     bool
+	releases []engine.ModuleRelease
+	err      error
+}
+
+// get returns the releases of the module at source, looking them up with
+// list on first use. A lookup cut short by its own context isn't kept, so
+// that a later call, with a context still live, looks again.
+func (m *moduleReleases) get(ctx context.Context, source string, list func(context.Context) ([]engine.ModuleRelease, error)) ([]engine.ModuleRelease, error) {
+	m.mu.Lock()
+	if m.of == nil {
+		m.of = map[string]*moduleReleaseLookup{}
+	}
+	l, ok := m.of[source]
+	if !ok {
+		l = &moduleReleaseLookup{}
+		m.of[source] = l
+	}
+	m.mu.Unlock()
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.done {
+		releases, err := list(ctx)
+		if err != nil && ctx.Err() != nil {
+			return nil, err
+		}
+		l.releases, l.err, l.done = releases, err, true
+	}
+	return l.releases, l.err
 }
 
 // providerKey is how engine.ModuleRelease keys a provider: namespace/type,

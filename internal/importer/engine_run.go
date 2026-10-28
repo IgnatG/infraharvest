@@ -157,6 +157,10 @@ type shared struct {
 	// module, which they share (see engine.Options.Modules).
 	modules engine.ModuleRefs
 
+	// releases are the releases of the registry modules the command's
+	// Import calls may call, each looked up once (see Run.moduleReleases).
+	releases moduleReleases
+
 	// scanners are the slots the scanners of the command's roots run in,
 	// which they share (see engine.Options.ScannerSlots).
 	scanners engine.ScannerSlots
