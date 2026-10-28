@@ -9,6 +9,9 @@
 #   change the two roles of the sandbox, the OIDC provider, nor any other
 #   role of the account, nor make a role that does more than PowerUserAccess
 #   does, which is what the role does already.
+#   A role it makes may trust anyone, which IAM can't limit without an
+#   SCP, but can do no more than the boundary allows, and signs in to no
+#   other role.
 # - infraharvest-ci-readonly, a role that imports the estate.
 #   permissions/aws, the template users apply, makes it: ReadOnlyAccess
 #   without the reads of data.
@@ -47,6 +50,15 @@ data "aws_iam_policy_document" "boundary" {
     sid       = "ServiceLinkedRoles"
     effect    = "Allow"
     actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["*"]
+  }
+
+  # Nor may it sign in to another role, such as one of the account's that
+  # trusts the account: what it can do stays its own.
+  statement {
+    sid       = "NoSigningIn"
+    effect    = "Deny"
+    actions   = ["sts:AssumeRole", "sts:AssumeRoleWithWebIdentity", "sts:AssumeRoleWithSAML"]
     resources = ["*"]
   }
 }
@@ -131,7 +143,6 @@ data "aws_iam_policy_document" "fixture_iam" {
       "iam:ListInstanceProfilesForRole",
       "iam:ListRolePolicies",
       "iam:ListRoleTags",
-      "iam:PassRole",
       "iam:PutRolePolicy",
       "iam:TagRole",
       "iam:UntagRole",
@@ -139,6 +150,20 @@ data "aws_iam_policy_document" "fixture_iam" {
       "iam:UpdateRoleDescription",
     ]
     resources = ["arn:${local.partition}:iam::${local.account}:role/ih-sbx-*"]
+  }
+
+  # The estates' roles go to the services they are for, and nothing else.
+  statement {
+    sid       = "PassEstateRoles"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = ["arn:${local.partition}:iam::${local.account}:role/ih-sbx-*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ec2.amazonaws.com", "eks.amazonaws.com", "lambda.amazonaws.com", "states.amazonaws.com"]
+    }
   }
 
   statement {
