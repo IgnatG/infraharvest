@@ -768,16 +768,22 @@ type moduleImport struct {
 
 // retargetImports points the import blocks into the given resources at
 // their new addresses, such as module.logs.aws_s3_bucket.this[0], and adds
-// the imports of added, with IDs that start with the import ID of the
-// resource each names.
+// the imports of added: by IDs that start with the import ID of the
+// resource each names, or, where that resource is imported by its
+// identity, by the identity the adapter makes of its (see
+// adapters.Import.Identity).
 func retargetImports(dir string, to map[string]string, added []moduleImport) error {
 	imports, err := hclfile.Load(filepath.Join(dir, ImportsFileName))
 	if err != nil {
 		return err
 	}
 	ids := map[string]string{}
+	identities := map[string]map[string]string{}
 	for _, imp := range imports.Imports() {
 		ids[imp.To] = imp.ID
+		if _, hasID := imp.Syntax.Body.Attributes["id"]; !hasID {
+			identities[imp.To], _ = hclfile.IdentityOf(imp.Syntax.Body)
+		}
 		address, ok := to[imp.To]
 		if !ok {
 			continue
@@ -801,9 +807,37 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		body.AppendNewline()
 		block := body.AppendNewBlock("import", nil).Body()
 		block.SetAttributeTraversal("to", traversal)
-		block.SetAttributeValue("id", cty.StringVal(id+imp.Suffix))
+		of, byIdentity := identities[imp.Of]
+		if !byIdentity {
+			block.SetAttributeValue("id", cty.StringVal(id+imp.Suffix))
+			continue
+		}
+		identity := identityFrom(imp.Identity, of)
+		if len(identity) == 0 {
+			return fmt.Errorf("import into %s: %s is imported by its identity, which the module's adapter makes no identity of", imp.to, imp.Of)
+		}
+		block.SetAttributeValue("identity", identityValue(identity))
 	}
 	return imports.Save()
+}
+
+// identityFrom returns the identity spec makes of of, the identity of
+// the resource an adapter's import names (see adapters.Import.Identity):
+// each attribute of spec whose value is {name} is of's attribute name,
+// left out where of has none, and any other value is as it is.
+func identityFrom(spec, of map[string]string) map[string]string {
+	identity := map[string]string{}
+	for k, v := range spec {
+		name, isRef := strings.CutPrefix(v, "{")
+		if name, ok := strings.CutSuffix(name, "}"); isRef && ok {
+			if value, ok := of[name]; ok {
+				identity[k] = value
+			}
+			continue
+		}
+		identity[k] = v
+	}
+	return identity
 }
 
 // importTargets returns where each import block of dir imports into, by
@@ -817,22 +851,22 @@ func importTargets(dir string) (map[string]string, error) {
 	return importTargetsIn(imports), nil
 }
 
-// importTargetsIn returns where each import block of f with a literal ID
-// imports into, by resource type and import ID.
+// importTargetsIn returns where each import block of f with a literal ID,
+// or identity, imports into, by resource type and import ID (see
+// hclfile.ImportIDOf).
 func importTargetsIn(f *hclfile.File) map[string]string {
 	targets := map[string]string{}
 	for _, b := range f.Syntax.Blocks {
 		to, ok := b.Body.Attributes["to"]
-		id, hasID := b.Body.Attributes["id"]
-		if b.Type != "import" || !ok || !hasID {
+		if b.Type != "import" || !ok {
 			continue
 		}
-		v, diags := id.Expr.Value(nil)
-		if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
+		id, ok := hclfile.ImportIDOf(b.Body)
+		if !ok {
 			continue
 		}
 		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.Src)))
-		targets[AddressType(address)+"\x00"+v.AsString()] = address
+		targets[AddressType(address)+"\x00"+id] = address
 	}
 	return targets
 }

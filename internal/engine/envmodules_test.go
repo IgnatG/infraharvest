@@ -111,12 +111,15 @@ func TestMergeStackModules(t *testing.T) {
 
 func TestForEachImport(t *testing.T) {
 	t.Parallel()
-	forEach, to, ok := forEachImport(`module.alerts[0].aws_sns_topic.this["alerts"]`)
+	forEach, to, ok := forEachImport(`module.alerts[0].aws_sns_topic.this["alerts"]`, importByID)
 	if !ok || to != "module.alerts[0].aws_sns_topic.this[each.value]" || !strings.HasPrefix(forEach, `[for k in ["alerts"] : k if`) {
 		t.Errorf("got %q %q %v", forEach, to, ok)
 	}
-	if _, _, ok := forEachImport("module.logs.aws_s3_bucket.this"); ok {
+	if _, _, ok := forEachImport("module.logs.aws_s3_bucket.this", importByID); ok {
 		t.Errorf("an address without an instance key")
+	}
+	if forEach, _, _ := forEachImport(`module.logs.aws_cloudwatch_log_group.this[0]`, importByIdentity); !strings.Contains(forEach, "contains(keys(var.import_identities), ") {
+		t.Errorf("an import by identity looks in var.import_ids: %q", forEach)
 	}
 	byInstance := map[string]*stackResource{"module.logs": {resourceType: moduleType, label: "logs"}}
 	if r := moduleInstance(byInstance, "module.logs.aws_s3_bucket.this[0]"); r == nil || r.label != "logs" {

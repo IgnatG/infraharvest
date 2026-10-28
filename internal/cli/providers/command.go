@@ -180,6 +180,16 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		options.Stdout = c.OutOrStdout()
 		options.ModulesChosen = c.Flags().Changed("modules")
 		options.ManagedStores = managedStores()
+		// Once, before any scope runs; discover runs no gate, and takes
+		// --policy only as the configuration file it shares with import
+		// may set it.
+		if !options.Discover {
+			policies, err := importer.ResolvePolicies(options.Policies)
+			if err != nil {
+				return err
+			}
+			options.Policies = policies
+		}
 		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
 			return err
 		}
@@ -210,6 +220,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	// What to list.
 	flags.StringSliceVarP(&options.Services, "services", "s", nil, "services to import, such as "+sampleRes+`, or "*" for all (infraharvest services <provider> lists them)`)
 	flags.StringSliceVar(&options.Skip, "skip", nil, "services to leave out of --services, such as "+sampleRes)
+	flags.StringSliceVar(&options.QueryTypes, "query-types", nil, "resource types for the query service to list through Terraform's own list resources (terraform query, Terraform 1.14 or later), for types no other service lists; with --services query (see "+DocsURL+"usage/#listing-through-terraform)")
 	flags.StringArrayVar(&options.IDFilters, "id", nil, "keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as "+sampleIDs+"; repeat for other types (see "+DocsURL+"usage/#filtering)")
 	flags.StringArrayVar(&options.TagFilters, "tag", nil, "keep only the resources with this tag, as <key>[=<value>[,<value>...]] such as env=prod, where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
 	flags.StringArrayVar(&options.WhereFilters, "where", nil, "keep only the resources whose attribute at a dotted path has one of these values, as <path>[=<value>[,<value>...]], where the service's lister supports it (see "+DocsURL+"usage/#filtering)")
@@ -228,7 +239,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules"+moduleFamilies()+", at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	AddEngineFlags(flags, EngineFlags{
 		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
-		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock,
+		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Policies: &options.Policies,
 		FormatHelp:    "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)",
 		CatalogueHelp: ": import IDs, arguments to leave out, default skips, data sources",
 	})

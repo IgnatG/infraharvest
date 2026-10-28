@@ -12,6 +12,12 @@ name: Adapters
 # provider is a note in the run's summary, not an issue: there is nothing
 # to bump to yet.
 #
+# Alongside, the list-coverage job counts the resource types and the list
+# resources (the types `terraform query` can discover) of the newest
+# release of each provider, and names the list resources no infraharvest
+# lister lists, in the run's summary and the artifact list-coverage. It
+# opens no issue: the counts are for watching, not for acting on.
+#
 # Run on a branch with write set (gh workflow run adapters.yml --ref <branch>
 # -f write=true), it fetches the interface of each version the adapters
 # pin instead, into internal/adapters/testdata/interfaces, and uploads the files as
@@ -99,6 +105,35 @@ jobs:
             gh label create adapter-update --repo "$GITHUB_REPOSITORY" --color 0e8a16 --description "A curated module has a newer release" --force
             gh issue create --repo "$GITHUB_REPOSITORY" --label adapter-update --title "Curated module adapters: newer module releases" --body-file "$RUNNER_TEMP/body.md"
           fi
+
+  list-coverage:
+    if: ${{ !inputs.write }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+          terraform_version: 1.16.6
+      - name: Count the providers' list resources
+        run: go run ./internal/catalogue/cmd/listcoverage -json "$RUNNER_TEMP/list-coverage.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the counts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: list-coverage
+          path: ${{ runner.temp }}/list-coverage.json
+          retention-days: 30
 
   snapshots:
     if: ${{ inputs.write }}

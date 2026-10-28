@@ -84,7 +84,7 @@ type MergeRoot struct {
 // it can't: it has moved or removed blocks, or outputs, which the merged
 // root doesn't carry.
 func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
-	root := envRoot{env: r.Env, tokens: r.Tokens, scope: r.Scope, region: r.Region, group: r.Group, provider: r.Provider, importIDs: map[string]string{}, files: map[string]string{}, arrivals: r.Arrivals}
+	root := envRoot{env: r.Env, tokens: r.Tokens, scope: r.Scope, region: r.Region, group: r.Group, provider: r.Provider, importIDs: map[string]string{}, identities: map[string]map[string]string{}, files: map[string]string{}, arrivals: r.Arrivals}
 	files, err := configFiles(r.Dir)
 	if err != nil {
 		return root, "", err
@@ -111,11 +111,14 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 					locals[n] = attr.Expr
 				}
 			case "import":
-				address, id, ok := importOf(b)
+				address, id, identity, ok := importOf(b)
 				if !ok {
-					return root, fmt.Sprintf("%s: an import block of %s has no literal ID", r.Env, name), nil
+					return root, fmt.Sprintf("%s: an import block of %s has no literal ID or identity", r.Env, name), nil
 				}
 				root.importIDs[address] = id
+				if identity != nil {
+					root.identities[address] = identity
+				}
 			case "terraform":
 				if attr, ok := b.Body.Attributes["required_version"]; ok {
 					if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
@@ -160,22 +163,25 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 }
 
 // importOf returns the address an import block imports into, as
-// addressText writes it, and its ID, where the ID is a literal.
-func importOf(b *hclsyntax.Block) (string, string, bool) {
+// addressText writes it, and its ID, where the ID is a literal, or, for
+// a block that imports by identity, the identity and its ID (see
+// importIDOf).
+func importOf(b *hclsyntax.Block) (address, id string, identity map[string]string, ok bool) {
 	to, ok := b.Body.Attributes["to"]
-	id, hasID := b.Body.Attributes["id"]
-	if !ok || !hasID {
-		return "", "", false
+	if !ok {
+		return "", "", nil, false
 	}
 	traversal, diags := hcl.AbsTraversalForExpr(to.Expr)
 	if diags.HasErrors() {
-		return "", "", false
+		return "", "", nil, false
 	}
-	v, diags := id.Expr.Value(nil)
-	if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
-		return "", "", false
+	if id, ok = hclfile.ImportIDOf(b.Body); !ok {
+		return "", "", nil, false
 	}
-	return addressText(traversal), v.AsString(), true
+	if _, hasID := b.Body.Attributes["id"]; !hasID {
+		identity, _ = hclfile.IdentityOf(b.Body)
+	}
+	return addressText(traversal), id, identity, true
 }
 
 // addressText is an address as Terraform writes it in a plan, such as

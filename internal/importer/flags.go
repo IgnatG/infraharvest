@@ -6,7 +6,11 @@ package importer
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -60,4 +64,32 @@ func checkFilters(options Options) error {
 		}
 	}
 	return nil
+}
+
+// ResolvePolicies returns the --policy directories as absolute paths, so
+// that conftest, which runs in each directory it checks, finds them, and
+// fails when one isn't a directory, or when there are some and conftest,
+// which checks the roots against them, isn't on PATH: an explicit
+// request isn't skipped quietly, as a scanner nobody asked for is.
+func ResolvePolicies(dirs []string) ([]string, error) {
+	if len(dirs) == 0 {
+		return nil, nil
+	}
+	if _, err := exec.LookPath(engine.ConftestBinary); err != nil {
+		return nil, fmt.Errorf("--policy: checking the roots against policies needs %s on PATH (see https://www.conftest.dev/install/): %w", engine.ConftestBinary, err)
+	}
+	resolved := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			return nil, fmt.Errorf("--policy: %w", err)
+		}
+		if info, err := os.Stat(abs); err != nil {
+			return nil, fmt.Errorf("--policy: %w", err)
+		} else if !info.IsDir() {
+			return nil, fmt.Errorf("--policy: %s isn't a directory", dir)
+		}
+		resolved = append(resolved, abs)
+	}
+	return resolved, nil
 }

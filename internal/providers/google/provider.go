@@ -29,6 +29,7 @@ var (
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
 	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
+	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider's name, google, which a provider
@@ -175,14 +176,15 @@ func (p *Provider) Name() string {
 
 // Services returns a new lister for every service: cloud_asset, and those
 // that list through an API of their own what Cloud Asset Inventory
-// doesn't find.
+// doesn't find, and the query service's, which lists through Terraform.
 func (*Provider) Services() map[string]harvest.Lister {
 	return map[string]harvest.Lister{
-		cloudAssetService:   &CloudAssetLister{},
-		iamService:          &IamLister{},
-		cloudSQLService:     &CloudSQLLister{},
-		schedulerJobService: &SchedulerJobsLister{},
-		dnsService:          &DNSRecordSetsLister{},
+		cloudAssetService:    &CloudAssetLister{},
+		iamService:           &IamLister{},
+		cloudSQLService:      &CloudSQLLister{},
+		schedulerJobService:  &SchedulerJobsLister{},
+		dnsService:           &DNSRecordSetsLister{},
+		harvest.QueryService: &harvest.QueryLister{},
 	}
 }
 
@@ -246,7 +248,8 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 
 // Profile describes Google Cloud: an import covers a project; roots go
 // under <out>/google/, and terraform-google-modules are its curated
-// modules, with --beta too; the services may list at once, as each has
+// modules, with --beta too; the query service, which lists the types
+// --query-types names, is listed only when named; the services may list at once, as each has
 // its own lister and API clients, and they share only the rate limiter,
 // which is safe for concurrent use; resources take labels, which the provider's
 // default_labels argument applies to all, and labels starting with goog-
@@ -272,6 +275,8 @@ func (*Provider) Profile() harvest.Profile {
 		},
 		Modules:            providerName,
 		ModulesName:        "terraform-google-modules",
+		OptInServices:      []string{harvest.QueryService},
+		ListedTypes:        listedTypes,
 		ConcurrentListing:  true,
 		DefaultTags:        &harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"},
 		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},
@@ -344,4 +349,28 @@ func (p *Provider) ModuleProviders() map[string]harvest.ModuleProvider {
 	return map[string]harvest.ModuleProvider{
 		"google-beta": {Source: "hashicorp/google-beta", Config: p.providerConfig()},
 	}
+}
+
+// QueryConfig sets no argument of a list block: a list resource lists the
+// project, and the region, of the provider block.
+func (*Provider) QueryConfig() map[string]string {
+	return nil
+}
+
+// InQueryScope keeps, of what Terraform's list resources return, what is
+// in the import's region, by the region, zone or location of its
+// identity, and in the global import what belongs to no region or to a
+// multi-region, as the other listers place them.
+func (p *Provider) InQueryScope(identity map[string]string) bool {
+	place := identity["region"]
+	if zone := identity["zone"]; place == "" && zone != "" {
+		place = zone[:max(strings.LastIndex(zone, "-"), 0)]
+	}
+	if place == "" {
+		place = identity["location"]
+	}
+	if p.region.Name == "" {
+		return !regionName.MatchString(place)
+	}
+	return place == p.region.Name
 }

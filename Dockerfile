@@ -29,9 +29,9 @@ COPY --link --from=terraform /usr/share/doc/terraform/LICENSE.txt /usr/share/doc
 COPY --link --from=tofu /usr/local/bin/tofu /usr/local/bin/tofu
 COPY --link --chown=65532:65532 --from=workdir /work /work
 COPY --link $TARGETPLATFORM/infraharvest /usr/local/bin/infraharvest
-# infraharvest's licence, and the NOTICE and licence of the MPL-2.0 data
-# it embeds.
-COPY --link LICENSE NOTICE LICENSES/MPL-2.0.txt /usr/share/doc/infraharvest/
+# infraharvest's licence, and the NOTICE and licences of the MPL-2.0 and
+# Apache-2.0 data it embeds.
+COPY --link LICENSE NOTICE LICENSES/MPL-2.0.txt LICENSES/Apache-2.0.txt /usr/share/doc/infraharvest/
 # CHECKPOINT_DISABLE: Terraform doesn't call HashiCorp's version-check
 # service on every run.
 ENV HOME=/home/git \

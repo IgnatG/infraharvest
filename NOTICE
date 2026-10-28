@@ -26,3 +26,14 @@ internal/catalogue/schemameta/google.json.gz
 These files are the data's Source Code Form, one resource type to a line,
 gzipped: `gzip -dc <file>` reads one. They are in infraharvest's source at
 the same release, at the paths above.
+
+It also embeds the following file of the Open Policy Agent (OPA), which is
+licensed under the Apache License, version 2.0 (Apache-2.0): see
+LICENSES/Apache-2.0.txt or https://www.apache.org/licenses/LICENSE-2.0.
+It lists OPA's built-in functions, keywords and features, and infraharvest
+gives conftest those of them it lets policies use; the file is unchanged
+and stays under Apache-2.0.
+
+internal/engine/conftest_capabilities.json
+  from OPA 1.21.1 (capabilities/v1.21.1.json), Copyright The OPA Authors
+  source: https://github.com/open-policy-agent/opa/blob/v1.21.1/capabilities/v1.21.1.json

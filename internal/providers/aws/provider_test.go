@@ -34,12 +34,19 @@ func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 }
 
 // Select makes only the lister of the service it names, the one Services
-// has for it, and refuses a name that isn't a service.
+// has for it, and refuses a name that isn't a service. The query
+// service's lister, which asks AWS nothing itself, isn't wrapped.
 func TestSelectMakesTheServicesLister(t *testing.T) {
 	p := &Provider{}
 	for name, want := range p.Services() {
 		if err := p.Select(name, false); err != nil {
 			t.Fatalf("%s: %v", name, err)
+		}
+		if name == harvest.QueryService {
+			if _, ok := p.Current.(*harvest.QueryLister); !ok {
+				t.Errorf("%s: selected %T", name, p.Current)
+			}
+			continue
 		}
 		got, ok := p.Current.(*guardedLister)
 		if !ok || reflect.TypeOf(got.lister) != reflect.TypeOf(want.(*guardedLister).lister) {
@@ -77,6 +84,33 @@ func TestEnvironmentData(t *testing.T) {
 	} {
 		if got := (&Provider{}).Profile().Merge.EnvironmentData(c.account, c.region); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%q, %q: got %v, want %v", c.account, c.region, got, c.want)
+		}
+	}
+}
+
+// What Terraform's list resources return is in a region's import when its
+// identity has a region, and in the global import when it has none.
+func TestInQueryScope(t *testing.T) {
+	t.Parallel()
+	regional := map[string]string{"id": "vol-1", "region": "eu-west-2"}
+	global := map[string]string{"name": "app"}
+	for _, tt := range []struct {
+		region           string
+		regional, global bool
+	}{
+		{"eu-west-2", true, false},
+		{ProfileRegion, true, false},
+		{GlobalPseudoRegion, false, true},
+	} {
+		p := &Provider{region: tt.region}
+		if got := p.InQueryScope(regional); got != tt.regional {
+			t.Errorf("%q: regional %v", tt.region, got)
+		}
+		if got := p.InQueryScope(global); got != tt.global {
+			t.Errorf("%q: global %v", tt.region, got)
+		}
+		if p.QueryConfig() != nil {
+			t.Errorf("%q: config %v", tt.region, p.QueryConfig())
 		}
 	}
 }

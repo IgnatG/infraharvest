@@ -94,7 +94,7 @@ func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true}}
+	w := &rootWriter{m: m, p: m.roots[newest].provider, fileOf: map[*stackResource]string{}, groupFile: map[*forEachGroup]string{}, sectionOf: map[*envVariable]string{}, used: map[string]bool{importIDsVariableName: true, importIdentitiesVariableName: true}}
 	if w.p.Name == "" {
 		return nil, nil, errors.New("the roots name no provider")
 	}
@@ -559,9 +559,9 @@ func (w *rootWriter) dataFile() []byte {
 }
 
 // importsFile writes imports.tf: an import block for each resource of the
-// merged root, whose ID each environment's imports.tfvars gives; for a
-// resource some environments lack, or a forEach, with for_each over what
-// the environment has. It returns nil for none.
+// merged root, whose ID, or identity, each environment's imports.tfvars
+// gives (see stackMerge.importKinds); for a resource some environments
+// lack, or a forEach, with for_each over what the environment has. It returns nil for none.
 func (w *rootWriter) importsFile() ([]byte, error) {
 	return w.importsFileWithout(nil)
 }
@@ -577,13 +577,17 @@ func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, e
 		}
 		return false
 	}
+	kinds, err := w.m.importKinds()
+	if err != nil {
+		return nil, err
+	}
 	type block struct{ address, text string }
 	var blocks []block
 	for _, r := range w.m.resources {
 		if r.resourceType != moduleType {
 			continue
 		}
-		calls, err := moduleImports(r)
+		calls, err := moduleImports(r, kinds)
 		if err != nil {
 			return nil, err
 		}
@@ -596,19 +600,31 @@ func (w *rootWriter) importsFileWithout(skip map[*stackResource]bool) ([]byte, e
 			continue
 		}
 		instance := string(hclwrite.TokensForTraversal(r.instance()).Bytes())
-		id := fmt.Sprintf("var.%s[%s]", importIDsVariableName, string(hclwrite.TokensForValue(cty.StringVal(instance)).Bytes()))
+		kind, err := importKindOf(kinds, r.address(), instance)
+		if err != nil {
+			return nil, err
+		}
+		id := kind.value(string(hclwrite.TokensForValue(cty.StringVal(instance)).Bytes()))
 		if r.deploy == nil {
-			blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nto = %s\nid = %s\n}\n", instance, id)})
+			blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nto = %s\n%s\n}\n", instance, id)})
 			continue
 		}
-		blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nfor_each = [for k in [0] : k if var.%s]\n\nto = %s.%s[each.value]\nid = %s\n}\n", r.deploy.name, r.resourceType, r.label, id)})
+		blocks = append(blocks, block{r.address(), fmt.Sprintf("import {\nfor_each = [for k in [0] : k if var.%s]\n\nto = %s.%s[each.value]\n%s\n}\n", r.deploy.name, r.resourceType, r.label, id)})
 	}
 	for _, g := range w.m.forEach {
 		if !slices.ContainsFunc(g.keys, hasID) {
 			continue
 		}
+		instances := make([]string, len(g.keys))
+		for i, k := range g.keys {
+			instances[i] = string(hclwrite.TokensForTraversal(k.instance()).Bytes())
+		}
+		kind, err := importKindOf(kinds, g.address(), instances...)
+		if err != nil {
+			return nil, err
+		}
 		format := string(hclwrite.TokensForValue(cty.StringVal(g.address() + "[%q]")).Bytes())
-		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = %s\n\nto = %s[each.key]\nid = var.%s[format(%s, each.key)]\n}\n", g.source(), g.address(), importIDsVariableName, format)})
+		blocks = append(blocks, block{g.address(), fmt.Sprintf("import {\nfor_each = %s\n\nto = %s[each.key]\n%s\n}\n", g.source(), g.address(), kind.value("format("+format+", each.key)"))})
 	}
 	if len(blocks) == 0 {
 		return nil, nil
@@ -1085,6 +1101,13 @@ func (w *rootWriter) variablesFile() ([]byte, error) {
 	imports.SetAttributeValue("description", cty.StringVal("The import ID of each resource the environment imports, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
 	imports.SetAttributeRaw("type", hclfile.ParseExpr("map(string)"))
 	imports.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
+	if w.m.importsByIdentity() {
+		body.AppendNewline()
+		identities := body.AppendNewBlock("variable", []string{importIdentitiesVariableName}).Body()
+		identities.SetAttributeValue("description", cty.StringVal("The identity of each resource the environment imports by identity rather than by import ID, by its address: "+importVarsPath("<env>")+" sets it for imports.tf."))
+		identities.SetAttributeRaw("type", hclfile.ParseExpr("map(map(string))"))
+		identities.SetAttributeRaw("default", hclwrite.TokensForObject(nil))
+	}
 	return formatHCL(string(f.Bytes())), nil
 }
 
@@ -1152,16 +1175,28 @@ func listText(tokens hclwrite.Tokens) string {
 }
 
 // importVarsFile writes environment env's imports.tfvars: the import ID
-// of each of its resources, by its address in the merged root.
+// of each of its resources, by its address in the merged root, and,
+// where the merged root imports any by identity, the identity of each
+// it imports so instead.
 func (w *rootWriter) importVarsFile(env int) []byte {
-	ids := w.m.imports(env)
+	ids, identities := w.m.imports(env), w.m.identities(env)
 	attrs := make([]hclwrite.ObjectAttrTokens, 0, len(ids))
 	for _, address := range slices.Sorted(maps.Keys(ids)) {
+		if identities[address] != nil {
+			continue
+		}
 		attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(address)), Value: hclwrite.TokensForValue(cty.StringVal(ids[address]))})
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# The import ID of each resource of the %s environment, for imports.tf on\n# its first apply. Delete this file with imports.tf after it.\n", w.m.envs[env])
 	fmt.Fprintf(&b, "%s = %s\n", importIDsVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
+	if w.m.importsByIdentity() {
+		attrs := make([]hclwrite.ObjectAttrTokens, 0, len(identities))
+		for _, address := range slices.Sorted(maps.Keys(identities)) {
+			attrs = append(attrs, hclwrite.ObjectAttrTokens{Name: hclwrite.TokensForValue(cty.StringVal(address)), Value: hclwrite.TokensForValue(identityValue(identities[address]))})
+		}
+		fmt.Fprintf(&b, "%s = %s\n", importIdentitiesVariableName, string(hclwrite.TokensForObject(attrs).Bytes()))
+	}
 	return formatHCL(b.String())
 }
 

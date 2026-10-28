@@ -280,9 +280,21 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "profile",
         "type": "string",
         "default": "default",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -532,6 +544,18 @@
         "name": "parallel",
         "type": "int",
         "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -790,7 +814,19 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true
@@ -1197,9 +1233,21 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "profile",
         "type": "string",
         "default": "default",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -1449,6 +1497,18 @@
         "name": "parallel",
         "type": "int",
         "default": "1",
+        "persistent": true
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": true
       },
       {
@@ -1707,7 +1767,19 @@
         "persistent": true
       },
       {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
         "name": "projects",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": true
+      },
+      {
+        "name": "query-types",
         "type": "stringSlice",
         "default": "[]",
         "persistent": true
@@ -1902,6 +1974,12 @@
         "name": "format",
         "type": "string",
         "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "policy",
+        "type": "stringSlice",
+        "default": "[]",
         "persistent": false
       },
       {

@@ -304,7 +304,7 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	p := &Provider{}
 	first, second := p.Services(), p.Services()
-	if len(first) != 13 {
+	if len(first) != 14 {
 		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
 	}
 	for name, g := range first {
@@ -430,5 +430,25 @@ func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 	}
 	if want := []string{"/subscriptions/sub-graph-a/resourceGroups", "/subscriptions/sub-graph-a/providers/Microsoft.Network/virtualNetworks"}; !slices.Equal(resourceManager.got, want) {
 		t.Errorf("through the subscription's limiter: %v, want %v", resourceManager.got, want)
+	}
+}
+
+// What Terraform's list resources return is in a --resource-group import
+// when its identity names the group, in either case, which the list block
+// narrows to; the subscription's import takes it all.
+func TestInQueryScope(t *testing.T) {
+	t.Parallel()
+	inGroup := map[string]string{"name": "vault", "resource_group_name": "APP", "subscription_id": "s"}
+	other := map[string]string{"name": "vault", "resource_group_name": "data", "subscription_id": "s"}
+	all := &Provider{}
+	if !all.InQueryScope(inGroup) || !all.InQueryScope(other) || all.QueryConfig() != nil {
+		t.Error("the subscription's import doesn't take everything")
+	}
+	group := &Provider{resourceGroup: "app"}
+	if !group.InQueryScope(inGroup) || group.InQueryScope(other) {
+		t.Error("the resource group's import doesn't take only its own")
+	}
+	if got := group.QueryConfig(); !maps.Equal(got, map[string]string{"resource_group_name": "app"}) {
+		t.Errorf("config %v", got)
 	}
 }

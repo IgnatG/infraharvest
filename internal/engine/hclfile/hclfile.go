@@ -21,8 +21,10 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // File is a configuration file: a syntax tree with source positions,
@@ -181,7 +183,7 @@ func (f *File) ResourceAt(line int) string {
 // Import is a top-level import block in both trees.
 type Import struct {
 	To     string // address of the resource it imports into
-	ID     string // the import ID, if a literal
+	ID     string // the import ID, if a literal (see ImportIDOf)
 	Write  *hclwrite.Block
 	Syntax *hclsyntax.Block
 }
@@ -206,15 +208,71 @@ func (f *File) Imports() []Import {
 		if !ok {
 			continue
 		}
-		id := ""
-		if idAttr, ok := b.Body.Attributes["id"]; ok {
-			if v, diags := idAttr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String && v.IsKnown() && !v.IsNull() {
-				id = v.AsString()
-			}
-		}
+		id, _ := ImportIDOf(b.Body)
 		imports = append(imports, Import{To: traversal.RootName() + "." + step.Name, ID: id, Write: blocks[i], Syntax: b})
 	}
 	return imports
+}
+
+// ImportIDOf returns the import ID of an import block's body: its id, if
+// a literal, or, for a block that imports by identity, the identity's ID
+// (see tftypes.IdentityID and IdentityOf). The engine tells a resource
+// imported by identity by that ID, as the importer does (see
+// Import.Identity).
+func ImportIDOf(body *hclsyntax.Body) (string, bool) {
+	if attr, ok := body.Attributes["id"]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || v.Type() != cty.String || !v.IsKnown() || v.IsNull() {
+			return "", false
+		}
+		return v.AsString(), true
+	}
+	identity, ok := IdentityOf(body)
+	if !ok {
+		return "", false
+	}
+	return tftypes.IdentityID(identity), true
+}
+
+// IdentityOf returns the identity an import block's body imports by, as
+// strings (see LiteralIdentity), if it is a literal, as ImportsFile
+// writes it; false for a block that imports by ID, or by an identity it
+// can't read.
+func IdentityOf(body *hclsyntax.Body) (map[string]string, bool) {
+	attr, ok := body.Attributes["identity"]
+	if !ok {
+		return nil, false
+	}
+	v, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() {
+		return nil, false
+	}
+	return LiteralIdentity(v)
+}
+
+// LiteralIdentity returns an identity, a value, as strings (see
+// tftypes.IdentityValues), if it is an object or map of known strings,
+// numbers and bools, with at least one that isn't null.
+func LiteralIdentity(v cty.Value) (map[string]string, bool) {
+	if !v.IsWhollyKnown() || v.IsNull() || (!v.Type().IsObjectType() && !v.Type().IsMapType()) {
+		return nil, false
+	}
+	identity := map[string]string{}
+	for it := v.ElementIterator(); it.Next(); {
+		k, e := it.Element()
+		if e.IsNull() {
+			continue
+		}
+		s, err := convert.Convert(e, cty.String)
+		if err != nil {
+			return nil, false
+		}
+		identity[k.AsString()] = s.AsString()
+	}
+	if len(identity) == 0 {
+		return nil, false
+	}
+	return identity, true
 }
 
 // ImportAt returns the address the import block spanning line imports into.

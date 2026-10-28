@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -149,6 +150,17 @@ type callContext struct {
 	// importID returns the ID Terraform imports a resource by (see
 	// importIDFunc).
 	importID func(harvest.Resource) (string, bool)
+	// query returns how the query service lists through a provider of its
+	// own, given what the call's other services listed (see Run.query);
+	// nil when the call doesn't list it.
+	query func(provider harvest.Provider, listedByOthers []harvest.Resource) harvest.Query
+	// root is the files every root of the call starts with, which pin
+	// the provider, resolved once (see Run.callRoot).
+	root struct {
+		once  sync.Once
+		files *rootFiles
+		err   error
+	}
 }
 
 // prepareCall initialises provider with args, and works out what the
@@ -181,6 +193,11 @@ func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, option
 	c.scope = discoveryScope(ctx, provider)
 	r.scope = c.scope
 	c.importID = importIDFunc(cat)
+	if usesQuery(options) {
+		c.query = func(provider harvest.Provider, listedByOthers []harvest.Resource) harvest.Query {
+			return r.query(c, provider, listedByOthers)
+		}
+	}
 	return c, nil
 }
 
@@ -295,10 +312,11 @@ type toolchain struct {
 // the modules its --modules mode (see modulesMode) may call for the
 // selected resources, the organisation's own first, and renders the files
 // every root starts with, which pin the provider to a release those
-// modules accept (see rootConfig).
+// modules accept (see rootConfig), unless the query service pinned its
+// listing with them already (see Run.callRoot).
 func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callContext, selected map[string][]harvest.Resource) (*toolchain, error) {
 	options := c.options
-	t := &toolchain{binary: engineBinary(options.Engine)}
+	t := &toolchain{binary: engineBinaryOf(options)}
 	var err error
 	if t.cacheDir, err = infraharvestCacheDir(); err != nil {
 		return nil, err
@@ -316,12 +334,12 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		if mode == ModulesLatestUntested {
 			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
 		}
-		resolved, t.newer, constraints = resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Profile().Modules), selected), engineProvider(provider).Source, mode == ModulesLatestUntested)
+		resolved, t.newer, constraints = registryModules(ctx, provider, mode, selected)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
 		resolved = append(own, resolved...)
 	}
-	if t.root, err = r.tools.root(ctx, t.binary.Registry, t.execPath, engineProvider(provider), constraints); err != nil {
+	if t.root, err = r.callRoot(ctx, c, t.binary.Registry, t.execPath, engineProvider(provider), constraints); err != nil {
 		return nil, err
 	}
 	for _, m := range t.root.refused {
@@ -329,6 +347,32 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 	}
 	t.adapters, t.modulesDir = moduleOptions(mode, options.Out, withoutModules(resolved, t.root.refused))
 	return t, nil
+}
+
+// registryModules resolves the curated modules of provider, from the
+// registry, that --modules mode may call for the resources of byService
+// (see resolveAdapters): the adapters, those called below their newest
+// release, and the provider releases each accepts. A mode that calls no
+// module from the registry has none.
+func registryModules(ctx context.Context, provider harvest.Provider, mode string, byService map[string][]harvest.Resource) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
+	if !modulesFromRegistry(mode) {
+		return nil, nil, nil
+	}
+	return resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Profile().Modules), byService), engineProvider(provider).Source, mode == ModulesLatestUntested)
+}
+
+// callRoot renders, once for the call c, the files every root it
+// generates starts with, which pin the provider p to a release the
+// modules' constraints accept (see rootConfig). The query service lists
+// with that pin too, so that Terraform lists with the provider release
+// the roots import with: it resolves the pin first, from the modules of
+// what the call's other services listed, and the toolchain then takes
+// it as it is.
+func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath string, p engine.Provider, constraints []moduleConstraint) (*rootFiles, error) {
+	c.root.once.Do(func() {
+		c.root.files, c.root.err = r.tools.root(ctx, registry, execPath, p, constraints)
+	})
+	return c.root.files, c.root.err
 }
 
 // engineOptions configures engine.Generate for the roots of the call c, in
@@ -340,7 +384,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 // of l leaves out, or keeps although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
 	opts := catalogueEngineOptions(c.cat, t.root.version)
-	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(), true, true
+	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, engine.DefaultScanners(c.options.Policies), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout
 	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID)
@@ -410,6 +454,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 	if len(layout.envNames) > 0 {
 		envOf = configuredEnvOf(r.environments, layout.envNames, resources.byService, listed.tags, resources.parents, c.importID)
 	}
+	r.warnUnreadEnvTags(provider, layout, options.DefaultEnv, resources.byService[harvest.QueryService])
 	dirOf := layoutDirs(layout.root, options.Out, providerDir(provider), envOf)
 	p := &placement{}
 	if len(layout.envNames) > 0 {
@@ -429,7 +474,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 		importID:   c.importID,
 		nameOf:     resourceNames(profile.NameTag, listed, resources.byService),
 		fileOf: func(service string, res harvest.Resource) string {
-			return configFile(profile.Layout, service, res.Address.Type, c.cat)
+			return configFile(profile, service, res.Address.Type, c.cat)
 		},
 	}
 	p.byDir, p.skipped = importsByDir(blocks, resources.byService, dirOf)

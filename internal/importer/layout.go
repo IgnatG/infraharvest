@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,14 +18,19 @@ import (
 var camelWord = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
 // configFile names the file of a root that a resource listed by service
-// goes in (see engine.Import.File): network.tf for the network, else the
-// service's, such as s3.tf or scheduler_jobs.tf. For a service that
-// lists through an inventory API (see harvest.Layout.InventoryServices),
-// the catalogue's service for the type counts, or else the type's family,
-// such as storage.tf for every azurerm_storage_* type, or else the type
-// itself, such as backend_service.tf.
-func configFile(layout harvest.Layout, service, typ string, cat *catalogue.Catalogue) string {
-	if slices.Contains(layout.InventoryServices, service) {
+// goes in (see engine.Import.File), as the provider's profile lays out
+// its resources: network.tf for the network, else the service's, such as
+// s3.tf or scheduler_jobs.tf. For a service whose name says nothing of a
+// resource, one that lists through an inventory API (see
+// harvest.Layout.InventoryServices) or the query service, the
+// catalogue's service for the type counts, or else the type's family,
+// such as storage.tf for every azurerm_storage_* type; for the query
+// service, which lists the types no other service lists, the service
+// that lists the most types of the family it is named after (see
+// listedFamily); or else the type itself, such as backend_service.tf.
+func configFile(profile harvest.Profile, service, typ string, cat *catalogue.Catalogue) string {
+	layout := profile.Layout
+	if query := service == harvest.QueryService; query || slices.Contains(layout.InventoryServices, service) {
 		inventory := service
 		service = ""
 		if cat != nil {
@@ -50,13 +56,49 @@ func configFile(layout harvest.Layout, service, typ string, cat *catalogue.Catal
 			if family != "" {
 				return layout.TypeFamilies[family] + ".tf"
 			}
-			return name + ".tf"
+			if query {
+				service = listedFamily(profile, typ)
+			}
+			if service == "" {
+				return name + ".tf"
+			}
 		}
 	}
 	if slices.Contains(layout.NetworkServices, service) {
 		return "network.tf"
 	}
 	return strings.ToLower(camelWord.ReplaceAllString(service, "${1}_${2}")) + ".tf"
+}
+
+// listedFamily returns the service that lists the most of the types of
+// the family typ is named after, by the longest such family that one of
+// the provider's services lists types of (see harvest.Profile.ListedTypes),
+// the first by name of those that list as many, and not counting the
+// inventory services, whose names say nothing of a resource: s3 for
+// aws_s3_bucket_inventory, as it lists aws_s3_bucket. It returns "" for a
+// type of no listed family.
+func listedFamily(profile harvest.Profile, typ string) string {
+	prefix, name, _ := strings.Cut(typ, "_")
+	words := strings.Split(name, "_")
+	for n := len(words); n > 0; n-- {
+		family := prefix + "_" + strings.Join(words[:n], "_")
+		count := map[string]int{}
+		for t, service := range profile.ListedTypes {
+			if namedAfter(t, family) && !slices.Contains(profile.Layout.InventoryServices, service) {
+				count[service]++
+			}
+		}
+		best := ""
+		for _, service := range slices.Sorted(maps.Keys(count)) {
+			if count[service] > count[best] {
+				best = service
+			}
+		}
+		if best != "" {
+			return best
+		}
+	}
+	return ""
 }
 
 // namedAfter reports whether a type's name, without its prefix, is prefix

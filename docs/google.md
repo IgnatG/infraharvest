@@ -67,6 +67,8 @@ The default selection leaves out the grants Google Cloud makes itself: a service
 | `google_monitoring_group` | Cloud Asset Inventory has no asset type for monitoring groups |
 | `google_compute_managed_ssl_certificate`, `google_compute_region_ssl_certificate` | Google-managed and self-managed certificates share one asset type and name pattern, so the catalogue can't tell them apart |
 
+A type no service lists, and that has a list resource in the Google provider, can be listed through Terraform with the `query` service: `--services=query --query-types=google_compute_network_firewall_policy,google_project_service` (see [Listing through Terraform](usage.md#listing-through-terraform)). A region's import takes what is in the region or its zones, and the global import what belongs to no region or to a multi-region.
+
 ## Cloud Asset Inventory
 
 The `cloud_asset` service lists a project through [Cloud Asset Inventory](https://cloud.google.com/asset-inventory/docs/overview) instead of each service's API: a search for the asset types the catalogue's `inventory` entries map to Terraform types (see [Inventory types](catalogue.md#inventory-types)). The project is searched once per run: a region's import takes the resources in the region and its zones, and the import of `global` takes the rest: global resources, and those in a multi-region such as a bucket in `US`. A resource the catalogue maps to no type, or to several, is logged and left out, as is one being deleted.

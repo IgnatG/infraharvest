@@ -49,6 +49,16 @@ func (s *ScannerSlots) channel() chan struct{} {
 // Finding is one thing a scanner reports.
 type Finding struct {
 	Rule, Severity, Location, Message string
+	// Resource is the address, in the directory scanned, of the resource
+	// or module call the finding is about, such as aws_s3_bucket.logs or
+	// module.logs.aws_s3_bucket.this: as the scanner names it, or else
+	// the block at the place it gives (see locateFindings). A finding
+	// about no resource, such as one about a variable, has none.
+	Resource string `json:",omitempty"`
+	// Scanner is the name of the scanner that reported it.
+	Scanner string `json:",omitempty"`
+	// at is where the scanner found it, for locateFindings.
+	at position
 }
 
 func (f Finding) String() string {
@@ -77,8 +87,11 @@ type Scanner struct {
 }
 
 // DefaultScanners returns the scanners installed on PATH: tflint (blocking),
-// trivy and checkov.
-func DefaultScanners() []Scanner {
+// trivy and checkov; and, with policies, conftest, which checks the
+// configuration against the user's OPA policies in those directories,
+// absolute paths. The caller checks conftest is installed when there are
+// policies: asked for, it is never left out quietly.
+func DefaultScanners(policies []string) []Scanner {
 	var scanners []Scanner
 	if path, err := exec.LookPath("tflint"); err == nil {
 		scanners = append(scanners, Scanner{Name: "tflint", Blocking: true, Run: func(ctx context.Context, dir string) ([]Finding, error) {
@@ -86,7 +99,7 @@ func DefaultScanners() []Scanner {
 			// ~/.tflint.hcl, whose plugins would run and whose rules would
 			// change what fails the check: the bundled Terraform rules, at
 			// their recommended preset.
-			config, err := tempFile("infraharvest-tflint-*.hcl", tflintConfig)
+			config, err := writeTemp("infraharvest-tflint-*.hcl", []byte(tflintConfig))
 			if err != nil {
 				return nil, err
 			}
@@ -104,7 +117,7 @@ func DefaultScanners() []Scanner {
 			// not the trivy.yaml and .trivyignore of the directory it
 			// scans, which it runs in: those could change what it checks,
 			// or hide what it finds.
-			empty, err := tempFile("infraharvest-trivy-*.yaml", "")
+			empty, err := writeTemp("infraharvest-trivy-*.yaml", nil)
 			if err != nil {
 				return nil, err
 			}
@@ -132,17 +145,68 @@ func DefaultScanners() []Scanner {
 			return parseCheckov(out)
 		}})
 	}
+	if path, err := exec.LookPath(ConftestBinary); err == nil && len(policies) > 0 {
+		scanners = append(scanners, conftestScanner(path, policies))
+	}
 	return scanners
 }
 
-// tempFile writes content to a new temporary file named after pattern,
-// as os.CreateTemp names it, and returns its name.
-func tempFile(pattern, content string) (string, error) {
+// ConftestBinary is the scanner that checks configuration against OPA
+// policies.
+const ConftestBinary = "conftest"
+
+// conftestScanner returns the scanner that runs conftest, at path, with
+// the policies in the directories policies, on the .tf files of the
+// directory it scans, read with its HCL2 parser, in every namespace the
+// policies have. Its findings are listed, never blocking, as trivy's are:
+// a policy says what the infrastructure should be, which the
+// configuration mirrors as it is. The policies are local directories
+// only, and nothing is fetched: no --update, which downloads policies
+// before the test. They run without the built-in functions that reach
+// the network or read files (see deniedBuiltins), so that a policy can't
+// send the configuration anywhere, or read what conftest wasn't given.
+func conftestScanner(path string, policies []string) Scanner {
+	return Scanner{Name: ConftestBinary, Run: func(ctx context.Context, dir string) ([]Finding, error) {
+		files, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+		if err != nil || len(files) == 0 {
+			return nil, err
+		}
+		content, err := conftestCapabilities()
+		if err != nil {
+			return nil, fmt.Errorf("OPA capabilities: %w", err)
+		}
+		capabilities, err := writeTemp("infraharvest-opa-capabilities-*.json", content)
+		if err != nil {
+			return nil, err
+		}
+		defer os.Remove(capabilities)
+		args := []string{"test", "--parser=hcl2", "--all-namespaces", "--output=json", "--no-color", "--no-fail", "--capabilities=" + capabilities}
+		for _, p := range policies {
+			args = append(args, "--policy="+p)
+		}
+		// Named relative to dir, where it runs, so that findings name the
+		// file as the other scanners do.
+		args = append(args, "--")
+		for _, f := range files {
+			args = append(args, filepath.Base(f))
+		}
+		out, err := runTool(ctx, dir, path, args...)
+		if err != nil {
+			return nil, err
+		}
+		return parseConftest(out)
+	}}
+}
+
+// writeTemp writes content to a new temporary file, named after pattern
+// as os.CreateTemp names it, and returns its path, for the caller to
+// remove.
+func writeTemp(pattern string, content []byte) (string, error) {
 	f, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
 	}
-	_, werr := f.WriteString(content)
+	_, werr := f.Write(content)
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
@@ -219,7 +283,9 @@ func scannerEnv(environ []string) []string {
 // runScanners runs scanners on dir, at the same time, as they only read
 // it, each in one of slots (nil gives the call slots of its own), and
 // reports them in their order. Blocking scanners' findings at warning
-// level or above fail the check; the others' are listed. With no scanner
+// level or above fail the check; the others' are listed, up to
+// maxReportedFindings each, and the check keeps them all, with the
+// resource each is about (see Check.Findings). With no scanner
 // installed, the check is skipped.
 func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *ScannerSlots) Check {
 	check := Check{Name: CheckScanners, Passed: true}
@@ -264,7 +330,12 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *Sca
 			check.Details = append(check.Details, fmt.Sprintf("%s couldn't run: %v", s.Name, err))
 			continue
 		}
+		locateFindings(dir, findings)
+		for i := range findings {
+			findings[i].Scanner = s.Name
+		}
 		sort.Slice(findings, func(i, j int) bool { return findings[i].String() < findings[j].String() })
+		check.Findings = append(check.Findings, findings...)
 		var blocking []Finding
 		if s.Blocking {
 			for _, f := range findings {
@@ -320,7 +391,8 @@ func parseTflint(out []byte) ([]Finding, error) {
 	}
 	var findings []Finding
 	for _, i := range result.Issues {
-		findings = append(findings, Finding{Rule: i.Rule.Name, Severity: i.Rule.Severity, Location: fmt.Sprintf("%s:%d", i.Range.Filename, i.Range.Start.Line), Message: i.Message})
+		findings = append(findings, Finding{Rule: i.Rule.Name, Severity: i.Rule.Severity, Location: fmt.Sprintf("%s:%d", i.Range.Filename, i.Range.Start.Line), Message: i.Message,
+			at: position{file: filepath.ToSlash(i.Range.Filename), line: i.Range.Start.Line}})
 	}
 	for _, e := range result.Errors {
 		findings = append(findings, Finding{Rule: "error", Severity: "error", Message: e.Message})
@@ -328,15 +400,23 @@ func parseTflint(out []byte) ([]Finding, error) {
 	return findings, nil
 }
 
+// parseTrivy reads trivy's report: its failed checks, each about the
+// resource its cause names, which, for a resource in a module call, is
+// the call alone, at the line of the module's file the resource is at
+// (see locateFindings).
 func parseTrivy(out []byte) ([]Finding, error) {
 	var result struct {
 		Results []struct {
 			Target            string `json:"Target"`
 			Misconfigurations []struct {
-				ID       string `json:"ID"`
-				Title    string `json:"Title"`
-				Severity string `json:"Severity"`
-				Status   string `json:"Status"`
+				ID            string `json:"ID"`
+				Title         string `json:"Title"`
+				Severity      string `json:"Severity"`
+				Status        string `json:"Status"`
+				CauseMetadata struct {
+					Resource  string `json:"Resource"`
+					StartLine int    `json:"StartLine"`
+				} `json:"CauseMetadata"`
 			} `json:"Misconfigurations"`
 		} `json:"Results"`
 	}
@@ -347,7 +427,8 @@ func parseTrivy(out []byte) ([]Finding, error) {
 	for _, r := range result.Results {
 		for _, m := range r.Misconfigurations {
 			if m.Status == "FAIL" {
-				findings = append(findings, Finding{Rule: m.ID, Severity: m.Severity, Location: r.Target, Message: m.Title})
+				findings = append(findings, Finding{Rule: m.ID, Severity: m.Severity, Location: r.Target, Message: m.Title,
+					Resource: addressOf(m.CauseMetadata.Resource), at: position{file: filepath.ToSlash(r.Target), line: m.CauseMetadata.StartLine}})
 			}
 		}
 	}
@@ -355,7 +436,8 @@ func parseTrivy(out []byte) ([]Finding, error) {
 }
 
 // parseCheckov reads checkov's report: one object, or a list with one per
-// framework.
+// framework. A failed check names the resource it is about, in module
+// calls or not; its secrets scan's checks name none (see addressOf).
 func parseCheckov(out []byte) ([]Finding, error) {
 	type report struct {
 		Results struct {
@@ -365,6 +447,7 @@ func parseCheckov(out []byte) ([]Finding, error) {
 				Severity  string `json:"severity"`
 				FilePath  string `json:"file_path"`
 				Lines     []int  `json:"file_line_range"`
+				Resource  string `json:"resource"`
 			} `json:"failed_checks"`
 		} `json:"results"`
 	}
@@ -383,11 +466,54 @@ func parseCheckov(out []byte) ([]Finding, error) {
 	var findings []Finding
 	for _, r := range reports {
 		for _, c := range r.Results.FailedChecks {
-			location := strings.TrimPrefix(c.FilePath, "/")
+			file := strings.TrimPrefix(c.FilePath, "/")
+			location, at := file, position{file: file}
 			if len(c.Lines) > 0 {
 				location = fmt.Sprintf("%s:%d", location, c.Lines[0])
+				at.line = c.Lines[0]
 			}
-			findings = append(findings, Finding{Rule: c.CheckID, Severity: c.Severity, Location: location, Message: c.CheckName})
+			findings = append(findings, Finding{Rule: c.CheckID, Severity: c.Severity, Location: location, Message: c.CheckName, Resource: addressOf(c.Resource), at: at})
+		}
+	}
+	return findings, nil
+}
+
+// parseConftest reads conftest's report: a result per file and namespace,
+// whose failures (deny rules) and warnings (warn rules) are findings, of
+// the namespace's rule, at the file, saying the policy's message. A rule
+// that returns an object, such as {"msg": ..., "resource":
+// "aws_s3_bucket.logs"}, has its keys besides msg in the result's
+// metadata: its resource is the address the finding is about; else the
+// address the message starts with, if any, is. conftest gives no line.
+func parseConftest(out []byte) ([]Finding, error) {
+	type result struct {
+		Msg      string         `json:"msg"`
+		Metadata map[string]any `json:"metadata"`
+	}
+	about := func(r result) string {
+		if resource, ok := r.Metadata["resource"].(string); ok {
+			if address := addressOf(strings.TrimSpace(resource)); address != "" {
+				return address
+			}
+		}
+		return messageAddress(r.Msg)
+	}
+	var results []struct {
+		Filename  string   `json:"filename"`
+		Namespace string   `json:"namespace"`
+		Warnings  []result `json:"warnings"`
+		Failures  []result `json:"failures"`
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		return nil, fmt.Errorf("conftest output: %w", err)
+	}
+	var findings []Finding
+	for _, r := range results {
+		for _, f := range r.Failures {
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "failure", Location: r.Filename, Message: f.Msg, Resource: about(f)})
+		}
+		for _, w := range r.Warnings {
+			findings = append(findings, Finding{Rule: r.Namespace, Severity: "warning", Location: r.Filename, Message: w.Msg, Resource: about(w)})
 		}
 	}
 	return findings, nil

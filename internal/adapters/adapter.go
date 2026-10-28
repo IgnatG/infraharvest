@@ -136,6 +136,14 @@ type Import struct {
 	// ID the resource's starts with, and Suffix the rest of it, such as
 	// the route table's and _0.0.0.0/0 for a route.
 	Of, Suffix string
+	// Identity is the resource's identity, for where Of is imported by
+	// its identity rather than by an import ID (see Terraform's list
+	// resources): each attribute's value, where {name} stands for the
+	// attribute name of Of's identity, such as {id} for a route's
+	// route_table_id. An attribute whose {name} Of's identity doesn't
+	// have, such as an unset region, is left out. Nil where the resource
+	// can't be imported by identity.
+	Identity map[string]string
 }
 
 // Argument is a module call argument.

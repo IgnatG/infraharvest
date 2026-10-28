@@ -37,6 +37,7 @@ var (
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
 	_ harvest.ProviderWithUnwantedTypes   = (*Provider)(nil)
+	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider the generated configuration uses,
@@ -72,6 +73,7 @@ var services = map[string]func() harvest.Lister{
 	"resource_group":                       func() harvest.Lister { return &ResourceGroupLister{} },
 	"subnet":                               func() harvest.Lister { return &SubnetLister{} },
 	"virtual_network":                      func() harvest.Lister { return &VirtualNetworkLister{} },
+	harvest.QueryService:                   func() harvest.Lister { return &harvest.QueryLister{} },
 }
 
 // Provider lists one Azure subscription, or one resource group in it
@@ -390,12 +392,29 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 	return p.subscriptionID, region, nil
 }
 
+// QueryConfig narrows a list block to --resource-group, where its list
+// resource takes one: the subscription is the provider block's.
+func (p *Provider) QueryConfig() map[string]string {
+	if p.resourceGroup == "" {
+		return nil
+	}
+	return map[string]string{"resource_group_name": p.resourceGroup}
+}
+
+// InQueryScope keeps, of what Terraform's list resources return, what is
+// in --resource-group, by the resource group of its identity, in either
+// case, as Azure keeps no one case of a name; everything without it.
+func (p *Provider) InQueryScope(identity map[string]string) bool {
+	return p.resourceGroup == "" || strings.EqualFold(identity["resource_group_name"], p.resourceGroup)
+}
+
 // Profile describes Azure: an import covers a subscription, whose ID is
 // a GUID, in either case; * leaves out the services that list what
 // resource_graph lists too (see resourceManagerServices), and
 // diagnostic_setting, which takes a request per resource (see
 // DiagnosticSettingLister) and lists after the others, asking only the
-// resources they found for their diagnostic settings; Azure Verified
+// resources they found for their diagnostic settings, and the query
+// service, which lists the types --query-types names; Azure Verified
 // Modules are its curated modules; roots go under <out>/azure/, not
 // azurerm; the services of a subscription may list at once, as each has
 // its own lister and what they share, the credential and the
@@ -417,7 +436,8 @@ func (*Provider) Profile() harvest.Profile {
 		},
 		Modules:           commandName,
 		ModulesName:       "Azure Verified Modules",
-		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService),
+		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService, harvest.QueryService),
+		ListedTypes:       listedTypes,
 		DependentServices: []string{diagnosticSettingService},
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},

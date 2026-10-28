@@ -13,9 +13,14 @@ type Address struct {
 // found, normally the import ID, though the catalogue may derive another.
 // Attributes are flattened the way Terraform flattens state (tags.Name,
 // labels.env, tags.%), for filters and for mapping import IDs.
+//
+// Identity, if set, is the resource identity Terraform imports the
+// resource by instead of an import ID, as Terraform's list resources
+// return it (see RecordIdentity); ID is then the identity's ID.
 type Observation struct {
 	ID         string            `json:"id"`
 	Attributes map[string]string `json:"attributes"`
+	Identity   map[string]string `json:"identity,omitempty"`
 }
 
 // Resource is one resource a lister listed. RawName is the name as listed,

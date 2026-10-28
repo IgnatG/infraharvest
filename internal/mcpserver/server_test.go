@@ -4,6 +4,7 @@
 package mcpserver
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1361,5 +1362,96 @@ func TestScopeHasEveryDeclaredFlag(t *testing.T) {
 				t.Errorf("%s declares --%s, which no field of Scope with a scope tag sets", profile.Command, flag)
 			}
 		}
+	}
+}
+
+// Query types go to --query-types, comma-separated, and are named like
+// resource types: anything else, which the confirmation would name, is
+// rejected before anything runs.
+func TestQueryTypes(t *testing.T) {
+	needProviders(t, "aws")
+	scope := Scope{Provider: "aws", Services: []string{"query"}, QueryTypes: []string{"aws_flow_log", "aws_dsql_cluster"}}
+	want := []string{"discover", "aws", "--services=query", "--query-types=aws_flow_log,aws_dsql_cluster"}
+	if args, err := compiled.commandArgs("discover", scope, scope); err != nil || !slices.Equal(args, want) {
+		t.Errorf("commandArgs: got %v, %v, want %v", args, err, want)
+	}
+	for _, typ := range []string{"aws_flow_log,aws_vpc", "--all", "AWS_VPC", "aws vpc", ""} {
+		scope := Scope{Provider: "aws", Services: []string{"query"}, QueryTypes: []string{typ}}
+		if _, err := compiled.commandArgs("discover", scope, scope); err == nil || !strings.Contains(err.Error(), "query_types") {
+			t.Errorf("query type %q: got %v, want it rejected", typ, err)
+		}
+	}
+}
+
+// The user confirms an import seeing the types it lists through
+// Terraform's list resources.
+func TestImportConfirmsTheQueryTypes(t *testing.T) {
+	needProviders(t, "aws")
+	runner := &fakeRunner{}
+	var asked string
+	dir := t.TempDir()
+	session := connect(t, runner, dir, func(_ context.Context, req *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+		asked = req.Params.Message
+		return &mcp.ElicitResult{Action: "decline"}, nil
+	})
+	path := filepath.Join(dir, "selection.yaml")
+	if err := writeSelection(path); err != nil {
+		t.Fatal(err)
+	}
+	args := importArgs(path, filepath.Join(dir, "generated"))
+	args["services"] = []string{"vpc", "query"}
+	args["query_types"] = []string{"aws_flow_log"}
+
+	call(t, session, "import", args)
+
+	if want := "(vpc, query), listing aws_flow_log through Terraform's list resources"; !strings.Contains(asked, want) {
+		t.Errorf("confirmation %q misses %q", asked, want)
+	}
+	if len(runner.checked) == 0 || !slices.Contains(runner.checked[0], "--query-types=aws_flow_log") {
+		t.Errorf("checked %v, want --query-types=aws_flow_log", runner.checked)
+	}
+}
+
+// Query types with OpenTofu are refused before anything runs or the user
+// is asked, as the command refuses them, whether the parameters or the
+// configuration file set the engine.
+func TestQueryTypesRefusedWithTofu(t *testing.T) {
+	needProviders(t, "aws")
+	for name, tc := range map[string]struct {
+		tool, config string
+		engine       string
+	}{
+		"import's engine":    {tool: "import", engine: "tofu"},
+		"import's config":    {tool: "import", config: "version: 1\nsettings:\n  engine: tofu\n"},
+		"discover's config":  {tool: "discover", config: "version: 1\nproviders:\n  aws:\n    engine: tofu\n"},
+		"the config's types": {tool: "import", engine: "tofu", config: "version: 1\nsettings:\n  query-types: [aws_flow_log]\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir, tools := configFixture(t, cmp.Or(tc.config, "version: 1\n"))
+			args := maps.Clone(tools[tc.tool])
+			if tc.config == "" {
+				delete(args, "config")
+			}
+			args["services"] = []string{"query"}
+			if !strings.Contains(tc.config, "query-types") {
+				args["query_types"] = []string{"aws_flow_log"}
+			}
+			if tc.engine != "" {
+				args["engine"] = tc.engine
+			}
+			runner := &fakeRunner{}
+			asked := false
+			session := connect(t, runner, dir, func(context.Context, *mcp.ElicitRequest) (*mcp.ElicitResult, error) {
+				asked = true
+				return &mcp.ElicitResult{Action: "accept"}, nil
+			})
+			res, text := call(t, session, tc.tool, args)
+			if !res.IsError || !strings.Contains(text, "OpenTofu doesn't have") {
+				t.Errorf("got %s, want it refused", text)
+			}
+			if asked || len(runner.runs) != 0 || len(runner.checked) != 0 {
+				t.Errorf("asked %v, runs %v, checked %v: want none", asked, runner.runs, runner.checked)
+			}
+		})
 	}
 }

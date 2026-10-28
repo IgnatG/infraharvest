@@ -41,6 +41,10 @@ func TestRequireMinimumVersion(t *testing.T) {
 			files: map[string]string{MovesFileName: "moved {\n  from = aws_sqs_queue.a\n  to   = aws_sqs_queue.b\n}\n"},
 			want:  `">= 1.5, < 2.0"`,
 		},
+		"import blocks by identity": {
+			files: map[string]string{ImportsFileName: "import {\n  to = aws_cloudwatch_log_group.a\n  identity = {\n    name = \"a\"\n  }\n}\n"},
+			want:  `">= 1.12, < 2.0"`,
+		},
 		"write-only arguments": {
 			files: map[string]string{"ssm.tf": "resource \"aws_ssm_parameter\" \"a\" {\n  name     = \"a\"\n  value_wo = var.a\n}\n"},
 			want:  `">= 1.11, < 2.0"`,

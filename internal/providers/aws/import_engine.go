@@ -85,3 +85,19 @@ func (p *Provider) TerraformEnv(ctx context.Context) (map[string]string, error) 
 	}
 	return env, nil
 }
+
+// QueryConfig sets no argument of a list block: a list resource lists the
+// region of the provider block, as the provider's other listers do.
+func (*Provider) QueryConfig() map[string]string {
+	return nil
+}
+
+// InQueryScope keeps, of what Terraform's list resources return, the
+// resources whose identity has a region in a region's import, and those
+// whose identity has none, such as an IAM role's, in the global one: its
+// provider block names us-east-1, whose regional resources that region's
+// own import takes, as the other listers have it.
+func (p *Provider) InQueryScope(identity map[string]string) bool {
+	_, regional := identity["region"]
+	return regional != (p.region == GlobalPseudoRegion)
+}

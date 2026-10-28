@@ -45,6 +45,9 @@ type Options struct {
 	Services []string
 	// Skip are services to leave out of Services.
 	Skip []string
+	// QueryTypes are the resource types the query service lists through
+	// Terraform's list resources (see harvest.QueryService).
+	QueryTypes []string
 	// IDFilters, TagFilters and WhereFilters keep only the resources these
 	// filters match: --id, --tag and --where, as harvest.ParseIDFilter,
 	// ParseTagFilter and ParseWhereFilter read them.
@@ -93,6 +96,10 @@ type Options struct {
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue.
 	Catalogue string
+	// Policies are directories of OPA policies, written in Rego, that
+	// conftest checks the generated roots against in the verification
+	// gate, absolute paths (see ResolvePolicies).
+	Policies []string
 	// Engine is EngineTerraform or EngineTofu; empty means Terraform.
 	Engine string
 	// TerraformPath is the engine's binary; empty finds or installs it.
@@ -208,7 +215,8 @@ func checkEngine(name string) error {
 // --services where no --cfn-stack says which to list, an unknown
 // --engine, --format or --modules, a filter that doesn't parse, an import
 // that says neither --selection nor --all, --services or --skip naming
-// services provider has no service of, a --layout checkLayout rejects,
+// services provider has no service of, what checkQuery rejects of the
+// query service, a --layout checkLayout rejects,
 // --default-env without environments to split roots into, a
 // negative --rate-limit, --list-timeout, --list-parallel, --parallel or
 // --engine-timeout, a --catalogue directory that doesn't load, and the
@@ -260,6 +268,9 @@ func CheckOptions(provider harvest.Provider, options Options) error {
 		if len(unknown) > 0 {
 			return fmt.Errorf("%s: %s has no service %s (infraharvest services %s lists them)", flag, provider.Name(), strings.Join(unknown, ", "), provider.Name())
 		}
+	}
+	if err := checkQuery(provider, options); err != nil {
+		return err
 	}
 	if err := checkLayout(options.Layout, options.EnvTags); err != nil {
 		return err
@@ -431,8 +442,8 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 // initialised, a filter that doesn't parse, or an interrupt.
 //
 // The services that list from what the others listed (see
-// harvest.Profile.DependentServices) list once the others are done, given
-// what they listed.
+// harvest.Profile.DependentServices), and the query service, list once
+// the others are done, given what they listed.
 func listServices(ctx context.Context, registry *harvest.Registry, c *callContext, parallel int, args []string) ([]error, error) {
 	options := c.options
 	filters, err := options.filters()
@@ -442,6 +453,7 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 	discoverers := make([]discovery.Discoverer, 0, len(c.services))
 	var dependent []discovery.Discoverer
 	var waiting []harvest.ProviderWithListedByOthers
+	var queries []*queryDiscoverer
 	for _, service := range c.services {
 		serviceProvider := registry.Register(service)
 		if err := serviceProvider.Init(ctx, args); err != nil {
@@ -456,6 +468,15 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 			p.SetUnwantedTypes(c.unwanted)
 		}
 		d := discovery.Service(service, serviceProvider, options.Verbose, filters)
+		if service == harvest.QueryService && c.query != nil {
+			// It lists once the others are done, with the provider
+			// release the modules of what they listed pin (see
+			// Run.callRoot).
+			q := &queryDiscoverer{Discoverer: d, query: func(listed []harvest.Resource) harvest.Query { return c.query(serviceProvider, listed) }}
+			dependent = append(dependent, q)
+			queries = append(queries, q)
+			continue
+		}
 		if slices.Contains(serviceProvider.Profile().DependentServices, service) {
 			dependent = append(dependent, d)
 			if p, ok := serviceProvider.(harvest.ProviderWithListedByOthers); ok {
@@ -478,6 +499,9 @@ func listServices(ctx context.Context, registry *harvest.Registry, c *callContex
 		}
 		for _, p := range waiting {
 			p.SetListedByOthers(listed)
+		}
+		for _, q := range queries {
+			q.listedByOthers = listed
 		}
 		more, err := discovery.List(ctx, dependent, listOptions)
 		if err != nil {

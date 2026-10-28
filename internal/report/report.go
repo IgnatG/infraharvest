@@ -201,6 +201,64 @@ type Coverage struct {
 	// scoped to, and those nested in them, with what became of their
 	// resources and whether each is safe to delete (AWS --cfn-stack).
 	CloudFormationStacks cfn.Stacks `json:"cloudformation_stacks,omitempty"`
+	// Findings are what the verification gate's scanners found in the
+	// roots, with the policies of --policy, each with the resource it is
+	// about where it names one.
+	Findings []Finding `json:"findings,omitempty"`
+}
+
+// Finding is what a scanner of the verification gate found in a root
+// (Root, relative to the output directory, with forward slashes), as
+// Environment plans it for a root environments share: by Scanner, its
+// rule, severity, place and message. Address is the
+// resource or module call it is about, where the scanner names one; Type
+// and ID, the resource's type and import ID, where the root imports a
+// resource there, and Scope and Service where the import listed it, as
+// the selection file's entry for it has them.
+type Finding struct {
+	Root        string `json:"root"`
+	Environment string `json:"environment,omitempty"`
+	Address     string `json:"address,omitempty"`
+	Type        string `json:"type,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	Service     string `json:"service,omitempty"`
+	Scanner     string `json:"scanner"`
+	Rule        string `json:"rule"`
+	Severity    string `json:"severity,omitempty"`
+	Location    string `json:"location,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
+// String describes f as the check's details do: its rule, severity,
+// place and message.
+func (f Finding) String() string {
+	return engine.Finding{Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}.String()
+}
+
+// sortFindings sorts findings by root and environment; in each, those
+// about a resource first, by address, then the others; then by scanner
+// and what each says.
+func sortFindings(findings []Finding) {
+	sort.SliceStable(findings, func(i, j int) bool {
+		a, b := findings[i], findings[j]
+		if a.Root != b.Root {
+			return a.Root < b.Root
+		}
+		if a.Environment != b.Environment {
+			return a.Environment < b.Environment
+		}
+		if (a.Address == "") != (b.Address == "") {
+			return a.Address != ""
+		}
+		if a.Address != b.Address {
+			return a.Address < b.Address
+		}
+		if a.Scanner != b.Scanner {
+			return a.Scanner < b.Scanner
+		}
+		return a.String() < b.String()
+	})
 }
 
 // TagCount counts the resources with one value of a tag key.
@@ -211,10 +269,10 @@ type TagCount struct {
 }
 
 // Listed is a resource the listers found that Terraform can import: where,
-// its type and import ID, and its tags.
+// by which service, its type and import ID, and its tags.
 type Listed struct {
-	Scope, Type, ID string
-	Tags            map[string]string
+	Scope, Service, Type, ID string
+	Tags                     map[string]string
 }
 
 // ScopeCount counts the resources of one scope.
@@ -435,6 +493,10 @@ type Merge struct {
 	// Checks are the merged root's gate, for each environment, whose
 	// name each check's details start with.
 	Checks []Check `json:"checks,omitempty"`
+	// Findings are what the scanners of the merged root's gate found, for
+	// each environment, which AddMerge records with the report's, in
+	// place of those of the roots merged (see Report.Findings).
+	Findings []Finding `json:"findings,omitempty"`
 	// Unchanged says a resumed import kept the merged root as an earlier
 	// one wrote it (--resume).
 	Unchanged bool `json:"unchanged,omitempty"`
@@ -545,6 +607,7 @@ func (r *Report) Merge(other *Report) {
 	r.KeptRoots = append(r.KeptRoots, other.KeptRoots...)
 	r.Merges = append(r.Merges, other.Merges...)
 	r.CloudFormationStacks.Add(other.CloudFormationStacks)
+	r.Findings = append(r.Findings, other.Findings...)
 	r.arrived = append(r.arrived, other.arrived...)
 	r.Failures = append(r.Failures, other.Failures...)
 	r.Warnings = append(r.Warnings, other.Warnings...)
@@ -599,6 +662,7 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	sort.Strings(r.Warnings)
 	r.Warnings = slices.Compact(r.Warnings)
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
+	r.listFindings()
 	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
 
 	byType := map[string]*CoverageTotal{}
@@ -682,6 +746,25 @@ func (r *Report) Finish(discovered, failed map[string]int, allowPartial bool) {
 	default:
 		r.ExitCode = ExitIncomplete
 	}
+}
+
+// listFindings sets on each finding about a resource the service that
+// listed it, as the listing recorded (see AddListed), and sorts them.
+func (r *Report) listFindings() {
+	type key struct{ scope, typ, id string }
+	services := map[key]string{}
+	for _, l := range r.listed {
+		if l.Service != "" {
+			services[key{l.Scope, l.Type, l.ID}] = l.Service
+		}
+	}
+	for i, f := range r.Findings {
+		if f.ID != "" && f.Service == "" {
+			r.Findings[i].Service = services[key{f.Scope, f.Type, f.ID}]
+		}
+	}
+	sortFindings(r.Findings)
+	r.Findings = slices.Compact(r.Findings)
 }
 
 // matchArrivals sets on each departure the address the root it goes to
@@ -953,6 +1036,7 @@ func (r *Report) Markdown() string {
 	section("Left out", "Terraform couldn't import these resources or generate valid configuration for them. Each directory's `rejected.hcl` has their blocks and errors.", leftOut)
 	section("Secrets to set", "Set these variables before planning, from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with `TF_VAR_<name>`: infraharvest never writes secret values into its output.", secrets)
 	section("Warnings", "Look at these before using the configuration.", warnings)
+	r.findingsMarkdown(&b)
 	var gone []string
 	for _, g := range r.NotInCloud {
 		line := fmt.Sprintf("- `%s` %s in `%s`", g.Address, mdtext.Code(g.ID), g.Path)
@@ -1046,6 +1130,67 @@ func (r *Report) Markdown() string {
 	section("Failed directories", "Nothing in these directories was imported.", dirErrors)
 	section("Failures", "These parts of the import couldn't run, or ran only in part: services that couldn't be listed, accounts or projects that couldn't be reached, tags or default selections that couldn't be read, and what stopped the run.", failures)
 	return b.String()
+}
+
+// maxMarkdownFindings bounds the findings report.md lists; coverage.json
+// has them all.
+const maxMarkdownFindings = 200
+
+// findingsMarkdown writes the section of the findings, by root and
+// resource, then scanner, up to maxMarkdownFindings, saying how many it
+// leaves out.
+func (r *Report) findingsMarkdown(b *strings.Builder) {
+	if len(r.Findings) == 0 {
+		return
+	}
+	b.WriteString("\n## Findings by resource\n\nThe scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `coverage.json` lists them all, with each resource's type and import ID.\n\n")
+	if left := writeFindings(b, r.Findings, maxMarkdownFindings); left > 0 {
+		fmt.Fprintf(b, "\n%d more findings aren't listed here: `coverage.json` has them all.\n", left)
+	}
+}
+
+// ListFindings returns findings as report.md lists them (see
+// writeFindings), all of them, sorted, as infraharvest verify prints
+// them.
+func ListFindings(findings []Finding) string {
+	findings = slices.Clone(findings)
+	sortFindings(findings)
+	var b strings.Builder
+	writeFindings(&b, slices.Compact(findings), len(findings))
+	return b.String()
+}
+
+// writeFindings writes findings, which are sorted, up to limit of them,
+// under a line for each root and resource they are about, and returns
+// how many it leaves out.
+func writeFindings(b *strings.Builder, findings []Finding, limit int) int {
+	group := ""
+	for i, f := range findings {
+		if i == limit {
+			return len(findings) - i
+		}
+		root := "`" + f.Root + "`"
+		if f.Environment != "" {
+			root += " as " + f.Environment
+		}
+		heading := fmt.Sprintf("- %s, not about one resource:", root)
+		switch {
+		case f.ID != "":
+			about := "`" + f.ID + "`"
+			if f.Service != "" {
+				about += ", " + f.Service
+			}
+			heading = fmt.Sprintf("- `%s` in %s (%s):", f.Address, root, about)
+		case f.Address != "":
+			heading = fmt.Sprintf("- `%s` in %s:", f.Address, root)
+		}
+		if heading != group {
+			group = heading
+			b.WriteString(heading + "\n")
+		}
+		fmt.Fprintf(b, "  - %s: %s\n", f.Scanner, f.String())
+	}
+	return 0
 }
 
 // Read reads the report an import wrote into outputDir (see WriteFiles).

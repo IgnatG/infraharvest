@@ -34,6 +34,10 @@ type Check struct {
 	Skipped bool
 	// Details explain a failure, or note what a pass allowed.
 	Details []string
+	// Findings are every finding of the scanners check, for CheckScanners,
+	// with the resource each is about, which Details list only up to a
+	// bound per scanner (see runScanners).
+	Findings []Finding `json:",omitempty"`
 	// Changes are the changes a plan check found, for CheckPlan.
 	Changes []PlannedChange
 	// files are the edited files a failure is blamed on, where the gate

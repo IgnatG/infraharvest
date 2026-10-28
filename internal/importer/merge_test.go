@@ -6,9 +6,11 @@ package importer
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
@@ -260,6 +262,35 @@ func TestRecordMerge(t *testing.T) {
 	}
 	if len(run.report.Merges) != 1 {
 		t.Errorf("merges: %+v", run.report.Merges)
+	}
+}
+
+// A merged root's findings are each environment's, about the resources
+// it imports by their addresses in the merged root; a merge that didn't
+// happen has none, as its root is gone.
+func TestFillMergeFindings(t *testing.T) {
+	t.Parallel()
+	gate := engine.Gate{{Name: engine.CheckScanners, Passed: true, Findings: []engine.Finding{
+		{Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag", Resource: "aws_s3_bucket.logs"},
+	}}}
+	result := &engine.MergeResult{Environments: []engine.MergedEnvironment{
+		{Env: "dev", Gate: gate, Imports: map[string]string{"aws_s3_bucket.logs": "acme-dev-logs"}},
+		{Env: "prod", Gate: gate, Imports: map[string]string{"module.logs.aws_s3_bucket.this": "acme-prod-logs"}},
+	}}
+	merge := report.Merge{Path: "aws/eu-west-2"}
+	fillMerge(&merge, result)
+	want := []report.Finding{
+		{Root: "aws/eu-west-2", Environment: "dev", Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", ID: "acme-dev-logs", Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag"},
+		{Root: "aws/eu-west-2", Environment: "prod", Address: "aws_s3_bucket.logs", Scanner: "conftest", Rule: "s3", Severity: "failure", Location: "main.tf", Message: "logs has no owner tag"},
+	}
+	if !reflect.DeepEqual(merge.Findings, want) {
+		t.Errorf("got %+v,\nwant %+v", merge.Findings, want)
+	}
+	result.Reason = "too different"
+	refused := report.Merge{Path: "aws/eu-west-2"}
+	fillMerge(&refused, result)
+	if refused.Findings != nil {
+		t.Errorf("a merge that didn't happen: got %+v", refused.Findings)
 	}
 }
 

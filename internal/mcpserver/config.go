@@ -18,10 +18,10 @@ import (
 // configUse is what a tool takes of a configuration file: the settings
 // its command applies from one, less those that would take an agent past
 // the checks the tools' parameters have, such as terraform-path, which
-// names a binary to run, catalogue and modules, which name directories,
-// or managed-state, which names files, and less modeSettings. A file that
-// sets anything else is refused, so that what the user confirms is what
-// applies, and nothing the run ignores.
+// names a binary to run, catalogue, modules and policy, which name
+// directories, or managed-state, which names files, and less
+// modeSettings. A file that sets anything else is refused, so that what
+// the user confirms is what applies, and nothing the run ignores.
 type configUse struct {
 	// tool names the tool, for the errors.
 	tool string
@@ -217,15 +217,10 @@ func (c *toolConfig) scope(s Scope) (Scope, error) {
 			continue
 		}
 		name, mode, _ := strings.Cut(tag, ",")
-		for _, settings := range []map[string]any{c.file.Settings, c.file.Providers[c.use.provider]} {
-			setting, ok := settings[name]
-			if !ok {
-				continue
-			}
+		if setting, ok := c.setting(name); ok {
 			if err := setScopeField(value, setting, mode == "each"); err != nil {
 				return s, fmt.Errorf("config %s: %s: %w", c.path, name, err)
 			}
-			break
 		}
 	}
 	if err := checkScopeNames(s); err != nil {
@@ -235,6 +230,29 @@ func (c *toolConfig) scope(s Scope) (Scope, error) {
 		return s, fmt.Errorf("config %s: %w", c.path, err)
 	}
 	return s, nil
+}
+
+// setting returns the file's value of the setting name as the provider
+// command applies it: its settings' first, then the provider's section.
+func (c *toolConfig) setting(name string) (any, bool) {
+	for _, settings := range []map[string]any{c.file.Settings, c.file.Providers[c.use.provider]} {
+		if setting, ok := settings[name]; ok {
+			return setting, true
+		}
+	}
+	return nil, false
+}
+
+// engine returns the engine a discover or an import runs with: input,
+// the tool's parameter, if set, or else the file's setting.
+func (c *toolConfig) engine(input string) string {
+	if input != "" || c == nil {
+		return input
+	}
+	if setting, ok := c.setting("engine"); ok {
+		return fmt.Sprint(setting)
+	}
+	return ""
 }
 
 // setScopeField sets value, a field of Scope, to setting, a value of the

@@ -8,7 +8,9 @@
 # the file records, and where that work's source is, as MPL-2.0 section 3.2
 # asks of what is distributed. The schema-metadata workflows write it with
 # the files, and a test of the schemameta package checks that it names the
-# releases they record.
+# releases they record. It ends with OPA's capabilities file, which
+# internal/engine embeds under Apache-2.0, as section 4 of that licence
+# asks.
 #
 # Usage: schema-metadata-notice.sh <dir>
 set -euo pipefail
@@ -44,4 +46,15 @@ cat <<'EOF'
 These files are the data's Source Code Form, one resource type to a line,
 gzipped: `gzip -dc <file>` reads one. They are in infraharvest's source at
 the same release, at the paths above.
+
+It also embeds the following file of the Open Policy Agent (OPA), which is
+licensed under the Apache License, version 2.0 (Apache-2.0): see
+LICENSES/Apache-2.0.txt or https://www.apache.org/licenses/LICENSE-2.0.
+It lists OPA's built-in functions, keywords and features, and infraharvest
+gives conftest those of them it lets policies use; the file is unchanged
+and stays under Apache-2.0.
+
+internal/engine/conftest_capabilities.json
+  from OPA 1.21.1 (capabilities/v1.21.1.json), Copyright The OPA Authors
+  source: https://github.com/open-policy-agent/opa/blob/v1.21.1/capabilities/v1.21.1.json
 EOF
