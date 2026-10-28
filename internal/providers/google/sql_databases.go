@@ -47,7 +47,7 @@ type sqlDatabaseList struct {
 // cloudsql.databases.list on the project, which roles/cloudsql.viewer and
 // roles/viewer grant.
 type CloudSQLLister struct {
-	harvest.ListerBase
+	harvest.ListerOf[listerSettings]
 }
 
 // List lists the databases. A project without the Cloud SQL
@@ -65,11 +65,11 @@ type CloudSQLLister struct {
 // and the run says that some are missing rather than reading them as
 // deleted.
 func (g *CloudSQLLister) List() error {
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	if region.Name == "" {
 		return nil
 	}
-	project, err := projectSetting(g.Settings())
+	project, err := g.Settings().projectID()
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (g *CloudSQLLister) List() error {
 	// What an earlier listing of the import left out isn't this one's.
 	caches.setSQLDatabasesUnlisted(project, region.Name, false)
 	// The databases take a call per instance, and the instances one more.
-	if !wants(g.Settings(), sqlDatabaseType) {
+	if !g.Settings().wants(sqlDatabaseType) {
 		return nil
 	}
 	svc, err := sqladmin.NewService(ctx, clientOptions(ctx)...)

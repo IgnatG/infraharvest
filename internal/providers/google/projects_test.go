@@ -55,6 +55,7 @@ func resourceManager(t *testing.T) *httptest.Server {
 }
 
 func TestProjectsUnder(t *testing.T) {
+	t.Parallel()
 	srv := resourceManager(t)
 	svc, err := cloudresourcemanager.NewService(t.Context(), option.WithEndpoint(srv.URL+"/"), option.WithoutAuthentication())
 	if err != nil {
@@ -83,6 +84,7 @@ func TestProjectsUnder(t *testing.T) {
 // folder, rather than leaving its projects out. Every folder of the level
 // is still listed, and each that fails is named.
 func TestProjectsUnderFails(t *testing.T) {
+	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch parent := r.URL.Query().Get("parent"); {

@@ -14,7 +14,8 @@ import (
 // pages. It asks for those states, and leaves out a cluster of another
 // state that the answer has all the same.
 func TestRecordEmrListsClustersAndSecurityConfigurations(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListClusters":
 			if !strings.Contains(call.Body, `"ClusterStates":["STARTING","BOOTSTRAPPING","RUNNING","WAITING"]`) {
@@ -34,6 +35,7 @@ func TestRecordEmrListsClustersAndSecurityConfigurations(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EmrLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -49,9 +51,10 @@ func TestRecordEmrListsClustersAndSecurityConfigurations(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordEmrReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListClusters", "ListSecurityConfigurations"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("InvalidRequestException")
@@ -61,6 +64,7 @@ func TestRecordEmrReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &EmrLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "InvalidRequestException")
 		})

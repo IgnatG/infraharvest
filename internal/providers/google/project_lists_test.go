@@ -11,6 +11,7 @@ import (
 
 // A project's list that fails is kept, unless its context ended.
 func TestProjectListsKeepFailures(t *testing.T) {
+	t.Parallel()
 	var lists projectLists[int]
 	calls := 0
 	denied := errors.New("denied")

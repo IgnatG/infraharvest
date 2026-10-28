@@ -25,7 +25,8 @@ func recordSNSSubscription(id, protocol, endpoint string) string {
 // manage. TestSnsSubscriptionsStopOnError
 // (pagination_test.go) pins that a subscription listing error is returned.
 func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListTopics":
 			if recordSecondPage(call) {
@@ -54,6 +55,7 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &SnsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -68,10 +70,12 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 }
 
 func TestRecordSnsReturnsListTopicsError(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordQueryError(recordSNSNS, "AuthorizationError")
 	})
 	g := &SnsLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AuthorizationError")
 }
@@ -80,9 +84,10 @@ func TestRecordSnsReturnsListTopicsError(t *testing.T) {
 // recorded in the listed order. A topic whose subscriptions fail fails the
 // service, with the topics before it, and itself, recorded.
 func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"", "b"} {
 		at := newOverlap(3)
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			switch call.Op {
 			case "ListTopics":
 				return recordQuery(call.Op, recordSNSNS, `<Topics>`+
@@ -104,6 +109,7 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 			return recordUnexpected(t, call)
 		})
 		g := &SnsLister{}
+		g.SetContext(ctx)
 
 		err := g.List()
 

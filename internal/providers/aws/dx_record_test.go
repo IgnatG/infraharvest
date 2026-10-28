@@ -47,14 +47,16 @@ func recordDirectConnectAPI(t *testing.T, failing ...string) func(apiCall) strin
 // doesn't ask for the gateways, which are global: dx_gateway lists them
 // once.
 func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
+	t.Parallel()
 	api := recordDirectConnectAPI(t)
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "DescribeDirectConnectGateways" {
 			return recordUnexpected(t, call)
 		}
 		return api(call)
 	})
 	g := &DirectConnectLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -71,8 +73,10 @@ func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
 // The dx_gateway lister lists the gateways across pages, leaving out a
 // deleted one.
 func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
-	useFakeAPI(t, recordDirectConnectAPI(t))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordDirectConnectAPI(t))
 	g := &DirectConnectGatewayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -86,6 +90,7 @@ func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
 
 // Dx_gateway is listed once, in us-east-1, not in every region.
 func TestDirectConnectGatewaysAreListedOnce(t *testing.T) {
+	t.Parallel()
 	if !slices.Contains(EastOnlyServices, "dx_gateway") {
 		t.Errorf("dx_gateway isn't among the services listed once in %s: %v", GlobalHomeRegion, EastOnlyServices)
 	}
@@ -93,16 +98,19 @@ func TestDirectConnectGatewaysAreListedOnce(t *testing.T) {
 
 // Each list fails its service.
 func TestRecordDirectConnectReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeVirtualInterfaces", "DescribeConnections"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordDirectConnectAPI(t, failing))
+			ctx := useFakeAPI(t, recordDirectConnectAPI(t, failing))
 			g := &DirectConnectLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "DirectConnectClientException")
 		})
 	}
-	useFakeAPI(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
+	ctx := useFakeAPI(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
 	g := &DirectConnectGatewayLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "DirectConnectClientException")
 }

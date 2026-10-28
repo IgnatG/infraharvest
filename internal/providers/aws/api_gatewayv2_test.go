@@ -12,7 +12,8 @@ import (
 // the routes and integrations API Gateway manages. An HTTP API isn't asked
 // for models or route responses, which only WebSocket APIs have.
 func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		token := call.Query.Get("nextToken")
 		switch call.Path {
 		case "/v2/apis":
@@ -50,6 +51,7 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 		return `{"items":[]}`
 	})
 	g := &APIGatewayV2Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -72,7 +74,8 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 // integrations were named after IDs such as okoipb1lhk, and stages after
 // <API ID>/<stage>.
 func TestAPIGatewayV2NamesParts(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Path {
 		case "/v2/apis":
 			return `{"items":[{"apiId":"a1","name":"orders"}]}`
@@ -97,6 +100,7 @@ func TestAPIGatewayV2NamesParts(t *testing.T) {
 		return `{"items":[]}`
 	})
 	g := &APIGatewayV2Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

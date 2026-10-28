@@ -201,8 +201,10 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: p.Name(),
 		Verbose:  verbose,
-		Settings: listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted}.args(),
 	})
+	if l, ok := service.(harvest.SettingsTaker[listerSettings]); ok {
+		l.SetSettings(listerSettings{region: p.region, project: p.projectName, catalogue: p.catalogue, unwanted: p.unwanted})
+	}
 	return nil
 }
 

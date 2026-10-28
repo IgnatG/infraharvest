@@ -38,11 +38,12 @@ func s3Answer(call apiCall) string {
 }
 
 func TestChildImports(t *testing.T) {
-	useFakeAPI(t, s3Answer)
+	t.Parallel()
+	ctx := useFakeAPI(t, s3Answer)
 	p := &Provider{region: "us-east-1"}
 	bucket := harvest.RecordBare("artifacts", "artifacts", "aws_s3_bucket", "aws")
 
-	children, err := p.ChildImports(t.Context(), bucket)
+	children, err := p.ChildImports(ctx, bucket)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,8 @@ func TestChildImports(t *testing.T) {
 }
 
 func TestChildImportsReportsErrors(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Query.Has("versioning") {
 			return `<Error><Code>AccessDenied</Code></Error>`
 		}
@@ -69,7 +71,7 @@ func TestChildImportsReportsErrors(t *testing.T) {
 	})
 	p := &Provider{region: "us-east-1"}
 
-	children, err := p.ChildImports(t.Context(), harvest.RecordBare("artifacts", "artifacts", "aws_s3_bucket", "aws"))
+	children, err := p.ChildImports(ctx, harvest.RecordBare("artifacts", "artifacts", "aws_s3_bucket", "aws"))
 
 	if err == nil || !strings.Contains(err.Error(), "aws_s3_bucket_versioning") {
 		t.Errorf("want the versioning error, got %v", err)
@@ -80,6 +82,7 @@ func TestChildImportsReportsErrors(t *testing.T) {
 }
 
 func TestChildImportsOnlyForBuckets(t *testing.T) {
+	t.Parallel()
 	p := &Provider{region: "us-east-1"}
 	children, err := p.ChildImports(t.Context(), harvest.RecordBare("q", "q", "aws_sqs_queue", "aws"))
 	if err != nil || children != nil {
@@ -91,6 +94,7 @@ func TestChildImportsOnlyForBuckets(t *testing.T) {
 // probe is for one of them; the bucket leaves out the arguments the
 // children carry.
 func TestS3ProbesAreTheCataloguedChildren(t *testing.T) {
+	t.Parallel()
 	entry, ok := awsCatalogue().Entry("aws_s3_bucket")
 	if !ok {
 		t.Fatal("aws_s3_bucket isn't in the catalogue")

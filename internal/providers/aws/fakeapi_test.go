@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
@@ -69,19 +71,34 @@ func (f *fakeAPI) Do(r *http.Request) (*http.Response, error) {
 	}, nil
 }
 
-// useFakeAPI makes the AWS listers in this package send their requests to
-// handle instead of AWS.
-func useFakeAPI(t *testing.T, handle func(apiCall) string) {
+// useFakeAPI returns a context whose listers send their requests to handle
+// instead of AWS: those whose context is set to it, and the provider's own
+// calls once Init is given it.
+func useFakeAPI(t *testing.T, handle func(apiCall) string) context.Context {
 	t.Helper()
-	cfg := aws.Config{
+	return fakeRun(t, fakeConfig(handle))
+}
+
+// fakeConfig is the configuration useFakeAPI fakes the API with: anonymous
+// credentials, no retries, and handle answering every request.
+func fakeConfig(handle func(apiCall) string) aws.Config {
+	return aws.Config{
 		Region:      "us-east-1",
 		Credentials: aws.AnonymousCredentials{},
 		HTTPClient:  &fakeAPI{handle: handle},
 		Retryer:     func() aws.Retryer { return aws.NopRetryer{} },
 	}
-	previous := testConfig
-	testConfig = &cfg
-	t.Cleanup(func() { testConfig = previous })
+}
+
+// fakeRun returns a context carrying a run of its own whose services all
+// use cfg, and cfg's credentials as their base credentials (see
+// runConfigs.fixed), so that tests faking the API at once never see each
+// other's.
+func fakeRun(t *testing.T, cfg aws.Config) context.Context {
+	t.Helper()
+	l := ratelimit.New(0)
+	configsOf(l).fixed = &cfg
+	return ratelimit.NewContext(t.Context(), l)
 }
 
 // resourceIDs returns the IDs of the resources of resourceType.

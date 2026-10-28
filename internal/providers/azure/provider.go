@@ -368,7 +368,9 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: providerName,
 		Verbose:  verbose,
-		Settings: serviceSettings{
+	})
+	if l, ok := service.(harvest.SettingsTaker[serviceSettings]); ok {
+		l.SetSettings(serviceSettings{
 			subscriptionID: p.subscriptionID,
 			resourceGroup:  p.resourceGroup,
 			credential:     p.credential,
@@ -377,8 +379,8 @@ func (p *Provider) Select(name string, verbose bool) error {
 			listed:         p.listed,
 			azapi:          p.azapi,
 			unwanted:       p.unwanted,
-		}.args(),
-	})
+		})
+	}
 	return nil
 }
 

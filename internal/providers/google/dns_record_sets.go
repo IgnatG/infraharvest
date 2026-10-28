@@ -30,23 +30,23 @@ const dnsRecordSetType = "google_dns_record_set"
 // Listing needs dns.managedZones.list and dns.resourceRecordSets.list on
 // the project, which roles/dns.reader and roles/viewer grant.
 type DNSRecordSetsLister struct {
-	harvest.ListerBase
+	harvest.ListerOf[listerSettings]
 }
 
 // List lists every zone's record sets, from every page. A
 // project without the Cloud DNS API enabled has no zones: that is logged,
 // and lists nothing. Any other failure is an error.
 func (g *DNSRecordSetsLister) List() error {
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	if region.Name != "" {
 		return nil
 	}
-	project, err := projectSetting(g.Settings())
+	project, err := g.Settings().projectID()
 	if err != nil {
 		return err
 	}
 	// The record sets take a call per zone, and the zones one more.
-	if !wants(g.Settings(), dnsRecordSetType) {
+	if !g.Settings().wants(dnsRecordSetType) {
 		return nil
 	}
 	ctx := g.Context()

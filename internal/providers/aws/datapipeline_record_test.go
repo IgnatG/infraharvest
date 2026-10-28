@@ -9,7 +9,8 @@ import "testing"
 // AWS gives it, across pages. Names need not be unique, so two pipelines can
 // share one.
 func TestRecordDataPipelineListsPipelines(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "ListPipelines" {
 			return recordUnexpected(t, call)
 		}
@@ -22,6 +23,7 @@ func TestRecordDataPipelineListsPipelines(t *testing.T) {
 			"marker":"` + nextPageToken + `","hasMoreResults":true}`
 	})
 	g := &DataPipelineLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -35,10 +37,12 @@ func TestRecordDataPipelineListsPipelines(t *testing.T) {
 }
 
 func TestRecordDataPipelineReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("InvalidRequestException")
 	})
 	g := &DataPipelineLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "InvalidRequestException")
 }

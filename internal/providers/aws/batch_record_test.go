@@ -45,8 +45,10 @@ func recordBatchAPI(t *testing.T, failing string) func(apiCall) string {
 // all by the ID Terraform imports them by. Environments and queues being
 // deleted, or deleted, are left out.
 func TestRecordBatchListsEnvironmentsDefinitionsAndQueues(t *testing.T) {
-	useFakeAPI(t, recordBatchAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordBatchAPI(t, ""))
 	g := &BatchLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -63,10 +65,12 @@ func TestRecordBatchListsEnvironmentsDefinitionsAndQueues(t *testing.T) {
 }
 
 func TestRecordBatchReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"/v1/describecomputeenvironments", "/v1/describejobdefinitions", "/v1/describejobqueues"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordBatchAPI(t, failing))
+			ctx := useFakeAPI(t, recordBatchAPI(t, failing))
 			g := &BatchLister{}
+			g.SetContext(ctx)
 
 			err := g.List()
 

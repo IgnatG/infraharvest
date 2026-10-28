@@ -14,6 +14,7 @@ import (
 // what it allows; an EC2-Classic group, which has no VPC, is left out with
 // its rules.
 func TestSecurityGroupRulesAreResources(t *testing.T) {
+	t.Parallel()
 	groups := []ec2types.SecurityGroup{
 		{
 			GroupId:   aws.String("sg-1"),

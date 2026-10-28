@@ -45,6 +45,7 @@ var armScope = policy.TokenRequestOptions{Scopes: []string{"https://management.a
 // Clients asking for the same token at once, and later, share one fetch;
 // another scope or tenant gets its own.
 func TestCachedCredentialSharesTokens(t *testing.T) {
+	t.Parallel()
 	inner := &countingCredential{lifetime: time.Hour}
 	credential := cacheTokens(inner)
 	var wg sync.WaitGroup
@@ -77,6 +78,7 @@ func TestCachedCredentialSharesTokens(t *testing.T) {
 
 // A token about to expire is fetched again, and a failure isn't kept.
 func TestCachedCredentialRefreshes(t *testing.T) {
+	t.Parallel()
 	inner := &countingCredential{lifetime: time.Minute}
 	credential := cacheTokens(inner)
 	for range 2 {

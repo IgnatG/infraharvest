@@ -79,6 +79,7 @@ func TestCredentialOptionsFail(t *testing.T) {
 }
 
 func TestCredentialsType(t *testing.T) {
+	t.Parallel()
 	for credentials, want := range map[string]option.CredentialsType{
 		`{"type": "service_account"}`:              option.ServiceAccount,
 		`{"type": "authorized_user"}`:              option.AuthorizedUser,
@@ -94,6 +95,7 @@ func TestCredentialsType(t *testing.T) {
 // A token source for credentials that can't be used fails each request
 // with why.
 func TestFailingTokenSource(t *testing.T) {
+	t.Parallel()
 	if _, err := (failingTokenSource{err: os.ErrNotExist}).Token(); err != os.ErrNotExist {
 		t.Errorf("error %v", err)
 	}

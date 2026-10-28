@@ -144,7 +144,10 @@ var (
 	_ = Resource{Address: &Address{Type: ""}, Observed: &Observation{ID: "", Attributes: map[string]string{}}, RawName: "", Provider: ""}
 	_ = Filter{Service: "", Path: "", Values: []string{}}
 	_ = ListerBase{Resources: []Resource{}}
-	_ = ListerConfig{Service: "", Provider: "", Verbose: false, Settings: map[string]interface{}{}}
+	_ = ListerConfig{Service: "", Provider: "", Verbose: false}
+	_ = ListerOf[string]{ListerBase: ListerBase{}}
+
+	_ SettingsTaker[string] = (*ListerOf[string])(nil)
 )
 
 // goldenSignature fails to compile unless its argument has type T.
@@ -173,7 +176,8 @@ func TestGoldenAPISignatures(t *testing.T) {
 	goldenSignature[func(*ListerBase) string]((*ListerBase).Name)
 	goldenSignature[func(*ListerBase) string]((*ListerBase).Provider)
 	goldenSignature[func(*ListerBase) bool]((*ListerBase).Verbose)
-	goldenSignature[func(*ListerBase) map[string]interface{}]((*ListerBase).Settings)
+	goldenSignature[func(*ListerOf[string]) string]((*ListerOf[string]).Settings)
+	goldenSignature[func(*ListerOf[string], string)]((*ListerOf[string]).SetSettings)
 	goldenSignature[func(*ListerBase) []Resource]((*ListerBase).Listed)
 	goldenSignature[func(*ListerBase, []Resource)]((*ListerBase).SetListed)
 	t.Log("the API has the signatures the golden tests expect")
@@ -607,7 +611,6 @@ func TestGoldenListerAccessors(t *testing.T) {
 	var zero ListerBase
 	record("zero: Name", zero.Name())
 	record("zero: Provider", zero.Provider())
-	record("zero: Settings is nil", zero.Settings() == nil)
 	record("zero: Listed is nil", zero.Listed() == nil)
 	record("zero: Filters is nil", zero.Filters() == nil)
 	record("zero: Verbose", zero.Verbose())
@@ -617,16 +620,12 @@ func TestGoldenListerAccessors(t *testing.T) {
 	record("zero: after Prune, Resources is nil", zero.Resources == nil)
 
 	var s ListerBase
-	settings := map[string]interface{}{"region": "eu-west-1"}
-	s.Configure(ListerConfig{Service: "ec2", Provider: "aws", Verbose: true, Settings: settings})
+	s.Configure(ListerConfig{Service: "ec2", Provider: "aws", Verbose: true})
 	resources := []Resource{RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")}
 	s.SetListed(resources)
 	record("set: Name", s.Name())
 	record("set: Provider", s.Provider())
 	record("set: Verbose", s.Verbose())
-	record("set: Settings", s.Settings())
-	settings["added"] = "later"
-	record("set: Settings shares the map", s.Settings()["added"])
 	record("set: Listed", goldenResourceViews(s.Listed()))
 	record("set: Listed shares the slice", &s.Listed()[0] == &resources[0])
 	s.SetListed(nil)
@@ -634,7 +633,12 @@ func TestGoldenListerAccessors(t *testing.T) {
 	s.Configure(ListerConfig{})
 	record("set: Configure with nothing clears the name", s.Name())
 	record("set: Configure with nothing clears Verbose", s.Verbose())
-	record("set: Configure with nothing gives nil Settings", s.Settings() == nil)
+
+	var typed ListerOf[string]
+	record("typed settings: zero value", typed.Settings())
+	typed.SetSettings("eu-west-1")
+	typed.Configure(ListerConfig{Service: "ec2"})
+	record("typed settings: set, and kept by Configure", typed.Settings())
 
 	ctx := context.WithValue(context.Background(), goldenCtxKey{}, "set")
 	s.SetContext(ctx)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -167,5 +168,20 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 		if run.discovered["aws_vpc"] != 2 {
 			t.Errorf("parallel %d: discovered %v", parallel, run.discovered)
 		}
+	}
+}
+
+// The calls a command makes before its Import calls list with the limiter
+// its Import calls get, in a child's run too, so that they share what the
+// providers keep for the run.
+func TestWithLimiterIsTheImportCallsLimiter(t *testing.T) {
+	t.Parallel()
+	r := NewRun()
+	limiter := ratelimit.FromContext(r.WithLimiter(t.Context(), 5))
+	if limiter == ratelimit.Default() || limiter.Rate() != 5 {
+		t.Fatalf("got a limiter of %v a second, Default's: %t", limiter.Rate(), limiter == ratelimit.Default())
+	}
+	if r.shared.rateLimiter(5) != limiter || r.child().shared.rateLimiter(5) != limiter {
+		t.Error("the Import calls get another limiter")
 	}
 }

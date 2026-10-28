@@ -12,7 +12,8 @@ import (
 // ACL as aws_default_network_acl (the catalogue skips those), any other as
 // aws_network_acl.
 func TestRecordNaclListsNetworkACLs(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeNetworkAcls" {
 			return recordUnexpected(t, call)
 		}
@@ -28,6 +29,7 @@ func TestRecordNaclListsNetworkACLs(t *testing.T) {
 			</networkAclSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &NaclLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -41,10 +43,12 @@ func TestRecordNaclListsNetworkACLs(t *testing.T) {
 }
 
 func TestRecordNaclReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &NaclLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

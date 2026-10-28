@@ -56,8 +56,10 @@ func recordGlueAPI(t *testing.T, failing string) func(apiCall) string {
 // database as "<account>:<database>:<table>", named "<database>:<table>",
 // then jobs and triggers by name.
 func TestRecordGlueListsCrawlersCatalogJobsAndTriggers(t *testing.T) {
-	useFakeAPI(t, recordGlueAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordGlueAPI(t, ""))
 	g := &GlueLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -79,10 +81,12 @@ func TestRecordGlueListsCrawlersCatalogJobsAndTriggers(t *testing.T) {
 
 // The account and each list fail the service.
 func TestRecordGlueReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"GetCallerIdentity", "GetCrawlers", "GetDatabases", "GetTables", "GetJobs", "GetTriggers"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordGlueAPI(t, failing))
+			ctx := useFakeAPI(t, recordGlueAPI(t, failing))
 			g := &GlueLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

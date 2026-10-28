@@ -12,8 +12,6 @@ import (
 	"testing"
 
 	"google.golang.org/api/compute/v1"
-
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The project's IAM members, one per member of each binding, a
@@ -44,7 +42,7 @@ func TestIamList(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := &IamLister{}
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"project": "acme"}})
+	g.SetSettings(listerSettings{project: "acme"})
 	g.SetContext(t.Context())
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -86,6 +84,7 @@ func TestIamList(t *testing.T) {
 // after the role and the whole member, such as
 // roles_viewer_serviceaccount_deployer_acme_iam_gserviceaccount_com.
 func TestGrantName(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct{ role, member, title, want string }{
 		{"roles/viewer", "serviceAccount:deployer@acme.iam.gserviceaccount.com", "", "deployer_viewer"},
 		{"roles/cloudscheduler.serviceAgent", "serviceAccount:service-123@gcp-sa-cloudscheduler.iam.gserviceaccount.com", "", "service-123_cloudscheduler.serviceAgent"},
@@ -107,7 +106,7 @@ func TestGrantName(t *testing.T) {
 func TestIamListsNothingInARegion(t *testing.T) {
 	t.Setenv(EndpointEnv, "http://127.0.0.1:1")
 	g := &IamLister{}
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"project": "acme", "region": compute.Region{Name: "us-central1"}}})
+	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: "us-central1"}})
 	g.SetContext(t.Context())
 	if err := g.List(); err != nil || len(g.Resources) != 0 {
 		t.Errorf("got %v, %v", g.Resources, err)
@@ -123,7 +122,7 @@ func TestIamListFails(t *testing.T) {
 	t.Setenv(EndpointEnv, server.URL)
 
 	g := &IamLister{}
-	g.Configure(harvest.ListerConfig{Settings: map[string]interface{}{"project": "acme"}})
+	g.SetSettings(listerSettings{project: "acme"})
 	g.SetContext(t.Context())
 	if err := g.List(); err == nil {
 		t.Error("want an error")

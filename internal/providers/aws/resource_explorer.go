@@ -18,8 +18,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/resourceexplorer2"
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
 	"github.com/aws/smithy-go"
-
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // explorerTypes maps the services Resource Explorer may rule out to the
@@ -140,7 +138,7 @@ func (s *guardedLister) explorerSkip() string {
 		return ""
 	}
 	svc := &Service{}
-	svc.Configure(harvest.ListerConfig{Settings: s.Settings()})
+	svc.SetSettings(s.Settings())
 	svc.SetContext(s.Context())
 	return explorerFor(svc).skip(svc.Context(), name, types)
 }

@@ -12,7 +12,8 @@ import (
 // the attachment's state, across pages, by ID; it leaves out the unattached
 // ones.
 func TestRecordIgwListsAttachedGateways(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeInternetGateways" {
 			return recordUnexpected(t, call)
 		}
@@ -30,6 +31,7 @@ func TestRecordIgwListsAttachedGateways(t *testing.T) {
 			</internetGatewaySet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &IgwLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -42,10 +44,12 @@ func TestRecordIgwListsAttachedGateways(t *testing.T) {
 }
 
 func TestRecordIgwReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &IgwLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

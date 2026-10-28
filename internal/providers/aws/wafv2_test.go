@@ -12,9 +12,10 @@ import (
 // name and scope, and an association as the web ACL's ARN and the
 // protected resource's.
 func TestWafv2ListsWithImportIDs(t *testing.T) {
+	t.Parallel()
 	const aclARN = "arn:aws:wafv2:eu-west-2:123456789012:regional/webacl/edge/a1"
 	const lbARN = "arn:aws:elasticloadbalancing:eu-west-2:123456789012:loadbalancer/app/web/50dc6c495c0c9188"
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListWebACLs":
 			return `{"WebACLs":[{"Id":"a1","Name":"edge","ARN":"` + aclARN + `"}]}`
@@ -39,6 +40,7 @@ func TestWafv2ListsWithImportIDs(t *testing.T) {
 		return `{}`
 	})
 	g := NewWafv2RegionalLister()
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

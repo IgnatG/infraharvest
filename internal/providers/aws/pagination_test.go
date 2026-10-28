@@ -46,6 +46,7 @@ func assertIDs(t *testing.T, resources []harvest.Resource, resourceType string, 
 }
 
 func TestPaginateByMarker(t *testing.T) {
+	t.Parallel()
 	pages := map[string]string{"": "m1", "m1": "m2", "m2": ""}
 	var seen []string
 	err := paginateByMarker(func(marker *string) (*string, error) {
@@ -66,6 +67,7 @@ func TestPaginateByMarker(t *testing.T) {
 }
 
 func TestPaginateByMarkerStopsOnError(t *testing.T) {
+	t.Parallel()
 	wantErr := errors.New("throttled")
 	err := paginateByMarker(func(*string) (*string, error) { return nil, wantErr })
 	if !errors.Is(err, wantErr) {
@@ -74,6 +76,7 @@ func TestPaginateByMarkerStopsOnError(t *testing.T) {
 }
 
 func TestPaginateByMarkerRejectsRepeatedMarker(t *testing.T) {
+	t.Parallel()
 	calls := 0
 	err := paginateByMarker(func(*string) (*string, error) {
 		calls++
@@ -89,7 +92,8 @@ func TestPaginateByMarkerRejectsRepeatedMarker(t *testing.T) {
 }
 
 func TestSqsPaginates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if !strings.Contains(call.Body, `"MaxResults":1000`) {
 			t.Errorf("ListQueues must set MaxResults or AWS returns no NextToken; body: %s", call.Body)
 		}
@@ -97,6 +101,7 @@ func TestSqsPaginates(t *testing.T) {
 		return fmt.Sprintf(`{"QueueUrls":["https://sqs.us-east-1.amazonaws.com/123456789012/%s"],"NextToken":%q}`, id, token)
 	})
 	g := &SqsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -108,11 +113,13 @@ func TestSqsPaginates(t *testing.T) {
 }
 
 func TestKinesisPaginates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		id, token := pageOf(call, "stream")
 		return fmt.Sprintf(`{"StreamNames":[%q],"HasMoreStreams":%t,"NextToken":%q}`, id, token != "", token)
 	})
 	g := &KinesisLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -122,13 +129,15 @@ func TestKinesisPaginates(t *testing.T) {
 }
 
 func TestVpcEndpointPaginates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		id, token := pageOf(call, "vpce")
 		return fmt.Sprintf(`<DescribeVpcEndpointsResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/">
 			<vpcEndpointSet><item><vpcEndpointId>%s</vpcEndpointId></item></vpcEndpointSet>
 			<nextToken>%s</nextToken></DescribeVpcEndpointsResponse>`, id, token)
 	})
 	g := &VpcEndpointLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -138,7 +147,8 @@ func TestVpcEndpointPaginates(t *testing.T) {
 }
 
 func TestBudgetsPaginates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "GetCallerIdentity" {
 			return `<GetCallerIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
 				<GetCallerIdentityResult><Account>123456789012</Account></GetCallerIdentityResult>
@@ -148,6 +158,7 @@ func TestBudgetsPaginates(t *testing.T) {
 		return fmt.Sprintf(`{"Budgets":[{"BudgetName":%q,"BudgetType":"COST","TimeUnit":"MONTHLY"}],"NextToken":%q}`, id, token)
 	})
 	g := &BudgetsLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -157,7 +168,8 @@ func TestBudgetsPaginates(t *testing.T) {
 }
 
 func TestCloud9Paginates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "DescribeEnvironments" {
 			return recordCloud9Describe(t, call, map[string]string{"env-1": "ec2", "env-2": "ec2"})
 		}
@@ -165,6 +177,7 @@ func TestCloud9Paginates(t *testing.T) {
 		return fmt.Sprintf(`{"environmentIds":[%q],"nextToken":%q}`, id, token)
 	})
 	g := &Cloud9Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -232,8 +245,10 @@ func assertEveryOpPaginated(t *testing.T, resources []harvest.Resource, ops map[
 }
 
 func TestWafPaginates(t *testing.T) {
-	useFakeAPI(t, serveWafPages(t, wafListOps))
+	t.Parallel()
+	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -243,8 +258,10 @@ func TestWafPaginates(t *testing.T) {
 }
 
 func TestWafRegionalPaginates(t *testing.T) {
-	useFakeAPI(t, serveWafPages(t, wafListOps))
+	t.Parallel()
+	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafRegionalLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -254,8 +271,10 @@ func TestWafRegionalPaginates(t *testing.T) {
 }
 
 func TestWafv2Paginates(t *testing.T) {
-	useFakeAPI(t, serveWafPages(t, wafv2ListOps))
+	t.Parallel()
+	ctx := useFakeAPI(t, serveWafPages(t, wafv2ListOps))
 	g := NewWafv2RegionalLister()
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -267,8 +286,9 @@ func TestWafv2Paginates(t *testing.T) {
 // Some endpoints, emulators among them, end the last page with an empty
 // NextMarker instead of none. The rule lister used to loop on it forever.
 func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
+	t.Parallel()
 	describeRules := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		const ns = `xmlns="http://elasticloadbalancing.amazonaws.com/doc/2015-12-01/"`
 		switch call.Op {
 		case "DescribeLoadBalancers":
@@ -299,6 +319,7 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 		return ""
 	})
 	g := &AlbLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -311,8 +332,9 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 // forever once there was more than one page of rules. Rules a service
 // manages are left out, with their targets.
 func TestCloudWatchEventTargetsPaginate(t *testing.T) {
+	t.Parallel()
 	calls := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		calls++
 		if calls > 20 {
 			t.Fatal("pagination does not stop")
@@ -329,6 +351,7 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 		return ""
 	})
 	g := &CloudWatchLister{}
+	g.SetContext(ctx)
 	config, err := g.sdkConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -343,6 +366,7 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 }
 
 func TestStopOnDuplicateToken(t *testing.T) {
+	t.Parallel()
 	var options cloudcontrol.ListResourcesPaginatorOptions
 	stopOnDuplicateToken(&options)
 	if !options.StopOnDuplicateToken {
@@ -353,6 +377,7 @@ func TestStopOnDuplicateToken(t *testing.T) {
 // Every SDK paginator must stop on a repeated token, or a service that
 // returns the same token twice is listed forever.
 func TestEveryPaginatorStopsOnDuplicateToken(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -386,8 +411,9 @@ func TestEveryPaginatorStopsOnDuplicateToken(t *testing.T) {
 // A paginator does not advance after an error, so a lister that logged the
 // error and went on asked for the same page forever.
 func TestIamAccessKeysStopOnError(t *testing.T) {
+	t.Parallel()
 	calls := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		calls++
 		if calls > 5 {
 			t.Fatal("pagination does not stop on error")
@@ -406,6 +432,7 @@ func TestIamAccessKeysStopOnError(t *testing.T) {
 		return ""
 	})
 	g := &IamLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 
@@ -415,8 +442,9 @@ func TestIamAccessKeysStopOnError(t *testing.T) {
 }
 
 func TestSnsSubscriptionsStopOnError(t *testing.T) {
+	t.Parallel()
 	calls := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		calls++
 		if calls > 5 {
 			t.Fatal("pagination does not stop on error")
@@ -434,6 +462,7 @@ func TestSnsSubscriptionsStopOnError(t *testing.T) {
 		return ""
 	})
 	g := &SnsLister{}
+	g.SetContext(ctx)
 
 	err := g.List()
 

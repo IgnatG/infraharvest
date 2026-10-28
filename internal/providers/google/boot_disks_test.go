@@ -352,6 +352,7 @@ func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 }
 
 func TestComputeID(t *testing.T) {
+	t.Parallel()
 	for url, want := range map[string]string{
 		computeURL + "projects/acme-prod/zones/us-central1-a/disks/web":                                 "projects/acme-prod/zones/us-central1-a/disks/web",
 		"https://compute.googleapis.com/compute/v1/projects/acme-prod/regions/us-central1/disks/shared": "projects/acme-prod/regions/us-central1/disks/shared",

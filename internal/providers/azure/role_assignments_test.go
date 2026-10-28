@@ -10,12 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // The subscription the role assignment tests list, and its scope.
@@ -113,12 +111,12 @@ var roleGroups = graphRows(
 // roleArgs are the arguments Select hands role_assignment for the tests'
 // subscription and resourceGroup, with every request answered by
 // transport.
-func roleArgs(transport *graphTransport, resourceGroup string) map[string]interface{} {
-	return map[string]interface{}{
-		"subscription_id": roleSubscriptionID,
-		"resource_group":  resourceGroup,
-		"credential":      azcore.TokenCredential(fakeCredential{}),
-		"client_options":  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+func roleArgs(transport *graphTransport, resourceGroup string) serviceSettings {
+	return serviceSettings{
+		subscriptionID: roleSubscriptionID,
+		resourceGroup:  resourceGroup,
+		credential:     fakeCredential{},
+		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
 	}
 }
 
@@ -128,9 +126,10 @@ func roleArgs(transport *graphTransport, resourceGroup string) map[string]interf
 // them, whatever case Resource Graph returns them in; an assignment is
 // named after its scope and its role.
 func TestRoleAssignmentListsTheSubscription(t *testing.T) {
+	t.Parallel()
 	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "")})
+	g.SetSettings(roleArgs(transport, ""))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -188,9 +187,10 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 // it are listed, and only the group is asked about; a custom role that
 // can be assigned in the whole subscription isn't the group's.
 func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
+	t.Parallel()
 	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "app")})
+	g.SetSettings(roleArgs(transport, "app"))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -208,11 +208,12 @@ func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 // Without an assignment in a resource group, the resource groups aren't
 // asked for.
 func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
+	t.Parallel()
 	transport := &graphTransport{authorization: graphRows(
 		assignmentRow(roleSubscription+roleAssignmentsSegment+"22222222-2222-2222-2222-222222222222", roleSubscription, readerRole, "User"),
 	)}
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: roleArgs(transport, "")})
+	g.SetSettings(roleArgs(transport, ""))
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -231,17 +232,19 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 // A subscription ID that isn't a GUID would go into the query: it fails
 // before any request.
 func TestRoleAssignmentRejectsAMalformedSubscription(t *testing.T) {
+	t.Parallel()
 	transport := &graphTransport{}
 	args := roleArgs(transport, "")
-	args["subscription_id"] = "sub' or 1==1"
+	args.subscriptionID = "sub' or 1==1"
 	g := &RoleAssignmentLister{}
-	g.Configure(harvest.ListerConfig{Settings: args})
+	g.SetSettings(args)
 	if err := g.List(); err == nil || len(transport.sent) != 0 {
 		t.Errorf("err %v, queries %v", err, transport.sent)
 	}
 }
 
 func TestWithin(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		scope, base string
 		want        bool
@@ -260,6 +263,7 @@ func TestWithin(t *testing.T) {
 }
 
 func TestAssignmentScope(t *testing.T) {
+	t.Parallel()
 	for id, want := range map[string][2]string{
 		roleSubscription + roleAssignmentsSegment + "a":                           {roleSubscription, "a"},
 		strings.ToLower(roleAssignmentsSegment) + "a":                             {"/", "a"},
@@ -276,6 +280,7 @@ func TestAssignmentScope(t *testing.T) {
 // A custom role the listing didn't find may be one made assignable
 // outside the run since: it is never taken for one deleted.
 func TestPartialTypes(t *testing.T) {
+	t.Parallel()
 	if got, want := (&Provider{}).PartialTypes(), []string{"azurerm_role_definition"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}

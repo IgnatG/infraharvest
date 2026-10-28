@@ -12,6 +12,7 @@ import (
 )
 
 func TestImportID(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		resource harvest.Resource
 		wantID   string
@@ -62,8 +63,8 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 	if !ok || role["role_arn"] != "arn:aws:iam::111122223333:role/infraharvest-readonly" || config["region"] != "eu-west-2" {
 		t.Errorf("provider config: %v", config)
 	}
-	if got := p.serviceArgs()["role_arn"]; got != "arn:aws:iam::111122223333:role/infraharvest-readonly" {
-		t.Errorf("service args: %v", got)
+	if got := p.settings().roleARN; got != "arn:aws:iam::111122223333:role/infraharvest-readonly" {
+		t.Errorf("service settings: %v", got)
 	}
 
 	single := &Provider{}
@@ -80,15 +81,17 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 // that a later plan with other credentials or another default region
 // doesn't read other resources. Before, it pins neither.
 func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	cfg := fakeConfig(func(call apiCall) string {
 		if call.Op == "GetCallerIdentity" {
 			return recordCallerIdentity
 		}
 		return recordUnexpected(t, call)
 	})
-	testConfig.Region = "eu-west-2"
+	cfg.Region = "eu-west-2"
+	ctx := fakeRun(t, cfg)
 	p := &Provider{}
-	if err := p.Init(t.Context(), []string{ProfileRegion, "default"}); err != nil {
+	if err := p.Init(ctx, []string{ProfileRegion, "default"}); err != nil {
 		t.Fatal(err)
 	}
 	config := func() map[string]interface{} {
@@ -98,7 +101,7 @@ func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
 		t.Errorf("before Scope: %v", before)
 	}
 
-	account, region, err := p.Scope(t.Context())
+	account, region, err := p.Scope(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

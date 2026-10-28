@@ -35,7 +35,8 @@ const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 // credentials with (see credentialsClient).
 func clientOptions(ctx context.Context) []option.ClientOption {
 	if target := emulator(); target != nil {
-		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: ratelimit.FromContext(ctx).Transport(emulatorTransport{target: target})}})}
+		run := ratelimit.FromContext(ctx)
+		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: run.Transport(emulatorTransport{target: target}), delay: runRetryDelay(run)}})}
 	}
 	if client := limitedClient(ctx); client != nil {
 		return []option.ClientOption{option.WithHTTPClient(client)}
@@ -66,9 +67,11 @@ func limitedBy(run *ratelimit.Limiter, base *http.Client) *http.Client {
 	if base == nil {
 		return nil
 	}
+	// Kept doesn't let a value it makes ask the run for another.
+	delay := runRetryDelay(run)
 	return ratelimit.Kept(run, limitedClientKey{}, func() *http.Client {
 		client := *base
-		client.Transport = retryTransport{base: run.Transport(base.Transport)}
+		client.Transport = retryTransport{base: run.Transport(base.Transport), delay: delay}
 		return &client
 	})
 }

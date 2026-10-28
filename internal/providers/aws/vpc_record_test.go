@@ -11,7 +11,8 @@ import (
 // The lister lists every VPC by ID, across pages, the default VPC included
 // (ExcludedByDefault leaves it out later).
 func TestRecordVpcListsVpcs(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeVpcs" {
 			return recordUnexpected(t, call)
 		}
@@ -26,6 +27,7 @@ func TestRecordVpcListsVpcs(t *testing.T) {
 			</vpcSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &VpcLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -38,10 +40,12 @@ func TestRecordVpcListsVpcs(t *testing.T) {
 }
 
 func TestRecordVpcReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &VpcLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

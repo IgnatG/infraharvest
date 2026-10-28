@@ -16,7 +16,8 @@ const (
 // The lister lists applications by name, then environments by ID, named
 // after their name, across pages, leaving out the terminated ones.
 func TestRecordBeanstalkListsApplicationsAndEnvironments(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		form, _ := url.ParseQuery(call.Body)
 		switch call.Op {
 		case "DescribeApplications":
@@ -43,6 +44,7 @@ func TestRecordBeanstalkListsApplicationsAndEnvironments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &BeanstalkLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -59,9 +61,10 @@ func TestRecordBeanstalkListsApplicationsAndEnvironments(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordBeanstalkReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeApplications", "DescribeEnvironments"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordQueryError(recordBeanstalkNS, "InsufficientPrivilegesException")
@@ -71,6 +74,7 @@ func TestRecordBeanstalkReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &BeanstalkLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "InsufficientPrivilegesException")
 		})

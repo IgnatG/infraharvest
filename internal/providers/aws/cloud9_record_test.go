@@ -81,7 +81,8 @@ func recordCloud9Describe(t *testing.T, call apiCall, types map[string]string) s
 // included, and none at all is listed. An SSH environment, which Terraform
 // has no type for, and one the description leaves out are skipped.
 func TestRecordCloud9ListsEnvironments(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListEnvironments":
 			if recordSecondPage(call) {
@@ -94,6 +95,7 @@ func TestRecordCloud9ListsEnvironments(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Cloud9Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -113,6 +115,7 @@ func TestRecordCloud9ListsEnvironments(t *testing.T) {
 // A page of more than 25 environments is described 25 at a time, and its
 // environments are listed in the order of the page.
 func TestRecordCloud9DescribesInBatches(t *testing.T) {
+	t.Parallel()
 	var ids []string
 	types := map[string]string{}
 	for i := range 30 {
@@ -121,7 +124,7 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 		types[id] = "ec2"
 	}
 	var batches []int
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListEnvironments":
 			page, err := json.Marshal(map[string][]string{"environmentIds": ids})
@@ -136,6 +139,7 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &Cloud9Lister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -153,9 +157,10 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 
 // An error listing the environments or describing them is returned.
 func TestRecordCloud9ReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListEnvironments", "DescribeEnvironments"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
@@ -167,6 +172,7 @@ func TestRecordCloud9ReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &Cloud9Lister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

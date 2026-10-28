@@ -194,6 +194,7 @@ func TestCloudAssetAutopilotUnknown(t *testing.T) {
 }
 
 func TestClusterKey(t *testing.T) {
+	t.Parallel()
 	for id, want := range map[string]string{
 		"projects/acme-prod/locations/us-central1/clusters/prod": "us-central1/prod",
 		"projects/acme-prod/zones/us-central1-a/clusters/dev":    "us-central1-a/dev",

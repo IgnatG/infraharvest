@@ -142,10 +142,11 @@ func resourceJSON(typ string) string {
 	return fmt.Sprintf(`{"Arn":"arn:aws:%s:eu-west-2:123456789012:%s/x","Region":"eu-west-2","ResourceType":%q,"Service":%q}`, service, resource, typ, service)
 }
 
-// useExplorer turns the pre-filter on against f, and returns what it logs.
-func useExplorer(t *testing.T, f *fakeExplorer) *bytes.Buffer {
+// useExplorer turns the pre-filter on against f, and returns the context
+// of the run that lists against it and what it logs.
+func useExplorer(t *testing.T, f *fakeExplorer) (context.Context, *bytes.Buffer) {
 	t.Helper()
-	useFakeAPI(t, f.handle)
+	ctx := useFakeAPI(t, f.handle)
 	reset := func() {
 		explorerMu.Lock()
 		explorerRegions = map[configKey]*explorerRegion{}
@@ -164,22 +165,22 @@ func useExplorer(t *testing.T, f *fakeExplorer) *bytes.Buffer {
 		explorerNow = now
 		log.SetOutput(writer)
 	})
-	return logs
+	return ctx, logs
 }
 
 // listRegion lists service in eu-west-2 as an import does: through the
-// provider's guardedLister.
-func listRegion(t *testing.T, service string) []harvest.Resource {
+// provider's guardedLister, in the run of ctx.
+func listRegion(ctx context.Context, t *testing.T, service string) []harvest.Resource {
 	t.Helper()
 	p := &Provider{}
-	if err := p.Init(t.Context(), []string{"eu-west-2", "default"}); err != nil {
+	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Select(service, false); err != nil {
 		t.Fatal(err)
 	}
 	s := p.Selected()
-	s.SetContext(context.Background())
+	s.SetContext(ctx)
 	if err := s.List(); err != nil {
 		t.Fatal(err)
 	}
@@ -188,10 +189,10 @@ func listRegion(t *testing.T, service string) []harvest.Resource {
 
 func TestResourceExplorerSkipsServicesTheRegionHasNoneOf(t *testing.T) {
 	f := newFakeExplorer()
-	logs := useExplorer(t, f)
+	ctx, logs := useExplorer(t, f)
 
-	sqs := listRegion(t, "sqs")
-	listRegion(t, "sfn")
+	sqs := listRegion(ctx, t, "sqs")
+	listRegion(ctx, t, "sfn")
 
 	// sqs:queue is on the second page of supported types, and the region
 	// has none.
@@ -215,9 +216,9 @@ func TestResourceExplorerListsServicesWithATypeItDoesntIndex(t *testing.T) {
 	f := newFakeExplorer()
 	f.supported = []string{"ec2:instance", "sqs:queue", "states:stateMachine"}
 	f.present = []string{"ec2:instance"}
-	logs := useExplorer(t, f)
+	ctx, logs := useExplorer(t, f)
 
-	listRegion(t, "sfn")
+	listRegion(ctx, t, "sfn")
 
 	// The region has no state machine, but the index can't see activities.
 	if !slices.Contains(f.calls, "ListActivities") {
@@ -259,10 +260,10 @@ func TestResourceExplorerFallsBackToListing(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newFakeExplorer()
 			tt.change(f)
-			logs := useExplorer(t, f)
+			ctx, logs := useExplorer(t, f)
 
-			sqs := listRegion(t, "sqs")
-			listRegion(t, "sfn")
+			sqs := listRegion(ctx, t, "sqs")
+			listRegion(ctx, t, "sfn")
 
 			assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
 			if !slices.Contains(f.calls, "ListStateMachines") {
@@ -288,9 +289,9 @@ func TestResourceExplorerSearchesThroughTheAggregator(t *testing.T) {
 		explorerIndex("AGGREGATOR", "2026-01-01T00:00:00Z", `,"ReplicatingFrom":["eu-west-2","eu-west-1"],"LastUpdatedAt":"2026-02-01T00:00:00Z"`),
 	}
 	f.views = []string{`{}`, `{"ViewArn":"` + explorerViewARN + `"}`}
-	useExplorer(t, f)
+	ctx, _ := useExplorer(t, f)
 
-	listRegion(t, "sqs")
+	listRegion(ctx, t, "sqs")
 
 	if slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs was listed: %v", f.calls)
@@ -308,9 +309,9 @@ func TestResourceExplorerWithoutAnAggregatorListsEverything(t *testing.T) {
 		explorerIndex("AGGREGATOR", "2026-01-01T00:00:00Z", `,"ReplicatingFrom":["eu-west-1"]`),
 	}
 	f.views = []string{`{}`, `{"ViewArn":"` + explorerViewARN + `"}`}
-	logs := useExplorer(t, f)
+	ctx, logs := useExplorer(t, f)
 
-	listRegion(t, "sqs")
+	listRegion(ctx, t, "sqs")
 
 	if !slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs wasn't listed: %v", f.calls)
@@ -327,10 +328,10 @@ func TestResourceExplorerSearchesForTypesInALargeRegion(t *testing.T) {
 	f.present = []string{"ec2:instance"}
 	f.more = []string{"states:activity"}
 	f.complete = false
-	useExplorer(t, f)
+	ctx, _ := useExplorer(t, f)
 
-	listRegion(t, "sqs")
-	listRegion(t, "sfn")
+	listRegion(ctx, t, "sqs")
+	listRegion(ctx, t, "sfn")
 
 	if slices.Contains(f.calls, "ListQueues") {
 		t.Errorf("sqs was listed: %v", f.calls)
@@ -352,14 +353,14 @@ func TestResourceExplorerSearchesForTypesInALargeRegion(t *testing.T) {
 
 func TestResourceExplorerIsOffByDefault(t *testing.T) {
 	f := newFakeExplorer()
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if strings.HasPrefix(call.Path, "/Get") || call.Path == "/Search" || call.Path == "/ListSupportedResourceTypes" {
 			t.Errorf("called Resource Explorer: %s", call.Path)
 		}
 		return f.handle(call)
 	})
 
-	sqs := listRegion(t, "sqs")
+	sqs := listRegion(ctx, t, "sqs")
 
 	assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
 }
@@ -367,6 +368,7 @@ func TestResourceExplorerIsOffByDefault(t *testing.T) {
 // Only regional services the provider has can be ruled out, by types in
 // Resource Explorer's service:type notation.
 func TestExplorerTypesAreOfRegionalServices(t *testing.T) {
+	t.Parallel()
 	services := (&Provider{}).Services()
 	for name, types := range explorerTypes {
 		if _, ok := services[name]; !ok {

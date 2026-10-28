@@ -154,7 +154,7 @@ func (g *ResourceGraphLister) List() error {
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
 	var viaAzapi map[string]bool
-	if settingsOf(g.Settings()).azapi {
+	if g.Settings().azapi {
 		viaAzapi = azapiCandidates(rows)
 	}
 	g.Resources = graphResources(found, cat, knownTypes(sourceTypes, query), viaAzapi)
@@ -637,7 +637,7 @@ func savedSearchSolution(workspace, name string) string {
 // catalogue is the catalogue of the import (see SetCatalogue), or the
 // built-in one.
 func (g *ResourceGraphLister) catalogue() *catalogue.Catalogue {
-	if cat := settingsOf(g.Settings()).catalogue; cat != nil {
+	if cat := g.Settings().catalogue; cat != nil {
 		return cat
 	}
 	return catalogue.MustBuiltin("azurerm")

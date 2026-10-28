@@ -39,7 +39,7 @@ func (g *S3Lister) List() error {
 	if err != nil {
 		return err
 	}
-	region := regionSetting(g.Settings())
+	region := g.Settings().region
 	if region == ProfileRegion {
 		region = config.Region
 	}

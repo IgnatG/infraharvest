@@ -54,15 +54,17 @@ func recordSecurityHubAPI(t *testing.T, override map[string]string) func(apiCall
 // ARN, across pages. The standards, which tell whether Security Hub is
 // enabled, are read once: one call per page.
 func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
+	t.Parallel()
 	api := recordSecurityHubAPI(t, nil)
 	standardsCalls := 0
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Path == "/standards/get" {
 			standardsCalls++
 		}
 		return api(call)
 	})
 	g := &SecurityhubLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -90,12 +92,14 @@ func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
 // An account that hasn't enabled Security Hub has nothing to list, and that
 // is not an error.
 func TestRecordSecurityHubNotSubscribed(t *testing.T) {
-	useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{
+	t.Parallel()
+	ctx := useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{
 		"/standards/get": `{"__type":"InvalidAccessException","Code":"InvalidAccessException","Message":"Account 123456789012 is not subscribed to AWS Security Hub"}`,
 		// Members aren't listed: this would fail the service.
 		"/members": recordJSONError("UnexpectedCall"),
 	}))
 	g := &SecurityhubLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -105,14 +109,16 @@ func TestRecordSecurityHubNotSubscribed(t *testing.T) {
 }
 
 func TestRecordSecurityHubReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for key, answer := range map[string]string{
 		"GetCallerIdentity": recordQueryError(recordSTSNS, "AccessDenied"),
 		"/standards/get":    recordJSONError("AccessDenied"),
 		"/members":          recordJSONError("AccessDenied"),
 	} {
 		t.Run(key, func(t *testing.T) {
-			useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{key: answer}))
+			ctx := useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{key: answer}))
 			g := &SecurityhubLister{}
+			g.SetContext(ctx)
 
 			err := g.List()
 

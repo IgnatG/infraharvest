@@ -55,6 +55,7 @@ func testLookup(ctx context.Context, transport *fakeTransport, listedResources [
 // 697 tables. Tables of restored logs and of search jobs' results, which
 // azurerm has no type for, are left out, with no request either.
 func TestWorkspaceTablesMapFromTheListing(t *testing.T) {
+	t.Parallel()
 	listedResources := []azlist.AzureResource{
 		listedTable(t, "AACAudit", "Microsoft", "Analytics", true),
 		listedTable(t, "AppTraces", "Microsoft", "Basic", true),
@@ -95,6 +96,7 @@ func TestWorkspaceTablesMapFromTheListing(t *testing.T) {
 // catalogue's reason. Listed without their type, each table costs aztft
 // a GET, as every table did before.
 func TestBuiltInTablesTakeNoRequests(t *testing.T) {
+	t.Parallel()
 	cat := catalogue.MustBuiltin("azurerm")
 	for _, n := range []int{1, 10, 100} {
 		var withType, withoutType []azlist.AzureResource
@@ -137,6 +139,7 @@ func TestBuiltInTablesTakeNoRequests(t *testing.T) {
 // and data disks. It asks Resource Manager only about a resource the
 // listing didn't return, or returned without what it reads.
 func TestLookupReadsTheListing(t *testing.T) {
+	t.Parallel()
 	const rg = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1"
 	functionApp := rg + "/providers/Microsoft.Web/sites/func"
 	vm := rg + "/providers/Microsoft.Compute/virtualMachines/vm1"
@@ -193,6 +196,7 @@ func TestLookupReadsTheListing(t *testing.T) {
 // aztft sends its requests without a context. A request of a lookup under
 // way fails with an error the Azure SDK doesn't retry, seconds apart.
 func TestLookupStopsWhenInterrupted(t *testing.T) {
+	t.Parallel()
 	const site = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg1/providers/Microsoft.Web/sites/app"
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -222,6 +226,7 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 
 // Lookups run up to lookupParallel at once, and each item once.
 func TestInParallelBoundsLookups(t *testing.T) {
+	t.Parallel()
 	items := make([]int, 5*lookupParallel)
 	for i := range items {
 		items[i] = i

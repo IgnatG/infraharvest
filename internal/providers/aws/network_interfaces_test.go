@@ -14,7 +14,8 @@ import (
 // plugin or the VPC resource controller of an EKS cluster manage, by their
 // tags or their description.
 func TestRecordNetworkInterfaces(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeNetworkInterfaces" {
 			return recordUnexpected(t, call)
 		}
@@ -44,6 +45,7 @@ func TestRecordNetworkInterfaces(t *testing.T) {
 			</networkInterfaceSet>`)
 	})
 	g := &NetworkInterfaceLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

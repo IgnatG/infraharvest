@@ -15,6 +15,7 @@ import (
 // Every CloudFormation type of the table, or custom resource type of the
 // CDK, names its Terraform types.
 func TestCloudFormationTypesAreWellFormed(t *testing.T) {
+	t.Parallel()
 	cfn := regexp.MustCompile(`^(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+|Custom::AWSCDK-[A-Za-z0-9-]+)$`)
 	for typ, terraform := range cloudFormationTypes {
 		if !cfn.MatchString(typ) {
@@ -33,6 +34,7 @@ func TestCloudFormationTypesAreWellFormed(t *testing.T) {
 
 // The catalogue's cloud_control entries add their CloudFormation types.
 func TestStackTypesAddCloudControlTypes(t *testing.T) {
+	t.Parallel()
 	types := stackTypes(awsCatalogue())
 	if got := types["AWS::Athena::WorkGroup"]; !reflect.DeepEqual(got, []string{"aws_athena_workgroup"}) {
 		t.Errorf("AWS::Athena::WorkGroup: %v, want aws_athena_workgroup", got)
@@ -49,13 +51,14 @@ func TestStackTypesAddCloudControlTypes(t *testing.T) {
 // custom resource's, leaves out whatever has its physical ID. Where a
 // stack has two resources with one physical ID, each leaves out its own.
 func TestExcludedByDefaultCloudFormationByType(t *testing.T) {
+	t.Parallel()
 	const ns = `xmlns="http://cloudformation.amazonaws.com/doc/2010-05-15/"`
 	member := func(logical, physical, typ string) string {
 		return `<member><LogicalResourceId>` + logical + `</LogicalResourceId><PhysicalResourceId>` + physical +
 			`</PhysicalResourceId><ResourceType>` + typ + `</ResourceType><ResourceStatus>CREATE_COMPLETE</ResourceStatus>` +
 			`<LastUpdatedTimestamp>2026-01-01T00:00:00Z</LastUpdatedTimestamp></member>`
 	}
-	useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListStacks":
 			return `<ListStacksResponse ` + ns + `><ListStacksResult><StackSummaries>` +
@@ -75,7 +78,7 @@ func TestExcludedByDefaultCloudFormationByType(t *testing.T) {
 	})
 	p := &Provider{region: "us-east-1"}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.RecordBare("orders", "orders", "aws_dynamodb_table", "aws"),
 		// A hand-made role and instance profile named as the stack's table.
 		harvest.RecordBare("orders", "orders", "aws_iam_role", "aws"),

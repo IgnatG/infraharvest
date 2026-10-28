@@ -9,7 +9,8 @@ import "testing"
 // memberships, of the first IAM Identity Center instance's identity store.
 // Users, groups and memberships are imported as <store>/<id>.
 func TestRecordIdentityStoreListsUsersGroupsAndMemberships(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListInstances":
 			// Only the first instance's store is listed.
@@ -50,6 +51,7 @@ func TestRecordIdentityStoreListsUsersGroupsAndMemberships(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &IdentityStoreLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -74,13 +76,15 @@ func TestRecordIdentityStoreListsUsersGroupsAndMemberships(t *testing.T) {
 // Without an IAM Identity Center instance there is nothing to list, and no
 // error.
 func TestRecordIdentityStoreWithoutInstance(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListInstances" {
 			return `{"Instances":[]}`
 		}
 		return recordUnexpected(t, call)
 	})
 	g := &IdentityStoreLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -91,9 +95,10 @@ func TestRecordIdentityStoreWithoutInstance(t *testing.T) {
 
 // Every error is returned.
 func TestRecordIdentityStoreReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListInstances", "ListUsers", "ListGroups", "ListGroupMemberships"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				if call.Op == failing {
 					return recordJSONError("AccessDeniedException")
 				}
@@ -110,6 +115,7 @@ func TestRecordIdentityStoreReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &IdentityStoreLister{}
+			g.SetContext(ctx)
 
 			err := g.List()
 

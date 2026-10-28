@@ -11,7 +11,8 @@ import (
 // The lister lists every subnet by ID, across pages, default subnets
 // included (ExcludedByDefault leaves those out later).
 func TestRecordSubnetListsSubnets(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeSubnets" {
 			return recordUnexpected(t, call)
 		}
@@ -26,6 +27,7 @@ func TestRecordSubnetListsSubnets(t *testing.T) {
 			</subnetSet><nextToken>%s</nextToken>`, nextPageToken))
 	})
 	g := &SubnetLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -39,10 +41,12 @@ func TestRecordSubnetListsSubnets(t *testing.T) {
 }
 
 func TestRecordSubnetReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &SubnetLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }

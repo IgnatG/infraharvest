@@ -13,7 +13,8 @@ const recordCodePipelineWebhook = "arn:aws:codepipeline:us-east-1:123456789012:w
 // The lister lists pipelines by name, then webhooks by ARN, each across
 // pages.
 func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListPipelines":
 			if recordSecondPage(call) {
@@ -30,6 +31,7 @@ func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &CodePipelineLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -45,9 +47,10 @@ func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
 
 // Each list fails the service.
 func TestRecordCodePipelineReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListPipelines", "ListWebhooks"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
@@ -57,6 +60,7 @@ func TestRecordCodePipelineReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &CodePipelineLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

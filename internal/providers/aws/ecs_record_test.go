@@ -35,7 +35,8 @@ func recordEcsTaskDefinition(family, arn string) recordedResource {
 // (Errors of ListServices are not recorded: the lister retries the failed
 // page for ever.)
 func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		cluster := recordJSONField(call, "cluster")
 		switch call.Op {
 		case "ListClusters":
@@ -98,6 +99,7 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &EcsLister{}
+	g.SetContext(ctx)
 
 	// The descriptions that fail are returned as a partial error.
 	if err := g.List(); !harvest.IsPartial(err) || !strings.Contains(err.Error(), "service/apps/batch-8") || !strings.Contains(err.Error(), "service/jobs/worker") {
@@ -133,9 +135,10 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 
 // Listing clusters or task definitions fails the service.
 func TestRecordEcsReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListClusters", "ListTaskDefinitions"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
@@ -145,6 +148,7 @@ func TestRecordEcsReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &EcsLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDeniedException")
 		})

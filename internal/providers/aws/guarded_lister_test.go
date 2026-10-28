@@ -28,6 +28,7 @@ func (f *failingService) List() error { return f.err }
 // A service AWS doesn't offer in the region is skipped; every other error,
 // timeouts included, is returned.
 func TestGuardedListerSkipsOnlyServicesUnavailableInTheRegion(t *testing.T) {
+	t.Parallel()
 	sendErr := func(err error) error {
 		return &url.Error{Op: "Post", URL: "https://svc.eu-south-2.amazonaws.com/", Err: err}
 	}

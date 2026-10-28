@@ -15,6 +15,7 @@ import (
 )
 
 func TestTagIndexLookup(t *testing.T) {
+	t.Parallel()
 	x := newTagIndex(awsCatalogue())
 	for arn, env := range map[string]string{
 		"arn:aws:ec2:eu-west-2:123456789012:vpc/vpc-1":                                               "vpc",
@@ -71,6 +72,7 @@ func TestTagIndexLookup(t *testing.T) {
 
 // A name that two ARNs share says neither.
 func TestTagIndexAmbiguousName(t *testing.T) {
+	t.Parallel()
 	x := newTagIndex(awsCatalogue())
 	x.add("arn:aws:iam::123456789012:role/a/deployer", map[string]string{"env": "a"})
 	x.add("arn:aws:iam::123456789012:role/b/deployer", map[string]string{"env": "b"})
@@ -85,6 +87,7 @@ func TestTagIndexAmbiguousName(t *testing.T) {
 // The Tagging API is asked only for the services whose resources the
 // index can find: by an ARN the resource has, or the arn entry of its type.
 func TestTagServices(t *testing.T) {
+	t.Parallel()
 	got := tagServices(awsCatalogue(), []harvest.Resource{
 		harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws"),
 		harvest.RecordBare("https://sqs.eu-west-2.amazonaws.com/123456789012/jobs", "jobs", "aws_sqs_queue", "aws"),
@@ -104,9 +107,10 @@ func TestTagServices(t *testing.T) {
 // when no listed resource's tags can be found; when the API refuses the
 // filters, it asks for every tagged resource.
 func TestTagsAsksForTheListedServices(t *testing.T) {
+	t.Parallel()
 	for _, refuse := range []bool{false, true} {
 		var bodies []string
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			if call.Op != "GetResources" {
 				return recordUnexpected(t, call)
 			}
@@ -118,7 +122,7 @@ func TestTagsAsksForTheListedServices(t *testing.T) {
 		})
 		p := &Provider{region: "eu-west-2"}
 
-		tags, err := p.Tags(t.Context(), []harvest.Resource{harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")})
+		tags, err := p.Tags(ctx, []harvest.Resource{harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -134,9 +138,9 @@ func TestTagsAsksForTheListedServices(t *testing.T) {
 		}
 	}
 
-	useFakeAPI(t, func(call apiCall) string { return recordUnexpected(t, call) })
+	ctx := useFakeAPI(t, func(call apiCall) string { return recordUnexpected(t, call) })
 	p := &Provider{region: "eu-west-2"}
-	tags, err := p.Tags(t.Context(), []harvest.Resource{harvest.RecordBare("logs", "logs", "aws_s3_bucket_versioning", "aws")})
+	tags, err := p.Tags(ctx, []harvest.Resource{harvest.RecordBare("logs", "logs", "aws_s3_bucket_versioning", "aws")})
 	if err != nil || len(tags) != 0 {
 		t.Errorf("without a resource whose tags can be found: %v, %v", tags, err)
 	}
@@ -146,6 +150,7 @@ func TestTagsAsksForTheListedServices(t *testing.T) {
 // filters; any other error, such as AccessDenied or throttling, would fail
 // that read too, so it is returned after one call.
 func TestTagsFallBackOnlyWhenTheFiltersAreRefused(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		code     string
 		fallBack bool
@@ -157,7 +162,7 @@ func TestTagsFallBackOnlyWhenTheFiltersAreRefused(t *testing.T) {
 		{"InternalServiceException", false},
 	} {
 		calls := 0
-		useFakeAPI(t, func(call apiCall) string {
+		ctx := useFakeAPI(t, func(call apiCall) string {
 			if call.Op != "GetResources" {
 				return recordUnexpected(t, call)
 			}
@@ -169,7 +174,7 @@ func TestTagsFallBackOnlyWhenTheFiltersAreRefused(t *testing.T) {
 		})
 		p := &Provider{region: "eu-west-2"}
 
-		tags, err := p.Tags(t.Context(), []harvest.Resource{harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")})
+		tags, err := p.Tags(ctx, []harvest.Resource{harvest.RecordBare("vpc-1", "vpc-1", "aws_vpc", "aws")})
 
 		if test.fallBack {
 			if err != nil || tags["aws_vpc vpc-1"]["env"] != "prod" || calls != 2 {
@@ -187,6 +192,7 @@ func TestTagsFallBackOnlyWhenTheFiltersAreRefused(t *testing.T) {
 // merged in, once SetCatalogue gives it: an overlay's arn entry finds a
 // type's tags, and its import ID is what the provider matches on.
 func TestProviderUsesTheImportsCatalogue(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	overlay := "provider: aws\ntypes:\n  aws_iot_thing:\n    arn: { service: iot, resource_type: thing }\n" +
 		"  aws_route_table_association:\n    import_id: \"{id}\"\n"

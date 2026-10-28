@@ -82,8 +82,10 @@ func recordSESAPI(t *testing.T, failing string) func(apiCall) string {
 // templates, configuration sets and receipt rule sets, each set followed
 // by its rules, by <rule set>:<rule>.
 func TestRecordSesListsIdentitiesTemplatesAndRules(t *testing.T) {
-	useFakeAPI(t, recordSESAPI(t, ""))
+	t.Parallel()
+	ctx := useFakeAPI(t, recordSESAPI(t, ""))
 	g := &SesLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -109,10 +111,12 @@ func TestRecordSesListsIdentitiesTemplatesAndRules(t *testing.T) {
 }
 
 func TestRecordSesReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"ListIdentities", "ListTemplates", "ListConfigurationSets", "ListReceiptRuleSets", "DescribeReceiptRuleSet"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, recordSESAPI(t, failing))
+			ctx := useFakeAPI(t, recordSESAPI(t, failing))
 			g := &SesLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "AccessDenied")
 		})

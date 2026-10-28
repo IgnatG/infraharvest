@@ -278,16 +278,18 @@ func (p *Provider) Select(name string, verbose bool) error {
 		Service:  name,
 		Provider: p.Name(),
 		Verbose:  verbose,
-		Settings: p.serviceArgs(),
 	})
+	if l, ok := service.(harvest.SettingsTaker[serviceSettings]); ok {
+		l.SetSettings(p.settings())
+	}
 	return nil
 }
 
-// serviceArgs are the arguments every service of the provider gets: the
+// settings are the settings every service of the provider gets: the
 // region, the profile and the role, which pick its SDK configuration (see
 // Service.sdkConfig).
-func (p *Provider) serviceArgs() map[string]interface{} {
-	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}.args()
+func (p *Provider) settings() serviceSettings {
+	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}
 }
 
 // service returns a Service of the provider's settings, for the provider's
@@ -299,7 +301,7 @@ func (p *Provider) service(ctx context.Context) *Service {
 		ctx = ratelimit.NewContext(ctx, p.limiter)
 	}
 	service := &Service{}
-	service.Configure(harvest.ListerConfig{Settings: p.serviceArgs()})
+	service.SetSettings(p.settings())
 	service.SetContext(ctx)
 	return service
 }

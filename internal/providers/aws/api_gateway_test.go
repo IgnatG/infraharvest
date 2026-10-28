@@ -11,7 +11,8 @@ import "testing"
 // responses come from GetResources, which embeds them; only a method
 // embedded empty is read with GetMethod.
 func TestAPIGatewayListsWithImportIDs(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Path {
 		case "/restapis":
 			return `{"item":[{"id":"a1","name":"orders"}]}`
@@ -47,6 +48,7 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 		return `{"item":[]}`
 	})
 	g := &APIGatewayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -87,7 +89,8 @@ func TestAPIGatewayListsWithImportIDs(t *testing.T) {
 // Terraform imports by its name, is left out. Before, the missing name was
 // dereferenced, and the panic ended the whole run.
 func TestAPIGatewayWithoutNames(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Path {
 		case "/restapis":
 			return `{"item":[{"id":"a1"}]}`
@@ -105,6 +108,7 @@ func TestAPIGatewayWithoutNames(t *testing.T) {
 		return `{"item":[]}`
 	})
 	g := &APIGatewayLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)

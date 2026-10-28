@@ -12,6 +12,7 @@ import (
 
 // inParallel reads every index, never more than parallel at once.
 func TestInParallel(t *testing.T) {
+	t.Parallel()
 	const n, parallel = 20, 3
 	var mu sync.Mutex
 	running, most := 0, 0

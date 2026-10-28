@@ -11,7 +11,8 @@ import (
 // The lister lists every parameter by name, across pages, whatever its
 // type: SecureString parameters are listed too.
 func TestRecordSsmListsParameters(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeParameters" {
 			return recordUnexpected(t, call)
 		}
@@ -23,6 +24,7 @@ func TestRecordSsmListsParameters(t *testing.T) {
 			{"Name":"feature-flags","Type":"StringList","Version":2}],"NextToken":%q}`, nextPageToken)
 	})
 	g := &SsmLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -36,10 +38,12 @@ func TestRecordSsmListsParameters(t *testing.T) {
 }
 
 func TestRecordSsmReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &SsmLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "AccessDeniedException")
 }

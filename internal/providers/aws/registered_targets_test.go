@@ -68,8 +68,9 @@ func registeredTargetsAPI(t *testing.T, autoScaling string, ecsCalls *int) func(
 // out, with the owner in the reason; the targets of a target group no one
 // else registers in, and the target groups themselves, stay.
 func TestExcludedByDefaultRegisteredTargets(t *testing.T) {
+	t.Parallel()
 	ecsCalls := 0
-	useFakeAPI(t, registeredTargetsAPI(t, "", &ecsCalls))
+	ctx := useFakeAPI(t, registeredTargetsAPI(t, "", &ecsCalls))
 	p := &Provider{region: "us-east-1"}
 	resources := []harvest.Resource{
 		harvest.RecordBare(recordTargetGroupARN+"asg/1", "asg", "aws_lb_target_group", "aws"),
@@ -81,7 +82,7 @@ func TestExcludedByDefaultRegisteredTargets(t *testing.T) {
 		targetAttachment("own", "i-3"),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,22 +107,23 @@ func TestExcludedByDefaultRegisteredTargets(t *testing.T) {
 // When Auto Scaling groups register in every listed target group, ECS is
 // not asked; when no target is listed, neither is.
 func TestExcludedByDefaultRegisteredTargetsAsksOnlyWhatItNeeds(t *testing.T) {
+	t.Parallel()
 	ecsCalls := 0
-	useFakeAPI(t, registeredTargetsAPI(t, "", &ecsCalls))
+	ctx := useFakeAPI(t, registeredTargetsAPI(t, "", &ecsCalls))
 	p := &Provider{region: "us-east-1"}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), []harvest.Resource{targetAttachment("asg", "i-1")})
+	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{targetAttachment("asg", "i-1")})
 	if err != nil || len(excluded) != 1 || ecsCalls != 0 {
 		t.Errorf("got %v, %v after %d ECS calls; want the target left out without asking ECS", excluded, err, ecsCalls)
 	}
 
-	useFakeAPI(t, func(call apiCall) string {
+	ctx = useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
 		return recordUnexpected(t, call)
 	})
-	excluded, err = p.ExcludedByDefault(t.Context(), []harvest.Resource{
+	excluded, err = p.ExcludedByDefault(ctx, []harvest.Resource{
 		harvest.RecordBare(recordTargetGroupARN+"asg/1", "asg", "aws_lb_target_group", "aws"),
 	})
 	if err != nil || len(excluded) != 0 {
@@ -134,7 +136,8 @@ func TestExcludedByDefaultRegisteredTargetsAsksOnlyWhatItNeeds(t *testing.T) {
 // call: when it created every listed target group, neither Auto Scaling
 // nor ECS is asked.
 func TestExcludedByDefaultRegisteredTargetsOfLoadBalancerController(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -146,7 +149,7 @@ func TestExcludedByDefaultRegisteredTargetsOfLoadBalancerController(t *testing.T
 		targetAttachment("k8s", "10.0.0.1"),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,12 +165,13 @@ func TestExcludedByDefaultRegisteredTargetsOfLoadBalancerController(t *testing.T
 // An Auto Scaling error is returned, and what ECS registers is still left
 // out.
 func TestExcludedByDefaultRegisteredTargetsReturnsErrors(t *testing.T) {
+	t.Parallel()
 	ecsCalls := 0
-	useFakeAPI(t, registeredTargetsAPI(t, recordQueryError(recordAutoScalingNS, "AccessDenied"), &ecsCalls))
+	ctx := useFakeAPI(t, registeredTargetsAPI(t, recordQueryError(recordAutoScalingNS, "AccessDenied"), &ecsCalls))
 	p := &Provider{region: "us-east-1"}
 	resources := []harvest.Resource{targetAttachment("asg", "i-1"), targetAttachment("ecs", "10.0.0.1")}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 
 	if err == nil || !strings.Contains(err.Error(), "AccessDenied") || !strings.Contains(err.Error(), "Auto Scaling") {
 		t.Errorf("want the Auto Scaling error returned, got %v", err)
@@ -184,7 +188,8 @@ func TestExcludedByDefaultRegisteredTargetsReturnsErrors(t *testing.T) {
 // recorded are claimed without a call: when they claim every listed target
 // group, neither Auto Scaling nor ECS is asked.
 func TestExcludedByDefaultRegisteredTargetsFromListed(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op == "ListStacks" {
 			return noStacks
 		}
@@ -203,7 +208,7 @@ func TestExcludedByDefaultRegisteredTargetsFromListed(t *testing.T) {
 		targetAttachment("alt", "10.0.0.2"),
 	}
 
-	excluded, err := p.ExcludedByDefault(t.Context(), resources)
+	excluded, err := p.ExcludedByDefault(ctx, resources)
 	if err != nil {
 		t.Fatal(err)
 	}

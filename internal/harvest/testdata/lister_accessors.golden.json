@@ -8,10 +8,6 @@
     "value": ""
   },
   {
-    "check": "zero: Settings is nil",
-    "value": true
-  },
-  {
     "check": "zero: Listed is nil",
     "value": true
   },
@@ -52,17 +48,6 @@
     "value": true
   },
   {
-    "check": "set: Settings",
-    "value": {
-      "added": "later",
-      "region": "eu-west-1"
-    }
-  },
-  {
-    "check": "set: Settings shares the map",
-    "value": "later"
-  },
-  {
     "check": "set: Listed",
     "value": [
       {
@@ -89,8 +74,12 @@
     "value": false
   },
   {
-    "check": "set: Configure with nothing gives nil Settings",
-    "value": true
+    "check": "typed settings: zero value",
+    "value": ""
+  },
+  {
+    "check": "typed settings: set, and kept by Configure",
+    "value": "eu-west-1"
   },
   {
     "check": "context: value of the set context",

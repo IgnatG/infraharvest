@@ -15,7 +15,8 @@ const recordAutoScalingNS = "http://autoscaling.amazonaws.com/doc/2011-01-01/"
 // with user_data_base64 set to "=" when they have user data, and EC2 launch
 // templates by ID, named after their name, with their tags.
 func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		switch call.Op {
 		case "DescribeAutoScalingGroups":
 			if recordSecondPage(call) {
@@ -50,6 +51,7 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 	g := &AutoScalingLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -74,9 +76,10 @@ func TestRecordAutoScalingListsGroupsConfigurationsAndTemplates(t *testing.T) {
 
 // Each of the three lists fails the service.
 func TestRecordAutoScalingReturnsErrors(t *testing.T) {
+	t.Parallel()
 	for _, failing := range []string{"DescribeAutoScalingGroups", "DescribeLaunchConfigurations", "DescribeLaunchTemplates"} {
 		t.Run(failing, func(t *testing.T) {
-			useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeAPI(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					if failing == "DescribeLaunchTemplates" {
@@ -91,6 +94,7 @@ func TestRecordAutoScalingReturnsErrors(t *testing.T) {
 				return recordUnexpected(t, call)
 			})
 			g := &AutoScalingLister{}
+			g.SetContext(ctx)
 
 			assertRecordedError(t, g.List(), "UnauthorizedOperation")
 		})

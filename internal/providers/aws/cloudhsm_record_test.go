@@ -12,7 +12,8 @@ import (
 // by its HSMs, each by ID with its cluster as an attribute. Clusters and
 // HSMs being deleted, or deleted, are left out.
 func TestRecordCloudHsmListsClustersAndHsms(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeClusters" {
 			return recordUnexpected(t, call)
 		}
@@ -28,6 +29,7 @@ func TestRecordCloudHsmListsClustersAndHsms(t *testing.T) {
 			"NextToken":%q}`, nextPageToken)
 	})
 	g := &CloudHsmLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -41,10 +43,12 @@ func TestRecordCloudHsmListsClustersAndHsms(t *testing.T) {
 }
 
 func TestRecordCloudHsmReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordJSONError("CloudHsmAccessDeniedException")
 	})
 	g := &CloudHsmLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "CloudHsmAccessDeniedException")
 }

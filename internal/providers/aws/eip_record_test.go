@@ -11,7 +11,8 @@ import "testing"
 // named after the instance's ID, which the import names after the
 // instance; before, every address was labelled eipalloc_....
 func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
-	useFakeAPI(t, func(call apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
 		if call.Op != "DescribeAddresses" {
 			return recordUnexpected(t, call)
 		}
@@ -23,6 +24,7 @@ func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
 			</addressesSet>`)
 	})
 	g := &ElasticIPLister{}
+	g.SetContext(ctx)
 
 	if err := g.List(); err != nil {
 		t.Fatal(err)
@@ -35,10 +37,12 @@ func TestRecordElasticIPListsAddressesByAllocationID(t *testing.T) {
 }
 
 func TestRecordElasticIPReturnsErrors(t *testing.T) {
-	useFakeAPI(t, func(apiCall) string {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(apiCall) string {
 		return recordEC2Error()
 	})
 	g := &ElasticIPLister{}
+	g.SetContext(ctx)
 
 	assertRecordedError(t, g.List(), "UnauthorizedOperation")
 }
