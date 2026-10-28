@@ -95,9 +95,17 @@ func TestJudgePolicies(t *testing.T) {
 			FewerChanges, []*tfjson.ResourceChange{updating("aws_s3_bucket.logs", "aws_s3_bucket", "tags", "versioning"), unchanged("aws_sqs_queue.jobs", "aws_sqs_queue")}, same,
 			Verdict{Totals: true}, []string{"aws_s3_bucket.logs"},
 		},
-		"fewer changes, other adds, removes or imports": {
-			FewerChanges, []*tfjson.ResourceChange{unchanged("aws_s3_bucket.logs", "aws_s3_bucket"), unchanged("aws_sqs_queue.jobs", "aws_sqs_queue")}, tfrun.ChangeSummary{Import: 1},
+		"fewer changes, other adds or removes": {
+			FewerChanges, []*tfjson.ResourceChange{unchanged("aws_s3_bucket.logs", "aws_s3_bucket"), unchanged("aws_sqs_queue.jobs", "aws_sqs_queue")}, tfrun.ChangeSummary{Add: 1, Import: 2},
 			Verdict{Totals: false}, nil,
+		},
+		"fewer changes, other imports": {
+			FewerChanges, []*tfjson.ResourceChange{unchanged("aws_s3_bucket.logs", "aws_s3_bucket"), unchanged("aws_sqs_queue.jobs", "aws_sqs_queue")}, tfrun.ChangeSummary{Import: 1},
+			Verdict{Totals: true}, nil,
+		},
+		"fewer changes, a resource the baseline lacks that plans a change": {
+			FewerChanges, []*tfjson.ResourceChange{unchanged("aws_s3_bucket.logs", "aws_s3_bucket"), unchanged("aws_sqs_queue.jobs", "aws_sqs_queue"), updating("aws_sqs_queue.other", "aws_sqs_queue", "tags")}, tfrun.ChangeSummary{Change: 1, Import: 2},
+			Verdict{Totals: true}, []string{"aws_sqs_queue.other"},
 		},
 		"state-only, another type's argument is a difference": {
 			StateOnly, []*tfjson.ResourceChange{updating("aws_s3_bucket.logs", "aws_s3_bucket", "tags"), updating("aws_sqs_queue.jobs", "aws_sqs_queue", "force_destroy")}, same,

@@ -227,7 +227,7 @@ func TestDependenciesRejectCycles(t *testing.T) {
 
 // postProcess plans once for the imported values, reads the schemas to
 // find defaults among the constants, then plans once for all the steps,
-// which keeps them (see verifySteps).
+// which keeps them (see tidying.settleTogether).
 func TestPostProcessAddsReferences(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

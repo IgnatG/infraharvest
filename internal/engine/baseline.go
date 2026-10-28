@@ -40,8 +40,9 @@ const (
 	Exact Policy = iota
 	// FewerChanges is for an edit that may only remove changes, such as
 	// leaving out a provider-side setting an import left unset: the same
-	// adds, removes and imports, no more updates, and no resource planning
-	// anything it didn't before (see noWorse).
+	// adds and removes, no more updates, and no resource planning anything
+	// it didn't before (see noWorse), including one the baseline lacks,
+	// which had no change.
 	FewerChanges
 	// StateOnly is for an edit that may also update, in state, arguments the
 	// baseline's state-only rules name for the type, such as the labels a
@@ -93,7 +94,8 @@ func (b Baseline) Rebase(p shownPlan) Baseline {
 
 // Judge compares plan, which Terraform showed with diags as its errors, with
 // the baseline, as policy allows. A resource the baseline doesn't have, such
-// as one moved into a module call since, is judged by the totals alone.
+// as one moved into a module call since, is judged by the totals alone, but
+// for FewerChanges, where it must plan no change.
 func (b Baseline) Judge(plan shownPlan, diags []tfjson.Diagnostic, policy Policy) Verdict {
 	if len(diags) > 0 || plan.plan == nil || plan.summary == nil {
 		return Verdict{Failed: true}
@@ -103,7 +105,7 @@ func (b Baseline) Judge(plan shownPlan, diags []tfjson.Diagnostic, policy Policy
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 			continue
 		}
-		if _, ok := b.changes[rc.Address]; !ok {
+		if _, ok := b.changes[rc.Address]; !ok && policy != FewerChanges {
 			continue
 		}
 		tolerated, update := b.Tolerates(rc, rc.Address, policy)
@@ -117,7 +119,7 @@ func (b Baseline) Judge(plan shownPlan, diags []tfjson.Diagnostic, policy Policy
 	got := *plan.summary
 	switch policy {
 	case FewerChanges:
-		v.Totals = got.Add == b.summary.Add && got.Remove == b.summary.Remove && got.Import == b.summary.Import && got.Change <= b.summary.Change
+		v.Totals = got.Add == b.summary.Add && got.Remove == b.summary.Remove && got.Change <= b.summary.Change
 	case StateOnly:
 		v.Totals = got == b.Expected(0, v.Updates)
 	default:

@@ -28,13 +28,22 @@ func tidier(tf tfrun.Terraform, dir string, baseline Baseline) *tidying {
 // it, with the edit e instead of the one the pass starts, if e isn't nil.
 func declared(t *testing.T, d *tidying, name string) tidyPass {
 	t.Helper()
+	p, err := declaredPass(d, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// declaredPass is declared, for a helper without a test: it returns an error
+// if postProcess has no pass called name.
+func declaredPass(d *tidying, name string) (tidyPass, error) {
 	for _, p := range d.passes() {
 		if p.name == name {
-			return p
+			return p, nil
 		}
 	}
-	t.Fatalf("no %s pass", name)
-	return tidyPass{}
+	return tidyPass{}, errors.New("no " + name + " pass")
 }
 
 // settleEdit settles e as pass name would be, with that pass's rounds and
@@ -53,7 +62,11 @@ func settleDefaults(tf tfrun.Terraform, dir string, changes map[string]string, r
 	if err != nil {
 		return false, d, err
 	}
-	kept, err := d.settle(tidyPass{policy: FewerChanges, rounds: maxDefaultRounds, rebases: true, stopped: "stopped"}, e)
+	p, err := declaredPass(d, passDefaults)
+	if err != nil {
+		return false, d, err
+	}
+	kept, err := d.settle(p, e)
 	return kept, d, err
 }
 
@@ -65,7 +78,10 @@ func synthesizeRoot(tf tfrun.Terraform, dir string, opts Options, baseline Basel
 	d.r = generating(opts)
 	e, err := d.synthesize()
 	if err == nil && e != nil {
-		_, err = d.settle(tidyPass{policy: StateOnly, rounds: untilSettled, rebases: true, stopped: "stopped"}, e)
+		var p tidyPass
+		if p, err = declaredPass(d, passCuratedModules); err == nil {
+			_, err = d.settle(p, e)
+		}
 	}
 	return d.declined, d.baseline, d.lists, err
 }
@@ -677,4 +693,33 @@ func settleLocalModules(t *testing.T, tf tfrun.Terraform, dir, modulesDir string
 	t.Helper()
 	d := tidier(tf, dir, baseline)
 	return settleEdit(t, d, passLocalModules, liftModules(d.ctx, tf, dir, modulesDir, &ModuleRefs{}))
+}
+
+// A rebase takes the imported values of the root's resources from the plan,
+// but not those of a resource a pass moved into a module, which keeps the
+// values of its root address.
+func TestRebaseKeepsTheRootsValues(t *testing.T) {
+	d := tidier(nil, t.TempDir(), Baseline{})
+	d.values = map[string]map[string]any{
+		"aws_s3_bucket.logs": {"bucket": "logs"},
+		"aws_sqs_queue.jobs": {"name": "old"},
+	}
+	summary := tfrun.ChangeSummary{Import: 2}
+	plan := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		resourceChange("module.logs.aws_s3_bucket.this", tfjson.Actions{tfjson.ActionNoop}, map[string]any{"bucket": "moved"}, nil),
+		resourceChange("aws_sqs_queue.jobs", tfjson.Actions{tfjson.ActionNoop}, map[string]any{"name": "jobs"}, nil),
+	}}
+	if err := d.rebase(&shownPlan{plan, &summary}, "stopped"); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]any{
+		"aws_s3_bucket.logs": {"bucket": "logs"},
+		"aws_sqs_queue.jobs": {"name": "jobs"},
+	}
+	if !reflect.DeepEqual(d.values, want) {
+		t.Errorf("values: got %v, want %v", d.values, want)
+	}
+	if got := d.baseline.Planned("module.logs.aws_s3_bucket.this"); got == "" {
+		t.Error("the baseline has no change for the moved resource")
+	}
 }

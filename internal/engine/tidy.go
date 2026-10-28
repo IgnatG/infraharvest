@@ -481,8 +481,10 @@ func (t *tidying) review(a *tidyAttempt, e *tidyEdit, r tidyReview) (tidyDecisio
 }
 
 // rebase makes the baseline of plan, a plan of the configuration as the
-// passes left it, and the imported values in it, what the passes after
-// compare with. Without a plan, or one the pass has none of, it plans: stopped
+// passes left it, what the passes after compare with, and takes the imported
+// values it has of the root's resources: a resource moved into a module
+// keeps the values of its root address, which are what it was imported
+// with. Without a plan, or one the pass has none of, it plans: stopped
 // is the error should the configuration not plan.
 func (t *tidying) rebase(plan *shownPlan, stopped string) error {
 	if plan == nil || plan.plan == nil || plan.summary == nil {
@@ -496,6 +498,10 @@ func (t *tidying) rebase(plan *shownPlan, stopped string) error {
 		plan = &shown
 	}
 	t.baseline = t.baseline.Rebase(*plan)
-	t.values = valuesOf(plan.plan)
+	for address, values := range valuesOf(plan.plan) {
+		if _, ok := t.values[address]; ok {
+			t.values[address] = values
+		}
+	}
 	return nil
 }
