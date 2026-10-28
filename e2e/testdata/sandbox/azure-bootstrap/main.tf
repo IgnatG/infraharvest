@@ -17,6 +17,12 @@
 # environment, through federated identity credentials: no secret is
 # stored, and no app registration (nor the Entra ID rights to make one)
 # is needed.
+#
+# A second subscription (slot = "second"), in the same tenant, holds the
+# prod half of the environments estate: the same identities and resource
+# group again, its own. Its bootstrap gives the first subscription's
+# read-only identity Reader on it as well, for the estate's first import,
+# which reads both subscriptions with one sign-in.
 
 provider "azurerm" {
   features {}
@@ -39,6 +45,10 @@ locals {
   github_issuer   = "https://token.actions.githubusercontent.com"
   github_audience = "api://AzureADTokenExchange"
   tags            = { project = "infraharvest-sandbox" }
+
+  # Custom role names are unique in the tenant, which the second
+  # subscription shares.
+  lock_role_name = var.slot == "" ? "infraharvest sandbox lock operator" : "infraharvest sandbox lock operator (${var.slot})"
 }
 
 resource "azurerm_resource_group" "identities" {
@@ -105,7 +115,7 @@ resource "azurerm_role_assignment" "fixture_contributor" {
 # (Microsoft.Authorization/*/Write and */Delete are among its NotActions),
 # and the estate holds one.
 resource "azurerm_role_definition" "locks" {
-  name        = "infraharvest sandbox lock operator"
+  name        = local.lock_role_name
   scope       = azurerm_resource_group.estate.id
   description = "Create and delete the management locks of the infraharvest sandbox estate."
 
@@ -148,4 +158,18 @@ module "readonly" {
 
   subscription_id = var.subscription_id
   principal_id    = azurerm_user_assigned_identity.readonly.principal_id
+}
+
+# The second subscription's: the first subscription's read-only identity
+# reads it too, with the Reader role permissions/azure grants, for the
+# environments estate's first import. The template's module configures a
+# provider of its own, so it can't be counted: this is its assignment.
+resource "azurerm_role_assignment" "first_readonly" {
+  count = var.first_readonly_principal_id == "" ? 0 : 1
+
+  scope                = "/subscriptions/${var.subscription_id}"
+  role_definition_name = "Reader"
+  principal_id         = var.first_readonly_principal_id
+  principal_type       = "ServicePrincipal"
+  description          = "infraharvest sandbox: the first subscription's read-only identity, for the environments estate's first import."
 }

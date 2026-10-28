@@ -20,6 +20,12 @@
 #
 # The sandbox environment's jobs, and only they, may impersonate the two
 # service accounts: no key is created or stored.
+#
+# A second project (slot = "second") holds the prod half of the
+# environments estate: the same pool and service accounts again, its own.
+# Its bootstrap grants the first project's read-only service account
+# what permissions/google grants on it as well, for the estate's first
+# import, which reads both projects with one sign-in.
 
 provider "google" {
   project = var.project_id
@@ -261,4 +267,40 @@ module "readonly" {
 
   project_id = var.project_id
   member     = google_service_account.readonly.member
+}
+
+# The second project's: the first project's read-only service account
+# reads it too, with the roles permissions/google grants and its deny
+# policy's data reads denied, for the environments estate's first import.
+# The template's module configures a provider of its own, so it can't be
+# counted, and its deny policy's name is the project's one of that name:
+# these are its grants, from what it grants this project's account.
+locals {
+  first_readonly_member = "serviceAccount:${var.first_readonly_service_account}"
+}
+
+resource "google_project_iam_member" "first_readonly" {
+  # checkov:skip=CKV_GCP_117:roles/viewer is the read-only access infraharvest needs to read resource configuration, granted on purpose
+  for_each = var.first_readonly_service_account == "" ? toset([]) : toset(module.readonly.granted_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = local.first_readonly_member
+}
+
+resource "google_iam_deny_policy" "first_readonly_data_reads" {
+  count = var.first_readonly_service_account != "" && length(module.readonly.denied_permissions) > 0 ? 1 : 0
+
+  parent       = urlencode("cloudresourcemanager.googleapis.com/projects/${var.project_id}")
+  name         = "infraharvest-deny-data-reads-first"
+  display_name = "infraharvest: no data reads (first project's account)"
+
+  rules {
+    description = "Deny the first sandbox project's read-only service account the data reads roles/viewer allows."
+
+    deny_rule {
+      denied_principals  = ["principal://iam.googleapis.com/projects/-/serviceAccounts/${var.first_readonly_service_account}"]
+      denied_permissions = module.readonly.denied_permissions
+    }
+  }
 }
