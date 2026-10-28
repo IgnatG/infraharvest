@@ -10,12 +10,19 @@
 # the files, and a test of the schemameta package checks that it names the
 # releases they record. It ends with OPA's capabilities file, which
 # internal/engine embeds under Apache-2.0, as section 4 of that licence
-# asks.
+# asks, at the release internal/engine/conftest_capabilities.go names
+# (opaVersion).
 #
 # Usage: schema-metadata-notice.sh <dir>
 set -euo pipefail
 
 dir=${1:?usage: $0 <dir>}
+capabilities=$(dirname "$0")/../../internal/engine/conftest_capabilities.go
+opa=$(sed -n 's/^const opaVersion = "\([^"]*\)"$/\1/p' "$capabilities")
+if [[ -z "$opa" ]]; then
+  echo "$capabilities names no opaVersion" >&2
+  exit 1
+fi
 
 cat <<'EOF'
 infraharvest
@@ -55,6 +62,6 @@ gives conftest those of them it lets policies use; the file is unchanged
 and stays under Apache-2.0.
 
 internal/engine/conftest_capabilities.json
-  from OPA 1.21.1 (capabilities/v1.21.1.json), Copyright The OPA Authors
-  source: https://github.com/open-policy-agent/opa/blob/v1.21.1/capabilities/v1.21.1.json
 EOF
+echo "  from OPA $opa (capabilities/v$opa.json), Copyright The OPA Authors"
+echo "  source: https://github.com/open-policy-agent/opa/blob/v$opa/capabilities/v$opa.json"

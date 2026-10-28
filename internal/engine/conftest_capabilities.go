@@ -10,6 +10,11 @@ import (
 	"sync"
 )
 
+// opaVersion is the OPA release opaCapabilities are of. The
+// opacapabilities command bumps it with the file, and NOTICE names it
+// (.github/scripts/schema-metadata-notice.sh reads it here).
+const opaVersion = "1.21.1"
+
 // opaCapabilities are the capabilities of OPA 1.21.1, the release
 // conftest 0.71.1 is built with, as OPA publishes them
 // (capabilities/v1.21.1.json in its repository): its built-in
@@ -54,9 +59,9 @@ var deniedBuiltins = []string{
 // with (--capabilities): OPA's, but for deniedBuiltins, without
 // conftest's own built-in functions, and with no host to reach
 // (allow_net), so that a policy that calls a denied function doesn't
-// compile. A conftest built with a later OPA runs policies with OPA
-// 1.21.1's built-in functions all the same: a policy that calls a newer
-// one doesn't compile either. They are worked out once, on first use.
+// compile. A conftest built with a later OPA runs policies with the
+// built-in functions of OPA 1.21.1 all the same: a policy that calls a
+// newer one doesn't compile either. They are worked out once, on first use.
 var conftestCapabilities = sync.OnceValues(func() ([]byte, error) {
 	var capabilities map[string]json.RawMessage
 	var builtins []json.RawMessage

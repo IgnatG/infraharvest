@@ -282,15 +282,16 @@ deny contains {"msg": sprintf("%s has no owner tag", [name]), "resource": sprint
 }
 
 // The capabilities file is OPA's, which is Apache-2.0: the NOTICE names
-// it, with the OPA release it is copied from and where that release's
-// file is, and points at the licence, which REUSE.toml gives the file.
+// it, with the OPA release it is copied from (opaVersion) and where
+// that release's file is, and points at the licence, which REUSE.toml
+// gives the file.
 func TestNoticeNamesOPACapabilities(t *testing.T) {
 	t.Parallel()
 	for path, want := range map[string][]string{
 		filepath.Join("..", "..", "NOTICE"): {
 			"internal/engine/conftest_capabilities.json",
-			"from OPA 1.21.1 (capabilities/v1.21.1.json)",
-			"https://github.com/open-policy-agent/opa/blob/v1.21.1/capabilities/v1.21.1.json",
+			"from OPA " + opaVersion + " (capabilities/v" + opaVersion + ".json)",
+			"https://github.com/open-policy-agent/opa/blob/v" + opaVersion + "/capabilities/v" + opaVersion + ".json",
 			"LICENSES/Apache-2.0.txt",
 		},
 		filepath.Join("..", "..", "REUSE.toml"): {

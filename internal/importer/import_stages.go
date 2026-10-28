@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -334,7 +333,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		if mode == ModulesLatestUntested {
 			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
 		}
-		resolved, t.newer, constraints = registryModules(ctx, provider, mode, selected)
+		resolved, t.newer, constraints = r.registryModules(ctx, provider, mode, selected)
 		// The organisation's own modules come first.
 		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
 		resolved = append(own, resolved...)
@@ -354,11 +353,19 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 // (see resolveAdapters): the adapters, those called below their newest
 // release, and the provider releases each accepts. A mode that calls no
 // module from the registry has none.
-func registryModules(ctx context.Context, provider harvest.Provider, mode string, byService map[string][]harvest.Resource) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
+func (r *Run) registryModules(ctx context.Context, provider harvest.Provider, mode string, byService map[string][]harvest.Resource) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
 	if !modulesFromRegistry(mode) {
 		return nil, nil, nil
 	}
-	return resolveAdapters(ctx, http.DefaultClient, "", applicableAdapters(adapters.For(provider.Profile().Modules), byService), engineProvider(provider).Source, mode == ModulesLatestUntested)
+	return resolveAdapters(ctx, r.moduleReleases, applicableAdapters(adapters.For(provider.Profile().Modules), byService), engineProvider(provider).Source, mode == ModulesLatestUntested)
+}
+
+// moduleReleases returns the releases of the registry module at source,
+// looked up once for the whole command (see moduleReleases).
+func (r *Run) moduleReleases(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
+	return r.shared.releases.get(ctx, source, func(ctx context.Context) ([]engine.ModuleRelease, error) {
+		return r.tools.listModuleReleases(ctx, source)
+	})
 }
 
 // callRoot renders, once for the call c, the files every root it

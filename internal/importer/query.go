@@ -102,7 +102,7 @@ func (r *Run) query(c *callContext, provider harvest.Provider, listedByOthers []
 		if err != nil {
 			return nil, err
 		}
-		_, _, constraints := registryModules(ctx, provider, modulesMode(options), map[string][]harvest.Resource{"": listedByOthers})
+		_, _, constraints := r.registryModules(ctx, provider, modulesMode(options), map[string][]harvest.Resource{"": listedByOthers})
 		root, err := r.callRoot(ctx, c, binary.Registry, execPath, engineProvider(provider), constraints)
 		if err != nil {
 			return nil, err
