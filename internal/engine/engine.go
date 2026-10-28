@@ -623,12 +623,32 @@ func (g *generation) secretVariables(ctx context.Context) error {
 			kept = append(kept, s)
 		}
 	}
+	// Both read the imported objects from one plan: planUntilValid's last,
+	// if it had no errors, or else the first of their own that has none.
+	// What an import reads doesn't depend on the configuration, so the
+	// edits since then, and their own, don't change what it shows.
+	var imported *tfjson.Plan
+	if g.last != nil {
+		imported = g.last.plan
+	}
+	importedPlan := func(vars []tfexec.PlanOption) func() (*tfjson.Plan, error) {
+		return func() (*tfjson.Plan, error) {
+			if imported != nil {
+				return imported, nil
+			}
+			p, _, _, err := tfrun.ShowPlan(ctx, g.tf, vars)
+			imported = p
+			return p, err
+		}
+	}
 	var err error
-	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, g.r.secrets.Options()); err != nil {
+	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, importedPlan(g.r.secrets.Options())); err != nil {
 		return err
 	}
+	// The secrets read from variables now: they plan with placeholders.
+	vars := append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...)
 	var public bool
-	if g.result.Secrets, public, err = secret.PublicToLiterals(ctx, g.tf, filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, g.r.secrets); err != nil {
+	if g.result.Secrets, public, err = secret.PublicToLiterals(filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, importedPlan(vars)); err != nil {
 		return err
 	}
 	if public {
@@ -838,9 +858,9 @@ func unresolved(command, dir string, diags []tfjson.Diagnostic) (map[string][]tf
 // validates the result. It leaves out resources that still don't validate,
 // adding them to rejections and out. It returns literal's variables first.
 // Secret attributes the imported objects hold no value for are left out of
-// the configuration instead (see secret.WithoutUnset); vars are the options the
-// plan that tells them apart needs.
-func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, vars []tfexec.PlanOption) ([]secret.Variable, error) {
+// the configuration instead (see secret.WithoutUnset); imported returns the
+// plan that shows those objects, or nil if the root doesn't plan.
+func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Names, literal []secret.Variable, rejections *[]Rejection, out *bytes.Buffer, imported func() (*tfjson.Plan, error)) ([]secret.Variable, error) {
 	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -854,11 +874,12 @@ func useVariables(ctx context.Context, tf tfrun.Terraform, dir string, taken Nam
 		found = secret.WithoutWriteOnly(found, schemas)
 	}
 	if len(found) > 0 {
-		var unset bool
-		if found, unset, err = secret.WithoutUnset(ctx, tf, found, schemas, vars); err != nil {
+		p, err := imported()
+		if err != nil {
 			return nil, err
 		}
-		if unset {
+		var unset bool
+		if found, unset = secret.WithoutUnset(found, schemas, p); unset {
 			if err := generated.Save(); err != nil {
 				return nil, err
 			}
