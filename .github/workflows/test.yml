@@ -480,10 +480,13 @@ jobs:
       if: failure()
       run: docker compose -f e2e/compose.yaml logs
     # The sandbox test runs only by hand (sandbox-aws), so check here that
-    # it builds.
+    # it builds, and run the tests of its checks (TestCheck*), which need
+    # no account.
     - name: Vet the sandbox test
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
-      run: go vet -tags e2e,sandbox,minimal,aws ./e2e/
+      run: |
+        go vet -tags e2e,sandbox,minimal,aws ./e2e/
+        go test -tags e2e,sandbox,minimal,aws -run '^TestCheck' ./e2e/
 
   # TestGoogleIncremental adds to the estate the other tests import, and
   # TestGoogleDrift and TestGoogleEnvironments change it, so each runs on a

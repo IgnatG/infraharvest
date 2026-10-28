@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"maps"
@@ -210,9 +211,9 @@ func (s *sandbox) importer(t *testing.T, regions, services []string) sandboxImpo
 
 // checkImport checks the import in the output directory: nothing failed
 // or was left out, every check passed, every root plans as imports with
-// no changes, and each type the estate created is imported at least as
-// many times as it was created. It returns the import's report and how
-// many resources of each type the roots import.
+// no changes, and each resource the estate created is imported, by its
+// ID (see checkAWSFound). It returns the import's report and how many
+// resources of each type the roots import.
 func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjson.StateResource) (report.Report, map[string]int) {
 	t.Helper()
 	coverage := readCoverage(t, s.out)
@@ -231,28 +232,58 @@ func (s *sandbox) checkImport(ctx context.Context, t *testing.T, created []*tfjs
 		}
 	}
 
-	imported := map[string]int{}
+	ids := map[string][]string{}
 	for _, dir := range generatedDirs(t, s.out) {
 		if rejected, err := os.ReadFile(filepath.Join(dir, rootfile.RejectedFileName)); err == nil {
 			t.Errorf("%s: resources left out:\n%s", dir, rejected)
 		}
-		for typ, n := range checkNoChanges(ctx, t, dir, s.execPath, s.plugins, secretValues(t, dir, created)) {
-			imported[typ] += n
+		for typ, found := range checkImportedIDs(ctx, t, dir, s.execPath, s.plugins, secretValues(t, dir, created)) {
+			ids[typ] = append(ids[typ], found...)
 		}
 	}
 	checkApplied(ctx, t, s.out, generatedDirs(t, s.out), s.execPath, s.plugins, nil, func(dir string) []tfexec.PlanOption { return secretValues(t, dir, created) })
-	seeded := map[string]int{}
-	for _, r := range created {
-		if r.Type != sandboxAWSQueried {
-			seeded[r.Type]++
-		}
-	}
-	for _, typ := range sortedKeys(seeded) {
-		if imported[typ] < seeded[typ] {
-			t.Errorf("%s: created %d, imported %d", typ, seeded[typ], imported[typ])
-		}
+	checkAWSFound(t, created, ids)
+	imported := map[string]int{}
+	for typ, found := range ids {
+		imported[typ] = len(found)
 	}
 	return coverage, imported
+}
+
+// sandboxAWSUnstableIDs are the types whose ID the provider makes up when
+// it creates a resource and builds from its arguments when it imports one,
+// so that an import never has the ID the estate's state has:
+// checkAWSFound counts them instead.
+var sandboxAWSUnstableIDs = []string{"aws_iam_role_policy_attachment"}
+
+// checkAWSFound checks that the roots import every resource the estate
+// created but its queried one (sandboxAWSQueried), by type and ID, as
+// checkGoogleFound does on Google Cloud. The import lists whole regions of
+// a shared account, so a count would let a leftover of an earlier run, or
+// a resource AWS made, such as a VPC's main route table, make up for one
+// of the estate's that the import missed. The IDs are the state's, which
+// the import's plan reads too, rather than the import IDs, which for many
+// AWS types (API Gateway methods, ECS services, event targets) are not
+// their IDs. The types of sandboxAWSUnstableIDs are counted instead.
+func checkAWSFound(t testing.TB, created []*tfjson.StateResource, imported map[string][]string) {
+	t.Helper()
+	counted := map[string]int{}
+	for _, r := range created {
+		switch {
+		case r.Type == sandboxAWSQueried:
+		case slices.Contains(sandboxAWSUnstableIDs, r.Type):
+			counted[r.Type]++
+		default:
+			if id, _ := r.AttributeValues["id"].(string); id == "" || !slices.Contains(imported[r.Type], id) {
+				t.Errorf("the import doesn't import %s %q", r.Address, id)
+			}
+		}
+	}
+	for _, typ := range sortedKeys(counted) {
+		if len(imported[typ]) < counted[typ] {
+			t.Errorf("%s: created %d, imported %d", typ, counted[typ], len(imported[typ]))
+		}
+	}
 }
 
 // checkSandboxAWSQuery takes the estate's metric filter through the
@@ -933,4 +964,46 @@ func importBlocks(t *testing.T, name, content string) int {
 		}
 	}
 	return n
+}
+
+// errorRecorder is a testing.TB that records the errors a check reports,
+// for the tests of the checks themselves.
+type errorRecorder struct {
+	testing.TB
+	errors []string
+}
+
+func (r *errorRecorder) Helper() {}
+
+func (r *errorRecorder) Errorf(format string, args ...any) {
+	r.errors = append(r.errors, fmt.Sprintf(format, args...))
+}
+
+// TestCheckAWSFound checks that checkAWSFound reports a resource of the
+// estate the import missed even when another of its type, such as a
+// leftover of an earlier run, makes up the count, and counts only the
+// types whose IDs differ between a create and an import.
+func TestCheckAWSFound(t *testing.T) {
+	created := []*tfjson.StateResource{
+		{Address: "aws_instance.app", Type: "aws_instance", AttributeValues: map[string]any{"id": "i-estate"}},
+		{Address: "aws_iam_role_policy_attachment.app", Type: "aws_iam_role_policy_attachment", AttributeValues: map[string]any{"id": "app-20261028"}},
+		{Address: "aws_cloudwatch_log_metric_filter.app", Type: sandboxAWSQueried, AttributeValues: map[string]any{"id": "app"}},
+	}
+	for _, tc := range []struct {
+		name     string
+		imported map[string][]string
+		errors   int
+	}{
+		{"all imported", map[string][]string{"aws_instance": {"i-estate"}, "aws_iam_role_policy_attachment": {"app-arn:aws:iam::aws:policy/x"}}, 0},
+		{"a leftover instead", map[string][]string{"aws_instance": {"i-leftover"}, "aws_iam_role_policy_attachment": {"app-arn:aws:iam::aws:policy/x"}}, 1},
+		{"attachment missing", map[string][]string{"aws_instance": {"i-estate", "i-leftover"}}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &errorRecorder{TB: t}
+			checkAWSFound(r, created, tc.imported)
+			if len(r.errors) != tc.errors {
+				t.Errorf("errors %q, want %d", r.errors, tc.errors)
+			}
+		})
+	}
 }
