@@ -691,10 +691,9 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 
 // liftModules is post-processing's module step: it moves repeated clusters
 // into generated modules under modulesDir, whose users refs counts,
-// installs them, and keeps the change only if the plan, with vars, still
-// has the baseline's totals and each resource left in the root plans the
-// change it had (see sameChanges), as verify checks an edit.
-func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) (bool, error) {
+// installs them, and keeps the change only if the plan, with vars, is still
+// Exact to baseline, as verify checks an edit.
+func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs, baseline Baseline, vars []tfexec.PlanOption) (bool, error) {
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
 		return false, fmt.Errorf("terraform providers schema: %w", err)
@@ -722,7 +721,7 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 	if err != nil {
 		return false, errors.Join(err, undo())
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+	if baseline.Judge(shownPlan{p, summary}, diags, Exact).Accepted() {
 		return true, nil
 	}
 	return false, undo()

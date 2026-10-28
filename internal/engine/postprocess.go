@@ -49,21 +49,21 @@ import (
 // from instead of planning.
 func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []secret.Variable, planned *shownPlan) ([]ModuleCall, error) {
 	vars := append(secret.Placeholders(secrets), r.secrets.Options()...)
-	baseline, values, changes, err := replanValues(ctx, tf, vars, planned)
+	baseline, values, err := replanValues(ctx, tf, vars, planned, r.opts.StateOnly)
 	if err != nil {
 		return nil, err
 	}
 	if baseline == nil {
 		return nil, liftLiteralsValidated(ctx, tf, dir, r.taken)
 	}
-	t := &tidying{ctx: ctx, tf: tf, dir: dir, r: r, vars: vars, baseline: *baseline, values: values, changes: changes}
+	t := &tidying{ctx: ctx, tf: tf, dir: dir, r: r, vars: vars, baseline: *baseline, values: values}
 	passes := t.passes()
 	if err := checkPassOrder(passes); err != nil {
 		return nil, err
 	}
 	var steps []tidyStep
 	verify := func() error {
-		err := verifySteps(ctx, tf, dir, t.baseline, t.changes, vars, steps)
+		err := verifySteps(ctx, tf, dir, t.baseline, vars, steps)
 		steps = nil
 		return err
 	}
@@ -134,9 +134,8 @@ type tidying struct {
 	r    *run
 	vars []tfexec.PlanOption
 
-	baseline tfrun.ChangeSummary
+	baseline Baseline
 	values   map[string]map[string]any
-	changes  map[string]string
 
 	// declined are the clusters synthesize didn't move into a curated
 	// module, with why, and lists the lengths of the list outputs of the
@@ -250,14 +249,14 @@ func checkPassOrder(passes []tidyPass) error {
 // compare with; stopped is the error should the configuration no longer
 // plan.
 func (t *tidying) replan(last *shownPlan, stopped string) error {
-	baseline, values, changes, err := replanValues(t.ctx, t.tf, t.vars, last)
+	baseline, values, err := replanValues(t.ctx, t.tf, t.vars, last, t.baseline.stateOnly)
 	if err != nil {
 		return err
 	}
 	if baseline == nil {
 		return errors.New(stopped)
 	}
-	t.baseline, t.values, t.changes = *baseline, values, changes
+	t.baseline, t.values = *baseline, values
 	return nil
 }
 
@@ -268,7 +267,7 @@ func (t *tidying) fillEffectiveTags() error {
 	if et == nil {
 		return nil
 	}
-	filled, last, err := fillEffectiveTags(t.ctx, t.tf, t.dir, *et, t.values, t.changes, t.r.opts.StateOnly, t.vars)
+	filled, last, err := fillEffectiveTags(t.ctx, t.tf, t.dir, *et, t.values, t.baseline, t.vars)
 	if err != nil || !filled {
 		return err
 	}
@@ -283,7 +282,7 @@ func (t *tidying) stripDefaults() error {
 	if et := opts.EffectiveTags; et != nil {
 		rules.tags = et.Attribute
 	}
-	stripped, last, err := stripDefaults(t.ctx, t.tf, t.dir, t.baseline, t.changes, t.vars, rules)
+	stripped, last, err := stripDefaults(t.ctx, t.tf, t.dir, t.baseline, t.vars, rules)
 	if err != nil || !stripped {
 		return err
 	}
@@ -323,7 +322,7 @@ func (t *tidying) synthesize() error {
 		return nil
 	}
 	var err error
-	t.declined, t.baseline, t.lists, err = synthesize(t.ctx, t.tf, t.dir, t.r, t.values, t.baseline, t.changes, t.vars)
+	t.declined, t.baseline, t.lists, err = synthesize(t.ctx, t.tf, t.dir, t.r, t.values, t.baseline, t.vars)
 	return err
 }
 
@@ -333,7 +332,7 @@ func (t *tidying) liftModules() error {
 	if t.r.opts.ModulesDir == "" {
 		return nil
 	}
-	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules, t.baseline, t.changes, t.vars)
+	_, err := liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules, t.baseline, t.vars)
 	return err
 }
 
@@ -388,9 +387,9 @@ func (s tidyStep) apply() (bool, error) {
 // changes, by resource where the step has each (see verifyEach), and
 // with its fallback where the plan rejects its edit. Either way, what it
 // keeps has every resource plan the change it had.
-func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) error {
+func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, steps []tidyStep) error {
 	if len(steps) > 1 {
-		settled, err := verifyTogether(ctx, tf, dir, baseline, changes, vars, steps)
+		settled, err := verifyTogether(ctx, tf, dir, baseline, vars, steps)
 		if err != nil || settled {
 			return err
 		}
@@ -399,12 +398,12 @@ func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline t
 		var kept bool
 		var err error
 		if step.each != nil {
-			_, err = verifyEach(ctx, tf, dir, baseline, changes, vars, step.each, step.files...)
+			_, err = verifyEach(ctx, tf, dir, baseline, vars, step.each, step.files...)
 		} else {
-			kept, err = verify(ctx, tf, dir, baseline, changes, vars, step.edit, step.files...)
+			kept, err = verify(ctx, tf, dir, baseline, vars, step.edit, step.files...)
 		}
 		if err == nil && !kept && step.fallback != nil {
-			_, err = verify(ctx, tf, dir, baseline, changes, vars, step.fallback, step.files...)
+			_, err = verify(ctx, tf, dir, baseline, vars, step.fallback, step.files...)
 		}
 		if err != nil {
 			return err
@@ -415,13 +414,12 @@ func verifySteps(ctx context.Context, tf tfrun.Terraform, dir string, baseline t
 
 // verifyTogether makes the edit of every step, in order, each on the
 // files as the ones before it left them, and keeps them all if the
-// configuration then plans, with vars, as verify requires: without
-// errors, with baseline's change summary, and with each resource planning
-// the change it had. It reports whether that settled the steps: it kept
+// configuration then plans, with vars, as verify requires: Exact to
+// baseline. It reports whether that settled the steps: it kept
 // them, or none of them changed anything. Otherwise, as when one edit
 // fails, it leaves the files as they were, for the steps to be checked
 // one at a time.
-func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
+func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, steps []tidyStep) (bool, error) {
 	var files []string
 	for _, s := range steps {
 		for _, f := range s.files {
@@ -451,22 +449,20 @@ func verifyTogether(ctx context.Context, tf tfrun.Terraform, dir string, baselin
 	if err != nil {
 		return false, errors.Join(err, backup.Restore())
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+	if baseline.Judge(shownPlan{p, summary}, diags, Exact).Accepted() {
 		return true, nil
 	}
 	return false, backup.Restore()
 }
 
 // verify makes edit, which changes files in dir, and keeps it only if the
-// configuration then plans, with vars, without errors, with the same
-// change summary as baseline, and with each resource changes has planning
-// the same change it had (see tfrun.ChangeSignature): the same actions, on the
-// same attributes. Totals alone would let an edit hide a real change in a
-// resource that already has an expected update, such as a label-only one
-// after an import. Resources changes doesn't have, such as those moved
-// into module calls since, are judged by the totals. It reports whether
-// it kept the edit.
-func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
+// configuration then plans, with vars, as baseline allows under Exact: without
+// errors, with the same change summary, and with each resource the baseline
+// has planning the same change it had (see tfrun.ChangeSignature): the same
+// actions, on the same attributes. Resources the baseline doesn't have, such
+// as those moved into module calls since, are judged by the totals. It reports
+// whether it kept the edit.
+func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, edit func() (bool, error), files ...string) (bool, error) {
 	backup, err := fsutil.BackupFiles(dir, files...)
 	if err != nil {
 		return false, err
@@ -483,7 +479,7 @@ func verify(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.
 	if err != nil {
 		return false, errors.Join(err, backup.Restore())
 	}
-	if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+	if baseline.Judge(shownPlan{p, summary}, diags, Exact).Accepted() {
 		return true, nil
 	}
 	return false, backup.Restore()
@@ -494,15 +490,14 @@ const maxEditRounds = 3
 
 // verifyEach makes edit, which changes files in dir by resource, and
 // keeps what the plan accepts of it: where a resource then plans
-// differently from changes, its planned change before the edit (see
+// differently from the baseline, its planned change before the edit (see
 // tfrun.ChangeSignature), or an error is about it, it makes edit again on the
 // files as they were, with that resource's level in skip raised, until
-// the plan, with vars, matches baseline, every resource planning the
-// change it had (see sameChanges), in at most maxEditRounds plans (see
+// the plan, with vars, is Exact to baseline, in at most maxEditRounds plans (see
 // gate.Verifier). edit returns the resources it changed. It undoes the edit
 // if the plan still differs then, or differs in a way no resource it
 // changed explains, and reports whether it kept any of it.
-func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
+func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, edit func(skip map[string]int) (map[string]bool, error), files ...string) (bool, error) {
 	backup, err := fsutil.BackupFiles(dir, files...)
 	if err != nil {
 		return false, err
@@ -525,10 +520,11 @@ func verifyEach(ctx context.Context, tf tfrun.Terraform, dir string, baseline tf
 			if err != nil {
 				return nil, err
 			}
-			if len(diags) == 0 && summary != nil && *summary == baseline && sameChanges(p, changes) {
+			verdict := baseline.Judge(shownPlan{p, summary}, diags, Exact)
+			if verdict.Accepted() {
 				return nil, nil
 			}
-			blamed, err := blame(dir, p, diags, changes)
+			blamed, err := blame(dir, diags, verdict)
 			return &gate.Verdict[string, bool]{Blamed: blamed}, err
 		},
 		Drop: func(blamed map[string]bool) {
@@ -574,9 +570,10 @@ func dataReaders(generated *hclfile.File, address string) []string {
 }
 
 // blame returns the resources the plan's errors are about, or, without
-// errors, those of p that plan differently from changes. It returns none
-// if an error is about no resource.
-func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[string]string) (map[string]bool, error) {
+// errors, those of the plan that verdict says plan another change than the
+// baseline's. It returns none if an error is about no resource, or the plan
+// had no result.
+func blame(dir string, diags []tfjson.Diagnostic, verdict Verdict) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
 		generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
@@ -604,54 +601,26 @@ func blame(dir string, p *tfjson.Plan, diags []tfjson.Diagnostic, changes map[st
 		}
 		return blamed, nil
 	}
-	if p == nil {
+	if verdict.Failed {
 		return nil, nil
 	}
-	for _, rc := range p.ResourceChanges {
-		if changedFrom(rc, changes) {
-			blamed[rc.Address] = true
-		}
+	for _, rc := range verdict.Changed {
+		blamed[rc.Address] = true
 	}
 	return blamed, nil
 }
 
-// sameChanges reports whether every resource of changes that p plans has
-// the change changes has for it.
-func sameChanges(p *tfjson.Plan, changes map[string]string) bool {
-	if p == nil {
-		return len(changes) == 0
-	}
-	for _, rc := range p.ResourceChanges {
-		if changedFrom(rc, changes) {
-			return false
-		}
-	}
-	return true
-}
-
-// changedFrom reports whether a resource a plan has plans another change
-// than the one changes has for it (see tfrun.ChangeSignature). A resource changes
-// doesn't have, such as one moved into a module call since, is judged by
-// the plan's totals instead.
-func changedFrom(rc *tfjson.ResourceChange, changes map[string]string) bool {
-	if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
-		return false
-	}
-	want, ok := changes[rc.Address]
-	return ok && tfrun.ChangeSignature(rc) != want
-}
-
-// planValues plans with vars and returns the plan's change summary, and
-// each resource's imported attribute values and planned change (see
-// tfrun.ChangeSignature), by address. It returns no summary if the
-// configuration doesn't plan.
-func planValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
+// planValues plans with vars and returns the baseline of the plan, with
+// stateOnly as its state-only rules, and each resource's imported attribute
+// values by address. It returns no baseline if the configuration doesn't
+// plan.
+func planValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption, stateOnly map[string][]string) (*Baseline, map[string]map[string]any, error) {
 	p, summary, _, err := tfrun.ShowPlan(ctx, tf, vars)
 	if err != nil || p == nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	values, changes := valuesOf(p)
-	return summary, values, changes, nil
+	baseline := newBaseline(shownPlan{p, summary}, stateOnly)
+	return &baseline, valuesOf(p), nil
 }
 
 // shownPlan is a plan Terraform showed of the configuration as a step
@@ -667,19 +636,18 @@ type shownPlan struct {
 // configuration as it is, with vars, such as the one a step ended on.
 // Planning the same configuration with the same vars again would only
 // read every imported resource again.
-func replanValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption, last *shownPlan) (*tfrun.ChangeSummary, map[string]map[string]any, map[string]string, error) {
+func replanValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOption, last *shownPlan, stateOnly map[string][]string) (*Baseline, map[string]map[string]any, error) {
 	if last == nil || last.plan == nil || last.summary == nil {
-		return planValues(ctx, tf, vars)
+		return planValues(ctx, tf, vars, stateOnly)
 	}
-	values, changes := valuesOf(last.plan)
-	return last.summary, values, changes, nil
+	baseline := newBaseline(*last, stateOnly)
+	return &baseline, valuesOf(last.plan), nil
 }
 
-// valuesOf returns each resource's imported attribute values and planned
-// change (see tfrun.ChangeSignature) in p, by address.
-func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
+// valuesOf returns each resource's imported attribute values in p, by
+// address.
+func valuesOf(p *tfjson.Plan) map[string]map[string]any {
 	values := map[string]map[string]any{}
-	changes := map[string]string{}
 	for _, rc := range p.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
 			continue
@@ -690,7 +658,6 @@ func valuesOf(p *tfjson.Plan) (map[string]map[string]any, map[string]string) {
 			attrs, _ = rc.Change.After.(map[string]any)
 		}
 		values[rc.Address] = attrs
-		changes[rc.Address] = tfrun.ChangeSignature(rc)
 	}
-	return values, changes
+	return values
 }

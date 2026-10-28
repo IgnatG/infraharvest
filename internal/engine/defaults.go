@@ -80,7 +80,7 @@ func (c defaultCandidate) key() string {
 // them. The providers' schemas don't say what their defaults are, so only
 // the plan can tell a default from a setting: the candidates of every
 // resource are left out at once, and where a resource then plans
-// differently from changes (see tfrun.ChangeSignature), its arguments behind
+// differently from baseline (see FewerChanges), its arguments behind
 // the difference are put back and the rest left out again, until the plan
 // stays the same; all of its arguments only where none is behind the
 // difference, or in the last round but one. Before each plan, validation,
@@ -92,7 +92,7 @@ func (c defaultCandidate) key() string {
 // shows in the plan, so it could hide a real setting. It reports whether
 // it changed generated.tf and, where a plan showed generated.tf as it
 // leaves it, that plan (see shownPlan).
-func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline Baseline, vars []tfexec.PlanOption, rules defaultRules) (bool, *shownPlan, error) {
 	path := filepath.Join(dir, rootfile.GeneratedFileName)
 	original, err := os.ReadFile(path)
 	if err != nil {
@@ -130,7 +130,8 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 		if err != nil {
 			return false, nil, errors.Join(err, restore())
 		}
-		if len(diags) > 0 || p == nil {
+		verdict := baseline.Judge(shownPlan{p, summary}, diags, FewerChanges)
+		if verdict.Failed {
 			// Leaving an argument out made the configuration invalid in a
 			// way validation didn't see, such as a check the provider makes
 			// when it plans: a Lambda function's "handler and runtime must
@@ -151,12 +152,12 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, baseline
 			keepWhatErrorsName(removed, assigned, failed, round, keep)
 			continue
 		}
-		differs, noise := keepWhatChanged(p, removed, changes, round, keep)
-		if !differs && (noise || summary != nil && summary.Add == baseline.Add && summary.Remove == baseline.Remove && summary.Change <= baseline.Change) {
+		differs, noise := keepWhatChanged(verdict.Changed, removed, baseline, round, keep)
+		if !differs && (noise || verdict.Totals) {
 			return true, &shownPlan{plan: p, summary: summary}, nil
 		}
 		if !differs {
-			log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, summary, baseline)
+			log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, summary, baseline.summary)
 			return nullsOnly()
 		}
 	}
@@ -235,21 +236,15 @@ func keepWhatErrorsName(removed []defaultCandidate, assigned map[string][]tfjson
 }
 
 // keepWhatChanged puts back, of removed, the arguments behind each
-// resource whose change in p, the plan of round, is worse than in
-// changes, the plan before (see noWorse): all of its constants in the
+// resource of changed, those that plan in round a change worse than the
+// baseline's (see FewerChanges): all of its constants in the
 // last round but one. It reports whether a resource with arguments left
 // out differs, and whether one without differs all the same, which is
 // noise, as an emulator's plan may differ by itself. Proven defaults
 // count as left out: where the plan differs, the metadata may be wrong,
 // and the plan corrects it.
-func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[string]string, round int, keep map[string]bool) (differs, noise bool) {
-	for _, rc := range p.ResourceChanges {
-		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
-			continue
-		}
-		if noWorse(tfrun.ChangeSignature(rc), changes[rc.Address]) {
-			continue
-		}
+func keepWhatChanged(changed []*tfjson.ResourceChange, removed []defaultCandidate, baseline Baseline, round int, keep map[string]bool) (differs, noise bool) {
+	for _, rc := range changed {
 		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.null && c.address == rc.Address }) {
 			noise = true
 			continue
@@ -261,7 +256,7 @@ func keepWhatChanged(p *tfjson.Plan, removed []defaultCandidate, changes map[str
 			keepAll(removed, rc.Address, keep)
 			continue
 		}
-		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), changes[rc.Address]), changedPaths(rc), keep)
+		keepChanged(removed, rc.Address, newlyChanged(tfrun.ChangeSignature(rc), baseline.Planned(rc.Address)), changedPaths(rc), keep)
 	}
 	return differs, noise
 }
@@ -454,28 +449,6 @@ func newlyChanged(now, before string) []string {
 		}
 	}
 	return changed
-}
-
-// noWorse reports whether a resource's planned change, now, does no more
-// than it did before: the same actions, and no attribute that didn't
-// change before. Leaving out an argument may only remove changes, such as
-// a provider-side setting the import left unset.
-func noWorse(now, before string) bool {
-	if now == before {
-		return true
-	}
-	nowActions, nowAttributes, _ := strings.Cut(now, ":")
-	beforeActions, beforeAttributes, _ := strings.Cut(before, ":")
-	if nowActions != beforeActions && nowActions != string(tfjson.ActionNoop) {
-		return false
-	}
-	before2 := strings.Split(beforeAttributes, ",")
-	for _, a := range strings.Split(nowAttributes, ",") {
-		if a != "" && !slices.Contains(before2, a) {
-			return false
-		}
-	}
-	return true
 }
 
 // removeDefaults removes the candidates not in keep from every resource,

@@ -35,7 +35,7 @@ func TestVerifyRestoresWhenTheEditFails(t *testing.T) {
 		return true, failure
 	}
 
-	kept, err := verify(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, edit, rootfile.GeneratedFileName, rootfile.LocalsFileName)
+	kept, err := verify(context.Background(), tf, dir, Baseline{}, nil, edit, rootfile.GeneratedFileName, rootfile.LocalsFileName)
 	if kept || !errors.Is(err, failure) {
 		t.Fatalf("got kept=%v err=%v, want the edit's error", kept, err)
 	}
@@ -77,7 +77,7 @@ func TestVerifyComparesEachResourcesChange(t *testing.T) {
 		writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 		tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: baseline}}, showns: []*tfjson.Plan{{ResourceChanges: []*tfjson.ResourceChange{tt.planned}}}}
 
-		kept, err := verify(context.Background(), tf, dir, baseline, changes, nil, edit(dir), rootfile.GeneratedFileName)
+		kept, err := verify(context.Background(), tf, dir, Baseline{summary: baseline, changes: changes}, nil, edit(dir), rootfile.GeneratedFileName)
 		if err != nil || kept != tt.kept {
 			t.Errorf("%s: got kept=%v err=%v, want kept=%v", name, kept, err, tt.kept)
 		}
@@ -166,7 +166,7 @@ func TestVerifySteps(t *testing.T) {
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 			tf := &fakeTerraform{dir: dir, plans: tt.plans}
 
-			if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
+			if err := verifySteps(context.Background(), tf, dir, Baseline{}, nil, []tidyStep{commentStep(dir, "one"), commentStep(dir, "two")}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -193,7 +193,7 @@ func TestVerifyStepsWithoutChanges(t *testing.T) {
 	unchanged := tidyStep{files: []string{rootfile.GeneratedFileName}, edit: func() (bool, error) { return false, nil }}
 	none := tidyStep{files: []string{rootfile.GeneratedFileName, rootfile.DataFileName}, each: func(map[string]int) (map[string]bool, error) { return nil, nil }}
 
-	if err := verifySteps(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, []tidyStep{unchanged, none}); err != nil {
+	if err := verifySteps(context.Background(), tf, dir, Baseline{}, nil, []tidyStep{unchanged, none}); err != nil {
 		t.Fatal(err)
 	}
 

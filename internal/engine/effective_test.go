@@ -150,7 +150,7 @@ func TestFillEffectiveTags(t *testing.T) {
 			writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 			tf := &fakeTerraform{dir: dir, plans: tc.plans, showns: tc.showns}
 
-			filled, last, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), noChanges, stateOnly, nil)
+			filled, last, err := fillEffectiveTags(context.Background(), tf, dir, googleLabels, labelledValues(), Baseline{changes: noChanges, stateOnly: stateOnly}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

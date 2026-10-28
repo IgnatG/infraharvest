@@ -71,7 +71,7 @@ func TestStripDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, last, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -106,7 +106,7 @@ func TestStripDefaultsKeepsEmptyBlocksThePlanNeeds(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_thing.a")}}
 
-	if _, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{}); err != nil {
+	if _, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, "setting {") {
@@ -121,7 +121,7 @@ func TestStripDefaultsUndoesOnErrors(t *testing.T) {
 	dir, changes := thingRoot(t)
 	tf := &fakeTerraform{dir: dir, schemas: thingSchemas, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}}}}}
 
-	stripped, last, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, last, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want the nulls stripped, got %v, %v", stripped, err)
 	}
@@ -167,25 +167,6 @@ func TestRemoveDefaultsKeepsTags(t *testing.T) {
 	}
 	if got := squashed(string(f.Edit().Bytes())); !strings.Contains(got, `labels = { env = "prod" }`) {
 		t.Errorf("the labels are left out:\n%s", got)
-	}
-}
-
-func TestNoWorse(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		now, before string
-		want        bool
-	}{
-		{"no-op:", "no-op:", true},
-		{"no-op:", "update:force_destroy", true},
-		{"update:force_destroy", "update:force_destroy,tags", true},
-		{"update:retries", "no-op:", false},
-		{"update:force_destroy,retries", "update:force_destroy", false},
-		{"delete,create:", "no-op:", false},
-	} {
-		if got := noWorse(tc.now, tc.before); got != tc.want {
-			t.Errorf("noWorse(%q, %q) = %v", tc.now, tc.before, got)
-		}
 	}
 }
 
@@ -236,7 +217,7 @@ func TestStripDefaultsLeavesOutConstantDefaults(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{first, importedPlan("aws_role.a")}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -277,7 +258,7 @@ func TestStripDefaultsKeepsWhatValidationRejects(t *testing.T) {
 		showns:      []*tfjson.Plan{importedPlan("aws_role.a")},
 	}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -314,7 +295,7 @@ func TestStripDefaultsRetriesTheRestOfAResourceBlamedTwice(t *testing.T) {
 	}}
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{alpha, beta, importedPlan("aws_role.a")}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -352,7 +333,7 @@ func TestStripDefaultsKeepsEverythingOfAResourceInTheLastRounds(t *testing.T) {
 	}
 	tf := &fakeTerraform{dir: dir, schemas: roleSchemas, showns: []*tfjson.Plan{differs("alpha", "a"), differs("beta", "b"), differs("description", "d"), differs("gamma", 1)}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +376,7 @@ func TestStripDefaultsKeepsSettingsWhenThePlanRejectsAgain(t *testing.T) {
 		showns: []*tfjson.Plan{importedPlan("aws_role.a")},
 	}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -482,7 +463,7 @@ func TestStripDefaultsKeepsWhatThePlanRejects(t *testing.T) {
 	}
 	rules := defaultRules{defaults: map[string][]string{"aws_lambda_function": {"ephemeral_storage.size=512", "memory_size=128", "package_type=Zip", "timeout=3"}}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, rules)
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, rules)
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}
@@ -546,7 +527,7 @@ func TestStripDefaultsLeavesOutEmptyValues(t *testing.T) {
 	changes := map[string]string{"aws_lb.a": tfrun.ChangeSignature(resourceChange("aws_lb.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil))}
 	tf := &fakeTerraform{dir: dir, schemas: lbSchemas}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{keepEmpty: map[string][]string{"aws_lb": {"route"}}})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{keepEmpty: map[string][]string{"aws_lb": {"route"}}})
 	if err != nil || !stripped {
 		t.Fatalf("want empty values stripped, got %v, %v", stripped, err)
 	}
@@ -623,7 +604,7 @@ resource "google_storage_bucket" "b" {
 	tf := &fakeTerraform{dir: dir, schemas: schemas, showns: []*tfjson.Plan{first, importedPlan("google_storage_bucket.a", "google_storage_bucket.b")}}
 	defaults := map[string][]string{"google_storage_bucket": {"storage_class=STANDARD", "rpo=DEFAULT", "soft_delete_policy.retention_duration_seconds=604800"}}
 
-	stripped, _, err := stripDefaults(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, defaultRules{defaults: defaults})
+	stripped, _, err := stripDefaults(context.Background(), tf, dir, Baseline{changes: changes}, nil, defaultRules{defaults: defaults})
 	if err != nil || !stripped {
 		t.Fatalf("want defaults stripped, got %v, %v", stripped, err)
 	}

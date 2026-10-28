@@ -331,7 +331,7 @@ resource "aws_subnet" "a" {
 	}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}, showns: []*tfjson.Plan{changed}, shown: clean}
 
-	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, changes, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := verifyEach(context.Background(), tf, dir, Baseline{changes: changes}, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
 	}, rootfile.GeneratedFileName)
 	if err != nil || !kept {
@@ -361,7 +361,7 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 	writeConfig(t, dir, rootfile.GeneratedFileName, config)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	kept, err := verifyEach(context.Background(), tf, dir, tfrun.ChangeSummary{}, nil, nil, func(skip map[string]int) (map[string]bool, error) {
+	kept, err := verifyEach(context.Background(), tf, dir, Baseline{}, nil, func(skip map[string]int) (map[string]bool, error) {
 		return addReferencesSkipping(dir, values, skip)
 	}, rootfile.GeneratedFileName)
 	if err != nil || kept {

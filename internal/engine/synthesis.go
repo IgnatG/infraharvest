@@ -22,7 +22,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -75,17 +74,19 @@ func (t *trial) moduleAddress(member string) string {
 // synthesize moves clusters of resources into calls of curated modules:
 // for each anchor resource, the first adapter that maps its cluster. It
 // writes every call, installs the modules and plans, and takes back the
-// calls whose resources would plan differently than baseline, which has
-// each resource's planned change (see tfrun.ChangeSignature), until the plan
-// matches; when the plan fails in a way it can't pin on a call, it plans
-// half of the calls at a time to find the calls that fail. A module may set the arguments opts.StateOnly names, which
-// import can't. Calls are named other than the names r takes.
+// calls whose resources would plan differently than baseline has them (see
+// Baseline.Tolerates), until the plan matches; when the plan fails in a way
+// it can't pin on a call, it plans half of the calls at a time to find the
+// calls that fail. A module may set the arguments baseline's state-only
+// rules name, which import can't (see StateOnly). Calls are named other than
+// the names r takes.
 // values are the imported values, by address: references to what a call
 // takes and has no output for become the values again (see
 // trial.literals). It returns the clusters it didn't move, with why, and
-// the plan's change summary with the calls it kept, and the lengths of
+// the baseline rebased on the plan with the calls it kept (see
+// Baseline.Rebase), for the passes after to compare with, and the lengths of
 // their list outputs (see outputLists).
-func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline tfrun.ChangeSummary, changes map[string]string, vars []tfexec.PlanOption) ([]ModuleCall, tfrun.ChangeSummary, map[string]int, error) {
+func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, values map[string]map[string]any, baseline Baseline, vars []tfexec.PlanOption) ([]ModuleCall, Baseline, map[string]int, error) {
 	opts := r.opts
 	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.ProvidersFileName, rootfile.VersionsFileName)
 	if err != nil {
@@ -110,10 +111,10 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 		reject(fmt.Sprintf("terraform init: %v", err), trials...)
 	}
 	// written are the calls the root has now. kept are the calls a plan
-	// accepted together, and keptSummary is that plan's summary.
+	// accepted together, and keptPlan is that plan.
 	written := trials
 	var kept []*trial
-	var keptSummary tfrun.ChangeSummary
+	var keptPlan shownPlan
 	write := func(ts []*trial) error {
 		if slices.Equal(ts, written) {
 			return nil
@@ -152,10 +153,10 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 			if err != nil {
 				return nil, baseline, nil, errors.Join(err, backup.Restore())
 			}
-			ok, why := judge(tried, p, summary, diags, baseline, changes, opts.StateOnly)
+			ok, why := judge(tried, shownPlan{p, summary}, diags, baseline)
 			switch {
 			case ok:
-				kept, keptSummary, passed = tried, *summary, g
+				kept, keptPlan, passed = tried, shownPlan{p, summary}, g
 				continue
 			case len(activeTrials(tried)) < len(tried):
 				// The plan took calls back: what is left plans again, with
@@ -200,7 +201,7 @@ func synthesize(ctx context.Context, tf tfrun.Terraform, dir string, r *run, val
 	if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
 		return nil, baseline, nil, err
 	}
-	return append(declined, rejections(trials)...), keptSummary, outputLists(kept), nil
+	return append(declined, rejections(trials)...), baseline.Rebase(keptPlan), outputLists(kept), nil
 }
 
 // callGroup is calls synthesize plans together with the calls it kept.
@@ -243,13 +244,15 @@ func activeTrials(trials []*trial) []*trial {
 
 // judge rejects the trials the plan shows a problem with, and reports
 // whether there was none: the plan has no errors, every member plans as
-// it did in the root, or only also updates arguments stateOnly names for
-// its type, the modules create nothing else, and the totals match
-// baseline, with those updates and the imports the calls add. When the
-// plan fails with nothing to tell the calls apart by, an error about none
-// of them or totals that don't match, it also returns why, and rejects
-// none for it: the caller plans them apart.
-func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags []tfjson.Diagnostic, baseline tfrun.ChangeSummary, changes map[string]string, stateOnly map[string][]string) (bool, string) {
+// it did in the root, or only also updates arguments baseline's state-only
+// rules name for its type (see StateOnly), the modules create nothing else,
+// and the totals match baseline, with those updates and the imports the
+// calls add. A resource outside the modules is judged by the totals alone.
+// When the plan fails with nothing to tell the calls apart by, an error
+// about none of them or totals that don't match, it also returns why, and
+// rejects none for it: the caller plans them apart.
+func judge(active []*trial, plan shownPlan, diags []tfjson.Diagnostic, baseline Baseline) (bool, string) {
+	p, summary := plan.plan, plan.summary
 	if len(diags) > 0 || p == nil {
 		unattributed := ""
 		for _, d := range diags {
@@ -267,9 +270,9 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 		return false, unattributed
 	}
 	ok := true
-	expected := baseline
+	imports, updates := 0, 0
 	for _, t := range active {
-		expected.Import += len(t.call.Imports)
+		imports += len(t.call.Imports)
 	}
 	for _, rc := range p.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil {
@@ -285,25 +288,25 @@ func judge(active []*trial, p *tfjson.Plan, summary *tfrun.ChangeSummary, diags 
 					member = m
 				}
 			}
-			switch {
-			case member == "":
+			switch member {
+			case "":
 				if !rc.Change.Actions.NoOp() && !rc.Change.Actions.Read() {
 					t.rejected = fmt.Sprintf("the module would also %s %s", strings.Join(tfrun.ActionNames(rc.Change.Actions), " and "), strings.TrimPrefix(rc.Address, "module."+t.name+"."))
 					ok = false
 				}
-			case tfrun.ChangeSignature(rc) != changes[member]:
-				updates, same := sameButStateOnly(tfrun.ChangeSignature(rc), changes[member], gate.StateOnlyOf(stateOnly, rc.Type))
-				if !same {
-					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(tfrun.ChangeSignature(rc)), describeSignature(changes[member]))
+			default:
+				tolerated, update := baseline.Tolerates(rc, member, StateOnly)
+				if !tolerated {
+					t.rejected = fmt.Sprintf("%s would plan differently: %s instead of %s", member, describeSignature(tfrun.ChangeSignature(rc)), describeSignature(baseline.Planned(member)))
 					ok = false
 				}
-				if updates {
-					expected.Change++
+				if update {
+					updates++
 				}
 			}
 		}
 	}
-	if ok && (summary == nil || *summary != expected) {
+	if ok && (summary == nil || *summary != baseline.Expected(imports, updates)) {
 		// A change outside the modules: nothing to tell the calls apart by.
 		return false, "the plan changed outside the module calls"
 	}
@@ -328,36 +331,6 @@ func trialOf(active []*trial, d tfjson.Diagnostic) *trial {
 		}
 	}
 	return nil
-}
-
-// sameButStateOnly reports whether the change signatures in and root
-// differ only in arguments of stateOnly, which import can't set and a
-// module may, and whether that makes an import without changes in root an
-// update in.
-func sameButStateOnly(in, root string, stateOnly []string) (updates, same bool) {
-	inActions, inAttributes, _ := strings.Cut(in, ":")
-	rootActions, rootAttributes, _ := strings.Cut(root, ":")
-	withoutStateOnly := func(attributes string) []string {
-		var kept []string
-		for _, a := range strings.Split(attributes, ",") {
-			if a != "" && !slices.Contains(stateOnly, a) {
-				kept = append(kept, a)
-			}
-		}
-		return kept
-	}
-	if !slices.Equal(withoutStateOnly(inAttributes), withoutStateOnly(rootAttributes)) {
-		return false, false
-	}
-	update := string(tfjson.ActionUpdate)
-	noOp := string(tfjson.ActionNoop)
-	switch {
-	case inActions == rootActions:
-		return false, true
-	case inActions == update && rootActions == noOp:
-		return true, true
-	}
-	return false, false
 }
 
 func describeSignature(s string) string {
