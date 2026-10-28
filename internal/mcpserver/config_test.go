@@ -231,6 +231,7 @@ func TestConfigSettingsByTool(t *testing.T) {
 		needs []string
 	}{
 		"engine":                {"version: 1\nsettings:\n  engine: tofu\n", nil, "", nil},
+		"query-types":           {"version: 1\nproviders:\n  aws:\n    query-types: [aws_flow_log]\n", drifting, "providers: aws: query-types isn't a setting the drift", nil},
 		"engine-timeout":        {"version: 1\nsettings:\n  engine-timeout: 30m\n", importing, "settings: engine-timeout isn't a setting the", nil},
 		"the import's scope":    {"version: 1\nproviders:\n  aws:\n    regions: [eu-west-2]\n", drifting, "providers: aws: regions isn't a setting the drift", nil},
 		"a provider's engine":   {"version: 1\nproviders:\n  aws:\n    engine: tofu\n", drifting, "it takes none there", nil},
@@ -332,9 +333,10 @@ func TestConfigScopeInConfirmation(t *testing.T) {
 // else, is refused before the user is asked.
 func TestConfigScopeChecked(t *testing.T) {
 	for name, content := range map[string]string{
-		"a region":   "version: 1\nproviders:\n  aws:\n    regions: [\"eu-west-2 and every account\"]\n",
-		"a profile":  "version: 1\nproviders:\n  aws:\n    profile: \"prod\\nimports nothing\"\n",
-		"an account": "version: 1\nsettings:\n  accounts: [\"\"]\n",
+		"a region":     "version: 1\nproviders:\n  aws:\n    regions: [\"eu-west-2 and every account\"]\n",
+		"a profile":    "version: 1\nproviders:\n  aws:\n    profile: \"prod\\nimports nothing\"\n",
+		"an account":   "version: 1\nsettings:\n  accounts: [\"\"]\n",
+		"a query type": "version: 1\nsettings:\n  query-types: [\"aws_flow_log and every type\"]\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			needProviders(t, "aws")
