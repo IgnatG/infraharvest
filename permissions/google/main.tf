@@ -34,12 +34,12 @@ locals {
   # convenience values (projectReaders on BigQuery datasets, projectViewers
   # on fine-grained Cloud Storage buckets and objects): log entries, read
   # directly, through a log view or copied out of their bucket, table,
-  # model, row and entity data, objects, downloads, function source, traces
-  # and health records. Reading through a log view takes views.access,
-  # which view-level grants give, so it is denied as well. infraharvest
-  # lists through Cloud Asset Inventory and the services' configuration
-  # APIs, and the generated roots import no data, so none of them needs
-  # these. permissions/google-drift reads the same list.
+  # model, row and entity data, objects, downloads, function source, traces,
+  # health records and API key strings. Reading through a log view takes
+  # views.access, which view-level grants give, so it is denied as well.
+  # infraharvest lists through Cloud Asset Inventory and the services'
+  # configuration APIs, and the generated roots import no data, so none of
+  # them needs these. permissions/google-drift reads the same list.
   denied_data_reads = jsondecode(file("${path.module}/deny-data-reads.json"))
 }
 

@@ -24,5 +24,6 @@
   "healthcare.googleapis.com/fhirStores.searchResources",
   "healthcare.googleapis.com/dicomStores.dicomWebRead",
   "healthcare.googleapis.com/hl7V2Messages.get",
-  "healthcare.googleapis.com/hl7V2Messages.list"
+  "healthcare.googleapis.com/hl7V2Messages.list",
+  "apikeys.googleapis.com/keys.getKeyString"
 ]
