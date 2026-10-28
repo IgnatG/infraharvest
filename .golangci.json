@@ -89,8 +89,10 @@
           "engine-parts": {
             "files": [
               "**/internal/engine/drift/*.go",
+              "**/internal/engine/envmerge/*.go",
               "**/internal/engine/gate/*.go",
               "**/internal/engine/hclfile/*.go",
+              "**/internal/engine/rootfile/*.go",
               "**/internal/engine/secret/*.go",
               "**/internal/engine/tfrun/*.go"
             ],
