@@ -69,7 +69,9 @@
           },
           "engine-parts": {
             "files": [
+              "**/internal/engine/gate/*.go",
               "**/internal/engine/hclfile/*.go",
+              "**/internal/engine/secret/*.go",
               "**/internal/engine/tfrun/*.go"
             ],
             "deny": [
