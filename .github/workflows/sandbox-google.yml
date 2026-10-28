@@ -100,7 +100,7 @@ jobs:
         types=compute.googleapis.com/Network,compute.googleapis.com/Subnetwork,compute.googleapis.com/Firewall
         types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
         types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
-        types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk
+        types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk,compute.googleapis.com/FirewallPolicy
         left=$(gcloud asset search-all-resources --scope "projects/$SANDBOX_GOOGLE_PROJECT" --asset-types "$types" \
           --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
         if [ -n "$left" ]; then
@@ -142,13 +142,15 @@ jobs:
     # such as a resource whose creation failed half-way, and what an earlier
     # run left: every resource of a sandbox estate, whichever engine's run
     # made it (runs never overlap), as the fixture service account.
-    # Networks, subnetworks, firewall rules, routers and service accounts
-    # take no labels, so the sweep finds everything by name, ih-sbx-<engine>-,
-    # which the estate gives every resource but its function, ih-sbx-function,
-    # and deletes what uses others first: the function, the zones' record
-    # sets, the zones, the subscriptions and topics, the buckets, the
-    # instances and their disks, then the network's firewall rules,
-    # routers and subnetworks, the network, and the service account.
+    # Networks, subnetworks, firewall rules, firewall policies, routers and
+    # service accounts take no labels, so the sweep finds everything by
+    # name, ih-sbx-<engine>-, which the estate gives every resource but its
+    # function, ih-sbx-function, and deletes what uses others first: the
+    # function, the zones' record sets, the zones, the subscriptions and
+    # topics, the buckets, the instances and their disks, then the
+    # network's firewall rules, the network firewall policy, which no
+    # network uses, the routers and subnetworks, the network, and the
+    # service account.
     - name: Sweep the project
       if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
       env:
@@ -207,6 +209,12 @@ jobs:
             gcloud compute firewall-rules delete "$rule" "${q[@]}" || true
           fi
         done <<< "$rules"
+        policies=$(gcloud compute network-firewall-policies list --filter "$named" --format 'value(name)')
+        while IFS= read -r policy; do
+          if [ -n "$policy" ]; then
+            gcloud compute network-firewall-policies delete "$policy" --global "${q[@]}" || true
+          fi
+        done <<< "$policies"
         for kind in routers "networks subnets"; do
           read -r -a group <<< "$kind"
           found=$(gcloud compute "${group[@]}" list --filter "$named" --format 'value(name,region.basename())')
@@ -237,6 +245,7 @@ jobs:
           gcloud compute instances list --filter "$named" --format 'value(name)'
           gcloud compute disks list --filter "$named" --format 'value(name)'
           gcloud compute firewall-rules list --filter "$named" --format 'value(name)'
+          gcloud compute network-firewall-policies list --filter "$named" --format 'value(name)'
           gcloud compute routers list --filter "$named" --format 'value(name)'
           gcloud compute networks subnets list --filter "$named" --format 'value(name)'
           gcloud compute networks list --filter "$named" --format 'value(name)'
