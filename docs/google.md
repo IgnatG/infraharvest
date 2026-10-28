@@ -13,7 +13,7 @@ infraharvest uses [Application Default Credentials](https://cloud.google.com/doc
 
 Terraform's google provider finds the same credentials, so the generated roots plan with them. Their provider block sets the project, the region, and `add_terraform_attribution_label = false`: otherwise the provider would add its `goog-terraform-provisioned` label to every imported resource, and each would plan a change to its labels.
 
-`--rate-limit` caps the requests a second to each Google API, shared by every project a run imports: Google charges most quotas to the project your credentials' quota goes to, not to the project imported. A call Google throttles (`429`) or fails for the time being (`500`, `502`, `503`, `504`), or whose connection fails, is sent again up to four times, waiting longer each time and as long as its `Retry-After` asks, up to 30 seconds.
+`--rate-limit` caps the requests a second to each Google API, shared by every project a run imports: Google charges most quotas to the project your credentials' quota goes to, not to the project imported. Cloud Asset searches go at 6 a second at most, or `--rate-limit` if lower, since Cloud Asset Inventory allows that project 400 a minute. A call Google throttles (`429`) or fails for the time being (`500`, `502`, `503`, `504`), or whose connection fails, is sent again up to four times, waiting longer each time and as long as its `Retry-After` asks, up to 30 seconds.
 
 ## Permissions
 
