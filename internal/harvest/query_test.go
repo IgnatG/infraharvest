@@ -89,3 +89,18 @@ func TestQueryLister(t *testing.T) {
 		})
 	}
 }
+
+// An --id of an identity keeps the resource whose ID it is, though its
+// commas would otherwise separate IDs.
+func TestIDFilterOfAnIdentity(t *testing.T) {
+	t.Parallel()
+	a := RecordIdentity(map[string]string{"name": "a", "region": "eu-west-2"}, "a", "aws_cloudwatch_log_group", "aws")
+	b := RecordIdentity(map[string]string{"name": "b", "region": "eu-west-2"}, "b", "aws_cloudwatch_log_group", "aws")
+	f, err := ParseIDFilter("cloudwatch_log_group=" + a.Observed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Keeps(a) || f.Keeps(b) {
+		t.Errorf("filter %+v: keeps a %v, b %v; want a alone", f, f.Keeps(a), f.Keeps(b))
+	}
+}
