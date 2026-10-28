@@ -113,7 +113,16 @@ func DefaultScanners(policies []string) []Scanner {
 	}
 	if path, err := exec.LookPath("trivy"); err == nil {
 		scanners = append(scanners, Scanner{Name: "trivy", Run: func(ctx context.Context, dir string) ([]Finding, error) {
-			out, err := runTool(ctx, dir, path, "config", "--format=json", "--quiet", "--exit-code=0", "--skip-dirs=**/.terraform", dir)
+			// An empty configuration and ignore file of infraharvest's own,
+			// not the trivy.yaml and .trivyignore of the directory it
+			// scans, which it runs in: those could change what it checks,
+			// or hide what it finds.
+			empty, err := writeTemp("infraharvest-trivy-*.yaml", nil)
+			if err != nil {
+				return nil, err
+			}
+			defer os.Remove(empty)
+			out, err := runTool(ctx, dir, path, "config", "--config="+empty, "--ignorefile="+empty, "--format=json", "--quiet", "--exit-code=0", "--skip-dirs=**/.terraform", dir)
 			if err != nil {
 				return nil, err
 			}
@@ -126,7 +135,9 @@ func DefaultScanners(policies []string) []Scanner {
 			// Cloud platform, which an API key in the environment would
 			// otherwise upload the configuration to. Its secrets scan reads
 			// every file but the local state of a root applied without a
-			// backend, which holds secret values (see LocalStateFile).
+			// backend, which holds secret values (see LocalStateFile). It
+			// reads the .checkov.yaml of the directory it scans whatever
+			// --config-file names, so that is left as it is.
 			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err
@@ -238,21 +249,31 @@ func runTool(ctx context.Context, dir, path string, args ...string) ([]byte, err
 
 // scannerCredentials are the prefixes of the environment variables that
 // hold credentials, which no scanner needs to read configuration: the
-// clouds', Terraform's, and checkov's platform key (BC_API_KEY), with which
-// it uploads what it scans.
+// clouds', Terraform's and Terraform Enterprise's, Vault's, checkov's
+// platform key (BC_API_KEY), with which it uploads what it scans, and
+// those of CI: GitHub Actions' runtime and OIDC request tokens, with which
+// a scanner could mint a token for the cloud, GitLab's job token and
+// Azure Pipelines' access token. A list of what scanners may keep would
+// have to know every variable each needs on each system, such as proxies,
+// certificates, temporary directories, Python's and Windows' own.
 var scannerCredentials = []string{
-	"AWS_", "ARM_", "AZURE_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_", "TF_TOKEN_", "TF_VAR_",
-	"BC_", "PRISMA_", "GITHUB_TOKEN", "GH_TOKEN",
+	"AWS_", "ARM_", "AZURE_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_", "TF_TOKEN_", "TF_VAR_", "TFE_", "VAULT_",
+	"BC_", "PRISMA_", "GITHUB_TOKEN", "GH_TOKEN", "ACTIONS_", "CI_JOB_", "SYSTEM_ACCESSTOKEN", "SSH_AUTH_SOCK",
 }
 
+// scannerSecretWords are words that, anywhere in a variable's name, mark
+// it as holding a secret, such as NPM_TOKEN or DB_PASSWORD.
+var scannerSecretWords = []string{"TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "API_KEY", "APIKEY", "ACCESS_KEY", "PRIVATE_KEY"}
+
 // scannerEnv returns environ without the variables scannerCredentials
-// name.
+// and scannerSecretWords name.
 func scannerEnv(environ []string) []string {
 	var env []string
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		upper := strings.ToUpper(name)
-		if !slices.ContainsFunc(scannerCredentials, func(prefix string) bool { return strings.HasPrefix(upper, prefix) }) {
+		if !slices.ContainsFunc(scannerCredentials, func(prefix string) bool { return strings.HasPrefix(upper, prefix) }) &&
+			!slices.ContainsFunc(scannerSecretWords, func(word string) bool { return strings.Contains(upper, word) }) {
 			env = append(env, kv)
 		}
 	}

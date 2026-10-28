@@ -16,7 +16,8 @@ import (
 // RootsDigest returns the digest of the files Terraform reads under the
 // output directory out (see ReadRoots). The MCP server confirms a drift
 // run for the roots with one digest, and drift, given it, runs only on
-// roots that still have it, checked before it stages any.
+// roots that still have it, checked as it copies them before it stages
+// any: Terraform runs on the copy.
 func RootsDigest(out string) (string, error) {
 	return ReadRoots(out, nil)
 }

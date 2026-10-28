@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -145,15 +146,15 @@ func inventoryPath(out, provider string, args []string) string {
 }
 
 func saveInventory(path string, inv inventory) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// The inventory holds every resource's attributes, so it is as
+	// sensitive as state: its directory is private, and so is the file.
+	if err := fsutil.MkdirPrivate(filepath.Dir(path)); err != nil {
 		return err
 	}
 	content, err := json.Marshal(inv)
 	if err != nil {
 		return err
 	}
-	// The inventory holds every resource's attributes, so it is as
-	// sensitive as state.
 	return harvest.WriteSecretFile(path, content)
 }
 

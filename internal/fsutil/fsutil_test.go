@@ -284,3 +284,37 @@ func TestCheckUnreadable(t *testing.T) {
 		t.Errorf("CheckTree skipping it: %v", err)
 	}
 }
+
+// MkdirPrivate creates a directory private, with its parents as
+// os.MkdirAll does, and leaves one that exists as it is.
+func TestMkdirPrivate(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("modes restrict nothing on Windows: see TestMkdirPrivateSetsAProtectedAccessList")
+	}
+	out := filepath.Join(t.TempDir(), "out")
+	dir := filepath.Join(out, ".infraharvest")
+	if err := MkdirPrivate(dir); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]fs.FileMode{dir: 0o700, out: 0o755} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The umask may take from the parent's mode, never add to it.
+		if got := info.Mode().Perm(); got&^want != 0 || (path == dir && got != want) {
+			t.Errorf("%s: mode %v, want %v", path, got, want)
+		}
+	}
+
+	if err := os.Chmod(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := MkdirPrivate(dir); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(dir); err != nil || info.Mode().Perm() != 0o750 {
+		t.Errorf("an existing directory isn't left as it is: %v, %v", info.Mode(), err)
+	}
+}

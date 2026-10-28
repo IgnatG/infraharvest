@@ -61,12 +61,7 @@ func (r *redactingTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...
 	if _, werr := w.Write(redactUIOutput(out.Bytes(), forms)); werr != nil && err == nil {
 		err = werr
 	}
-	if err != nil {
-		if msg := redactText(err.Error(), forms); msg != err.Error() {
-			err = &redactedError{msg: msg, err: err}
-		}
-	}
-	return changed, err
+	return changed, redactError(err, forms)
 }
 
 // redactedError is an error whose message had secret values replaced; it
@@ -79,6 +74,18 @@ type redactedError struct {
 func (e *redactedError) Error() string { return e.msg }
 
 func (e *redactedError) Unwrap() error { return e.err }
+
+// redactError returns err with the values of forms replaced in its
+// message; it still unwraps to err.
+func redactError(err error, forms []string) error {
+	if err == nil {
+		return nil
+	}
+	if msg := redactText(err.Error(), forms); msg != err.Error() {
+		return &redactedError{msg: msg, err: err}
+	}
+	return err
+}
 
 // textForms returns values and the forms text quotes them in: escaped as a
 // JSON string (with and without HTML escaping) and as a Go or HCL quoted

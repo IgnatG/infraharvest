@@ -22,7 +22,7 @@ There are two ways, and you can run both:
 - For `--managed-state`, read access to the state it reads. The read-only templates don't grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, Azure's Reader has no data actions, and Google Cloud's template denies reading and listing objects (`storage.objects.get`, `storage.objects.list`) with an IAM deny policy (`deny_data_reads`, on by default). The drift templates grant read access to the state alone (see [Permissions](permissions.md#drift-reading-the-state)). Blob Storage is read as the azurerm backend reads it, and `tfc://` with the token `terraform login` saved (see [Choosing what to import](usage.md#choosing-what-to-import)). A state that can't be read fails the command before anything is listed.
 - For the full report only, Terraform 1.5 or later, or OpenTofu 1.6 or later, which infraharvest downloads if there is none on `PATH`.
 
-Run it in an empty directory: `discover` writes the selection file into the current directory, and saves what it listed under `<out>/.infraharvest` (`infraharvest-out` by default). That saved list holds every resource's attributes, so it is as sensitive as state: delete the directory once you are done.
+Run it in an empty directory: `discover` writes the selection file into the current directory, and saves what it listed under `<out>/.infraharvest` (`infraharvest-out` by default). That saved list holds every resource's attributes, so it is as sensitive as state: `.infraharvest` is created private to your user (mode 0700, or on Windows an access list that grants your user, SYSTEM and Administrators only), but delete the directory once you are done.
 
 ## Quick audit: discover
 

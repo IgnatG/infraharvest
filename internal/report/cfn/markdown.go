@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/IgnatG/infraharvest/internal/report/mdtext"
 )
 
 // Markdown renders the stacks for report.md, nothing when there are none.
@@ -23,13 +25,13 @@ func (all Stacks) Markdown(b *strings.Builder) {
 		if s.Unreadable != "" {
 			status = "unreadable"
 		}
-		fmt.Fprintf(b, "\n### `%s` (%s)\n\n`%s`, %s", s.Name, s.Region, s.ID, status)
+		fmt.Fprintf(b, "\n### %s (%s)\n\n%s, %s", mdtext.Code(s.Name), s.Region, mdtext.Code(s.ID), mdtext.Prose(status))
 		if s.Parent != "" {
-			fmt.Fprintf(b, ", nested in `%s`", s.Parent)
+			fmt.Fprintf(b, ", nested in %s", mdtext.Code(s.Parent))
 		}
 		b.WriteString(".\n\n")
 		for _, w := range s.Warnings {
-			fmt.Fprintf(b, "Warning: %s.\n\n", w)
+			fmt.Fprintf(b, "Warning: %s.\n\n", mdtext.Prose(w))
 		}
 		switch {
 		case s.Deleted:
@@ -39,7 +41,7 @@ func (all Stacks) Markdown(b *strings.Builder) {
 		default:
 			b.WriteString("**Not safe to delete yet**:\n\n")
 			for _, blocker := range s.Blockers {
-				fmt.Fprintf(b, "- %s\n", blocker)
+				fmt.Fprintf(b, "- %s\n", mdtext.Prose(blocker))
 			}
 			b.WriteString("\n")
 		}
@@ -76,14 +78,9 @@ func (all Stacks) Markdown(b *strings.Builder) {
 			if len(res.Retain) > 0 {
 				retained = "no: " + strings.Join(res.Retain, "; ")
 			}
-			fmt.Fprintf(b, "| `%s` | `%s` | `%s` | %s | %s | %s |\n", res.LogicalID, res.Type, res.PhysicalID, cell(outcome), strings.Join(addresses, ", "), cell(retained))
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s |\n", mdtext.Cell(mdtext.Code(res.LogicalID)), mdtext.Cell(mdtext.Code(res.Type)), mdtext.Cell(mdtext.Code(res.PhysicalID)), mdtext.Cell(mdtext.Prose(outcome)), mdtext.Cell(strings.Join(addresses, ", ")), mdtext.Cell(mdtext.Prose(retained)))
 		}
 	}
-}
-
-// cell escapes text for a Markdown table cell.
-func cell(text string) string {
-	return strings.ReplaceAll(text, "|", `\|`)
 }
 
 // templateBodyLimit is the largest template, in bytes, UpdateStack takes

@@ -616,7 +616,7 @@ func (c *converter) getAZs(f Func, path string) string {
 	switch a := f.Arg.(type) {
 	case String:
 		if a != "" {
-			c.report(Warning, path, fmt.Sprintf("Fn::GetAZs lists the zones of %s, and the data source those of the provider's region: give the data source a provider for %s if they differ", a, a))
+			c.report(Warning, path, fmt.Sprintf("Fn::GetAZs lists the zones of %q, and the data source those of the provider's region: give the data source a provider for %q if they differ", a, a))
 		}
 	case Null, nil:
 	default:
