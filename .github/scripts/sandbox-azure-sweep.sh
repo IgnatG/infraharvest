@@ -6,8 +6,8 @@
 # failed or found leftovers, and its clean-up job when the round trip was
 # cancelled, timed out or failed: deletes what Terraform's state doesn't
 # hold, such as a resource whose creation failed half-way, or what a run
-# whose destroy never finished left. The locks first, which would stop the
-# rest, the estate's role assignments and custom roles, then every
+# whose destroy never finished left. The estate's locks first, which would
+# stop the rest, the estate's role assignments and custom roles, then every
 # resource tagged infraharvest-sandbox, whichever engine's run made it
 # (runs never overlap), a few rounds over, as some can only go once what
 # uses them has. The resource group itself stays. It fails if anything is
@@ -19,7 +19,9 @@ set -euo pipefail
 
 sub=(--subscription "${ARM_SUBSCRIPTION_ID:?}")
 group=${SANDBOX_AZURE_RESOURCE_GROUP:?}
-locks=$(az lock list "${sub[@]}" -g "$group" --query '[].id' -o tsv)
+# The estate's locks alone, named ih-sbx-: one someone else placed on
+# the group or a resource in it stays, and keeps what it locks.
+locks=$(az lock list "${sub[@]}" -g "$group" --query "[?starts_with(name, 'ih-sbx-')].id" -o tsv)
 while IFS= read -r lock; do
   if [ -n "$lock" ]; then
     az lock delete "${sub[@]}" --ids "$lock" || true
