@@ -17,7 +17,7 @@ Terraform's google provider finds the same credentials, so the generated roots p
 
 ## Permissions
 
-`roles/viewer` reads resource configuration, `roles/iam.securityReviewer` the IAM policies on resources, and `roles/cloudasset.viewer` searches the project through Cloud Asset Inventory. The search also needs the Cloud Asset API (`cloudasset.googleapis.com`) enabled in the project your credentials' quota goes to. The [`permissions/google`](https://github.com/IgnatG/infraharvest/tree/main/permissions/google) configuration grants the three roles on a project; see [Permissions](permissions.md#google-cloud).
+`roles/viewer` reads resource configuration, `roles/iam.securityReviewer` the IAM policies on resources, and `roles/cloudasset.viewer` searches the project through Cloud Asset Inventory. The search also needs the Cloud Asset API (`cloudasset.googleapis.com`) enabled in the project your credentials' quota goes to. With user credentials, that project must also grant you `serviceusage.services.use` (`roles/serviceusage.serviceUsageConsumer`), which the three roles don't. The [`permissions/google`](https://github.com/IgnatG/infraharvest/tree/main/permissions/google) configuration grants the three roles on a project; see [Permissions](permissions.md#google-cloud).
 
 ## Projects
 

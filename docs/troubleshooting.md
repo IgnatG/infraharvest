@@ -73,7 +73,7 @@ The `cloud_asset` service fails with `searching project <project>: ...` and a `4
 gcloud services enable cloudasset.googleapis.com --project=<project>
 ```
 
-With user credentials from `gcloud auth application-default login`, the quota project is the one `gcloud auth application-default set-quota-project <project>` sets; with a service account, its own project. A `403` that names `cloudasset.assets.searchAllResources` instead means the principal lacks `roles/cloudasset.viewer`. See [Cloud Asset Inventory](google.md#cloud-asset-inventory) and [Permissions](permissions.md#google-cloud).
+With user credentials from `gcloud auth application-default login`, the quota project is the one `gcloud auth application-default set-quota-project <project>` sets; with a service account, its own project. A `403` that names `serviceusage.services.use` means user credentials whose quota project doesn't let you use it: grant `roles/serviceusage.serviceUsageConsumer` there, or set a quota project that does. A `403` that names `cloudasset.assets.searchAllResources` instead means the principal lacks `roles/cloudasset.viewer`. See [Cloud Asset Inventory](google.md#cloud-asset-inventory) and [Permissions](permissions.md#google-cloud).
 
 A project without the Cloud DNS, Cloud SQL Admin or Cloud Scheduler API enabled has nothing for `dns`, `cloudsql` or `schedulerJobs` to list: that is logged, not a failure.
 

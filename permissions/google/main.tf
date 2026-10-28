@@ -7,7 +7,9 @@ locals {
   # policies attached to resources, which Terraform imports as well;
   # cloudasset.viewer searches the project through Cloud Asset Inventory,
   # which infraharvest lists most resources with. The search also needs
-  # the Cloud Asset API enabled in the project the caller's quota goes to.
+  # the Cloud Asset API enabled in the project the caller's quota goes to,
+  # and, for user credentials, serviceusage.services.use there, which none
+  # of these roles has (roles/serviceusage.serviceUsageConsumer does).
   roles = toset(["roles/viewer", "roles/iam.securityReviewer", "roles/cloudasset.viewer"])
 }
 
