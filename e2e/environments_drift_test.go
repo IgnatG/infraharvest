@@ -35,8 +35,8 @@ const environmentsBackendConfig = environmentsConfig + `backend:
 `
 
 // checkEnvironmentsDrift checks drift on the merged root of
-// testdata/aws-environments, as TestAWSEnvironments left the fixture,
-// imported again with an S3 backend: dev's three channel queues, and
+// testdata/aws-environments, as TestAWSEnvironments leaves the fixture,
+// imported with an S3 backend: dev's three channel queues, and
 // prod's, become one resource with for_each over a map variable each
 // environment's var file sets. Each environment initialises the root with
 // its vars/<env>/backend.hcl, prod's pointed at prod's own bucket, and

@@ -37,6 +37,109 @@ environments:
     tokens: [prd]
 `
 
+// awsEnvironments is what the tests of testdata/aws-environments share:
+// the fixture, applied in environmentAccounts, and the engine that
+// imports it. Each test changes the fixture, so each runs on a runner of
+// its own, with its own Floci.
+type awsEnvironments struct {
+	ctx                           context.Context
+	engineName, execPath, plugins string
+	fixture                       *appliedFixture
+	config                        string
+	// accounts are those importInto imports: both environments', unless
+	// a test narrows them.
+	accounts string
+}
+
+// setUpAWSEnvironments applies testdata/aws-environments, as it is with
+// its defaults, in environmentAccounts.
+func setUpAWSEnvironments(t *testing.T) *awsEnvironments {
+	t.Helper()
+	endpoint := os.Getenv("AWS_ENDPOINT_URL")
+	if endpoint == "" {
+		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
+	}
+	if !isLoopback(endpoint) {
+		t.Fatalf("AWS_ENDPOINT_URL=%s: the test creates resources, so it only runs against a local emulator", endpoint)
+	}
+	isolateAWSConfig(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	t.Cleanup(cancel)
+	cache := t.TempDir()
+	engineName, binary := e2eEngine(t)
+	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugins := filepath.Join(cache, "plugins")
+	return &awsEnvironments{
+		ctx:        ctx,
+		engineName: engineName,
+		execPath:   execPath,
+		plugins:    plugins,
+		fixture:    seedApplied(ctx, t, "aws-environments", execPath, plugins),
+		config:     writeConfig(t, environmentsConfig),
+		accounts:   environmentAccounts["dev"] + "," + environmentAccounts["prod"],
+	}
+}
+
+// importInto returns a function that imports e.accounts into out, with
+// the flags more adds.
+func (e *awsEnvironments) importInto(t *testing.T) func(out string, more ...string) {
+	return func(out string, more ...string) {
+		t.Helper()
+		root := cli.NewCmdRoot()
+		root.SetArgs(append([]string{
+			"import", "aws",
+			"--config=" + e.config,
+			"--engine=" + e.engineName,
+			"--terraform-path=" + e.execPath,
+			"--accounts=" + e.accounts,
+			"--parallel=2",
+			"--regions=us-east-1",
+			"--services=sqs,sns",
+			"--out=" + out,
+			"--all",
+		}, more...))
+		if err := root.ExecuteContext(e.ctx); err != nil {
+			t.Fatalf("infraharvest import %v: %v", more, err)
+		}
+	}
+}
+
+// envCredentials returns a function that has what runs next plan as env,
+// with its own account's credentials; the fixture applies with any.
+func envCredentials(t *testing.T) func(env string) {
+	return func(env string) { t.Setenv("AWS_ACCESS_KEY_ID", environmentAccounts[env]) }
+}
+
+// applyWorkspaces applies the merged root in dir into each environment's
+// workspace, as the README says for a root without a backend.
+func applyWorkspaces(ctx context.Context, t *testing.T, dir, execPath, plugins string, credentials func(env string)) {
+	t.Helper()
+	for _, env := range []string{"dev", "prod"} {
+		credentials(env)
+		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tf.Init(ctx); err != nil {
+			t.Fatalf("%s: terraform init: %v", env, err)
+		}
+		if err := tf.WorkspaceNew(ctx, env); err != nil {
+			t.Fatalf("terraform workspace new %s: %v", env, err)
+		}
+		var vars []tfexec.ApplyOption
+		for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
+			vars = append(vars, tfexec.VarFile(filepath.Join(dir, "vars", filepath.FromSlash(name))))
+		}
+		if err := tf.Apply(ctx, vars...); err != nil {
+			t.Fatalf("%s: terraform apply: %v", env, err)
+		}
+	}
+}
+
 // TestAWSEnvironments imports testdata/aws-environments, in two accounts
 // the configuration file maps to dev and prod, at once: the roots of the
 // two environments merge into one root they share, in aws/us-east-1,
@@ -56,55 +159,13 @@ environments:
 // checkout of the output, without .infraharvest and with the import
 // blocks deleted, --incremental with --managed-state on the environments'
 // workspaces adds a queue prod gets since into the merged root, and
-// nothing else. Imported again with an S3 backend, the merged root's
-// drift is checked with each environment's backend settings (see
-// checkEnvironmentsDrift). After that, the merged root is checked for
-// what is no longer in the cloud, and generated again (see
-// checkMergedRegenerate).
+// nothing else. TestAWSEnvironmentsDrift and
+// TestAWSEnvironmentsRegenerate go on from where this test leaves the
+// fixture, each on a runner of its own.
 func TestAWSEnvironments(t *testing.T) {
-	endpoint := os.Getenv("AWS_ENDPOINT_URL")
-	if endpoint == "" {
-		skipUnconfigured(t, "AWS_ENDPOINT_URL is not set; start the emulator in e2e/compose.yaml")
-	}
-	if !isLoopback(endpoint) {
-		t.Fatalf("AWS_ENDPOINT_URL=%s: the test creates resources, so it only runs against a local emulator", endpoint)
-	}
-	isolateAWSConfig(t)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
-	defer cancel()
-	cache := t.TempDir()
-	engineName, binary := e2eEngine(t)
-	execPath, err := binary.Find(ctx, "", filepath.Join(cache, binary.Name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	plugins := filepath.Join(cache, "plugins")
-	fixture := seedApplied(ctx, t, "aws-environments", execPath, plugins)
-	config := writeConfig(t, environmentsConfig)
-
-	accounts := environmentAccounts["dev"] + "," + environmentAccounts["prod"]
-	importInto := func(out string, more ...string) {
-		t.Helper()
-		root := cli.NewCmdRoot()
-		root.SetArgs(append([]string{
-			"import", "aws",
-			"--config=" + config,
-			"--engine=" + engineName,
-			"--terraform-path=" + execPath,
-			"--accounts=" + accounts,
-			"--parallel=2",
-			"--regions=us-east-1",
-			"--services=sqs,sns",
-			"--out=" + out,
-			"--all",
-		}, more...))
-		if err := root.ExecuteContext(ctx); err != nil {
-			t.Fatalf("infraharvest import %v: %v", more, err)
-		}
-	}
-	// Each environment plans with its own account's credentials.
-	credentials := func(env string) { t.Setenv("AWS_ACCESS_KEY_ID", environmentAccounts[env]) }
+	e := setUpAWSEnvironments(t)
+	ctx, engineName, execPath, plugins, fixture := e.ctx, e.engineName, e.execPath, e.plugins, e.fixture
+	importInto, credentials := e.importInto(t), envCredentials(t)
 	defer t.Setenv("AWS_ACCESS_KEY_ID", "test")
 
 	out := t.TempDir()
@@ -195,9 +256,9 @@ func TestAWSEnvironments(t *testing.T) {
 	// root, as it was, without planning as prod, and says so; prod's plan
 	// stays the same.
 	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"))
-	accounts = environmentAccounts["dev"]
+	e.accounts = environmentAccounts["dev"]
 	importInto(out, "--incremental")
-	accounts = environmentAccounts["dev"] + "," + environmentAccounts["prod"]
+	e.accounts = environmentAccounts["dev"] + "," + environmentAccounts["prod"]
 	coverage = coverageOf(t, out)
 	checkCoverage(t, "--incremental of dev", coverage, nil)
 	merge = checkMerged(t, out, coverage, "aws/us-east-1", "dev", "prod")
@@ -212,30 +273,11 @@ func TestAWSEnvironments(t *testing.T) {
 		t.Errorf("--incremental of dev: imported %v", imported)
 	}
 
-	// Each environment applies the merged root into its workspace, as the
-	// README says for a root without a backend. Then dev's queue changes in
-	// the cloud: drift as dev finds it, and accepts it into dev's var file
-	// alone, as the environments share the code; drift as prod finds none.
-	for _, env := range []string{"dev", "prod"} {
-		credentials(env)
-		tf, err := engine.NewTerraform(dir, execPath, plugins, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := tf.Init(ctx); err != nil {
-			t.Fatalf("%s: terraform init: %v", env, err)
-		}
-		if err := tf.WorkspaceNew(ctx, env); err != nil {
-			t.Fatalf("terraform workspace new %s: %v", env, err)
-		}
-		var vars []tfexec.ApplyOption
-		for _, name := range []string{"common.tfvars", env + "/terraform.tfvars", env + "/imports.tfvars"} {
-			vars = append(vars, tfexec.VarFile(filepath.Join(dir, "vars", filepath.FromSlash(name))))
-		}
-		if err := tf.Apply(ctx, vars...); err != nil {
-			t.Fatalf("%s: terraform apply: %v", env, err)
-		}
-	}
+	// Each environment applies the merged root into its workspace. Then
+	// dev's queue changes in the cloud: drift as dev finds it, and accepts
+	// it into dev's var file alone, as the environments share the code;
+	// drift as prod finds none.
+	applyWorkspaces(ctx, t, dir, execPath, plugins, credentials)
 	fixture.apply(ctx, t, tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"))
 	drift := driftRun{ctx: ctx, engineName: engineName, execPath: execPath, out: out}
 	code := codeFiles(t, out)
@@ -376,13 +418,45 @@ func TestAWSEnvironments(t *testing.T) {
 		credentials(env)
 		checkNoChanges(ctx, t, filepath.Join(apart, "aws", "us-east-1", env, account), execPath, plugins, nil)
 	}
+}
 
-	checkEnvironmentsDrift(ctx, t, fixture, engineName, execPath, plugins, credentials)
+// environmentsLeft are the variables testdata/aws-environments is applied
+// with where TestAWSEnvironments leaves it: dev's audit and reports queues,
+// prod's billing queue, and dev's orders timeout changed.
+var environmentsLeft = []tfexec.ApplyOption{tfexec.Var("audit=true"), tfexec.Var("reports=true"), tfexec.Var("dev_orders_timeout=90"), tfexec.Var("billing=true")}
 
-	// Not in the cloud, then --regenerate, on the merged root. After the
-	// drift step, which imports again into an output of its own: the
-	// regenerate step gives dev the alerts feature, which that step needs
-	// prod alone to have.
+// TestAWSEnvironmentsDrift checks drift on the merged root of
+// testdata/aws-environments, as TestAWSEnvironments leaves the fixture,
+// imported with an S3 backend (see checkEnvironmentsDrift).
+func TestAWSEnvironmentsDrift(t *testing.T) {
+	e := setUpAWSEnvironments(t)
+	e.fixture.apply(e.ctx, t, environmentsLeft...)
+	checkEnvironmentsDrift(e.ctx, t, e.fixture, e.engineName, e.execPath, e.plugins, envCredentials(t))
+}
+
+// TestAWSEnvironmentsRegenerate imports testdata/aws-environments as
+// TestAWSEnvironments leaves it: the merged root, with dev's orders
+// timeout as the cloud has it, applied into each environment's workspace,
+// then prod's billing queue added with --incremental, which prod's
+// workspace doesn't have yet. The merged root is then checked for what
+// is no longer in the cloud, and generated again (see
+// checkMergedRegenerate).
+func TestAWSEnvironmentsRegenerate(t *testing.T) {
+	e := setUpAWSEnvironments(t)
+	ctx, execPath, plugins, fixture := e.ctx, e.execPath, e.plugins, e.fixture
+	importInto, credentials := e.importInto(t), envCredentials(t)
+	defer t.Setenv("AWS_ACCESS_KEY_ID", "test")
+
+	fixture.apply(ctx, t, environmentsLeft[:3]...)
+	out := t.TempDir()
+	importInto(out)
+	dir := filepath.Join(out, "aws", "us-east-1")
+	applyWorkspaces(ctx, t, dir, execPath, plugins, credentials)
+	fixture.apply(ctx, t, environmentsLeft...)
+	importInto(out, "--incremental")
+	checkCoverage(t, "--incremental with prod's billing queue", coverageOf(t, out), nil)
+	selectWorkspace(ctx, t, dir, execPath, plugins, "default")
+
 	checkMergedRegenerate(ctx, t, fixture, importInto, credentials, out, execPath, plugins)
 }
 
