@@ -80,6 +80,25 @@ jobs:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
       run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
+    # An unset variable is an empty string, which would surface only
+    # minutes into the apply: without the boundary, the fixture role is
+    # denied iam:CreateRole. The bootstrap's gh_commands output sets them.
+    - name: Variables
+      env:
+        AWS_FIXTURE_ROLE_ARN: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
+        AWS_READONLY_ROLE_ARN: ${{ vars.AWS_READONLY_ROLE_ARN }}
+        AWS_BOUNDARY_POLICY_ARN: ${{ vars.AWS_BOUNDARY_POLICY_ARN }}
+      run: |
+        missing=()
+        for name in AWS_REGION AWS_FIXTURE_ROLE_ARN AWS_READONLY_ROLE_ARN AWS_BOUNDARY_POLICY_ARN; do
+          if [ -z "${!name}" ]; then
+            missing+=("$name")
+          fi
+        done
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "::error::The sandbox environment lacks the variables ${missing[*]}. Set them with the commands the aws-bootstrap root's gh_commands output prints (see e2e/README.md)."
+          exit 1
+        fi
     - name: Directories
       run: |
         {
