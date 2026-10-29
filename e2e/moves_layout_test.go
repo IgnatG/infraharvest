@@ -35,7 +35,7 @@ const layoutProfile = "infraharvest-e2e-layout"
 // every resource over to the roots of sqs and sns: it keeps its provider
 // configuration and a moves.tf of removed blocks alone, which the gate
 // checks (G8), and the other roots import what it hands over, as
-// coverage.json and the READMEs say. Over the state the first apply left,
+// report.json and the READMEs say. Over the state the first apply left,
 // the old root then forgets each resource, creating and destroying
 // nothing; once it and then the new roots are applied, no root plans any
 // change, and the resources are still in the cloud.
@@ -112,11 +112,11 @@ func TestAWSRegenerateLayout(t *testing.T) {
 			}
 		}
 		if to.ToRoot == "" {
-			t.Errorf("--regenerate: coverage.json doesn't hand %s over from %s: departed %+v", id, oldRoot, second.Departed)
+			t.Errorf("--regenerate: report.json doesn't hand %s over from %s: departed %+v", id, oldRoot, second.Departed)
 			continue
 		}
 		if at := importedAt(t, second, to.ToRoot, id); at != to.To {
-			t.Errorf("--regenerate: %s imports %s at %s, coverage.json hands it over to %s", to.ToRoot, id, at, to.To)
+			t.Errorf("--regenerate: %s imports %s at %s, report.json hands it over to %s", to.ToRoot, id, at, to.To)
 		}
 		newRoots[to.ToRoot]++
 	}

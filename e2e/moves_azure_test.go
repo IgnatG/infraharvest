@@ -45,7 +45,7 @@ func TestAzureRegenerateMoves(t *testing.T) {
 			"--out=" + out,
 			"--all",
 			// Keep going after a failure, so one run reports every
-			// problem; the checks on coverage.json still fail the test.
+			// problem; the checks on report.json still fail the test.
 			"--allow-partial",
 		},
 		out:             out,

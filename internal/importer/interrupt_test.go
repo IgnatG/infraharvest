@@ -66,7 +66,7 @@ func TestInterruptedRunReportsItsExitCode(t *testing.T) {
 	if code := ExitCode(err); code != report.ExitInterrupted {
 		t.Fatalf("exit code %d, want %d (%v)", code, report.ExitInterrupted, err)
 	}
-	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "report.json"))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
@@ -75,6 +75,6 @@ func TestInterruptedRunReportsItsExitCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if coverage.ExitCode != report.ExitInterrupted {
-		t.Errorf("coverage.json: exit code %d, want %d", coverage.ExitCode, report.ExitInterrupted)
+		t.Errorf("report.json: exit code %d, want %d", coverage.ExitCode, report.ExitInterrupted)
 	}
 }

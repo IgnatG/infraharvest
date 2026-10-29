@@ -168,7 +168,7 @@ func importGoogle(t *testing.T, e googleEstate, out string, args ...string) stri
 		"--terraform-path=" + e.execPath,
 		"--out=" + out,
 		// Keep going after a failure, so one run reports every problem;
-		// the checks on coverage.json still fail the test.
+		// the checks on report.json still fail the test.
 		"--allow-partial",
 	}, googleScope()...), args...))
 	if err := root.ExecuteContext(e.ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
@@ -212,11 +212,11 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 	}
 
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("%v: coverage.json: %+v, failures %v", flags, coverage.Totals, coverage.Failures)
+		t.Errorf("%v: report.json: %+v, failures %v", flags, coverage.Totals, coverage.Failures)
 	}
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {

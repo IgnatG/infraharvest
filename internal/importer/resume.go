@@ -64,7 +64,10 @@ func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Op
 		// Refine is what --cfn-stack carries into the root; empty, it
 		// leaves the fingerprint of a root without it as it was.
 		Refine string `json:",omitempty"`
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey})
+		// Scope is what the root reads of its own account and region;
+		// nil, it leaves the fingerprint of a root without it as it was.
+		Scope *engine.ScopeLocals `json:",omitempty"`
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey, opts.Scope})
 	if err != nil {
 		return "", err
 	}

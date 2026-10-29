@@ -74,6 +74,14 @@ type MergeRoot struct {
 	// over (see engine.Result.Arrived), which the merged root's README
 	// names, as the roots they come from are applied first.
 	Arrivals []rootfile.Arrival
+	// Data has, by data source type, the values of the attributes, by
+	// name, of the data sources that read the environment's account and
+	// region, as its credentials give them (see UnmergeEnv.Data): the
+	// locals the root reads them through, as engine.Generate writes them
+	// (see engine.ScopeLocals), are put in as values, as literal locals
+	// are. MergeRoots fills it from MergeProfile.EnvironmentData where it
+	// is nil.
+	Data map[string]map[string]string
 }
 
 // readEnvRoot reads the root r as merging reads it (see envRoot): its
@@ -92,7 +100,12 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 		return root, "", err
 	}
 	locals := map[string]hclsyntax.Expression{}
-	var blocks, data strings.Builder
+	var blocks strings.Builder
+	type dataBlock struct {
+		block *hclsyntax.Block
+		text  string
+	}
+	var dataBlocks []dataBlock
 	var providerBlock *hclsyntax.Block
 	for _, f := range files {
 		name := filepath.Base(f.Path)
@@ -107,7 +120,7 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 				root.files[address] = name
 				blocks.WriteString(text)
 			case "data":
-				data.WriteString(text)
+				dataBlocks = append(dataBlocks, dataBlock{b, text})
 			case "locals":
 				for n, attr := range b.Body.Attributes {
 					locals[n] = attr.Expr
@@ -140,9 +153,34 @@ func readEnvRoot(r MergeRoot, target string) (envRoot, string, error) {
 			}
 		}
 	}
-	values := localValues(locals)
+	syntax := make([]*hclsyntax.Block, len(dataBlocks))
+	for i, d := range dataBlocks {
+		syntax[i] = d.block
+	}
+	envData := unmergeData(syntax, UnmergeEnv{Name: r.Env, Data: r.Data})
+	values := localValues(locals, envData)
 	if root.file, err = inlinedFile(rootfile.GeneratedFileName, blocks.String(), values, r, target); err != nil {
 		return root, "", err
+	}
+	// The data sources the environment's own values give are left out
+	// where nothing reads them once their locals are put in: the merged
+	// root reads its environments' account and region as it does (see
+	// stackMerge.render).
+	read := map[string]bool{}
+	for _, t := range hclfile.Traversals(root.file.Syntax) {
+		read[dataAddress(t)] = true
+	}
+	for _, d := range dataBlocks {
+		for _, t := range hclfile.Traversals(d.block.Body) {
+			read[dataAddress(t)] = true
+		}
+	}
+	var data strings.Builder
+	for _, d := range dataBlocks {
+		if len(d.block.Labels) == 2 && givesData(envData, d.block.Labels[0], d.block.Labels[1]) && !read[d.block.Labels[0]+"."+d.block.Labels[1]] {
+			continue
+		}
+		data.WriteString(d.text)
 	}
 	if data.Len() > 0 {
 		if root.data, err = inlinedFile(rootfile.DataFileName, data.String(), values, r, target); err != nil {
@@ -192,9 +230,34 @@ func addressText(t hcl.Traversal) string {
 	return strings.TrimSpace(string(hclwrite.TokensForTraversal(t).Bytes()))
 }
 
+// dataAddress returns the address, type.name, of the data source t
+// refers to, or "" where it refers to none.
+func dataAddress(t hcl.Traversal) string {
+	if t.RootName() != "data" || len(t) < 3 {
+		return ""
+	}
+	typ, ok := t[1].(hcl.TraverseAttr)
+	name, ok2 := t[2].(hcl.TraverseAttr)
+	if !ok || !ok2 {
+		return ""
+	}
+	return typ.Name + "." + name.Name
+}
+
+// givesData reports whether data, as unmergeData returns it, has the data
+// source typ.name.
+func givesData(data cty.Value, typ, name string) bool {
+	if !data.Type().IsObjectType() || !data.Type().HasAttribute(typ) {
+		return false
+	}
+	byName := data.GetAttr(typ)
+	return byName.Type().IsObjectType() && byName.Type().HasAttribute(name)
+}
+
 // localValues returns the values of locals that are values: literals,
-// or expressions of other such locals only.
-func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
+// or expressions of other such locals only, and of the data sources data
+// gives (see unmergeData), such as the environment's account ID.
+func localValues(locals map[string]hclsyntax.Expression, data cty.Value) map[string]cty.Value {
 	values := map[string]cty.Value{}
 	for changed := true; changed; {
 		changed = false
@@ -205,6 +268,14 @@ func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
 			expr := locals[name]
 			known := true
 			for _, t := range expr.Variables() {
+				if address := dataAddress(t); address != "" {
+					typ, dataName, _ := strings.Cut(address, ".")
+					if !givesData(data, typ, dataName) {
+						known = false
+						break
+					}
+					continue
+				}
 				if t.RootName() != "local" || len(t) < 2 {
 					known = false
 					break
@@ -222,7 +293,7 @@ func localValues(locals map[string]hclsyntax.Expression) map[string]cty.Value {
 			if !known {
 				continue
 			}
-			ctx := &hcl.EvalContext{Variables: map[string]cty.Value{"local": cty.ObjectVal(values)}}
+			ctx := &hcl.EvalContext{Variables: map[string]cty.Value{"local": cty.ObjectVal(values), "data": data}}
 			v, diags := expr.Value(ctx)
 			if diags.HasErrors() || !v.IsWhollyKnown() {
 				continue
@@ -297,14 +368,53 @@ func isLocalSource(source string) bool {
 }
 
 // replaceLocals returns tokens with each reference to a local of values,
-// local.<name>, made the local's value.
+// local.<name>, made the local's value. Inside a template, a string's
+// value joins the template's text, so that
+// "arn:aws:sns:${local.aws_region}:${local.aws_account_id}:alerts", as
+// engine.Generate writes a root's own account and region (see
+// engine.ScopeLocals), reads as the literal it stands for.
 func replaceLocals(tokens hclwrite.Tokens, values map[string]cty.Value) hclwrite.Tokens {
 	if len(values) == 0 {
 		return tokens
 	}
 	out := make(hclwrite.Tokens, 0, len(tokens))
+	// joined is the text token of out the template's text joins, if the
+	// last of out is one replaceLocals made.
+	var joined *hclwrite.Token
+	heredoc := false
 	for i := 0; i < len(tokens); i++ {
 		t := tokens[i]
+		switch t.Type {
+		case hclsyntax.TokenOHeredoc:
+			heredoc = true
+		case hclsyntax.TokenCHeredoc:
+			heredoc = false
+		}
+		if s, ok := interpolatedLocal(tokens, i, values); ok {
+			text := hclsyntax.TokenQuotedLit
+			if heredoc {
+				text = hclsyntax.TokenStringLit
+			}
+			switch last := len(out) - 1; {
+			case joined != nil:
+				joined.Bytes = append(joined.Bytes, s...)
+			case last >= 0 && out[last].Type == text:
+				c := *out[last]
+				c.Bytes = append(slices.Clone(c.Bytes), s...)
+				out[last] = &c
+				joined = &c
+			default:
+				joined = &hclwrite.Token{Type: text, Bytes: []byte(s)}
+				out = append(out, joined)
+			}
+			i += 4
+			continue
+		}
+		if joined != nil && t.Type == joined.Type {
+			joined.Bytes = append(joined.Bytes, t.Bytes...)
+			continue
+		}
+		joined = nil
 		if t.Type == hclsyntax.TokenIdent && string(t.Bytes) == "local" && i+2 < len(tokens) && tokens[i+1].Type == hclsyntax.TokenDot && tokens[i+2].Type == hclsyntax.TokenIdent && (i == 0 || tokens[i-1].Type != hclsyntax.TokenDot) {
 			if v, ok := values[string(tokens[i+2].Bytes)]; ok {
 				for j, r := range hclwrite.TokensForValue(v) {
@@ -321,6 +431,26 @@ func replaceLocals(tokens hclwrite.Tokens, values map[string]cty.Value) hclwrite
 		out = append(out, t)
 	}
 	return out
+}
+
+// interpolatedLocal returns the value of the local of values that tokens
+// interpolate at i, ${local.<name>}, where it is a string a template's
+// text can hold as it is: with no quote, backslash, line break or
+// template sequence.
+func interpolatedLocal(tokens hclwrite.Tokens, i int, values map[string]cty.Value) (string, bool) {
+	if i+4 >= len(tokens) || tokens[i].Type != hclsyntax.TokenTemplateInterp || tokens[i+1].Type != hclsyntax.TokenIdent || string(tokens[i+1].Bytes) != "local" ||
+		tokens[i+2].Type != hclsyntax.TokenDot || tokens[i+3].Type != hclsyntax.TokenIdent || tokens[i+4].Type != hclsyntax.TokenTemplateSeqEnd {
+		return "", false
+	}
+	v, ok := values[string(tokens[i+3].Bytes)]
+	if !ok || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
+		return "", false
+	}
+	s := v.AsString()
+	if strings.ContainsAny(s, "\"\\\r\n") || strings.Contains(s, "${") || strings.Contains(s, "%{") {
+		return "", false
+	}
+	return s, true
 }
 
 // mergedObject returns tokens, an expression, as the object it gives where

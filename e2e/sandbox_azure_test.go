@@ -34,10 +34,62 @@ const sandboxAzureResourceGroup = "infraharvest-sandbox"
 // sandboxAzureFound are the types of the estate whose every resource the
 // import must find, by ID: what floci-az can't serve, the lock, which
 // Resource Graph doesn't index, and the role assignments, which only its
-// authorizationresources table has.
+// authorizationresources table has, and what a team runs, which floci-az
+// doesn't serve either: the App Service plan, the PostgreSQL server, the
+// registry, the messaging namespaces with their queue and event hub, the
+// load balancer with its parts, the private endpoint with its DNS zone
+// and link, and the virtual machine with its network interface.
 var sandboxAzureFound = []string{
 	"azurerm_key_vault", "azurerm_management_lock", "azurerm_role_assignment", "azurerm_route_table",
 	"azurerm_storage_account", "azurerm_storage_container",
+	"azurerm_service_plan", "azurerm_postgresql_flexible_server", "azurerm_container_registry",
+	"azurerm_servicebus_namespace", "azurerm_servicebus_queue", "azurerm_eventhub_namespace", "azurerm_eventhub",
+	"azurerm_public_ip", "azurerm_lb", "azurerm_lb_backend_address_pool", "azurerm_lb_probe", "azurerm_lb_rule",
+	"azurerm_private_dns_zone", "azurerm_private_dns_zone_virtual_network_link", "azurerm_private_endpoint",
+	"azurerm_network_interface", "azurerm_linux_virtual_machine",
+}
+
+// sandboxAzureSecrets are the attributes of the estate's secrets, by
+// type, that no file of an import's output may hold: the PostgreSQL
+// server's administrator password, which Azure never returns, and the
+// virtual machine's private key, which Azure never has.
+var sandboxAzureSecrets = map[string][]string{
+	"random_password": {"result"},
+	"tls_private_key": {"private_key_pem", "private_key_openssh", "private_key_pem_pkcs8"},
+}
+
+// administratorPassword matches a generated argument that sets a
+// PostgreSQL server's administrator password, which the import leaves
+// out, as Azure never returns it, rather than read from a variable.
+var administratorPassword = regexp.MustCompile(`(?m)^\s*administrator_password\s*=`)
+
+// checkAzureSecrets checks that no file of the import's output in out
+// holds a secret the estate created (see sandboxAzureSecrets), and that
+// the configuration doesn't set the PostgreSQL server's administrator
+// password.
+func checkAzureSecrets(t *testing.T, out string, created []*tfjson.StateResource) {
+	t.Helper()
+	var secrets []string
+	for _, r := range created {
+		for _, attribute := range sandboxAzureSecrets[r.Type] {
+			if v, _ := r.AttributeValues[attribute].(string); strings.TrimSpace(v) != "" {
+				secrets = append(secrets, strings.TrimSpace(v))
+			}
+		}
+	}
+	if len(secrets) == 0 {
+		t.Fatal("the estate has no secrets to look for: it makes a password and a private key")
+	}
+	for name, content := range outputFiles(t, out) {
+		for _, secret := range secrets {
+			if strings.Contains(content, secret) {
+				t.Errorf("%s holds a secret of the estate", name)
+			}
+		}
+		if strings.HasSuffix(name, ".tf") && administratorPassword.MatchString(content) {
+			t.Errorf("%s sets the PostgreSQL server's administrator_password, which Azure never returns", name)
+		}
+	}
 }
 
 // azureAuthorizationErrors are what Azure, the SDK and the azurerm
@@ -55,12 +107,14 @@ var azureAuthorizationErrors = []string{
 // permissions/azure grants, as a user would, and checks that nothing was
 // denied, that the engine plans every generated resource as an import
 // with no changes, and that the import found the resource group, with its
-// tags, and what the estate created. Applied, the root must take a tag
-// added out of band through infraharvest drift (see checkAzureDrift). It
-// destroys the estate when it is done. The sandbox-azure workflow runs
-// it, after approval; see e2e/README.md.
+// tags, and what the estate created, and that no file of the output
+// holds the estate's secrets (see checkAzureSecrets). Applied, the root
+// must take a tag added out of band through infraharvest drift (see
+// checkAzureDrift). It destroys the estate when it is done. The
+// sandbox-azure workflow runs it, after approval; see e2e/README.md.
 func TestSandboxAzure(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
+	// The PostgreSQL server takes most of the estate's apply.
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Minute)
 	defer cancel()
 	s := newAzureSandbox(ctx, t)
 
@@ -75,6 +129,7 @@ func TestSandboxAzure(t *testing.T) {
 	checkNoAuthorizationErrors(t, logged, coverage, azureAuthorizationErrors)
 	root, imported := s.checkAzureImport(ctx, t, coverage, created)
 	checkAzureFound(t, coverage, created, group)
+	checkAzureSecrets(t, s.out, created)
 	checkGroupTags(t, root, group)
 	checkAzureRoles(t, coverage, created, root)
 	s.checkAzureQuery(ctx, t, created)
@@ -368,6 +423,7 @@ func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, create
 	out := t.TempDir()
 	s.importAzure(ctx, t, out, "--azapi")
 	coverage := readCoverage(t, out)
+	checkAzureSecrets(t, out, created)
 	for _, f := range coverage.Failures {
 		t.Errorf("--azapi: failure: %+v", f)
 	}

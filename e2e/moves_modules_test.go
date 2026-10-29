@@ -38,7 +38,7 @@ const moduleMovesProfile = "infraharvest-e2e-module-moves"
 // team would. Generated again (--regenerate) with --modules=local, the
 // two roles, clusters of one shape, become calls of a generated local
 // module: the root's moves.tf moves each resource into its call, which
-// the gate checks (G8), and coverage.json says so. Over the state the
+// the gate checks (G8), and report.json says so. Over the state the
 // first apply left, the root then plans each resource as moved, creating
 // and destroying nothing, and, applied, plans no change. Once moves.tf is
 // deleted, as its README says, and the root generated again with
@@ -179,7 +179,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 			if !slices.ContainsFunc(coverage.Moved, func(m report.Move) bool {
 				return m.Type == id.Type && m.ID == id.ID && m.FromRoot == rootPath && m.ToRoot == rootPath && m.From == address && m.To == now[id]
 			}) {
-				t.Errorf("--modules=%s: coverage.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
+				t.Errorf("--modules=%s: report.json doesn't move %s from %s to %s: moved %+v", modules, id, address, now[id], coverage.Moved)
 			}
 		}
 		moves := strings.Join(strings.Fields(readFile(t, filepath.Join(root, rootfile.MovesFileName))), " ")

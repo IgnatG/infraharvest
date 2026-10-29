@@ -37,7 +37,7 @@ multiline_output() {
 
 # linked <path>: whether path, or a directory it is in, is a symbolic link,
 # below the working directory, the repository the job checked out: one the
-# repository commits, such as out/report/report.md to /proc/self/environ or
+# repository commits, such as out/_reports/report.md to /proc/self/environ or
 # out to a directory of the runner's, would lead what infraharvest writes,
 # and what the action reads into the job summary, the pull request or a
 # commit, elsewhere. A path outside the working directory, such as one

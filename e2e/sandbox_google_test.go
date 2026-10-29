@@ -74,9 +74,17 @@ var sandboxGoogleLagging = []string{"cloudfunctions.googleapis.com/Function"}
 
 // sandboxGoogleUnlisted are the types the estate creates that no lister
 // lists: a bucket's objects, such as the function's source, aren't
-// resources Cloud Asset Inventory finds, and the query service lists the
-// network firewall policy (see sandboxGoogleQueried).
-var sandboxGoogleUnlisted = []string{"google_storage_bucket_object", sandboxGoogleQueried}
+// resources Cloud Asset Inventory finds, nor are Cloud SQL users, which
+// the estate creates for their password, which no file of the import may
+// hold (see checkGoogleSecrets), and the query service lists the network
+// firewall policy (see sandboxGoogleQueried).
+var sandboxGoogleUnlisted = []string{"google_storage_bucket_object", "google_sql_user", sandboxGoogleQueried}
+
+// sandboxGoogleLasting are the asset types of the estate that outlive its
+// destroy: KMS key rings and keys can't be deleted, so Cloud Asset
+// Inventory lists those of every earlier run for good, which the import
+// imports too. The test doesn't wait for the search to stop finding them.
+var sandboxGoogleLasting = []string{"cloudkms.googleapis.com/KeyRing", "cloudkms.googleapis.com/CryptoKey"}
 
 // sandboxGoogleQueried is the type of the estate no lister lists that the
 // query service lists, through Terraform's list resources (see
@@ -93,13 +101,15 @@ const sandboxGoogleQueried = "google_compute_network_firewall_policy"
 // engine plans every generated resource as an import with no changes, and
 // that the import found what the estate created, by ID, with its labels,
 // the project and the read-only account's grants, and that the default
-// selection leaves out what Google created for the estate's function.
+// selection leaves out what Google created for the estate's function, and
+// that no file of the import holds the Cloud SQL user's password.
 // Applied, the global root must take a label added out of band through
 // infraharvest drift (see checkGoogleDrift). It destroys the estate when
 // it is done. The sandbox-google workflow runs it, after approval; see
 // e2e/README.md.
 func TestSandboxGoogle(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
+	// The Cloud SQL instance alone takes 10 to 15 minutes to create.
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Minute)
 	defer cancel()
 	s := newGoogleSandbox(ctx, t)
 
@@ -122,6 +132,7 @@ func TestSandboxGoogle(t *testing.T) {
 	checkGoogleLabels(ctx, t, s, coverage, created)
 	checkGoogleFunction(t, coverage, created)
 	checkGoogleDisks(t, coverage, created)
+	checkGoogleSecrets(t, s.out, created)
 	s.checkGoogleQuery(ctx, t, created)
 	if imported["google_project"] == 0 {
 		t.Errorf("the import doesn't import the project %s", s.project)
@@ -334,7 +345,7 @@ func searchEstate(ctx context.Context, svc *cloudasset.Service, cat *catalogue.C
 					}
 				}
 				named := strings.Join(keys, " ")
-				if strings.Contains(named, sandboxNamePrefix) && !strings.Contains(named, name) && slices.Contains(estateTypes, r.AssetType) {
+				if strings.Contains(named, sandboxNamePrefix) && !strings.Contains(named, name) && slices.Contains(estateTypes, r.AssetType) && !slices.Contains(sandboxGoogleLasting, r.AssetType) {
 					earlier = append(earlier, r.Name)
 				}
 			}
@@ -384,7 +395,8 @@ func assetKeys(r *cloudasset.ResourceSearchResult, project string) []string {
 }
 
 // stateKeys are the keys (see assetKeys) of a resource the estate created,
-// of assetType: its ID, its name and its email, those it has.
+// of assetType: its ID, its name and its email, those it has, and the ID
+// the import records for it (see googleImportID).
 func stateKeys(r *tfjson.StateResource, assetType string) []string {
 	var keys []string
 	for _, k := range []string{"id", "name", "email"} {
@@ -392,7 +404,23 @@ func stateKeys(r *tfjson.StateResource, assetType string) []string {
 			keys = append(keys, assetType+" "+k+":"+v)
 		}
 	}
+	if id, _ := r.AttributeValues["id"].(string); googleImportID(r) != id {
+		keys = append(keys, assetType+" id:"+googleImportID(r))
+	}
 	return keys
+}
+
+// googleImportID is the ID the import records for a resource the estate
+// created: its ID, which is its full name for most of the google
+// provider's types, but for a Cloud SQL instance, whose ID is its name
+// alone, the projects/<project>/instances/<name> of its asset's name.
+func googleImportID(r *tfjson.StateResource) string {
+	id, _ := r.AttributeValues["id"].(string)
+	if r.Type == "google_sql_database_instance" && id != "" && !strings.Contains(id, "/") {
+		project, _ := r.AttributeValues["project"].(string)
+		return "projects/" + project + "/instances/" + id
+	}
+	return id
 }
 
 // importGoogle imports the project's global resources and the region,
@@ -511,8 +539,8 @@ func (s *googleSandbox) checkGoogleFound(t *testing.T, coverage report.Report, c
 		if !strings.HasPrefix(r.Type, "google_") || !googleListedNow(cat, r.Type) {
 			continue
 		}
-		if id, _ := r.AttributeValues["id"].(string); id == "" || !imported[id] {
-			t.Errorf("the import doesn't import %s %q", r.Address, id)
+		if id, _ := r.AttributeValues["id"].(string); id == "" || (!imported[id] && !imported[googleImportID(r)]) {
+			t.Errorf("the import doesn't import %s %q", r.Address, googleImportID(r))
 		}
 	}
 	for _, role := range sandboxGoogleReadonlyRoles {
@@ -780,6 +808,32 @@ func checkGoogleDisks(t *testing.T, coverage report.Report, created []*tfjson.St
 	}
 	if data == 0 {
 		t.Error("the estate creates no data disk")
+	}
+}
+
+// checkGoogleSecrets checks that no file of the import in out, its report
+// included, holds the password of the estate's Cloud SQL user, which the
+// provider can't read back and the import must never write.
+func checkGoogleSecrets(t *testing.T, out string, created []*tfjson.StateResource) {
+	t.Helper()
+	var passwords []string
+	for _, r := range created {
+		if r.Type != "google_sql_user" {
+			continue
+		}
+		if password, _ := r.AttributeValues["password"].(string); password != "" {
+			passwords = append(passwords, password)
+		}
+	}
+	if len(passwords) == 0 {
+		t.Fatal("the estate creates no Cloud SQL user with a password")
+	}
+	for name, content := range outputFiles(t, out) {
+		for _, password := range passwords {
+			if strings.Contains(content, password) {
+				t.Errorf("%s holds the Cloud SQL user's password", name)
+			}
+		}
 	}
 }
 

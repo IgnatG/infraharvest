@@ -154,9 +154,9 @@ func TestStacksMergeAndWrite(t *testing.T) {
 	if err != nil || !strings.Contains(string(content), "Retain") {
 		t.Errorf("retain template %q, %v", content, err)
 	}
-	coverage, err := os.ReadFile(filepath.Join(out, Dir, "coverage.json"))
-	if err != nil || !strings.Contains(string(coverage), `"logical_id": "Assets"`) {
-		t.Errorf("coverage.json lacks the stack: %v", err)
+	whole, err := os.ReadFile(filepath.Join(out, Dir, "report.json"))
+	if err != nil || !strings.Contains(string(whole), `"logical_id": "Assets"`) {
+		t.Errorf("report.json lacks the stack: %v", err)
 	}
 }
 
@@ -415,7 +415,7 @@ func TestStackTemplateAndParameters(t *testing.T) {
 		t.Fatal(err)
 	}
 	reports := map[string]string{"JSON report": out.String(), "Markdown": r.Markdown()}
-	for _, name := range []string{"coverage.json", "manifest.json", "report.md"} {
+	for _, name := range []string{"report.json", "report.md"} {
 		content, err := os.ReadFile(filepath.Join(dir, Dir, name))
 		if err != nil {
 			t.Fatal(err)

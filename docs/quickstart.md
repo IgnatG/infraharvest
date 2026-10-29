@@ -50,14 +50,14 @@ infraharvest pick --selection selection.yaml
 infraharvest import aws --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
 ```
 
-For each root, infraharvest writes an `import` block per resource and has Terraform generate their configuration. It then tidies the configuration: references instead of IDs, shared tags as a local, clusters of resources as calls of curated modules. It keeps a change only if a new plan shows no extra changes. Last, it runs the verification gate: format, validate, a plan with no changes, the output standard, scanners, secrets and determinism. `infraharvest-out/report/report.md` summarises the run, and each root's `README.md` says what is left to do.
+For each root, infraharvest writes an `import` block per resource and has Terraform generate their configuration. It then tidies the configuration: references instead of IDs, shared tags as a local, clusters of resources as calls of curated modules. It keeps a change only if a new plan shows no extra changes. Last, it runs the verification gate: format, validate, a plan with no changes, the output standard, scanners, secrets and determinism. `infrastructure/_reports/report.md` summarises the run, and each root's `README.md` says what is left to do.
 
 ## 4. Plan and apply
 
 There is no state to create first: the first `terraform apply` writes it. Without a backend, Terraform keeps it in `terraform.tfstate` in the root's directory; to keep it in a remote backend instead, set one in a [configuration file](configuration.md) before importing, and each root gets a `backend.tf`. If the root has `variables.tf` with secret variables, set them first, as its README says.
 
 ```sh
-cd infraharvest-out/aws/<account>/eu-west-2
+cd infrastructure/aws/<account>/eu-west-2
 terraform init
 terraform plan    # imports every resource, changes nothing
 terraform apply   # records the resources in the state, without changing them
@@ -72,7 +72,7 @@ When new resources appear, run `discover` again, which marks them `new`, review 
 ```sh
 infraharvest discover aws --services=vpc,subnet,sg,s3 --regions=eu-west-2
 infraharvest import aws --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml \
-  --incremental --managed-state=infraharvest-out
+  --incremental --managed-state=infrastructure
 ```
 
 `--managed-state` takes the state files under a directory, as here with local state, or `backend` for the backend of the configuration file. See [Day to day](usage.md#day-to-day).

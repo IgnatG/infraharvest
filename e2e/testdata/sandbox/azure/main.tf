@@ -2,11 +2,16 @@
 # real subscription before importing them: what floci-az can't cover, such
 # as Resource Graph listing, route tables, a storage account, a Key Vault
 # and a management lock, the resource group's tags, and a template spec,
-# which azurerm has no resource type for, for --azapi. It is all in the
-# estate's resource group, which the sandbox bootstrap
+# which azurerm has no resource type for, for --azapi, and the kinds of
+# resource a team runs: an App Service plan, a PostgreSQL flexible server,
+# a container registry, Service Bus and Event Hubs, a load balancer, a
+# private endpoint with its private DNS zone, and a virtual machine. It is
+# all in the estate's resource group, which the sandbox bootstrap
 # (testdata/sandbox/azure-bootstrap) creates, with its tags, and lets the
-# fixture identity change: nothing bills by the hour, and it is destroyed
-# after each run.
+# fixture identity change, and it is destroyed after each run. Each takes
+# the smallest tier there is, with no zone redundancy, replication or
+# high availability: together about USD 0.15 an hour (the plan, the
+# server, the machine and the load balancer bill by the hour).
 # The provider signs in through the ARM_* variables the test sets.
 
 terraform {
@@ -18,6 +23,10 @@ terraform {
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
     }
     azapi = {
       source  = "Azure/azapi"
@@ -63,6 +72,11 @@ provider "azurerm" {
     # Deleted, not kept for 14 days as a soft-deleted workspace.
     log_analytics_workspace {
       permanently_delete_on_destroy = true
+    }
+    # The machine holds nothing: deleted at once, with its OS disk.
+    virtual_machine {
+      delete_os_disk_on_deletion     = true
+      skip_shutdown_and_force_delete = true
     }
   }
 }
@@ -111,6 +125,14 @@ resource "azurerm_subnet" "data" {
   resource_group_name  = local.rg
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.70.2.0/24"]
+}
+
+# The private endpoint's subnet, with no route table or security group.
+resource "azurerm_subnet" "endpoints" {
+  name                 = "endpoints"
+  resource_group_name  = local.rg
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.70.3.0/24"]
 }
 
 resource "azurerm_network_security_group" "app" {
@@ -296,4 +318,229 @@ resource "azurerm_role_assignment" "app_custom" {
   principal_id       = azurerm_user_assigned_identity.app.principal_id
   principal_type     = "ServicePrincipal"
   description        = "${local.name}: the import must refer this to the identity and the custom role."
+}
+
+# An App Service plan, Linux on B1, the smallest that runs apps all day,
+# with one worker. No app runs on it: azurerm reads a web or function
+# app's settings and publishing credentials, which the Reader role
+# permissions/azure grants can't list.
+resource "azurerm_service_plan" "main" {
+  name                = local.name
+  location            = local.location
+  resource_group_name = local.rg
+  os_type             = "Linux"
+  sku_name            = "B1"
+  worker_count        = 1
+  tags                = local.tags
+}
+
+# A PostgreSQL flexible server on the smallest burstable size and storage,
+# with no high availability, geo-redundant backup or public access, and
+# the shortest backup retention. Its administrator password comes from
+# random_password: Azure never returns it, so the import must leave it
+# out, and the test checks no file of the output holds it.
+resource "random_password" "postgres" {
+  length           = 24
+  min_lower        = 1
+  min_upper        = 1
+  min_numeric      = 1
+  min_special      = 1
+  override_special = "!#%*-_"
+}
+
+resource "azurerm_postgresql_flexible_server" "main" {
+  name                          = local.name
+  location                      = local.location
+  resource_group_name           = local.rg
+  version                       = "16"
+  sku_name                      = "B_Standard_B1ms"
+  storage_mb                    = 32768
+  storage_tier                  = "P4"
+  backup_retention_days         = 7
+  geo_redundant_backup_enabled  = false
+  public_network_access_enabled = false
+  administrator_login           = "ihsbxadmin"
+  administrator_password        = random_password.postgres.result
+  tags                          = local.tags
+}
+
+# A container registry on Basic, without the admin user, whose
+# credentials the import would have to list.
+resource "azurerm_container_registry" "main" {
+  name                = local.compact
+  location            = local.location
+  resource_group_name = local.rg
+  sku                 = "Basic"
+  admin_enabled       = false
+  tags                = local.tags
+}
+
+# A Service Bus namespace on Basic with a queue, and an Event Hubs
+# namespace on Basic, with one throughput unit, with an event hub of one
+# partition that keeps events a day. Each namespace has the
+# RootManageSharedAccessKey rule Azure creates, and the event hub the
+# $Default consumer group, which the default selection leaves out.
+resource "azurerm_servicebus_namespace" "main" {
+  name                = local.name
+  location            = local.location
+  resource_group_name = local.rg
+  sku                 = "Basic"
+  tags                = local.tags
+}
+
+resource "azurerm_servicebus_queue" "orders" {
+  name         = "orders"
+  namespace_id = azurerm_servicebus_namespace.main.id
+}
+
+resource "azurerm_eventhub_namespace" "main" {
+  name                = local.name
+  location            = local.location
+  resource_group_name = local.rg
+  sku                 = "Basic"
+  capacity            = 1
+  tags                = local.tags
+}
+
+resource "azurerm_eventhub" "events" {
+  name              = "events"
+  namespace_id      = azurerm_eventhub_namespace.main.id
+  partition_count   = 1
+  message_retention = 1
+}
+
+# A Standard load balancer on a Standard public IP, with a backend pool,
+# a probe and a rule. Nothing is in the pool.
+resource "azurerm_public_ip" "lb" {
+  name                = "${local.name}-lb"
+  location            = local.location
+  resource_group_name = local.rg
+  sku                 = "Standard"
+  allocation_method   = "Static"
+  tags                = local.tags
+}
+
+resource "azurerm_lb" "main" {
+  name                = local.name
+  location            = local.location
+  resource_group_name = local.rg
+  sku                 = "Standard"
+  tags                = local.tags
+
+  frontend_ip_configuration {
+    name                 = "public"
+    public_ip_address_id = azurerm_public_ip.lb.id
+  }
+}
+
+resource "azurerm_lb_backend_address_pool" "app" {
+  name            = "app"
+  loadbalancer_id = azurerm_lb.main.id
+}
+
+resource "azurerm_lb_probe" "http" {
+  name            = "http"
+  loadbalancer_id = azurerm_lb.main.id
+  protocol        = "Tcp"
+  port            = 80
+}
+
+resource "azurerm_lb_rule" "http" {
+  name                           = "http"
+  loadbalancer_id                = azurerm_lb.main.id
+  protocol                       = "Tcp"
+  frontend_port                  = 80
+  backend_port                   = 80
+  frontend_ip_configuration_name = "public"
+  backend_address_pool_ids       = [azurerm_lb_backend_address_pool.app.id]
+  probe_id                       = azurerm_lb_probe.http.id
+  disable_outbound_snat          = true
+}
+
+# A private endpoint to the storage account's blobs, in its own subnet,
+# with the private DNS zone it registers in, linked to the network. Its
+# network interface, which Azure creates and deletes with it, is named
+# after the prefix, so that a sweep finds it.
+resource "azurerm_private_dns_zone" "blob" {
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = local.rg
+  tags                = local.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "blob" {
+  name                = local.name
+  private_dns_zone_id = azurerm_private_dns_zone.blob.id
+  virtual_network_id  = azurerm_virtual_network.main.id
+  tags                = local.tags
+}
+
+resource "azurerm_private_endpoint" "blob" {
+  name                          = "${local.name}-blob"
+  location                      = local.location
+  resource_group_name           = local.rg
+  subnet_id                     = azurerm_subnet.endpoints.id
+  custom_network_interface_name = "${local.name}-blob-nic"
+  tags                          = local.tags
+
+  private_service_connection {
+    name                           = "blob"
+    private_connection_resource_id = azurerm_storage_account.main.id
+    subresource_names              = ["blob"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name                 = "blob"
+    private_dns_zone_ids = [azurerm_private_dns_zone.blob.id]
+  }
+}
+
+# A Linux virtual machine of the smallest B size, in the app subnet,
+# with no public IP, signed in to with an SSH key from tls_private_key
+# alone. Its OS disk, which the machine creates and deletes with itself,
+# takes no tags: it is named after the prefix, so that a sweep finds it.
+resource "tls_private_key" "vm" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "azurerm_network_interface" "vm" {
+  name                = "${local.name}-vm"
+  location            = local.location
+  resource_group_name = local.rg
+  tags                = local.tags
+
+  ip_configuration {
+    name                          = "internal"
+    subnet_id                     = azurerm_subnet.app.id
+    private_ip_address_allocation = "Dynamic"
+  }
+}
+
+resource "azurerm_linux_virtual_machine" "main" {
+  name                  = "${local.name}-vm"
+  location              = local.location
+  resource_group_name   = local.rg
+  size                  = "Standard_B1s"
+  admin_username        = "ihsbx"
+  network_interface_ids = [azurerm_network_interface.vm.id]
+  tags                  = local.tags
+
+  admin_ssh_key {
+    username   = "ihsbx"
+    public_key = tls_private_key.vm.public_key_openssh
+  }
+
+  os_disk {
+    name                 = "${local.name}-os"
+    caching              = "ReadWrite"
+    storage_account_type = "Standard_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "ubuntu-24_04-lts"
+    sku       = "server"
+    version   = "latest"
+  }
 }

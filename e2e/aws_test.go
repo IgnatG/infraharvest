@@ -148,11 +148,11 @@ func TestAWSRoundTrip(t *testing.T) {
 
 	readFile(t, filepath.Join(out, ".gitignore"))
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
+		t.Errorf("report.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 	}
 	// The verification gate may only fail on what the emulator leaves out.
 	for _, d := range coverage.Directories {
@@ -372,7 +372,7 @@ func importAWS(ctx context.Context, t *testing.T, engineName, execPath string, s
 		// backend in the emulator (see stateBackendConfig).
 		"--config=" + stateBackendConfig(t),
 		// Keep going after a failed directory so one run reports every
-		// problem; the checks on coverage.json still fail the test.
+		// problem; the checks on report.json still fail the test.
 		"--allow-partial",
 	}, selectionArgs...))
 	if err := root.ExecuteContext(ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {
@@ -665,7 +665,7 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 		t.Fatal("--incremental added no resources")
 	}
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(after[report.Dir+"/coverage.json"]), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(after[report.Dir+"/report.json"]), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	inRoot := 0
@@ -675,7 +675,7 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 		}
 	}
 	if inRoot == 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json of --incremental: %d in the roots already, %+v, failures %v", inRoot, coverage.Totals, coverage.Failures)
+		t.Errorf("report.json of --incremental: %d in the roots already, %+v, failures %v", inRoot, coverage.Totals, coverage.Failures)
 	}
 	// Everything the roots have is still there.
 	if len(coverage.NotInCloud) != 0 {

@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.ContainerRegistry/registries/acrapp/scopeMaps/_repositories_pull", "name": "repositories_pull", "attributes": {"name": "_repositories_pull", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.ContainerRegistry/registries/acrapp/scopeMaps/ci-push", "name": "ci_push", "attributes": {"name": "ci-push", "resource_group_name": "rg-app"}}
+]}

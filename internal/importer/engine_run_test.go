@@ -40,7 +40,7 @@ func TestEngineRunCombinesImports(t *testing.T) {
 		t.Errorf("exit code %d, want %d (%v)", code, report.ExitPartial, err)
 	}
 	var coverage report.Report
-	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "report.json"))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
@@ -62,7 +62,7 @@ func TestEngineRunUnused(t *testing.T) {
 		t.Fatal(err)
 	}
 	earlier := []byte(`{"exit_code": 0}`)
-	if err := os.WriteFile(filepath.Join(out, report.Dir, "coverage.json"), earlier, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(out, report.Dir, "report.json"), earlier, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,7 +76,7 @@ func TestEngineRunUnused(t *testing.T) {
 		t.Errorf("got %v, want %v", err, want)
 	}
 	var coverage report.Report
-	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "report.json"))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
@@ -84,7 +84,7 @@ func TestEngineRunUnused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if coverage.ExitCode != ExitCode(want) || len(coverage.Failures) != 1 || coverage.Failures[0] != want.Error() {
-		t.Errorf("coverage.json: exit code %d, failures %q; want %d and %q", coverage.ExitCode, coverage.Failures, ExitCode(want), want)
+		t.Errorf("report.json: exit code %d, failures %q; want %d and %q", coverage.ExitCode, coverage.Failures, ExitCode(want), want)
 	}
 
 	ok := filepath.Join(out, "ok")
@@ -139,7 +139,7 @@ func TestEngineRunReportsTheErrorItEndsOn(t *testing.T) {
 		t.Fatalf("exit code %d, want %d (%v)", code, report.ExitCouldNotRun, err)
 	}
 	var coverage report.Report
-	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "coverage.json"))
+	content, readErr := os.ReadFile(filepath.Join(out, report.Dir, "report.json"))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
@@ -147,7 +147,7 @@ func TestEngineRunReportsTheErrorItEndsOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if coverage.ExitCode != report.ExitCouldNotRun || len(coverage.Failures) != 1 {
-		t.Errorf("coverage.json: exit code %d, failures %q; want %d and the error", coverage.ExitCode, coverage.Failures, report.ExitCouldNotRun)
+		t.Errorf("report.json: exit code %d, failures %q; want %d and the error", coverage.ExitCode, coverage.Failures, report.ExitCouldNotRun)
 	}
 }
 

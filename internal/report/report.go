@@ -3,8 +3,8 @@
 
 // Package report describes what an import did: what it found, what it
 // imported, what it left out and why, and the versions it used. It writes
-// the report directory of the output (coverage.json, manifest.json and
-// report.md) and the JSON of --format json.
+// the report directory of the output (report.json and report.md) and the
+// JSON of --format json, which report.json has.
 //
 // Reports hold no timestamps or absolute paths, so an import of an
 // unchanged estate produces the same report.
@@ -61,10 +61,10 @@ const (
 
 // DefaultOut is the output directory an import writes its roots and
 // report into, and the commands that read them back read, without --out.
-const DefaultOut = "infraharvest-out"
+const DefaultOut = "infrastructure"
 
 // Dir is the directory of the output the report files go into.
-const Dir = "report"
+const Dir = "_reports"
 
 // Report is what one import did.
 type Report struct {
@@ -920,33 +920,22 @@ func (r *Report) SkippedChecks() []string {
 	return skipped
 }
 
-// WriteFiles writes coverage.json, manifest.json and report.md into the
-// report directory under outputDir, and the templates of the CloudFormation
-// stacks the import is scoped to under cfn.TemplatesDir.
+// WriteFiles writes report.json, the whole report as WriteJSON writes it,
+// and report.md into the report directory under outputDir, and the
+// templates of the CloudFormation stacks the import is scoped to under
+// cfn.TemplatesDir.
 func (r *Report) WriteFiles(outputDir string) error {
 	dir := filepath.Join(outputDir, Dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	coverage, err := marshal(struct {
-		SchemaVersion int `json:"schema_version"`
-		Coverage
-		ExitCode int `json:"exit_code"`
-	}{r.SchemaVersion, r.Coverage, r.ExitCode})
-	if err != nil {
-		return err
-	}
-	manifest, err := marshal(struct {
-		SchemaVersion int `json:"schema_version"`
-		Manifest
-	}{r.SchemaVersion, r.Manifest})
+	jsonContent, err := marshal(r)
 	if err != nil {
 		return err
 	}
 	for name, content := range map[string][]byte{
-		"coverage.json": coverage,
-		"manifest.json": manifest,
-		"report.md":     []byte(r.Markdown()),
+		"report.json": jsonContent,
+		"report.md":   []byte(r.Markdown()),
 	} {
 		if err := fsutil.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
 			return err
@@ -1261,7 +1250,7 @@ func (r *Report) excludedLines() []string {
 	return lines
 }
 
-// maxMarkdownFindings bounds the findings report.md lists; coverage.json
+// maxMarkdownFindings bounds the findings report.md lists; report.json
 // has them all.
 const maxMarkdownFindings = 200
 
@@ -1272,9 +1261,9 @@ func (r *Report) findingsMarkdown(b *strings.Builder) {
 	if len(r.Findings) == 0 {
 		return
 	}
-	b.WriteString("\n## Findings by resource\n\nThe scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `coverage.json` lists them all, with each resource's type and import ID.\n\n")
+	b.WriteString("\n## Findings by resource\n\nThe scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `report.json` lists them all, with each resource's type and import ID.\n\n")
 	if left := writeFindings(b, r.Findings, maxMarkdownFindings); left > 0 {
-		fmt.Fprintf(b, "\n%d more findings aren't listed here: `coverage.json` has them all.\n", left)
+		fmt.Fprintf(b, "\n%d more findings aren't listed here: `report.json` has them all.\n", left)
 	}
 }
 
@@ -1324,15 +1313,13 @@ func writeFindings(b *strings.Builder, findings []Finding, limit int) int {
 
 // Read reads the report an import wrote into outputDir (see WriteFiles).
 func Read(outputDir string) (*Report, error) {
+	content, err := os.ReadFile(filepath.Join(outputDir, Dir, "report.json"))
+	if err != nil {
+		return nil, err
+	}
 	r := &Report{}
-	for _, name := range []string{"coverage.json", "manifest.json"} {
-		content, err := os.ReadFile(filepath.Join(outputDir, Dir, name))
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(content, r); err != nil {
-			return nil, fmt.Errorf("%s: %w", name, err)
-		}
+	if err := json.Unmarshal(content, r); err != nil {
+		return nil, fmt.Errorf("report.json: %w", err)
 	}
 	if r.SchemaVersion != SchemaVersion {
 		return nil, fmt.Errorf("report schema version %d, want %d", r.SchemaVersion, SchemaVersion)

@@ -6,10 +6,10 @@ Once the roots are applied, people still change things in the cloud: a tag in th
 infraharvest drift [output-directory]
 infraharvest drift [output-directory] --accept 'attribute=tags.*'
 infraharvest drift [output-directory] --write-decisions
-infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
+infraharvest drift [output-directory] --decisions infrastructure/drift.yaml
 ```
 
-It checks every root an import generated in the output directory (default `infraharvest-out`), or those `--root` matches, such as `--root 'aws/*/eu-west-2'`. It never changes the state or the cloud. Without `--accept` or `--decisions`, it doesn't change the code either.
+It checks every root an import generated in the output directory (default `infrastructure`), or those `--root` matches, such as `--root 'aws/*/eu-west-2'`. It never changes the state or the cloud. Without `--accept` or `--decisions`, it doesn't change the code either.
 
 ## How it works
 
@@ -44,7 +44,7 @@ A resource deleted in the cloud is reported once, as `deleted`. Some changes are
 
 Resources the root's import blocks import, but that the state doesn't have yet, are listed as not applied: they aren't checked.
 
-The report goes into `<out>/report/drift.json` and `<out>/report/drift.md`, apart from the import's report (see [Output](output.md#report)). `drift.md` lists the changes accepted into the code (with the file and line), those kept, which the next apply reverts, those that need a hand edit, the secrets and those not assessable, then those absorbed. Values the provider marks sensitive, values that look like credentials, and values whose key names a secret, as import judges a key (see [Secrets](output.md#secrets)), are shown as `(sensitive value)`, in a map or a JSON document such as a container definition too. The report gives the file and line where the root's code sets the attribute, as best it can tell. For a resource in a module call (`module_call`), that is the call's argument the module gets it from, and `source.module_path` says how the module reads it, such as `../../../modules/s3_bucket_0a1b2c3d/main.tf:4 var.tags` (see [Resources in module calls](#resources-in-module-calls)).
+The report goes into `<out>/_reports/drift.json` and `<out>/_reports/drift.md`, apart from the import's report (see [Output](output.md#report)). `drift.md` lists the changes accepted into the code (with the file and line), those kept, which the next apply reverts, those that need a hand edit, the secrets and those not assessable, then those absorbed. Values the provider marks sensitive, values that look like credentials, and values whose key names a secret, as import judges a key (see [Secrets](output.md#secrets)), are shown as `(sensitive value)`, in a map or a JSON document such as a container definition too. The report gives the file and line where the root's code sets the attribute, as best it can tell. For a resource in a module call (`module_call`), that is the call's argument the module gets it from, and `source.module_path` says how the module reads it, such as `../../../modules/s3_bucket_0a1b2c3d/main.tf:4 var.tags` (see [Resources in module calls](#resources-in-module-calls)).
 
 ## Accepting changes
 
@@ -173,7 +173,7 @@ changes:
 Set each change's `decision` to `accept` or `keep`, then apply the file:
 
 ```sh
-infraharvest drift [output-directory] --decisions infraharvest-out/drift.yaml
+infraharvest drift [output-directory] --decisions infrastructure/drift.yaml
 ```
 
 Without `--decisions`, `--write-decisions` doesn't apply the file it writes, so a first run never edits the code; nor does `--write-decisions=<file>`, unless `--decisions` names the same file (naming another one is an error).

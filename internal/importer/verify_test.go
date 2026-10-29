@@ -28,7 +28,7 @@ func TestGeneratedRoots(t *testing.T) {
 		"aws/111122223333/eu-west-2/.terraform/modules/state/" + rootfile.ProvidersFileName,
 		CheckpointDir + "/incremental/aws/111122223333/eu-west-2/" + rootfile.ProvidersFileName,
 		hclfile.ModulesDirName + "/s3_bucket_0123abcd/main.tf",
-		"report/report.md",
+		report.Dir + "/report.md",
 	} {
 		path := filepath.Join(out, filepath.FromSlash(file))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

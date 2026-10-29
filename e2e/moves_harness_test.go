@@ -165,7 +165,7 @@ type handover struct {
 // roots again (--regenerate). The root it applied gets a removed block for
 // handed in moves.tf, which the gate checks (G8), and keeps kept at its
 // address; the root of handed's new environment imports it, and the
-// READMEs and coverage.json say so. Over the state the first apply left,
+// READMEs and report.json say so. Over the state the first apply left,
 // the root then forgets handed, creating and destroying nothing; once
 // both roots are applied, in that order, neither plans any change.
 func (h handover) check(t *testing.T) {
@@ -179,7 +179,7 @@ func (h handover) check(t *testing.T) {
 // checkHalfDone checks a handover one of whose roots fails, as check
 // does but for a run of --regenerate that can't write the root handed
 // leaves: the root it goes to, generated first, imports it, and the root
-// it leaves fails, so its state still has it. coverage.json and the
+// it leaves fails, so its state still has it. report.json and the
 // report say the handover isn't finished, naming that root, and that it
 // is to be generated again before either root is applied. Generated
 // again, the handover finishes as check's does.
@@ -214,10 +214,10 @@ func (h handover) checkHalfDone(t *testing.T) {
 		t.Errorf("a failed root: incomplete handover %+v, want %s failed, handing %s over", i, first.root, first.handedFrom)
 	}
 	if at := importedAt(t, half, i.ToRoot, h.handed); at != i.To {
-		t.Errorf("a failed root: %s imports %s at %s, coverage.json hands it over to %s", i.ToRoot, h.handed, at, i.To)
+		t.Errorf("a failed root: %s imports %s at %s, report.json hands it over to %s", i.ToRoot, h.handed, at, i.To)
 	}
 	if !slices.ContainsFunc(half.Directories, func(d report.Directory) bool { return d.Path == first.root && d.Error != "" }) {
-		t.Errorf("a failed root: coverage.json doesn't report %s failed: %+v", first.root, half.Directories)
+		t.Errorf("a failed root: report.json doesn't report %s failed: %+v", first.root, half.Directories)
 	}
 	if _, err := os.Stat(filepath.Join(first.dir, rootfile.MovesFileName)); err == nil {
 		t.Errorf("a failed root: %s has a %s", first.root, rootfile.MovesFileName)
@@ -288,10 +288,10 @@ func (h handover) finish(t *testing.T, first appliedRoot) {
 		}
 	}
 	if toRoot == "" || handedTo == "" {
-		t.Fatalf("--regenerate: coverage.json doesn't hand %s over from %s to another root that imports it: departed %+v", h.handed, fromRoot, second.Departed)
+		t.Fatalf("--regenerate: report.json doesn't hand %s over from %s to another root that imports it: departed %+v", h.handed, fromRoot, second.Departed)
 	}
 	if at := importedAt(t, second, toRoot, h.handed); at != handedTo {
-		t.Errorf("--regenerate: %s imports %s at %s, coverage.json hands it over to %s", toRoot, h.handed, at, handedTo)
+		t.Errorf("--regenerate: %s imports %s at %s, report.json hands it over to %s", toRoot, h.handed, at, handedTo)
 	}
 	if at := importedAt(t, second, fromRoot, h.kept); at != keptAt || slices.ContainsFunc(second.Moved, func(m report.Move) bool { return m.ID == h.kept }) {
 		t.Errorf("--regenerate: %s is at %s, was at %s; moved %+v", h.kept, at, keptAt, second.Moved)
@@ -384,7 +384,7 @@ func rootOf(t *testing.T, coverage report.Report, id string) string {
 
 // runPartialImport runs infraharvest with args, failing the test unless
 // it imports everything or, with --allow-partial, some of it: the checks
-// on coverage.json then fail the test for what isn't the emulator's.
+// on report.json then fail the test for what isn't the emulator's.
 func runPartialImport(ctx context.Context, t *testing.T, args ...string) {
 	t.Helper()
 	root := cli.NewCmdRoot()

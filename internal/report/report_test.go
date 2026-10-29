@@ -78,7 +78,7 @@ func TestFinishComplete(t *testing.T) {
 
 func TestWriteFilesIsDeterministic(t *testing.T) {
 	t.Parallel()
-	read := func() map[string]string {
+	read := func() (map[string]string, string) {
 		out := t.TempDir()
 		r := sample()
 		r.Finish(map[string]int{"aws_sqs_queue": 1}, nil, false)
@@ -86,31 +86,33 @@ func TestWriteFilesIsDeterministic(t *testing.T) {
 			t.Fatal(err)
 		}
 		files := map[string]string{}
-		for _, name := range []string{"coverage.json", "manifest.json", "report.md"} {
+		for _, name := range []string{"report.json", "report.md"} {
 			content, err := os.ReadFile(filepath.Join(out, Dir, name))
 			if err != nil {
 				t.Fatal(err)
 			}
 			files[name] = string(content)
 		}
-		return files
+		var whole bytes.Buffer
+		if err := r.WriteJSON(&whole); err != nil {
+			t.Fatal(err)
+		}
+		return files, whole.String()
 	}
 
-	first, second := read(), read()
+	first, whole := read()
+	second, _ := read()
 	for name, content := range first {
 		if second[name] != content {
 			t.Errorf("%s differs between runs", name)
 		}
 	}
-	var manifest map[string]any
-	if err := json.Unmarshal([]byte(first["manifest.json"]), &manifest); err != nil {
-		t.Fatal(err)
+	// report.json is the whole report, as --format json prints it.
+	if first["report.json"] != whole {
+		t.Errorf("report.json isn't the JSON report:\n%s\n---\n%s", first["report.json"], whole)
 	}
-	if _, ok := manifest["directories"]; ok {
-		t.Error("manifest.json has coverage fields")
-	}
-	if !strings.Contains(first["coverage.json"], `"exit_code": 1`) {
-		t.Errorf("coverage.json has no exit code:\n%s", first["coverage.json"])
+	if !strings.Contains(first["report.json"], `"exit_code": 1`) || !strings.Contains(first["report.json"], `"engine"`) {
+		t.Errorf("report.json has no exit code or engine:\n%s", first["report.json"])
 	}
 }
 
@@ -407,7 +409,7 @@ func TestManifestAdd(t *testing.T) {
 }
 
 // What the roots have that is no longer in the cloud is listed once each,
-// sorted, in report.md, coverage.json and the JSON report, from every
+// sorted, in report.md, report.json and the JSON report, from every
 // part of the import, and makes the import neither incomplete nor
 // counted: it is information about the roots, not about what was listed.
 func TestNotInCloud(t *testing.T) {
@@ -451,7 +453,7 @@ func TestNotInCloud(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(read.NotInCloud, r.NotInCloud) {
-		t.Errorf("coverage.json: got %+v, want %+v", read.NotInCloud, r.NotInCloud)
+		t.Errorf("report.json: got %+v, want %+v", read.NotInCloud, r.NotInCloud)
 	}
 	var out bytes.Buffer
 	if err := r.WriteJSON(&out); err != nil {

@@ -36,7 +36,7 @@ const movesProfile = "infraharvest-e2e-moves"
 // another root; a third stays as it was, and keeps its address. Generated again (--regenerate), the root it applied gets a moved
 // block for the first queue and a removed block for the second in
 // moves.tf, which the gate checks (G8); the other environment's root
-// imports the second, and the READMEs and coverage.json say so. Over the
+// imports the second, and the READMEs and report.json say so. Over the
 // state the first apply left, the root then plans the first queue as
 // moved and forgets the second, creating and destroying nothing; once
 // both roots are applied, in that order, neither plans any change.
@@ -114,7 +114,7 @@ func TestAWSRegenerateMoves(t *testing.T) {
 		}
 	}
 	if renamedTo == "" {
-		t.Fatalf("--regenerate: coverage.json doesn't move %s from %s: moved %+v", renamed, renamedFrom, second.Moved)
+		t.Fatalf("--regenerate: report.json doesn't move %s from %s: moved %+v", renamed, renamedFrom, second.Moved)
 	}
 	// The queue whose name is the same keeps its label.
 	if at := importedAt(t, second, devRoot, kept); at != keptAt || slices.ContainsFunc(second.Moved, func(m report.Move) bool { return m.ID == kept }) {
@@ -127,7 +127,7 @@ func TestAWSRegenerateMoves(t *testing.T) {
 		}
 	}
 	if handedTo == "" {
-		t.Errorf("--regenerate: coverage.json doesn't hand %s over from %s to %s: departed %+v", handed, devRoot, prodRoot, second.Departed)
+		t.Errorf("--regenerate: report.json doesn't hand %s over from %s to %s: departed %+v", handed, devRoot, prodRoot, second.Departed)
 	}
 	if len(second.IncompleteHandovers) != 0 {
 		t.Errorf("--regenerate: incomplete handovers %+v", second.IncompleteHandovers)

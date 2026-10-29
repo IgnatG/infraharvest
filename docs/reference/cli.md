@@ -15,7 +15,7 @@ infraharvest bootstrap [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--config` |  | configuration file with the backend (required) |
-| `-o`, `--out` | `infraharvest-out` | directory to write the bootstrap root under |
+| `-o`, `--out` | `infrastructure` | directory to write the bootstrap root under |
 
 ## infraharvest cfn
 
@@ -88,7 +88,7 @@ infraharvest discover aws
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
@@ -141,7 +141,7 @@ infraharvest discover azure
 | `--management-group` |  | import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group) |
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
@@ -194,7 +194,7 @@ infraharvest discover google
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants) |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
@@ -289,7 +289,7 @@ infraharvest import aws
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many accounts of --accounts or --organization and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--profile` | `default` | AWS profile, from the shared configuration and credentials files, whose credentials the import uses |
@@ -341,7 +341,7 @@ infraharvest import azure
 | `--management-group` |  | import every enabled subscription under this management group ID, in its child groups too (needs Reader on the group) |
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many subscriptions of --subscriptions or --management-group to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--query-types` |  | resource types for the query service to list through Terraform's own list resources (terraform query, Terraform 1.14 or later), for types no other service lists; with --services query (see https://ignatg.github.io/infraharvest/usage/#listing-through-terraform) |
@@ -393,7 +393,7 @@ infraharvest import google
 | `--merge-environments` | `true` | with environments: in the configuration file, merge the roots each stack (provider, region and {service}) has in its environments into one root they share, with what differs in vars/<env>/, where every environment's plan of it stays the same; false keeps a root per environment (see https://ignatg.github.io/infraharvest/configuration/#environments) |
 | `--modules` | `registry` | registry moves clusters of resources into curated public modules (terraform-aws-modules, Azure Verified Modules and terraform-google-modules), at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root |
 | `--organization` |  | import every active project of this organization ID, in its folders too (needs resourcemanager.projects.list and folders.list, as roles/browser grants) |
-| `-o`, `--out` | `infraharvest-out` | directory to write the generated roots and the report to |
+| `-o`, `--out` | `infrastructure` | directory to write the generated roots and the report to |
 | `--parallel` | `1` | how many projects of --projects, --organization or --folders and regions of --regions to import at once, in all; each runs its own Terraform, so memory use grows with it |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--projects` |  | projects to import |
@@ -438,7 +438,7 @@ infraharvest pick [flags]
 
 ## infraharvest report
 
-Print the report of an import (default directory: infraharvest-out)
+Print the report of an import (default directory: infrastructure)
 
 ```
 infraharvest report [output-directory] [flags]
