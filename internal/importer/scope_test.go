@@ -130,11 +130,8 @@ func TestImportScopeWithNothingToList(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "out")
 	options := pathOptions(out, &fakeEngine{})
 	run := options.run()
-	c, err := listCall(t.Context(), run, &stackOnlyProvider{}, options.Options, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.generate(t.Context(), c.byDir); err != nil {
+	calls := []Call{{Provider: &stackOnlyProvider{}, Options: options.Options}}
+	if err := run.importScope(t.Context(), options.Options, "", calls, engineSteps); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.finish(nil); err != nil {

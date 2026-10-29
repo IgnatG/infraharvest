@@ -347,15 +347,15 @@ func mergedHandovers(out, stack string, members []mergeMember, now map[string]ma
 // the merged root in stack by the scopes of members (see
 // planMergedHandovers) whose root imported what it goes to, as the
 // merged root stays as it was, why says, and still has it.
-func (r *Run) warnMergedIncomplete(stack string, members []mergeMember, why string) {
-	path := relativePath(r.options.Out, stack)
-	for _, p := range plannedRemovals(stack, members) {
-		for _, d := range p.Resources {
-			if arrivalOf(p.h.generated[p.h.dirOf(d.Root)], d) == nil {
+func (p *mergePhase) warnMergedIncomplete(stack string, members []mergeMember, why string) {
+	path := relativePath(p.out, stack)
+	for _, planned := range plannedRemovals(stack, members) {
+		for _, d := range planned.Resources {
+			if arrivalOf(planned.h.generated[planned.h.dirOf(d.Root)], d) == nil {
 				continue
 			}
 			i := report.IncompleteHandover{Move: report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root}, FailedRoot: path, Warning: fmt.Sprintf("%s imports it, but the merged root stays as it was, and each environment's state there still has it (%s): generate both again with --regenerate before applying either root", d.Root, why)}
-			r.recordIncomplete(i)
+			recordIncomplete(p.report, i)
 		}
 	}
 }
@@ -397,9 +397,9 @@ type plannedLeaving struct {
 // vacateMergedRoots vacates each merged root that the scopes of the run
 // planned to (see planMergedHandovers), but those of merging, the stacks
 // the run merges, by the merged root's directory (see vacateMerged).
-func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
+func (p *mergePhase) vacateMergedRoots(merging map[string][]mergeMember) error {
 	leaving := map[string][]plannedLeaving{}
-	for _, h := range r.vacating {
+	for _, h := range p.vacating {
 		for stack, ls := range h.vacating {
 			for _, l := range ls {
 				leaving[stack] = append(leaving[stack], plannedLeaving{mergedLeaving: l, h: h})
@@ -411,7 +411,7 @@ func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
 		merged[filepath.Clean(stack)] = true
 	}
 	for _, stack := range sortedDirs(leaving) {
-		if err := r.vacateMerged(stack, leaving[stack], merged[stack]); err != nil {
+		if err := p.vacateMerged(stack, leaving[stack], merged[stack]); err != nil {
 			return err
 		}
 	}
@@ -425,8 +425,8 @@ func (r *Run) vacateMergedRoots(merging map[string][]mergeMember) error {
 // where merging says the run merges roots into it, it stays as it was,
 // the run fails, saying why, and the handovers of what the roots it goes
 // to imported are reported as incomplete: both roots have it.
-func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool) error {
-	out := r.options.Out
+func (p *mergePhase) vacateMerged(stack string, leaving []plannedLeaving, merging bool) error {
+	out := p.out
 	path := relativePath(out, stack)
 	c, err := mergeCheckpoints.read(out, stack)
 	if err != nil {
@@ -479,7 +479,7 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 		why = strings.Join(problems, "; ")
 	}
 	if why == "" {
-		why, err = r.writeVacated(stack, c, removals)
+		why, err = p.writeVacated(stack, c, removals)
 		if err != nil {
 			return err
 		}
@@ -491,15 +491,15 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 				continue
 			}
 			i := report.IncompleteHandover{Move: report.Move{Type: d.Type, ID: d.ID, FromRoot: path, From: d.Address, ToRoot: d.Root}, FailedRoot: path, Warning: fmt.Sprintf("%s imports it, but the merged root stays as it was, and each environment's state there still has it (%s): generate both again with --regenerate before applying either root", d.Root, why)}
-			r.recordIncomplete(i)
+			recordIncomplete(p.report, i)
 		}
 		err := fmt.Errorf("%s: every resource it has goes to other roots, but it can't hand them over, so it stays as it was: %s", path, why)
 		log.Print(err)
-		r.recordFailure(r.options, err)
+		p.fail(err)
 		return nil
 	}
 	log.Printf("%s: every resource it has goes to other roots, so it keeps only the removed blocks that hand them over: apply it as each environment before the roots they go to (--regenerate)", path)
-	r.report.AddMergedMoves(path, nil, nil, removals)
+	p.report.AddMergedMoves(path, nil, nil, removals)
 	return nil
 }
 
@@ -509,7 +509,7 @@ func (r *Run) vacateMerged(stack string, leaving []plannedLeaving, merging bool)
 // envmerge.VacateMerged), and records it in c: it has nothing now. It
 // returns why it can't, where it can't, and leaves the merged root as it
 // was.
-func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile.Removal) (string, error) {
+func (p *mergePhase) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile.Removal) (string, error) {
 	kept, err := rootfile.ReadRemoved(stack)
 	if err != nil {
 		return "", err
@@ -532,7 +532,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile
 		}
 		return backup.restore()
 	}
-	left, check, err := r.tools.vacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
+	left, check, err := p.tools.vacateMerged(stack, files, append(removals, stillRemoved(kept, nil, removals)...))
 	if err != nil {
 		return err.Error(), restore()
 	}
@@ -540,7 +540,7 @@ func (r *Run) writeVacated(stack string, c *mergeCheckpoint, removals []rootfile
 		return "the removed blocks fail the moves check: " + strings.Join(check.Details, "; "), restore()
 	}
 	c.Files, c.Imports = left, nil
-	return "", mergeCheckpoints.write(r.options.Out, stack, *c)
+	return "", mergeCheckpoints.write(p.out, stack, *c)
 }
 
 // importsEnvironments reports whether the command imports the account,

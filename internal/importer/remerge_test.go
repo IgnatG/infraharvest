@@ -102,20 +102,20 @@ func TestMergedMoves(t *testing.T) {
 	}
 
 	// Without --regenerate, the merged root stays as it was.
-	r := NewRun()
-	if why, err := r.moveMerged(t.TempDir(), &envmerge.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
+	p := newTestPhase("", nil)
+	if why, err := p.moveMerged(t.TempDir(), &envmerge.MergeResult{}, before, now, nil, nil); err != nil || !strings.Contains(why, "other addresses") {
 		t.Errorf("without --regenerate: %q, %v", why, err)
 	}
 
 	// With it, the moved blocks go into the merged root's moves.tf.
 	f := &fakeEngine{}
-	r.options, r.tools = Options{Regenerate: true}, f.tools()
+	p.regenerate, p.tools = true, f.tools()
 	stack := filepath.Join(t.TempDir(), "app")
 	if err := os.MkdirAll(stack, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	result := &envmerge.MergeResult{}
-	if why, err := r.moveMerged(stack, result, before, now, kept, nil); why != "" || err != nil {
+	if why, err := p.moveMerged(stack, result, before, now, kept, nil); why != "" || err != nil {
 		t.Fatalf("with --regenerate: %q, %v", why, err)
 	}
 	if got := f.mergedMoves["app"]; !slices.Equal(got, want) {
@@ -205,17 +205,16 @@ func TestBackupTreeLeavesOutLocalState(t *testing.T) {
 
 func TestReaddressNotInCloud(t *testing.T) {
 	t.Parallel()
-	run := NewRun()
-	run.options.Out = "out"
-	run.report.NotInCloud = []report.NotInCloud{{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "q1"}}
+	p := newTestPhase("out", nil)
+	p.report.NotInCloud = []report.NotInCloud{{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "q1"}}
 	members := []mergeMember{{env: "dev", dir: filepath.Join("out", "envs", "dev", "aws", "111111111111", "eu-west-2")}}
-	run.report.NotInCloud = append(run.report.NotInCloud, report.NotInCloud{Path: "aws/222222222222/eu-west-2", Address: "aws_sqs_queue.jobs", ID: "q9"})
+	p.report.NotInCloud = append(p.report.NotInCloud, report.NotInCloud{Path: "aws/222222222222/eu-west-2", Address: "aws_sqs_queue.jobs", ID: "q9"})
 	imports := map[string]map[string]string{"dev": {`aws_sqs_queue.this["orders"]`: "Q1", "aws_sqs_queue.events": "q2"}}
-	gone := run.readdressNotInCloud("aws/eu-west-2", members, imports)
-	if g := run.report.NotInCloud[0]; g.Path != "aws/eu-west-2" || g.Address != `aws_sqs_queue.this["orders"]` || g.Environment != "dev" {
+	gone := p.readdressNotInCloud("aws/eu-west-2", members, imports)
+	if g := p.report.NotInCloud[0]; g.Path != "aws/eu-west-2" || g.Address != `aws_sqs_queue.this["orders"]` || g.Environment != "dev" {
 		t.Errorf("not in cloud: %+v", g)
 	}
-	if g := run.report.NotInCloud[1]; g.Path != "aws/222222222222/eu-west-2" || g.Environment != "" {
+	if g := p.report.NotInCloud[1]; g.Path != "aws/222222222222/eu-west-2" || g.Environment != "" {
 		t.Errorf("not in cloud in a root of its own: %+v", g)
 	}
 	if want := map[string][]rootfile.Import{"dev": {{Type: "aws_sqs_queue", Name: `this["orders"]`, ID: "q1"}}}; !reflect.DeepEqual(gone, want) {
@@ -229,19 +228,18 @@ func TestReaddressNotInCloud(t *testing.T) {
 // plans without its import.
 func TestGoneFrom(t *testing.T) {
 	t.Parallel()
-	run := NewRun()
-	run.options.Out = "out"
+	p := newTestPhase("out", nil)
 	dev := filepath.Join("out", "envs", "dev", "aws", "111111111111", "eu-west-2")
-	run.report.NotInCloud = []report.NotInCloud{
+	p.report.NotInCloud = []report.NotInCloud{
 		{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.orders", ID: "q1"},
 		{Path: "envs/prod/aws/222222222222/eu-west-2", Address: "aws_sqs_queue.audit", ID: "q2"},
 		{Path: "envs/dev/aws/111111111111/eu-west-2", Address: "aws_sqs_queue.audit", ID: "q3"},
 	}
-	if got := run.goneFrom(dev); !reflect.DeepEqual(got, []string{"aws_sqs_queue.audit", "aws_sqs_queue.orders"}) {
+	if got := p.goneFrom(dev); !reflect.DeepEqual(got, []string{"aws_sqs_queue.audit", "aws_sqs_queue.orders"}) {
 		t.Errorf("gone from dev: %v", got)
 	}
-	run.readdressNotInCloud("aws/eu-west-2", []mergeMember{{env: "dev", dir: dev}}, map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.audit[0]": "q3"}})
-	if got := run.goneFrom(dev); len(got) != 0 {
+	p.readdressNotInCloud("aws/eu-west-2", []mergeMember{{env: "dev", dir: dev}}, map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.audit[0]": "q3"}})
+	if got := p.goneFrom(dev); len(got) != 0 {
 		t.Errorf("gone from dev, readdressed: %v", got)
 	}
 }
@@ -269,14 +267,14 @@ func joiningStack(t *testing.T, out string) (*mergeCheckpoint, []mergeMember, st
 	return prev, members, staging
 }
 
-// checkApart checks that run recorded the merge of aws/eu-west-2 kept as
+// checkApart checks that p recorded the merge of aws/eu-west-2 kept as
 // it was, with staging's root, in place under out, apart, as why says.
-func checkApart(t *testing.T, run *Run, out, staging, why string) {
+func checkApart(t *testing.T, p *mergePhase, out, staging, why string) {
 	t.Helper()
-	if len(run.report.Merges) != 1 {
-		t.Fatalf("merges: %+v", run.report.Merges)
+	if len(p.report.Merges) != 1 {
+		t.Fatalf("merges: %+v", p.report.Merges)
 	}
-	m := run.report.Merges[0]
+	m := p.report.Merges[0]
 	if !m.Merged || !m.Unchanged || m.ApartReason != why || len(m.Apart) != 1 || m.Apart[0] != (report.MergedRoot{Env: "staging", Path: "envs/staging/aws/333333333333/eu-west-2"}) {
 		t.Errorf("merge: %+v", m)
 	}
@@ -313,15 +311,14 @@ func TestMergeWithout(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	prev, members, staging := joiningStack(t, out)
-	run := NewRun()
-	run.options.Out = out
+	p := newTestPhase(out, nil)
 	why := "merging it again would give what the merged root has other addresses: dev: aws_sqs_queue.orders is now aws_sqs_queue.orders_dev[0]"
-	if err := run.mergeWithout(context.Background(), filepath.Join(out, "aws", "eu-west-2"), prev, members, []string{"staging"}, why); err != nil {
+	if err := p.mergeWithout(context.Background(), filepath.Join(out, "aws", "eu-west-2"), prev, members, []string{"staging"}, why); err != nil {
 		t.Fatal(err)
 	}
-	checkApart(t, run, out, staging, why)
-	if len(run.report.Failures) != 0 {
-		t.Errorf("failures: %v", run.report.Failures)
+	checkApart(t, p, out, staging, why)
+	if len(p.report.Failures) != 0 {
+		t.Errorf("failures: %v", p.report.Failures)
 	}
 }
 
@@ -334,21 +331,20 @@ func TestKeepMergedJoining(t *testing.T) {
 	if err := os.RemoveAll(premergeDir(out, staging)); err != nil {
 		t.Fatal(err)
 	}
-	run := NewRun()
-	run.options.Out = out
-	if err := run.keepMerged(filepath.Join(out, "aws", "eu-west-2"), prev, members, "why"); err != nil {
+	p := newTestPhase(out, nil)
+	if err := p.keepMerged(filepath.Join(out, "aws", "eu-west-2"), prev, members, "why"); err != nil {
 		t.Fatal(err)
 	}
-	checkApart(t, run, out, staging, "why")
-	if len(run.report.Failures) != 1 {
-		t.Errorf("failures: %v", run.report.Failures)
+	checkApart(t, p, out, staging, "why")
+	if len(p.report.Failures) != 1 {
+		t.Errorf("failures: %v", p.report.Failures)
 	}
 }
 
 // stackMembers writes the roots of envs, one each, under out/<env>/app,
-// for the merged root out/app, and returns them, with a run into out
+// for the merged root out/app, and returns them, with a merge phase into out
 // through f.
-func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run, string, []mergeMember) {
+func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*mergePhase, string, []mergeMember) {
 	t.Helper()
 	stack := filepath.Join(out, "app")
 	var members []mergeMember
@@ -357,9 +353,8 @@ func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run
 		writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "terraform {}\n", rootfile.GeneratedFileName: "resource \"fake_thing\" \"" + env + "\" {}\n"})
 		members = append(members, mergeMember{dir: dir, stack: stack, env: env, fingerprint: "fp-" + env, result: &engine.Result{}})
 	}
-	run := NewRun()
-	run.options, run.tools = Options{Out: out}, f.tools()
-	return run, stack, members
+	p := newTestPhase(out, f.tools())
+	return p, stack, members
 }
 
 // A stack's roots merge into the root their environments share, from
@@ -368,9 +363,9 @@ func stackMembers(t *testing.T, out string, f *fakeEngine, envs ...string) (*Run
 func TestMergeStack(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{}
-	run, stack, members := stackMembers(t, out, f, "dev", "prod")
-	run.report.NotInCloud = []report.NotInCloud{{Path: "dev/app", Address: "fake_thing.gone", ID: "id-gone"}}
-	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+	p, stack, members := stackMembers(t, out, f, "dev", "prod")
+	p.report.NotInCloud = []report.NotInCloud{{Path: "dev/app", Address: "fake_thing.gone", ID: "id-gone"}}
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.merged) != 1 {
@@ -390,7 +385,7 @@ func TestMergeStack(t *testing.T) {
 			t.Errorf("%s's root is still there: %v", r.Env, err)
 		}
 	}
-	if m := run.report.Merges; len(m) != 1 || !m[0].Merged || m[0].Path != "app" || !slices.Equal(m[0].Environments, []string{"dev", "prod"}) {
+	if m := p.report.Merges; len(m) != 1 || !m[0].Merged || m[0].Path != "app" || !slices.Equal(m[0].Environments, []string{"dev", "prod"}) {
 		t.Errorf("merges %+v", m)
 	}
 	c, err := mergeCheckpoints.read(out, stack)
@@ -403,14 +398,14 @@ func TestMergeStack(t *testing.T) {
 	for i := range members {
 		members[i].premerged = true
 	}
-	run.report.Merges = nil
-	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+	p.report.Merges = nil
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.merged) != 1 {
 		t.Errorf("merged %d times, want the merged root kept", len(f.merged))
 	}
-	if m := run.report.Merges; len(m) != 1 || !m[0].Merged || !m[0].Unchanged {
+	if m := p.report.Merges; len(m) != 1 || !m[0].Merged || !m[0].Unchanged {
 		t.Errorf("merges %+v, want the merged root unchanged", m)
 	}
 }
@@ -420,8 +415,8 @@ func TestMergeStack(t *testing.T) {
 func TestMergeStackKeepsTheRootsWhereTheyDontMerge(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{mergeReason: "the plans differ"}
-	run, stack, members := stackMembers(t, out, f, "dev", "prod")
-	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+	p, stack, members := stackMembers(t, out, f, "dev", "prod")
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range members {
@@ -432,7 +427,7 @@ func TestMergeStackKeepsTheRootsWhereTheyDontMerge(t *testing.T) {
 			t.Errorf("%s is still set aside: %v", m.env, err)
 		}
 	}
-	if m := run.report.Merges; len(m) != 1 || m[0].Merged || m[0].Reason != "the plans differ" {
+	if m := p.report.Merges; len(m) != 1 || m[0].Merged || m[0].Reason != "the plans differ" {
 		t.Errorf("merges %+v", m)
 	}
 }
@@ -441,12 +436,12 @@ func TestMergeStackKeepsTheRootsWhereTheyDontMerge(t *testing.T) {
 func TestMergeStackOfOneEnvironment(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{}
-	run, stack, members := stackMembers(t, out, f, "dev")
-	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+	p, stack, members := stackMembers(t, out, f, "dev")
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.merged) != 0 || len(run.report.Merges) != 0 {
-		t.Errorf("merged %d times, merges %+v", len(f.merged), run.report.Merges)
+	if len(f.merged) != 0 || len(p.report.Merges) != 0 {
+		t.Errorf("merged %d times, merges %+v", len(f.merged), p.report.Merges)
 	}
 }
 
@@ -468,12 +463,12 @@ func TestMergeStackFailingKeepsTheMergedRoot(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
 			f := &fakeEngine{}
-			run, stack, members := stackMembers(t, out, f, "dev", "prod")
-			if err := run.mergeStack(t.Context(), stack, members); err != nil {
+			p, stack, members := stackMembers(t, out, f, "dev", "prod")
+			if err := p.mergeStack(t.Context(), stack, members); err != nil {
 				t.Fatal(err)
 			}
 			fail(t, members)
-			if err := run.mergeStack(t.Context(), stack, members); err == nil {
+			if err := p.mergeStack(t.Context(), stack, members); err == nil {
 				t.Fatal("merging again succeeded")
 			}
 			if content, err := os.ReadFile(filepath.Join(stack, "main.tf")); err != nil || string(content) != "# merged\n" {

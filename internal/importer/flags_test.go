@@ -47,7 +47,7 @@ func TestResolvePolicies(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("PATH", tc.path)
-			got, err := ResolvePolicies(tc.dirs)
+			got, err := resolvePolicies(tc.dirs)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Errorf("got %v, %v, want an error with %q", got, err, tc.wantErr)

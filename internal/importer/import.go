@@ -83,8 +83,13 @@ type Options struct {
 	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
-	// (see Run.MergeEnvironments).
+	// (see mergePhase.run).
 	MergeEnvironments bool
+	// MergeEnvironmentsChosen says MergeEnvironments was set, by
+	// --merge-environments or a configuration file, rather than left at its
+	// default: set to true, it needs environments to merge (see
+	// config.CheckMergeEnvironments).
+	MergeEnvironmentsChosen bool
 	// ReportTags are the tag keys the report counts resources by.
 	ReportTags []string
 	// Modules says which modules hold clusters of resources (see
@@ -98,7 +103,7 @@ type Options struct {
 	Catalogue string
 	// Policies are directories of OPA policies, written in Rego, that
 	// conftest checks the generated roots against in the verification
-	// gate, absolute paths (see ResolvePolicies).
+	// gate, absolute paths (see resolvePolicies).
 	Policies []string
 	// Engine is EngineTerraform or EngineTofu; empty means Terraform.
 	Engine string
@@ -157,9 +162,9 @@ type Options struct {
 	// harvest.StackScoped), and does without those it lacks.
 	ProviderScope any
 	// Parallel is how many accounts, subscriptions or projects import at
-	// once (see Run.ImportEach), and how many Import calls of the command, in
+	// once (see Run.importEach), and how many Import calls of the command, in
 	// every account and region, list or generate at once in all (see
-	// ImportCalls).
+	// Run.importScope).
 	Parallel int
 }
 
@@ -210,7 +215,7 @@ func checkEngine(name string) error {
 	return fmt.Errorf("unknown --engine %q: use %s or %s", name, EngineTerraform, EngineTofu)
 }
 
-// CheckOptions rejects what a provider command was told that no Import
+// checkOptions rejects what a provider command was told that no Import
 // call could do, before any account, region or project is planned: no
 // --services where no --cfn-stack says which to list, an unknown
 // --engine, --format or --modules, a filter that doesn't parse, an import
@@ -225,7 +230,7 @@ func checkEngine(name string) error {
 // Checked once, they fail the command the same way however many scopes
 // it covers, instead of failing each scope and reading as a partial
 // import.
-func CheckOptions(provider harvest.Provider, options Options) error {
+func checkOptions(provider harvest.Provider, options Options) error {
 	// Checked first, once the configuration file has had its chance to set
 	// --services. A command scoped to CloudFormation stacks needs none: the
 	// types of the stacks' resources say which services to list.

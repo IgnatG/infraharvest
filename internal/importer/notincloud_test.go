@@ -222,10 +222,11 @@ func TestAddToRootReportsWhatIsNoLongerInTheCloud(t *testing.T) {
 	if err := saveCheckpoint(out, dir, "fp", previous); err != nil {
 		t.Fatal(err)
 	}
-	r := &Run{options: Options{Out: out}, scope: "aws/123/eu-west-2", here: &listedHere{ids: map[string]bool{"q/orders": true}, types: map[string]bool{"aws_sqs_queue": true}}}
+	r := &Run{options: Options{Out: out}}
+	rec := &callRecorder{run: r, scope: "aws/123/eu-west-2", here: &listedHere{ids: map[string]bool{"q/orders": true}, types: map[string]bool{"aws_sqs_queue": true}}}
 	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "orders", ID: "q/orders"}}
 
-	added, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
+	added, result, holds, err := rec.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
 	if err != nil || added != nil || result != nil || holds != nil {
 		t.Fatalf("want nothing new, got added=%v result=%v holds=%v err=%v", added, result, holds, err)

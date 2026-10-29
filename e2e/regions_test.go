@@ -156,7 +156,7 @@ func (w *stepLog) Write(p []byte) (int, error) {
 }
 
 // callSteps are the steps of an AWS Import call the log shows, by the
-// messages that start and finish them (see importer.ImportCalls).
+// messages that start and finish them (see importer.Run.Import).
 var callSteps = []struct{ start, end string }{
 	{"importing resources", "listed resources"},
 	{"generating the roots", "generated the roots"},

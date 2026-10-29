@@ -286,7 +286,7 @@ func (s *awsScope) accountsToImport(ctx context.Context) ([]string, error) {
 // in us-east-1 there, with the regional ones when us-east-1 is one of
 // --regions; and the rest in each of --regions, in order. The global and
 // us-east-1-only calls go first, one at a time, and the regions' then
-// --parallel at once (see importer.ImportCalls).
+// --parallel at once (see importer.Call).
 func (s *awsScope) calls(options importer.Options, roleARN string) []call {
 	if len(options.Regions) == 0 {
 		return []call{s.call(options, roleARN, awsprovider.ProfileRegion, "the default region")}

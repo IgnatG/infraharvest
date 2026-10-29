@@ -33,9 +33,6 @@ func withEngineRun(runE providers.RunFunc) func(*cobra.Command, []string) error 
 					return err
 				}
 			}
-			if err := run.CheckMergeEnvironments(c.Flags()); err != nil {
-				return err
-			}
 			if f := c.Flag(providers.CheckFlag); f != nil && f.Value.String() == "true" {
 				return runE(c, args, run)
 			}

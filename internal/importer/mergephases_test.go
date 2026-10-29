@@ -23,11 +23,11 @@ import (
 // remergeStack is the stack app of dev and prod under out, merged before:
 // its merged root holds main.tf, and dev's resources there are queues,
 // each at aws_sqs_queue.<queue>[0], which dev's root generated afresh
-// has at aws_sqs_queue.dev_<queue>. It returns a run into out through f,
-// the merged root's directory and the members.
-func remergeStack(t *testing.T, out string, f *fakeEngine, queues ...string) (*Run, string, []mergeMember) {
+// has at aws_sqs_queue.dev_<queue>. It returns a merge phase into out
+// through f, the merged root's directory and the members.
+func remergeStack(t *testing.T, out string, f *fakeEngine, queues ...string) (*mergePhase, string, []mergeMember) {
 	t.Helper()
-	run, stack, members := stackMembers(t, out, f, "dev", "prod")
+	p, stack, members := stackMembers(t, out, f, "dev", "prod")
 	writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
 	ids := map[string]string{}
 	for _, q := range queues {
@@ -43,7 +43,7 @@ func remergeStack(t *testing.T, out string, f *fakeEngine, queues ...string) (*R
 	if err := mergeCheckpoints.write(out, stack, c); err != nil {
 		t.Fatal(err)
 	}
-	return run, stack, members
+	return p, stack, members
 }
 
 // readdressingMerge merges as the engine does a stack whose merged root
@@ -116,9 +116,9 @@ func TestMergeStackKeepsApartWhatWouldMove(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			out := t.TempDir()
 			f := &fakeEngine{}
-			run, stack, members := remergeStack(t, out, f, tc.queues...)
-			run.tools.merge = readdressingMerge(f, tc.queues, tc.moving, tc.always)
-			if err := run.mergeStack(t.Context(), stack, members); err != nil {
+			p, stack, members := remergeStack(t, out, f, tc.queues...)
+			p.tools.merge = readdressingMerge(f, tc.queues, tc.moving, tc.always)
+			if err := p.mergeStack(t.Context(), stack, members); err != nil {
 				t.Fatal(err)
 			}
 			if len(f.merged) != tc.merges {
@@ -133,7 +133,7 @@ func TestMergeStackKeepsApartWhatWouldMove(t *testing.T) {
 					t.Errorf("%s is labelled %q, want %q", address, last[0].Labels[address], want)
 				}
 			}
-			m := run.report.Merges
+			m := p.report.Merges
 			if len(m) != 1 || !m[0].Merged || m[0].Unchanged != tc.kept {
 				t.Fatalf("merges %+v, want the merged root kept %v", m, tc.kept)
 			}
@@ -152,8 +152,8 @@ func TestMergeStackKeepsApartWhatWouldMove(t *testing.T) {
 					t.Errorf("%s's root isn't set aside: %v", member.env, err)
 				}
 			}
-			if len(run.report.Failures) != 1 {
-				t.Errorf("failures %v, want the merged root kept", run.report.Failures)
+			if len(p.report.Failures) != 1 {
+				t.Errorf("failures %v, want the merged root kept", p.report.Failures)
 			}
 		})
 	}
@@ -164,10 +164,10 @@ func TestMergeStackKeepsApartWhatWouldMove(t *testing.T) {
 func TestMergeStackRegeneratingMovesWhatWouldMove(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{}
-	run, stack, members := remergeStack(t, out, f, "audit")
-	run.options.Regenerate = true
-	run.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
-	if err := run.mergeStack(t.Context(), stack, members); err != nil {
+	p, stack, members := remergeStack(t, out, f, "audit")
+	p.regenerate = true
+	p.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.merged) != 1 || len(f.merged[0][0].Isolated) != 0 {
@@ -177,7 +177,7 @@ func TestMergeStackRegeneratingMovesWhatWouldMove(t *testing.T) {
 	if got := f.mergedMoves["app"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("moved blocks %+v, want %+v", got, want)
 	}
-	if m := run.report.Merges; len(m) != 1 || !m[0].Merged {
+	if m := p.report.Merges; len(m) != 1 || !m[0].Merged {
 		t.Errorf("merges %+v", m)
 	}
 }
@@ -266,10 +266,9 @@ func TestHandOver(t *testing.T) {
 			out := t.TempDir()
 			stack := filepath.Join(out, "app")
 			writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
-			run := NewRun()
-			run.options.Out = out
+			p := newTestPhase(out, nil)
 			result := &envmerge.MergeResult{Reason: tc.reason, Files: []string{"main.tf"}}
-			s := &stackMerge{run: run, out: out, stack: stack, prev: tc.prev, adopted: tc.adopted, result: result, imports: tc.imports}
+			s := &stackMerge{phase: p, out: out, stack: stack, prev: tc.prev, adopted: tc.adopted, result: result, imports: tc.imports}
 			if err := s.handOver(); err != nil {
 				t.Fatal(err)
 			}
@@ -288,13 +287,13 @@ func TestHandOver(t *testing.T) {
 func TestMergeStackRestoresTheMergedRootWhereMovesFail(t *testing.T) {
 	out := t.TempDir()
 	f := &fakeEngine{}
-	run, stack, members := remergeStack(t, out, f, "audit")
-	run.options.Regenerate = true
-	run.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
-	run.tools.mergedMoves = func(string, []rootfile.Move, []rootfile.Removal) (gate.Check, error) {
+	p, stack, members := remergeStack(t, out, f, "audit")
+	p.regenerate = true
+	p.tools.merge = readdressingMerge(f, []string{"audit"}, 1, true)
+	p.tools.mergedMoves = func(string, []rootfile.Move, []rootfile.Removal) (gate.Check, error) {
 		return gate.Check{}, errors.New("disk full")
 	}
-	if err := run.mergeStack(t.Context(), stack, members); err == nil || !strings.Contains(err.Error(), "disk full") {
+	if err := p.mergeStack(t.Context(), stack, members); err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("merging again: %v, want the moved blocks' error", err)
 	}
 	checkMergedRootKept(t, stack)

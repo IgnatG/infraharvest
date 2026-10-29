@@ -6,6 +6,7 @@ package importer
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -283,5 +284,40 @@ func TestCallToolsFallBackToTheRealTool(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Without a terraform tool set, runner builds the real runner of a root,
+// with the provider's credentials in its environment, asked for once for
+// the runner and again before each plan: here the plan fails on the second
+// ask, before Terraform would run.
+func TestCallToolsRunnerFallsBackToTheRealRunner(t *testing.T) {
+	t.Parallel()
+	for _, tools := range []struct {
+		name  string
+		tools *callTools
+	}{{"nil", nil}, {"unset", &callTools{}}} {
+		t.Run(tools.name, func(t *testing.T) {
+			t.Parallel()
+			p := &envProvider{}
+			base := t.TempDir()
+			in, err := tools.tools.runner(t.Context(), terraformRun{execPath: os.Args[0], pluginCacheDir: filepath.Join(base, "plugins")}, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.asked != 1 {
+				t.Fatalf("asked %d times for the runner, want once", p.asked)
+			}
+			tf, err := in(filepath.Join(base, "root"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tf.PlanJSON(t.Context(), io.Discard); err == nil || !strings.Contains(err.Error(), "credentials for Terraform: the SSO session has expired") {
+				t.Errorf("want the plan failed with the refresh's error, got %v", err)
+			}
+			if _, err := tools.tools.runner(t.Context(), terraformRun{}, p); err == nil || !strings.Contains(err.Error(), "credentials for Terraform") {
+				t.Errorf("want the runner failed on the provider's credentials, got %v", err)
+			}
+		})
 	}
 }

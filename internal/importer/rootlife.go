@@ -50,7 +50,7 @@ type rootDecision struct {
 	// premerged says the root is one its stack's merge set aside (see
 	// premergeDir), and restore that an incremental import brings it back
 	// first, to add to it as it was, then sets it aside again, for the
-	// merge phase to merge its stack again (see Run.MergeEnvironments).
+	// merge phase to merge its stack again (see mergePhase.run).
 	premerged, restore bool
 	// onDisk is what an earlier import left of a root generated again,
 	// for claimRoot.

@@ -55,9 +55,10 @@ func TestAddToRootFailsEveryImportOnACheckpointError(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Run{options: Options{Out: out}}
+	rec := &callRecorder{run: r}
 	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-1"}, {Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
 
-	failed, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
+	failed, result, holds, err := rec.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
 	if err == nil || result != nil || holds != nil {
 		t.Fatalf("want the checkpoint error, got result=%v holds=%v err=%v", result, holds, err)
@@ -92,10 +93,11 @@ func TestAddToRootLeavesOutWhatTheRootLeftOutAsOwned(t *testing.T) {
 	if err := saveCheckpoint(out, dir, "fp", previous); err != nil {
 		t.Fatal(err)
 	}
-	r := &Run{options: Options{Out: out}, scope: "aws/123/global"}
+	r := &Run{options: Options{Out: out}}
+	rec := &callRecorder{run: r, scope: "aws/123/global"}
 	imports := []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "ci", ID: "ci"}}
 
-	added, result, holds, err := r.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
+	added, result, holds, err := rec.addToRoot(context.Background(), dir, imports, engine.Options{}, terraformRun{})
 
 	if err != nil || added != nil || result != nil || holds != nil {
 		t.Fatalf("want nothing new, got added=%v result=%v holds=%v err=%v", added, result, holds, err)
@@ -209,8 +211,9 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	if want := map[engine.External]string{{Type: subnet.Type, ID: subnet.ID}: "google/acme/us-central1"}; !reflect.DeepEqual(held, want) {
 		t.Fatalf("held elsewhere: got %v, want %v", held, want)
 	}
-	r := &Run{options: Options{Out: "out"}, scope: "acme/global"}
-	r.leaveOutHeld(byDir, held)
+	r := &Run{options: Options{Out: "out"}}
+	rec := &callRecorder{run: r, scope: "acme/global"}
+	rec.leaveOutHeld(byDir, held)
 	if want := []rootfile.Import{network, rejected, eu}; !reflect.DeepEqual(byDir[global], want) {
 		t.Errorf("global: got %v, want %v", byDir[global], want)
 	}
@@ -220,7 +223,7 @@ func TestIncrementalLeavesOutWhatAnotherRootImports(t *testing.T) {
 	}
 
 	only := map[string][]rootfile.Import{global: {subnet}}
-	r.leaveOutHeld(only, held)
+	rec.leaveOutHeld(only, held)
 	if _, ok := only[global]; ok {
 		t.Errorf("a root with nothing left to import is kept: %v", only)
 	}

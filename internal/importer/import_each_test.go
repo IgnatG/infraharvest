@@ -17,7 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
-// recordScope does what importInto does with a scope's run, in short.
+// recordScope does what importing a scope does with a scope's run, in short.
 func recordScope(run *Run, o Options, scope string) {
 	run.used = true
 	run.options = o
@@ -37,7 +37,7 @@ func TestImportEachInParallel(t *testing.T) {
 	// rather than passes if they run one at a time.
 	var started sync.WaitGroup
 	started.Add(3)
-	importOne := func(scopeRun *Run, o Options, scope string) error {
+	importOne := func(scopeRun *Run, scope string) error {
 		n := running.Add(1)
 		defer running.Add(-1)
 		for {
@@ -68,11 +68,11 @@ func TestImportEachInParallel(t *testing.T) {
 		if scope == scopes[2] {
 			return errors.New("AccessDenied: can't assume the role")
 		}
-		recordScope(scopeRun, o, scope)
+		recordScope(scopeRun, options, scope)
 		return nil
 	}
 
-	if err := run.ImportEach(options, "account", scopes, importOne); err != nil {
+	if err := run.importEach(options, "account", scopes, importOne); err != nil {
 		t.Fatalf("the run must go on: %v", err)
 	}
 	if most.Load() != 3 {
@@ -107,7 +107,7 @@ func TestImportEachInterrupted(t *testing.T) {
 	options := Options{Out: t.TempDir(), Parallel: 2}
 
 	var calls atomic.Int32
-	err := run.ImportEach(options, "project", []string{"a", "b", "c"}, func(*Run, Options, string) error {
+	err := run.importEach(options, "project", []string{"a", "b", "c"}, func(*Run, string) error {
 		calls.Add(1)
 		return context.Canceled
 	})
@@ -116,11 +116,11 @@ func TestImportEachInterrupted(t *testing.T) {
 	}
 
 	run = NewRun()
-	err = run.ImportEach(options, "project", []string{"a", "b"}, func(scopeRun *Run, o Options, scope string) error {
+	err = run.importEach(options, "project", []string{"a", "b"}, func(scopeRun *Run, scope string) error {
 		if scope == "b" {
 			return context.Canceled
 		}
-		recordScope(scopeRun, o, scope)
+		recordScope(scopeRun, options, scope)
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -152,11 +152,11 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 	for _, parallel := range []int{1, 2} {
 		run := NewRun()
 		options := Options{Out: t.TempDir(), Parallel: parallel}
-		err := run.ImportEach(options, "account", []string{"a", "b", "c"}, func(scopeRun *Run, o Options, scope string) error {
+		err := run.importEach(options, "account", []string{"a", "b", "c"}, func(scopeRun *Run, scope string) error {
 			if scope == "b" {
 				panic("unexpected response")
 			}
-			recordScope(scopeRun, o, scope)
+			recordScope(scopeRun, options, scope)
 			return nil
 		})
 		if err != nil {
@@ -174,10 +174,10 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 // The calls a command makes before its Import calls list with the limiter
 // its Import calls get, in a child's run too, so that they share what the
 // providers keep for the run.
-func TestWithLimiterIsTheImportCallsLimiter(t *testing.T) {
+func TestWithLimiterIsTheCallsLimiter(t *testing.T) {
 	t.Parallel()
 	r := NewRun()
-	limiter := ratelimit.FromContext(r.WithLimiter(t.Context(), 5))
+	limiter := ratelimit.FromContext(r.withLimiter(t.Context(), 5))
 	if limiter == ratelimit.Default() || limiter.Rate() != 5 {
 		t.Fatalf("got a limiter of %v a second, Default's: %t", limiter.Rate(), limiter == ratelimit.Default())
 	}
