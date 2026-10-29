@@ -69,7 +69,7 @@ func TestOmitArgumentsWithoutMatches(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, rootfile.GeneratedFileName, bucketGenerated).Path
 
-	changed, err := OmitArguments(path, map[string][]string{"aws_sqs_queue": {"policy"}})
+	changed, err := editFile(path, func(f *hclfile.File) bool { return OmitArguments(f, map[string][]string{"aws_sqs_queue": {"policy"}}) })
 
 	if err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
@@ -102,7 +102,7 @@ func TestOmitArgumentsByValue(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, dir, rootfile.GeneratedFileName, containersGenerated).Path
 
-	changed, err := OmitArguments(path, omitScope)
+	changed, err := editFile(path, func(f *hclfile.File) bool { return OmitArguments(f, omitScope) })
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
@@ -171,7 +171,7 @@ func TestOmitArgumentsInNestedBlocks(t *testing.T) {
 	path := writeConfig(t, dir, rootfile.GeneratedFileName, instanceGenerated).Path
 	omit := map[string][]string{"*": {"tags_all", "*.tags_all"}, "aws_instance": {"root_block_device.volume_type=gp3", "ebs_block_device.volume_type=gp3"}}
 
-	changed, err := OmitArguments(path, omit)
+	changed, err := editFile(path, func(f *hclfile.File) bool { return OmitArguments(f, omit) })
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}

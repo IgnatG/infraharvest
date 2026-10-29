@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 var lambdaPlaceholder = map[string]Placeholder{"aws_lambda_function": {
@@ -21,8 +21,8 @@ var lambdaPlaceholder = map[string]Placeholder{"aws_lambda_function": {
 // ignores; an image function, which names its image, doesn't.
 func TestSetPlaceholders(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	f := writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_lambda_function" "zip" {
+	set := func(f *hclfile.File) bool { return setPlaceholders(f, lambdaPlaceholder) }
+	got, changed := annotated(t, `resource "aws_lambda_function" "zip" {
   filename      = null
   function_name = "orders"
   image_uri     = null
@@ -32,12 +32,10 @@ resource "aws_lambda_function" "image" {
   function_name = "web"
   image_uri     = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/web:1"
 }
-`)
-	changed, err := setPlaceholders(f.Path, lambdaPlaceholder)
-	if err != nil || !changed {
-		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+`, set)
+	if !changed {
+		t.Fatal("want a change")
 	}
-	got := readFile(t, dir, rootfile.GeneratedFileName)
 	want := `resource "aws_lambda_function" "zip" {
   filename      = "lambda/orders.zip"
   function_name = "orders"
@@ -55,7 +53,7 @@ resource "aws_lambda_function" "image" {
 	if !found || strings.Contains(image, "lifecycle") || strings.Contains(image, "filename") {
 		t.Errorf("the image function got a placeholder:\n%s", image)
 	}
-	if changed, err := setPlaceholders(f.Path, lambdaPlaceholder); err != nil || changed {
-		t.Errorf("setting them again: changed=%v err=%v", changed, err)
+	if _, changed := annotated(t, got, set); changed {
+		t.Error("set them again")
 	}
 }

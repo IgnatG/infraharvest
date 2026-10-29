@@ -4,12 +4,10 @@
 package engine
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 const deploymentsGenerated = `resource "aws_api_gateway_deployment" "prod" {
@@ -32,19 +30,11 @@ resource "aws_api_gateway_stage" "prod" {
 // above it, but one that sets it already, and no other type.
 func TestSetLifecycles(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
-	if err := os.WriteFile(path, []byte(deploymentsGenerated), 0o644); err != nil {
-		t.Fatal(err)
+	lifecycles := map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}}
+	got, changed := annotated(t, deploymentsGenerated, func(f *hclfile.File) bool { return setLifecycles(f, lifecycles) })
+	if !changed {
+		t.Fatal("want a change")
 	}
-	changed, err := setLifecycles(path, map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}})
-	if err != nil || !changed {
-		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(content)
 	prod, rest, _ := strings.Cut(got, `resource "aws_api_gateway_deployment" "kept"`)
 	kept, stage, _ := strings.Cut(rest, `resource "aws_api_gateway_stage" "prod"`)
 	if !strings.Contains(prod, "# A stage refers to it.\n") || !strings.Contains(prod, "create_before_destroy = true") {

@@ -254,20 +254,6 @@ func generating(opts Options) *run {
 	return &run{opts: opts, modules: modules}
 }
 
-// replanReason names an edit of generated.tf that makes Generate plan it
-// again before it reads the plan's errors: the edit moves the lines they
-// point at, or resolves some of them (see prepareGenerated).
-type replanReason string
-
-const (
-	replanSorted       replanReason = "resources sorted"
-	replanOmitted      replanReason = "arguments left out"
-	replanPlaceholders replanReason = "placeholders set"
-	replanLifecycles   replanReason = "lifecycles set"
-	replanConflicts    replanReason = "conflicting arguments settled"
-	replanSecrets      replanReason = "secrets moved into variables"
-)
-
 // The steps of generate that Result.Plans counts plans by.
 const (
 	// stepGenerate has Terraform generate the configuration, and import
@@ -493,9 +479,9 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 
 // planGenerated has Terraform generate generated.tf, imports again what
 // it rejected that has an import ID to fall back on, and makes the edits
-// that come before anything reads the file (see prepareGenerated). It
+// that come before anything reads the file (see generatedAnnotations). It
 // returns why the file then needs another plan, if it does.
-func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) {
+func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 	// Plan reports changes because every import is pending; only errors matter.
 	// The release the lock file records decides how far the provider's
 	// metadata goes (see schemaHints).
@@ -519,7 +505,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]replanReason, error) 
 	if g.diags, err = retryFallbacks(ctx, g.tf, g.dir, g.imports, diags); err != nil {
 		return nil, err
 	}
-	return prepareGenerated(g.generated, g.imports, g.opts, hints)
+	return g.annotate(generatedAnnotations(g.imports, g.opts, hints))
 }
 
 // hideSecrets moves the secrets in generated.tf into variables.
@@ -570,13 +556,9 @@ func (g *generation) replan(ctx context.Context) error {
 // repair), and the resources that still have errors then are left out
 // (see Rejection). It fails on errors it can't attribute to a resource,
 // and once maxPlanRounds plans still had errors.
-func (g *generation) planUntilValid(ctx context.Context, reasons []replanReason) error {
+func (g *generation) planUntilValid(ctx context.Context, reasons []string) error {
 	if len(reasons) > 0 {
-		why := make([]string, len(reasons))
-		for i, reason := range reasons {
-			why[i] = string(reason)
-		}
-		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(why, ", "))
+		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(reasons, ", "))
 		g.counting.Step(stepPrepare)
 		if err := g.replan(ctx); err != nil {
 			return err
@@ -733,9 +715,7 @@ func (g *generation) tidy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// Once the references are made: what is still a literal is no
-	// resource's.
-	if _, err := notePrincipals(g.generated); err != nil {
+	if _, err := g.annotate(referencedAnnotations()); err != nil {
 		return err
 	}
 	moved, err := movedAddresses(g.dir, before)
@@ -801,7 +781,7 @@ func (g *generation) finish(ctx context.Context) error {
 	if err := rootfile.WriteMoves(dir, result.Moves, result.Removed, result.Retyped); err != nil {
 		return err
 	}
-	return requireMinimumVersion(dir)
+	return rootfile.RequireMinimumVersion(dir)
 }
 
 // gate refines the finished root if opts.Refine is set, then gates it
@@ -820,41 +800,6 @@ func (g *generation) gate(ctx context.Context) error {
 	// fewer than the caller's (see adding).
 	g.counting.Step(stepGate)
 	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.secrets, unrefined, warned)
-}
-
-// prepareGenerated makes the edits of generated.tf, at path, that come
-// before anything reads it, and returns why the file then needs another
-// plan, if any of them changed it. Terraform writes resources in the order
-// its graph walk reaches them, which differs between runs: they are
-// sorted, so the same estate always gives the same files. Then the
-// arguments other resources manage are left out (see opts.Omit), and
-// placeholders and lifecycles set. Last, arguments the provider says
-// conflict, which fail validation, are settled now, as repair would once a
-// plan reported them: after the omissions, so that of a pair the catalogue
-// leaves one out of, such as an event rule's is_enabled beside its state,
-// the other stays.
-func prepareGenerated(path string, imports []rootfile.Import, opts Options, hints schemaHints) ([]replanReason, error) {
-	edits := []struct {
-		reason replanReason
-		edit   func() (bool, error)
-	}{
-		{replanSorted, func() (bool, error) { return hclfile.SortResources(path) }},
-		{replanOmitted, func() (bool, error) { return OmitArguments(path, withResourceOmissions(opts.Omit, imports)) }},
-		{replanPlaceholders, func() (bool, error) { return setPlaceholders(path, opts.Placeholders) }},
-		{replanLifecycles, func() (bool, error) { return setLifecycles(path, opts.Lifecycles) }},
-		{replanConflicts, func() (bool, error) { return resolveConflicts(path, hints) }},
-	}
-	var reasons []replanReason
-	for _, e := range edits {
-		changed, err := e.edit()
-		if err != nil {
-			return nil, err
-		}
-		if changed {
-			reasons = append(reasons, e.reason)
-		}
-	}
-	return reasons, nil
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

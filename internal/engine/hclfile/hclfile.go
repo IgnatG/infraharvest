@@ -334,30 +334,26 @@ func Spans(rng hcl.Range, line int) bool {
 // each resource, which imports.tf has.
 var generatedComments = regexp.MustCompile(`(?m)^# (__generated__ by Terraform|Please review these resources and move them into your main configuration files).*\r?\n`)
 
-// SortResources rewrites the file with its blocks ordered by address, and
-// without the comments Terraform generates (see generatedComments), and
-// reports whether that changed it. Terraform writes generated
+// SortResources orders the blocks of f by address, without the comments
+// Terraform generates (see generatedComments), and reports whether that
+// changed it: the caller saves it. Terraform writes generated
 // configuration in the order its graph walk reaches the resources, which
 // differs between runs. Other comments directly above a block move with
 // it; anything else between blocks is dropped.
-func SortResources(path string) (bool, error) {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	before := hclwrite.Format(content)
-	if stripped := generatedComments.ReplaceAll(content, nil); !bytes.Equal(stripped, content) {
-		if err := fsutil.WriteFile(path, stripped, 0o644); err != nil {
+func SortResources(f *File) (bool, error) {
+	src := f.Src
+	before := hclwrite.Format(src)
+	stripped := generatedComments.ReplaceAll(src, nil)
+	if !bytes.Equal(stripped, src) {
+		parsed, err := Parse(f.Path, stripped)
+		if err != nil {
 			return false, err
 		}
-	}
-	f, err := Load(path)
-	if err != nil {
-		return false, err
+		*f = *parsed
 	}
 	blocks := f.Edit().Body().Blocks()
 	if len(blocks) == 0 {
-		return false, nil
+		return !bytes.Equal(stripped, src), nil
 	}
 	key := func(b *hclwrite.Block) string { return b.Type() + " " + strings.Join(b.Labels(), ".") }
 	sort.SliceStable(blocks, func(i, j int) bool { return key(blocks[i]) < key(blocks[j]) })
@@ -372,10 +368,7 @@ func SortResources(path string) (bool, error) {
 		sorted.Body().AppendBlock(b)
 	}
 	f.write = sorted
-	if bytes.Equal(before, hclwrite.Format(sorted.Bytes())) {
-		return false, nil
-	}
-	return true, f.Save()
+	return !bytes.Equal(before, hclwrite.Format(sorted.Bytes())), nil
 }
 
 // LiteralString returns the value of expr if it is a string literal.

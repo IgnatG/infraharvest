@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
 // Placeholder is for configuration Terraform can't read back from the
@@ -30,28 +32,25 @@ type Placeholder struct {
 // placeholderField is an {argument} in a Placeholder value.
 var placeholderField = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 
-// setPlaceholders sets the placeholders of the resources in the file at
-// path that need them (see Placeholder), and reports whether it changed
-// anything.
-func setPlaceholders(path string, placeholders map[string]Placeholder) (bool, error) {
+// setPlaceholders sets the placeholders of the resources of f that need
+// them (see Placeholder), and reports whether it changed anything.
+func setPlaceholders(f *hclfile.File, placeholders map[string]Placeholder) bool {
 	if len(placeholders) == 0 {
-		return false, nil
+		return false
 	}
-	return rewrite(path, func(f *hclwrite.File, _ *hclsyntax.Body) bool {
-		changed := false
-		for _, block := range f.Body().Blocks() {
-			if block.Type() != "resource" || len(block.Labels()) != 2 {
-				continue
-			}
-			p, ok := placeholders[block.Labels()[0]]
-			if !ok || slices.ContainsFunc(p.OneOf, func(name string) bool { return isSet(block.Body(), name) }) {
-				continue
-			}
-			setPlaceholder(block.Body(), block.Labels()[1], p)
-			changed = true
+	changed := false
+	for _, block := range f.Edit().Body().Blocks() {
+		if block.Type() != "resource" || len(block.Labels()) != 2 {
+			continue
 		}
-		return changed
-	})
+		p, ok := placeholders[block.Labels()[0]]
+		if !ok || slices.ContainsFunc(p.OneOf, func(name string) bool { return isSet(block.Body(), name) }) {
+			continue
+		}
+		setPlaceholder(block.Body(), block.Labels()[1], p)
+		changed = true
+	}
+	return changed
 }
 
 // isSet reports whether body sets argument name to something but null.

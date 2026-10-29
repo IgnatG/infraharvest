@@ -14,6 +14,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // minimumVersion is the oldest Terraform release generated configuration
@@ -135,34 +136,78 @@ func setsWriteOnly(body *hclsyntax.Body) bool {
 	return false
 }
 
-// RaiseRequiredVersion raises the required_version of the root in dir,
-// in whichever of its files has it, such as a merged root's providers.tf,
-// to the oldest release its blocks work with (see FeaturesNeed), where
-// that is later: as for the removed blocks a merged root gets once
-// written (see envmerge.WriteMergedMoves). Unlike the engine's
-// requireMinimumVersion, it never lowers it, as what the root's modules
-// need isn't known here.
-func RaiseRequiredVersion(dir string) error {
+// RequireMinimumVersion sets the required_version of the root in dir, one
+// infraharvest generated, to the oldest release its configuration works
+// with, lower or higher than it was: at least what its blocks need (see
+// FeaturesNeed), and the lowest version each module it calls, as
+// Terraform installed them, requires. It stays within that release's
+// major version.
+func RequireMinimumVersion(dir string) error {
 	files, err := hclfile.ConfigFiles(dir)
 	if err != nil {
 		return err
 	}
 	need := FeaturesNeed(files)
+	modules, err := tfrun.InstalledModules(dir, "")
+	if err != nil {
+		return err
+	}
+	// Only the calls the root still has: Terraform installed those of
+	// trials the plan rejected too.
+	called := map[string]bool{}
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type == "module" && len(b.Labels) == 1 {
+				called[b.Labels[0]] = true
+			}
+		}
+	}
+	for _, m := range modules {
+		if top, _, _ := strings.Cut(m.Key, "."); called[top] {
+			if v := requiredByModule(m.Dir); v != nil && v.GreaterThan(need) {
+				need = v
+			}
+		}
+	}
+	return requireVersion(files, need, true)
+}
+
+// RaiseRequiredVersion raises the required_version of the root in dir to
+// the oldest release its blocks work with (see FeaturesNeed), where that
+// is later: as for the removed blocks a merged root gets once written (see
+// envmerge.WriteMergedMoves). Unlike RequireMinimumVersion, it never
+// lowers it, as what the root's modules need isn't known here.
+func RaiseRequiredVersion(dir string) error {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		return err
+	}
+	return requireVersion(files, FeaturesNeed(files), false)
+}
+
+// requireVersion sets each required_version of files, in whichever of
+// them has it, such as versions.tf or a merged root's providers.tf, to
+// need, within its major version: where it requires less, or, if lower,
+// anything else.
+func requireVersion(files []*hclfile.File, need *version.Version, lower bool) error {
 	want := fmt.Sprintf(">= %s, < %d.0", ShortVersion(need), need.Segments()[0]+1)
 	for _, f := range files {
-		blocks := f.Edit().Body().Blocks()
 		changed := false
 		for i, b := range f.Syntax.Blocks {
-			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok || i >= len(blocks) {
+			if _, ok := b.Body.Attributes["required_version"]; b.Type != "terraform" || !ok {
 				continue
 			}
-			if lower, err := LowerBound(hclfile.StringAttribute(b.Body, "required_version")); err == nil {
-				if v, err := version.NewVersion(strings.TrimPrefix(lower, ">= ")); err == nil && !need.GreaterThan(v) {
-					continue
-				}
+			current := hclfile.StringAttribute(b.Body, "required_version")
+			if current == want {
+				continue
 			}
-			blocks[i].Body().SetAttributeValue("required_version", cty.StringVal(want))
-			changed = true
+			if v := lowerBound(current); !lower && v != nil && !need.GreaterThan(v) {
+				continue
+			}
+			if blocks := f.Edit().Body().Blocks(); i < len(blocks) {
+				blocks[i].Body().SetAttributeValue("required_version", cty.StringVal(want))
+				changed = true
+			}
 		}
 		if changed {
 			if err := f.Save(); err != nil {
@@ -171,6 +216,45 @@ func RaiseRequiredVersion(dir string) error {
 		}
 	}
 	return nil
+}
+
+// requiredByModule returns the lowest Terraform version the module in dir
+// requires, or nil if it says none.
+func requiredByModule(dir string) *version.Version {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		// A module infraharvest can't read is Terraform's to judge.
+		return nil
+	}
+	var need *version.Version
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type != "terraform" {
+				continue
+			}
+			if v := lowerBound(hclfile.StringAttribute(b.Body, "required_version")); v != nil && (need == nil || v.GreaterThan(need)) {
+				need = v
+			}
+		}
+	}
+	return need
+}
+
+// lowerBound returns the lowest version constraint allows (see
+// LowerBound), nil if it is empty or has none.
+func lowerBound(constraint string) *version.Version {
+	if constraint == "" {
+		return nil
+	}
+	lower, err := LowerBound(constraint)
+	if err != nil {
+		return nil
+	}
+	v, err := version.NewVersion(strings.TrimPrefix(lower, ">= "))
+	if err != nil {
+		return nil
+	}
+	return v
 }
 
 // RequiredVersion is the required_version for configuration generated with

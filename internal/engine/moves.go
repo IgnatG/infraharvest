@@ -480,7 +480,7 @@ func Vacate(dir string, opts Options) (*Result, error) {
 	if err := rootfile.WriteMoves(dir, nil, result.Removed, nil); err != nil {
 		return nil, err
 	}
-	if err := requireMinimumVersion(dir); err != nil {
+	if err := rootfile.RequireMinimumVersion(dir); err != nil {
 		return nil, err
 	}
 	check, err := gate.MovesCheck(dir)

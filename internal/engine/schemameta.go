@@ -15,7 +15,6 @@ import (
 
 	"github.com/hashicorp/go-version"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
@@ -215,9 +214,9 @@ func equalsDefault(expr hclsyntax.Expression, def any) bool {
 	return false
 }
 
-// resolveConflicts settles, in the configuration at path, the arguments
-// the metadata says can't be set together (ConflictsWith, ExactlyOneOf)
-// before any validation has to say so: it hands removeRejected the
+// resolveConflicts settles, in f, the arguments the metadata says can't
+// be set together (ConflictsWith, ExactlyOneOf) before any validation has
+// to say so: it hands removeRejected the
 // errors validation would report, so that the same one of each pair goes
 // as repair would remove. Terraform generates both of such a pair from
 // the same remote value, such as a subnet's availability_zone and
@@ -229,14 +228,12 @@ func equalsDefault(expr hclsyntax.Expression, def any) bool {
 // may let both be set, and then the arguments stay for validation and
 // repair to judge, as without metadata. It reports whether it changed the
 // file.
-func resolveConflicts(path string, h schemaHints) (bool, error) {
+func resolveConflicts(f *hclfile.File, h schemaHints) bool {
 	if h.file == nil || !h.exact {
-		return false, nil
+		return false
 	}
-	return rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		diags := conflictDiagnostics(syntax, h, filepath.Base(path))
-		return len(diags) > 0 && removeRejected(f, syntax, filepath.Base(path), diags)
-	})
+	diags := conflictDiagnostics(f.Syntax, h, filepath.Base(f.Path))
+	return len(diags) > 0 && removeRejected(f.Edit(), f.Syntax, filepath.Base(f.Path), diags)
 }
 
 // conflictDiagnostics returns the errors validation reports about the
