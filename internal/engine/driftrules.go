@@ -28,9 +28,9 @@ func DriftRules(opts Options) drift.Rules {
 			return ok && matchesValue(expr, want, nil)
 		},
 		Referrer: func(values map[string]map[string]any) drift.Referrer {
-			index := referenceIndex(values)
+			index := referenceIndex(values, opts.Traits)
 			return func(argument, value string) (string, hcl.Traversal, bool) {
-				target, ok := uniqueTarget(argument, value, index[value])
+				target, ok := uniqueTarget(argument, value, index[value], opts.Traits)
 				if !ok {
 					return "", nil, false
 				}

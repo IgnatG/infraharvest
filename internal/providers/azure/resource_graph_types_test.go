@@ -16,13 +16,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 const testWorkspace = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-logs/providers/Microsoft.OperationalInsights/workspaces/Logs"
@@ -47,8 +46,8 @@ func listedTable(t *testing.T, name, tableType, plan string, asDefault bool) azl
 
 // testLookup is newLookup with every request that reaches Resource
 // Manager answered by transport.
-func testLookup(ctx context.Context, transport *fakeTransport, listedResources []azlist.AzureResource) (queryType, *atomic.Int64) {
-	return newLookup(ctx, fakeCredential{}, arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}}, listedResources)
+func testLookup(ctx context.Context, transport *providertest.Cloud, listedResources []azlist.AzureResource) (queryType, *atomic.Int64) {
+	return newLookup(ctx, fakeCredential{}, *fakeOptions(transport), listedResources)
 }
 
 // A workspace's tables get their azurerm type from the table type they
@@ -65,12 +64,12 @@ func TestWorkspaceTablesMapFromTheListing(t *testing.T) {
 		listedTable(t, "Orders_RST", "RestoredLogs", "Analytics", false),
 		listedTable(t, "Errors_SRCH", "SearchResults", "Analytics", false),
 	}
-	transport := &fakeTransport{body: `{}`}
+	transport := providertest.New(answering(`{}`))
 	query, sent := testLookup(t.Context(), transport, listedResources)
 	cat := catalogue.MustBuiltin("azurerm")
 	resources := graphResources(listedResources, cat, query, nil)
-	if len(transport.paths) != 0 || sent.Load() != 0 {
-		t.Errorf("sent %d requests: %v", sent.Load(), transport.paths)
+	if len(transport.Paths()) != 0 || sent.Load() != 0 {
+		t.Errorf("sent %d requests: %v", sent.Load(), transport.Paths())
 	}
 	got := map[string]string{}
 	for _, r := range resources {
@@ -108,10 +107,10 @@ func TestBuiltInTablesTakeNoRequests(t *testing.T) {
 			withoutType = append(withoutType, listed(t, testWorkspace+"/tables/"+name, nil))
 		}
 
-		transport := &fakeTransport{body: `{}`}
+		transport := providertest.New(answering(`{}`))
 		query, sent := testLookup(t.Context(), transport, withType)
 		resources := graphResources(withType, cat, query, nil)
-		if len(transport.paths) != 0 || sent.Load() != 0 {
+		if len(transport.Paths()) != 0 || sent.Load() != 0 {
 			t.Errorf("%d tables: sent %d requests", n, sent.Load())
 		}
 		if len(resources) != n {
@@ -123,10 +122,10 @@ func TestBuiltInTablesTakeNoRequests(t *testing.T) {
 			}
 		}
 
-		transport = &fakeTransport{body: `{"id":"table","properties":{"schema":{"tableType":"Microsoft"}}}`}
+		transport = providertest.New(answering(`{"id":"table","properties":{"schema":{"tableType":"Microsoft"}}}`))
 		query, sent = testLookup(t.Context(), transport, withoutType)
 		resources = graphResources(withoutType, cat, query, nil)
-		if got := int(sent.Load()); got != n || len(transport.paths) != n {
+		if got := int(sent.Load()); got != n || len(transport.Paths()) != n {
 			t.Errorf("%d tables listed without their type: sent %d requests, want one each", n, got)
 		}
 		if len(resources) != n {
@@ -171,7 +170,7 @@ func TestLookupReadsTheListing(t *testing.T) {
 		// Listed without its kind: aztft can't tell from the listing.
 		listed(t, partial, map[string]interface{}{"id": partial, "name": "partial", "properties": map[string]interface{}{}}),
 	}
-	transport := &fakeTransport{body: `{"kind":"app,linux","properties":{}}`}
+	transport := providertest.New(answering(`{"kind":"app,linux","properties":{}}`))
 	query, sent := testLookup(t.Context(), transport, listedResources)
 	resources := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query, nil)
 	got := map[string]string{}
@@ -187,7 +186,7 @@ func TestLookupReadsTheListing(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	paths := slices.Clone(transport.paths)
+	paths := slices.Clone(transport.Paths())
 	slices.Sort(paths)
 	if sent.Load() != 2 || len(paths) != 2 || !strings.HasSuffix(paths[0], "/sites/partial") || !strings.HasSuffix(paths[1], "/sites/unlisted") {
 		t.Errorf("sent %d requests: %v, want one for each site the listing didn't say enough about", sent.Load(), paths)
@@ -203,13 +202,13 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	listedResources := []azlist.AzureResource{listed(t, site, nil)}
-	transport := &fakeTransport{body: `{"kind":"app,linux","properties":{}}`}
+	transport := providertest.New(answering(`{"kind":"app,linux","properties":{}}`))
 	query, sent := testLookup(ctx, transport, listedResources)
 	if got := graphResources(listedResources, catalogue.MustBuiltin("azurerm"), query, nil); len(got) != 0 {
 		t.Errorf("got %+v", got)
 	}
-	if len(transport.paths) != 0 || sent.Load() != 0 {
-		t.Errorf("sent %d requests after the interrupt: %v", sent.Load(), transport.paths)
+	if len(transport.Paths()) != 0 || sent.Load() != 0 {
+		t.Errorf("sent %d requests after the interrupt: %v", sent.Load(), transport.Paths())
 	}
 
 	underWay := &listingTransport{ctx: ctx, next: transport, sent: sent}
@@ -221,8 +220,8 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 	if _, err := underWay.Do(req); !errors.Is(err, context.Canceled) || !errors.As(err, &nonRetriable) {
 		t.Errorf("a request after the interrupt: %v, want a non-retriable context.Canceled", err)
 	}
-	if len(transport.paths) != 0 {
-		t.Errorf("sent %v after the interrupt", transport.paths)
+	if len(transport.Paths()) != 0 {
+		t.Errorf("sent %v after the interrupt", transport.Paths())
 	}
 }
 

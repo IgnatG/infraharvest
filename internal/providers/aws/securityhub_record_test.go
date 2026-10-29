@@ -69,7 +69,7 @@ func TestRecordSecurityHubListsAccountMembersAndStandards(t *testing.T) {
 	})
 	g := &SecurityhubLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestRecordSecurityHubNotSubscribed(t *testing.T) {
 	}))
 	g := &SecurityhubLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestRecordSecurityHubReturnsErrors(t *testing.T) {
 			ctx := useFakeAPI(t, recordSecurityHubAPI(t, map[string]string{key: answer}))
 			g := &SecurityhubLister{}
 
-			_, err := g.List(ctx, harvest.Settings{})
+			_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDenied")
 		})

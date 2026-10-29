@@ -17,7 +17,6 @@ import (
 	"sync"
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/hashicorp/terraform-exec/tfexec"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
@@ -58,11 +57,12 @@ func forOtherProvider(m config.Module, provider string) bool {
 
 // fetchAdapters returns an adapter for each of the organisation's own
 // modules (see adapters.Generic) that can be of provider's, in their order,
-// fetched with the engine at execPath, a few at a time: git and registry
-// modules as Terraform fetches them, with its credentials. Modules that
+// fetched with the engine at execPath, through tools (see callTools.get),
+// a few at a time: git and registry modules as Terraform fetches them,
+// with its credentials. Modules that
 // can't change are fetched once, into cacheDir (see fetchModule). A module
 // that can't be fetched or matched is logged and left out.
-func fetchAdapters(ctx context.Context, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
+func fetchAdapters(ctx context.Context, tools *callTools, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
 	fetched := make([]*adapters.Adapter, len(modules))
 	slots := make(chan struct{}, fetchModulesParallel)
 	var wg sync.WaitGroup
@@ -73,7 +73,7 @@ func fetchAdapters(ctx context.Context, execPath, cacheDir, provider string, mod
 		slots <- struct{}{}
 		wg.Go(func() {
 			defer func() { <-slots }()
-			dir, cleanup, err := fetchModule(ctx, execPath, cacheDir, m)
+			dir, cleanup, err := fetchModule(ctx, tools, execPath, cacheDir, m)
 			if err != nil {
 				log.Printf("module %s: %v; not used", m.Source, err)
 				return
@@ -101,7 +101,7 @@ func fetchAdapters(ctx context.Context, execPath, cacheDir, provider string, mod
 // that removes what fetching it left. A local module is its directory. A
 // module that can't change (see config.Module.Immutable) is fetched once
 // into cacheDir, unless cacheDir is "", and found there after that.
-func fetchModule(ctx context.Context, execPath, cacheDir string, m config.Module) (string, func(), error) {
+func fetchModule(ctx context.Context, tools *callTools, execPath, cacheDir string, m config.Module) (string, func(), error) {
 	if config.IsLocalModule(m.Source) {
 		return m.Source, func() {}, nil
 	}
@@ -117,7 +117,7 @@ func fetchModule(ctx context.Context, execPath, cacheDir string, m config.Module
 		}
 		parent = cacheDir
 	}
-	dir, err := fetchInto(ctx, execPath, parent, m)
+	dir, err := fetchInto(ctx, tools, execPath, parent, m)
 	if err != nil {
 		return "", nil, err
 	}
@@ -158,7 +158,7 @@ func isDir(path string) bool {
 // parent, or the system's temporary directory if parent is "", and returns
 // that directory: a root with one module call, m, which Terraform
 // installs under .terraform/modules.
-func fetchInto(ctx context.Context, execPath, parent string, m config.Module) (string, error) {
+func fetchInto(ctx context.Context, tools *callTools, execPath, parent string, m config.Module) (string, error) {
 	dir, err := os.MkdirTemp(parent, "infraharvest-module-")
 	if err != nil {
 		return "", err
@@ -174,14 +174,9 @@ func fetchInto(ctx context.Context, execPath, parent string, m config.Module) (s
 		cleanup()
 		return "", err
 	}
-	tf, err := tfexec.NewTerraform(dir, execPath)
-	if err != nil {
+	if err := tools.get(ctx, dir, execPath); err != nil {
 		cleanup()
 		return "", err
-	}
-	if err := tf.Get(ctx); err != nil {
-		cleanup()
-		return "", fmt.Errorf("fetching: %w", err)
 	}
 	return dir, nil
 }

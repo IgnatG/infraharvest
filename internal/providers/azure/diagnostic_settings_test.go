@@ -4,12 +4,10 @@
 package azure
 
 import (
-	"io"
 	"net/http"
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
@@ -17,40 +15,13 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
-
-// diagnosticTransport answers a request for a path in bodies with its
-// body, one for a path in statuses with that status, and any other with
-// 404, and records the paths asked for. Requests may come at once.
-type diagnosticTransport struct {
-	mu       sync.Mutex
-	bodies   map[string]string
-	statuses map[string]int
-	paths    []string
-}
-
-func (f *diagnosticTransport) Do(r *http.Request) (*http.Response, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.paths = append(f.paths, r.URL.Path)
-	status, body := http.StatusOK, f.bodies[r.URL.Path]
-	if s, ok := f.statuses[r.URL.Path]; ok {
-		status, body = s, `{"error":{"code":"Failed","message":"answered `+http.StatusText(s)+`"}}`
-	} else if _, ok := f.bodies[r.URL.Path]; !ok {
-		status, body = http.StatusNotFound, `{"error":{"code":"NotFound","message":"nothing at `+r.URL.Path+`"}}`
-	}
-	return &http.Response{
-		StatusCode: status,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    r,
-	}, nil
-}
 
 // diagnosticArgs are the settings of diagnostic_setting for subscription
 // "sub" and resourceGroup, after the other services listed listed, with
 // every request answered by transport, once.
-func diagnosticArgs(transport *diagnosticTransport, resourceGroup string, listed []harvest.Resource) serviceSettings {
+func diagnosticArgs(transport *providertest.Cloud, resourceGroup string, listed []harvest.Resource) serviceSettings {
 	return serviceSettings{
 		subscriptionID: "sub",
 		resourceGroup:  resourceGroup,
@@ -98,11 +69,11 @@ func listedByOthers() []harvest.Resource {
 func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 	t.Parallel()
 	const subscriptionPath = "/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings"
-	transport := &diagnosticTransport{bodies: map[string]string{
+	transport := routed(map[string]string{
 		subscriptionPath:      armList(armItem(strings.ToLower(subscriptionPath)+"/activity", "activity", `{"logs":[{"category":"Administrative","enabled":true}]}`)),
 		settingsPath(vaultID): armList(armItem(strings.ToLower(settingsPath(vaultID))+"/audit", "audit", `{"workspaceId":"/subscriptions/sub/resourcegroups/app/providers/microsoft.operationalinsights/workspaces/logs"}`), `{"id":"nameless"}`),
 		settingsPath(accountID + "/blobServices/default"): armList(armItem(settingsPath(accountID+"/blobServices/default")+"/blob-logs", "blob-logs", "")),
-	}}
+	})
 	g := &DiagnosticSettingLister{}
 	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 
@@ -111,7 +82,7 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	asked := slices.Sorted(slices.Values(transport.paths))
+	asked := slices.Sorted(slices.Values(transport.Paths()))
 	want := []string{
 		settingsPath(accountID),
 		settingsPath(accountID + "/blobServices/default"),
@@ -139,7 +110,7 @@ func TestDiagnosticSettingListsWhatOthersListed(t *testing.T) {
 // only those of what the other services listed are asked for.
 func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 	t.Parallel()
-	transport := &diagnosticTransport{}
+	transport := routed(nil)
 	g := &DiagnosticSettingLister{}
 	g.SetSettings(diagnosticArgs(transport, "app", listedByOthers()[:1]))
 
@@ -148,8 +119,8 @@ func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := []string{settingsPath(vaultID)}; !slices.Equal(transport.paths, want) {
-		t.Errorf("asked for %v, want %v", transport.paths, want)
+	if want := []string{settingsPath(vaultID)}; !slices.Equal(transport.Paths(), want) {
+		t.Errorf("asked for %v, want %v", transport.Paths(), want)
 	}
 	if len(resources) != 0 {
 		t.Errorf("listed %+v, want none", resources)
@@ -161,15 +132,12 @@ func TestDiagnosticSettingInAResourceGroup(t *testing.T) {
 // (400) or that is gone (404) has none.
 func TestDiagnosticSettingFailures(t *testing.T) {
 	t.Parallel()
-	transport := &diagnosticTransport{
-		bodies: map[string]string{
-			"/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings": armList(armItem("/subscriptions/sub/providers/microsoft.insights/diagnosticSettings/activity", "activity", "")),
-		},
-		statuses: map[string]int{
-			settingsPath(vaultID):   http.StatusForbidden,
-			settingsPath(accountID): http.StatusBadRequest,
-		},
-	}
+	transport := providertest.New(armRoutes(map[string]string{
+		"/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings": armList(armItem("/subscriptions/sub/providers/microsoft.insights/diagnosticSettings/activity", "activity", "")),
+	}, map[string]int{
+		settingsPath(vaultID):   http.StatusForbidden,
+		settingsPath(accountID): http.StatusBadRequest,
+	}))
 	g := &DiagnosticSettingLister{}
 	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 

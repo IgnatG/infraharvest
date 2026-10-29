@@ -721,3 +721,106 @@ func TestDriftRunsTheConfirmedRoots(t *testing.T) {
 		}
 	}
 }
+
+// The roots are checked up to --parallel at a time, in the report in their
+// order; one that fails doesn't stop the others, and those the context
+// ends before have its error.
+func TestCheckDriftRoots(t *testing.T) {
+	t.Parallel()
+	out := "out"
+	var targets []driftTarget
+	for _, rel := range []string{"aws/1/a", "aws/1/b", "aws/1/c", "aws/1/d", "aws/1/e"} {
+		targets = append(targets, driftTarget{dir: filepath.Join(out, filepath.FromSlash(rel))})
+	}
+	paths := func(results []report.DriftRoot) []string {
+		var list []string
+		for _, r := range results {
+			list = append(list, r.Path)
+		}
+		return list
+	}
+	want := []string{"aws/1/a", "aws/1/b", "aws/1/c", "aws/1/d", "aws/1/e"}
+
+	t.Run("parallel", func(t *testing.T) {
+		t.Parallel()
+		var mu sync.Mutex
+		running, most := 0, 0
+		check := func(_ context.Context, dir, _ string, _ drift.Options) (*drift.Result, error) {
+			mu.Lock()
+			running++
+			most = max(most, running)
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+			mu.Lock()
+			running--
+			mu.Unlock()
+			if relativePath(out, dir) == "aws/1/b" {
+				return nil, errStub
+			}
+			return &drift.Result{Backend: "s3"}, nil
+		}
+		results, _ := checkDriftRoots(t.Context(), DriftOptions{Out: out, Parallel: 2}, driftpolicy.Decider{}, check, nil, targets)
+		if got := paths(results); !reflect.DeepEqual(got, want) {
+			t.Errorf("roots %v, want %v", got, want)
+		}
+		for _, r := range results {
+			if failed := r.Path == "aws/1/b"; (r.Error != "") != failed || (!failed && r.Backend != "s3") {
+				t.Errorf("%s: %+v", r.Path, r)
+			}
+		}
+		if most > 2 {
+			t.Errorf("%d roots checked at once, want at most 2", most)
+		}
+	})
+
+	t.Run("interrupted", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		check := func(context.Context, string, string, drift.Options) (*drift.Result, error) {
+			return &drift.Result{Backend: "s3"}, nil
+		}
+		results, _ := checkDriftRoots(ctx, DriftOptions{Out: out, Parallel: 1}, driftpolicy.Decider{}, check, nil, targets)
+		if got := paths(results); !reflect.DeepEqual(got, want) {
+			t.Errorf("roots %v, want %v", got, want)
+		}
+		for _, r := range results {
+			if r.Error != context.Canceled.Error() && r.Backend != "s3" {
+				t.Errorf("%s: %+v, want checked or %v", r.Path, r, context.Canceled)
+			}
+		}
+	})
+}
+
+// A root that panics is recovered and logged, and has the panic; the
+// others go on no further, and those not started say which root stopped
+// them, not its panic.
+func TestCheckDriftRootsPanic(t *testing.T) {
+	logged := captureLog(t)
+	out := "out"
+	var targets []driftTarget
+	for _, rel := range []string{"aws/1/a", "aws/1/b", "aws/1/c", "aws/1/d"} {
+		targets = append(targets, driftTarget{dir: filepath.Join(out, filepath.FromSlash(rel))})
+	}
+	check := func(_ context.Context, dir, _ string, _ drift.Options) (*drift.Result, error) {
+		if relativePath(out, dir) == "aws/1/b" {
+			panic("boom")
+		}
+		return &drift.Result{Backend: "s3"}, nil
+	}
+	results, _ := checkDriftRoots(t.Context(), DriftOptions{Out: out, Parallel: 1}, driftpolicy.Decider{}, check, nil, targets)
+	want := map[string]string{
+		"aws/1/a": "",
+		"aws/1/b": "panic: boom (the log has the stack)",
+		"aws/1/c": "not started, as aws/1/b panicked",
+		"aws/1/d": "not started, as aws/1/b panicked",
+	}
+	for _, r := range results {
+		if r.Error != want[r.Path] {
+			t.Errorf("%s: error %q, want %q", r.Path, r.Error, want[r.Path])
+		}
+	}
+	if !strings.Contains(logged.String(), "aws/1/b panicked: boom") {
+		t.Errorf("logged %q, want the panic of aws/1/b", logged.String())
+	}
+}

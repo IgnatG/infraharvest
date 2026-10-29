@@ -409,7 +409,7 @@ resource "aws_iam_role" "app" {
 			dir := t.TempDir()
 			tf := &fakeTerraform{dir: dir, generated: generated}
 
-			if _, err := Generate(context.Background(), tf, dir, imports, Options{IncludeOwned: tt.includeOwned}); err != nil {
+			if _, err := Generate(context.Background(), tf, dir, imports, Options{IncludeOwned: tt.includeOwned, Traits: testTraits}); err != nil {
 				t.Fatal(err)
 			}
 
@@ -776,99 +776,5 @@ func TestGenerateLeavesOutSecretResourcesThatDontValidate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, hclfile.VariablesFileName)); err == nil {
 		t.Error("variables.tf kept without secrets")
-	}
-}
-
-// The edits before Generate reads generated.tf say why it plans again, and
-// a file they leave as it is needs no plan.
-func TestPrepareGeneratedNamesWhyItReplans(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	path := filepath.Join(dir, rootfile.GeneratedFileName)
-	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_sqs_queue" "b" {
-  name   = "b"
-  policy = "{}"
-}
-
-resource "aws_sqs_queue" "a" {
-  name = "a"
-}
-`)
-	opts := Options{Omit: map[string][]string{"aws_sqs_queue": {"policy"}}}
-
-	reasons, err := prepareGenerated(path, nil, opts, schemaHints{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []replanReason{replanSorted, replanOmitted}; !reflect.DeepEqual(reasons, want) {
-		t.Errorf("reasons: got %v, want %v", reasons, want)
-	}
-	if got, want := readFile(t, dir, rootfile.GeneratedFileName), `resource "aws_sqs_queue" "a" {
-  name = "a"
-}
-
-resource "aws_sqs_queue" "b" {
-  name = "b"
-}
-`; got != want {
-		t.Errorf("generated.tf: got\n%s\nwant\n%s", got, want)
-	}
-
-	if reasons, err := prepareGenerated(path, nil, opts, schemaHints{}); err != nil || len(reasons) != 0 {
-		t.Errorf("again: got %v, %v, want no reason", reasons, err)
-	}
-}
-
-// Each edit of generated.tf that changes it is the reason for the plan
-// that follows: placeholders, lifecycles and the conflicting arguments it
-// settles.
-func TestPrepareGeneratedReasons(t *testing.T) {
-	t.Parallel()
-	for name, tc := range map[string]struct {
-		config string
-		opts   Options
-		hints  schemaHints
-		want   []replanReason
-	}{
-		"placeholders": {
-			config: `resource "aws_lambda_function" "zip" {
-  filename      = null
-  function_name = "orders"
-}
-`,
-			opts: Options{Placeholders: lambdaPlaceholder},
-			want: []replanReason{replanPlaceholders},
-		},
-		"lifecycles": {
-			config: `resource "aws_api_gateway_deployment" "a" {
-  rest_api_id = "a1b2c3"
-}
-`,
-			opts: Options{Lifecycles: map[string]Lifecycle{"aws_api_gateway_deployment": {CreateBeforeDestroy: true, Reason: "a stage refers to it"}}},
-			want: []replanReason{replanLifecycles},
-		},
-		"conflicts": {
-			config: `resource "aws_subnet" "a" {
-  availability_zone    = "us-east-1a"
-  availability_zone_id = "us-east-1-az1"
-}
-`,
-			hints: exactHints(subnetMetadata()),
-			want:  []replanReason{replanConflicts},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			dir := t.TempDir()
-			writeConfig(t, dir, rootfile.GeneratedFileName, tc.config)
-
-			reasons, err := prepareGenerated(filepath.Join(dir, rootfile.GeneratedFileName), nil, tc.opts, tc.hints)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(reasons, tc.want) {
-				t.Errorf("reasons: got %v, want %v", reasons, tc.want)
-			}
-		})
 	}
 }

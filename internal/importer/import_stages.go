@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -340,7 +341,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		}
 		resolved, t.newer, constraints = r.registryModules(ctx, provider, mode, selected)
 		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
+		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, r.tools, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
 		resolved = append(own, resolved...)
 	}
 	if t.root, err = r.callRoot(ctx, c, t.binary.Registry, t.execPath, engineProvider(provider), constraints); err != nil {
@@ -390,18 +391,20 @@ func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath s
 // engineOptions configures engine.Generate for the roots of the call c, in
 // one place: what the catalogue knows about their types, for the provider
 // release the toolchain t pins (see catalogueEngineOptions);
-// t's root files and modules; what the provider's profile says of tags
-// and of the arguments resources inherit, and the other providers the
-// roots may configure; the flags the engine takes; and what the selection
-// of l leaves out, or keeps although another tool owns it.
+// t's root files and modules; what the provider's profile says of its
+// resources (see engineTraits), of tags and of the arguments resources
+// inherit, and the other providers the roots may configure; the flags
+// the engine takes; and what the selection of l leaves out, or keeps
+// although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
 	opts := catalogueEngineOptions(c.cat, t.root.version)
 	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, gate.DefaultScanners(c.options.Policies), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout
-	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID)
-	opts.External = l.leftOut
 	profile := provider.Profile()
+	opts.Traits = engineTraits(profile.Traits)
+	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID, opts.Traits.OwnerTags)
+	opts.External = l.leftOut
 	if tags := profile.DefaultTags; tags != nil {
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: tags.Attribute, Block: tags.Block, Argument: tags.Argument, ReservedPrefix: tags.ReservedPrefix}
 	}
@@ -534,4 +537,92 @@ func (r *Run) recordCall(c *callContext, l *callListing, resources callResources
 	if c.scope != "" {
 		r.report.AddDiscovered(c.scope, counted)
 	}
+}
+
+// engineTraits returns the engine's traits of what the provider's profile
+// says its resources and the values that identify them are like (see
+// harvest.Traits), which the engine finds references, owners and the
+// literals worth naming by.
+func engineTraits(t harvest.Traits) engine.Traits {
+	var owners engine.OwnerTags
+	for _, o := range t.OwnerTags {
+		owners = append(owners, engine.OwnerTag(o))
+	}
+	return engine.Traits{
+		IDPrefixes:          t.IDPrefixes,
+		IDSuffixes:          t.IDSuffixes,
+		ARNPrefix:           t.ARNPrefix,
+		WellKnownIDs:        t.WellKnownIDs,
+		SelfLinkAliases:     t.SelfLinkAliases,
+		PrimaryIdentities:   t.PrimaryIdentities,
+		NameAttributes:      t.NameAttributes,
+		IdentityAttributes:  t.IdentityAttributes,
+		NestedIdentities:    t.NestedIdentities,
+		OwnerTags:           owners,
+		TagAttributes:       t.TagAttributes,
+		MergedTagAttributes: t.MergedTagAttributes,
+	}
+}
+
+// unionTraits returns the traits of the providers of names at once, in
+// their order: what drift checks a root no provider owns with (see
+// rootProvider), so that the values any of them identifies resources by,
+// such as ARNs and Azure resource IDs, are still references.
+func unionTraits(provider func(string) harvest.Provider, names []string) harvest.Traits {
+	var u harvest.Traits
+	var wellKnown []string
+	for _, name := range names {
+		var p harvest.Provider
+		if provider != nil {
+			p = provider(name)
+		}
+		if p == nil {
+			continue
+		}
+		t := p.Profile().Traits
+		u.IDPrefixes = appendNew(u.IDPrefixes, t.IDPrefixes)
+		u.IDSuffixes = appendNew(u.IDSuffixes, t.IDSuffixes)
+		if u.ARNPrefix == "" {
+			u.ARNPrefix = t.ARNPrefix
+		}
+		if t.WellKnownIDs != nil {
+			wellKnown = append(wellKnown, "(?:"+t.WellKnownIDs.String()+")")
+		}
+		for from, to := range t.SelfLinkAliases {
+			if u.SelfLinkAliases == nil {
+				u.SelfLinkAliases = map[string]string{}
+			}
+			if _, ok := u.SelfLinkAliases[from]; !ok {
+				u.SelfLinkAliases[from] = to
+			}
+		}
+		u.PrimaryIdentities = appendNew(u.PrimaryIdentities, t.PrimaryIdentities)
+		u.IdentityAttributes = appendNew(u.IdentityAttributes, t.IdentityAttributes)
+		u.NameAttributes = appendNew(u.NameAttributes, t.NameAttributes)
+		for block, attribute := range t.NestedIdentities {
+			if u.NestedIdentities == nil {
+				u.NestedIdentities = map[string]string{}
+			}
+			if _, ok := u.NestedIdentities[block]; !ok {
+				u.NestedIdentities[block] = attribute
+			}
+		}
+		u.OwnerTags = appendNew(u.OwnerTags, t.OwnerTags)
+		u.TagAttributes = appendNew(u.TagAttributes, t.TagAttributes)
+		u.MergedTagAttributes = appendNew(u.MergedTagAttributes, t.MergedTagAttributes)
+	}
+	if len(wellKnown) > 0 {
+		u.WellKnownIDs = regexp.MustCompile(strings.Join(wellKnown, "|"))
+	}
+	return u
+}
+
+// appendNew appends to list those of more it doesn't have yet, in order.
+func appendNew[T comparable](list, more []T) []T {
+	for _, v := range more {
+		if !slices.Contains(list, v) {
+			list = append(list, v)
+		}
+	}
+	return list
 }

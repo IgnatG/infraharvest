@@ -5,7 +5,6 @@ package google
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"slices"
 	"sort"
@@ -18,53 +17,37 @@ import (
 	"google.golang.org/api/sqladmin/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
-// sqlAdmin serves the SQL Admin API's instance and database lists: two
-// pages of instances, and the databases of each primary in us-central1.
-// The instance stopped can't list its databases. Every request's path is
-// recorded, so a test can tell which instances were asked about.
-func sqlAdmin(t *testing.T) (server *httptest.Server, requested func() []string) {
-	t.Helper()
-	var mu sync.Mutex
-	var paths []string
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		paths = append(paths, r.URL.Path)
-		mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method != http.MethodGet {
-			http.Error(w, r.Method+" "+r.URL.Path, http.StatusMethodNotAllowed)
-			return
-		}
-		switch {
-		case r.URL.Path == "/v1/projects/acme/instances" && r.URL.Query().Get("pageToken") == "":
-			_, _ = w.Write([]byte(`{"items": [
+// sqlAdmin answers as the SQL Admin API, for fakeGoogle, its instance and
+// database lists: two pages of instances, and the databases of each
+// primary in us-central1. The instance stopped can't list its databases.
+func sqlAdmin(r providertest.Request) providertest.Answer {
+	if r.Method != http.MethodGet {
+		return providertest.Status(http.StatusMethodNotAllowed, r.Method+" "+r.Path)
+	}
+	switch {
+	case r.Path == "/v1/projects/acme/instances" && r.Query.Get("pageToken") == "":
+		return providertest.JSON(`{"items": [
 				{"name": "orders", "region": "us-central1", "databaseVersion": "MYSQL_8_0", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "orders-replica", "region": "us-central1", "databaseVersion": "MYSQL_8_0", "instanceType": "READ_REPLICA_INSTANCE", "masterInstanceName": "acme:orders"},
 				{"name": "reports", "region": "europe-west1", "databaseVersion": "POSTGRES_16", "instanceType": "CLOUD_SQL_INSTANCE"}
-			], "nextPageToken": "p2"}`))
-		case r.URL.Path == "/v1/projects/acme/instances" && r.URL.Query().Get("pageToken") == "p2":
-			_, _ = w.Write([]byte(`{"items": [
+			], "nextPageToken": "p2"}`)
+	case r.Path == "/v1/projects/acme/instances" && r.Query.Get("pageToken") == "p2":
+		return providertest.JSON(`{"items": [
 				{"name": "billing", "region": "us-central1", "databaseVersion": "POSTGRES_16", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "stopped", "region": "us-central1", "databaseVersion": "POSTGRES_16", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "legacy-source", "region": "us-central1", "databaseVersion": "MYSQL_5_7", "instanceType": "ON_PREMISES_INSTANCE"}
-			]}`))
-		case r.URL.Path == "/v1/projects/acme/instances/orders/databases":
-			_, _ = w.Write([]byte(`{"items": [{"name": "app", "instance": "orders", "project": "acme"}, {"name": "mysql", "instance": "orders", "project": "acme"}]}`))
-		case r.URL.Path == "/v1/projects/acme/instances/billing/databases":
-			_, _ = w.Write([]byte(`{"items": [{"name": "postgres", "instance": "billing", "project": "acme"}, {"name": "ledger", "instance": "billing", "project": "acme"}]}`))
-		case r.URL.Path == "/v1/projects/acme/instances/stopped/databases":
-			http.Error(w, `{"error": {"code": 400, "message": "Invalid request since instance is not running."}}`, http.StatusBadRequest)
-		default:
-			http.Error(w, `{"error": {"code": 404, "message": "`+r.URL.Path+`"}}`, http.StatusNotFound)
-		}
-	}))
-	t.Cleanup(server.Close)
-	return server, func() []string {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]string(nil), paths...)
+			]}`)
+	case r.Path == "/v1/projects/acme/instances/orders/databases":
+		return providertest.JSON(`{"items": [{"name": "app", "instance": "orders", "project": "acme"}, {"name": "mysql", "instance": "orders", "project": "acme"}]}`)
+	case r.Path == "/v1/projects/acme/instances/billing/databases":
+		return providertest.JSON(`{"items": [{"name": "postgres", "instance": "billing", "project": "acme"}, {"name": "ledger", "instance": "billing", "project": "acme"}]}`)
+	case r.Path == "/v1/projects/acme/instances/stopped/databases":
+		return providertest.Status(http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request since instance is not running."}}`)
+	default:
+		return providertest.Status(http.StatusNotFound, `{"error": {"code": 404, "message": "`+r.Path+`"}}`)
 	}
 }
 
@@ -85,8 +68,7 @@ func cloudSQLLister(region string) *CloudSQLLister {
 }
 
 func TestCloudSQLList(t *testing.T) {
-	server, requested := sqlAdmin(t)
-	t.Setenv(EndpointEnv, server.URL)
+	cloud := fakeGoogle(t, sqlAdmin)
 
 	g := newCloudSQL(t, "us-central1")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
@@ -126,7 +108,7 @@ func TestCloudSQLList(t *testing.T) {
 		}
 	}
 
-	for _, path := range requested() {
+	for _, path := range cloud.Paths() {
 		for _, instance := range []string{"orders-replica", "reports", "legacy-source"} {
 			if path == "/v1/projects/acme/instances/"+instance+"/databases" {
 				t.Errorf("asked for the databases of %s", instance)
@@ -139,8 +121,7 @@ func TestCloudSQLList(t *testing.T) {
 // the instances in its region, also when they list at once. Before, each
 // listed every instance of the project again.
 func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
-	server, requested := sqlAdmin(t)
-	t.Setenv(EndpointEnv, server.URL)
+	cloud := fakeGoogle(t, sqlAdmin)
 	ctx := fastRetries(t)
 
 	regions := []string{"us-central1", "europe-west1", "us-central1", "asia-east1"}
@@ -167,14 +148,14 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 		}
 	}
 	lists := 0
-	for _, path := range requested() {
+	for _, path := range cloud.Paths() {
 		if path == "/v1/projects/acme/instances" {
 			lists++
 		}
 	}
 	// Both pages, once.
 	if lists != 2 {
-		t.Errorf("got %d instance list requests, want 2: %v", lists, requested())
+		t.Errorf("got %d instance list requests, want 2: %v", lists, cloud.Paths())
 	}
 }
 
@@ -182,24 +163,20 @@ func TestCloudSQLListsInstancesOncePerProject(t *testing.T) {
 // project's other regions don't make the failing call again: they fail
 // too, without a request. A run that lists afresh lists again.
 func TestCloudSQLKeepsAFailure(t *testing.T) {
-	server, _ := sqlAdmin(t)
 	var mu sync.Mutex
 	failing := true
 	requests := 0
-	failOnce := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
 		mu.Lock()
 		f := failing
 		failing = false
 		requests++
 		mu.Unlock()
 		if f {
-			http.Error(w, `{"error": {"message": "failed"}}`, http.StatusForbidden)
-			return
+			return providertest.Status(http.StatusForbidden, `{"error": {"message": "failed"}}`)
 		}
-		server.Config.Handler.ServeHTTP(w, r)
-	}))
-	t.Cleanup(failOnce.Close)
-	t.Setenv(EndpointEnv, failOnce.URL)
+		return sqlAdmin(r)
+	})
 
 	ctx := fastRetries(t)
 	if _, err := cloudSQLLister("us-central1").List(ctx, harvest.Settings{Provider: "google"}); err == nil {
@@ -223,8 +200,7 @@ func TestCloudSQLKeepsAFailure(t *testing.T) {
 
 // No instance is global, so the import of global asks nothing.
 func TestCloudSQLGlobal(t *testing.T) {
-	server, requested := sqlAdmin(t)
-	t.Setenv(EndpointEnv, server.URL)
+	cloud := fakeGoogle(t, sqlAdmin)
 
 	g := newCloudSQL(t, "")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
@@ -234,15 +210,14 @@ func TestCloudSQLGlobal(t *testing.T) {
 	if len(resources) != 0 {
 		t.Errorf("%d resources, want none", len(resources))
 	}
-	if paths := requested(); len(paths) != 0 {
+	if paths := cloud.Paths(); len(paths) != 0 {
 		t.Errorf("requests %v, want none", paths)
 	}
 }
 
 // A region with no instances lists nothing, without asking for databases.
 func TestCloudSQLRegionWithoutInstances(t *testing.T) {
-	server, requested := sqlAdmin(t)
-	t.Setenv(EndpointEnv, server.URL)
+	cloud := fakeGoogle(t, sqlAdmin)
 
 	g := newCloudSQL(t, "asia-east1")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
@@ -252,7 +227,7 @@ func TestCloudSQLRegionWithoutInstances(t *testing.T) {
 	if len(resources) != 0 {
 		t.Errorf("%d resources, want none", len(resources))
 	}
-	for _, path := range requested() {
+	for _, path := range cloud.Paths() {
 		if strings.HasSuffix(path, "/databases") {
 			t.Errorf("asked %s", path)
 		}
@@ -271,16 +246,12 @@ func TestCloudSQLInstanceListFails(t *testing.T) {
 		{"second page fails", "p2", http.StatusInternalServerError},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				if r.URL.Query().Get("pageToken") == tt.failOn {
-					http.Error(w, `{"error": {"message": "failed"}}`, tt.status)
-					return
+			fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+				if r.Query.Get("pageToken") == tt.failOn {
+					return providertest.Status(tt.status, `{"error": {"message": "failed"}}`)
 				}
-				_, _ = w.Write([]byte(`{"items": [{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}], "nextPageToken": "p2"}`))
-			}))
-			defer server.Close()
-			t.Setenv(EndpointEnv, server.URL)
+				return providertest.JSON(`{"items": [{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}], "nextPageToken": "p2"}`)
+			})
 
 			g := newCloudSQL(t, "us-central1")
 			resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
@@ -324,23 +295,19 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 		{"listed", http.StatusOK, `{"items": []}`, false, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				switch r.URL.Path {
+			fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+				switch r.Path {
 				case "/v1/projects/acme/instances":
-					_, _ = w.Write([]byte(`{"items": [
+					return providertest.JSON(`{"items": [
 						{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 						{"name": "billing", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}
-					]}`))
+					]}`)
 				case "/v1/projects/acme/instances/orders/databases":
-					_, _ = w.Write([]byte(`{"items": [{"name": "app"}]}`))
+					return providertest.JSON(`{"items": [{"name": "app"}]}`)
 				default:
-					w.WriteHeader(tt.status)
-					_, _ = w.Write([]byte(tt.body))
+					return providertest.Status(tt.status, tt.body)
 				}
-			}))
-			defer server.Close()
-			t.Setenv(EndpointEnv, server.URL)
+			})
 			// An earlier listing of the import that found otherwise
 			// doesn't count: this one's outcome replaces it.
 			ctx := fastRetries(t)
@@ -380,42 +347,39 @@ func TestCloudSQLDatabaseListFails(t *testing.T) {
 // answers only once billing, after it, has been asked.
 func TestCloudSQLListsDatabasesAtOnce(t *testing.T) {
 	asked := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+		switch r.Path {
 		case "/v1/projects/acme/instances":
-			_, _ = w.Write([]byte(`{"items": [
+			return providertest.JSON(`{"items": [
 				{"name": "orders", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "billing", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "gone", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "stopped", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "secret", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"},
 				{"name": "audit", "region": "us-central1", "instanceType": "CLOUD_SQL_INSTANCE"}
-			]}`))
+			]}`)
 		case "/v1/projects/acme/instances/orders/databases":
 			select {
 			case <-asked:
-				_, _ = w.Write([]byte(`{"items": [{"name": "app"}, {"name": "mysql"}]}`))
+				return providertest.JSON(`{"items": [{"name": "app"}, {"name": "mysql"}]}`)
 			case <-time.After(30 * time.Second):
-				http.Error(w, `{"error": {"code": 500, "message": "billing wasn't asked while orders was"}}`, http.StatusInternalServerError)
+				return providertest.Status(http.StatusInternalServerError, `{"error": {"code": 500, "message": "billing wasn't asked while orders was"}}`)
 			}
 		case "/v1/projects/acme/instances/billing/databases":
 			close(asked)
-			_, _ = w.Write([]byte(`{"items": [{"name": "ledger"}]}`))
+			return providertest.JSON(`{"items": [{"name": "ledger"}]}`)
 		case "/v1/projects/acme/instances/gone/databases":
-			http.Error(w, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist."}}`, http.StatusNotFound)
+			return providertest.Status(http.StatusNotFound, `{"error": {"code": 404, "message": "The Cloud SQL instance does not exist."}}`)
 		case "/v1/projects/acme/instances/stopped/databases":
-			http.Error(w, `{"error": {"code": 400, "message": "Invalid request since instance is not running."}}`, http.StatusBadRequest)
+			return providertest.Status(http.StatusBadRequest, `{"error": {"code": 400, "message": "Invalid request since instance is not running."}}`)
 		case "/v1/projects/acme/instances/secret/databases":
-			http.Error(w, `{"error": {"code": 403, "message": "The client is not authorized to make this request."}}`, http.StatusForbidden)
+			return providertest.Status(http.StatusForbidden, `{"error": {"code": 403, "message": "The client is not authorized to make this request."}}`)
 		case "/v1/projects/acme/instances/audit/databases":
-			_, _ = w.Write([]byte(`{"items": [{"name": "events"}]}`))
+			return providertest.JSON(`{"items": [{"name": "events"}]}`)
 		default:
-			http.Error(w, `{"error": {"code": 404, "message": "`+r.URL.Path+`"}}`, http.StatusNotFound)
+			return providertest.Status(http.StatusNotFound, `{"error": {"code": 404, "message": "`+r.Path+`"}}`)
 		}
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+	})
 
 	ctx := fastRetries(t)
 	g := cloudSQLLister("us-central1")
@@ -469,13 +433,9 @@ func TestOwnsDatabases(t *testing.T) {
 // A project without the SQL Admin API enabled has no instances, which
 // isn't a failure: --services=* lists cloudsql in every project.
 func TestCloudSQLAPIDisabled(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Cloud SQL Admin API has not been used in project acme before or it is disabled.", "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED", "domain": "googleapis.com"}]}}`))
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, func(providertest.Request) providertest.Answer {
+		return providertest.Status(http.StatusForbidden, `{"error": {"code": 403, "status": "PERMISSION_DENIED", "message": "Cloud SQL Admin API has not been used in project acme before or it is disabled.", "details": [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "SERVICE_DISABLED", "domain": "googleapis.com"}]}}`)
+	})
 
 	g := newCloudSQL(t, "us-central1")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})

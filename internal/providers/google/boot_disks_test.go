@@ -6,13 +6,13 @@ package google
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 // fakeInstances answers the project acme-prod's aggregated instance list
@@ -26,25 +26,21 @@ type fakeInstances struct {
 	fields []string
 }
 
-func (f *fakeInstances) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (f *fakeInstances) answer(r providertest.Request) providertest.Answer {
 	f.mu.Lock()
 	failing := f.fail > 0
 	if failing {
 		f.fail--
 	}
-	f.fields = append(f.fields, r.URL.Query().Get("fields"))
+	f.fields = append(f.fields, r.Query.Get("fields"))
 	f.mu.Unlock()
 	if failing {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"Required 'compute.instances.list' permission","status":"PERMISSION_DENIED"}}`))
-		return
+		return providertest.Status(http.StatusForbidden, `{"error":{"code":403,"message":"Required 'compute.instances.list' permission","status":"PERMISSION_DENIED"}}`)
 	}
 	page := 0
-	if token := r.URL.Query().Get("pageToken"); token != "" {
+	if token := r.Query.Get("pageToken"); token != "" {
 		if err := json.Unmarshal([]byte(token), &page); err != nil {
-			http.Error(w, "bad token", http.StatusBadRequest)
-			return
+			return providertest.Status(http.StatusBadRequest, "bad token")
 		}
 	}
 	body := map[string]any{"items": f.pages[page]}
@@ -52,8 +48,7 @@ func (f *fakeInstances) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		next, _ := json.Marshal(page + 1)
 		body["nextPageToken"] = string(next)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(body)
+	return jsonOf(body)
 }
 
 func (f *fakeInstances) requests() int {
@@ -67,15 +62,12 @@ func (f *fakeInstances) requests() int {
 // none of the searches and instance lists of other tests kept.
 func computeAndAssets(t *testing.T, search *fakeAssetSearch, instances *fakeInstances) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/compute/v1/projects/acme-prod/aggregated/instances" {
-			instances.ServeHTTP(w, r)
-			return
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+		if r.Path == "/compute/v1/projects/acme-prod/aggregated/instances" {
+			return instances.answer(r)
 		}
-		search.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+		return search.answer(r)
+	})
 }
 
 const computeURL = "https://www.googleapis.com/compute/v1/"
@@ -327,15 +319,12 @@ func TestCloudAssetBootDisksUnknown(t *testing.T) {
 // sources name by ID too.
 func TestBootDisksOfAProjectGivenByNumber(t *testing.T) {
 	instances := &fakeInstances{pages: bootDiskPages[:1]}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/compute/v1/projects/123456789012/aggregated/instances" {
-			http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
-			return
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+		if r.Path != "/compute/v1/projects/123456789012/aggregated/instances" {
+			return providertest.Status(http.StatusNotFound, "unexpected "+r.Path)
 		}
-		instances.ServeHTTP(w, r)
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+		return instances.answer(r)
+	})
 
 	list, err := instancesOnce(testRun(t), "123456789012")
 	if err != nil {

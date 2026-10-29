@@ -182,7 +182,7 @@ func listRegion(ctx context.Context, t *testing.T, service string, explorer bool
 	if err != nil {
 		t.Fatal(err)
 	}
-	resources, err := lister.List(ctx, harvest.Settings{Service: service, Provider: "aws"})
+	resources, err := listServiceChecked(ctx, t, lister, service, harvest.Settings{Service: service, Provider: "aws"})
 	if err != nil {
 		t.Fatal(err)
 	}

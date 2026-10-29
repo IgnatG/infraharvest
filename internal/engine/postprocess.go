@@ -58,7 +58,7 @@ func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, se
 		return nil, err
 	}
 	if baseline == nil {
-		return nil, liftLiteralsValidated(ctx, tf, ws, r.taken)
+		return nil, liftLiteralsValidated(ctx, tf, ws, r.taken, r.opts.Traits)
 	}
 	t := &tidying{ctx: ctx, tf: tf, ws: ws, r: r, vars: vars, baseline: *baseline, values: values}
 	if err := t.run(t.passes()); err != nil {
@@ -108,16 +108,16 @@ func (t *tidying) passes() []tidyPass {
 		// Next, so the passes below see only the arguments that matter.
 		{name: passDefaults, after: []string{passEffectiveTags}, alone: true, policy: FewerChanges, rounds: maxDefaultRounds, rebases: true, stopped: "the configuration stopped planning after leaving out defaults", start: t.defaults},
 		eachResource(passReferences, []string{passDefaults}, func(skip map[string]int) (map[string]bool, error) {
-			return addReferencesSkipping(ws, t.values, skip)
+			return addReferencesSkipping(ws, t.values, skip, opts.Traits)
 		}, true),
 		// After the references: data sources are for what the root
 		// doesn't manage.
 		eachResource(passDataSources, []string{passReferences}, func(skip map[string]int) (map[string]bool, error) {
-			return addDataSourcesSkipping(ws, opts.External, opts.DataSources, taken, skip)
+			return addDataSourcesSkipping(ws, opts.External, opts.DataSources, taken, skip, opts.Traits)
 		}, len(opts.External) > 0),
 		// After the data sources: variables are for what they can't read.
 		eachResource(passRootVariables, []string{passReferences, passDataSources}, func(skip map[string]int) (map[string]bool, error) {
-			return addRootVariables(ws, opts.OtherRoots, opts.ARNs, taken, skip)
+			return addRootVariables(ws, opts.OtherRoots, opts.ARNs, opts.Traits, taken, skip)
 		}, len(opts.OtherRoots) > 0),
 		// Lookups are for what nothing the import lists has.
 		eachResource(passLookups, []string{passReferences, passDataSources, passRootVariables}, func(skip map[string]int) (map[string]bool, error) {
@@ -127,7 +127,7 @@ func (t *tidying) passes() []tidyPass {
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
 		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, start: func() (*tidyEdit, error) {
-			return &tidyEdit{edit: plainEdit(func() (bool, error) { return liftLiterals(ws, taken) })}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return liftLiterals(ws, taken, opts.Traits) })}, nil
 		}},
 		// After the passes above, as clusters reach the modules through the
 		// references.
@@ -218,9 +218,9 @@ func (t *tidying) localModules() (*tidyEdit, error) {
 // liftLiteralsValidated lifts repeated identifiers when the configuration
 // can't be planned, and undoes the lift if it doesn't validate. tf is the
 // workspace's (see workspace.terraform).
-func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, ws *workspace, taken Names) error {
+func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, ws *workspace, taken Names, t Traits) error {
 	before := ws.Snapshot()
-	lifted, err := liftLiterals(ws, taken)
+	lifted, err := liftLiterals(ws, taken, t)
 	if err != nil || !lifted {
 		return err
 	}

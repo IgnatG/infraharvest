@@ -80,7 +80,7 @@ resource "aws_cloudfront_distribution" "web" {
 `)
 
 	ws := rootWorkspace(t, dir)
-	edited, err := addRootVariables(ws, otherRoots, awsARNs, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 2})
+	edited, err := addRootVariables(ws, otherRoots, awsARNs, testTraits, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 2})
 	if err != nil || len(edited) != 4 || edited["aws_security_group.web"] {
 		t.Fatalf("want four resources edited, got %v, %v", edited, err)
 	}
@@ -229,7 +229,7 @@ resource "google_compute_subnetwork" "elsewhere" {
 }
 `)
 	ws := rootWorkspace(t, dir)
-	edited, err := addRootVariables(ws, others, nil, nil, map[string]int{"google_compute_router.other": 1})
+	edited, err := addRootVariables(ws, others, nil, testTraits, nil, map[string]int{"google_compute_router.other": 1})
 	if err != nil || len(edited) != 3 {
 		t.Fatalf("want three resources edited, got %v, %v", edited, err)
 	}

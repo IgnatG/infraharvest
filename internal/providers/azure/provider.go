@@ -410,8 +410,9 @@ func (p *Provider) InQueryScope(identity map[string]string) bool {
 // tags in the tags attribute, with no provider block to apply them to
 // all, and Azure reserves the hidden- prefix for its own; Resource
 // Graph's types go in files by their family; a root that environments
-// share reads the subscription from the provider; and the azurerm backend
-// keeps state in Azure.
+// share reads the subscription from the provider; the azurerm backend
+// keeps state in Azure; and traits says what its resources' values are
+// like.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: commandName,
@@ -430,6 +431,7 @@ func (*Provider) Profile() harvest.Profile {
 		DependentServices: []string{diagnosticSettingService},
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", ReservedPrefix: "hidden-"},
+		Traits:            traits(),
 		Layout: harvest.Layout{
 			InventoryServices: []string{"resource_graph"},
 			NetworkServices: []string{

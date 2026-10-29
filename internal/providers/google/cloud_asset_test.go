@@ -9,7 +9,6 @@ import (
 	"log"
 	"math/bits"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
@@ -113,12 +113,11 @@ type fakeAssetSearch struct {
 	masks    []string
 }
 
-func (f *fakeAssetSearch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !strings.HasSuffix(r.URL.Path, "/v1/projects/acme-prod:searchAllResources") {
-		http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
-		return
+func (f *fakeAssetSearch) answer(r providertest.Request) providertest.Answer {
+	if !strings.HasSuffix(r.Path, "/v1/projects/acme-prod:searchAllResources") {
+		return providertest.Status(http.StatusNotFound, "unexpected "+r.Path)
 	}
-	q := r.URL.Query()
+	q := r.Query
 	types := q["assetTypes"]
 	f.mu.Lock()
 	f.requests = append(f.requests, types)
@@ -126,10 +125,7 @@ func (f *fakeAssetSearch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	for _, t := range types {
 		if slices.Contains(f.reject, t) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_, _ = w.Write([]byte(`{"error":{"code":400,"message":"Invalid asset type","status":"INVALID_ARGUMENT"}}`))
-			return
+			return providertest.Status(http.StatusBadRequest, `{"error":{"code":400,"message":"Invalid asset type","status":"INVALID_ARGUMENT"}}`)
 		}
 	}
 	var matching []map[string]any
@@ -141,8 +137,7 @@ func (f *fakeAssetSearch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := 0
 	if token := q.Get("pageToken"); token != "" {
 		if err := json.Unmarshal([]byte(token), &start); err != nil {
-			http.Error(w, "bad token", http.StatusBadRequest)
-			return
+			return providertest.Status(http.StatusBadRequest, "bad token")
 		}
 	}
 	end := min(start+f.perPage, len(matching))
@@ -151,8 +146,7 @@ func (f *fakeAssetSearch) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		next, _ := json.Marshal(end)
 		page["nextPageToken"] = string(next)
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(page)
+	return jsonOf(page)
 }
 
 func asset(assetType, name, location string, extra map[string]any) map[string]any {
@@ -184,9 +178,7 @@ var searchResults = []map[string]any{
 // searches of other tests kept.
 func listAssets(t *testing.T, search *fakeAssetSearch, cat *catalogue.Catalogue, region string) []harvest.Resource {
 	t.Helper()
-	server := httptest.NewServer(search)
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, search.answer)
 	return listAssetsIn(t, cat, region)
 }
 
@@ -302,9 +294,7 @@ func TestCloudAssetListsARegion(t *testing.T) {
 // searched the whole project again: N regions made N+1 searches.
 func TestCloudAssetSearchesOncePerProject(t *testing.T) {
 	search := &fakeAssetSearch{results: searchResults, perPage: 500}
-	server := httptest.NewServer(search)
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, search.answer)
 
 	regions := []string{"", "us-central1", "europe-west1", "us-central1", ""}
 	listers := make([]*CloudAssetLister, len(regions))
@@ -346,7 +336,7 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 	var fail sync.Mutex
 	failing := true
 	failed := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
 		fail.Lock()
 		f := failing
 		failing = false
@@ -355,13 +345,10 @@ func TestCloudAssetKeepsAFailedSearch(t *testing.T) {
 		}
 		fail.Unlock()
 		if f {
-			http.Error(w, "unavailable", http.StatusForbidden)
-			return
+			return providertest.Status(http.StatusForbidden, "unavailable")
 		}
-		search.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+		return search.answer(r)
+	})
 
 	for range 2 {
 		if _, err := assetLister(t, nil, "").List(testRun(t), harvest.Settings{Provider: "google"}); err == nil {
@@ -419,9 +406,7 @@ func TestCloudAssetSearchesTypeByType(t *testing.T) {
 func TestCloudAssetSearchRejectsEveryType(t *testing.T) {
 	cat := catalogue.MustBuiltin("google")
 	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: allInventoryTypes(cat)}
-	server := httptest.NewServer(search)
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, search.answer)
 	_, err := assetLister(t, nil, "").List(testRun(t), harvest.Settings{Provider: "google"})
 	if err == nil || !strings.Contains(err.Error(), "every asset type") {
 		t.Errorf("error %v, want one saying every type is rejected", err)
@@ -576,9 +561,7 @@ func TestCloudAssetPartialTypes(t *testing.T) {
 func TestCloudAssetSearchesOncePerRun(t *testing.T) {
 	const rejected = "pubsub.googleapis.com/Topic"
 	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: []string{rejected}}
-	server := httptest.NewServer(search)
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, search.answer)
 	first := ratelimit.NewContext(t.Context(), ratelimit.New(0))
 	second := ratelimit.NewContext(t.Context(), ratelimit.New(0))
 	list := func(ctx context.Context, region string) {

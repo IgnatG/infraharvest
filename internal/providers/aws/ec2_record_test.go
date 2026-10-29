@@ -44,7 +44,7 @@ func TestRecordEc2ListsLiveInstances(t *testing.T) {
 	})
 	g := &Ec2Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestRecordEc2PassesTagFilters(t *testing.T) {
 		{Service: "ec2_instance", Path: "id", Values: []string{"i-9"}},
 	}
 
-	resources, err := g.List(ctx, harvest.Settings{Filters: filters})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{Filters: filters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestRecordEc2MarksDefaultCPUOptions(t *testing.T) {
 	})
 	g := &Ec2Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestRecordEc2KeepsCPUOptionsWithoutInstanceTypes(t *testing.T) {
 	})
 	g := &Ec2Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

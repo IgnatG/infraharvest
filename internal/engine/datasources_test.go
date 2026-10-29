@@ -22,11 +22,16 @@ var awsDataSources = map[string]DataSource{
 // addDataSources is addDataSourcesSkipping for every resource: it
 // reports whether it changed anything.
 func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
+	return addDataSourcesWith(dir, external, sources, taken, Traits{})
+}
+
+// addDataSourcesWith is addDataSources for a provider whose traits are t.
+func addDataSourcesWith(dir string, external []External, sources map[string]DataSource, taken Names, t Traits) (bool, error) {
 	ws, err := openWorkspace(dir)
 	if err != nil {
 		return false, err
 	}
-	edited, err := addDataSourcesSkipping(ws, external, sources, taken, nil)
+	edited, err := addDataSourcesSkipping(ws, external, sources, taken, nil, t)
 	if err != nil {
 		return false, err
 	}
@@ -198,5 +203,32 @@ func TestAddDataSourcesWithoutReferences(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, rootfile.DataFileName)); !os.IsNotExist(err) {
 		t.Errorf("data.tf written: %v", err)
+	}
+}
+
+// A policy ARN the selection left out is read by a data source, as the
+// provider's traits say an ARN identifies a resource on its own: an
+// attachment's policy_arn names it although the argument is named after
+// the attachment's own type.
+func TestAddDataSourcesReferToARNs(t *testing.T) {
+	t.Parallel()
+	const arn = "arn:aws:iam::818181818181:policy/shop-prd-alerts-publish"
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "aws_iam_role_policy_attachment" "prod_alerts" {
+  policy_arn = "`+arn+`"
+  role       = "shop-prd-alerts"
+}
+`)
+	sources := map[string]DataSource{"aws_iam_policy": {Type: "aws_iam_policy", Argument: "arn"}}
+
+	changed, err := addDataSourcesWith(dir, []External{{Type: "aws_iam_policy", ID: arn, Name: "shop-prd-alerts-publish"}}, sources, nil, Traits{IDPrefixes: []string{"arn:"}})
+	if err != nil || !changed {
+		t.Fatalf("want a data source, got %v, %v", changed, err)
+	}
+	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, "policy_arn = data.aws_iam_policy.shop_prd_alerts_publish.id") {
+		t.Errorf("generated.tf doesn't refer to the data source:\n%s", got)
+	}
+	if got := squashed(readFile(t, dir, rootfile.DataFileName)); !strings.Contains(got, `data "aws_iam_policy" "shop_prd_alerts_publish" { arn = "`+arn+`" }`) {
+		t.Errorf("data.tf misses the data source:\n%s", got)
 	}
 }

@@ -58,7 +58,7 @@ func TestRecordTransitGatewayListsGatewaysRouteTablesAndAttachments(t *testing.T
 	ctx := useFakeAPI(t, recordTransitGatewayAPI(t))
 	g := &TransitGatewayLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

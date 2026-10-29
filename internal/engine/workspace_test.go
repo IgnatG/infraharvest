@@ -183,7 +183,7 @@ func TestPassEditsInMemory(t *testing.T) {
 	t.Parallel()
 	t.Run("literals", func(t *testing.T) {
 		ws := memoryWorkspace(map[string]string{rootfile.GeneratedFileName: networkGenerated})
-		lifted, err := liftLiterals(ws, nil)
+		lifted, err := liftLiterals(ws, nil, testTraits)
 		if err != nil || !lifted {
 			t.Fatalf("want a lift, got lifted=%v err=%v", lifted, err)
 		}
@@ -204,7 +204,7 @@ resource "aws_subnet" "a" {
 }
 `})
 		values := map[string]map[string]any{"aws_vpc.main": {"id": "vpc-0abc1234"}, "aws_subnet.a": {"id": "subnet-a", "vpc_id": "vpc-0abc1234"}}
-		edited, err := addReferencesSkipping(ws, values, nil)
+		edited, err := addReferencesSkipping(ws, values, nil, testTraits)
 		if err != nil || !edited["aws_subnet.a"] {
 			t.Fatalf("got edited=%v err=%v, want aws_subnet.a", edited, err)
 		}

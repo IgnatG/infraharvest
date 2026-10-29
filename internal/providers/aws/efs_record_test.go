@@ -65,7 +65,7 @@ func TestRecordEfsListsFileSystemsMountTargetsPoliciesAndAccessPoints(t *testing
 	ctx := useFakeAPI(t, recordEfsAPI(t, ""))
 	g := &EfsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "mount targets of fs-2") {
 		t.Errorf("want a partial error for the mount targets of fs-2, got %v", err)
 	}

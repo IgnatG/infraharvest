@@ -5,8 +5,10 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -21,6 +23,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
+	googleprovider "github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
@@ -237,5 +242,98 @@ func TestPlaceWarnsOfUnreadEnvTags(t *testing.T) {
 				t.Errorf("warnings %q, want one saying %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// awsTraits are traits like the aws provider's, which the tests of what
+// listed tags say manages a resource go by.
+var awsTraits = harvest.Traits{OwnerTags: []harvest.OwnerTag{{Key: "aws:cloudformation:stack-name", Tool: "CloudFormation", Stack: true}}}
+
+// engineTraits hands the engine every trait the profile has: each field
+// of the engine's traits has the value of the profile's of its name.
+func TestEngineTraits(t *testing.T) {
+	t.Parallel()
+	profile := harvest.Traits{
+		IDPrefixes:          []string{"arn:"},
+		IDSuffixes:          []string{".example.com"},
+		ARNPrefix:           "arn:",
+		WellKnownIDs:        regexp.MustCompile(`^arn:aws:iam::aws:policy/`),
+		SelfLinkAliases:     map[string]string{"https://a/": "https://b/"},
+		PrimaryIdentities:   []string{"arn"},
+		NameAttributes:      []string{"function_name"},
+		IdentityAttributes:  []string{"dns_name"},
+		NestedIdentities:    map[string]string{"identity": "principal_id"},
+		OwnerTags:           []harvest.OwnerTag{{Key: "k", Value: "v", Tool: "Terraform", Stack: true}},
+		TagAttributes:       []string{"tags"},
+		MergedTagAttributes: []string{"tags_all"},
+	}
+	got := reflect.ValueOf(engineTraits(profile))
+	want := reflect.ValueOf(profile)
+	for i := range got.NumField() {
+		name := got.Type().Field(i).Name
+		w := want.FieldByName(name)
+		if !w.IsValid() {
+			t.Errorf("engineTraits: the profile has no %s", name)
+			continue
+		}
+		if g := got.Field(i); fmt.Sprint(g.Interface()) != fmt.Sprint(w.Interface()) || g.IsZero() {
+			t.Errorf("engineTraits: %s is %v, want %v", name, g.Interface(), w.Interface())
+		}
+	}
+	if got.NumField() != want.NumField() {
+		t.Errorf("engineTraits: %d fields, the profile has %d", got.NumField(), want.NumField())
+	}
+}
+
+// A root no provider owns is checked with the traits of all of them, so
+// that the values any one identifies resources by are references.
+func TestUnionTraits(t *testing.T) {
+	t.Parallel()
+	providers := map[string]harvest.Provider{"aws": &awsprovider.Provider{}, "azure": &azureprovider.Provider{}, "google": &googleprovider.Provider{}}
+	names := []string{"aws", "azure", "google", "missing"}
+	u := unionTraits(func(name string) harvest.Provider { return providers[name] }, names)
+	if want := []string{"arn:", "/subscriptions/", "projects/"}; !slices.Equal(u.IDPrefixes, want) {
+		t.Errorf("IDPrefixes %v, want %v", u.IDPrefixes, want)
+	}
+	if u.ARNPrefix != "arn:" || u.WellKnownIDs == nil || !u.WellKnownIDs.MatchString("arn:aws:iam::aws:policy/ReadOnlyAccess") {
+		t.Errorf("ARNPrefix %q, WellKnownIDs %v: want AWS's", u.ARNPrefix, u.WellKnownIDs)
+	}
+	for _, p := range providers {
+		own := p.Profile().Traits
+		for _, field := range []struct {
+			name      string
+			own, have []string
+		}{
+			{"IDSuffixes", own.IDSuffixes, u.IDSuffixes},
+			{"PrimaryIdentities", own.PrimaryIdentities, u.PrimaryIdentities},
+			{"IdentityAttributes", own.IdentityAttributes, u.IdentityAttributes},
+			{"NameAttributes", own.NameAttributes, u.NameAttributes},
+			{"TagAttributes", own.TagAttributes, u.TagAttributes},
+			{"MergedTagAttributes", own.MergedTagAttributes, u.MergedTagAttributes},
+		} {
+			for _, v := range field.own {
+				if !slices.Contains(field.have, v) {
+					t.Errorf("%s: %s has %q, the union not", field.name, p.Name(), v)
+				}
+			}
+		}
+		for _, o := range own.OwnerTags {
+			if !slices.Contains(u.OwnerTags, o) {
+				t.Errorf("OwnerTags: %s has %v, the union not", p.Name(), o)
+			}
+		}
+		for k, v := range own.SelfLinkAliases {
+			if u.SelfLinkAliases[k] != v {
+				t.Errorf("SelfLinkAliases: %s has %s, the union not", p.Name(), k)
+			}
+		}
+		for k, v := range own.NestedIdentities {
+			if u.NestedIdentities[k] != v {
+				t.Errorf("NestedIdentities: %s has %s, the union not", p.Name(), k)
+			}
+		}
+	}
+	if got := unionTraits(nil, names); !reflect.DeepEqual(got, harvest.Traits{}) {
+		t.Errorf("without providers: %+v, want none", got)
 	}
 }

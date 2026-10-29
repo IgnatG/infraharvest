@@ -29,7 +29,7 @@ func TestEbsReturnsDescribeInstancesError(t *testing.T) {
 	g := &EbsLister{}
 
 	// Before the fix, the ignored error left the response nil and this panicked.
-	_, err := g.List(ctx, harvest.Settings{})
+	_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "i-1") {
 		t.Errorf("want the DescribeInstances error naming the instance, got %v", err)
@@ -64,7 +64,7 @@ func TestWafv2SkipsResourceTypesTheRegionLacks(t *testing.T) {
 	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"WAFInvalidParameterException","message":"resource type not supported in this region"}`))
 	g := NewWafv2RegionalLister()
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestWafv2ReportsOtherAssociationErrors(t *testing.T) {
 	ctx := useFakeAPI(t, serveWafv2Associations(`{"__type":"AccessDeniedException","message":"not allowed"}`))
 	g := NewWafv2RegionalLister()
 
-	_, err := g.List(ctx, harvest.Settings{})
+	_, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err == nil {
 		t.Error("want the ListResourcesForWebACL error")
 	}

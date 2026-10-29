@@ -47,7 +47,6 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		lambdaFn  = "arn:aws:lambda:us-east-1:123456789012:function:report"
 		albWeb    = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1"
 		albGroup  = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/1"
-		cwOps     = "/service/GraniteServiceVersion20100801/operation/"
 		r53       = "/2013-04-01/"
 		route53NS = `xmlns="https://route53.amazonaws.com/doc/2013-04-01/"`
 	)
@@ -141,9 +140,9 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			lister: func() harvest.Lister { return &CloudWatchLister{} },
 			parent: "aws_cloudwatch_event_rule",
 			parents: map[string]string{
-				cwOps + "DescribeAlarms": recordCloudWatchPage("MetricAlarms", cbor.List{}, ""),
-				cwOps + "ListDashboards": recordCloudWatchPage("DashboardEntries", cbor.List{}, ""),
-				"ListRules":              `{"Rules":[{"Name":"nightly","State":"ENABLED"}]}`,
+				"DescribeAlarms": recordCloudWatchPage("MetricAlarms", cbor.List{}, ""),
+				"ListDashboards": recordCloudWatchPage("DashboardEntries", cbor.List{}, ""),
+				"ListRules":      `{"Rules":[{"Name":"nightly","State":"ENABLED"}]}`,
 			},
 			children: map[string]string{"ListTargetsByRule": `{"Targets":[]}`},
 			unwanted: []string{"aws_cloudwatch_event_target"},
@@ -291,7 +290,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			list := func(unwanted []string) []harvest.Resource {
 				t.Helper()
 				settings := harvest.Settings{Unwanted: func(typ string) bool { return slices.Contains(unwanted, typ) }}
-				resources, err := tc.lister().List(ctx, settings)
+				resources, err := listChecked(ctx, t, tc.lister(), settings)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -338,7 +337,7 @@ func TestWafRegionalSkipsUnwantedAssociations(t *testing.T) {
 			return `{"ResourceArns":[]}`
 		})
 		settings := harvest.Settings{Unwanted: func(typ string) bool { return unwanted && typ == "aws_wafregional_web_acl_association" }}
-		resources, err := (&WafRegionalLister{}).List(ctx, settings)
+		resources, err := listChecked(ctx, t, &WafRegionalLister{}, settings)
 		if err != nil {
 			t.Fatal(err)
 		}

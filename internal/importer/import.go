@@ -131,7 +131,7 @@ type Options struct {
 	ManagedStores managed.Stores
 	// IncludeOwned imports the resources whose tags or labels say another
 	// Terraform state or tool manages them, which are left out otherwise
-	// (see engine.OwnedBy).
+	// (see engine.OwnerTags.OwnedBy).
 	IncludeOwned bool
 	// AllowPartial accepts output some services or resources are missing
 	// from.

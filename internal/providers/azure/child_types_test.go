@@ -9,11 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/azlist/azlist"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 // A child type stays where the import keeps its resources, or those of a
@@ -86,8 +85,8 @@ func TestKeptTypes(t *testing.T) {
 func TestResourceGraphListsOnlyKeptChildTypes(t *testing.T) {
 	t.Parallel()
 	const sub = "00000000-0000-0000-0000-000000000001"
-	transport := &fakeTransport{body: `{"value":[]}`}
-	lister, err := azlist.NewLister(listerOption(sub, fakeCredential{}, arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}}))
+	transport := providertest.New(answering(`{"value":[]}`))
+	lister, err := azlist.NewLister(listerOption(sub, fakeCredential{}, *fakeOptions(transport)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +101,7 @@ func TestResourceGraphListsOnlyKeptChildTypes(t *testing.T) {
 	}
 
 	var lists []string
-	for _, p := range transport.paths {
+	for _, p := range transport.Paths() {
 		lists = append(lists, strings.ToLower(strings.TrimPrefix(p, site+"/")))
 	}
 	slices.Sort(lists)

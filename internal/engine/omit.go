@@ -21,7 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
-// OmitArguments removes from the resources in path the arguments omit
+// OmitArguments removes from the resources of f the arguments omit
 // names for their type, under "*" for every type, or under a resource's
 // address (type.name) for that resource alone, whether written as
 // attributes or as blocks (see omission for the entries' form). Whether
@@ -29,26 +29,25 @@ import (
 // anything is removed. It reports whether it removed anything. Only the
 // catalogue's golden test calls it outside the engine, which is why it is
 // exported.
-func OmitArguments(path string, omit map[string][]string) (bool, error) {
+func OmitArguments(f *hclfile.File, omit map[string][]string) bool {
 	if len(omit) == 0 {
-		return false, nil
+		return false
 	}
-	return rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
-		changed := false
-		for i, block := range f.Body().Blocks() {
-			if block.Type() != "resource" || len(block.Labels()) != 2 || i >= len(syntax.Blocks) {
-				continue
-			}
-			var found []removal
-			for _, o := range omissions(omit, block.Labels()[0], block.Labels()[1]) {
-				found = append(found, o.find(syntax.Blocks[i].Body)...)
-			}
-			if removeAll(block.Body(), found) {
-				changed = true
-			}
+	syntax := f.Syntax
+	changed := false
+	for i, block := range f.Edit().Body().Blocks() {
+		if block.Type() != "resource" || len(block.Labels()) != 2 || i >= len(syntax.Blocks) {
+			continue
 		}
-		return changed
-	})
+		var found []removal
+		for _, o := range omissions(omit, block.Labels()[0], block.Labels()[1]) {
+			found = append(found, o.find(syntax.Blocks[i].Body)...)
+		}
+		if removeAll(block.Body(), found) {
+			changed = true
+		}
+	}
+	return changed
 }
 
 // omission is an entry of a catalogue's omit list:

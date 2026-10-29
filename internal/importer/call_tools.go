@@ -5,7 +5,10 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
@@ -24,9 +27,9 @@ import (
 // writes the README of a root added to, or merges the roots of a stack's
 // environments, planning each with its own Terraform, or writes what their
 // merged root no longer finds in the cloud, or its moved blocks, or
-// vacates it; and Terraform's list
-// resources, which the query service lists through. A nil *callTools, or
-// a nil field, uses the real one.
+// vacates it; the Terraform that fetches the organisation's modules; and
+// Terraform's list resources, which the query service lists through. A
+// nil *callTools, or a nil field, uses the real one.
 type callTools struct {
 	// findBinary returns the path of the engine binary, as
 	// tfrun.Binary.Find does.
@@ -53,6 +56,9 @@ type callTools struct {
 	// which the merge plans as one of its environments: as tr does,
 	// with provider's credentials (see terraformEnv).
 	terraform func(ctx context.Context, tr terraformRun, provider harvest.Provider) (func(dir string) (tfrun.Terraform, error), error)
+	// getModules installs the modules the root in dir calls, with the
+	// engine at execPath, as terraform get does.
+	getModules func(ctx context.Context, dir, execPath string) error
 	// mergedNotInCloud lists in a merged root's README what is no longer
 	// in the cloud, as envmerge.WriteMergedNotInCloud does.
 	mergedNotInCloud func(dir string, gone map[string][]rootfile.Import) error
@@ -156,6 +162,25 @@ func (t *callTools) runner(ctx context.Context, tr terraformRun, provider harves
 	}
 	tr.env, tr.freshEnv = env, freshTerraformEnv(provider)
 	return tr.in, nil
+}
+
+// get installs the modules the root in dir calls, with the engine at
+// execPath, under its .terraform/modules (see tfexec.Terraform.Get).
+func (t *callTools) get(ctx context.Context, dir, execPath string) error {
+	if t != nil && t.getModules != nil {
+		if err := t.getModules(ctx, dir, execPath); err != nil {
+			return fmt.Errorf("fetching: %w", err)
+		}
+		return nil
+	}
+	tf, err := tfexec.NewTerraform(dir, execPath)
+	if err != nil {
+		return err
+	}
+	if err := tf.Get(ctx); err != nil {
+		return fmt.Errorf("fetching: %w", err)
+	}
+	return nil
 }
 
 // vacateMerged writes the merged root in dir with removed alone (see

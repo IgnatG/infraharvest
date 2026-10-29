@@ -36,7 +36,7 @@ func addReferences(dir string, values map[string]map[string]any) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	edited, err := addReferencesSkipping(ws, values, nil)
+	edited, err := addReferencesSkipping(ws, values, nil, testTraits)
 	if err != nil {
 		return false, err
 	}
@@ -45,7 +45,7 @@ func addReferences(dir string, values map[string]map[string]any) (bool, error) {
 
 func TestReferenceIndex(t *testing.T) {
 	t.Parallel()
-	index := referenceIndex(importedValues)
+	index := referenceIndex(importedValues, testTraits)
 
 	for value, want := range map[string][]referenceTarget{
 		"vpc-0abc1234": {{address: "aws_vpc.main", attribute: "id"}},
@@ -66,7 +66,7 @@ func TestReferenceIndex(t *testing.T) {
 
 func TestUniqueTarget(t *testing.T) {
 	t.Parallel()
-	index := referenceIndex(importedValues)
+	index := referenceIndex(importedValues, testTraits)
 	for _, tc := range []struct {
 		argument, value, want string
 	}{
@@ -80,7 +80,7 @@ func TestUniqueTarget(t *testing.T) {
 		{"repository", "app", ""},
 		{"name", "app", ""},
 	} {
-		got, ok := uniqueTarget(tc.argument, tc.value, index[tc.value])
+		got, ok := uniqueTarget(tc.argument, tc.value, index[tc.value], testTraits)
 		if ok != (tc.want != "") || got.address != tc.want {
 			t.Errorf("%s = %q: got %+v, %v, want %q", tc.argument, tc.value, got, ok, tc.want)
 		}
@@ -362,7 +362,7 @@ resource "google_compute_firewall" "https" {
 	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Count(got, "network = google_compute_network.main.self_link") != 2 {
 		t.Errorf("want both networks referenced:\n%s", got)
 	}
-	if index := referenceIndex(values); !reflect.DeepEqual(index[network], []referenceTarget{{address: "google_compute_network.main", attribute: "self_link"}}) {
+	if index := referenceIndex(values, testTraits); !reflect.DeepEqual(index[network], []referenceTarget{{address: "google_compute_network.main", attribute: "self_link"}}) {
 		t.Errorf("index: %+v", index[network])
 	}
 }

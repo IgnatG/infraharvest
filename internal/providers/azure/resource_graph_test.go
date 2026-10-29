@@ -6,9 +6,6 @@ package azure
 import (
 	"encoding/base64"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -17,13 +14,13 @@ import (
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 func TestGraphPredicate(t *testing.T) {
@@ -210,13 +207,13 @@ func TestResourceGraphListsEmptyResourceGroups(t *testing.T) {
 		nodes = "/subscriptions/" + sub + "/resourceGroups/MC_rg-aks_aks_eastus"
 		aks   = "/subscriptions/" + sub + "/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks"
 	)
-	transport := &fakeTransport{body: `{"totalRecords":3,"count":3,"resultTruncated":"false","data":[
+	transport := providertest.New(answering(`{"totalRecords":3,"count":3,"resultTruncated":"false","data":[
 		{"id":"` + strings.ToUpper(app) + `","tags":{},"managedBy":""},
 		{"id":"` + empty + `","tags":{"team":"platform"},"managedBy":""},
 		{"id":"` + nodes + `","tags":{},"managedBy":"` + aks + `"},
 		{"id":"not an ID"}
-	]}`}
-	options := &arm.ClientOptions{Transport: transport}
+	]}`))
+	options := fakeOptions(transport)
 	predicate, err := graphPredicate(sub, "")
 	if err != nil {
 		t.Fatal(err)
@@ -225,11 +222,11 @@ func TestResourceGraphListsEmptyResourceGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(transport.paths) != 1 || !strings.HasSuffix(transport.paths[0], "/providers/Microsoft.ResourceGraph/resources") {
-		t.Errorf("requests: %v", transport.paths)
+	if len(transport.Paths()) != 1 || !strings.HasSuffix(transport.Paths()[0], "/providers/Microsoft.ResourceGraph/resources") {
+		t.Errorf("requests: %v", transport.Paths())
 	}
-	if len(transport.sent) != 1 || !strings.Contains(transport.sent[0], "resourcecontainers") || !strings.Contains(transport.sent[0], predicate) {
-		t.Errorf("query: %v, want the resource groups %s selects", transport.sent, predicate)
+	if len(transport.Bodies()) != 1 || !strings.Contains(transport.Bodies()[0], "resourcecontainers") || !strings.Contains(transport.Bodies()[0], predicate) {
+		t.Errorf("query: %v, want the resource groups %s selects", transport.Bodies(), predicate)
 	}
 
 	vnet := app + "/providers/Microsoft.Network/virtualNetworks/net1"
@@ -727,30 +724,6 @@ func TestListerOption(t *testing.T) {
 	}
 }
 
-// pagedTransport answers the requests it gets with pages, one each in
-// order, and records the body of each request.
-type pagedTransport struct {
-	pages []string
-	sent  []string
-}
-
-func (f *pagedTransport) Do(r *http.Request) (*http.Response, error) {
-	sent, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	f.sent = append(f.sent, string(sent))
-	if len(f.sent) > len(f.pages) {
-		return nil, fmt.Errorf("request %d, but only %d pages", len(f.sent), len(f.pages))
-	}
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(f.pages[len(f.sent)-1])),
-		Request:    r,
-	}, nil
-}
-
 // Every Resource Graph query asks for graphPageSize rows a page, where
 // Resource Graph would send 100, and follows the skip token to the last
 // page. A row that isn't an object is left out.
@@ -776,11 +749,11 @@ func TestGraphQueryPages(t *testing.T) {
 		row := func(n string) string {
 			return `{"id":"/subscriptions/sub-` + n + `/resourceGroups/rg-` + n + `","subscriptionId":"sub-` + n + `","type":"microsoft.authorization/roleassignments"}`
 		}
-		transport := &pagedTransport{pages: []string{
-			`{"$skipToken":"next","data":[` + row("1") + `,"not an object"]}`,
-			`{"data":[` + row("2") + `]}`,
-		}}
-		got, err := tc.query(&arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}})
+		transport := providertest.New(providertest.Pages(
+			`{"$skipToken":"next","data":[`+row("1")+`,"not an object"]}`,
+			`{"data":[`+row("2")+`]}`,
+		))
+		got, err := tc.query(fakeOptions(transport))
 		if err != nil {
 			t.Errorf("%s: %v", tc.name, err)
 			continue
@@ -788,16 +761,16 @@ func TestGraphQueryPages(t *testing.T) {
 		if got != 2 {
 			t.Errorf("%s: %d rows, want 2", tc.name, got)
 		}
-		if len(transport.sent) != 2 {
-			t.Fatalf("%s: %d requests, want 2", tc.name, len(transport.sent))
+		if len(transport.Bodies()) != 2 {
+			t.Fatalf("%s: %d requests, want 2", tc.name, len(transport.Bodies()))
 		}
-		for i, sent := range transport.sent {
+		for i, sent := range transport.Bodies() {
 			if !strings.Contains(sent, `"$top":1000`) {
 				t.Errorf("%s: request %d doesn't ask for 1000 rows: %s", tc.name, i, sent)
 			}
 		}
-		if strings.Contains(transport.sent[0], "$skipToken") || !strings.Contains(transport.sent[1], `"$skipToken":"next"`) {
-			t.Errorf("%s: skip tokens sent: %v", tc.name, transport.sent)
+		if strings.Contains(transport.Bodies()[0], "$skipToken") || !strings.Contains(transport.Bodies()[1], `"$skipToken":"next"`) {
+			t.Errorf("%s: skip tokens sent: %v", tc.name, transport.Bodies())
 		}
 	}
 }
