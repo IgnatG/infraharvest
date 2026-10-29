@@ -87,25 +87,40 @@ func generatedAnnotations(imports []rootfile.Import, opts Options, hints schemaH
 	}
 }
 
-// referencedAnnotations are the annotations of generated.tf once
+// referencedAnnotations are the annotations of generated.tf in ws once
 // postProcess made its references: what is still a literal then is no
-// resource's.
-func referencedAnnotations() []annotation {
+// resource's. Last, the root's own account and region of opts.Scope are
+// read from locals (see liftScope), but in tags, and in names taken.
+func referencedAnnotations(ws *workspace, opts Options, taken Names) []annotation {
 	return []annotation{
 		{name: "principals noted", edit: func(f *hclfile.File) (bool, error) {
 			return notePrincipals(f), nil
 		}},
+		scopeAnnotation(ws, opts.Scope, taken, scopeKept(opts)),
 	}
 }
 
+// scopeKept names the arguments and locals liftScope leaves literal: the
+// tags the provider applies, and the attribute that has all of a
+// resource's, which the tag lift and incremental imports compare as
+// literals.
+func scopeKept(opts Options) map[string]bool {
+	keep := map[string]bool{"tags_all": true, "terraform_labels": true}
+	if opts.DefaultTags != nil && opts.DefaultTags.Attribute != "" {
+		keep[opts.DefaultTags.Attribute] = true
+	}
+	return keep
+}
+
 // annotate runs the annotation stage (see annotate) on the root's
-// generated.tf, as its directory has it, and writes back what it changed.
-func (g *generation) annotate(annotations []annotation) ([]string, error) {
+// generated.tf, as its directory has it, with the annotations build
+// returns for its workspace, and writes back what they changed.
+func (g *generation) annotate(build func(ws *workspace) []annotation) ([]string, error) {
 	ws, err := openWorkspace(g.dir)
 	if err != nil {
 		return nil, err
 	}
-	replan, err := annotate(ws, annotations)
+	replan, err := annotate(ws, build(ws))
 	if err != nil {
 		return nil, err
 	}

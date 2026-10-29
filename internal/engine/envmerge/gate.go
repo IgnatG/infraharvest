@@ -129,6 +129,9 @@ func MergeRoots(ctx context.Context, dir string, roots []MergeRoot, opts MergeOp
 	}
 	envRoots := make([]envRoot, len(roots))
 	for i, r := range roots {
+		if r.Data == nil && opts.Profile.EnvironmentData != nil {
+			r.Data = opts.Profile.EnvironmentData(r.Scope, r.Region)
+		}
 		root, reason, err := readEnvRoot(r, dir)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", r.Dir, err)

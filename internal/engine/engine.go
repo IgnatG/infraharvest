@@ -179,6 +179,11 @@ type Options struct {
 	// ARNs of types whose IDs aren't ARNs name their resources.
 	OtherRoots []RootResource
 	ARNs       map[string]ARN
+	// Scope, if set, is the root's own account (or subscription, or
+	// project) and region: the literals that hold them read them from
+	// locals of data sources instead, as a root environments share does
+	// (see liftScope). Nil leaves them literal.
+	Scope *ScopeLocals
 	// Scanners run in the verification gate (see runScanners), each in one
 	// of ScannerSlots: roots checked at the same time, such as those of one
 	// import, share them, so that the scanners of all of them together
@@ -509,7 +514,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 	if g.diags, err = retryFallbacks(ctx, g.tf, g.dir, g.imports, diags); err != nil {
 		return nil, err
 	}
-	return g.annotate(generatedAnnotations(g.imports, g.opts, hints))
+	return g.annotate(func(*workspace) []annotation { return generatedAnnotations(g.imports, g.opts, hints) })
 }
 
 // hideSecrets moves the secrets in generated.tf into variables.
@@ -719,7 +724,7 @@ func (g *generation) tidy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := g.annotate(referencedAnnotations()); err != nil {
+	if _, err := g.annotate(func(ws *workspace) []annotation { return referencedAnnotations(ws, g.opts, g.r.taken) }); err != nil {
 		return err
 	}
 	moved, err := movedAddresses(g.dir, before)
