@@ -231,8 +231,10 @@ func driftDecider(options DriftOptions) (driftpolicy.Decider, *driftpolicy.Decis
 // checkDriftRoots checks the targets, up to run.Parallel at a time, as
 // the import runs its calls (see eachCall), and returns each one's result
 // and changes, in the targets' order. A root that fails to be checked is
-// in its result, so the others go on. A target that wasn't checked, as the
-// context ended before it started, has the context's error.
+// in its result, so the others go on; one that panics has the panic, and
+// stops the others, as an import call does. A target that wasn't started
+// has the context's error when the context ended, or else names the root
+// that stopped the others.
 func checkDriftRoots(ctx context.Context, run DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, targets []driftTarget) ([]report.DriftRoot, [][]report.DriftChange) {
 	results := make([]report.DriftRoot, len(targets))
 	changes := make([][]report.DriftChange, len(targets))
@@ -242,18 +244,35 @@ func checkDriftRoots(ctx context.Context, run DriftOptions, decider driftpolicy.
 		names[i] = results[i].Name()
 	}
 	name := func(i int) string { return names[i] }
-	checked := make([]bool, len(targets))
+	started := make([]bool, len(targets))
+	var mu sync.Mutex
+	var panicked string
 	err := eachCall(ctx, make(chan struct{}, run.Parallel), len(targets), 0, run.Parallel, name, func(ctx context.Context, i int) error {
-		results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, targets[i])
-		checked[i] = true
-		return nil
+		started[i] = true
+		err := importSafely(names[i], func() error {
+			results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, targets[i])
+			return nil
+		})
+		if err != nil {
+			results[i].Error = err.Error()
+			mu.Lock()
+			if panicked == "" {
+				panicked = names[i]
+			}
+			mu.Unlock()
+		}
+		return err
 	})
+	if err == nil {
+		return results, changes
+	}
+	reason := "not started, as " + panicked + " panicked"
 	if ctx.Err() != nil {
-		err = ctx.Err()
+		reason = ctx.Err().Error()
 	}
 	for i := range targets {
-		if !checked[i] && err != nil {
-			results[i].Error = err.Error()
+		if !started[i] {
+			results[i].Error = reason
 		}
 	}
 	return results, changes

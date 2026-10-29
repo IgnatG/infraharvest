@@ -791,3 +791,36 @@ func TestCheckDriftRoots(t *testing.T) {
 		}
 	})
 }
+
+// A root that panics is recovered and logged, and has the panic; the
+// others go on no further, and those not started say which root stopped
+// them, not its panic.
+func TestCheckDriftRootsPanic(t *testing.T) {
+	logged := captureLog(t)
+	out := "out"
+	var targets []driftTarget
+	for _, rel := range []string{"aws/1/a", "aws/1/b", "aws/1/c", "aws/1/d"} {
+		targets = append(targets, driftTarget{dir: filepath.Join(out, filepath.FromSlash(rel))})
+	}
+	check := func(_ context.Context, dir, _ string, _ drift.Options) (*drift.Result, error) {
+		if relativePath(out, dir) == "aws/1/b" {
+			panic("boom")
+		}
+		return &drift.Result{Backend: "s3"}, nil
+	}
+	results, _ := checkDriftRoots(t.Context(), DriftOptions{Out: out, Parallel: 1}, driftpolicy.Decider{}, check, nil, targets)
+	want := map[string]string{
+		"aws/1/a": "",
+		"aws/1/b": "panic: boom (the log has the stack)",
+		"aws/1/c": "not started, as aws/1/b panicked",
+		"aws/1/d": "not started, as aws/1/b panicked",
+	}
+	for _, r := range results {
+		if r.Error != want[r.Path] {
+			t.Errorf("%s: error %q, want %q", r.Path, r.Error, want[r.Path])
+		}
+	}
+	if !strings.Contains(logged.String(), "aws/1/b panicked: boom") {
+		t.Errorf("logged %q, want the panic of aws/1/b", logged.String())
+	}
+}
