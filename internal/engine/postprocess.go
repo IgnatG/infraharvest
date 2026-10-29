@@ -113,7 +113,7 @@ func (t *tidying) passes() []tidyPass {
 		// After the references: data sources are for what the root
 		// doesn't manage.
 		eachResource(passDataSources, []string{passReferences}, func(skip map[string]int) (map[string]bool, error) {
-			return addDataSourcesSkipping(ws, opts.External, opts.DataSources, taken, skip)
+			return addDataSourcesSkipping(ws, opts.External, opts.DataSources, taken, skip, opts.Traits)
 		}, len(opts.External) > 0),
 		// After the data sources: variables are for what they can't read.
 		eachResource(passRootVariables, []string{passReferences, passDataSources}, func(skip map[string]int) (map[string]bool, error) {

@@ -58,7 +58,7 @@ type DataSource struct {
 // resource's type. Data sources are named other than those in taken. It
 // leaves the resources in skip as they are (see tidying.settle), and returns
 // the resources it changed.
-func addDataSourcesSkipping(ws *workspace, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
+func addDataSourcesSkipping(ws *workspace, external []External, sources map[string]DataSource, taken Names, skip map[string]int, t Traits) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it, and
 	// each resource once, with a name if any of its entries has one.
 	external = slices.Clone(external)
@@ -102,7 +102,7 @@ func addDataSourcesSkipping(ws *workspace, external []External, sources map[stri
 	if err != nil {
 		return nil, err
 	}
-	r := &resolver{index: index, g: dependencies{}, src: generated.Src}
+	r := &resolver{index: index, traits: t, g: dependencies{}, src: generated.Src}
 	edited := map[string]bool{}
 	for _, res := range generated.Resources() {
 		if skip[res.Address] == 0 && r.attributes(res.Address, res.Syntax.Body, res.Write.Body(), "", false) {
