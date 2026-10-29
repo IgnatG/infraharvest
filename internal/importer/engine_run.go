@@ -214,9 +214,10 @@ func (s *shared) callSlots(n int) chan struct{} {
 
 // ownAdapters returns the adapters of the organisation's modules for
 // provider (see fetchAdapters), fetching them with the engine at
-// execPath, into the cache under cacheDir, on first use only: every Import
-// call of the command, in every account, uses the same modules.
-func (s *shared) ownAdapters(ctx context.Context, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
+// execPath, through tools, into the cache under cacheDir, on first use
+// only: every Import call of the command, in every account, uses the same
+// modules.
+func (s *shared) ownAdapters(ctx context.Context, tools *callTools, execPath, cacheDir, provider string, modules []config.Module) []adapters.Adapter {
 	s.ownMu.Lock()
 	defer s.ownMu.Unlock()
 	if own, ok := s.own[provider]; ok {
@@ -225,7 +226,7 @@ func (s *shared) ownAdapters(ctx context.Context, execPath, cacheDir, provider s
 	if s.own == nil {
 		s.own = map[string][]adapters.Adapter{}
 	}
-	s.own[provider] = fetchAdapters(ctx, execPath, cacheDir, provider, modules)
+	s.own[provider] = fetchAdapters(ctx, tools, execPath, cacheDir, provider, modules)
 	return s.own[provider]
 }
 
