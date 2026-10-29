@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-msg/providers/Microsoft.ServiceBus/namespaces/sb-orders/authorizationRules/RootManageSharedAccessKey", "name": "root", "attributes": {"name": "RootManageSharedAccessKey", "resource_group_name": "rg-msg"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-msg/providers/Microsoft.ServiceBus/namespaces/sb-orders/authorizationRules/send", "name": "send", "attributes": {"name": "send", "resource_group_name": "rg-msg"}}
+]}
