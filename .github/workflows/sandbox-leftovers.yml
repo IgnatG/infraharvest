@@ -214,14 +214,16 @@ jobs:
         create_credentials_file: true
         export_environment_variables: false
     # One search over every kind of resource in the project, kept to the
-    # sandbox's names; it may still list what a run deleted minutes ago.
+    # sandbox's names (ih-sbx-, and ih_sbx_ for BigQuery datasets), but
+    # not the KMS key rings and keys every run leaves, as they can't be
+    # deleted; it may still list what a run deleted minutes ago.
     - name: Leftovers
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
       run: |
         echo "## Google Cloud" >> "$GITHUB_STEP_SUMMARY"
         left=$(gcloud asset search-all-resources --scope "projects/$PROJECT" \
-          --format 'value(assetType,displayName)' | grep 'ih-sbx-' || true)
+          --format 'value(assetType,displayName)' | grep -E 'ih[-_]sbx[-_]' | grep -v '^cloudkms[.]googleapis[.]com/' || true)
         if [ -n "$left" ]; then
           echo "- in the project: $(tr '\t\n' '  ' <<< "$left")" | tee -a "$GITHUB_STEP_SUMMARY"
         else
