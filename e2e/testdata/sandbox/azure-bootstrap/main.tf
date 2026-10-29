@@ -31,11 +31,17 @@ provider "azurerm" {
   # What the estate creates. Version 5 of the provider registers nothing
   # by default, and the fixture identity can't register providers itself.
   resource_providers_to_register = [
+    "Microsoft.Compute",
+    "Microsoft.ContainerRegistry",
+    "Microsoft.DBforPostgreSQL",
+    "Microsoft.EventHub",
     "Microsoft.KeyVault",
     "Microsoft.ManagedIdentity",
     "Microsoft.Network",
     "Microsoft.OperationalInsights",
+    "Microsoft.ServiceBus",
     "Microsoft.Storage",
+    "Microsoft.Web",
   ]
 }
 

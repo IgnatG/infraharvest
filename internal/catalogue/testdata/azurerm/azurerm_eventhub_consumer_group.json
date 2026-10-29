@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-msg/providers/Microsoft.EventHub/namespaces/eh-events/eventhubs/events/consumerGroups/$Default", "name": "default", "attributes": {"name": "$Default", "resource_group_name": "rg-msg"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-msg/providers/Microsoft.EventHub/namespaces/eh-events/eventhubs/events/consumerGroups/analytics", "name": "analytics", "attributes": {"name": "analytics", "resource_group_name": "rg-msg"}}
+]}

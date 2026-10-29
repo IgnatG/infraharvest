@@ -8,6 +8,9 @@ package azure
 // listedTypes are the resource types the provider's services list, with
 // the service that lists each (see harvest.Profile.ListedTypes).
 var listedTypes = map[string]string{
+	"azurerm_container_registry_scope_map":                         "resource_graph",
+	"azurerm_eventhub_consumer_group":                              "resource_graph",
+	"azurerm_eventhub_namespace_authorization_rule":                "resource_graph",
 	"azurerm_federated_identity_credential":                        "managed_identity",
 	"azurerm_key_vault":                                            "resource_graph",
 	"azurerm_log_analytics_datasource_windows_event":               "resource_graph",
@@ -37,6 +40,7 @@ var listedTypes = map[string]string{
 	"azurerm_route_table":                                          "resource_graph",
 	"azurerm_security_center_contact":                              "security_center_contact",
 	"azurerm_security_center_subscription_pricing":                 "security_center_subscription_pricing",
+	"azurerm_servicebus_namespace_authorization_rule":              "resource_graph",
 	"azurerm_storage_account":                                      "resource_graph",
 	"azurerm_storage_account_queue_properties":                     "resource_graph",
 	"azurerm_storage_account_table_properties":                     "resource_graph",

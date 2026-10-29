@@ -101,6 +101,29 @@ types:
       - reason: the network interface Azure creates for a Private Link service, which the service creates and deletes with itself
         ignore_case: true
         attribute_prefixes: { private_link_service: [/subscriptions/] }
+  # Every Service Bus and Event Hubs namespace has the
+  # RootManageSharedAccessKey rule, which Azure creates with it and the
+  # namespace's default connection strings come from; reading a rule
+  # lists its keys, which the Reader role doesn't grant.
+  azurerm_servicebus_namespace_authorization_rule:
+    skip:
+      - reason: the RootManageSharedAccessKey rule Azure creates with every Service Bus namespace, whose keys the namespace's default connection strings are; select it to import it
+        attributes: { name: RootManageSharedAccessKey }
+  azurerm_eventhub_namespace_authorization_rule:
+    skip:
+      - reason: the RootManageSharedAccessKey rule Azure creates with every Event Hubs namespace, whose keys the namespace's default connection strings are; select it to import it
+        attributes: { name: RootManageSharedAccessKey }
+  azurerm_eventhub_consumer_group:
+    skip:
+      - reason: the $Default consumer group Azure creates with every event hub, which can't be deleted
+        ignore_case: true
+        attributes: { name: "$Default" }
+  azurerm_container_registry_scope_map:
+    # A scope map's name can only have letters, digits and hyphens: those
+    # starting _ are the registry's own (_repositories_pull, ...).
+    skip:
+      - reason: a scope map Azure creates with every container registry (_repositories_admin, _repositories_pull, ...), which can't be changed or deleted
+        attribute_prefixes: { name: [_repositories_] }
   azurerm_security_center_subscription_pricing:
     service: security_center_subscription_pricing
     # Every subscription has every plan, on Free until Defender for Cloud
