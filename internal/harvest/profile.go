@@ -77,6 +77,10 @@ type Profile struct {
 	// project and region, so the engine leaves them out of the resources
 	// that repeat the provider's value.
 	InheritedArguments []string
+	// Traits are what the provider's resources and the values that
+	// identify them are like, which the engine goes by: it knows no
+	// provider of its own.
+	Traits Traits
 	// Layout says which file of a root each resource goes in.
 	Layout Layout
 	// Merge is what the root the environments of a stack share reads of
@@ -150,6 +154,52 @@ type DefaultTags struct {
 	// ReservedPrefix starts the keys of tags the cloud reserves, which
 	// cannot be applied that way, such as aws:.
 	ReservedPrefix string
+}
+
+// Traits are what a provider's resources and the values that identify
+// them are like, for the engine to find what refers to what, what other
+// tools manage, and which literals to name (see engine.Traits).
+type Traits struct {
+	// IDPrefixes start values that identify a resource on their own, such
+	// as AWS's ARNs, and IDSuffixes end them, as Google service accounts'
+	// emails end with their domain.
+	IDPrefixes, IDSuffixes []string
+	// ARNPrefix, if set, starts the ARNs of resources whose IDs may be
+	// other values, which the catalogue's ARNs say how to read, such as
+	// arn:.
+	ARNPrefix string
+	// WellKnownIDs, if set, matches IDs that read better where they are
+	// used than as a local, such as AWS-managed policies.
+	WellKnownIDs *regexp.Regexp
+	// SelfLinkAliases map the start of a self link, as the provider writes
+	// it, to another start some APIs name the same resource by.
+	SelfLinkAliases map[string]string
+	// IdentityAttributes are the attributes, in the order a reference
+	// prefers them, that identify the resource that has them where the
+	// provider computes them, such as a load balancer's dns_name, besides
+	// arn, self_link, the names and id; NestedIdentities are such
+	// attributes of nested blocks, by block, such as a managed identity's
+	// principal_id.
+	IdentityAttributes []string
+	NestedIdentities   map[string]string
+	// OwnerTags are the tags the cloud or the provider gives what a tool
+	// creates, which say that tool manages it.
+	OwnerTags []OwnerTag
+	// TagAttributes are the arguments whose maps are a resource's tags or
+	// labels, in the order their keys win, and MergedTagAttributes those
+	// that merge them with tags from elsewhere, such as tags_all.
+	TagAttributes, MergedTagAttributes []string
+}
+
+// OwnerTag is a tag that says which tool manages what has it.
+type OwnerTag struct {
+	// Key is the tag's key, and Value, if set, the value it must have,
+	// whatever the case.
+	Key, Value string
+	// Tool is the tool it names, such as CloudFormation.
+	Tool string
+	// Stack says the tag's value is the stack the tool manages it in.
+	Stack bool
 }
 
 // EffectiveTags describes a provider whose resources' tag attribute holds

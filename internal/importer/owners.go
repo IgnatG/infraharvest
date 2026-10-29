@@ -11,14 +11,14 @@ import (
 )
 
 // keptOwned returns, as "<type> <import ID>", the selected resources whose
-// listed tags say another tool manages them: the selection file or
-// --include-owned kept them, so the engine keeps them too (see
+// listed tags say another tool manages them, as owners say: the
+// selection file or --include-owned kept them, so the engine keeps them too (see
 // engine.Options.KeepOwned).
-func keptOwned(selected map[string][]harvest.Resource, listed listing, importID func(harvest.Resource) (string, bool)) map[string]bool {
+func keptOwned(selected map[string][]harvest.Resource, listed listing, importID func(harvest.Resource) (string, bool), owners engine.OwnerTags) map[string]bool {
 	var kept map[string]bool
 	for _, resources := range selected {
 		for _, res := range resources {
-			if _, owned := engine.OwnedBy(listed.tagsOf(res)); !owned {
+			if _, owned := owners.OwnedBy(listed.tagsOf(res)); !owned {
 				continue
 			}
 			if id, ok := importID(res); ok {

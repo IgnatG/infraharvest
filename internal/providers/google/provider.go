@@ -252,8 +252,9 @@ func (p *Provider) Scope(context.Context) (account, region string, err error) {
 // A resource takes the provider block's project and region (and a zone,
 // though the block sets none) as its own when it doesn't set them. Cloud
 // Asset Inventory's types go in files by their family, a root that
-// environments share reads the project from the provider, and the gcs
-// backend keeps state in Google Cloud.
+// environments share reads the project from the provider, the gcs
+// backend keeps state in Google Cloud, and traits says what its
+// resources' values are like.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: providerName,
@@ -272,6 +273,7 @@ func (*Provider) Profile() harvest.Profile {
 		DefaultTags:        &harvest.DefaultTags{Attribute: "labels", Block: "default_labels", Argument: true, ReservedPrefix: "goog-"},
 		EffectiveTags:      &harvest.EffectiveTags{Attribute: "labels", Effective: "effective_labels", ReservedPrefix: "goog-"},
 		InheritedArguments: []string{"project", "region", "zone"},
+		Traits:             traits(),
 		Layout: harvest.Layout{
 			InventoryServices: []string{"cloud_asset"},
 			TypeNameTrim:      "compute_",

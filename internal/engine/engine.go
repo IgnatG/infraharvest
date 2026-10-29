@@ -122,6 +122,10 @@ type Options struct {
 	// which an import leaves out of the provider's tags attribute, from
 	// the attribute that has them all (see fillEffectiveTags).
 	EffectiveTags *EffectiveTags
+	// Traits are what the provider's resources and the values that
+	// identify them are like, which references, owners and lifted
+	// literals go by (see Traits).
+	Traits Traits
 	// Inherited names arguments of the provider block that resources take
 	// as theirs when they don't set them, such as Google's project and
 	// region: Generate leaves them out of the resources that repeat the
@@ -641,7 +645,7 @@ func (g *generation) leaveOut() error {
 		g.result.Rejected = append(g.result.Rejected, rejections...)
 	}
 	if !g.opts.IncludeOwned {
-		if g.result.Owned, err = leaveOutOwned(g.dir, g.opts.KeepOwned); err != nil {
+		if g.result.Owned, err = leaveOutOwned(g.dir, g.opts.KeepOwned, g.opts.Traits); err != nil {
 			return err
 		}
 		for _, o := range g.result.Owned {

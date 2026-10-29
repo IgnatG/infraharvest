@@ -390,18 +390,20 @@ func (r *Run) callRoot(ctx context.Context, c *callContext, registry, execPath s
 // engineOptions configures engine.Generate for the roots of the call c, in
 // one place: what the catalogue knows about their types, for the provider
 // release the toolchain t pins (see catalogueEngineOptions);
-// t's root files and modules; what the provider's profile says of tags
-// and of the arguments resources inherit, and the other providers the
-// roots may configure; the flags the engine takes; and what the selection
-// of l leaves out, or keeps although another tool owns it.
+// t's root files and modules; what the provider's profile says of its
+// resources (see engineTraits), of tags and of the arguments resources
+// inherit, and the other providers the roots may configure; the flags
+// the engine takes; and what the selection of l leaves out, or keeps
+// although another tool owns it.
 func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t *toolchain) engine.Options {
 	opts := catalogueEngineOptions(c.cat, t.root.version)
 	opts.Config, opts.Scanners, opts.SplitFiles, opts.TidyLabels = t.root.files, gate.DefaultScanners(c.options.Policies), true, true
 	opts.Adapters, opts.ModulesDir = t.adapters, t.modulesDir
 	opts.IncludeOwned, opts.CommandTimeout = c.options.IncludeOwned, c.options.EngineTimeout
-	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID)
-	opts.External = l.leftOut
 	profile := provider.Profile()
+	opts.Traits = engineTraits(profile.Traits)
+	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID, opts.Traits.OwnerTags)
+	opts.External = l.leftOut
 	if tags := profile.DefaultTags; tags != nil {
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: tags.Attribute, Block: tags.Block, Argument: tags.Argument, ReservedPrefix: tags.ReservedPrefix}
 	}
@@ -533,5 +535,28 @@ func (r *Run) recordCall(c *callContext, l *callListing, resources callResources
 	}
 	if c.scope != "" {
 		r.report.AddDiscovered(c.scope, counted)
+	}
+}
+
+// engineTraits returns the engine's traits of what the provider's profile
+// says its resources and the values that identify them are like (see
+// harvest.Traits), which the engine finds references, owners and the
+// literals worth naming by.
+func engineTraits(t harvest.Traits) engine.Traits {
+	var owners engine.OwnerTags
+	for _, o := range t.OwnerTags {
+		owners = append(owners, engine.OwnerTag(o))
+	}
+	return engine.Traits{
+		IDPrefixes:          t.IDPrefixes,
+		IDSuffixes:          t.IDSuffixes,
+		ARNPrefix:           t.ARNPrefix,
+		WellKnownIDs:        t.WellKnownIDs,
+		SelfLinkAliases:     t.SelfLinkAliases,
+		IdentityAttributes:  t.IdentityAttributes,
+		NestedIdentities:    t.NestedIdentities,
+		OwnerTags:           owners,
+		TagAttributes:       t.TagAttributes,
+		MergedTagAttributes: t.MergedTagAttributes,
 	}
 }

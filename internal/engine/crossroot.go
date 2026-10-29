@@ -53,10 +53,12 @@ type rootValues struct {
 	arns   map[string]ARN
 	// types are the keys of byType, sorted.
 	types []string
+	// traits are the provider's (see Options.Traits).
+	traits Traits
 }
 
-func newRootValues(others []RootResource, arns map[string]ARN) rootValues {
-	v := rootValues{byID: map[string][]RootResource{}, byType: map[string][]RootResource{}, arns: arns}
+func newRootValues(others []RootResource, arns map[string]ARN, t Traits) rootValues {
+	v := rootValues{byID: map[string][]RootResource{}, byType: map[string][]RootResource{}, arns: arns, traits: t}
 	for _, r := range others {
 		v.byID[r.ID] = append(v.byID[r.ID], r)
 		v.byType[r.Type] = append(v.byType[r.Type], r)
@@ -67,7 +69,7 @@ func newRootValues(others []RootResource, arns map[string]ARN) rootValues {
 
 // match returns the attribute of a resource of another root that value,
 // of argument, is: its ID, where the value identifies it on its own (see
-// referenceable) or the argument names its type; its ARN; or another
+// Traits.referenceable) or the argument names its type; its ARN; or another
 // value that names it, such as a load balancer's DNS name (see
 // byNaming). A value of several resources is none of them, unless one is
 // the others' parent.
@@ -76,16 +78,16 @@ func (v rootValues) match(argument, value string) (rootValue, bool) {
 	for _, r := range v.byID[value] {
 		attribute := "name"
 		switch {
-		case strings.HasPrefix(r.ID, "arn:"):
+		case v.traits.isARN(r.ID):
 			attribute = "arn"
-		case referenceable(r.ID):
+		case v.traits.referenceable(r.ID):
 			attribute = "id"
 		case !namesType(argument, r.Type+"."+r.Name):
 			continue
 		}
 		found = append(found, rootValue{resource: r, attribute: attribute})
 	}
-	if len(found) == 0 && strings.HasPrefix(value, "arn:") {
+	if len(found) == 0 && v.traits.isARN(value) {
 		found = v.byARN(value)
 	}
 	if len(found) == 0 {
@@ -200,7 +202,7 @@ var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name":
 // root, whose provider is in another region. Variables and data sources
 // are named other than those in taken, variables.tf and data.tf. It
 // returns the resources it changed.
-func addRootVariables(ws *workspace, others []RootResource, arns map[string]ARN, taken Names, skip map[string]int) (map[string]bool, error) {
+func addRootVariables(ws *workspace, others []RootResource, arns map[string]ARN, t Traits, taken Names, skip map[string]int) (map[string]bool, error) {
 	if len(others) == 0 {
 		return nil, nil
 	}
@@ -209,7 +211,7 @@ func addRootVariables(ws *workspace, others []RootResource, arns map[string]ARN,
 		a, b := others[i], others[j]
 		return a.Type+"\x00"+a.Name+"\x00"+a.ID < b.Type+"\x00"+b.Name+"\x00"+b.ID
 	})
-	values := newRootValues(others, arns)
+	values := newRootValues(others, arns, t)
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err

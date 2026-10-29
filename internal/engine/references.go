@@ -63,7 +63,7 @@ func (t referenceTarget) node() string {
 // addReferencesSkipping replaces literals in generated.tf that are another
 // resource's id, ARN or self link, by its imported values, with a
 // reference to that attribute: vpc_id = aws_vpc.main.id. A value counts
-// if it identifies a resource on its own (see referenceable), or if the
+// if it identifies a resource on its own (see Traits.referenceable), or if the
 // argument is named after the resource's type, like an S3 bucket name in
 // bucket = "...". An argument that names a parent resource refers to it
 // too (see parentNames): resource_group_name =
@@ -75,15 +75,16 @@ func (t referenceTarget) node() string {
 // the references of the index and its parents, which identify the
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see tidying.settle). It returns the resources it changed.
-func addReferencesSkipping(ws *workspace, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
+func addReferencesSkipping(ws *workspace, values map[string]map[string]any, skip map[string]int, t Traits) (map[string]bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
 	r := &resolver{
-		index:   referenceIndex(values),
+		index:   referenceIndex(values, t),
 		parents: parentIndex(values),
-		ids:     identityIndex(values, writtenArguments(generated)),
+		traits:  t,
+		ids:     identityIndex(values, writtenArguments(generated), t),
 		g:       dependencies{},
 		src:     generated.Src,
 	}
@@ -104,19 +105,13 @@ func addReferencesSkipping(ws *workspace, values map[string]map[string]any, skip
 	return edited, nil
 }
 
-// googleAPIs and computeAPIs start the self links of Google Compute Engine
-// resources, as the provider writes them and as some APIs return them.
-const (
-	googleAPIs  = "https://www.googleapis.com/compute/"
-	computeAPIs = "https://compute.googleapis.com/compute/"
-)
-
 // referenceIndex maps each id, ARN, self link, email and IAM member value,
 // such as a service account's serviceAccount:<email>, to the attributes
-// to refer to instead, one per resource that has the value, by address.
+// to refer to instead, one per resource that has the value, by address,
+// and each self link's aliases of t too (see Traits.SelfLinkAliases).
 // Which of them a literal refers to, if any, depends on where it is (see
 // uniqueTarget).
-func referenceIndex(values map[string]map[string]any) map[string][]referenceTarget {
+func referenceIndex(values map[string]map[string]any, t Traits) map[string][]referenceTarget {
 	index := map[string][]referenceTarget{}
 	for address, attrs := range values {
 		for _, key := range []string{"id", "arn", "self_link", "email", "member"} {
@@ -145,13 +140,12 @@ func referenceIndex(values map[string]map[string]any) map[string][]referenceTarg
 				attribute = "member"
 			}
 			index[v] = append(index[v], referenceTarget{address: address, attribute: attribute})
-			// Some Google APIs name a resource by its self link on the
-			// service's own host, as a DNS zone's network_url does:
-			// https://compute.googleapis.com/compute/v1/... for
-			// https://www.googleapis.com/compute/v1/...
-			if rest, ok := strings.CutPrefix(v, googleAPIs); ok && key == "self_link" {
-				alias := computeAPIs + rest
-				index[alias] = append(index[alias], referenceTarget{address: address, attribute: attribute})
+			if key == "self_link" {
+				for start, alias := range t.SelfLinkAliases {
+					if rest, ok := strings.CutPrefix(v, start); ok {
+						index[alias+rest] = append(index[alias+rest], referenceTarget{address: address, attribute: attribute})
+					}
+				}
 			}
 		}
 	}
@@ -165,23 +159,23 @@ func referenceIndex(values map[string]map[string]any) map[string][]referenceTarg
 // argument refers to: the one resource, or the others' parent (an S3
 // bucket, whose versioning and policy resources have the bucket's name as
 // their id too), if the value identifies a resource on its own (see
-// referenceable) or the argument is named after the parent's type; else
+// Traits.referenceable) or the argument is named after the parent's type; else
 // the one resource whose type the argument is named after (role = "ci"
 // names aws_iam_role.ci, not aws_iam_instance_profile.ci). It reports
 // false when there is none.
-func uniqueTarget(argument, value string, targets []referenceTarget) (referenceTarget, bool) {
+func uniqueTarget(argument, value string, targets []referenceTarget, traits Traits) (referenceTarget, bool) {
 	addresses := make([]string, 0, len(targets))
 	for _, t := range targets {
 		addresses = append(addresses, t.address)
 	}
-	if parent := parentOf(addresses); parent != "" && (referenceable(value) || namedAfter(argument, parent)) {
+	if parent := parentOf(addresses); parent != "" && (traits.referenceable(value) || namedAfter(argument, parent)) {
 		for _, t := range targets {
 			if t.address == parent {
 				return t, true
 			}
 		}
 	}
-	if referenceable(value) {
+	if traits.referenceable(value) {
 		return referenceTarget{}, false
 	}
 	var named []referenceTarget
@@ -219,14 +213,6 @@ func parentOf(addresses []string) string {
 	return ""
 }
 
-// referenceable reports whether a value identifies a resource on its own:
-// an ARN, a URL (an SQS queue's id), a cloud ID such as vpc-0abc1234 or a
-// Google service account's email, not a name another resource could share
-// by chance.
-func referenceable(value string) bool {
-	return liftable.MatchString(value) || strings.HasPrefix(value, "https://") || strings.HasSuffix(value, ".gserviceaccount.com")
-}
-
 // namedAfter reports whether argument is named after the last word of the
 // referenced resource's type: bucket for aws_s3_bucket, role for
 // aws_iam_role, rule for aws_cloudwatch_event_rule.
@@ -242,8 +228,10 @@ type resolver struct {
 	parents parentNames
 	// ids, if set, finds what index and parents don't (see identities).
 	ids *identities
-	g   dependencies
-	src []byte
+	// traits are the provider's (see Options.Traits).
+	traits Traits
+	g      dependencies
+	src    []byte
 }
 
 // resolve returns the reference that replaces value, of the argument name
@@ -252,7 +240,7 @@ type resolver struct {
 // are the resources other arguments of the same block refer to, which
 // settle a value several resources share.
 func (r *resolver) resolve(address, name, block, value string, all bool, preferred map[string]bool) (replacement, bool) {
-	t, ok := uniqueTarget(name, value, r.index[value])
+	t, ok := uniqueTarget(name, value, r.index[value], r.traits)
 	if !ok {
 		t, ok = r.parents.parent(address, name, value)
 	}
@@ -286,10 +274,6 @@ func (r *resolver) addAll(address string, rp replacement) bool {
 	}
 	return true
 }
-
-// unreferencedMaps are arguments whose maps hold no references: tags and
-// labels describe a resource, even where a value is another's ID.
-var unreferencedMaps = map[string]bool{"tags": true, "tags_all": true, "labels": true, "terraform_labels": true, "effective_labels": true, "default_tags": true}
 
 // attributes replaces the literals in body, of the resource at address,
 // in its nested block block ("" at the top), and in its nested blocks,
@@ -333,7 +317,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 			}
 			body.SetAttributeRaw(name, rp.tokens())
 			changed = true
-			if t, single := rp.single(); single && idAttribute(t.attribute) && distinctive(v) {
+			if t, single := rp.single(); single && idAttribute(t.attribute) && r.traits.distinctive(v) {
 				byValue[v] = rp
 			}
 		case *hclsyntax.TupleConsExpr:
@@ -342,7 +326,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 				changed = true
 			}
 		case *hclsyntax.ObjectConsExpr:
-			if !all || unreferencedMaps[name] {
+			if !all || r.traits.unreferencedMap(name) {
 				continue
 			}
 			byKey := func(key, value string) (hclwrite.Tokens, bool) { return tokens(snakeCase(key), value) }

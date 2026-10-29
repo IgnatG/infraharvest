@@ -61,7 +61,7 @@ func testSources(t *testing.T, includeOwned bool) *Sources {
 		"aws_s3_bucket stacked":             stackReason,
 	}}
 	listed := []Listed{plain, serviceRole, defaultVPC, inState, tagged, stacked, inside, insideState, outside}
-	s, err := NewSources(t.Context(), catalogue.MustBuiltin("aws"), provider, listed, includeOwned)
+	s, err := NewSources(t.Context(), catalogue.MustBuiltin("aws"), provider, listed, includeOwned, awsOwners)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,10 +155,14 @@ func TestSourcesDecide(t *testing.T) {
 	}
 }
 
+// awsOwners are the tags AWS gives what tools create, as the aws provider
+// says (see harvest.Traits.OwnerTags).
+var awsOwners = engine.OwnerTags{{Key: "aws:cloudformation:stack-name", Tool: "CloudFormation", Stack: true}}
+
 // mustOwner returns what tags say manages a resource.
 func mustOwner(t *testing.T, tags map[string]string) engine.Owner {
 	t.Helper()
-	owner, ok := engine.OwnedBy(tags)
+	owner, ok := awsOwners.OwnedBy(tags)
 	if !ok {
 		t.Fatalf("tags %v name no owner", tags)
 	}
@@ -179,7 +183,7 @@ func TestNewSourcesAsksTheProvider(t *testing.T) {
 	s, err := NewSources(t.Context(), &catalogue.Catalogue{}, provider, []Listed{
 		{Resource: r, Tags: map[string]string{"team": "data", "env": "dev"}},
 		{Resource: untagged},
-	}, false)
+	}, false, nil)
 
 	if !errors.Is(err, failed) {
 		t.Errorf("error %v, want the provider's", err)
@@ -300,7 +304,7 @@ func TestSourcesReasonManagedGroupLock(t *testing.T) {
 		map[string]string{"name": "nodes", "resource_group_name": "MC_rg-aks_aks_uksouth", "resource_group_managed_by": aks})}
 	keep := Listed{Resource: harvest.Record(sub+"/resourceGroups/app/providers/Microsoft.Authorization/locks/keep", "keep", "azurerm_management_lock", "azurerm",
 		map[string]string{"name": "keep", "resource_group_name": "app"})}
-	s, err := NewSources(t.Context(), catalogue.MustBuiltin("azurerm"), nil, []Listed{nodes, keep}, false)
+	s, err := NewSources(t.Context(), catalogue.MustBuiltin("azurerm"), nil, []Listed{nodes, keep}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

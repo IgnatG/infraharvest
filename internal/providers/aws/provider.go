@@ -102,8 +102,8 @@ func (*Provider) Name() string {
 // default_tags applies tags to every resource, and keys starting with
 // aws: are AWS's own; the network's services share network.tf; a root
 // that environments share reads the account and the region from the
-// provider, which plans each environment in its own; and the s3 backend
-// keeps state in AWS.
+// provider, which plans each environment in its own; the s3 backend
+// keeps state in AWS; and traits says what its resources' values are like.
 func (*Provider) Profile() harvest.Profile {
 	return harvest.Profile{
 		Command: providerName,
@@ -122,6 +122,7 @@ func (*Provider) Profile() harvest.Profile {
 		NameTag:           "Name",
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"},
+		Traits:            traits(),
 		Layout: harvest.Layout{
 			NetworkServices: []string{
 				"customer_gateway", "eip", "eni", "igw", "nacl", "nat", "route_table", "sg", "subnet",

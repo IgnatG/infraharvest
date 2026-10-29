@@ -85,7 +85,7 @@ func TestKeptOwned(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := keptOwned(tc.selected, tc.listed, importID)
+			got := keptOwned(tc.selected, tc.listed, importID, engineTraits(awsTraits).OwnerTags)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("keptOwned = %v, want %v", got, tc.want)
 			}

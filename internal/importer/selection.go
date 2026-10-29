@@ -54,7 +54,9 @@ func checkSelectionOptions(options Options) error {
 // defaultSelection returns the default selection of what the call listed
 // (see selection.NewSources), with what provider finds, if it has
 // defaults of its own (see harvest.ProviderWithSelectionDefaults). With
-// includeOwned, what the tags say another tool manages isn't left out.
+// includeOwned, what the tags say another tool manages isn't left out;
+// the provider's profile says which tags its cloud gives what tools
+// create (see harvest.Traits.OwnerTags).
 func defaultSelection(ctx context.Context, provider harvest.Provider, cat *catalogue.Catalogue, listed listing, includeOwned bool) (*selection.Sources, error) {
 	withDefaults, _ := provider.(harvest.ProviderWithSelectionDefaults)
 	var all []selection.Listed
@@ -63,7 +65,7 @@ func defaultSelection(ctx context.Context, provider harvest.Provider, cat *catal
 			all = append(all, selection.Listed{Resource: r, Tags: listed.tagsOf(r)})
 		}
 	}
-	return selection.NewSources(ctx, cat, withDefaults, all, includeOwned)
+	return selection.NewSources(ctx, cat, withDefaults, all, includeOwned, engineTraits(provider.Profile().Traits).OwnerTags)
 }
 
 // selectionFile loads the selection file options.Selection once per run;
