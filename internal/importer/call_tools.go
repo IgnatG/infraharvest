@@ -168,7 +168,10 @@ func (t *callTools) runner(ctx context.Context, tr terraformRun, provider harves
 // execPath, under its .terraform/modules (see tfexec.Terraform.Get).
 func (t *callTools) get(ctx context.Context, dir, execPath string) error {
 	if t != nil && t.getModules != nil {
-		return t.getModules(ctx, dir, execPath)
+		if err := t.getModules(ctx, dir, execPath); err != nil {
+			return fmt.Errorf("fetching: %w", err)
+		}
+		return nil
 	}
 	tf, err := tfexec.NewTerraform(dir, execPath)
 	if err != nil {

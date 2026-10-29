@@ -48,14 +48,15 @@ type Sources struct {
 	outside map[string]string
 }
 
-// NewSources returns the sources of the default selection of listed: the catalogue's
-// skip rules, what the tags say manages a resource (see
+// NewSources returns the sources of the default selection of listed:
+// the catalogue's skip rules, what the tags say manages a resource (see
 // engine.OwnerTags.OwnedBy, with the provider's cloud's owners) unless
-// includeOwned is set, and what provider finds, if the provider has defaults of its own.
-// The provider sees each resource's tags among its attributes as
-// tags.<key>, the way listers record the tags they read themselves, so
-// that a tag can tell what owns a resource without another call. The
-// error is the provider's; what it found before it failed is kept.
+// includeOwned is set, and what provider finds, if the provider has
+// defaults of its own. The provider sees each resource's tags among its
+// attributes as tags.<key>, the way listers record the tags they read
+// themselves, so that a tag can tell what owns a resource without
+// another call. The error is the provider's; what it found before it
+// failed is kept.
 func NewSources(ctx context.Context, cat *catalogue.Catalogue, provider harvest.ProviderWithSelectionDefaults, listed []Listed, includeOwned bool, owners engine.OwnerTags) (*Sources, error) {
 	s := &Sources{
 		includeOwned: includeOwned,
