@@ -21,8 +21,8 @@ type guardedLister struct {
 	// they say which region explorerSkip and where read.
 	settings serviceSettings
 	// explorerTypes are the Resource Explorer types that let the index
-	// rule the service out (see explorerTypes); none without
-	// Provider.UseResourceExplorer.
+	// rule the service out, as the function explorerTypes finds them; none
+	// without Provider.UseResourceExplorer.
 	explorerTypes []string
 }
 

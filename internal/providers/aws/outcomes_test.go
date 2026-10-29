@@ -39,6 +39,8 @@ func TestAWSCodes(t *testing.T) {
 		{"InvalidAction", apiError("InvalidAction", ""), harvest.OutcomeNothingToList},
 		{"UnavailableOperation", apiError("UnavailableOperation", "not available"), harvest.OutcomeSkipRegion},
 		{"unavailable in the message", apiError("InvalidRequest", "Unavailable Operation"), harvest.OutcomeSkipRegion},
+		{"unavailable in the message, with a code that lists nothing", apiError("InvalidAction", "Unavailable Operation"), harvest.OutcomeSkipRegion},
+		{"unavailable in the message, with a gone code", apiError("OperationNotFound", "Unavailable Operation"), harvest.OutcomeSkipRegion},
 		{"no such host", &net.DNSError{Err: "no such host", Name: "svc.eu-south-2.amazonaws.com", IsNotFound: true}, harvest.OutcomeSkipRegion},
 		{"another host's certificate", x509.HostnameError{Host: "svc.eu-south-2.amazonaws.com"}, harvest.OutcomeSkipRegion},
 		{"another host's certificate, by pointer", &x509.HostnameError{Host: "svc.eu-south-2.amazonaws.com"}, harvest.OutcomeSkipRegion},

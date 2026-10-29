@@ -62,9 +62,10 @@ var awsCodes = &harvest.Codes{
 
 // awsErrorCodes returns the codes of err for awsCodes: a DNS answer that
 // the host doesn't exist, or a certificate of another host, by their own
-// codes; an AWS API error's code, followed by codeUnavailableOperation
-// when its message says the operation is unavailable, which is matched
-// by text as some APIs give no code of their own for it.
+// codes; an AWS API error's code, after codeUnavailableOperation when its
+// message says the operation is unavailable: that is matched by text, as
+// some APIs give no code of their own for it, and comes first so that it
+// skips the region whatever code the API gives with it.
 func awsErrorCodes(err error) []string {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
@@ -79,11 +80,10 @@ func awsErrorCodes(err error) []string {
 	if !errors.As(err, &apiErr) {
 		return nil
 	}
-	codes := []string{apiErr.ErrorCode()}
 	if strings.Contains(apiErr.ErrorMessage(), "Unavailable Operation") {
-		codes = append(codes, codeUnavailableOperation)
+		return []string{codeUnavailableOperation, apiErr.ErrorCode()}
 	}
-	return codes
+	return []string{apiErr.ErrorCode()}
 }
 
 // apiErrorCode returns the error code of an AWS API error, "" for any

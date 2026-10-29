@@ -60,8 +60,8 @@ const explorerSearchLimit = 1000
 
 // explorerSkip returns why the service called name needn't list its region:
 // Resource Explorer is on, the service has its types (see explorerTypes),
-// and its index shows the service has nothing there. It returns "" otherwise, and whenever the index can't tell. Its
-// calls take ctx.
+// and its index shows the service has nothing there. It returns ""
+// otherwise, and whenever the index can't tell. Its calls take ctx.
 func (s *guardedLister) explorerSkip(ctx context.Context, name string) string {
 	if len(s.explorerTypes) == 0 {
 		return ""
