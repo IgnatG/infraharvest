@@ -47,11 +47,23 @@
 # for a while too (KMS keys until they are gone), so what it warns about
 # at the end may already be going. It prints names and ARNs only.
 #
-# Usage: RUN_ID=<run id> sandbox-aws-sweep.sh <region>...
+# With SWEEP_TAG_KEY=infraharvest-sandbox and RUN_ID=<engine>, it sweeps by
+# the estate tag instead, every engine's: what an estate applied with no
+# run_id carries no run tag, and only that finds it (the delete of
+# sandbox-leftovers.yml).
+#
+# Usage: [SWEEP_TAG_KEY=<key>] RUN_ID=<run id> sandbox-aws-sweep.sh <region>...
 # Not -e: one failed call mustn't stop the sweep of the rest.
 set -uo pipefail
 
-key=infraharvest-sandbox-run
+key=${SWEEP_TAG_KEY:-infraharvest-sandbox-run}
+case "$key" in
+  infraharvest-sandbox-run | infraharvest-sandbox) ;;
+  *)
+    echo "SWEEP_TAG_KEY must be infraharvest-sandbox-run or infraharvest-sandbox" >&2
+    exit 2
+    ;;
+esac
 # An empty value would match every value of the key.
 own=${RUN_ID:?RUN_ID names the run whose resources to sweep}
 if [ "$#" -eq 0 ]; then

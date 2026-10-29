@@ -112,6 +112,10 @@ jobs:
         # script).
         # shellcheck disable=SC2086
         .github/scripts/sandbox-aws-sweep.sh $regions
+        # And what an estate applied without a run_id left with no run
+        # tag, by the estate tag, which the sweep finds for every engine.
+        # shellcheck disable=SC2086
+        SWEEP_TAG_KEY=infraharvest-sandbox RUN_ID=terraform .github/scripts/sandbox-aws-sweep.sh $regions
         for region in $regions; do
           echo "== $region"
           clusters=()
