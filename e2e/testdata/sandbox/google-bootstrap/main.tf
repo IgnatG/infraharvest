@@ -42,15 +42,15 @@ locals {
   # environment's subject. The pool's name holds the project's number.
   principal = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/${var.github_subject}"
 
-  # What the estate creates (compute, dns, pubsub, storage, iam, and
-  # cloudfunctions, with run, cloudbuild and artifactregistry, which a 2nd
-  # gen function runs on and is built with, and logging, which its build
-  # logs go to); what the import reads: cloudasset, cloudresourcemanager,
-  # cloudbilling, which the plan of the imported project reads its billing
-  # account from, and sqladmin and cloudscheduler, so that their services
-  # find nothing to list rather than the APIs disabled; and what the
-  # sign-in uses (sts, iamcredentials). serviceusage, which enables the
-  # rest, is enabled in new projects.
+  # What the estate creates (compute, dns, pubsub, storage, iam, run,
+  # sqladmin, bigquery, cloudkms, secretmanager, artifactregistry,
+  # cloudscheduler, and cloudfunctions, with cloudbuild, which a 2nd gen
+  # function is built with, and logging, which its build logs go to);
+  # what the import reads: cloudasset, cloudresourcemanager, and
+  # cloudbilling, which the plan of the imported project reads its
+  # billing account from; and what the sign-in uses (sts,
+  # iamcredentials). serviceusage, which enables the rest, is enabled in
+  # new projects.
   # Enabled first: enabling any other API goes through these two.
   foundation_services = toset([
     "cloudresourcemanager.googleapis.com",
@@ -59,10 +59,12 @@ locals {
 
   services = toset([
     "artifactregistry.googleapis.com",
+    "bigquery.googleapis.com",
     "cloudasset.googleapis.com",
     "cloudbilling.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudfunctions.googleapis.com",
+    "cloudkms.googleapis.com",
     "cloudscheduler.googleapis.com",
     "compute.googleapis.com",
     "dns.googleapis.com",
@@ -71,6 +73,7 @@ locals {
     "logging.googleapis.com",
     "pubsub.googleapis.com",
     "run.googleapis.com",
+    "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
     "storage.googleapis.com",
     "sts.googleapis.com",
@@ -85,7 +88,12 @@ locals {
     # which the fixture may act as (see fixture_function below). Cloud
     # Functions creates and deletes the Cloud Run service itself.
     "roles/cloudfunctions.developer",
-    # Networks, subnetworks and routers, but not firewall rules.
+    # The Cloud Run service, as infraharvest-ci-function, which the
+    # fixture may act as, but not who may call it.
+    "roles/run.developer",
+    # Networks, subnetworks, routers and the load balancer (addresses,
+    # forwarding rules, proxies, URL maps, backend services and buckets,
+    # network endpoint groups), but not firewall rules.
     "roles/compute.networkAdmin",
     # Firewall rules.
     "roles/compute.securityAdmin",
@@ -100,6 +108,21 @@ locals {
     "roles/pubsub.editor",
     # Buckets: no narrower predefined role creates and deletes them.
     "roles/storage.admin",
+    # Cloud SQL instances, databases and users: Cloud SQL Editor can't
+    # delete an instance.
+    "roles/cloudsql.admin",
+    # BigQuery datasets and tables: Data Editor can't delete a dataset.
+    "roles/bigquery.dataOwner",
+    # Key rings and keys, and destroying key versions: no narrower
+    # predefined role creates them.
+    "roles/cloudkms.admin",
+    # Secrets: no narrower predefined role creates them. The estate's
+    # secret has no version, so there is no value to read.
+    "roles/secretmanager.admin",
+    # Repositories: Repository Administrator can't create one.
+    "roles/artifactregistry.admin",
+    # Scheduler jobs.
+    "roles/cloudscheduler.admin",
     # Service accounts: create, read and delete them, but neither create
     # keys for them nor change who may use them, as serviceAccountAdmin
     # could.

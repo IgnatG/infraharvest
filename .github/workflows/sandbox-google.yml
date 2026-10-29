@@ -149,13 +149,18 @@ jobs:
         types+=,compute.googleapis.com/Router,storage.googleapis.com/Bucket,pubsub.googleapis.com/Topic
         types+=,pubsub.googleapis.com/Subscription,dns.googleapis.com/ManagedZone,iam.googleapis.com/ServiceAccount
         types+=,compute.googleapis.com/Instance,compute.googleapis.com/Disk,compute.googleapis.com/FirewallPolicy
+        types+=,compute.googleapis.com/GlobalForwardingRule,compute.googleapis.com/TargetHttpProxy
+        types+=,compute.googleapis.com/UrlMap,compute.googleapis.com/BackendService,compute.googleapis.com/BackendBucket
+        types+=,compute.googleapis.com/NetworkEndpointGroup,compute.googleapis.com/GlobalAddress
+        types+=,run.googleapis.com/Service,sqladmin.googleapis.com/Instance,bigquery.googleapis.com/Dataset
+        types+=,secretmanager.googleapis.com/Secret,artifactregistry.googleapis.com/Repository
         projects=("$SANDBOX_GOOGLE_PROJECT")
         if [ "$SANDBOX_ESTATE" = environments ]; then
           projects+=("$SANDBOX_GOOGLE_SECOND_PROJECT")
         fi
         for project in "${projects[@]}"; do
           left=$(gcloud asset search-all-resources --scope "projects/$project" --asset-types "$types" \
-            --format 'value(name,displayName)' | grep 'ih-sbx-' || true)
+            --format 'value(name,displayName)' | grep -E 'ih[-_]sbx[-_]' || true)
           if [ -n "$left" ]; then
             echo "::warning::Sandbox resources in $project before the run: $left"
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -281,6 +286,10 @@ jobs:
       contents: read
       id-token: write # OpenID Connect, for the fixture service account
     timeout-minutes: 30
+    env:
+      # The region of the estate's Cloud Run services, scheduler jobs,
+      # repositories and key rings, which the sweep lists by region.
+      SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
     steps:
     - name: Why
       env:
