@@ -8,7 +8,8 @@
 # hold, such as a resource whose creation failed half-way, or what a run
 # whose destroy never finished left. The estate's locks first, which would
 # stop the rest, the estate's role assignments and custom roles, then every
-# resource tagged infraharvest-sandbox, whichever engine's run made it
+# resource tagged infraharvest-sandbox or named ih-sbx- (an OS disk takes
+# no tags from its machine), whichever engine's run made it
 # (runs never overlap), a few rounds over, as some can only go once what
 # uses them has. The resource group itself stays. It fails if anything is
 # left in the group.
@@ -43,8 +44,8 @@ while IFS= read -r role; do
     az role definition delete "${sub[@]}" --name "$role" --scope "$scope" || true
   fi
 done <<< "$roles"
-query="[?tags.\"infraharvest-sandbox\" != null].id"
-for _ in 1 2 3; do
+query="[?tags.\"infraharvest-sandbox\" != null || starts_with(name, 'ih-sbx-')].id"
+for _ in 1 2 3 4 5; do
   ids=$(az resource list "${sub[@]}" -g "$group" --query "$query" -o tsv)
   if [ -z "$ids" ]; then
     break
