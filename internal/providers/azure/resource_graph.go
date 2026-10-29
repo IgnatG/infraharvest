@@ -5,10 +5,8 @@ package azure
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -63,7 +61,7 @@ var resourceManagerServices = []string{
 // group they leave out whole is listed without its child resources (see
 // inSkippedGroup). A child list that fails such that resources may be
 // missing, such as one refused or throttled, fails the service in part
-// (see childListFailures): what was listed is imported, and the failure
+// (see addChildListFailures): what was listed is imported, and the failure
 // is reported.
 type ResourceGraphLister struct {
 	Service
@@ -146,17 +144,19 @@ func (g *ResourceGraphLister) list() error {
 	if err != nil {
 		return err
 	}
-	childErr := childListFailures(result.Errors)
+	var parts harvest.Parts
+	addChildListFailures(&parts, result.Errors)
 	if err := g.Context().Err(); err != nil {
 		return err
 	}
 	found := withResourceGroups(byID(slices.Concat(result.Resources, alone)), groups)
 	// A partial failure keeps the data sources that were listed, and the
-	// service fails in part (see childListFailures).
+	// service fails in part (see addChildListFailures).
 	sources, sourceTypes, sourceErr := workspaceDataSources(g.Context(), credential, &clientOptions, result.Resources, g.Wants)
 	if sourceErr != nil && !harvest.IsPartial(sourceErr) {
 		return sourceErr
 	}
+	parts.Add(nil, "", sourceErr)
 	found = append(found, sources...)
 	query, sent := newLookup(g.Context(), credential, clientOptions, found)
 	var viaAzapi map[string]bool
@@ -177,8 +177,7 @@ func (g *ResourceGraphLister) list() error {
 		}
 		log.Printf("azurerm: resource_graph: %d resources azurerm has no type for come through the azapi provider, as %s (--azapi)", n, azapiType)
 	}
-	// Both are partial or nil; joined, they are partial only as wrapped.
-	return harvest.Partial(errors.Join(childErr, sourceErr))
+	return parts.Err()
 }
 
 // childListParallel is how many child resource lists azlist has in flight:
@@ -318,53 +317,18 @@ func byID(resources []azlist.AzureResource) []azlist.AzureResource {
 	return resources
 }
 
-// listStatus is the HTTP status of a failed list in the message of an
-// azlist.ListError, as the Azure SDK's ResponseError writes it.
-var listStatus = regexp.MustCompile(`RESPONSE (\d{3}):`)
-
-// shapeErrors start the messages of the azlist.ListErrors for an item of
-// a list that it couldn't read, such as one without an ID: azurerm has no
-// type to import those by either.
-var shapeErrors = []string{"marshalling ", "unmarshalling ", "no resource id found", "resource id is not a string", "parsing resource id "}
-
-// childListFailures returns, joined as a partial error (see
-// harvest.Partial), the failures among the child resource lists azlist
-// reports that leave the listing incomplete, so that the service fails in
-// part, keeping what it listed, rather than leaving resources out unseen:
-// a list refused (401, 403), throttled (429), timed out (408) or failed
-// by Resource Manager (5xx), or that got no answer at all. azlist leaves
-// out the 404s of resources without children of a type; the other
-// answers, such as 400 or 409 for a child type a resource's SKU or state
-// doesn't have, 405 and 501 for types that can't be listed, and items it
-// couldn't read, are logged, as nothing was left out that could be
-// imported.
-func childListFailures(errs []azlist.ListError) error {
-	var failures []error
+// addChildListFailures adds to parts the failures among the child
+// resource lists azlist reports that leave the listing incomplete (see
+// azureCodes), so that the service fails in part, keeping what it listed,
+// rather than leaving resources out unseen. azlist leaves out the 404s of
+// resources without children of a type; the other answers, which leave
+// nothing out that could be imported, are logged.
+func addChildListFailures(parts *harvest.Parts, errs []azlist.ListError) {
 	for _, e := range errs {
-		if childListFailed(e) {
-			failures = append(failures, fmt.Errorf("azurerm: resource_graph: %w", e))
-		} else {
+		if !parts.Add(azureCodes, "azurerm: resource_graph", e) {
 			log.Printf("azurerm: resource_graph: %v", e)
 		}
 	}
-	return harvest.Partial(errors.Join(failures...))
-}
-
-// childListFailed reports whether e left resources out (see
-// childListFailures).
-func childListFailed(e azlist.ListError) bool {
-	m := listStatus.FindStringSubmatch(e.Message)
-	if m == nil {
-		return !slices.ContainsFunc(shapeErrors, func(prefix string) bool { return strings.HasPrefix(e.Message, prefix) })
-	}
-	status, _ := strconv.Atoi(m[1])
-	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests:
-		return true
-	case http.StatusNotImplemented:
-		return false
-	}
-	return status >= http.StatusInternalServerError
 }
 
 // queryType maps an Azure resource ID to its azurerm types and import IDs,

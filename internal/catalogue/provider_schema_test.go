@@ -222,6 +222,13 @@ func schemaProblems(c *Catalogue, schema *tfjson.ProviderSchema, v *version.Vers
 				fail("children: %s isn't a resource type of the provider", child)
 			}
 		}
+		for _, cfn := range e.CloudFormationTypes {
+			for _, also := range cfn.Also {
+				if _, ok := schema.ResourceSchemas[also]; !ok {
+					fail("cloudformation_types: %s: also: %s isn't a resource type of the provider", cfn.Type, also)
+				}
+			}
+		}
 		if d := e.DataSource; d != nil {
 			s, ok := schema.DataSourceSchemas[d.Type]
 			switch {

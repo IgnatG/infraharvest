@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -545,43 +544,23 @@ func TestInSkippedGroup(t *testing.T) {
 	}
 }
 
-// A child list that was refused, throttled or failed by Resource Manager,
-// or got no answer, fails the service in part, as resources were left
-// out, and what was listed is kept; one for a child type a resource
-// doesn't have, or an item azlist couldn't read, is only logged.
-func TestChildListFailures(t *testing.T) {
+// A child list that was refused fails the service in part, as resources
+// were left out, and what was listed is kept; one for a child type a
+// resource doesn't have is only logged (see TestAzureCodes).
+func TestAddChildListFailures(t *testing.T) {
 	t.Parallel()
-	response := func(status int, text string) string {
-		return "GET https://management.azure.com/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app/config\n" +
-			"--------------------------------------------------------------------------------\n" +
-			"RESPONSE " + strconv.Itoa(status) + ": " + text + "\nERROR CODE: X\n"
-	}
-	for message, failed := range map[string]bool{
-		response(403, "403 Forbidden"):                                    true,
-		response(401, "401 Unauthorized"):                                 true,
-		response(429, "429 Too Many Requests"):                            true,
-		response(500, "500 Internal Server Error"):                        true,
-		response(503, "503 Service Unavailable"):                          true,
-		"Get \"https://management.azure.com/...\": dial tcp: i/o timeout": true,
-		response(400, "400 Bad Request"):                                  false,
-		response(409, "409 Conflict"):                                     false,
-		response(405, "405 Method Not Allowed"):                           false,
-		response(501, "501 Not Implemented"):                              false,
-		"no resource id found in response: {}":                            false,
-	} {
-		e := azlist.ListError{Endpoint: "/X/CONFIG", Version: "2024-04-01", Message: message}
-		if got := childListFailed(e); got != failed {
-			t.Errorf("%q: failed %v, want %v", message, got, failed)
-		}
-	}
-
-	if err := childListFailures([]azlist.ListError{{Endpoint: "/A", Message: response(400, "400 Bad Request")}}); err != nil {
+	badRequest := azlist.ListError{Endpoint: "/A", Message: "RESPONSE 400: 400 Bad Request"}
+	var none harvest.Parts
+	addChildListFailures(&none, []azlist.ListError{badRequest})
+	if err := none.Err(); err != nil {
 		t.Errorf("a child type a resource doesn't have: %v", err)
 	}
-	forbidden := azlist.ListError{Endpoint: "/B", Message: response(403, "403 Forbidden")}
-	err := childListFailures([]azlist.ListError{{Endpoint: "/A", Message: response(400, "400 Bad Request")}, forbidden})
+	forbidden := azlist.ListError{Endpoint: "/B", Message: "RESPONSE 403: 403 Forbidden"}
+	var parts harvest.Parts
+	addChildListFailures(&parts, []azlist.ListError{badRequest, forbidden})
+	err := parts.Err()
 	var listErr azlist.ListError
-	if !harvest.IsPartial(err) || !errors.As(err, &listErr) || listErr.Endpoint != "/B" {
+	if !harvest.IsPartial(err) || !errors.As(err, &listErr) || listErr.Endpoint != "/B" || !strings.HasPrefix(err.Error(), "azurerm: resource_graph: Listing /B") {
 		t.Errorf("got %v, want the refused list as a partial error", err)
 	}
 }

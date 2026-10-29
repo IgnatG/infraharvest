@@ -421,25 +421,28 @@ func TestResourceExplorerIsOffByDefault(t *testing.T) {
 	assertIDs(t, sqs, "aws_sqs_queue", "https://sqs.eu-west-2.amazonaws.com/123456789012/orders")
 }
 
-// Only regional services the provider has can be ruled out, by types in
-// Resource Explorer's service:type notation.
+// Every type whose entry has Resource Explorer types is one a regional
+// service lists, which they let the index rule out; a global service never
+// is.
 func TestExplorerTypesAreOfRegionalServices(t *testing.T) {
 	t.Parallel()
-	services := (&Provider{}).Services()
-	for name, types := range explorerTypes {
-		if _, ok := services[name]; !ok {
-			t.Errorf("%s: no such service", name)
-		}
+	cat := awsCatalogue()
+	covered := map[string]bool{}
+	for name := range (&Provider{}).Services() {
+		types := explorerTypes(cat, name)
 		if slices.Contains(GlobalServices, name) || slices.Contains(EastOnlyServices, name) {
-			t.Errorf("%s: a global service", name)
-		}
-		if len(types) == 0 {
-			t.Errorf("%s: no types", name)
-		}
-		for _, typ := range types {
-			if service, resource, ok := strings.Cut(typ, ":"); !ok || service == "" || resource == "" || strings.Contains(typ, " ") || strings.Contains(typ, ",") {
-				t.Errorf("%s: %q isn't a Resource Explorer type", name, typ)
+			if len(types) > 0 {
+				t.Errorf("%s: a global service has %v", name, types)
 			}
+			continue
+		}
+		for _, typ := range serviceTypes(cat, name) {
+			covered[typ] = true
+		}
+	}
+	for _, typ := range cat.Types() {
+		if e, _ := cat.Entry(typ); len(e.ResourceExplorerTypes()) > 0 && !covered[typ] {
+			t.Errorf("%s: resource_explorer, but no regional service lists it", typ)
 		}
 	}
 }

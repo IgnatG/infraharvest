@@ -305,13 +305,6 @@ func TestCheckImportOptions(t *testing.T) {
 	}
 }
 
-func TestImportRejectsUnknownEngine(t *testing.T) {
-	err := ImportCalls(context.Background(), NewRun(), []Call{{Provider: &fakeProvider{}, Options: Options{Engine: "tofu-ish"}}})
-	if err == nil || !strings.Contains(err.Error(), `unknown --engine "tofu-ish"`) {
-		t.Errorf("want an unknown engine error, got %v", err)
-	}
-}
-
 // The engine labels resources by the name the lister gave, as it is: "-"
 // is part of names like my-2024-backups, and "-2024-" is kept.
 func TestImportsByDirKeepRawNames(t *testing.T) {

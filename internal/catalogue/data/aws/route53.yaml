@@ -10,10 +10,12 @@ provider: aws
 service: route53
 types:
   aws_route53_health_check:
+    cloudformation_types: ["AWS::Route53::HealthCheck"]
     skip:
       - reason: a health check another AWS service created, which only that service can change; select it to import it
         attributes_present: [linked_service]
   aws_route53_record:
+    cloudformation_types: ["AWS::Route53::RecordSet", "AWS::Route53::RecordSetGroup"]
     # The record's set identifier, when it has one, distinguishes records
     # of a routing policy.
     import_id:
@@ -29,6 +31,8 @@ types:
       - reason: the zone's own name servers, which Route 53 creates and deletes with the zone; select it to import it
         attributes: { type: NS, apex: "true" }
   aws_route53_zone:
+    cloudformation_types:
+      - { type: "AWS::Route53::HostedZone", also: [aws_route53_hosted_zone_dnssec] }
     arn: { service: route53, resource_type: "hostedzone" }
     data_source: { type: aws_route53_zone, argument: zone_id }
     # What AWS, and the provider for the comment, give a zone that doesn't

@@ -111,14 +111,15 @@ import {
 }
 `)
 	route := map[string]string{"account_id": "{account_id}", "region": "{region}", "route_table_id": "{id}", "destination_cidr_block": "0.0.0.0/0"}
-	err := retargetImports(dir, map[string]string{"aws_route_table.public": "module.vpc.aws_route_table.public[0]"}, []moduleImport{
+	ws := rootWorkspace(t, dir)
+	err := retargetImports(ws, map[string]string{"aws_route_table.public": "module.vpc.aws_route_table.public[0]"}, []moduleImport{
 		{Import: adapters.Import{To: "aws_route.public_internet_gateway[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0", Identity: route}, to: "module.vpc.aws_route.public_internet_gateway[0]"},
 		{Import: adapters.Import{To: "aws_route.private_nat_gateway[0]", Of: "aws_route_table.private", Suffix: "_0.0.0.0/0", Identity: route}, to: "module.vpc.aws_route.private_nat_gateway[0]"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := readFile(t, dir, rootfile.ImportsFileName)
+	got := wsFile(t, ws, rootfile.ImportsFileName)
 	for _, want := range []string{
 		"to = module.vpc.aws_route_table.public[0]",
 		"to = module.vpc.aws_route.public_internet_gateway[0]\n  identity = {\n    account_id             = \"123456789012\"\n    destination_cidr_block = \"0.0.0.0/0\"\n    route_table_id         = \"rtb-1\"\n  }\n",
@@ -130,8 +131,8 @@ import {
 	}
 
 	// An adapter that makes no identity can't add the import.
-	writeConfig(t, dir, rootfile.ImportsFileName, "import {\n  to = aws_route_table.public\n  identity = {\n    id = \"rtb-1\"\n  }\n}\n")
-	err = retargetImports(dir, nil, []moduleImport{{Import: adapters.Import{To: "aws_route.this[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"}, to: "module.vpc.aws_route.this[0]"}})
+	ws.Write(rootfile.ImportsFileName, []byte("import {\n  to = aws_route_table.public\n  identity = {\n    id = \"rtb-1\"\n  }\n}\n"))
+	err = retargetImports(ws, nil, []moduleImport{{Import: adapters.Import{To: "aws_route.this[0]", Of: "aws_route_table.public", Suffix: "_0.0.0.0/0"}, to: "module.vpc.aws_route.this[0]"}})
 	if err == nil || !strings.Contains(err.Error(), "makes no identity") {
 		t.Errorf("want an error, got %v", err)
 	}

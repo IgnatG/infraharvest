@@ -7,7 +7,6 @@ package providers
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,7 +19,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
-	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 func TestAWSAccounts(t *testing.T) {
@@ -45,46 +43,35 @@ func TestAWSAccounts(t *testing.T) {
 	}
 }
 
-// An account that can't be imported is reported, and the run goes on to
-// the next; an interrupt stops it.
-func TestImportAWSAccountsGoesOn(t *testing.T) {
-	ctx := context.Background()
-	options := importer.Options{Out: t.TempDir()}
+// Each of --accounts is a scope of its own, which the importer imports
+// apart (see importer.Plan), through the default role in that account,
+// each call with a provider of its own.
+func TestAWSPlanOfAccounts(t *testing.T) {
+	accounts := []string{"111122223333", "444455556666"}
+	p, err := (&awsScope{accounts: accounts, assumeRole: DefaultAssumeRole}).plan(context.Background(), importer.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := p.importerPlan(importer.Options{}, newAWSProvider)
+	if plan.Kind != "account" || !slices.Equal(plan.Scopes, accounts) {
+		t.Fatalf("kind %q, scopes %v", plan.Kind, plan.Scopes)
+	}
 	var roles []string
-	importAccount := func(_ context.Context, role string) error {
-		roles = append(roles, role)
-		if strings.Contains(role, "111122223333") {
-			return errors.New("AccessDenied: can't assume the role")
+	providers := map[harvest.Provider]bool{}
+	for _, account := range plan.Scopes {
+		for _, c := range plan.Calls(account) {
+			if c.Provider == nil || providers[c.Provider] {
+				t.Errorf("%s: a call without a provider of its own", account)
+			}
+			providers[c.Provider] = true
+			roles = append(roles, c.Args[2])
 		}
-		return nil
 	}
-
-	run := importer.NewRun()
-	err := run.Do(func() error {
-		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, importAccount)
-	})
-
 	want := []string{"arn:aws:iam::111122223333:role/infraharvest-readonly", "arn:aws:iam::444455556666:role/infraharvest-readonly"}
-	if !reflect.DeepEqual(roles, want) {
-		t.Errorf("roles %v, want %v: the run must go on", roles, want)
-	}
-	if code := importer.ExitCode(err); code != report.ExitIncomplete {
-		t.Errorf("exit code %d, want %d (%v)", code, report.ExitIncomplete, err)
-	}
-	if err == nil || !strings.Contains(err.Error(), "account 111122223333: AccessDenied") {
-		t.Errorf("failure not reported: %v", err)
-	}
-
-	roles = nil
-	run = importer.NewRun()
-	err = run.Do(func() error {
-		return importAWSAccounts(ctx, run, options, []string{"111122223333", "444455556666"}, func(context.Context, string) error { return context.Canceled })
-	})
-	if !errors.Is(err, context.Canceled) || len(roles) != 0 {
-		t.Errorf("interrupted: %v", err)
+	if !slices.Equal(roles, want) {
+		t.Errorf("roles %v, want %v", roles, want)
 	}
 }
-
 func TestGroupAWSResources(t *testing.T) {
 	global, eastOnly, regional := groupAWSServices(importer.Options{Services: []string{"*"}, Skip: []string{"iam"}})
 
@@ -109,27 +96,6 @@ func TestGroupAWSResources(t *testing.T) {
 	if !slices.Equal(global, []string{"iam"}) || !slices.Equal(regional, []string{"vpc"}) {
 		t.Errorf("global %v, regional %v", global, regional)
 	}
-}
-
-// importAWSAccounts imports accounts as the aws command plans them, through
-// the default role, with importAccount, given the call's role, in place of
-// each Import call, in order, stopping at the first that fails.
-func importAWSAccounts(ctx context.Context, run *importer.Run, options importer.Options, accounts []string, importAccount func(context.Context, string) error) error {
-	p, err := (&awsScope{accounts: accounts, assumeRole: DefaultAssumeRole}).plan(ctx, options)
-	if err != nil {
-		return err
-	}
-	return p.run(ctx, run, options, newAWSProvider, func(ctx context.Context, _ *importer.Run, calls []importer.Call) error {
-		for _, c := range calls {
-			if c.Provider == nil {
-				return errors.New("a call without a provider")
-			}
-			if err := importAccount(ctx, c.Args[2]); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 // Each account, region and group of services is one Import call, whose

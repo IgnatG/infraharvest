@@ -6,7 +6,6 @@ package aws
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -96,16 +95,11 @@ func (g *CloudControlLister) listTypes() error {
 		return err
 	}
 	client := cloudcontrol.NewFromConfig(config)
-	var errs []error
+	var parts harvest.Parts
 	for _, t := range g.types {
-		if err := g.listType(g.Context(), client, t); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", t.CloudFormation, err))
-		}
+		parts.Add(nil, t.CloudFormation, g.listType(g.Context(), client, t))
 	}
-	if len(errs) > 0 && len(errs) == len(g.types) {
-		return errors.Join(errs...)
-	}
-	return harvest.Partial(errors.Join(errs...))
+	return parts.ErrOutOf(len(g.types))
 }
 
 // listType adds the resources of one type, if the region has the type. A type

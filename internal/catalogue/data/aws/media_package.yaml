@@ -3,4 +3,5 @@ provider: aws
 service: media_package
 types:
   aws_media_package_channel:
+    resource_explorer: ["mediapackage:channels"]
     cloud_control: { type: "AWS::MediaPackage::Channel", identifier: Id }

@@ -46,7 +46,7 @@ Outputs:
 	stack.SetParameters(map[string]string{"Days": "7"}, nil)
 	run := NewRun()
 	run.report.CloudFormationStacks.Add([]cfn.Stack{stack})
-	c := &listedCall{run: run, provider: &fakeProvider{}, scope: "123456789012/eu-west-2"}
+	c := &listedCall{callRecorder: callRecorder{run: run, scope: "123456789012/eu-west-2"}, provider: &fakeProvider{}}
 	refine, key := c.stackIntent()
 	if refine == nil {
 		t.Fatal("no Refine for a scoped call")
@@ -85,7 +85,7 @@ Outputs:
 	}
 
 	// A call that lists none of the stack's resources has nothing to refine.
-	other := &listedCall{run: run, provider: &fakeProvider{}, scope: "210987654321/eu-west-2"}
+	other := &listedCall{callRecorder: callRecorder{run: run, scope: "210987654321/eu-west-2"}, provider: &fakeProvider{}}
 	if refine, _ := other.stackIntent(); refine != nil {
 		t.Error("a Refine for a call with none of the stack's resources")
 	}

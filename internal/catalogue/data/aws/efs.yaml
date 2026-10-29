@@ -3,4 +3,8 @@ provider: aws
 service: efs
 types:
   aws_efs_file_system:
+    cloudformation_types:
+      - { type: "AWS::EFS::FileSystem", also: [aws_efs_backup_policy, aws_efs_replication_configuration] }
+    # Mount targets and file system policies need their file system.
+    resource_explorer: arn
     arn: { service: elasticfilesystem, resource_type: "file-system" }

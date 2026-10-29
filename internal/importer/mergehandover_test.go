@@ -151,13 +151,13 @@ func TestStillRemoved(t *testing.T) {
 func TestMoveMergedHandsOver(t *testing.T) {
 	stack := t.TempDir()
 	writeRootFiles(t, stack, map[string]string{"main.tf": "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"orders\"\n}\n", rootfile.ReadmeFileName: "# fake/stack\n"})
-	r := NewRun()
-	r.options.Regenerate = true
+	p := newTestPhase("", nil)
+	p.regenerate = true
 	before := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1", "aws_sqs_queue.reports": "q2"}}
 	now := map[string]map[string]string{"dev": {"aws_sqs_queue.orders": "q1"}}
 	result := &envmerge.MergeResult{Files: []string{"main.tf"}}
 	removed := []rootfile.Removal{{From: "aws_sqs_queue.reports", Resources: []rootfile.Departure{{Type: "aws_sqs_queue", ID: "q2", Address: "aws_sqs_queue.reports", Root: "envs/shared/fake"}}}}
-	if why, err := r.moveMerged(stack, result, before, now, nil, removed); why != "" || err != nil {
+	if why, err := p.moveMerged(stack, result, before, now, nil, removed); why != "" || err != nil {
 		t.Fatalf("moveMerged: %q, %v", why, err)
 	}
 	if got, err := rootfile.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "aws_sqs_queue.reports" {
@@ -234,14 +234,13 @@ func TestVacateMergedRoot(t *testing.T) {
 	c1.handovers.record(dev, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
 	c2.handovers.record(prod, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o2", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
 
-	r := NewRun()
-	r.options.Out = out
-	r.vacating = slices.Concat(c1.run.vacating, c2.run.vacating)
-	if err := r.vacateMergedRoots(nil); err != nil {
+	p := newTestPhase(out, nil)
+	p.vacating = slices.Concat(c1.run.vacating, c2.run.vacating)
+	if err := p.vacateMergedRoots(nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.failures) != 0 || len(r.report.IncompleteHandovers) != 0 {
-		t.Fatalf("failures %v, incomplete %+v", r.failures, r.report.IncompleteHandovers)
+	if len(p.report.Failures) != 0 || len(p.report.IncompleteHandovers) != 0 {
+		t.Fatalf("failures %v, incomplete %+v", p.report.Failures, p.report.IncompleteHandovers)
 	}
 	if _, err := os.Stat(filepath.Join(stack, "main.tf")); !os.IsNotExist(err) {
 		t.Errorf("main.tf is still there: %v", err)
@@ -249,8 +248,8 @@ func TestVacateMergedRoot(t *testing.T) {
 	if got, err := rootfile.ReadRemoved(stack); err != nil || len(got) != 1 || got[0].From != "fake_thing.orders" {
 		t.Errorf("moves.tf removes %+v, %v", got, err)
 	}
-	if len(r.report.Departed) != 2 || r.report.Departed[0].FromRoot != "fake/stack" {
-		t.Errorf("departed %+v", r.report.Departed)
+	if len(p.report.Departed) != 2 || p.report.Departed[0].FromRoot != "fake/stack" {
+		t.Errorf("departed %+v", p.report.Departed)
 	}
 	c, err := mergeCheckpoints.read(out, stack)
 	if err != nil || c == nil || len(c.Imports) != 0 || !slices.Contains(c.Files, rootfile.MovesFileName) || slices.Contains(c.Files, "main.tf") {
@@ -272,14 +271,13 @@ func TestVacateMergedRootPartly(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.handovers.record(dev, &engine.Result{Arrived: []rootfile.Arrival{{Type: "fake_thing", ID: "o1", Root: "fake/stack", From: "fake_thing.orders", To: "fake_thing.orders"}}}, nil)
-	r := NewRun()
-	r.options.Out = out
-	r.vacating = c.run.vacating
-	if err := r.vacateMergedRoots(nil); err != nil {
+	p := newTestPhase(out, nil)
+	p.vacating = c.run.vacating
+	if err := p.vacateMergedRoots(nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.failures) != 1 || len(r.report.IncompleteHandovers) != 1 || r.report.IncompleteHandovers[0].FailedRoot != "fake/stack" {
-		t.Errorf("failures %v, incomplete %+v", r.failures, r.report.IncompleteHandovers)
+	if len(p.report.Failures) != 1 || len(p.report.IncompleteHandovers) != 1 || p.report.IncompleteHandovers[0].FailedRoot != "fake/stack" {
+		t.Errorf("failures %v, incomplete %+v", p.report.Failures, p.report.IncompleteHandovers)
 	}
 	if _, err := os.Stat(filepath.Join(stack, "main.tf")); err != nil {
 		t.Errorf("main.tf: %v", err)

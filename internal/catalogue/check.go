@@ -21,6 +21,12 @@ var (
 	cloudFormation   = regexp.MustCompile(`^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$`)
 	cloudControlProp = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
 	inventoryType    = regexp.MustCompile(`^[A-Za-z0-9.-]+(/[A-Za-z0-9]+)+$`)
+	// stackResourceType is a CloudFormation type a stack can hold: one of
+	// a provider's, or a custom resource's, such as the CDK's
+	// Custom::AWSCDK-EKS-Cluster.
+	stackResourceType = regexp.MustCompile(`^([A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+|Custom::[A-Za-z0-9-]+)$`)
+	// explorerType is a Resource Explorer type: service:resource_type.
+	explorerType = regexp.MustCompile(`^[a-z0-9-]+:[A-Za-z0-9/-]+$`)
 )
 
 // check reports what's wrong with the catalogue's entries.
@@ -36,6 +42,7 @@ func (c *Catalogue) check() error {
 		}
 	}
 	errs = append(errs, c.checkInventory()...)
+	errs = append(errs, c.checkCloudFormationTypes()...)
 	return errors.Join(errs...)
 }
 
@@ -72,7 +79,7 @@ func (c *Catalogue) checkType(typ string, e *Entry) []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
 	if typ == AllTypes {
 		if len(e.ImportID) > 0 || e.NotImportable != "" || len(e.Children) > 0 || e.DataSource != nil ||
-			e.ARN != nil || e.CloudControl != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
+			e.ARN != nil || e.CloudControl != nil || len(e.CloudFormationTypes) > 0 || e.ResourceExplorer != nil || e.Inventory != nil || e.Service != "" || len(e.Defaults) > 0 || e.Lifecycle != nil {
 			fail("the entry for every type only takes omit, state_only, provider_versions, skip and unstable_id_suffix")
 		}
 	} else if !identifier.MatchString(typ) || !strings.HasPrefix(typ, c.provider+"_") {
@@ -260,12 +267,54 @@ func (c *Catalogue) checkReferences(typ string, e *Entry) []error {
 			fail("cloud_control: the identifier is the import ID, so import_id doesn't apply")
 		}
 	}
+	for _, t := range e.CloudFormationTypes {
+		if !stackResourceType.MatchString(t.Type) {
+			fail("cloudformation_types: %q: want a CloudFormation type, such as AWS::S3::Bucket", t.Type)
+		}
+		for _, also := range t.Also {
+			if also == typ || !identifier.MatchString(also) || !strings.HasPrefix(also, c.provider+"_") {
+				fail("cloudformation_types: %s: also: %q: want another %s resource type", t.Type, also, c.provider)
+			}
+		}
+	}
+	if r := e.ResourceExplorer; r != nil {
+		switch {
+		case r.FromARN && (e.ARN == nil || e.ARN.ResourceType == ""):
+			fail("resource_explorer: arn: want an arn with a resource type")
+		case !r.FromARN && len(r.Types) == 0:
+			fail("resource_explorer: want arn, or Resource Explorer types")
+		}
+		for _, t := range r.Types {
+			if !explorerType.MatchString(t) {
+				fail("resource_explorer: %q: want a Resource Explorer type, such as ec2:volume", t)
+			}
+		}
+	}
 	if inv := e.Inventory; inv != nil {
 		if !inventoryType.MatchString(inv.Type) {
 			fail("inventory: type %q: want an inventory API's type, such as compute.googleapis.com/Network", inv.Type)
 		}
 		if _, err := path.Match(inv.Name, ""); err != nil {
 			fail("inventory: name %q: %v", inv.Name, err)
+		}
+	}
+	return errs
+}
+
+// checkCloudFormationTypes reports a CloudFormation type that the
+// cloudformation_types of two entries name: its Terraform types would
+// have no order (see CloudFormationTypes), so one entry names it, with
+// the others in also.
+func (c *Catalogue) checkCloudFormationTypes() []error {
+	named := map[string]string{}
+	var errs []error
+	for _, typ := range slices.Sorted(maps.Keys(c.entries)) {
+		for _, t := range c.entries[typ].CloudFormationTypes {
+			if other, ok := named[t.Type]; ok {
+				errs = append(errs, fmt.Errorf("%s: %s: cloudformation_types: %s is %s's too; name it once, with the other types in also", c.sources[typ], typ, t.Type, other))
+				continue
+			}
+			named[t.Type] = typ
 		}
 	}
 	return errs

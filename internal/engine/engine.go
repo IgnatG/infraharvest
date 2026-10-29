@@ -459,17 +459,16 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	if restoreAccess, err = fsutil.MakePrivate(dir); err != nil {
 		return nil, err
 	}
-	files := map[string][]byte{rootfile.ImportsFileName: importsHCL}
-	for name, content := range opts.Config {
-		files[name] = content
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return nil, err
 	}
-	for name, content := range files {
-		if err := fsutil.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
-			return nil, err
-		}
+	ws.Write(rootfile.ImportsFileName, importsHCL)
+	for name, content := range opts.Config {
+		ws.Write(name, content)
 	}
 	if dt := opts.DefaultTags; dt != nil && dt.Applied != nil {
-		if err := applyDefaultTags(dir, *dt); err != nil {
+		if err := applyDefaultTags(ws, *dt); err != nil {
 			return nil, err
 		}
 	}
@@ -478,18 +477,18 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	// before init, which selects its newest release, pinned as the
 	// root's own provider is.
 	others := resourceProviders(g.imports, opts.ModuleProviders)
-	if err := requireProviders(dir, others, opts.ModuleProviders); err != nil {
+	if err := requireProviders(ws, others, opts.ModuleProviders); err != nil {
 		return nil, err
 	}
-	if err := tfrun.Init(ctx, g.tf); err != nil {
+	if err := tfrun.Init(ctx, ws.terraform(g.tf)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	if len(others) > 0 {
-		if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+		if err := pinModuleProviders(ws, opts.ModuleProviders); err != nil {
 			return nil, err
 		}
 	}
-	return restoreAccess, nil
+	return restoreAccess, ws.Flush()
 }
 
 // planGenerated has Terraform generate generated.tf, imports again what

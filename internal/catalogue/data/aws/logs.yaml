@@ -6,6 +6,9 @@ provider: aws
 service: logs
 types:
   aws_cloudwatch_log_group:
+    cloudformation_types:
+      - { type: "AWS::Logs::LogGroup", also: [aws_cloudwatch_log_data_protection_policy] }
+    resource_explorer: arn
     arn: { service: logs, resource_type: "log-group" }
     # What AWS gives a log group that doesn't set them.
     defaults: [deletion_protection_enabled=false, log_group_class=STANDARD]

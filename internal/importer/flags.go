@@ -66,12 +66,12 @@ func checkFilters(options Options) error {
 	return nil
 }
 
-// ResolvePolicies returns the --policy directories as absolute paths, so
+// resolvePolicies returns the --policy directories as absolute paths, so
 // that conftest, which runs in each directory it checks, finds them, and
 // fails when one isn't a directory, or when there are some and conftest,
 // which checks the roots against them, isn't on PATH: an explicit
 // request isn't skipped quietly, as a scanner nobody asked for is.
-func ResolvePolicies(dirs []string) ([]string, error) {
+func resolvePolicies(dirs []string) ([]string, error) {
 	if len(dirs) == 0 {
 		return nil, nil
 	}

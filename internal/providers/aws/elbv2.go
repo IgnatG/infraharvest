@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,7 +23,7 @@ import (
 type AlbLister struct {
 	Service
 	// parts gathers the parts of the listing that failed.
-	parts partFailures
+	parts harvest.Parts
 }
 
 // albRulesPageSize is how many listener rules one DescribeRules call asks
@@ -36,7 +35,7 @@ const albRulesPageSize = 400
 // groups fails the service. A failure further down, for one load balancer,
 // listener or target group, such as a permission the role lacks on it,
 // leaves out only that part, so that the rest is still listed, and the
-// failures are returned together as a partial error (see partFailures).
+// failures are returned together as a partial error (see harvest.Parts).
 func (g *AlbLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -48,26 +47,26 @@ func (g *AlbLister) list() error {
 	}
 	client := elasticloadbalancingv2.NewFromConfig(config)
 	if err := g.listLoadBalancers(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
 	if err := g.listTargetGroups(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
-	return g.parts.err()
+	return g.parts.Err()
 }
 
 // albRead is what reading one load balancer, or one target group, with its
 // parts found: its resources, in order, and the parts that failed.
 type albRead struct {
 	resources []harvest.Resource
-	parts     partFailures
+	parts     harvest.Parts
 }
 
 // record records reads in order: their resources, and their failures.
 func (g *AlbLister) record(reads []albRead) {
 	for _, read := range reads {
 		g.Resources = append(g.Resources, read.resources...)
-		g.parts.errs = append(g.parts.errs, read.parts.errs...)
+		g.parts.Merge(&read.parts)
 	}
 }
 
@@ -109,7 +108,7 @@ func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN s
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			out.parts.add("listeners of "+lbARN, err)
+			out.parts.Add(awsCodes, "listeners of "+lbARN, err)
 			return
 		}
 		for _, listener := range page.Listeners {
@@ -170,7 +169,7 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 		}
 		return page.NextMarker, nil
 	})
-	out.parts.add("rules of listener "+listenerARN, err)
+	out.parts.Add(awsCodes, "rules of listener "+listenerARN, err)
 }
 
 // listListenerCertificates records in out, across pages, the certificates of
@@ -191,7 +190,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			out.parts.add("certificates of listener "+listenerARN, err)
+			out.parts.Add(awsCodes, "certificates of listener "+listenerARN, err)
 			return
 		}
 		for _, certificate := range page.Certificates {
@@ -252,7 +251,7 @@ func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Cl
 		TargetGroupArn: aws.String(groupARN),
 	})
 	if err != nil {
-		out.parts.add("targets of target group "+groupARN, err)
+		out.parts.Add(awsCodes, "targets of target group "+groupARN, err)
 		return
 	}
 	for _, description := range health.TargetHealthDescriptions {

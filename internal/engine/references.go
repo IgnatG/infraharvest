@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -76,8 +75,8 @@ func (t referenceTarget) node() string {
 // the references of the index and its parents, which identify the
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see tidying.settle). It returns the resources it changed.
-func addReferencesSkipping(dir string, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func addReferencesSkipping(ws *workspace, values map[string]map[string]any, skip map[string]int) (map[string]bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +100,8 @@ func addReferencesSkipping(dir string, values map[string]map[string]any, skip ma
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	return edited, generated.Save()
+	ws.Save(generated)
+	return edited, nil
 }
 
 // googleAPIs and computeAPIs start the self links of Google Compute Engine

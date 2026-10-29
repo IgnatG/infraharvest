@@ -4,7 +4,6 @@
 package importer
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -141,7 +139,7 @@ func markMerging(options Options, calls []*listedCall) error {
 
 // mergeMember is a root an import generated, or kept from an earlier one
 // with --resume, of one environment of a stack, which the merge phase
-// merges with the other environments' (see Run.MergeEnvironments).
+// merges with the other environments' (see mergePhase.run).
 type mergeMember struct {
 	dir   string // the root's directory
 	stack string // the merged root's
@@ -262,53 +260,6 @@ func mergeProfile(profile harvest.Profile) envmerge.MergeProfile {
 	return merge
 }
 
-// MergeEnvironments merges the roots of each stack of r's environments
-// that every scope of the command generated (see
-// mergeMember): the stack's roots of two environments or more become one
-// root they share, in the directory stackLayout names, checked by its gate
-// once per environment with that environment's credentials (see
-// envmerge.MergeRoots). A stack whose roots don't merge so that every
-// environment's plan stays the same keeps them, and the report says why.
-// The roots of a merged stack are set aside under the output's
-// checkpoints (see premergeDir). Then a merged root none of whose
-// environments' roots the run generated, all of whose resources the run
-// put in other roots, keeps only the removed blocks that hand them over
-// (see vacateMergedRoots). It returns an error only where the run can't
-// go on, such as when it is interrupted.
-func (r *Run) MergeEnvironments(ctx context.Context) error {
-	byStack := map[string][]mergeMember{}
-	if r.options.MergeEnvironments {
-		for _, m := range r.members {
-			byStack[m.stack] = append(byStack[m.stack], m)
-		}
-	}
-	for _, stack := range slices.Sorted(maps.Keys(byStack)) {
-		members := byStack[stack]
-		sort.Slice(members, func(i, j int) bool {
-			if members[i].env != members[j].env {
-				return members[i].env < members[j].env
-			}
-			return members[i].dir < members[j].dir
-		})
-		if err := r.mergeStack(ctx, stack, members); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			log.Printf("%s: %v", stack, err)
-			r.recordFailure(r.options, fmt.Errorf("merging %s: %w", relativePath(r.options.Out, stack), err))
-		}
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	// The merged roots all of whose resources go to other roots now.
-	if err := r.vacateMergedRoots(byStack); err != nil {
-		log.Print(err)
-		r.recordFailure(r.options, fmt.Errorf("handing over what merged roots have: %w", err))
-	}
-	return nil
-}
-
 // mergeRefusal returns why members, the roots of the stack whose merged
 // root is stack, aren't merged, if they aren't: an environment has
 // several of them, the merged root would be one of them or hold one, or
@@ -402,12 +353,12 @@ func fillMerge(merge *report.Merge, result *envmerge.MergeResult) {
 
 // recordMerge records merge, the outcome of the stack of members, in the
 // report: each member's directory names the merged root, once merged.
-func (r *Run) recordMerge(merge report.Merge, members []mergeMember) {
+func (p *mergePhase) recordMerge(merge report.Merge, members []mergeMember) {
 	roots := make([]string, len(members))
 	for i, m := range members {
-		roots[i] = relativePath(r.options.Out, m.dir)
+		roots[i] = relativePath(p.out, m.dir)
 	}
-	r.report.AddMerge(merge, roots)
+	p.report.AddMerge(merge, roots)
 }
 
 // premergeDirName holds, under the output's checkpoints, the roots of

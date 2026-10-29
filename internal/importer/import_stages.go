@@ -28,16 +28,13 @@ import (
 // listedCall is an Import call whose resources are listed, selected and
 // grouped into roots, ready to generate (see listCall): the calls of one
 // scope are all listed before any generates, so that each root refers to
-// the roots of the scope's other calls (see ImportCalls).
+// the roots of the scope's other calls (see Run.importScope).
 type listedCall struct {
-	run      *Run
+	// callRecorder records what the call does into its run.
+	callRecorder
 	provider harvest.Provider
 	// options are the call's, as the command gave them.
 	options Options
-	scope   string
-	// here is what the call's listing found in its scope, if it can tell
-	// what is gone (see listedInScope); only for --incremental.
-	here *listedHere
 	// byDir are the imports of each root the call generates.
 	byDir map[string][]rootfile.Import
 	// places are where each root of one of the configuration file's
@@ -57,8 +54,21 @@ type listedCall struct {
 	toolchain toolchain
 }
 
+// callRecorder records what one Import call does into run, the run of its
+// own the call lists into (see Run.importScope), counted in the call's
+// scope: a run keeps what its calls did, not which call it is doing.
+type callRecorder struct {
+	run *Run
+	// scope is where the call lists (see discoveryScope), which the report
+	// counts what it records by.
+	scope string
+	// here is what the call's listing found in its scope, if it can tell
+	// what is gone (see listedInScope); only for --incremental.
+	here *listedHere
+}
+
 // listCall lists, selects and groups into roots what one Import call
-// imports into run (see importInto), recording what it found into run,
+// imports into run (see Run.importScope), recording what it found into run,
 // stage by stage: it prepares the call (see Run.prepareCall), lists and
 // selects its resources (see Run.listAndSelect), lays out its roots (see
 // Run.layOut), gets the toolchain that generates them (see
@@ -66,11 +76,6 @@ type listedCall struct {
 // every resource in its root (see Run.place). It returns nil, with no
 // error, for discover, which generates nothing.
 func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
-	if !run.used {
-		// Should the import fail before it gets as far as the report, the
-		// run still writes one there, with the failure (see Run.finish).
-		run.options = options
-	}
 	// The provider signs in and lists with the run's limiter, not another
 	// run's (see ratelimit.FromContext).
 	ctx = ratelimit.NewContext(ctx, run.shared.rateLimiter(options.RateLimit))
@@ -115,15 +120,16 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return nil, err
 	}
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
+	recorder := callRecorder{run: run, scope: c.scope, here: here}
 	if options.Incremental {
 		// What an earlier import put in another root stays there.
 		held, err := run.outputIndex(options.Out).heldElsewhere(placed.byDir)
 		if err != nil {
 			return nil, err
 		}
-		run.leaveOutHeld(placed.byDir, held)
+		recorder.leaveOutHeld(placed.byDir, held)
 	}
-	return &listedCall{run: run, provider: provider, options: options, scope: c.scope, here: here, byDir: placed.byDir, places: placed.places, region: scopeRegion(c.scope), opts: opts, toolchain: *tools}, nil
+	return &listedCall{callRecorder: recorder, provider: provider, options: options, byDir: placed.byDir, places: placed.places, region: scopeRegion(c.scope), opts: opts, toolchain: *tools}, nil
 }
 
 // callContext is one Import call's Options, as the command gave them, and
@@ -166,8 +172,7 @@ type callContext struct {
 
 // prepareCall initialises provider with args, and works out what the
 // call with options lists: the catalogue, which the provider is given, the
-// types the selection file leaves out, the services, and the scope, which
-// r counts what it records by from now on.
+// types the selection file leaves out, the services, and the scope.
 func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, args []string) (*callContext, error) {
 	if err := provider.Init(ctx, args); err != nil {
 		return nil, err
@@ -192,7 +197,6 @@ func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, option
 	}
 	c.services = ResolveServices(provider, options)
 	c.scope = discoveryScope(ctx, provider)
-	r.scope = c.scope
 	c.importID = importIDFunc(cat)
 	if usesQuery(options) {
 		c.query = func(provider harvest.Provider, listedByOthers []harvest.Resource) harvest.Query {
@@ -253,7 +257,6 @@ func (r *Run) listAndSelect(ctx context.Context, provider harvest.Provider, c *c
 // for the selection file it writes (see Run.finish).
 func (r *Run) recordDiscovery(c *callContext, l *callListing) {
 	r.used = true
-	r.options = c.options
 	r.failures = append(r.failures, l.failures...)
 	r.addDiscovered(l.listed, l.defaults, c.scope, c.importID)
 	r.cover(c)
@@ -496,14 +499,12 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 	return p, nil
 }
 
-// recordCall records into r what the call c did: the options it ran
-// with, the roots it keeps, the manifest of its toolchain t, its
-// failures, the resources Terraform can't import, and the count of what
-// it discovered: those the selection of l left out, and the resources it
-// imports.
+// recordCall records into r what the call c did: the roots it keeps, the
+// manifest of its toolchain t, its failures, the resources Terraform
+// can't import, and the count of what it discovered: those the selection
+// of l left out, and the resources it imports.
 func (r *Run) recordCall(c *callContext, l *callListing, resources callResources, t *toolchain, p *placement, failures []error) {
 	r.used = true
-	r.options = c.options
 	r.report.CountByTags(c.options.ReportTags)
 	if p.kept != nil {
 		r.report.AddKeptRoots(p.kept.report(c.scope))

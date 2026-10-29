@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,10 +67,12 @@ func TestLiftLiterals(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 
-	lifted, err := liftLiterals(dir, nil)
+	ws := rootWorkspace(t, dir)
+	lifted, err := liftLiterals(ws, nil)
 	if err != nil || !lifted {
 		t.Fatalf("want a lift, got lifted=%v err=%v", lifted, err)
 	}
+	flushed(t, ws)
 
 	locals := readFile(t, dir, rootfile.LocalsFileName)
 	if !strings.Contains(locals, `vpc_id = "vpc-0abc1234"`) {
@@ -96,9 +99,11 @@ func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
 }
 `, 3))
 
-	if lifted, err := liftLiterals(dir, nil); err != nil || lifted {
+	ws := rootWorkspace(t, dir)
+	if lifted, err := liftLiterals(ws, nil); err != nil || lifted {
 		t.Errorf("want no lift, got lifted=%v err=%v", lifted, err)
 	}
+	flushed(t, ws)
 }
 
 func TestLiftLiteralsNamesAreUnique(t *testing.T) {
@@ -112,9 +117,11 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 }
 `, 3))
 
-	if _, err := liftLiterals(dir, nil); err != nil {
+	ws := rootWorkspace(t, dir)
+	if _, err := liftLiterals(ws, nil); err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 
 	locals := readFile(t, dir, rootfile.LocalsFileName)
 	for _, want := range []string{`vpc_id   = "vpc-0abc1234"`, `vpc_id_2 = "vpc-0def5678"`} {
@@ -160,9 +167,14 @@ func TestCommonTags(t *testing.T) {
 }
 
 // liftTagsVerified lifts tags in dir as postProcess does, against an empty
-// baseline.
+// baseline, and leaves the files in dir as it settled them.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
-	return tidier(tf, dir, Baseline{}).settle(tidyPass{}, &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(dir, awsDefaultTags, nil) })})
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return false, err
+	}
+	kept, err := tidier(tf, ws, Baseline{}).settle(tidyPass{}, &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(ws, awsDefaultTags, nil) })})
+	return kept, errors.Join(err, ws.Flush())
 }
 
 func liftTagsDir(t *testing.T) (string, *fakeTerraform) {
@@ -295,10 +307,12 @@ resource "google_storage_bucket" "b" {
 		}
 	}
 	dt := DefaultTags{Provider: "google", Attribute: "labels", Block: "default_labels", ReservedPrefix: "goog-", Argument: true}
-	changed, err := applyTagLift(dir, dt, nil)
+	ws := rootWorkspace(t, dir)
+	changed, err := applyTagLift(ws, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	if got := readFile(t, dir, rootfile.ProvidersFileName); !strings.Contains(got, "default_labels = local.labels") || strings.Contains(got, "default_labels {") {
 		t.Errorf("providers.tf:\n%s", got)
 	}
@@ -369,10 +383,12 @@ func TestLiftTagsIntoALocalTheResourcesReferTo(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, azureGenerated)
 
-	changed, err := applyTagLift(dir, azureDefaultTags, nil)
+	ws := rootWorkspace(t, dir)
+	changed, err := applyTagLift(ws, azureDefaultTags, nil)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
+	flushed(t, ws)
 
 	if got := squashed(readFile(t, dir, rootfile.LocalsFileName)); !strings.Contains(got, `tags = { env = "prod" }`) {
 		t.Errorf("locals.tf:\n%s", got)
@@ -412,10 +428,12 @@ resource "azurerm_resource_group" "b" {
 }
 `)
 
-	changed, err := applyTagLift(dir, azureDefaultTags, nil)
+	ws := rootWorkspace(t, dir)
+	changed, err := applyTagLift(ws, azureDefaultTags, nil)
 	if err != nil || changed {
 		t.Fatalf("want nothing lifted, got %v, %v", changed, err)
 	}
+	flushed(t, ws)
 }
 
 // taggedSchemas describe types the AWS provider tags, with tags and
@@ -475,10 +493,12 @@ resource "aws_subnet" "c" {
 `)
 	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 
-	changed, err := applyTagLift(dir, awsDefaultTags, taggedSchemas)
+	ws := rootWorkspace(t, dir)
+	changed, err := applyTagLift(ws, awsDefaultTags, taggedSchemas)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	if got := squashed(readFile(t, dir, rootfile.LocalsFileName)); !strings.Contains(got, `Project = "shop"`) || !strings.Contains(got, `Team = "web"`) {
 		t.Errorf("locals.tf:\n%s", got)
 	}
@@ -551,10 +571,12 @@ resource "aws_subnet" "b" {
 
 	local := awsDefaultTags
 	local.Block = ""
-	changed, err := applyTagLift(dir, local, taggedSchemas)
+	ws := rootWorkspace(t, dir)
+	changed, err := applyTagLift(ws, local, taggedSchemas)
 	if err != nil || !changed {
 		t.Fatalf("changed %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	if got := readFile(t, dir, rootfile.ProvidersFileName); got != awsProviders {
 		t.Errorf("providers.tf changed:\n%s", got)
 	}

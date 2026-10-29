@@ -265,12 +265,13 @@ func TestSynthesizeRebasesTheBaselineOntoTheCalls(t *testing.T) {
 	after := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: updated}}, showns: []*tfjson.Plan{hides}}
 	before := readFile(t, dir, rootfile.GeneratedFileName)
 
-	kept, err := tidier(after, dir, rebased).settle(tidyPass{}, commentEdit(dir, "edit"))
+	ws := rootWorkspace(t, dir)
+	kept, err := tidier(after, ws, rebased).settle(tidyPass{}, commentEdit(ws, "edit"))
 
 	if err != nil || kept {
 		t.Errorf("got kept=%v err=%v, want the edit undone", kept, err)
 	}
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != before {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != before {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
 }
@@ -510,10 +511,12 @@ func TestMapClustersDeclines(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir, _ := moduleRoot(t, tc.root)
-			trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil, nil)
+			ws := rootWorkspace(t, dir)
+			trials, declined, err := mapClusters(ws, []adapters.Adapter{testAdapter}, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
+			flushed(t, ws)
 			if len(trials) != 1 || len(declined) != 1 || declined[0].Declined != tc.reason {
 				t.Errorf("trials=%d declined=%+v", len(trials), declined)
 			}
@@ -527,13 +530,16 @@ func TestMapClustersWritesStringsWithoutOutputs(t *testing.T) {
 	t.Parallel()
 	dir, _ := moduleRoot(t, strings.Replace(twoBuckets, "policy = aws_s3_bucket.logs.arn", "policy = aws_s3_bucket.logs.region", 1))
 	values := map[string]map[string]any{"aws_s3_bucket.logs": {"region": "eu-west-2"}}
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{testAdapter}, nil, values)
+	ws := rootWorkspace(t, dir)
+	trials, declined, err := mapClusters(ws, []adapters.Adapter{testAdapter}, nil, values)
 	if err != nil || len(trials) != 2 || len(declined) != 0 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
-	if err := writeCalls(dir, trials, nil, nil); err != nil {
+	flushed(t, ws)
+	if err := writeCalls(ws, trials, nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); !strings.Contains(got, `policy = "eu-west-2"`) {
 		t.Errorf("generated.tf:\n%s", got)
 	}
@@ -793,10 +799,12 @@ resource "aws_security_group" "web" {
 func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 	t.Parallel()
 	dir, _ := moduleRoot(t, network)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
+	ws := rootWorkspace(t, dir)
+	trials, declined, err := mapClusters(ws, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(declined) != 0 || len(trials) != 1 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
+	flushed(t, ws)
 	members := trials[0].members()
 	if got := strings.Join(members, ","); got != "aws_vpc.main,aws_eip.nat,aws_nat_gateway.main,aws_route_table.public,aws_route_table_association.a,aws_subnet.a" {
 		t.Fatalf("members: %s", got)
@@ -836,10 +844,12 @@ func TestSynthesizeJoinsThroughMembersAndAddsImports(t *testing.T) {
 func TestSynthesizeExpectsTheAddedImports(t *testing.T) {
 	t.Parallel()
 	dir, _ := moduleRoot(t, network)
-	trials, _, err := mapClusters(dir, []adapters.Adapter{networkAdapter}, nil, nil)
+	ws := rootWorkspace(t, dir)
+	trials, _, err := mapClusters(ws, []adapters.Adapter{networkAdapter}, nil, nil)
 	if err != nil || len(trials) != 1 {
 		t.Fatal(trials, err)
 	}
+	flushed(t, ws)
 	changes := map[string]string{}
 	addresses := []string{"aws_eip.other", "aws_security_group.web"}
 	for _, m := range trials[0].members() {
@@ -870,10 +880,12 @@ func TestMapClustersLeavesWhatTheAdapterLeaves(t *testing.T) {
 		return call, nil
 	}
 	dir, _ := moduleRoot(t, network)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{leaving}, nil, nil)
+	ws := rootWorkspace(t, dir)
+	trials, declined, err := mapClusters(ws, []adapters.Adapter{leaving}, nil, nil)
 	if err != nil || len(declined) != 0 || len(trials) != 1 {
 		t.Fatalf("trials=%d declined=%+v err=%v", len(trials), declined, err)
 	}
+	flushed(t, ws)
 	if got := strings.Join(trials[0].members(), ","); got != "aws_vpc.main,aws_nat_gateway.main,aws_route_table.public,aws_route_table_association.a,aws_subnet.a" {
 		t.Errorf("members: %s", got)
 	}
@@ -934,10 +946,12 @@ resource "google_project_iam_member" "f" {
   project = "declined"
 }
 `)
-	trials, declined, err := mapClusters(dir, []adapters.Adapter{grantsAdapter}, nil, nil)
+	ws := rootWorkspace(t, dir)
+	trials, declined, err := mapClusters(ws, []adapters.Adapter{grantsAdapter}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 	var clusters []string
 	for _, tr := range trials {
 		clusters = append(clusters, strings.Join(tr.members(), ","))
@@ -970,10 +984,12 @@ resource "google_project_iam_member" "b" {
 		}
 		return call, err
 	}
-	trials, _, err := mapClusters(dir, []adapters.Adapter{named}, Names{"module.grants": true}, nil)
+	ws := rootWorkspace(t, dir)
+	trials, _, err := mapClusters(ws, []adapters.Adapter{named}, Names{"module.grants": true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 	var names []string
 	for _, tr := range trials {
 		names = append(names, tr.name)

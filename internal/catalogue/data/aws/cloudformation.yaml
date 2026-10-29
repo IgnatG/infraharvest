@@ -3,6 +3,8 @@ provider: aws
 service: cloudformation
 types:
   aws_cloudformation_stack:
+    cloudformation_types: ["AWS::CloudFormation::Stack"]
+    resource_explorer: ["cloudformation:stack"]
     # The lister records each stack's name: its ID is the stack's ARN.
     skip:
       - reason: a stack Elastic Beanstalk creates and manages for an environment

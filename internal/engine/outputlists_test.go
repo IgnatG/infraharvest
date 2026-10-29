@@ -100,10 +100,12 @@ module "alb" {
 		return listSchemas, nil
 	}
 
-	changed, err := collapseOutputLists(dir, lists, schemas)
+	ws := rootWorkspace(t, dir)
+	changed, err := collapseOutputLists(ws, lists, schemas)
 	if err != nil || !changed {
 		t.Fatalf("want lists collapsed, got %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	if fetched != 1 {
 		t.Errorf("want the schemas fetched once, got %d", fetched)
 	}

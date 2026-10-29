@@ -3,6 +3,9 @@ provider: aws
 service: ebs
 types:
   aws_ebs_volume:
+    cloudformation_types: ["AWS::EC2::Volume"]
+    # Volume attachments need their volume.
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "volume" }
     # A key no root manages, as the AWS-managed key of EBS encryption: the
     # plan checks it is that key.
@@ -11,4 +14,5 @@ types:
         match: '^arn:aws[a-z-]*:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]{36}$'
         data_source: { type: aws_kms_alias, label: ebs, arguments: { name: alias/aws/ebs }, attribute: target_key_arn }
   aws_volume_attachment:
+    cloudformation_types: ["AWS::EC2::VolumeAttachment"]
     import_id: "{device_name}:{volume_id}:{instance_id}"

@@ -19,13 +19,13 @@ import (
 type EfsLister struct {
 	Service
 	// parts gathers the parts of the listing that failed.
-	parts partFailures
+	parts harvest.Parts
 }
 
 // List lists the file systems with their parts, then the access
 // points, all by ID. Failing to list file systems or access points fails
 // the service; the failures to read a file system's parts are returned
-// together as a partial error (see partFailures).
+// together as a partial error (see harvest.Parts).
 func (g *EfsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -37,12 +37,12 @@ func (g *EfsLister) list() error {
 	}
 	client := efs.NewFromConfig(config)
 	if err := g.listFileSystems(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
 	if err := g.listAccessPoints(client); err != nil {
-		return errors.Join(err, g.parts.err())
+		return g.parts.Fail(err)
 	}
-	return g.parts.err()
+	return g.parts.Err()
 }
 
 // listFileSystems records every file system, each followed by its mount
@@ -80,7 +80,7 @@ func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bo
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			g.parts.add("mount targets of "+fileSystemID, err)
+			g.parts.Add(awsCodes, "mount targets of "+fileSystemID, err)
 			return false
 		}
 		for _, target := range page.MountTargets {
@@ -99,7 +99,7 @@ func (g *EfsLister) addFileSystemPolicy(client *efs.Client, fileSystemID string)
 	if err != nil {
 		var none *types.PolicyNotFound
 		if !errors.As(err, &none) {
-			g.parts.add("policy of "+fileSystemID, err)
+			g.parts.Add(awsCodes, "policy of "+fileSystemID, err)
 		}
 		return
 	}

@@ -6,7 +6,6 @@ package engine
 import (
 	"log"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -52,13 +51,13 @@ const maxFillRounds = 2
 // resource keeps tags. Where the rounds end with resources left, the
 // resources that settled keep their tags, with no plan to check them: the
 // pass rebases onto a new plan.
-func fillEffectiveTags(dir string, et EffectiveTags, values map[string]map[string]any) *tidyEdit {
+func fillEffectiveTags(ws *workspace, et EffectiveTags, values map[string]map[string]any) *tidyEdit {
 	left := map[string]bool{}
 	var filled []string
 	return &tidyEdit{
 		edit: func(*tidyAttempt) (edited, error) {
 			var err error
-			filled, err = fillTags(dir, et, values, left)
+			filled, err = fillTags(ws, et, values, left)
 			return edited{other: len(filled) > 0}, err
 		},
 		review: func(_ *tidyAttempt, r tidyReview) (tidyDecision, error) {
@@ -77,12 +76,12 @@ func fillEffectiveTags(dir string, et EffectiveTags, values map[string]map[strin
 			if !settled {
 				return tidyDecision{outcome: tidyRetry}, nil
 			}
-			logUnfilled(dir, et, left)
+			logUnfilled(ws.dir, et, left)
 			return tidyDecision{outcome: tidyAccept}, nil
 		},
 		unplanned: func(*tidyAttempt) (bool, error) {
-			settled, err := fillTags(dir, et, values, left)
-			logUnfilled(dir, et, left)
+			settled, err := fillTags(ws, et, values, left)
+			logUnfilled(ws.dir, et, left)
 			return len(settled) > 0, err
 		},
 	}
@@ -102,8 +101,8 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 // imported values have it, unset, null or empty, to its et.Effective
 // without reserved tags, but for the resources in skip. It returns the
 // addresses of the resources it set.
-func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func fillTags(ws *workspace, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +138,8 @@ func fillTags(dir string, et EffectiveTags, values map[string]map[string]any, sk
 	if len(filled) == 0 {
 		return nil, nil
 	}
-	return filled, generated.Save()
+	ws.Save(generated)
+	return filled, nil
 }
 
 // setBeforeBlocks sets the attribute name of body to value where the style

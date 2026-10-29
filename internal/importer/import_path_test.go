@@ -252,25 +252,19 @@ func (p pathImport) run() *Run {
 	return run
 }
 
-// importPath lists and generates one Import call into a new run, as
-// importInto does, and returns the run.
+// importPath imports one Import call into a new run, as Run.Import does
+// a command's one scope of one call, and returns the run.
 func importPath(t *testing.T, options pathImport) *Run {
 	t.Helper()
 	run := options.run()
-	c, err := listCall(t.Context(), run, &rootsProvider{}, options.Options, nil)
-	if err != nil {
+	defer run.unlockOut()
+	calls := []Call{{Provider: &rootsProvider{}, Options: options.Options}}
+	if err := run.importScope(t.Context(), options.Options, "", calls, engineSteps); err != nil {
 		t.Fatal(err)
 	}
-	if c == nil {
+	if !run.used {
 		t.Fatal("no call listed")
 	}
-	if err := planHandovers(run.outputIndex(options.Out), []*listedCall{c}); err != nil {
-		t.Fatal(err)
-	}
-	if err := c.generate(t.Context(), c.byDir); err != nil {
-		t.Fatal(err)
-	}
-	warnIncomplete(run, []*listedCall{c})
 	return run
 }
 

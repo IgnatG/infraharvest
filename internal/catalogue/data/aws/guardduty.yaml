@@ -3,4 +3,5 @@ provider: aws
 service: guardduty
 types:
   aws_guardduty_detector:
+    resource_explorer: ["guardduty:detector"]
     cloud_control: { type: "AWS::GuardDuty::Detector", identifier: Id }

@@ -97,8 +97,8 @@ type scopedResource struct {
 // of the stacks nested in it, recursively: DescribeStacks once for each of
 // refs and for each nested stack, for its status, then ListStackResources
 // and GetTemplate once for each stack. cat tells the Terraform types of
-// their resources (see stackTypes) and the stacks a service manages. It
-// changes nothing.
+// their resources (see catalogue.Catalogue.CloudFormationTypes) and the
+// stacks a service manages. It changes nothing.
 func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
 	service.SetSettings(serviceSettings{region: region, profile: profile, roleARN: roleARN})
@@ -108,7 +108,7 @@ func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []
 		return nil, err
 	}
 	scope := &StackScope{}
-	types := stackTypes(cat)
+	types := cat.CloudFormationTypes()
 	for _, ref := range refs {
 		regional := config.Copy()
 		if r := arnRegion(ref); r != "" {
@@ -320,7 +320,7 @@ func (s *StackScope) Regions() []string {
 // stacks' resources, by cat, sorted: all an import of the stacks needs to
 // list.
 func (s *StackScope) Services(cat *catalogue.Catalogue) []string {
-	types := stackTypes(cat)
+	types := cat.CloudFormationTypes()
 	var services []string
 	for _, stack := range s.stacks {
 		for _, r := range stack.resources {
@@ -471,8 +471,8 @@ type stackMatch struct {
 // region count, but for the global services, which every region's stacks
 // can create resources of. It makes no call: it matches the physical IDs
 // of the stacks' resources with what is listed, by their types (see
-// stackTypes), as ExcludedByDefault does, but never with a resource of a
-// type it doesn't know. A resource that matches only as one of the types
+// catalogue.Catalogue.CloudFormationTypes), as ExcludedByDefault does, but
+// never with a resource of a type it doesn't know. A resource that matches only as one of the types
 // that share a resource's ID, such as a bucket policy, which has its
 // bucket's, goes to the stack's resource of its own type whose properties
 // name that resource, if there is one: the policy's physical ID isn't the
@@ -482,7 +482,7 @@ func (p *Provider) ImportScope(_ context.Context, resources []harvest.Resource) 
 		return nil, nil
 	}
 	cat := p.catalogue()
-	types := stackTypes(cat)
+	types := cat.CloudFormationTypes()
 	type owner struct {
 		stack *scopedStack
 		of    *scopedResource

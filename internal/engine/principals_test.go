@@ -96,10 +96,12 @@ resource "azurerm_role_assignment" "app" {
   scope = "`+roleSubscription+`/resourceGroups/app"
 }
 `)
-	edited, err := addLookups(dir, Names{}, nil)
+	ws := rootWorkspace(t, dir)
+	edited, err := addLookups(ws, Names{}, nil)
 	if err != nil || !edited["azurerm_role_definition.deployer"] || len(edited) != 1 {
 		t.Fatalf("want the role definition edited, got %v, %v", edited, err)
 	}
+	flushed(t, ws)
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"assignable_scopes = [data.azurerm_subscription.current.id]",

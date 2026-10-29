@@ -3,13 +3,17 @@ provider: aws
 service: iot
 types:
   aws_iot_role_alias:
+    resource_explorer: arn
     arn: { service: iot, resource_type: "rolealias" }
     cloud_control: { type: "AWS::IoT::RoleAlias", identifier: RoleAlias }
   aws_iot_thing:
+    resource_explorer: ["iot:thing"]
     cloud_control: { type: "AWS::IoT::Thing", identifier: ThingName }
   aws_iot_thing_type:
+    resource_explorer: arn
     arn: { service: iot, resource_type: "thingtype" }
     cloud_control: { type: "AWS::IoT::ThingType", identifier: ThingTypeName }
   aws_iot_topic_rule:
+    resource_explorer: arn
     arn: { service: iot, resource_type: "rule" }
     cloud_control: { type: "AWS::IoT::TopicRule", identifier: RuleName }

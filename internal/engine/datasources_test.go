@@ -22,8 +22,15 @@ var awsDataSources = map[string]DataSource{
 // addDataSources is addDataSourcesSkipping for every resource: it
 // reports whether it changed anything.
 func addDataSources(dir string, external []External, sources map[string]DataSource, taken Names) (bool, error) {
-	edited, err := addDataSourcesSkipping(dir, external, sources, taken, nil)
-	return len(edited) > 0, err
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return false, err
+	}
+	edited, err := addDataSourcesSkipping(ws, external, sources, taken, nil)
+	if err != nil {
+		return false, err
+	}
+	return len(edited) > 0, ws.Flush()
 }
 
 func TestAddDataSources(t *testing.T) {

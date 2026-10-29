@@ -3,5 +3,6 @@ provider: aws
 service: igw
 types:
   aws_internet_gateway:
+    cloudformation_types: ["AWS::EC2::InternetGateway"]
     arn: { service: ec2, resource_type: "internet-gateway" }
     data_source: { type: aws_internet_gateway, argument: internet_gateway_id }

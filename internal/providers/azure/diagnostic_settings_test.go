@@ -4,7 +4,6 @@
 package azure
 
 import (
-	"errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -13,7 +12,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
@@ -182,32 +180,6 @@ func TestDiagnosticSettingFailures(t *testing.T) {
 	}
 	if len(resources) != 1 || resources[0].Observed.ID != "/subscriptions/sub/providers/Microsoft.Insights/diagnosticSettings/activity" {
 		t.Errorf("listed %+v, want the subscription's setting", listedResources(resources))
-	}
-}
-
-// Refused, throttled, timed out and failed lists, and lists without an
-// answer, leave settings out; the others have none to leave out.
-func TestDiagnosticListFailed(t *testing.T) {
-	t.Parallel()
-	for status, want := range map[int]bool{
-		http.StatusBadRequest:          false,
-		http.StatusNotFound:            false,
-		http.StatusMethodNotAllowed:    false,
-		http.StatusConflict:            false,
-		http.StatusNotImplemented:      false,
-		http.StatusUnauthorized:        true,
-		http.StatusForbidden:           true,
-		http.StatusRequestTimeout:      true,
-		http.StatusTooManyRequests:     true,
-		http.StatusInternalServerError: true,
-		http.StatusServiceUnavailable:  true,
-	} {
-		if got := diagnosticListFailed(&azcore.ResponseError{StatusCode: status}); got != want {
-			t.Errorf("%d: got %v, want %v", status, got, want)
-		}
-	}
-	if !diagnosticListFailed(errors.New("connection reset")) {
-		t.Error("a list without an answer: got no failure")
 	}
 }
 

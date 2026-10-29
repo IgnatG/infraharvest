@@ -5,7 +5,6 @@ package engine
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -54,15 +53,15 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 // dataBlocks names the data sources of lookups, other than those in
 // taken and data.tf, and keeps the blocks to add to data.tf.
 type dataBlocks struct {
-	path      string
+	ws        *workspace
 	used      map[string]bool
 	addresses map[string]string // by lookup key
 	blocks    []*hclwrite.Block
 }
 
-func newDataBlocks(dir string, taken Names) (*dataBlocks, error) {
-	d := &dataBlocks{path: filepath.Join(dir, rootfile.DataFileName), used: map[string]bool{}, addresses: map[string]string{}}
-	data, err := hclfile.LoadOptional(d.path)
+func newDataBlocks(ws *workspace, taken Names) (*dataBlocks, error) {
+	d := &dataBlocks{ws: ws, used: map[string]bool{}, addresses: map[string]string{}}
+	data, err := ws.LoadOptional(rootfile.DataFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +107,7 @@ func (d *dataBlocks) reference(l lookup) hclwrite.Tokens {
 
 // write adds the data sources to data.tf.
 func (d *dataBlocks) write() error {
-	return appendBlocks(d.path, rootfile.DataFileHeader, d.blocks)
+	return appendBlocks(d.ws, rootfile.DataFileName, rootfile.DataFileHeader, d.blocks)
 }
 
 // addLookups replaces literals in generated.tf that a data source reads
@@ -116,12 +115,12 @@ func (d *dataBlocks) write() error {
 // data.azurerm_client_config.current.tenant_id, for the resources not in
 // skip, and adds the data sources to data.tf, named other than those in
 // taken and data.tf. It returns the resources it changed.
-func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func addLookups(ws *workspace, taken Names, skip map[string]int) (map[string]bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
-	data, err := newDataBlocks(dir, taken)
+	data, err := newDataBlocks(ws, taken)
 	if err != nil {
 		return nil, err
 	}
@@ -145,9 +144,7 @@ func addLookups(dir string, taken Names, skip map[string]int) (map[string]bool, 
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.Save(); err != nil {
-		return nil, err
-	}
+	ws.Save(generated)
 	return edited, data.write()
 }
 

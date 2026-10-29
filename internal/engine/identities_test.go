@@ -330,13 +330,14 @@ resource "aws_subnet" "a" {
 	}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}, showns: []*tfjson.Plan{changed}, shown: clean}
 
-	kept, err := settleEdit(t, tidier(tf, dir, Baseline{changes: changes}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
-		return addReferencesSkipping(dir, values, skip)
+	ws := rootWorkspace(t, dir)
+	kept, err := settleEdit(t, tidier(tf, ws, Baseline{changes: changes}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
+		return addReferencesSkipping(ws, values, skip)
 	})})
 	if err != nil || !kept {
 		t.Fatalf("want the references kept, got %v, %v", kept, err)
 	}
-	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
+	got := squashed(wsFile(t, ws, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`rest_api_id = "okoipb1lhk"`,
 		"vpc_id = aws_vpc.main.id }",
@@ -360,13 +361,14 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 	writeConfig(t, dir, rootfile.GeneratedFileName, config)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "Cycle"}}}}}
 
-	kept, err := settleEdit(t, tidier(tf, dir, Baseline{}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
-		return addReferencesSkipping(dir, values, skip)
+	ws := rootWorkspace(t, dir)
+	kept, err := settleEdit(t, tidier(tf, ws, Baseline{}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
+		return addReferencesSkipping(ws, values, skip)
 	})})
 	if err != nil || kept {
 		t.Fatalf("want nothing kept, got %v, %v", kept, err)
 	}
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != config {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != config {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }
@@ -387,10 +389,12 @@ resource "aws_instance" "other" {
   tenant_id = "`+tenant+`"
 }
 `)
-	edited, err := addLookups(dir, Names{"data.azurerm_client_config.current": true}, nil)
+	ws := rootWorkspace(t, dir)
+	edited, err := addLookups(ws, Names{"data.azurerm_client_config.current": true}, nil)
 	if err != nil || !edited["azurerm_key_vault.main"] || len(edited) != 1 {
 		t.Fatalf("want the vault edited, got %v, %v", edited, err)
 	}
+	flushed(t, ws)
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "tenant_id = data.azurerm_client_config.current_2.tenant_id") != 2 || !strings.Contains(got, `tenant_id = "`+tenant+`"`) {
 		t.Errorf("generated.tf:\n%s", got)

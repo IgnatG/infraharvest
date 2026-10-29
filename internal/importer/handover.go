@@ -220,7 +220,7 @@ func warnIncomplete(run *Run, calls []*listedCall) {
 			continue
 		}
 		for _, i := range c.handovers.incomplete() {
-			run.recordIncomplete(i)
+			recordIncomplete(&run.report, i)
 		}
 		return // the calls share their handovers
 	}
@@ -586,8 +586,8 @@ func sortedDirs[V any](m map[string]V) []string {
 }
 
 // recordIncomplete warns of i, a handover one of its roots didn't
-// finish, and records it.
-func (r *Run) recordIncomplete(i report.IncompleteHandover) {
+// finish, and records it in rep.
+func recordIncomplete(rep *report.Report, i report.IncompleteHandover) {
 	log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
-	r.report.AddIncompleteHandover(i)
+	rep.AddIncompleteHandover(i)
 }

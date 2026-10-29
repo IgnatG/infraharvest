@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"path/filepath"
 	"regexp"
 	"strconv"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -69,8 +67,8 @@ func outputLists(trials []*trial) map[string]int {
 // needs them, say. Blocks that only name the output's subnets (see
 // catalogue.BlocksAsList) become the argument that takes them. It reports
 // whether it changed anything.
-func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func collapseOutputLists(ws *workspace, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
 	}
@@ -108,7 +106,8 @@ func collapseOutputLists(dir string, lists map[string]int, getSchemas func() (*t
 	if !changed {
 		return false, nil
 	}
-	return true, generated.Save()
+	ws.Save(generated)
+	return true, nil
 }
 
 // collapseIn collapses the lists of body, at path in resourceType's schema

@@ -3,5 +3,6 @@ provider: aws
 service: placement_group
 types:
   aws_placement_group:
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "placement-group" }
     cloud_control: { type: "AWS::EC2::PlacementGroup", identifier: GroupName }

@@ -147,11 +147,11 @@ func TestAdoptedCheckpoint(t *testing.T) {
 			{Type: "aws_sqs_queue", ID: "q-prd-billing", Address: "aws_sqs_queue.shop_prd_billing"},
 		},
 	}}
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true}
+	p := newTestPhase(out, nil)
+	p.incremental = true
 
 	// Without prod's imports.tfvars or state, what it has can't be told.
-	c, why, err := run.adoptedCheckpoint(stack, []mergeMember{dev, prod})
+	c, why, err := p.adoptedCheckpoint(stack, []mergeMember{dev, prod})
 	if err != nil || c == nil || !strings.Contains(why, "says what the merged root has of prod") {
 		t.Errorf("without prod's state: %+v, %q, %v", c, why, err)
 	}
@@ -164,9 +164,8 @@ func TestAdoptedCheckpoint(t *testing.T) {
 	if err := state.Parse([]byte(content), "s3://acme-state/envs/prod/aws/222222222222/eu-west-2/terraform.tfstate"); err != nil {
 		t.Fatal(err)
 	}
-	run.options.ManagedState = []string{"backend"}
-	run.shared.managed = map[string]managed.Resources{"s3://acme-state/?region=eu-west-2": state}
-	c, why, err = run.adoptedCheckpoint(stack, []mergeMember{dev, prod})
+	p.state = func() managed.Resources { return state }
+	c, why, err = p.adoptedCheckpoint(stack, []mergeMember{dev, prod})
 	if err != nil || why != "" {
 		t.Fatalf("%q, %v", why, err)
 	}
@@ -194,11 +193,11 @@ func TestAdoptedCheckpoint(t *testing.T) {
 	}
 
 	// An import that lacks one of its environments can't merge it again.
-	if _, why, err := run.adoptedCheckpoint(stack, []mergeMember{dev}); err != nil || !strings.Contains(why, "doesn't have prod") {
+	if _, why, err := p.adoptedCheckpoint(stack, []mergeMember{dev}); err != nil || !strings.Contains(why, "doesn't have prod") {
 		t.Errorf("without prod: %q, %v", why, err)
 	}
 	// A directory that isn't a merged root isn't adopted.
-	if c, why, err := run.adoptedCheckpoint(filepath.Join(out, "aws", "us-east-1"), []mergeMember{dev, prod}); c != nil || why != "" || err != nil {
+	if c, why, err := p.adoptedCheckpoint(filepath.Join(out, "aws", "us-east-1"), []mergeMember{dev, prod}); c != nil || why != "" || err != nil {
 		t.Errorf("no merged root: %+v, %q, %v", c, why, err)
 	}
 }
@@ -212,10 +211,10 @@ func TestMergeStackAdoptedWithoutAnEnvironment(t *testing.T) {
 	stack := writeAdoptable(t, out)
 	dir := filepath.Join(out, "envs", "dev", "aws", "111111111111", "eu-west-2")
 	writeRootFiles(t, dir, map[string]string{rootfile.VersionsFileName: "# versions\n", "sqs.tf": "# queues\n"})
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true}
+	p := newTestPhase(out, nil)
+	p.incremental = true
 	dev := mergeMember{env: "dev", dir: dir, stack: stack, result: &engine.Result{}}
-	if err := run.mergeStack(context.Background(), stack, []mergeMember{dev}); err != nil {
+	if err := p.mergeStack(context.Background(), stack, []mergeMember{dev}); err != nil {
 		t.Fatal(err)
 	}
 	if exists(dir) || !exists(filepath.Join(premergeDir(out, dir), "sqs.tf")) {
@@ -224,8 +223,8 @@ func TestMergeStackAdoptedWithoutAnEnvironment(t *testing.T) {
 	if !exists(filepath.Join(stack, "sqs.tf")) {
 		t.Errorf("the merged root isn't kept")
 	}
-	if len(run.report.Failures) != 1 || !strings.Contains(run.report.Failures[0], "doesn't have prod") {
-		t.Errorf("failures: %v", run.report.Failures)
+	if len(p.report.Failures) != 1 || !strings.Contains(p.report.Failures[0], "doesn't have prod") {
+		t.Errorf("failures: %v", p.report.Failures)
 	}
 }
 

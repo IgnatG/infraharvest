@@ -181,13 +181,16 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	writeConfig(t, dir, rootfile.ProvidersFileName, awsProviders)
 	dt := awsDefaultTags
 	dt.Applied = map[string]string{"Project": "shop", "Team": "data"}
-	if err := applyDefaultTags(dir, dt); err != nil {
+	ws := rootWorkspace(t, dir)
+	if err := applyDefaultTags(ws, dt); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := applyTagLift(dir, dt, nil)
+	flushed(t, ws)
+	changed, err := applyTagLift(ws, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	subnets, group, _ := strings.Cut(generated, `resource "aws_security_group" "web"`)
 	for _, want := range []string{
@@ -218,13 +221,14 @@ func TestApplyTagLiftLeavesOutAppliedTags(t *testing.T) {
 	// without default_tags.
 	root := t.TempDir()
 	writeConfig(t, root, rootfile.ProvidersFileName, "provider \"aws\" {\n  region = \"eu-west-2\"\n  default_tags {\n    tags = local.tags\n  }\n}\n")
+	rootWS := rootWorkspace(t, root)
 	for i, want := range []bool{true, false} {
-		added, err := addRootAlias(dir, root, dt)
+		added, err := addRootAlias(dir, rootWS, dt)
 		if err != nil || added != want {
 			t.Fatalf("run %d: added %v, %v; want %v", i+1, added, err, want)
 		}
 	}
-	rootProviders := squashed(readFile(t, root, rootfile.ProvidersFileName))
+	rootProviders := squashed(wsFile(t, rootWS, rootfile.ProvidersFileName))
 	if !strings.HasSuffix(rootProviders, `provider "aws" { alias = "without_default_tags" region = "eu-west-2" }`) || strings.Count(rootProviders, "alias") != 1 {
 		t.Errorf("root's providers.tf:\n%s", rootProviders)
 	}
@@ -289,7 +293,7 @@ import {
 `)
 	existing := map[External]string{{Type: "aws_vpc", ID: "vpc-0abc1234"}: "aws_vpc.main"}
 
-	written, err := merge(staging, root, existing, awsDataSources, map[string]string{})
+	written, err := mergeInto(t, staging, root, existing, awsDataSources, map[string]string{})
 	if err != nil || !slices.Equal(written, []string{AddedFileName(2)}) {
 		t.Fatalf("got %q, %v", written, err)
 	}
@@ -335,12 +339,22 @@ import {
 			t.Fatal(err)
 		}
 	}
-	if written, err := merge(staging, root, existing, awsDataSources, map[string]string{}); err != nil || !slices.Equal(written, []string{AddedFileName(3)}) {
+	if written, err := mergeInto(t, staging, root, existing, awsDataSources, map[string]string{}); err != nil || !slices.Equal(written, []string{AddedFileName(3)}) {
 		t.Fatalf("got %q, %v", written, err)
 	}
 	if got := readFile(t, root, AddedFileName(3)); !strings.Contains(got, `resource "aws_sqs_queue" "jobs"`) {
 		t.Errorf("%s:\n%s", AddedFileName(3), got)
 	}
+}
+
+// mergeInto merges staging into the root in dir through its workspace (see
+// merge), and writes the workspace back to dir.
+func mergeInto(t *testing.T, staging, dir string, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
+	t.Helper()
+	ws := rootWorkspace(t, dir)
+	written, err := merge(staging, ws, existing, sources, fileOf)
+	flushed(t, ws)
+	return written, err
 }
 
 // dirFiles returns the files of dir by name, to compare before and after.
@@ -563,13 +577,16 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
 	writeConfig(t, staging, rootfile.ProvidersFileName, "provider \"azurerm\" {\n  features {}\n}\n")
 	dt := azureDefaultTags
 	dt.Applied = applied
-	if err := applyDefaultTags(staging, dt); err != nil {
+	stagingWS := rootWorkspace(t, staging)
+	if err := applyDefaultTags(stagingWS, dt); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := applyTagLift(staging, dt, nil)
+	flushed(t, stagingWS)
+	changed, err := applyTagLift(stagingWS, dt, nil)
 	if err != nil || !changed {
 		t.Fatalf("got %v, %v", changed, err)
 	}
+	flushed(t, stagingWS)
 	if generated := squashed(readFile(t, staging, rootfile.GeneratedFileName)); strings.Count(generated, "local.tags") != 3 {
 		t.Errorf("generated.tf:\n%s", generated)
 	}
@@ -582,10 +599,11 @@ func TestAddedResourcesReferToTheRootsTags(t *testing.T) {
   tags = { env = "prod" }
 }
 `)
-	if err := mergeLocals(staging, root); err != nil {
+	rootWS := rootWorkspace(t, root)
+	if err := mergeLocals(staging, rootWS); err != nil {
 		t.Fatal(err)
 	}
-	locals := squashed(readFile(t, root, rootfile.LocalsFileName))
+	locals := squashed(wsFile(t, rootWS, rootfile.LocalsFileName))
 	if strings.Count(locals, "tags =") != 1 || !strings.Contains(locals, `rg = "/subscriptions/0000/resourceGroups/app"`) {
 		t.Errorf("locals.tf:\n%s", locals)
 	}
@@ -619,7 +637,7 @@ resource "aws_subnet" "a" {
 `)
 	fileOf := map[string]string{"aws_subnet.a": "network.tf", "aws_sqs_queue.jobs": "sqs.tf"}
 
-	written, err := merge(staging, root, nil, awsDataSources, fileOf)
+	written, err := mergeInto(t, staging, root, nil, awsDataSources, fileOf)
 	if err != nil || !slices.Equal(written, []string{AddedFileName(2), "network.tf", "sqs.tf"}) {
 		t.Fatalf("got %q, %v", written, err)
 	}
@@ -715,7 +733,7 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 `)
 	googleStagingProviders(t, staging)
 
-	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+	if _, err := mergeInto(t, staging, root, nil, nil, map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 	providers := squashed(readFile(t, root, rootfile.ProvidersFileName))
@@ -734,7 +752,7 @@ func TestMergeAddsTheProvidersOfModuleCalls(t *testing.T) {
 
 	// A root that has them gets nothing more.
 	before := dirFiles(t, root)
-	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+	if _, err := mergeInto(t, staging, root, nil, nil, map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 	after := dirFiles(t, root)
@@ -755,7 +773,7 @@ func TestMergeRequiresOnlyTheNewProviders(t *testing.T) {
 	writeConfig(t, staging, rootfile.GeneratedFileName, "module \"main\" {\n  source = \"terraform-google-modules/network/google\"\n}\n")
 	googleStagingProviders(t, staging)
 
-	if _, err := merge(staging, root, nil, nil, map[string]string{}); err != nil {
+	if _, err := mergeInto(t, staging, root, nil, nil, map[string]string{}); err != nil {
 		t.Fatal(err)
 	}
 	versions := squashed(readFile(t, root, rootfile.VersionsFileName))
@@ -858,7 +876,7 @@ variable "token_2" {
 }
 `)
 
-	written, err := merge(staging, root, nil, nil, map[string]string{})
+	written, err := mergeInto(t, staging, root, nil, nil, map[string]string{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -18,7 +17,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // postProcess improves the configuration once it plans, with the passes of
@@ -44,17 +42,25 @@ import (
 // sets (see omitInherited), generated local ones (see liftModules). It returns the clusters it
 // didn't move into a curated module, with why. planned, if set, is a plan
 // of the configuration as it is, with the same variables, which it starts
-// from instead of planning.
-func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []secret.Variable, planned *shownPlan) ([]ModuleCall, error) {
+// from instead of planning. The passes edit the root's files in memory (see
+// workspace), written to dir before each command Terraform runs and once
+// they are done.
+func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, secrets []secret.Variable, planned *shownPlan) (declined []ModuleCall, err error) {
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, ws.Flush()) }()
+	tf = ws.terraform(tf)
 	vars := append(secret.Placeholders(secrets), r.secrets.Options()...)
 	baseline, values, err := replanValues(ctx, tf, vars, planned, r.opts.StateOnly)
 	if err != nil {
 		return nil, err
 	}
 	if baseline == nil {
-		return nil, liftLiteralsValidated(ctx, tf, dir, r.taken)
+		return nil, liftLiteralsValidated(ctx, tf, ws, r.taken)
 	}
-	t := &tidying{ctx: ctx, tf: tf, dir: dir, r: r, vars: vars, baseline: *baseline, values: values}
+	t := &tidying{ctx: ctx, tf: tf, ws: ws, r: r, vars: vars, baseline: *baseline, values: values}
 	if err := t.run(t.passes()); err != nil {
 		return nil, err
 	}
@@ -83,7 +89,7 @@ const (
 // run doesn't make, such as the data sources of a run without external
 // resources, does nothing.
 func (t *tidying) passes() []tidyPass {
-	ctx, tf, dir, opts, taken := t.ctx, t.tf, t.dir, t.r.opts, t.r.taken
+	ctx, tf, ws, opts, taken := t.ctx, t.tf, t.ws, t.r.opts, t.r.taken
 	// eachResource makes a pass that makes less of itself for the
 	// resources a plan blames it for (see resourceEdit).
 	eachResource := func(name string, after []string, edit func(skip map[string]int) (map[string]bool, error), enabled bool) tidyPass {
@@ -102,26 +108,26 @@ func (t *tidying) passes() []tidyPass {
 		// Next, so the passes below see only the arguments that matter.
 		{name: passDefaults, after: []string{passEffectiveTags}, alone: true, policy: FewerChanges, rounds: maxDefaultRounds, rebases: true, stopped: "the configuration stopped planning after leaving out defaults", start: t.defaults},
 		eachResource(passReferences, []string{passDefaults}, func(skip map[string]int) (map[string]bool, error) {
-			return addReferencesSkipping(dir, t.values, skip)
+			return addReferencesSkipping(ws, t.values, skip)
 		}, true),
 		// After the references: data sources are for what the root
 		// doesn't manage.
 		eachResource(passDataSources, []string{passReferences}, func(skip map[string]int) (map[string]bool, error) {
-			return addDataSourcesSkipping(dir, opts.External, opts.DataSources, taken, skip)
+			return addDataSourcesSkipping(ws, opts.External, opts.DataSources, taken, skip)
 		}, len(opts.External) > 0),
 		// After the data sources: variables are for what they can't read.
 		eachResource(passRootVariables, []string{passReferences, passDataSources}, func(skip map[string]int) (map[string]bool, error) {
-			return addRootVariables(dir, opts.OtherRoots, opts.ARNs, taken, skip)
+			return addRootVariables(ws, opts.OtherRoots, opts.ARNs, taken, skip)
 		}, len(opts.OtherRoots) > 0),
 		// Lookups are for what nothing the import lists has.
 		eachResource(passLookups, []string{passReferences, passDataSources, passRootVariables}, func(skip map[string]int) (map[string]bool, error) {
-			return addLookups(dir, taken, skip)
+			return addLookups(ws, taken, skip)
 		}, true),
 		{name: passTagLift, after: []string{passEffectiveTags, passDefaults}, start: t.tagLift},
 		// Tags before literals, so a tag value is never made a local, and
 		// the references first, so a literal they replace isn't.
 		{name: passLiterals, after: []string{passTagLift, passReferences, passDataSources, passRootVariables, passLookups}, start: func() (*tidyEdit, error) {
-			return &tidyEdit{edit: plainEdit(func() (bool, error) { return liftLiterals(dir, taken) })}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return liftLiterals(ws, taken) })}, nil
 		}},
 		// After the passes above, as clusters reach the modules through the
 		// references.
@@ -132,14 +138,14 @@ func (t *tidying) passes() []tidyPass {
 			}
 			lists := t.lists
 			return &tidyEdit{edit: plainEdit(func() (bool, error) {
-				return collapseOutputLists(dir, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
+				return collapseOutputLists(ws, lists, func() (*tfjson.ProviderSchemas, error) { return tf.ProvidersSchema(ctx) })
 			})}, nil
 		}},
 		{name: passProjects, after: []string{passCuratedModules}, start: func() (*tidyEdit, error) {
 			if len(opts.Adapters) == 0 {
 				return nil, nil
 			}
-			return &tidyEdit{edit: plainEdit(func() (bool, error) { return referModulesToResources(dir) })}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return referModulesToResources(ws) })}, nil
 		}},
 		// After the curated modules, whose calls take the project from the
 		// resources.
@@ -147,7 +153,7 @@ func (t *tidying) passes() []tidyPass {
 			if len(opts.Inherited) == 0 {
 				return nil, nil
 			}
-			return &tidyEdit{edit: plainEdit(func() (bool, error) { return omitInherited(ctx, tf, dir, opts.Inherited) })}, nil
+			return &tidyEdit{edit: plainEdit(func() (bool, error) { return omitInherited(ctx, tf, ws, opts.Inherited) })}, nil
 		}},
 		// Last: curated modules first, and the resources left no longer
 		// repeat what the provider sets.
@@ -162,18 +168,18 @@ func (t *tidying) effectiveTags() (*tidyEdit, error) {
 	if et == nil {
 		return nil, nil
 	}
-	return fillEffectiveTags(t.dir, *et, t.values), nil
+	return fillEffectiveTags(t.ws, *et, t.values), nil
 }
 
 // defaults leaves out the arguments that only repeat a default (see
 // stripDefaults).
 func (t *tidying) defaults() (*tidyEdit, error) {
 	opts := t.r.opts
-	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty, hints: schemaHintsFor(t.dir, opts.SchemaMetadata)}
+	rules := defaultRules{defaults: opts.Defaults, keepEmpty: opts.KeepEmpty, hints: schemaHintsFor(t.ws.dir, opts.SchemaMetadata)}
 	if et := opts.EffectiveTags; et != nil {
 		rules.tags = et.Attribute
 	}
-	return stripDefaults(t.ctx, t.tf, t.dir, rules)
+	return stripDefaults(t.ctx, t.tf, t.ws, rules)
 }
 
 // tagLift is the pass that moves the tags every resource shares into
@@ -182,20 +188,20 @@ func (t *tidying) tagLift() (*tidyEdit, error) {
 	if t.r.opts.DefaultTags == nil {
 		return nil, nil
 	}
-	dt, dir := *t.r.opts.DefaultTags, t.dir
+	dt, ws := *t.r.opts.DefaultTags, t.ws
 	// The schemas tell which resources the provider tags although they
 	// set no tags.
 	schemas, err := t.tf.ProvidersSchema(t.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
 	}
-	tags := &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(dir, dt, schemas) })}
+	tags := &tidyEdit{edit: plainEdit(func() (bool, error) { return applyTagLift(ws, dt, schemas) })}
 	if dt.Block != "" && dt.Applied == nil {
 		// Where the provider can't apply the tags without changing a
 		// resource's, the resources still share them through the local.
 		local := dt
 		local.Block, local.Argument = "", false
-		tags.otherwise = func() (bool, error) { return applyTagLift(dir, local, schemas) }
+		tags.otherwise = func() (bool, error) { return applyTagLift(ws, local, schemas) }
 	}
 	return tags, nil
 }
@@ -206,26 +212,25 @@ func (t *tidying) localModules() (*tidyEdit, error) {
 	if t.r.opts.ModulesDir == "" {
 		return nil, nil
 	}
-	return liftModules(t.ctx, t.tf, t.dir, t.r.opts.ModulesDir, t.r.modules), nil
+	return liftModules(t.ctx, t.tf, t.ws, t.r.opts.ModulesDir, t.r.modules), nil
 }
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration
-// can't be planned, and undoes the lift if it doesn't validate.
-func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, dir string, taken Names) error {
-	backup, err := fsutil.BackupFiles(dir, rootfile.GeneratedFileName, rootfile.LocalsFileName)
-	if err != nil {
-		return err
-	}
-	lifted, err := liftLiterals(dir, taken)
+// can't be planned, and undoes the lift if it doesn't validate. tf is the
+// workspace's (see workspace.terraform).
+func liftLiteralsValidated(ctx context.Context, tf tfrun.Terraform, ws *workspace, taken Names) error {
+	before := ws.Snapshot()
+	lifted, err := liftLiterals(ws, taken)
 	if err != nil || !lifted {
 		return err
 	}
 	validation, err := tf.Validate(ctx)
 	if err != nil {
-		return errors.Join(fmt.Errorf("terraform validate: %w", err), backup.Restore())
+		ws.Restore(before)
+		return fmt.Errorf("terraform validate: %w", err)
 	}
 	if !validation.Valid {
-		return backup.Restore()
+		ws.Restore(before)
 	}
 	return nil
 }
@@ -259,14 +264,14 @@ func dataReaders(generated *hclfile.File, address string) []string {
 // errors, those of the plan that verdict says plan another change than the
 // baseline's. It returns none if an error is about no resource, or the plan
 // had no result.
-func blame(dir string, diags []tfjson.Diagnostic, verdict Verdict) (map[string]bool, error) {
+func blame(ws *workspace, diags []tfjson.Diagnostic, verdict Verdict) (map[string]bool, error) {
 	blamed := map[string]bool{}
 	if len(diags) > 0 {
-		generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+		generated, err := ws.Load(rootfile.GeneratedFileName)
 		if err != nil {
 			return nil, err
 		}
-		imports, err := hclfile.LoadOptional(filepath.Join(dir, rootfile.ImportsFileName))
+		imports, err := ws.LoadOptional(rootfile.ImportsFileName)
 		if err != nil || imports == nil {
 			return nil, err
 		}

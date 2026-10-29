@@ -3,6 +3,8 @@ provider: aws
 service: sqs
 types:
   aws_sqs_queue:
+    cloudformation_types: ["AWS::SQS::Queue"]
+    resource_explorer: ["sqs:queue"]
     arn: { service: sqs, resource_type: "" }
     # What AWS gives a queue that doesn't set them: encrypted with
     # SQS-managed keys. Not max_message_size: SQS gives a new queue 1 MiB,

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -25,12 +24,12 @@ import (
 // does a resource's project and region. Resources that set another value,
 // or name an aliased provider, keep theirs. It reports whether it changed
 // generated.tf.
-func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []string) (bool, error) {
-	defaults, err := providerValues(dir, names)
+func omitInherited(ctx context.Context, tf tfrun.Terraform, ws *workspace, names []string) (bool, error) {
+	defaults, err := providerValues(ws, names)
 	if err != nil || len(defaults) == 0 {
 		return false, err
 	}
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
 	}
@@ -67,14 +66,15 @@ func omitInherited(ctx context.Context, tf tfrun.Terraform, dir string, names []
 	if !changed {
 		return false, nil
 	}
-	return true, generated.Save()
+	ws.Save(generated)
+	return true, nil
 }
 
 // providerValues returns, by provider name, the arguments of names that
 // the provider blocks in providers.tf set to a string, but for aliased
 // blocks.
-func providerValues(dir string, names []string) (map[string]map[string]string, error) {
-	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
+func providerValues(ws *workspace, names []string) (map[string]map[string]string, error) {
+	providers, err := ws.Load(rootfile.ProvidersFileName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}

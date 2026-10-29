@@ -79,10 +79,12 @@ resource "aws_cloudfront_distribution" "web" {
 }
 `)
 
-	edited, err := addRootVariables(dir, otherRoots, awsARNs, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 2})
+	ws := rootWorkspace(t, dir)
+	edited, err := addRootVariables(ws, otherRoots, awsARNs, Names{"var.app_role_arn": true}, map[string]int{"aws_security_group.web": 2})
 	if err != nil || len(edited) != 4 || edited["aws_security_group.web"] {
 		t.Fatalf("want four resources edited, got %v, %v", edited, err)
 	}
+	flushed(t, ws)
 
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
@@ -159,10 +161,12 @@ data "aws_vpc" "vpc_0abc1234" {
 }
 `)
 
-	edited, err := addLookups(dir, nil, nil)
+	ws := rootWorkspace(t, dir)
+	edited, err := addLookups(ws, nil, nil)
 	if err != nil || len(edited) != 3 || edited["aws_rds_cluster.db"] {
 		t.Fatalf("want three resources edited, got %v, %v", edited, err)
 	}
+	flushed(t, ws)
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		"origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id",
@@ -224,10 +228,12 @@ resource "google_compute_subnetwork" "elsewhere" {
   network = "https://www.googleapis.com/compute/v1/projects/acme/global/networks/elsewhere"
 }
 `)
-	edited, err := addRootVariables(dir, others, nil, nil, map[string]int{"google_compute_router.other": 1})
+	ws := rootWorkspace(t, dir)
+	edited, err := addRootVariables(ws, others, nil, nil, map[string]int{"google_compute_router.other": 1})
 	if err != nil || len(edited) != 3 {
 		t.Fatalf("want three resources edited, got %v, %v", edited, err)
 	}
+	flushed(t, ws)
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	if strings.Count(got, "network = data.google_compute_network.main.self_link") != 2 {
 		t.Errorf("want the subnetwork and the router to read the network:\n%s", got)

@@ -251,18 +251,17 @@ func TestCopyAndRemoveRootLeaveLocalState(t *testing.T) {
 
 func TestRecordMerge(t *testing.T) {
 	t.Parallel()
-	run := NewRun()
-	run.options.Out = "out"
-	run.report.Directories = []report.Directory{{Path: "envs/dev/aws/111111111111/eu-west-2"}, {Path: "envs/prod/aws/222222222222/eu-west-2"}, {Path: "aws/333333333333/eu-west-2"}}
+	p := newTestPhase("out", nil)
+	p.report.Directories = []report.Directory{{Path: "envs/dev/aws/111111111111/eu-west-2"}, {Path: "envs/prod/aws/222222222222/eu-west-2"}, {Path: "aws/333333333333/eu-west-2"}}
 	members := []mergeMember{{env: "dev", dir: filepath.Join("out", "envs", "dev", "aws", "111111111111", "eu-west-2")}, {env: "prod", dir: filepath.Join("out", "envs", "prod", "aws", "222222222222", "eu-west-2")}}
-	run.recordMerge(report.Merge{Path: "aws/eu-west-2", Merged: true}, members)
+	p.recordMerge(report.Merge{Path: "aws/eu-west-2", Merged: true}, members)
 	for i, want := range []string{"aws/eu-west-2", "aws/eu-west-2", ""} {
-		if got := run.report.Directories[i].MergedInto; got != want {
-			t.Errorf("%s: merged into %q, want %q", run.report.Directories[i].Path, got, want)
+		if got := p.report.Directories[i].MergedInto; got != want {
+			t.Errorf("%s: merged into %q, want %q", p.report.Directories[i].Path, got, want)
 		}
 	}
-	if len(run.report.Merges) != 1 {
-		t.Errorf("merges: %+v", run.report.Merges)
+	if len(p.report.Merges) != 1 {
+		t.Errorf("merges: %+v", p.report.Merges)
 	}
 }
 

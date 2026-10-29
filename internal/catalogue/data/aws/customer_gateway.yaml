@@ -3,5 +3,6 @@ provider: aws
 service: customer_gateway
 types:
   aws_customer_gateway:
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "customer-gateway" }
     cloud_control: { type: "AWS::EC2::CustomerGateway", identifier: CustomerGatewayId }

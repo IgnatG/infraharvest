@@ -164,10 +164,11 @@ func (h *listedHere) notInCloud(existing map[engine.External]string) []rootfile.
 // recordNotInCloud records gone, the resources of the root in dir that
 // are no longer in the cloud (see listedHere.notInCloud), in the report,
 // and logs how many there are.
-func (r *Run) recordNotInCloud(dir string, gone []rootfile.Import) {
+func (c *callRecorder) recordNotInCloud(dir string, gone []rootfile.Import) {
 	if len(gone) == 0 {
 		return
 	}
-	r.report.AddNotInCloud(relativePath(r.options.Out, dir), r.scope, gone)
-	log.Printf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(r.options.Out, report.Dir, "report.md"))
+	out := c.run.options.Out
+	c.run.report.AddNotInCloud(relativePath(out, dir), c.scope, gone)
+	log.Printf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(out, report.Dir, "report.md"))
 }

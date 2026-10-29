@@ -5,13 +5,7 @@ package aws
 
 import (
 	"context"
-	"crypto/x509"
-	"errors"
 	"log"
-	"net"
-	"strings"
-
-	"github.com/aws/smithy-go"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -26,9 +20,10 @@ type guardedLister struct {
 	// settings are the provider's settings, which the lister has too:
 	// they say which region explorerSkip and where read.
 	settings serviceSettings
-	// resourceExplorer lets Resource Explorer rule the service out (see
-	// Provider.UseResourceExplorer).
-	resourceExplorer bool
+	// explorerTypes are the Resource Explorer types that let the index
+	// rule the service out, as the function explorerTypes finds them; none
+	// without Provider.UseResourceExplorer.
+	explorerTypes []string
 }
 
 // List lists the service, unless Resource Explorer shows the
@@ -39,7 +34,7 @@ func (s *guardedLister) List(ctx context.Context, settings harvest.Settings) ([]
 		return nil, nil
 	}
 	resources, err := s.lister.List(ctx, settings)
-	if err != nil && unavailableInRegion(err) {
+	if err != nil && awsCodes.Classify(err) == harvest.OutcomeSkipRegion {
 		log.Printf("aws: %s: not offered in %s: %v; not listing it", settings.Service, s.where(), err)
 		return resources, nil
 	}
@@ -53,28 +48,4 @@ func (s *guardedLister) where() string {
 		return "the default region"
 	}
 	return region
-}
-
-// unavailableInRegion says whether err means AWS doesn't offer the service
-// in the region: it has no endpoint there, the endpoint's name is served
-// by another host's certificate, or the API says the operation is
-// unavailable. A timeout or a DNS failure that may pass is not that.
-func unavailableInRegion(err error) bool {
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
-		return true
-	}
-	var hostErr x509.HostnameError
-	if errors.As(err, &hostErr) {
-		return true
-	}
-	var hostErrPtr *x509.HostnameError
-	if errors.As(err, &hostErrPtr) {
-		return true
-	}
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == "UnavailableOperation" || strings.Contains(apiErr.ErrorMessage(), "Unavailable Operation")
-	}
-	return false
 }

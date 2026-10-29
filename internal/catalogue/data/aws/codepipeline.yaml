@@ -3,4 +3,6 @@ provider: aws
 service: codepipeline
 types:
   aws_codepipeline:
+    cloudformation_types: ["AWS::CodePipeline::Pipeline"]
+    resource_explorer: ["codepipeline:pipeline"]
     arn: { service: codepipeline, resource_type: "" }

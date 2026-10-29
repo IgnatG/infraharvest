@@ -5,10 +5,8 @@ package azure
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -62,7 +60,7 @@ func withoutWorkspaceDataSources(tree azlist.ARMSchemaTree) {
 func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential, options *arm.ClientOptions, listed []azlist.AzureResource, wants func(typ string) bool) ([]azlist.AzureResource, map[string]string, error) {
 	clients := map[string]*armoperationalinsights.DataSourcesClient{}
 	var found []azlist.AzureResource
-	var failures []error
+	var parts harvest.Parts
 	types := map[string]string{}
 	for _, res := range listed {
 		if !strings.EqualFold(res.Id.TypeString(), workspaceType) {
@@ -93,12 +91,11 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 				if ctx.Err() != nil {
 					return nil, nil, ctx.Err()
 				}
-				var respErr *azcore.ResponseError
-				if errors.As(err, &respErr) && respErr.StatusCode == http.StatusNotFound {
+				if azureCodes.Classify(err) == harvest.OutcomeGone {
 					log.Printf("azurerm: resource_graph: workspace %s is gone: %v", res.Id, err)
 					continue
 				}
-				failures = append(failures, fmt.Errorf("azurerm: resource_graph: listing the %s data sources of %s: %w", k.kind, res.Id, err))
+				parts.Add(nil, fmt.Sprintf("azurerm: resource_graph: listing the %s data sources of %s", k.kind, res.Id), err)
 				continue
 			}
 			for _, source := range sources {
@@ -135,7 +132,7 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 			}
 		}
 	}
-	return found, types, harvest.Partial(errors.Join(failures...))
+	return found, types, parts.Err()
 }
 
 // knownTypes is query, except for the resources whose azurerm type is

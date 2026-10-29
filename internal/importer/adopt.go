@@ -100,8 +100,8 @@ func (s *shared) loadedState() managed.Resources {
 // and why the stack can't merge again, if it can't: the import lacks one
 // of its environments, whose root no checkpoint kept, or nothing says
 // what the merged root has of one.
-func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeCheckpoint, string, error) {
-	out := r.options.Out
+func (p *mergePhase) adoptedCheckpoint(stack string, members []mergeMember) (*mergeCheckpoint, string, error) {
+	out := p.out
 	envs, err := hclfile.MergedEnvironments(stack)
 	if err != nil || len(envs) == 0 {
 		return nil, "", err
@@ -137,7 +137,7 @@ func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeChec
 			return nil, "", err
 		}
 		if ids == nil {
-			if ids, err = r.stateImports(stack, env, m.result); err != nil {
+			if ids, err = p.stateImports(stack, env, m.result); err != nil {
 				return nil, "", err
 			}
 		}
@@ -162,8 +162,8 @@ func (r *Run) adoptedCheckpoint(stack string, members []mergeMember) (*mergeChec
 // env the import generated, has that env's own state has (see
 // envmerge.MergedStateLocations), as --managed-state read it; none without
 // it.
-func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string]string, error) {
-	if result == nil || len(r.options.ManagedState) == 0 {
+func (p *mergePhase) stateImports(stack, env string, result *engine.Result) (map[string]string, error) {
+	if result == nil || p.state == nil {
 		return nil, nil
 	}
 	locations, err := envmerge.MergedStateLocations(stack, env)
@@ -174,7 +174,7 @@ func (r *Run) stateImports(stack, env string, result *engine.Result) (map[string
 	for _, l := range locations {
 		own[stateLocation(l)] = true
 	}
-	state := r.shared.loadedState()
+	state := p.state()
 	ids := map[string]string{}
 	for _, res := range result.Blocks() {
 		found, ok := state.Find(res.Type, res.ID)
@@ -254,10 +254,10 @@ func goneFromMerged(m mergeMember, ids map[string]string) map[string]string {
 // environment that is no longer in the cloud (see goneFromMerged), as
 // that environment's root would have it (see envmerge.UnmergedBlocks), so
 // that merging again keeps it as it was, as with a stack whose roots were
-// set aside (see Run.goneFrom), and records it in the report. It returns
+// set aside (see mergePhase.goneFrom), and records it in the report. It returns
 // why it can't, where it can't.
-func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMember) (string, error) {
-	out := r.options.Out
+func (p *mergePhase) keepGone(stack string, prev *mergeCheckpoint, members []mergeMember) (string, error) {
+	out := p.out
 	// Each member's, all told before any is written.
 	goneOf := make([]map[string]string, len(members))
 	blocksOf := make([]map[string]envmerge.UnmergedBlock, len(members))
@@ -303,7 +303,7 @@ func (r *Run) keepGone(stack string, prev *mergeCheckpoint, members []mergeMembe
 			kept = append(kept, rootfile.Import{Type: typ, Name: strings.TrimPrefix(b.Address, typ+"."), ID: gone[address]})
 		}
 		members[i].result = m.result.WithKept(kept)
-		r.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
+		p.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
 		log.Printf("%s: no longer in the cloud: %d of what %s has of %s; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", relativePath(out, m.dir), len(blocks), relativePath(out, stack), m.env, filepath.Join(out, report.Dir, "report.md"))
 	}
 	return "", nil

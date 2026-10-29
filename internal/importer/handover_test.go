@@ -48,7 +48,7 @@ func thingImport(id string) rootfile.Import {
 // regenerating returns a listed call of an import with --regenerate into
 // out, of byDir.
 func regenerating(out string, byDir map[string][]rootfile.Import) *listedCall {
-	return &listedCall{run: NewRun(), options: Options{Out: out, Regenerate: true}, scope: "scope", byDir: byDir}
+	return &listedCall{callRecorder: callRecorder{run: NewRun(), scope: "scope"}, options: Options{Out: out, Regenerate: true}, byDir: byDir}
 }
 
 // excludedIDs are the IDs run excludes as held by another root, with the

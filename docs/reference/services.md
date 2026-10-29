@@ -76,7 +76,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `msk` | `aws_msk_cluster` |
 | `nacl` | `aws_default_network_acl`, `aws_network_acl` |
 | `nat` | `aws_nat_gateway` |
-| `organization` | `aws_managed`, `aws_organizations_account`, `aws_organizations_organization`, `aws_organizations_organizational_unit`, `aws_organizations_policy`, `aws_organizations_policy_attachment` |
+| `organization` | `aws_organizations_account`, `aws_organizations_organization`, `aws_organizations_organizational_unit`, `aws_organizations_policy`, `aws_organizations_policy_attachment` |
 | `pipes` | `aws_pipes_pipe` |
 | `placement_group` | `aws_placement_group` |
 | `rds` | `aws_db_cluster_snapshot`, `aws_db_event_subscription`, `aws_db_instance`, `aws_db_option_group`, `aws_db_parameter_group`, `aws_db_proxy`, `aws_db_snapshot`, `aws_db_subnet_group`, `aws_rds_cluster`, `aws_rds_cluster_instance`, `aws_rds_global_cluster` |

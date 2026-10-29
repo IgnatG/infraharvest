@@ -4,21 +4,23 @@
 package importer
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
-// importInto in discover mode runs the whole listing, as a command does:
+// Run.Import in discover mode runs the whole listing, as a command does:
 // the provider's Init, the catalogue, the listers, the default selection,
 // the managed state and owned resources, and the run then writes the
 // selection file and the inventory, and fails as incomplete for a service
 // that listed in part.
-func TestImportIntoDiscovers(t *testing.T) {
+func TestImportDiscoversThroughTheListers(t *testing.T) {
 	dir := t.TempDir()
 	state := filepath.Join(dir, "terraform.tfstate")
 	content := `{"version": 4, "resources": [{"mode": "managed", "type": "fake_thing", "instances": [{"attributes": {"id": "id-2"}}]}]}`
@@ -35,7 +37,14 @@ func TestImportIntoDiscovers(t *testing.T) {
 		ListParallel: 1,
 	}
 	run := NewRun()
-	err := run.finish(importInto(t.Context(), run, &fakeProvider{}, options, []string{"eu-west-2"}))
+	cmd := Command{
+		Options:  options,
+		Provider: &knownProvider{services: options.Services},
+		Plan: func(context.Context, Options) (Plan, error) {
+			return oneScope([]Call{{Provider: &fakeProvider{}, Options: options, Args: []string{"eu-west-2"}}}), nil
+		},
+	}
+	err := run.finish(run.Import(t.Context(), cmd))
 	if ExitCode(err) != report.ExitIncomplete || !strings.Contains(err.Error(), "service partial") {
 		t.Fatalf("want the run incomplete for the partial service, got %v", err)
 	}
@@ -67,4 +76,19 @@ func TestImportIntoDiscovers(t *testing.T) {
 	if !run.covered[coverKey("", "good")] || run.covered[coverKey("", "skipped")] {
 		t.Errorf("covered %v", run.covered)
 	}
+}
+
+// knownProvider is fakeProvider with services, for the options to be
+// checked against.
+type knownProvider struct {
+	fakeProvider
+	services []string
+}
+
+func (p *knownProvider) Services() map[string]harvest.Lister {
+	known := map[string]harvest.Lister{}
+	for _, name := range p.services {
+		known[name] = fakeService{}
+	}
+	return known
 }

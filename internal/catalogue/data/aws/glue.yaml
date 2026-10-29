@@ -3,6 +3,10 @@ provider: aws
 service: glue
 types:
   aws_glue_crawler:
+    cloudformation_types: ["AWS::Glue::Crawler"]
+    resource_explorer: arn
     arn: { service: glue, resource_type: "crawler" }
   aws_glue_job:
+    cloudformation_types: ["AWS::Glue::Job"]
+    resource_explorer: arn
     arn: { service: glue, resource_type: "job" }

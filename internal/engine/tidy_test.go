@@ -6,8 +6,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -19,9 +17,10 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// tidier returns a driver for a test, comparing with baseline.
-func tidier(tf tfrun.Terraform, dir string, baseline Baseline) *tidying {
-	return &tidying{ctx: context.Background(), tf: tf, dir: dir, r: generating(Options{}), baseline: baseline}
+// tidier returns a driver of the root of ws for a test, comparing with
+// baseline.
+func tidier(tf tfrun.Terraform, ws *workspace, baseline Baseline) *tidying {
+	return &tidying{ctx: context.Background(), tf: ws.terraform(tf), ws: ws, r: generating(Options{}), baseline: baseline}
 }
 
 // declared returns postProcess's pass called name, as the driver would run
@@ -53,12 +52,17 @@ func settleEdit(t *testing.T, d *tidying, name string, e *tidyEdit) (bool, error
 	return d.settle(declared(t, d, name), e)
 }
 
-// settleDefaults runs the defaults pass over generated.tf, against a baseline
-// of changes, and returns whether it kept an edit and the driver, whose
-// baseline is the plan the pass settled on.
+// settleDefaults runs the defaults pass over generated.tf in dir, against a
+// baseline of changes, and returns whether it kept an edit and the driver,
+// whose baseline is the plan the pass settled on. The files are in dir as it
+// left them.
 func settleDefaults(tf tfrun.Terraform, dir string, changes map[string]string, rules defaultRules) (bool, *tidying, error) {
-	d := tidier(tf, dir, Baseline{changes: changes})
-	e, err := stripDefaults(d.ctx, tf, dir, rules)
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return false, nil, err
+	}
+	d := tidier(tf, ws, Baseline{changes: changes})
+	e, err := stripDefaults(d.ctx, d.tf, ws, rules)
 	if err != nil {
 		return false, d, err
 	}
@@ -67,14 +71,18 @@ func settleDefaults(tf tfrun.Terraform, dir string, changes map[string]string, r
 		return false, d, err
 	}
 	kept, err := d.settle(p, e)
-	return kept, d, err
+	return kept, d, errors.Join(err, ws.Flush())
 }
 
-// synthesizeRoot runs the curated modules pass over generated.tf, and returns
-// the clusters it declined, the baseline it rebased on, and the list lengths
-// of its calls.
+// synthesizeRoot runs the curated modules pass over generated.tf in dir, and
+// returns the clusters it declined, the baseline it rebased on, and the list
+// lengths of its calls. The files are in dir as it left them.
 func synthesizeRoot(tf tfrun.Terraform, dir string, opts Options, baseline Baseline) ([]ModuleCall, Baseline, map[string]int, error) {
-	d := tidier(tf, dir, baseline)
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return nil, Baseline{}, nil, err
+	}
+	d := tidier(tf, ws, baseline)
 	d.r = generating(opts)
 	e, err := d.synthesize()
 	if err == nil && e != nil {
@@ -83,82 +91,37 @@ func synthesizeRoot(tf tfrun.Terraform, dir string, opts Options, baseline Basel
 			_, err = d.settle(p, e)
 		}
 	}
-	return d.declined, d.baseline, d.lists, err
-}
-
-// appendComment appends comment to generated.tf.
-func appendComment(dir, comment string) (bool, error) {
-	path := filepath.Join(dir, rootfile.GeneratedFileName)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return false, err
-	}
-	return true, os.WriteFile(path, append(content, []byte("# "+comment+"\n")...), 0o644)
-}
-
-// commentEdit is an edit that appends comment to generated.tf.
-func commentEdit(dir, comment string) *tidyEdit {
-	return &tidyEdit{edit: plainEdit(func() (bool, error) { return appendComment(dir, comment) })}
+	return d.declined, d.baseline, d.lists, errors.Join(err, ws.Flush())
 }
 
 // An edit that fails after changing a file leaves nothing of it behind: the
-// driver backs up every file of a root, not those the edit names.
+// driver restores every file of the workspace, not those the edit names.
 func TestSettleRestoresWhenTheEditFails(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	tf := &fakeTerraform{dir: dir}
 	failure := errors.New("halfway")
 	e := &tidyEdit{edit: func(*tidyAttempt) (edited, error) {
-		if err := os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte("# changed\n"), 0o644); err != nil {
-			return edited{}, err
-		}
-		if err := os.WriteFile(filepath.Join(dir, rootfile.LocalsFileName), []byte("locals {}\n"), 0o644); err != nil {
-			return edited{}, err
-		}
+		ws.Write(rootfile.GeneratedFileName, []byte("# changed\n"))
+		ws.Write(rootfile.LocalsFileName, []byte("locals {}\n"))
 		return edited{other: true}, failure
 	}}
 
-	kept, err := tidier(tf, dir, Baseline{}).settle(tidyPass{}, e)
+	kept, err := tidier(tf, ws, Baseline{}).settle(tidyPass{}, e)
 	if kept || !errors.Is(err, failure) {
 		t.Fatalf("got kept=%v err=%v, want the edit's error", kept, err)
 	}
 
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, rootfile.LocalsFileName)); err == nil {
+	if _, ok := ws.files[rootfile.LocalsFileName]; ok {
 		t.Error("locals.tf not removed")
 	}
 	if len(tf.calls) != 0 {
 		t.Errorf("planned after a failed edit: %v", tf.calls)
-	}
-}
-
-// Every file a pass may change is backed up, whichever the pass is: one that
-// writes a file of the root and is rejected leaves none of it.
-func TestSettleRestoresEveryFileOfTheRoot(t *testing.T) {
-	t.Parallel()
-	for _, name := range tidyFiles {
-		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
-			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
-			tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}}
-			e := &tidyEdit{edit: plainEdit(func() (bool, error) {
-				return true, os.WriteFile(filepath.Join(dir, name), []byte("# written\n"), 0o644)
-			})}
-
-			kept, err := tidier(tf, dir, Baseline{}).settle(tidyPass{}, e)
-
-			if err != nil || kept {
-				t.Fatalf("got kept=%v err=%v, want the edit undone", kept, err)
-			}
-			if got, err := os.ReadFile(filepath.Join(dir, name)); err == nil && name != rootfile.GeneratedFileName {
-				t.Errorf("%s not removed: %s", name, got)
-			} else if name == rootfile.GeneratedFileName && string(got) != networkGenerated {
-				t.Errorf("generated.tf not restored:\n%s", got)
-			}
-		})
 	}
 }
 
@@ -181,13 +144,14 @@ func TestSettleComparesEachResourcesChange(t *testing.T) {
 	} {
 		dir := t.TempDir()
 		writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+		ws := rootWorkspace(t, dir)
 		tf := &fakeTerraform{dir: dir, plans: []fakePlan{{summary: baseline}}, showns: []*tfjson.Plan{{ResourceChanges: []*tfjson.ResourceChange{tt.planned}}}}
 
-		kept, err := tidier(tf, dir, Baseline{summary: baseline, changes: changes}).settle(tidyPass{}, commentEdit(dir, "edited"))
+		kept, err := tidier(tf, ws, Baseline{summary: baseline, changes: changes}).settle(tidyPass{}, commentEdit(ws, "edited"))
 		if err != nil || kept != tt.kept {
 			t.Errorf("%s: got kept=%v err=%v, want kept=%v", name, kept, err, tt.kept)
 		}
-		if restored := readFile(t, dir, rootfile.GeneratedFileName) == networkGenerated; restored == tt.kept {
+		if restored := wsFile(t, ws, rootfile.GeneratedFileName) == networkGenerated; restored == tt.kept {
 			t.Errorf("%s: generated.tf restored=%v", name, restored)
 		}
 	}
@@ -199,15 +163,16 @@ func TestSettleTriesTheOtherEditWhereNothingChanged(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	tf := &fakeTerraform{dir: dir}
-	e := &tidyEdit{edit: plainEdit(func() (bool, error) { return false, nil }), otherwise: func() (bool, error) { return appendComment(dir, "other") }}
+	e := &tidyEdit{edit: plainEdit(func() (bool, error) { return false, nil }), otherwise: func() (bool, error) { return appendComment(ws, "other") }}
 
-	kept, err := tidier(tf, dir, Baseline{}).settle(tidyPass{}, e)
+	kept, err := tidier(tf, ws, Baseline{}).settle(tidyPass{}, e)
 
 	if err != nil || !kept {
 		t.Fatalf("got kept=%v err=%v, want the other edit kept", kept, err)
 	}
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated+"# other\n" {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != networkGenerated+"# other\n" {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 	if got := strings.Join(tf.calls, ","); got != "plan,show" {
@@ -221,16 +186,17 @@ func TestSettleTriesTheOtherEditWhereThePlanRejects(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	changed := fakePlan{summary: tfrun.ChangeSummary{Change: 1}}
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{changed, {}}}
-	e := &tidyEdit{edit: commentEdit(dir, "first").edit, otherwise: func() (bool, error) { return appendComment(dir, "second") }}
+	e := &tidyEdit{edit: commentEdit(ws, "first").edit, otherwise: func() (bool, error) { return appendComment(ws, "second") }}
 
-	kept, err := tidier(tf, dir, Baseline{}).settle(tidyPass{}, e)
+	kept, err := tidier(tf, ws, Baseline{}).settle(tidyPass{}, e)
 
 	if err != nil || !kept {
 		t.Fatalf("got kept=%v err=%v, want the other edit kept", kept, err)
 	}
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated+"# second\n" {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != networkGenerated+"# second\n" {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
@@ -238,22 +204,19 @@ func TestSettleTriesTheOtherEditWhereThePlanRejects(t *testing.T) {
 // resourceNames is a resource edit that appends a comment to generated.tf
 // for each address it is given, but those skip has at a higher level than
 // 0, and reports them.
-func resourceNames(dir string, addresses ...string) *tidyEdit {
+func resourceNames(ws *workspace, addresses ...string) *tidyEdit {
 	return &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
 		edited := map[string]bool{}
-		path := filepath.Join(dir, rootfile.GeneratedFileName)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil, err
-		}
 		for _, a := range addresses {
 			if skip[a] > 0 {
 				continue
 			}
-			content = append(content, []byte("# "+a+"\n")...)
+			if _, err := appendComment(ws, a); err != nil {
+				return nil, err
+			}
 			edited[a] = true
 		}
-		return edited, os.WriteFile(path, content, 0o644)
+		return edited, nil
 	})}
 }
 
@@ -297,6 +260,7 @@ func TestSettleEditsAgainWithoutWhatThePlanBlames(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
 			// The totals of the plans are those of the resources that update.
 			plans := make([]fakePlan, len(tt.plans))
 			for i, p := range tt.plans {
@@ -307,10 +271,10 @@ func TestSettleEditsAgainWithoutWhatThePlanBlames(t *testing.T) {
 				}
 			}
 			tf := &fakeTerraform{dir: dir, plans: plans, showns: tt.plans}
-			d := tidier(tf, dir, Baseline{changes: changes})
+			d := tidier(tf, ws, Baseline{changes: changes})
 			pass := tidyPass{rounds: maxEditRounds}
 
-			kept, err := d.settle(pass, resourceNames(dir, "aws_subnet.a", "aws_subnet.b", "aws_subnet.c"))
+			kept, err := d.settle(pass, resourceNames(ws, "aws_subnet.a", "aws_subnet.b", "aws_subnet.c"))
 
 			if err != nil || kept != tt.kept {
 				t.Fatalf("got kept=%v err=%v, want kept=%v", kept, err, tt.kept)
@@ -319,7 +283,7 @@ func TestSettleEditsAgainWithoutWhatThePlanBlames(t *testing.T) {
 			if tt.kept {
 				want += tt.want
 			}
-			if got := readFile(t, dir, rootfile.GeneratedFileName); got != want {
+			if got := wsFile(t, ws, rootfile.GeneratedFileName); got != want {
 				t.Errorf("generated.tf:\n%s\nwant:\n%s", got, want)
 			}
 			if got := strings.Join(tf.calls, ","); got != tt.calls {
@@ -351,15 +315,12 @@ func TestSettleFollowsTheReview(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
 			tf := &fakeTerraform{dir: dir}
 			e := &tidyEdit{
 				edit: func(a *tidyAttempt) (edited, error) {
-					path := filepath.Join(dir, rootfile.GeneratedFileName)
-					content, err := os.ReadFile(path)
-					if err != nil {
-						return edited{}, err
-					}
-					return edited{other: true}, os.WriteFile(path, append(content, []byte("# edit "+string(rune('0'+a.round))+"\n")...), 0o644)
+					_, err := appendComment(ws, "edit "+string(rune('0'+a.round)))
+					return edited{other: true}, err
 				},
 				review: func(a *tidyAttempt, _ tidyReview) (tidyDecision, error) {
 					return tidyDecision{outcome: tt.outcomes[a.round]}, nil
@@ -367,16 +328,17 @@ func TestSettleFollowsTheReview(t *testing.T) {
 			}
 			if name != "rejects without fallback" {
 				e.unplanned = func(*tidyAttempt) (bool, error) {
-					return true, os.WriteFile(filepath.Join(dir, rootfile.GeneratedFileName), []byte(networkGenerated+"# unplanned\n"), 0o644)
+					ws.Write(rootfile.GeneratedFileName, []byte(networkGenerated+"# unplanned\n"))
+					return true, nil
 				}
 			}
 
-			kept, err := tidier(tf, dir, Baseline{}).settle(tidyPass{rounds: tt.rounds}, e)
+			kept, err := tidier(tf, ws, Baseline{}).settle(tidyPass{rounds: tt.rounds}, e)
 
 			if err != nil || kept != tt.kept {
 				t.Fatalf("got kept=%v err=%v, want kept=%v", kept, err, tt.kept)
 			}
-			if got, want := readFile(t, dir, rootfile.GeneratedFileName), networkGenerated+tt.want; got != want {
+			if got, want := wsFile(t, ws, rootfile.GeneratedFileName), networkGenerated+tt.want; got != want {
 				t.Errorf("generated.tf:\n%s\nwant:\n%s", got, want)
 			}
 			if got := strings.Join(tf.calls, ","); got != tt.calls {
@@ -393,8 +355,8 @@ func TestSettleRebasesOnWhatItSettledOn(t *testing.T) {
 	t.Parallel()
 	moved := resourceChange("module.a.aws_subnet.this", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
 	accepted := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved}}
-	acceptsOwnPlan := func(dir string) *tidyEdit {
-		e := commentEdit(dir, "edit")
+	acceptsOwnPlan := func(ws *workspace) *tidyEdit {
+		e := commentEdit(ws, "edit")
 		e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) {
 			return tidyDecision{outcome: tidyAccept, plan: &shownPlan{accepted, &tfrun.ChangeSummary{Import: 7}}}, nil
 		}
@@ -402,21 +364,21 @@ func TestSettleRebasesOnWhatItSettledOn(t *testing.T) {
 	}
 	for name, tt := range map[string]struct {
 		rebases bool
-		edit    func(dir string) *tidyEdit
+		edit    func(ws *workspace) *tidyEdit
 		address string // what the baseline has afterwards
 		imports int
 		calls   string
 	}{
 		"onto the plan it accepted": {true, acceptsOwnPlan, "module.a.aws_subnet.this", 7, "plan,show"},
 		"not at all":                {false, acceptsOwnPlan, "aws_subnet.a", 0, "plan,show"},
-		"onto a new plan, with none": {true, func(dir string) *tidyEdit {
-			e := commentEdit(dir, "x")
+		"onto a new plan, with none": {true, func(ws *workspace) *tidyEdit {
+			e := commentEdit(ws, "x")
 			e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) { return tidyDecision{outcome: tidyFallBack}, nil }
 			e.unplanned = func(*tidyAttempt) (bool, error) { return true, nil }
 			return e
 		}, "aws_subnet.a", 0, "plan,show,plan,show"},
-		"onto the plan it was shown": {true, func(dir string) *tidyEdit {
-			e := commentEdit(dir, "x")
+		"onto the plan it was shown": {true, func(ws *workspace) *tidyEdit {
+			e := commentEdit(ws, "x")
 			e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) { return tidyDecision{outcome: tidyAccept}, nil }
 			return e
 		}, "aws_subnet.a", 0, "plan,show"},
@@ -424,11 +386,12 @@ func TestSettleRebasesOnWhatItSettledOn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
 			shown := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{resourceChange("aws_subnet.a", tfjson.Actions{tfjson.ActionNoop}, nil, nil)}}
 			tf := &fakeTerraform{dir: dir, shown: shown, showns: []*tfjson.Plan{shown}}
-			d := tidier(tf, dir, Baseline{changes: map[string]string{"aws_subnet.a": "no-op:"}})
+			d := tidier(tf, ws, Baseline{changes: map[string]string{"aws_subnet.a": "no-op:"}})
 
-			kept, err := d.settle(tidyPass{rebases: tt.rebases, stopped: "stopped"}, tt.edit(dir))
+			kept, err := d.settle(tidyPass{rebases: tt.rebases, stopped: "stopped"}, tt.edit(ws))
 
 			if err != nil || !kept {
 				t.Fatalf("got kept=%v err=%v", kept, err)
@@ -464,18 +427,19 @@ func TestRunComparesWithTheBaselineARebasingPassLeft(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
 			summary := tfrun.ChangeSummary{Change: 1}
 			tf := &fakeTerraform{dir: dir,
 				plans:  []fakePlan{{summary: summary}, {summary: summary}},
 				showns: []*tfjson.Plan{{ResourceChanges: []*tfjson.ResourceChange{moved(map[string]any{"tags": "x"})}}, {ResourceChanges: []*tfjson.ResourceChange{moved(tt.after)}}}}
 			passes := []tidyPass{
-				{name: "moves", alone: true, rebases: true, stopped: "stopped", start: func() (*tidyEdit, error) { return commentEdit(dir, "moved"), nil }},
-				{name: "after", after: []string{"moves"}, start: func() (*tidyEdit, error) { return commentEdit(dir, "after"), nil }},
+				{name: "moves", alone: true, rebases: true, stopped: "stopped", start: func() (*tidyEdit, error) { return commentEdit(ws, "moved"), nil }},
+				{name: "after", after: []string{"moves"}, start: func() (*tidyEdit, error) { return commentEdit(ws, "after"), nil }},
 			}
 			// The baseline before the move has the resource at its old address.
 			stale := Baseline{summary: summary, changes: map[string]string{"aws_subnet.a": "update:tags"}}
 
-			d := tidier(tf, dir, stale)
+			d := tidier(tf, ws, stale)
 			if err := d.run(passes); err != nil {
 				t.Fatal(err)
 			}
@@ -484,7 +448,7 @@ func TestRunComparesWithTheBaselineARebasingPassLeft(t *testing.T) {
 			if tt.kept {
 				want += "# after\n"
 			}
-			if got := readFile(t, dir, rootfile.GeneratedFileName); got != want {
+			if got := wsFile(t, ws, rootfile.GeneratedFileName); got != want {
 				t.Errorf("generated.tf:\n%s\nwant:\n%s", got, want)
 			}
 		})
@@ -497,12 +461,13 @@ func TestSettleFailsWhereARebasingPassLeavesNothingToPlan(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	tf := &fakeTerraform{dir: dir, plans: []fakePlan{{}, {diags: []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "broken"}}}}}
-	e := commentEdit(dir, "edit")
+	e := commentEdit(ws, "edit")
 	e.unplanned = func(*tidyAttempt) (bool, error) { return true, nil }
 	e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) { return tidyDecision{outcome: tidyFallBack}, nil }
 
-	_, err := tidier(tf, dir, Baseline{}).settle(tidyPass{rebases: true, stopped: "the configuration stopped planning"}, e)
+	_, err := tidier(tf, ws, Baseline{}).settle(tidyPass{rebases: true, stopped: "the configuration stopped planning"}, e)
 
 	if err == nil || err.Error() != "the configuration stopped planning" {
 		t.Errorf("got %v, want the pass's reason", err)
@@ -526,13 +491,14 @@ func TestRunChecksPassesNextToEachOtherTogether(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
 			tf := &fakeTerraform{dir: dir, plans: tt.plans}
 			passes := []tidyPass{
-				{name: "one", start: func() (*tidyEdit, error) { return commentEdit(dir, "one"), nil }},
-				{name: "two", start: func() (*tidyEdit, error) { return commentEdit(dir, "two"), nil }},
+				{name: "one", start: func() (*tidyEdit, error) { return commentEdit(ws, "one"), nil }},
+				{name: "two", start: func() (*tidyEdit, error) { return commentEdit(ws, "two"), nil }},
 			}
 
-			if err := tidier(tf, dir, Baseline{}).run(passes); err != nil {
+			if err := tidier(tf, ws, Baseline{}).run(passes); err != nil {
 				t.Fatal(err)
 			}
 
@@ -543,7 +509,7 @@ func TestRunChecksPassesNextToEachOtherTogether(t *testing.T) {
 			for _, c := range tt.want {
 				want += "# " + c + "\n"
 			}
-			if got := readFile(t, dir, rootfile.GeneratedFileName); got != want {
+			if got := wsFile(t, ws, rootfile.GeneratedFileName); got != want {
 				t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
 			}
 		})
@@ -556,6 +522,7 @@ func TestRunWithoutChanges(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	tf := &fakeTerraform{dir: dir}
 	passes := []tidyPass{
 		{name: "unchanged", start: func() (*tidyEdit, error) {
@@ -567,14 +534,14 @@ func TestRunWithoutChanges(t *testing.T) {
 		{name: "not made", start: func() (*tidyEdit, error) { return nil, nil }},
 	}
 
-	if err := tidier(tf, dir, Baseline{}).run(passes); err != nil {
+	if err := tidier(tf, ws, Baseline{}).run(passes); err != nil {
 		t.Fatal(err)
 	}
 
 	if len(tf.calls) != 0 {
 		t.Errorf("calls: %v, want none", tf.calls)
 	}
-	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
+	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 }
@@ -585,18 +552,19 @@ func TestRunChecksThePassesBeforeOneThatPlansAlone(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
 	tf := &fakeTerraform{dir: dir}
 	var seen string
 	passes := []tidyPass{
-		{name: "before", start: func() (*tidyEdit, error) { return commentEdit(dir, "before"), nil }},
+		{name: "before", start: func() (*tidyEdit, error) { return commentEdit(ws, "before"), nil }},
 		{name: "alone", alone: true, start: func() (*tidyEdit, error) {
-			seen = readFile(t, dir, rootfile.GeneratedFileName)
+			seen = wsFile(t, ws, rootfile.GeneratedFileName)
 			return nil, nil
 		}},
-		{name: "after", start: func() (*tidyEdit, error) { return commentEdit(dir, "after"), nil }},
+		{name: "after", start: func() (*tidyEdit, error) { return commentEdit(ws, "after"), nil }},
 	}
 
-	if err := tidier(tf, dir, Baseline{}).run(passes); err != nil {
+	if err := tidier(tf, ws, Baseline{}).run(passes); err != nil {
 		t.Fatal(err)
 	}
 
@@ -688,18 +656,21 @@ func TestOrderPasses(t *testing.T) {
 }
 
 // settleLocalModules runs the local modules pass over dir, with modulesDir and
-// refs, against baseline.
+// refs, against baseline, and leaves the files in dir as it settled them.
 func settleLocalModules(t *testing.T, tf tfrun.Terraform, dir, modulesDir string, baseline Baseline) (bool, error) {
 	t.Helper()
-	d := tidier(tf, dir, baseline)
-	return settleEdit(t, d, passLocalModules, liftModules(d.ctx, tf, dir, modulesDir, &ModuleRefs{}))
+	ws := rootWorkspace(t, dir)
+	d := tidier(tf, ws, baseline)
+	kept, err := settleEdit(t, d, passLocalModules, liftModules(d.ctx, d.tf, ws, modulesDir, &ModuleRefs{}))
+	flushed(t, ws)
+	return kept, err
 }
 
 // A rebase takes the imported values of the root's resources from the plan,
 // but not those of a resource a pass moved into a module, which keeps the
 // values of its root address.
 func TestRebaseKeepsTheRootsValues(t *testing.T) {
-	d := tidier(nil, t.TempDir(), Baseline{})
+	d := tidier(nil, memoryWorkspace(nil), Baseline{})
 	d.values = map[string]map[string]any{
 		"aws_s3_bucket.logs": {"bucket": "logs"},
 		"aws_sqs_queue.jobs": {"name": "old"},

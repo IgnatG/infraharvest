@@ -3,4 +3,6 @@ provider: aws
 service: elastic_beanstalk
 types:
   aws_elastic_beanstalk_application:
+    cloudformation_types: ["AWS::ElasticBeanstalk::Application"]
+    resource_explorer: arn
     arn: { service: elasticbeanstalk, resource_type: "application" }

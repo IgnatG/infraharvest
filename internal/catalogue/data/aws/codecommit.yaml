@@ -3,4 +3,5 @@ provider: aws
 service: codecommit
 types:
   aws_codecommit_repository:
+    cloudformation_types: ["AWS::CodeCommit::Repository"]
     arn: { service: codecommit, resource_type: "" }

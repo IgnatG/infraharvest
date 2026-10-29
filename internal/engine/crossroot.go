@@ -6,7 +6,6 @@ package engine
 import (
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -201,7 +200,7 @@ var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name":
 // root, whose provider is in another region. Variables and data sources
 // are named other than those in taken, variables.tf and data.tf. It
 // returns the resources it changed.
-func addRootVariables(dir string, others []RootResource, arns map[string]ARN, taken Names, skip map[string]int) (map[string]bool, error) {
+func addRootVariables(ws *workspace, others []RootResource, arns map[string]ARN, taken Names, skip map[string]int) (map[string]bool, error) {
 	if len(others) == 0 {
 		return nil, nil
 	}
@@ -211,12 +210,11 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		return a.Type+"\x00"+a.Name+"\x00"+a.ID < b.Type+"\x00"+b.Name+"\x00"+b.ID
 	})
 	values := newRootValues(others, arns)
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, hclfile.VariablesFileName)
-	variables, err := hclfile.LoadOptional(path)
+	variables, err := ws.LoadOptional(hclfile.VariablesFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +262,7 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 		blocks = append(blocks, block)
 		return name
 	}
-	data, err := newDataBlocks(dir, taken)
+	data, err := newDataBlocks(ws, taken)
 	if err != nil {
 		return nil, err
 	}
@@ -292,11 +290,9 @@ func addRootVariables(dir string, others []RootResource, arns map[string]ARN, ta
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.Save(); err != nil {
-		return nil, err
-	}
+	ws.Save(generated)
 	if err := data.write(); err != nil {
 		return nil, err
 	}
-	return edited, appendBlocks(path, "", blocks)
+	return edited, appendBlocks(ws, hclfile.VariablesFileName, "", blocks)
 }

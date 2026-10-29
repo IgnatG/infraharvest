@@ -118,7 +118,7 @@ func (*Provider) Profile() harvest.Profile {
 		Modules:           providerName,
 		ModulesName:       "terraform-aws-modules",
 		OptInServices:     []string{"media_store", "waf", "waf_regional", harvest.QueryService},
-		ListedTypes:       listedTypes,
+		ListedTypes:       listedTypes(),
 		NameTag:           "Name",
 		ConcurrentListing: true,
 		DefaultTags:       &harvest.DefaultTags{Attribute: "tags", Block: "default_tags", ReservedPrefix: "aws:"},
@@ -273,7 +273,11 @@ func (p *Provider) Lister(name string) (harvest.Lister, error) {
 	if err != nil || name == harvest.QueryService {
 		return lister, err
 	}
-	return &guardedLister{lister: lister, settings: p.settings(), resourceExplorer: p.resourceExplorer}, nil
+	guard := &guardedLister{lister: lister, settings: p.settings()}
+	if p.resourceExplorer {
+		guard.explorerTypes = explorerTypes(p.catalogue(), name)
+	}
+	return guard, nil
 }
 
 // settings are the settings every service of the provider gets: the

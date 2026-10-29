@@ -32,7 +32,8 @@ import (
 // result is set if nothing is new. On an error, the resources returned
 // are those the error failed: every one of imports until it knows which
 // are new.
-func (r *Run) addToRoot(ctx context.Context, dir string, imports []rootfile.Import, opts engine.Options, tr terraformRun) ([]rootfile.Import, *engine.Result, *engine.Result, error) {
+func (c *callRecorder) addToRoot(ctx context.Context, dir string, imports []rootfile.Import, opts engine.Options, tr terraformRun) ([]rootfile.Import, *engine.Result, *engine.Result, error) {
+	r := c.run
 	out := r.options.Out
 	previous, err := checkpointResult(out, dir)
 	if err != nil {
@@ -44,8 +45,8 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []rootfile.Impo
 	}
 	// What the root has that the listing didn't find, where it lists all
 	// there is, is gone: the root's next plan would create it again.
-	gone := r.here.notInCloud(existing)
-	r.recordNotInCloud(dir, gone)
+	gone := c.here.notInCloud(existing)
+	c.recordNotInCloud(dir, gone)
 	if len(existing) == 0 && len(r.options.ManagedState) == 0 {
 		return imports, nil, nil, fmt.Errorf("%s has configuration, but neither its import blocks nor a checkpoint of the import that generated it say which resources it has: pass --managed-state with its state, so that the import leaves them out", dir)
 	}
@@ -54,11 +55,11 @@ func (r *Run) addToRoot(ctx context.Context, dir string, imports []rootfile.Impo
 	for _, imp := range imports {
 		key := engine.ResourceKey(imp.Type, imp.ID)
 		if _, ok := existing[key]; ok {
-			r.report.Exclude(r.scope, imp.Type, imp.ID, report.InRoot())
+			r.report.Exclude(c.scope, imp.Type, imp.ID, report.InRoot())
 			continue
 		}
 		if owner, ok := owned[key]; ok {
-			r.report.Exclude(r.scope, imp.Type, imp.ID, ownedByTags(owner))
+			r.report.Exclude(c.scope, imp.Type, imp.ID, ownedByTags(owner))
 			continue
 		}
 		added = append(added, imp)
@@ -150,7 +151,7 @@ func stagingDir(out, dir string) string {
 // leaveOutHeld removes from byDir the imports of what another root holds
 // (see outputIndex.heldElsewhere), recording each as excluded, with the root, and
 // drops the roots it leaves with nothing to import.
-func (r *Run) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) {
+func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) {
 	if len(held) == 0 {
 		return
 	}
@@ -163,7 +164,7 @@ func (r *Run) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.E
 		var kept []rootfile.Import
 		for _, imp := range byDir[dir] {
 			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
-				r.report.Exclude(r.scope, imp.Type, imp.ID, report.InOtherRoot(root))
+				c.run.report.Exclude(c.scope, imp.Type, imp.ID, report.InOtherRoot(root))
 				continue
 			}
 			kept = append(kept, imp)
