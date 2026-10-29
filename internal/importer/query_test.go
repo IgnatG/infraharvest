@@ -70,7 +70,7 @@ func TestCheckQuery(t *testing.T) {
 		"wildcard leaves it":  {Options{All: true, Services: []string{"*"}, QueryTypes: []string{"fake_volume"}}, "add query to --services"},
 		"wildcard and query":  {Options{All: true, Services: []string{"*", harvest.QueryService}, QueryTypes: []string{"fake_volume"}}, ""},
 	} {
-		err := CheckOptions(&queryProvider{}, tc.options)
+		err := checkOnly(&queryProvider{}, tc.options)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%s: %v", name, err)

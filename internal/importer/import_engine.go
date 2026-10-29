@@ -20,55 +20,12 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// importWithEngine lists resources with the provider's listers, then lets
-// Terraform or OpenTofu generate their configuration from import blocks,
-// into run, the command's, which finishes it. No state is written.
-func importWithEngine(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
-	if err := checkImportOptions(options); err != nil {
-		return err
-	}
-	if err := checkSelectionOptions(options); err != nil {
-		return err
-	}
-	// Commands share one run across their Import calls (see Run.Do),
-	// and an account imported alongside others has its own (see
-	// Run.ImportEach). Before the call records anything: a run that can't
-	// take the lock writes nothing into the output (see Run.finish).
-	if err := run.lockOut(options); err != nil {
-		return err
-	}
-	return importInto(ctx, run, provider, options, args)
-}
-
-// importInto imports into run. It returns an error only if the import
-// couldn't run; what couldn't be imported goes into run.
-func importInto(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) error {
-	run.openOutput(options.Out)
-	c, err := listCall(ctx, run, provider, options, args)
-	if err != nil || c == nil {
-		return err
-	}
-	if err := planHandovers(run.outputIndex(options.Out), []*listedCall{c}); err != nil {
-		return err
-	}
-	if err := markMerging(options, []*listedCall{c}); err != nil {
-		return err
-	}
-	err = c.generate(ctx, c.byDir)
-	warnIncomplete(run, []*listedCall{c})
-	return err
-}
-
 // generate generates the call's roots into its run, each referring to the
 // others of roots, the roots of every call of the scope by directory (see
 // otherRoots): it decides what to do with each root (see decideRoot),
 // then does it (see applyRoot). It returns an error only if the import
 // couldn't run; what couldn't be imported goes into the run.
 func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.Import) error {
-	run := c.run
-	// What the call records is counted in its own scope, and what its
-	// roots have is looked for in what it listed.
-	run.scope, run.options, run.here = c.scope, c.options, c.here
 	dirs := make([]string, 0, len(c.byDir))
 	for dir := range c.byDir {
 		dirs = append(dirs, dir)
@@ -100,7 +57,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.I
 			return err
 		}
 	}
-	run.report.LockProvider(run.lock)
+	c.run.report.LockProvider(c.run.lock)
 	return nil
 }
 
@@ -136,7 +93,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 		}
 	}
 	c.handovers.record(dir, result, err)
-	run.addDirectory(dir, c.byDir[dir], result, err)
+	c.addDirectory(dir, c.byDir[dir], result, err)
 	if err == nil {
 		c.recordMember(dir, fp, result, dirOpts)
 	}
@@ -168,12 +125,12 @@ func (c *listedCall) terraformRun(ctx context.Context) (terraformRun, error) {
 // the merge phase (see recordAdded). It returns an error only if the
 // import can't go on.
 func (c *listedCall) addTo(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options) error {
-	run, out := c.run, c.options.Out
+	out := c.options.Out
 	tr, err := c.terraformRun(ctx)
 	if err != nil {
 		return err
 	}
-	added, addedResult, holds, err := run.addToRoot(ctx, dir, c.byDir[dir], dirOpts, tr)
+	added, addedResult, holds, err := c.addToRoot(ctx, dir, c.byDir[dir], dirOpts, tr)
 	if err != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -193,7 +150,7 @@ func (c *listedCall) addTo(ctx context.Context, dir, fp string, d rootDecision, 
 	if err == nil && addedResult == nil {
 		return nil // nothing new
 	}
-	run.addDirectory(dir, added, addedResult, err)
+	c.addDirectory(dir, added, addedResult, err)
 	return nil
 }
 
@@ -269,30 +226,32 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	return result, err, nil
 }
 
-// addDirectory records what Generate did in dir, or err if it failed.
-func (r *Run) addDirectory(dir string, imports []rootfile.Import, result *engine.Result, err error) {
+// addDirectory records into the call's run what Generate did in dir, or err
+// if it failed, counted in the call's scope.
+func (c *callRecorder) addDirectory(dir string, imports []rootfile.Import, result *engine.Result, err error) {
+	r := c.run
 	path := relativePath(r.options.Out, dir)
 	if err != nil {
 		r.failures = append(r.failures, fmt.Errorf("%s: %w", dir, err))
 		for _, imp := range imports {
 			r.failed[imp.Type]++
 		}
-		r.report.AddFailedDirectory(path, r.scope, err)
+		r.report.AddFailedDirectory(path, c.scope, err)
 		return
 	}
-	r.report.AddDirectory(path, r.scope, result)
+	r.report.AddDirectory(path, c.scope, result)
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, rootfile.RejectedFileName, strings.Join(rej.Errors, "; ")))
 	}
 	for _, o := range result.Owned {
-		r.report.Exclude(r.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
+		r.report.Exclude(c.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
 	}
 	for _, w := range result.Warnings {
 		log.Printf("%s: %s", dir, w)
 	}
-	for _, c := range result.Gate {
-		if !c.Passed {
-			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, c.Name, strings.Join(c.Details, "; ")))
+	for _, check := range result.Gate {
+		if !check.Passed {
+			r.failures = append(r.failures, fmt.Errorf("%s: %s failed: %s", dir, check.Name, strings.Join(check.Details, "; ")))
 		}
 	}
 	if len(result.Secrets) > 0 {

@@ -35,6 +35,9 @@ import (
 // for one, imports global, us-east-1-only and regional resources in
 // separate calls.
 type Run struct {
+	// options are the command's, set when its first scope starts (see
+	// Run.importScope): what the Import calls work out of their own is
+	// theirs (see callContext and callRecorder).
 	options    Options
 	report     report.Report
 	discovered map[string]int
@@ -62,13 +65,6 @@ type Run struct {
 	// tools are what the run's Import calls, and its merge phase, reach
 	// outside the process through; nil uses the real ones (see callTools).
 	tools *callTools
-	// scope is where the provider call being imported lists (see
-	// discoveryScope); the report counts by it.
-	scope string
-	// here is what that call's listing found, for an incremental import
-	// to tell what the roots have that is no longer in the cloud (see
-	// listedHere); nil when it can't tell.
-	here *listedHere
 	// index is what earlier imports left in the output directory, as the
 	// scope the run imports first read it (see outputIndex), made when the
 	// scope starts (see Run.openOutput) or, without, on first use.
@@ -101,10 +97,10 @@ func (d *discoverState) add(child *discoverState) {
 }
 
 // mergeState is what the run hands its merge phase (see
-// Run.MergeEnvironments), apart from what it counts for its report.
+// Run.mergeEnvironments), apart from what it counts for its report.
 type mergeState struct {
 	// members are the roots the run generated of the configuration file's
-	// environments, which the merge phase merges (see Run.MergeEnvironments).
+	// environments, which the merge phase merges (see Run.mergeEnvironments).
 	members []mergeMember
 	// vacating are the handovers of the run's scopes that plan to vacate
 	// merged roots, all of whose resources go to other roots now (see
@@ -133,7 +129,7 @@ type shared struct {
 	stated map[string][]engine.Managed
 
 	// scopes are the accounts, subscriptions or projects the command
-	// imports, where it names them (see Run.ImportEach); none where it imports
+	// imports, where it names them (see Run.importEach); none where it imports
 	// the one its credentials reach. Set before any scope starts.
 	scopes []string
 
@@ -190,14 +186,14 @@ func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
 	return s.limiter
 }
 
-// WithLimiter returns ctx carrying the limiter of the command's listings,
+// withLimiter returns ctx carrying the limiter of the command's listings,
 // of perSecond requests a second, which every Import call of the command
-// gets too (see shared.rateLimiter): the calls the command makes before
-// its Import calls, such as those finding the accounts or the stacks it
-// imports, are then of the run, and share with the Import calls what the
+// gets too (see shared.rateLimiter): the calls the command's plan makes
+// before its Import calls (see Command.Plan), such as those finding the
+// accounts or the stacks it imports, are then of the run, and share with the Import calls what the
 // providers keep for the run, such as the credentials they resolved, so
 // that a profile whose role needs MFA asks for the code once.
-func (r *Run) WithLimiter(ctx context.Context, perSecond float64) context.Context {
+func (r *Run) withLimiter(ctx context.Context, perSecond float64) context.Context {
 	return ratelimit.NewContext(ctx, r.shared.rateLimiter(perSecond))
 }
 
@@ -347,11 +343,14 @@ func couldNotRun(err, writeErr error) error {
 }
 
 // child returns a run for one of several accounts or projects of r's
-// command, imported alongside the others (see Run.ImportEach): it shares r's
+// command, or of the Import calls of a scope, imported alongside the
+// others (see Run.importEach and Run.importScope): it shares r's
 // selection file, state backend, lock file, modules, environments and
-// tools, and keeps everything else to itself until r merges it.
+// tools, and the command's options, and keeps everything else to itself
+// until r merges it.
 func (r *Run) child() *Run {
 	c := NewRun()
+	c.options = r.options
 	c.selection, c.backend, c.lock, c.modules, c.shared, c.tools = r.selection, r.backend, r.lock, r.modules, r.shared, r.tools
 	c.environments, c.index = r.environments, r.index
 	return c
@@ -405,9 +404,8 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, pro
 	return nil
 }
 
-// Do runs fn, whose Import calls are into this run (see ImportCalls,
-// Run.ImportEach and Run.MergeEnvironments), which then finishes as a
-// provider command does, with the report or the selection file written
+// Do runs fn, whose import is into this run (see Run.Import), which then
+// finishes as a provider command does, with the report or the selection file written
 // and the exit code in the error.
 func (r *Run) Do(fn func() error) error {
 	return r.finish(fn())
@@ -421,17 +419,6 @@ func (r *Run) Do(fn func() error) error {
 // what did list can still be picked.
 func (r *Run) SelectionToPick() string {
 	return r.toPick
-}
-
-// CheckMergeEnvironments rejects --merge-environments, or its setting in
-// the configuration file, set to true for a run whose configuration file
-// names no environments to merge (see config.CheckMergeEnvironments).
-func (r *Run) CheckMergeEnvironments(flags *pflag.FlagSet) error {
-	flag := flags.Lookup("merge-environments")
-	if flag == nil {
-		return nil
-	}
-	return config.CheckMergeEnvironments(r.environments, flag.Value.String() == "true", flag.Changed)
 }
 
 // openOutput starts a scope: the run's index of what earlier imports left

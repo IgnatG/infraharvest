@@ -141,7 +141,7 @@ func markMerging(options Options, calls []*listedCall) error {
 
 // mergeMember is a root an import generated, or kept from an earlier one
 // with --resume, of one environment of a stack, which the merge phase
-// merges with the other environments' (see Run.MergeEnvironments).
+// merges with the other environments' (see Run.mergeEnvironments).
 type mergeMember struct {
 	dir   string // the root's directory
 	stack string // the merged root's
@@ -262,7 +262,7 @@ func mergeProfile(profile harvest.Profile) envmerge.MergeProfile {
 	return merge
 }
 
-// MergeEnvironments merges the roots of each stack of r's environments
+// mergeEnvironments merges the roots of each stack of r's environments
 // that every scope of the command generated (see
 // mergeMember): the stack's roots of two environments or more become one
 // root they share, in the directory stackLayout names, checked by its gate
@@ -275,7 +275,7 @@ func mergeProfile(profile harvest.Profile) envmerge.MergeProfile {
 // put in other roots, keeps only the removed blocks that hand them over
 // (see vacateMergedRoots). It returns an error only where the run can't
 // go on, such as when it is interrupted.
-func (r *Run) MergeEnvironments(ctx context.Context) error {
+func (r *Run) mergeEnvironments(ctx context.Context) error {
 	byStack := map[string][]mergeMember{}
 	if r.options.MergeEnvironments {
 		for _, m := range r.members {

@@ -27,11 +27,12 @@ const DocsURL = "https://ignatg.github.io/infraharvest/"
 
 // A provider command is described by a definition, which command turns
 // into the cobra command import and discover add. When the command runs,
-// the definition's planner reads the flags into a plan: the scopes to
-// import (accounts, subscriptions or projects) and, for each, the Import
-// calls that cover it. run then makes those calls. Before the planner,
-// the definition's checker checks the provider's own flags without
-// reaching the cloud, which is all --check runs.
+// it hands the importer its options with the definition's checker and
+// planner (see importer.Run.Import): the checker checks the provider's
+// own flags without reaching the cloud, which with the options' own
+// checks is all --check runs; the planner reads the flags into a plan:
+// the scopes to import (accounts, subscriptions or projects) and, for
+// each, the Import calls that cover it.
 
 // definition describes one provider's command.
 type definition struct {
@@ -75,12 +76,11 @@ type plan struct {
 	// "subscription" or "project".
 	kind string
 	// scopes are the accounts, subscriptions or projects to import, each
-	// through importer.Run.ImportEach. Without any, calls covers the one
-	// scope the credentials reach, and is passed "" for it.
+	// apart (see importer.Plan). Without any, calls covers the one scope
+	// the credentials reach, and is passed "" for it.
 	scopes []string
 	// calls returns the Import calls that cover one scope, in order, from
-	// the options importer.Run.ImportEach hands that scope;
-	// importer.ImportCalls makes them.
+	// the command's checked options.
 	calls func(options importer.Options, scope string) []call
 	// newProvider, if set, returns the provider of each Import call in
 	// place of the definition's, such as an AWS provider scoped to
@@ -103,40 +103,21 @@ type call struct {
 	first bool
 }
 
-// importFunc is the signature of importer.ImportCalls, which tests
-// replace.
-type importFunc func(ctx context.Context, run *importer.Run, calls []importer.Call) error
-
-// run makes the calls of each of p's scopes into run with importCalls,
-// each call with a new provider from p.newProvider, or else from
-// newProvider: those of one scope together, which stop at the first that
-// fails (see importer.ImportCalls), and several scopes through
-// importer.Run.ImportEach, which records a scope that fails and goes on
-// to the next.
-func (p plan) run(ctx context.Context, run *importer.Run, options importer.Options, newProvider func() harvest.Provider, importCalls importFunc) error {
+// importerPlan returns p as the importer takes it (see importer.Plan),
+// with options, the command's checked options: each call gets a new
+// provider from p.newProvider, or else from newProvider.
+func (p plan) importerPlan(options importer.Options, newProvider func() harvest.Provider) importer.Plan {
 	if p.newProvider != nil {
 		newProvider = p.newProvider
 	}
-	importScope := func(scopeRun *importer.Run, scopeOptions importer.Options, scope string) error {
-		planned := p.calls(scopeOptions, scope)
+	return importer.Plan{Kind: p.kind, Scopes: p.scopes, Calls: func(scope string) []importer.Call {
+		planned := p.calls(options, scope)
 		calls := make([]importer.Call, len(planned))
 		for i, c := range planned {
 			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
 		}
-		return importCalls(ctx, scopeRun, calls)
-	}
-	var err error
-	if p.scopes == nil {
-		err = importScope(run, options, "")
-	} else {
-		err = run.ImportEach(options, p.kind, p.scopes, importScope)
-	}
-	if err != nil {
-		return err
-	}
-	// Once every scope is imported: the environments of a stack may be in
-	// different accounts, subscriptions or projects.
-	return run.MergeEnvironments(ctx)
+		return calls
+	}}
 }
 
 // define registers the provider d describes.
@@ -180,33 +161,20 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		options.Stdout = c.OutOrStdout()
 		options.ModulesChosen = c.Flags().Changed("modules")
 		options.ManagedStores = managedStores(compiledStores)
-		// Once, before any scope runs; discover runs no gate, and takes
-		// --policy only as the configuration file it shares with import
-		// may set it.
-		if !options.Discover {
-			policies, err := importer.ResolvePolicies(options.Policies)
-			if err != nil {
-				return err
-			}
-			options.Policies = policies
-		}
-		if err := importer.CheckOptions(d.newProvider(), options); err != nil {
-			return err
-		}
-		if err := checkScopes(options); err != nil {
-			return err
-		}
-		if check {
-			return nil
-		}
-		// The scopes are planned in the run, so that what the providers
-		// resolve to plan them, such as the credentials, serves the Import
-		// calls too.
-		p, err := planScopes(run.WithLimiter(ctx, options.RateLimit), options)
-		if err != nil {
-			return err
-		}
-		return p.run(ctx, run, options, d.newProvider, importer.ImportCalls)
+		options.MergeEnvironmentsChosen = c.Flags().Changed("merge-environments")
+		return run.Import(ctx, importer.Command{
+			Options:   options,
+			Provider:  d.newProvider(),
+			Check:     checkScopes,
+			CheckOnly: check,
+			Plan: func(ctx context.Context, options importer.Options) (importer.Plan, error) {
+				p, err := planScopes(ctx, options)
+				if err != nil {
+					return importer.Plan{}, err
+				}
+				return p.importerPlan(options, d.newProvider), nil
+			},
+		})
 	}
 	return cmd, runE
 }

@@ -10,6 +10,7 @@ import (
 	"log"
 	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -61,7 +63,7 @@ func (f *fakeSteps) steps() callSteps {
 				return nil, nil
 			}
 			byDir := map[string][]rootfile.Import{filepath.Join("out", name): {{Type: "aws_vpc", ID: name, Name: name}}}
-			return &listedCall{run: run, options: c.Options, scope: "aws/111/" + name, byDir: byDir}, nil
+			return &listedCall{callRecorder: callRecorder{run: run, scope: "aws/111/" + name}, options: c.Options, byDir: byDir}, nil
 		},
 		generate: func(_ context.Context, c *listedCall, roots map[string][]rootfile.Import) error {
 			name := strings.TrimPrefix(c.scope, "aws/111/")
@@ -88,13 +90,43 @@ func fakeCalls(options Options, names ...string) []Call {
 	return calls
 }
 
+// fakeCommand returns a command with options whose plan is plan, and
+// whose calls steps import. Its provider has the service vpc, which it
+// lists unless options say others.
+func fakeCommand(options Options, plan Plan, steps callSteps) Command {
+	if len(options.Services) == 0 {
+		options.Services = []string{"vpc"}
+	}
+	return Command{
+		Options:  options,
+		Provider: &servicesProvider{},
+		Plan:     func(context.Context, Options) (Plan, error) { return plan, nil },
+		steps:    steps,
+	}
+}
+
+// oneScope is the plan of the one scope the credentials reach, covered by
+// calls.
+func oneScope(calls []Call) Plan {
+	return Plan{Calls: func(string) []Call { return calls }}
+}
+
+// importCalls imports calls, those of one scope, into run, with options
+// and steps.
+func importCalls(ctx context.Context, t *testing.T, run *Run, options Options, calls []Call, steps callSteps) error {
+	t.Helper()
+	t.Cleanup(run.unlockOut)
+	return run.Import(ctx, fakeCommand(options, oneScope(calls), steps))
+}
+
 // Every call of a scope lists before any generates, and each root then
 // sees the roots of every other call, before and after it; the calls
 // record in their order, and the first lock file seeds the others.
-func TestImportCallsListAllThenGenerate(t *testing.T) {
+func TestImportListsAllThenGenerates(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
-	if err := importCalls(t.Context(), run, fakeCalls(Options{Out: "out", All: true}, "global", "us-east-1", "eu-west-1"), f.steps()); err != nil {
+	options := Options{Out: t.TempDir(), All: true}
+	if err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "us-east-1", "eu-west-1"), f.steps()); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"list global", "list us-east-1", "list eu-west-1", "generate global", "generate us-east-1", "generate eu-west-1"}
@@ -122,9 +154,10 @@ func TestImportCallsListAllThenGenerate(t *testing.T) {
 	}
 }
 
-// Each call logs when it starts and finishes listing and generating, by
-// what it covers.
-func TestImportCallsLogSteps(t *testing.T) {
+// captureLog returns what the standard logger logs while the test runs,
+// without its timestamps.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
 	var logged bytes.Buffer
 	writer, flags := log.Writer(), log.Flags()
 	log.SetOutput(&logged)
@@ -133,33 +166,57 @@ func TestImportCallsLogSteps(t *testing.T) {
 		log.SetOutput(writer)
 		log.SetFlags(flags)
 	})
-	calls := fakeCalls(Options{Out: "out", All: true}, "global", "eu-west-1")
-	for i, where := range []string{"the default region", "region eu-west-1"} {
-		calls[i].Provider, calls[i].Where = &namedProvider{name: "aws"}, where
-	}
-	calls[0].First = true
-	if err := importCalls(t.Context(), NewRun(), calls, newFakeSteps().steps()); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"aws: importing resources in the default region",
-		"aws: listed resources in the default region",
-		"aws: importing resources in region eu-west-1",
-		"aws: listed resources in region eu-west-1",
-		"aws: generating the roots in the default region",
-		"aws: generated the roots in the default region",
-		"aws: generating the roots in region eu-west-1",
-		"aws: generated the roots in region eu-west-1",
-	}
-	if got := strings.Split(strings.TrimSpace(logged.String()), "\n"); !slices.Equal(got, want) {
-		t.Errorf("logged\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	return &logged
+}
+
+// Each of several calls logs when it starts and finishes listing and
+// generating, by what it covers; one call alone logs only that it starts.
+func TestImportLogsSteps(t *testing.T) {
+	for name, tc := range map[string]struct {
+		calls []string
+		want  []string
+	}{
+		"several": {
+			calls: []string{"the default region", "region eu-west-1"},
+			want: []string{
+				"aws: importing resources in the default region",
+				"aws: listed resources in the default region",
+				"aws: importing resources in region eu-west-1",
+				"aws: listed resources in region eu-west-1",
+				"aws: generating the roots in the default region",
+				"aws: generated the roots in the default region",
+				"aws: generating the roots in region eu-west-1",
+				"aws: generated the roots in region eu-west-1",
+			},
+		},
+		"one": {
+			calls: []string{"the default region"},
+			want:  []string{"aws: importing resources in the default region"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			logged := captureLog(t)
+			options := Options{Out: t.TempDir(), All: true}
+			names := []string{"global", "eu-west-1"}[:len(tc.calls)]
+			calls := fakeCalls(options, names...)
+			for i, where := range tc.calls {
+				calls[i].Provider, calls[i].Where = &namedProvider{name: "aws"}, where
+			}
+			calls[0].First = true
+			if err := importCalls(t.Context(), t, NewRun(), options, calls, newFakeSteps().steps()); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Split(strings.TrimSpace(logged.String()), "\n"); !slices.Equal(got, tc.want) {
+				t.Errorf("logged\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(tc.want, "\n"))
+			}
+		})
 	}
 }
 
 // A call that fails to list fails the scope: the calls after it don't
 // list, nothing is generated, and what the calls before it found is still
 // in the run.
-func TestImportCallsStopAtTheFirstFailure(t *testing.T) {
+func TestImportStopsAtTheFirstFailure(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
 	f.list = func(_ context.Context, call string) error {
@@ -168,8 +225,9 @@ func TestImportCallsStopAtTheFirstFailure(t *testing.T) {
 		}
 		return nil
 	}
-	err := importCalls(t.Context(), run, fakeCalls(Options{Out: "out", All: true}, "global", "eu-west-1", "eu-west-2"), f.steps())
-	if err == nil || !strings.Contains(err.Error(), "AccessDenied") {
+	options := Options{Out: t.TempDir(), All: true}
+	err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1", "eu-west-2"), f.steps())
+	if err == nil || !strings.Contains(err.Error(), "call 2: AccessDenied") {
 		t.Fatalf("want the listing's error, got %v", err)
 	}
 	if want := []string{"list global", "list eu-west-1"}; !slices.Equal(f.events, want) {
@@ -181,10 +239,11 @@ func TestImportCallsStopAtTheFirstFailure(t *testing.T) {
 }
 
 // Discover lists every call and generates nothing.
-func TestImportCallsDiscover(t *testing.T) {
+func TestImportDiscovers(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
-	if err := importCalls(t.Context(), run, fakeCalls(Options{Out: "out", Discover: true}, "global", "eu-west-1"), f.steps()); err != nil {
+	options := Options{Out: t.TempDir(), Discover: true}
+	if err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1"), f.steps()); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"list global", "list eu-west-1"}; !slices.Equal(f.events, want) {
@@ -226,9 +285,10 @@ func TestImportCallsInParallel(t *testing.T) {
 		}
 		return nil
 	}
-	calls := fakeCalls(Options{Out: "out", All: true, Parallel: 3}, "global", "us-east-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1")
+	options := Options{Out: t.TempDir(), All: true, Parallel: 3}
+	calls := fakeCalls(options, "global", "us-east-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1")
 	calls[0].First, calls[1].First = true, true
-	if err := importCalls(t.Context(), run, calls, f.steps()); err != nil {
+	if err := importCalls(t.Context(), t, run, options, calls, f.steps()); err != nil {
 		t.Fatal(err)
 	}
 	if most.Load() != 3 {
@@ -270,7 +330,7 @@ func TestImportCallsInParallel(t *testing.T) {
 // The first call that fails cancels those running with it and starts no
 // others; its error is the scope's, not the cancellation's. An interrupt
 // shows as one.
-func TestImportCallsCancelOnTheFirstFailure(t *testing.T) {
+func TestImportCancelsOnTheFirstFailure(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
 	running := make(chan struct{})
@@ -292,7 +352,8 @@ func TestImportCallsCancelOnTheFirstFailure(t *testing.T) {
 		}
 		return nil
 	}
-	err := importCalls(t.Context(), run, fakeCalls(Options{Out: "out", All: true, Parallel: 2}, "global", "eu-west-1", "eu-west-2", "eu-west-3"), f.steps())
+	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
+	err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1", "eu-west-2", "eu-west-3"), f.steps())
 	if err == nil || !strings.Contains(err.Error(), "call 2: AccessDenied") || errors.Is(err, context.Canceled) {
 		t.Fatalf("want the failure of the second call, got %v", err)
 	}
@@ -309,15 +370,17 @@ func TestImportCallsCancelOnTheFirstFailure(t *testing.T) {
 	cancel()
 	f = newFakeSteps()
 	f.list = func(ctx context.Context, _ string) error { return ctx.Err() }
-	if err := importCalls(ctx, NewRun(), fakeCalls(Options{Out: "out", All: true, Parallel: 2}, "global", "eu-west-1"), f.steps()); !errors.Is(err, context.Canceled) {
+	options.Out = t.TempDir()
+	if err := importCalls(ctx, t, NewRun(), options, fakeCalls(options, "global", "eu-west-1"), f.steps()); !errors.Is(err, context.Canceled) {
 		t.Errorf("interrupted: %v", err)
 	}
 }
 
 // The regions of accounts imported at once share --parallel with them: no
 // more than that many calls run at once in all.
-func TestImportCallsShareParallelWithAccounts(t *testing.T) {
+func TestImportSharesParallelWithAccounts(t *testing.T) {
 	run := NewRun()
+	t.Cleanup(run.unlockOut)
 	f := newFakeSteps()
 	var running, most atomic.Int32
 	f.list = func(context.Context, string) error {
@@ -333,10 +396,10 @@ func TestImportCallsShareParallelWithAccounts(t *testing.T) {
 		return nil
 	}
 	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
-	err := run.ImportEach(options, "account", []string{"111", "222", "333"}, func(scopeRun *Run, o Options, account string) error {
-		return importCalls(t.Context(), scopeRun, fakeCalls(o, account+"-global", account+"-eu-west-1", account+"-eu-west-2"), f.steps())
-	})
-	if err != nil {
+	plan := Plan{Kind: "account", Scopes: []string{"111", "222", "333"}, Calls: func(account string) []Call {
+		return fakeCalls(options, account+"-global", account+"-eu-west-1", account+"-eu-west-2")
+	}}
+	if err := run.Import(t.Context(), fakeCommand(options, plan, f.steps())); err != nil {
 		t.Fatal(err)
 	}
 	if most.Load() > 2 {
@@ -345,4 +408,119 @@ func TestImportCallsShareParallelWithAccounts(t *testing.T) {
 	if len(run.report.Directories) != 9 || run.discovered["aws_vpc"] != 9 {
 		t.Errorf("directories %v, discovered %v", run.report.Directories, run.discovered)
 	}
+}
+
+// One call is imported as one of several is: it records the same into
+// the command's run, in its own scope, with the command's options; only
+// its error goes without the name of the call, as there is no other.
+func TestImportOneCallAsOneOfSeveral(t *testing.T) {
+	imported := func(t *testing.T, names ...string) (*Run, Options, error) {
+		t.Helper()
+		run := NewRun()
+		f := newFakeSteps()
+		f.list = func(_ context.Context, call string) error {
+			if call == "failing" {
+				return errors.New("AccessDenied")
+			}
+			return nil
+		}
+		options := Options{Out: t.TempDir(), All: true}
+		err := importCalls(t.Context(), t, run, options, fakeCalls(options, names...), f.steps())
+		return run, options, err
+	}
+
+	one, oneOptions, err := imported(t, "global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	several, severalOptions, err := imported(t, "global", "eu-west-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(one.report.Directories) != 1 || !reflect.DeepEqual(one.report.Directories[0], several.report.Directories[0]) {
+		t.Errorf("directories: one call %+v, of several %+v", one.report.Directories, several.report.Directories)
+	}
+	if len(one.report.Scopes) != 1 || !reflect.DeepEqual(one.report.Scopes[0], several.report.Scopes[0]) {
+		t.Errorf("scopes: one call %+v, of several %+v", one.report.Scopes, several.report.Scopes)
+	}
+	if one.discovered["aws_vpc"] != 1 || several.discovered["aws_vpc"] != 2 || !one.used || !several.used {
+		t.Errorf("discovered: one call %v, several %v", one.discovered, several.discovered)
+	}
+	if one.options.Out != oneOptions.Out || several.options.Out != severalOptions.Out {
+		t.Errorf("options: one call %+v, several %+v", one.options, several.options)
+	}
+
+	if _, _, err := imported(t, "failing"); err == nil || err.Error() != "AccessDenied" {
+		t.Errorf("one call: %v, want its error as it is", err)
+	}
+	if _, _, err := imported(t, "global", "failing"); err == nil || err.Error() != "call 2: AccessDenied" {
+		t.Errorf("several calls: %v, want the call's error by its name", err)
+	}
+}
+
+// The options are checked once, before anything is planned or listed,
+// however many scopes the command covers: the error is the command's,
+// and the run records nothing. --check stops once they are.
+func TestImportChecksTheOptionsOnce(t *testing.T) {
+	scopes := []string{"111", "222", "333"}
+	for name, tc := range map[string]struct {
+		options Options
+		check   func(Options) error
+		want    string
+	}{
+		"an unknown engine":   {options: Options{All: true, Engine: "tofu-ish"}, want: `unknown --engine "tofu-ish"`},
+		"no selection":        {options: Options{}, want: "selection"},
+		"the provider's own":  {options: Options{All: true}, check: func(Options) error { return errors.New("--accounts and --organization") }, want: "--accounts and --organization"},
+		"merge, nothing to":   {options: Options{All: true, MergeEnvironments: true, MergeEnvironmentsChosen: true}, want: "--merge-environments merges"},
+		"merge, by default":   {options: Options{All: true, MergeEnvironments: true}},
+		"a negative parallel": {options: Options{All: true, Parallel: -1}, want: "--parallel can't be negative"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var planned, listed atomic.Int32
+			f := newFakeSteps()
+			f.list = func(context.Context, string) error {
+				listed.Add(1)
+				return nil
+			}
+			tc.options.Out = t.TempDir()
+			cmd := fakeCommand(tc.options, Plan{}, f.steps())
+			cmd.Check = tc.check
+			cmd.Plan = func(context.Context, Options) (Plan, error) {
+				planned.Add(1)
+				return Plan{Kind: "account", Scopes: scopes, Calls: func(scope string) []Call { return fakeCalls(tc.options, scope) }}, nil
+			}
+			run := NewRun()
+			t.Cleanup(run.unlockOut)
+			err := run.Import(t.Context(), cmd)
+			if tc.want == "" {
+				if err != nil || planned.Load() != 1 || listed.Load() != 3 {
+					t.Fatalf("got %v, planned %d, listed %d", err, planned.Load(), listed.Load())
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), "account ") {
+				t.Errorf("got %q, want %q once, of no account", err, tc.want)
+			}
+			if planned.Load() != 0 || listed.Load() != 0 || run.used || len(run.failures) != 0 {
+				t.Errorf("planned %d, listed %d, used %v, failures %v", planned.Load(), listed.Load(), run.used, run.failures)
+			}
+		})
+	}
+
+	// --check: nothing is planned.
+	cmd := fakeCommand(Options{Out: t.TempDir(), All: true}, Plan{}, newFakeSteps().steps())
+	cmd.CheckOnly = true
+	cmd.Plan = func(context.Context, Options) (Plan, error) {
+		t.Error("planned with --check")
+		return Plan{}, nil
+	}
+	if err := NewRun().Import(t.Context(), cmd); err != nil {
+		t.Errorf("--check: %v", err)
+	}
+}
+
+// checkOnly checks options as a provider command's --check does, with
+// provider (see Run.Import).
+func checkOnly(provider harvest.Provider, options Options) error {
+	return NewRun().Import(context.Background(), Command{Options: options, Provider: provider, CheckOnly: true})
 }

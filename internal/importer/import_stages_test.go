@@ -107,7 +107,8 @@ func TestListCallKeepsTheLayoutAsGiven(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.options.Layout != layout || run.options.Layout != layout {
+	// The run's options are the command's (see Run.importScope).
+	if run := importPath(t, options); c.options.Layout != layout || run.options.Layout != layout {
 		t.Errorf("layout of the call %q, of the run %q, want %q", c.options.Layout, run.options.Layout, layout)
 	}
 	if _, ok := c.byDir[filepath.Join(out, "fake", "default", "alpha")]; !ok {

@@ -55,7 +55,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if options.EngineTimeout < 0 {
 		return errors.New("--engine-timeout can't be negative")
 	}
-	policies, err := ResolvePolicies(options.Policies)
+	policies, err := resolvePolicies(options.Policies)
 	if err != nil {
 		return err
 	}

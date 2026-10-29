@@ -354,7 +354,7 @@ func TestCheckOptions(t *testing.T) {
 		{Options{Services: []string{"vpc"}, All: true, Parallel: -2}, "--parallel can't be negative"},
 		{Options{Services: []string{"vpc"}, All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
 	} {
-		err := CheckOptions(p, tc.options)
+		err := checkOnly(p, tc.options)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%+v: %v", tc.options, err)
@@ -445,10 +445,10 @@ func TestCheckOptionsKnowsTheServicesOfTheOverlay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckOptions(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}, Catalogue: dir}); err != nil {
+	if err := checkOnly(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}, Catalogue: dir}); err != nil {
 		t.Errorf("with the overlay: %v", err)
 	}
-	if err := CheckOptions(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
+	if err := checkOnly(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
 		t.Errorf("without the overlay: got %v, want the service unknown", err)
 	}
 }

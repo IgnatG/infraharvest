@@ -31,7 +31,7 @@ func TestEngineRunCombinesImports(t *testing.T) {
 				result.Rejected = []engine.Rejection{{Address: "aws_vpc.extra", ID: "vpc-2", Errors: []string{"invalid"}}}
 				run.discovered["aws_vpc"]++
 			}
-			run.addDirectory(filepath.Join(out, dir), nil, result, nil)
+			(&callRecorder{run: run}).addDirectory(filepath.Join(out, dir), nil, result, nil)
 		}
 		return nil
 	})
