@@ -410,4 +410,33 @@ gh run download <run-id> -n sandbox-aws-main-terraform-output
 gpg --decrypt output.tar.gz.gpg | tar -xz -C <directory>
 ```
 
+Each artifact is named `sandbox-<cloud>-<estate>-<engine>-output`, and `gh run view <run-id>` lists a run's artifacts. On Windows, Git Bash has `gpg` and `tar`; Gpg4win's `gpg` works too if the key is in its keyring.
+
 Without the variable, only the report is kept.
+
+### The key
+
+The maintainer holds the only private key; `SANDBOX_OUTPUT_KEY` holds its public half, ASCII-armoured, as a repository variable (not a secret: it is public anyway). Show which key the variable holds, and which key an archive was encrypted to:
+
+```sh
+gh variable get SANDBOX_OUTPUT_KEY | gpg --show-keys
+gpg --list-packets output.tar.gz.gpg | grep pubkey
+```
+
+Back the private key up when it is made, and again whenever it changes, somewhere other than the machine that holds it, such as a password manager:
+
+```sh
+gpg --export-secret-keys --armor <fingerprint> > sandbox-output-key.asc
+```
+
+Restore it on another machine with `gpg --import sandbox-output-key.asc`.
+
+To replace the key, when it is lost or should no longer be trusted, make a new one with an encryption subkey, set the variable to its public half and back the private one up:
+
+```sh
+gpg --quick-generate-key "infraharvest sandbox output <sandbox-output@infraharvest.invalid>" ed25519 cert never
+gpg --quick-add-key <fingerprint> cv25519 encr never
+gpg --export --armor <fingerprint> | gh variable set SANDBOX_OUTPUT_KEY
+```
+
+A lost key costs only the archives encrypted to it, which expire after 7 days anyway: nothing in them is kept anywhere else, and the next run of each estate writes them again, to the new key.
