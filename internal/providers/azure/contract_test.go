@@ -40,10 +40,11 @@ func TestListerContract(t *testing.T) {
 					g.SetSettings(args)
 					return g.List(ctx, harvest.Settings{Provider: "azurerm"})
 				},
-				Empty:  answering(`{"value":[],"data":[]}`),
-				Listed: listedAnswer(name),
-				Denied: func(r providertest.Request) providertest.Answer { return armError(http.StatusForbidden, r.Path) },
-				Codes:  azureCodes,
+				Empty:       answering(`{"value":[],"data":[]}`),
+				Listed:      listedAnswer(name),
+				Denied:      func(r providertest.Request) providertest.Answer { return armError(http.StatusForbidden, r.Path) },
+				DeniedCodes: []string{"403"},
+				Codes:       azureCodes,
 			}.Run(t)
 		})
 	}

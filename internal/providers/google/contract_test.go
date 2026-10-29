@@ -48,7 +48,8 @@ func TestListerContract(t *testing.T) {
 				Denied: func(providertest.Request) providertest.Answer {
 					return providertest.Status(http.StatusForbidden, `{"error":{"code":403,"status":"PERMISSION_DENIED","message":"The caller does not have permission"}}`)
 				},
-				Codes: googleCodes,
+				DeniedCodes: []string{"403", "403 PERMISSION_DENIED"},
+				Codes:       googleCodes,
 			}.Run(t)
 		})
 	}

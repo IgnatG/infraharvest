@@ -14,9 +14,10 @@ import (
 
 // Contract is what every lister of a provider must do, whatever it lists:
 // list nothing, and fail with nothing, when the cloud has nothing; list
-// only the types it declares; fail when the cloud refuses it, as the
-// provider's codes classify a failure or a partial listing, never a
-// listing with nothing left out; and stop when its context is done.
+// only the types it declares; fail when the cloud refuses it, with the
+// refusal's code, as the provider's codes classify a failure or a partial
+// listing, never a listing with nothing left out; and stop when its
+// context is done.
 type Contract struct {
 	// Declared are the Terraform types the lister declares it lists.
 	Declared []string
@@ -26,8 +27,11 @@ type Contract struct {
 	// Empty answers every request as a cloud with nothing in it does.
 	Empty Handler
 	// Denied refuses every request, as a cloud refuses credentials that
-	// may not read.
-	Denied Handler
+	// may not read, and DeniedCodes are the codes of its refusals, as
+	// Codes.Of returns them: the lister's error must carry one, so that
+	// it fails because of the refusal, not on an answer it misread.
+	Denied      Handler
+	DeniedCodes []string
 	// Listed answers with a resource of the lister's, or is nil where the
 	// provider's own tests list each lister's resources (see
 	// CheckDeclared).
@@ -67,6 +71,13 @@ func (c Contract) Run(t *testing.T) {
 		case harvest.OutcomeFail, harvest.OutcomePartial:
 		default:
 			t.Errorf("a refused listing: %v is classified %s, want fail or partial", err, outcome)
+		}
+		var codes []string
+		if c.Codes != nil && c.Codes.Of != nil {
+			codes = c.Codes.Of(err)
+		}
+		if !slices.ContainsFunc(codes, func(code string) bool { return slices.Contains(c.DeniedCodes, code) }) {
+			t.Errorf("a refused listing: %v carries the codes %v, want one of the refusal's, %v", err, codes, c.DeniedCodes)
 		}
 	})
 	t.Run("canceled", func(t *testing.T) {

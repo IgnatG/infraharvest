@@ -6,6 +6,7 @@ package aws
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/aws/smithy-go/encoding/cbor"
@@ -31,9 +32,10 @@ func TestListerContract(t *testing.T) {
 					cfg.HTTPClient = cloud
 					return entry.newLister().List(fakeRunIn(ctx, cfg), harvest.Settings{})
 				},
-				Empty:  awsAnswers(emptyAnswer),
-				Denied: awsAnswers(deniedAnswer),
-				Codes:  awsCodes,
+				Empty:       awsAnswers(emptyAnswer),
+				Denied:      awsAnswers(deniedAnswer),
+				DeniedCodes: []string{"AccessDenied", "AccessDeniedException", "UnauthorizedOperation"},
+				Codes:       awsCodes,
 			}.Run(t)
 		})
 	}
@@ -69,7 +71,8 @@ func deniedAnswer(call apiCall) string {
 	case protocolCBOR:
 		return string(cbor.Encode(cbor.Map{"__type": cbor.String("AccessDeniedException"), "message": cbor.String("recorded failure")}))
 	case protocolRESTXML:
-		if s3Bucket(call) != "" || call.Path == "/" {
+		// S3 answers with a bare Error; Route 53 and CloudFront wrap it.
+		if strings.HasPrefix(call.Host, "s3.") || strings.Contains(call.Host, ".s3.") {
 			return `<Error><Code>AccessDenied</Code><Message>recorded failure</Message></Error>`
 		}
 		return `<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>recorded failure</Message></Error><RequestId>r-1</RequestId></ErrorResponse>`
