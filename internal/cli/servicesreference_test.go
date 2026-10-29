@@ -355,6 +355,14 @@ func (s *providerSource) literals(typeNames []string, prefix string) []string {
 				}
 				return false
 			}
+			// A value of one of the package's types, such as the helper
+			// AWS's KmsLister lists its keys and grants with: what its
+			// methods name is listed too.
+			if typ, ok := n.Type.(*ast.Ident); ok {
+				for _, fn := range s.methods[typ.Name] {
+					visitFunc(fn)
+				}
+			}
 		case *ast.Ident:
 			if fn, ok := s.funcs[n.Name]; ok {
 				visitFunc(fn)

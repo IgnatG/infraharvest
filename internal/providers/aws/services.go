@@ -212,7 +212,7 @@ var serviceTable = []serviceEntry{
 	}},
 	{"igw", scopeRegional, listerOf[IgwLister](), []string{"aws_internet_gateway"}},
 	{"kinesis", scopeRegional, listerOf[KinesisLister](), []string{"aws_kinesis_stream"}},
-	{"kms", scopeRegional, listerOf[KmsLister](), []string{"aws_kms_alias"}},
+	{"kms", scopeRegional, listerOf[KmsLister](), []string{"aws_kms_alias", "aws_kms_grant"}},
 	{"lambda", scopeRegional, listerOf[LambdaLister](), []string{
 		"aws_lambda_event_source_mapping",
 		"aws_lambda_function",
