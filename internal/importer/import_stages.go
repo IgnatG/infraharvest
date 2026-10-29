@@ -340,7 +340,7 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 		}
 		resolved, t.newer, constraints = r.registryModules(ctx, provider, mode, selected)
 		// The organisation's own modules come first.
-		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
+		own := applicableAdapters(catalogueAdapters(r.shared.ownAdapters(ctx, r.tools, t.execPath, filepath.Join(t.cacheDir, "modules"), provider.Name(), r.modules), provider.Name()), selected)
 		resolved = append(own, resolved...)
 	}
 	if t.root, err = r.callRoot(ctx, c, t.binary.Registry, t.execPath, engineProvider(provider), constraints); err != nil {
