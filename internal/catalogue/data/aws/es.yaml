@@ -3,6 +3,12 @@ provider: aws
 service: es
 types:
   aws_elasticsearch_domain:
+    cloudformation_types:
+      - { type: "AWS::Elasticsearch::Domain", also: [aws_opensearch_domain] }
+    resource_explorer: arn
     arn: { service: es, resource_type: "domain" }
   aws_opensearch_domain:
+    cloudformation_types:
+      - { type: "AWS::OpenSearchService::Domain", also: [aws_elasticsearch_domain] }
+    resource_explorer: arn
     arn: { service: es, resource_type: "domain" }

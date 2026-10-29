@@ -3,4 +3,5 @@ provider: aws
 service: pipes
 types:
   aws_pipes_pipe:
+    resource_explorer: ["pipes:pipe"]
     cloud_control: { type: "AWS::Pipes::Pipe", identifier: Name }

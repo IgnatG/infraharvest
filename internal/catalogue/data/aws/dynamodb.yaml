@@ -3,6 +3,8 @@ provider: aws
 service: dynamodb
 types:
   aws_dynamodb_table:
+    cloudformation_types: ["AWS::DynamoDB::GlobalTable", "AWS::DynamoDB::Table"]
+    resource_explorer: arn
     arn: { service: dynamodb, resource_type: "table" }
     omit:
       # The capacity AWS reports for an on-demand table and its indexes.

@@ -101,6 +101,18 @@ type Entry struct {
 	// CloudControl, for an AWS type listed through the Cloud Control API,
 	// is its CloudFormation type.
 	CloudControl *CloudControl `yaml:"cloud_control,omitempty"`
+	// CloudFormationTypes, for an AWS type, are the CloudFormation types
+	// a stack's resource of which the type's lister lists with the stack's
+	// physical ID, each with the other Terraform types it lists that
+	// resource as, in the order the --cfn-stack mapper tries them (see
+	// Catalogue.CloudFormationTypes).
+	CloudFormationTypes []CloudFormationType `yaml:"cloudformation_types,omitempty"`
+	// ResourceExplorer, for an AWS type, is how AWS Resource Explorer's
+	// index names its resources, so that the service that lists it is
+	// skipped in a region whose index has none of them; or, for a type
+	// that can't exist without it, the resources of the type the others
+	// of the service need (see ResourceExplorerTypes).
+	ResourceExplorer *ResourceExplorer `yaml:"resource_explorer,omitempty"`
 	// Inventory is how the cloud's inventory API names resources of the
 	// type: Cloud Asset Inventory for Google, Resource Graph for Azure.
 	Inventory *Inventory `yaml:"inventory,omitempty"`
@@ -113,7 +125,8 @@ type Entry struct {
 	Lifecycle *Lifecycle `yaml:"lifecycle,omitempty"`
 	// Remove, in an overlay of a built-in entry, clears these of its
 	// fields, which an overlay can't clear by setting them: data_source,
-	// arn, cloud_control, inventory, placeholder and lifecycle.
+	// arn, cloud_control, resource_explorer, inventory, placeholder and
+	// lifecycle.
 	Remove []string `yaml:"remove,omitempty"`
 
 	// SecretWhen, of the fields the engine reads (see ForType), names a
@@ -160,12 +173,13 @@ var removable = map[string]struct {
 	set   func(*Entry) bool
 	clear func(*Entry)
 }{
-	"data_source":   {func(e *Entry) bool { return e.DataSource != nil }, func(e *Entry) { e.DataSource = nil }},
-	"arn":           {func(e *Entry) bool { return e.ARN != nil }, func(e *Entry) { e.ARN = nil }},
-	"cloud_control": {func(e *Entry) bool { return e.CloudControl != nil }, func(e *Entry) { e.CloudControl = nil }},
-	"inventory":     {func(e *Entry) bool { return e.Inventory != nil }, func(e *Entry) { e.Inventory = nil }},
-	"placeholder":   {func(e *Entry) bool { return e.Placeholder != nil }, func(e *Entry) { e.Placeholder = nil }},
-	"lifecycle":     {func(e *Entry) bool { return e.Lifecycle != nil }, func(e *Entry) { e.Lifecycle = nil }},
+	"data_source":       {func(e *Entry) bool { return e.DataSource != nil }, func(e *Entry) { e.DataSource = nil }},
+	"arn":               {func(e *Entry) bool { return e.ARN != nil }, func(e *Entry) { e.ARN = nil }},
+	"cloud_control":     {func(e *Entry) bool { return e.CloudControl != nil }, func(e *Entry) { e.CloudControl = nil }},
+	"resource_explorer": {func(e *Entry) bool { return e.ResourceExplorer != nil }, func(e *Entry) { e.ResourceExplorer = nil }},
+	"inventory":         {func(e *Entry) bool { return e.Inventory != nil }, func(e *Entry) { e.Inventory = nil }},
+	"placeholder":       {func(e *Entry) bool { return e.Placeholder != nil }, func(e *Entry) { e.Placeholder = nil }},
+	"lifecycle":         {func(e *Entry) bool { return e.Lifecycle != nil }, func(e *Entry) { e.Lifecycle = nil }},
 }
 
 // Lifecycle is lifecycle settings for every resource of a type, with the
@@ -258,6 +272,96 @@ type ARN struct {
 type CloudControl struct {
 	Type       string `yaml:"type"`
 	Identifier string `yaml:"identifier"`
+}
+
+// CloudFormationType is a CloudFormation type a stack's resource of which
+// is listed with its physical ID as the entry's Terraform type and, in
+// Also, as others: an AWS::IAM::ServiceLinkedRole as an
+// aws_iam_service_linked_role and an aws_iam_role. In YAML, a type with no
+// others is its name alone.
+type CloudFormationType struct {
+	Type string   `yaml:"type"`
+	Also []string `yaml:"also,omitempty"`
+}
+
+// UnmarshalYAML reads a CloudFormation type's name alone, or the type with
+// the others it is listed as.
+func (t *CloudFormationType) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		*t = CloudFormationType{}
+		return node.Decode(&t.Type)
+	}
+	type plain CloudFormationType
+	return node.Decode((*plain)(t))
+}
+
+// ResourceExplorer is how Resource Explorer names the resources of an AWS
+// type, service:resource_type, as in ec2:volume. In YAML it is arn, for
+// the service and resource type of the entry's arn, or a list of them.
+type ResourceExplorer struct {
+	// FromARN takes the type from the entry's arn.
+	FromARN bool
+	// Types are the Resource Explorer types, without FromARN.
+	Types []string
+}
+
+// UnmarshalYAML reads arn, or a list of Resource Explorer types.
+func (r *ResourceExplorer) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		if node.Value != "arn" {
+			return fmt.Errorf("line %d: resource_explorer: want arn, or a list of Resource Explorer types", node.Line)
+		}
+		*r = ResourceExplorer{FromARN: true}
+		return nil
+	}
+	*r = ResourceExplorer{}
+	return node.Decode(&r.Types)
+}
+
+// ResourceExplorerTypes returns the Resource Explorer types of the entry
+// (see ResourceExplorer): its own types, or service:resource_type of its
+// arn; nil without them.
+func (e *Entry) ResourceExplorerTypes() []string {
+	switch r := e.ResourceExplorer; {
+	case r == nil:
+		return nil
+	case r.FromARN && e.ARN != nil:
+		return []string{e.ARN.Service + ":" + e.ARN.ResourceType}
+	default:
+		return slices.Clone(r.Types)
+	}
+}
+
+// CloudFormationTypes returns, by CloudFormation type, the Terraform types
+// a stack's resource of the type is listed as with its physical ID: those
+// the entries' cloudformation_types give it, in their order, then those of
+// the cloud_control entries of the type, by Terraform type. A listed
+// resource with the physical ID of a stack's resource is the stack's only
+// when its type is one of them, or holds a part of one under the same ID,
+// so that a hand-made role is not taken for the instance profile of the
+// same name a stack made; a CloudFormation type that isn't here, such as a
+// custom resource's, manages whatever has its physical ID.
+func (c *Catalogue) CloudFormationTypes() map[string][]string {
+	types := map[string][]string{}
+	add := func(cfn, typ string) {
+		if !slices.Contains(types[cfn], typ) {
+			types[cfn] = append(types[cfn], typ)
+		}
+	}
+	for _, typ := range c.Types() {
+		for _, t := range c.entries[typ].CloudFormationTypes {
+			add(t.Type, typ)
+			for _, also := range t.Also {
+				add(t.Type, also)
+			}
+		}
+	}
+	for _, typ := range c.Types() {
+		if cc := c.entries[typ].CloudControl; cc != nil {
+			add(cc.Type, typ)
+		}
+	}
+	return types
 }
 
 // Catalogue is a provider's entries, by Terraform type. Its methods only
@@ -845,6 +949,15 @@ func (e *Entry) copy() *Entry {
 		}
 	}
 	copied.DataSource, copied.ARN, copied.CloudControl = clonePointer(e.DataSource), clonePointer(e.ARN), clonePointer(e.CloudControl)
+	if e.CloudFormationTypes != nil {
+		copied.CloudFormationTypes = make([]CloudFormationType, len(e.CloudFormationTypes))
+		for i, t := range e.CloudFormationTypes {
+			copied.CloudFormationTypes[i] = CloudFormationType{Type: t.Type, Also: slices.Clone(t.Also)}
+		}
+	}
+	if r := e.ResourceExplorer; r != nil {
+		copied.ResourceExplorer = &ResourceExplorer{FromARN: r.FromARN, Types: slices.Clone(r.Types)}
+	}
 	copied.Inventory, copied.Lifecycle, copied.Placeholder = clonePointer(e.Inventory), clonePointer(e.Lifecycle), e.Placeholder.copy()
 	copyGeneration(&copied, e)
 	return &copied
@@ -923,6 +1036,12 @@ func (e *Entry) merge(overlay *Entry) *Entry {
 	}
 	if overlay.CloudControl != nil {
 		merged.CloudControl = overlay.CloudControl
+	}
+	if overlay.CloudFormationTypes != nil {
+		merged.CloudFormationTypes = overlay.CloudFormationTypes
+	}
+	if overlay.ResourceExplorer != nil {
+		merged.ResourceExplorer = overlay.ResourceExplorer
 	}
 	if overlay.Inventory != nil {
 		merged.Inventory = overlay.Inventory

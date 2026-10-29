@@ -3,6 +3,8 @@ provider: aws
 service: api_gateway
 types:
   aws_api_gateway_deployment:
+    cloudformation_types:
+      - { type: "AWS::ApiGateway::Deployment", also: [aws_api_gateway_stage] }
     # As the provider's documentation recommends. Its triggers, which
     # redeploy the API when it changes, aren't read back, so setting them
     # would replace every deployment imported: the comment says how.
@@ -16,12 +18,14 @@ types:
     # What AWS gives an integration that doesn't set them.
     defaults: [connection_type=INTERNET, passthrough_behavior=WHEN_NO_MATCH, response_transfer_mode=BUFFERED, timeout_milliseconds=29000]
   aws_api_gateway_model:
+    cloudformation_types: ["AWS::ApiGateway::Model"]
     skip:
       - reason: a model AWS creates with every REST API
         attributes: { name: Empty }
       - reason: a model AWS creates with every REST API
         attributes: { name: Error }
   aws_api_gateway_rest_api:
+    cloudformation_types: ["AWS::ApiGateway::RestApi"]
     arn: { service: apigateway, resource_type: "restapis" }
     # An edge-optimised IPv4 endpoint, which AWS gives a REST API that sets
     # none.

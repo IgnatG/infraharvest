@@ -3,10 +3,14 @@ provider: aws
 service: ecs
 types:
   aws_ecs_cluster:
+    cloudformation_types: ["AWS::ECS::Cluster"]
+    resource_explorer: arn
     arn: { service: ecs, resource_type: "cluster" }
     # The lister records the ARN; Terraform imports by name.
     import_id: "{id|after_last:/}"
   aws_ecs_service:
+    cloudformation_types: ["AWS::ECS::Service"]
+    resource_explorer: ["ecs:service"]
     import_id: "{cluster}/{name}"
     state_only: [wait_for_steady_state]
     omit:
@@ -20,6 +24,8 @@ types:
     # What AWS gives a service that doesn't set them.
     defaults: [availability_zone_rebalancing=ENABLED, platform_version=LATEST]
   aws_ecs_task_definition:
+    cloudformation_types: ["AWS::ECS::TaskDefinition"]
+    resource_explorer: ["ecs:task-definition"]
     # What AWS gives a task definition that doesn't set them.
     defaults: [enable_fault_injection=false, network_mode=bridge]
     # An ECS service's task_definition reads back as family:revision,

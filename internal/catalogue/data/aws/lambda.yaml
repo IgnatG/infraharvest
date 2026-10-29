@@ -3,6 +3,9 @@ provider: aws
 service: lambda
 types:
   aws_lambda_function:
+    cloudformation_types: ["AWS::Lambda::Function"]
+    # Permissions and invoke configurations need their function.
+    resource_explorer: arn
     arn: { service: lambda, resource_type: "function" }
     # Imported by ARN, the generated configuration names the function by
     # its ARN, and the provider plans to replace it.
@@ -30,6 +33,8 @@ types:
       ignore: [filename, code_sha256]
       reason: "the function's code is deployed outside Terraform; filename is a placeholder. To deploy it with Terraform, put the package there, set code_sha256 to its filebase64sha256, which is what makes the provider update the code when the package changes, and remove this"
   aws_lambda_layer_version:
+    cloudformation_types: ["AWS::Lambda::LayerVersion"]
+    resource_explorer: ["lambda:layer/version"]
     # AWS doesn't say where a layer's package came from, and Terraform can't
     # read it back.
     placeholder:
@@ -38,4 +43,5 @@ types:
       ignore: [filename, source_code_hash]
       reason: "the layer's code was published outside Terraform; filename is a placeholder. To publish a new version with Terraform, put the package there, set source_code_hash to its filebase64sha256, and remove this"
   aws_lambda_permission:
+    cloudformation_types: ["AWS::Lambda::Permission"]
     import_id: "{function_name}/{statement_id}"

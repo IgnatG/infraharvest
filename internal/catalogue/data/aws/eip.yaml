@@ -3,6 +3,8 @@ provider: aws
 service: eip
 types:
   aws_eip:
+    cloudformation_types: ["AWS::EC2::EIP"]
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "elastic-ip" }
     # The region's network border group, which AWS gives an address that
     # sets none.

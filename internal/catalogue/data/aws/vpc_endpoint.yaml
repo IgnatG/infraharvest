@@ -3,6 +3,7 @@ provider: aws
 service: vpc_endpoint
 types:
   aws_vpc_endpoint:
+    cloudformation_types: ["AWS::EC2::VPCEndpoint"]
     arn: { service: ec2, resource_type: "vpc-endpoint" }
     data_source: { type: aws_vpc_endpoint, argument: id }
     omit:

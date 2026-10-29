@@ -5,6 +5,7 @@ types:
   aws_main_route_table_association:
     not_importable: Terraform can't import it; the VPC's main_route_table_id records the main route table.
   aws_route_table:
+    cloudformation_types: ["AWS::EC2::RouteTable"]
     arn: { service: ec2, resource_type: "route-table" }
     data_source: { type: aws_route_table, argument: route_table_id }
     skip:
@@ -13,6 +14,7 @@ types:
       - reason: the main route table AWS creates with every VPC, unchanged, with only the VPC's local routes; the VPC records it as its main_route_table_id
         attributes: { main: "true", as_created: "true" }
   aws_route_table_association:
+    cloudformation_types: ["AWS::EC2::SubnetRouteTableAssociation"]
     # A subnet's association, or a gateway's (an edge association).
     import_id:
       - "{subnet_id}/{route_table_id}"

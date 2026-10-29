@@ -47,7 +47,7 @@ func (g *DynamoDbLister) list() error {
 		return err
 	}
 	svc := dynamodb.NewFromConfig(config)
-	var errs []error
+	var parts harvest.Parts
 	pages := dynamodb.NewListTablesPaginator(svc, &dynamodb.ListTablesInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
@@ -63,10 +63,10 @@ func (g *DynamoDbLister) list() error {
 			if table != nil {
 				g.Resources = append(g.Resources, *table)
 			}
-			errs = append(errs, tableErrs[i])
+			parts.Add(nil, "", tableErrs[i])
 		}
 	}
-	return harvest.Partial(errors.Join(errs...))
+	return parts.Err()
 }
 
 // table returns the table name, with the regions of its replicas (see

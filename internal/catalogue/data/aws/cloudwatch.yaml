@@ -3,12 +3,14 @@ provider: aws
 service: cloudwatch
 types:
   aws_cloudwatch_event_rule:
+    cloudformation_types: ["AWS::Events::Rule"]
     arn: { service: events, resource_type: "rule" }
     # Deprecated in favour of state, which conflicts with it.
     omit: [is_enabled]
     # What AWS gives a rule that doesn't set them.
     defaults: [event_bus_name=default, state=ENABLED]
   aws_cloudwatch_metric_alarm:
+    cloudformation_types: ["AWS::CloudWatch::Alarm"]
     arn: { service: cloudwatch, resource_type: "alarm" }
     # What AWS gives an alarm that doesn't set them: actions on, and
     # missing data treated as missing.

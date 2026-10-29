@@ -3,13 +3,18 @@ provider: aws
 service: api_gatewayv2
 types:
   aws_apigatewayv2_api:
+    cloudformation_types: ["AWS::ApiGatewayV2::Api"]
+    # Routes, stages, integrations and the rest need their API.
+    resource_explorer: arn
     arn: { service: apigateway, resource_type: "apis" }
     # What AWS gives an API that doesn't set them.
     defaults: ["api_key_selection_expression=$request.header.x-api-key", ip_address_type=ipv4, "route_selection_expression=$request.method $request.path"]
   aws_apigatewayv2_integration:
+    cloudformation_types: ["AWS::ApiGatewayV2::Integration"]
     # What AWS gives an HTTP API's integration that doesn't set them.
     defaults: [connection_type=INTERNET, timeout_milliseconds=30000]
   aws_apigatewayv2_stage:
+    cloudformation_types: ["AWS::ApiGatewayV2::Stage"]
     omit:
       # A stage that deploys itself points at the latest deployment, which
       # AWS reports; set, it pins the deployment the import found.

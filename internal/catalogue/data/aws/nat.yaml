@@ -3,5 +3,7 @@ provider: aws
 service: nat
 types:
   aws_nat_gateway:
+    cloudformation_types: ["AWS::EC2::NatGateway"]
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "natgateway" }
     data_source: { type: aws_nat_gateway, argument: id }

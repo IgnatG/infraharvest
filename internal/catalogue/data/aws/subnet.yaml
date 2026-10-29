@@ -3,5 +3,6 @@ provider: aws
 service: subnet
 types:
   aws_subnet:
+    cloudformation_types: ["AWS::EC2::Subnet"]
     arn: { service: ec2, resource_type: "subnet" }
     data_source: { type: aws_subnet, argument: id }

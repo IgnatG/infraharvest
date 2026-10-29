@@ -3,11 +3,14 @@ provider: aws
 service: iam
 types:
   aws_iam_instance_profile:
+    cloudformation_types: ["AWS::IAM::InstanceProfile"]
     # What a profile that doesn't set it gets.
     defaults: [path=/]
   aws_iam_policy:
+    cloudformation_types: ["AWS::IAM::ManagedPolicy"]
     data_source: { type: aws_iam_policy, argument: arn }
   aws_iam_role:
+    cloudformation_types: ["AWS::IAM::Role"]
     arn: { service: iam, resource_type: "role" }
     data_source: { type: aws_iam_role, argument: name }
     # Deprecated in favour of aws_iam_role_policy and
@@ -23,6 +26,9 @@ types:
       - reason: a role IAM Identity Center creates for a permission set, which only it can change
         id_prefixes: [AWSReservedSSO_]
   aws_iam_role_policy:
+    cloudformation_types:
+      - { type: "AWS::IAM::Policy", also: [aws_iam_user_policy, aws_iam_group_policy] }
+      - "AWS::IAM::RolePolicy"
     skip:
       - reason: service-linked role, which AWS manages for a service
         id_prefixes: [AWSServiceRoleFor]
@@ -35,8 +41,10 @@ types:
       - reason: a role IAM Identity Center creates for a permission set, which only it can change
         id_prefixes: [AWSReservedSSO_]
   aws_iam_access_key:
+    cloudformation_types: ["AWS::IAM::AccessKey"]
     skip:
       - reason: a long-lived credential, which the import can't read the secret of and which is better replaced than codified; select it to import it
         all: true
   aws_iam_user:
+    cloudformation_types: ["AWS::IAM::User"]
     arn: { service: iam, resource_type: "user" }

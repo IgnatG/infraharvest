@@ -3,4 +3,5 @@ provider: aws
 service: emr
 types:
   aws_emr_cluster:
+    cloudformation_types: ["AWS::EMR::Cluster"]
     arn: { service: elasticmapreduce, resource_type: "cluster" }

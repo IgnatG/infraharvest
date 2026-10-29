@@ -3,4 +3,8 @@ provider: aws
 service: ecr
 types:
   aws_ecr_repository:
+    cloudformation_types:
+      - { type: "AWS::ECR::Repository", also: [aws_ecr_lifecycle_policy] }
+    # Repository and lifecycle policies need their repository.
+    resource_explorer: arn
     arn: { service: ecr, resource_type: "repository" }

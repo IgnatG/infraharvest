@@ -5,13 +5,9 @@ package azure
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log"
-	"net/http"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
 	"github.com/magodo/armid"
 	"golang.org/x/sync/errgroup"
@@ -66,7 +62,7 @@ const diagnosticListParallel = childListParallel
 // (400) has none; a list refused (401, 403), throttled (429), timed out
 // (408) or failed by Resource Manager (5xx), or that got no answer, fails
 // the service in part, as resource_graph's child lists do (see
-// childListFailures): what was listed is imported, and the failure is
+// azureCodes): what was listed is imported, and the failure is
 // reported.
 type DiagnosticSettingLister struct {
 	Service
@@ -120,19 +116,21 @@ func (az *DiagnosticSettingLister) list() error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	for _, resources := range found {
-		az.Resources = append(az.Resources, resources...)
+	var parts harvest.Parts
+	for i, target := range targets {
+		az.Resources = append(az.Resources, found[i]...)
+		if failed[i] != nil && !parts.Add(azureCodes, "azurerm: "+diagnosticSettingService+": listing the diagnostic settings of "+target.id, failed[i]) {
+			log.Printf("azurerm: %s: %s has no diagnostic settings to list: %v", diagnosticSettingService, target.id, failed[i])
+		}
 	}
 	if az.Verbose() {
 		log.Printf("azurerm: %s: asked %d resources of the %d listed for their diagnostic settings", diagnosticSettingService, len(targets), len(s.listed))
 	}
-	return harvest.Partial(errors.Join(failed...))
+	return parts.Err()
 }
 
 // listDiagnosticSettings returns target's diagnostic settings, as records
-// of provider, or, for a list that left settings out (see
-// diagnosticListFailed), the error. A list that found none to leave out,
-// as for a target gone since it was listed, is logged and returns none.
+// of provider, or the error of a list that failed.
 func listDiagnosticSettings(ctx context.Context, client *armmonitor.DiagnosticSettingsClient, target diagnosticTarget, provider string) ([]harvest.Resource, error) {
 	// The client puts the URI after a slash of its own.
 	pager := client.NewListPager(strings.TrimPrefix(target.id, "/"), nil)
@@ -140,14 +138,7 @@ func listDiagnosticSettings(ctx context.Context, client *armmonitor.DiagnosticSe
 		return p.Value
 	})
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil
-		}
-		if diagnosticListFailed(err) {
-			return nil, fmt.Errorf("azurerm: %s: listing the diagnostic settings of %s: %w", diagnosticSettingService, target.id, err)
-		}
-		log.Printf("azurerm: %s: %s has no diagnostic settings to list: %v", diagnosticSettingService, target.id, err)
-		return nil, nil
+		return nil, err
 	}
 	var records []harvest.Resource
 	for _, setting := range settings {
@@ -165,25 +156,6 @@ func listDiagnosticSettings(ctx context.Context, client *armmonitor.DiagnosticSe
 		records = append(records, harvest.Record(id, target.label+"_"+name, diagnosticSettingType, provider, attributes))
 	}
 	return records, nil
-}
-
-// diagnosticListFailed reports whether the failed list err left settings
-// out: one refused (401, 403), timed out (408), throttled (429) or failed
-// by Resource Manager (5xx), or without an answer. A 404, for a resource
-// gone since it was listed, and the other answers, such as 400 for a
-// resource whose type or SKU has no diagnostic settings, leave nothing
-// out that could be imported.
-func diagnosticListFailed(err error) bool {
-	var respErr *azcore.ResponseError
-	if !errors.As(err, &respErr) {
-		return true
-	}
-	switch status := respErr.StatusCode; status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooManyRequests:
-		return true
-	default:
-		return status >= http.StatusInternalServerError && status != http.StatusNotImplemented
-	}
 }
 
 // diagnosticTargets returns the resources of listed whose diagnostic

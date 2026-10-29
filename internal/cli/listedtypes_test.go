@@ -21,10 +21,12 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
-// Each provider's listed_types.go holds the types its services list, as the
-// services reference finds them, for the query service to refuse (see
-// harvest.Profile.ListedTypes). It is rewritten with -update, like the
-// reference:
+// The query service refuses the types a provider's services list (see
+// harvest.Profile.ListedTypes). AWS's services declare theirs, beside
+// their listers, and TestListedTypesAreDeclared checks the declarations
+// against the lister code. Each other provider's listed_types.go holds
+// them as the services reference finds them in its code; it is rewritten
+// with -update, like the reference:
 //
 //	go test ./internal/cli -run TestGoldenListedTypes -update
 
@@ -32,8 +34,43 @@ import (
 // package.
 const listedTypesFile = "listed_types.go"
 
+// declaredListedTypes are the providers whose services declare the types
+// they list, rather than have them generated.
+var declaredListedTypes = []string{"aws"}
+
+// The types a provider's services declare are those their lister code
+// names, with those the catalogue assigns them.
+func TestListedTypesAreDeclared(t *testing.T) {
+	for _, name := range declaredListedTypes {
+		provider := providers.New(name)
+		if provider == nil {
+			t.Skipf("built without %s", name)
+		}
+		listed, err := listedTypes(provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		declared := provider.Profile().ListedTypes
+		for _, typ := range slices.Sorted(maps.Keys(listed)) {
+			if service, ok := declared[typ]; !ok {
+				t.Errorf("%s: %s lists %s, which it doesn't declare", name, listed[typ], typ)
+			} else if service != listed[typ] {
+				t.Errorf("%s: %s is listed by %s first, but declared by %s", name, typ, listed[typ], service)
+			}
+		}
+		for _, typ := range slices.Sorted(maps.Keys(declared)) {
+			if _, ok := listed[typ]; !ok {
+				t.Errorf("%s: %s declares %s, which its lister code doesn't name", name, declared[typ], typ)
+			}
+		}
+	}
+}
+
 func TestGoldenListedTypes(t *testing.T) {
 	for _, name := range referenceProviders {
+		if slices.Contains(declaredListedTypes, name) {
+			continue
+		}
 		provider := providers.New(name)
 		if provider == nil {
 			t.Skipf("built without %s", name)
@@ -73,7 +110,7 @@ func TestGoldenListedTypes(t *testing.T) {
 }
 
 // listedTypes returns the types provider's services list, as the services
-// reference has them, each with the first service by name that lists it.
+// reference finds them in its code and catalogue, each with the first service by name that lists it.
 func listedTypes(provider harvest.Provider) (map[string]string, error) {
 	cat, err := catalogue.Builtin(provider.Name())
 	if err != nil {

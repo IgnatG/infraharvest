@@ -3,6 +3,7 @@ provider: aws
 service: cloudfront
 types:
   aws_cloudfront_distribution:
+    cloudformation_types: ["AWS::CloudFront::Distribution"]
     arn: { service: cloudfront, resource_type: "distribution" }
     omit:
       # The legacy TTLs CloudFront reports for a cache behaviour with a

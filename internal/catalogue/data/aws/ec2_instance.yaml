@@ -3,6 +3,8 @@ provider: aws
 service: ec2_instance
 types:
   aws_instance:
+    cloudformation_types: ["AWS::EC2::Instance"]
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "instance" }
     omit:
       # The network interface the instance was launched with, which AWS

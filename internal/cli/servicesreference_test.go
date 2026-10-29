@@ -342,6 +342,19 @@ func (s *providerSource) literals(typeNames []string, prefix string) []string {
 			// package, not one of this package's functions.
 			ast.Inspect(n.X, inspect)
 			return false
+		case *ast.CompositeLit:
+			// A map's keys name attributes, such as an organization
+			// policy's aws_managed, not types: only its values count.
+			if _, ok := n.Type.(*ast.MapType); ok {
+				for _, elt := range n.Elts {
+					if kv, ok := elt.(*ast.KeyValueExpr); ok {
+						ast.Inspect(kv.Value, inspect)
+					} else {
+						ast.Inspect(elt, inspect)
+					}
+				}
+				return false
+			}
 		case *ast.Ident:
 			if fn, ok := s.funcs[n.Name]; ok {
 				visitFunc(fn)

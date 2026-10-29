@@ -107,7 +107,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	name, err := lookUpRegion(ctx, project, region)
 	switch {
 	case err == nil:
-	case isServiceDisabled(err) && regionName.MatchString(region):
+	case googleCodes.Classify(err) == harvest.OutcomeNothingToList && regionName.MatchString(region):
 		log.Printf("google: region %s of project %s can't be checked, as the project hasn't enabled the Compute Engine API; importing it as given", region, project)
 		name = region
 	default:

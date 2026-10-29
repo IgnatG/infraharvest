@@ -7,6 +7,7 @@ provider: aws
 service: sg
 types:
   aws_security_group:
+    cloudformation_types: ["AWS::EC2::SecurityGroup"]
     arn: { service: ec2, resource_type: "security-group" }
     data_source: { type: aws_security_group, argument: id }
     # The lister imports each rule as a resource of its own, which the
@@ -18,7 +19,10 @@ types:
       # default, and is imported.
       - reason: the default security group AWS creates with every VPC, unchanged, with only its default rules; select it and its rules to import them
         attributes: { group_name: default, as_created: "true" }
-  aws_security_group_rule: {}
+  aws_security_group_rule:
+    cloudformation_types:
+      - { type: "AWS::EC2::SecurityGroupEgress", also: [aws_vpc_security_group_egress_rule] }
+      - { type: "AWS::EC2::SecurityGroupIngress", also: [aws_vpc_security_group_ingress_rule] }
   aws_vpc_security_group_ingress_rule:
     arn: { service: ec2, resource_type: "security-group-rule" }
     skip:

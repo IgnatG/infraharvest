@@ -274,6 +274,12 @@ func TestCheckRejects(t *testing.T) {
 		"placeholder reference":   "provider: aws\ntypes:\n  aws_x:\n    placeholder: { one_of: [a], set: { a: \"x/{Name}.zip\" }, ignore: [a], reason: r }\n",
 		"data source provider":    "provider: aws\ntypes:\n  aws_x:\n    data_source: { type: google_x, argument: id }\n",
 		"remove outside overlays": "provider: aws\ntypes:\n  aws_x:\n    remove: [placeholder]\n",
+		"cloudformation type":     "provider: aws\ntypes:\n  aws_x:\n    cloudformation_types: [Bucket]\n",
+		"cloudformation also":     "provider: aws\ntypes:\n  aws_x:\n    cloudformation_types: [{ type: \"AWS::X::Y\", also: [google_x] }]\n",
+		"cloudformation twice":    "provider: aws\ntypes:\n  aws_x:\n    cloudformation_types: [\"AWS::X::Y\"]\n  aws_y:\n    cloudformation_types: [\"AWS::X::Y\"]\n",
+		"explorer without arn":    "provider: aws\ntypes:\n  aws_x:\n    resource_explorer: arn\n",
+		"explorer keyword":        "provider: aws\ntypes:\n  aws_x:\n    resource_explorer: name\n",
+		"explorer type":           "provider: aws\ntypes:\n  aws_x:\n    resource_explorer: [volume]\n",
 	} {
 		if _, err := load(t, map[string]string{"x.yaml": file}); err == nil {
 			t.Errorf("%s: want an error for\n%s", name, file)
@@ -321,6 +327,62 @@ func TestCheckErrorsInOrder(t *testing.T) {
 }
 
 // Overlay entries replace the fields they set, and add types.
+// A CloudFormation type's Terraform types are those of the entry that
+// names it, then its others, then those of the cloud_control entries of
+// the type.
+func TestCloudFormationTypes(t *testing.T) {
+	t.Parallel()
+	c := parseCatalogue(t, `provider: aws
+types:
+  aws_iam_service_linked_role:
+    cloudformation_types:
+      - { type: "AWS::IAM::ServiceLinkedRole", also: [aws_iam_role] }
+  aws_iam_role:
+    cloudformation_types: ["AWS::IAM::Role"]
+    cloud_control: { type: "AWS::IAM::Role", identifier: RoleName }
+    service: iam
+  aws_eks_cluster:
+    cloudformation_types: ["AWS::EKS::Cluster", "Custom::AWSCDK-EKS-Cluster"]
+  aws_athena_workgroup:
+    cloud_control: { type: "AWS::Athena::WorkGroup", identifier: Name }
+    service: athena
+`)
+	want := map[string][]string{
+		"AWS::IAM::ServiceLinkedRole": {"aws_iam_service_linked_role", "aws_iam_role"},
+		"AWS::IAM::Role":              {"aws_iam_role"},
+		"AWS::EKS::Cluster":           {"aws_eks_cluster"},
+		"Custom::AWSCDK-EKS-Cluster":  {"aws_eks_cluster"},
+		"AWS::Athena::WorkGroup":      {"aws_athena_workgroup"},
+	}
+	if got := c.CloudFormationTypes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// An entry's Resource Explorer types are its arn's, or those it lists.
+func TestResourceExplorerTypes(t *testing.T) {
+	t.Parallel()
+	c := parseCatalogue(t, `provider: aws
+types:
+  aws_ebs_volume:
+    arn: { service: ec2, resource_type: volume }
+    resource_explorer: arn
+  aws_lb_target_group:
+    resource_explorer: ["elasticloadbalancing:targetgroup"]
+  aws_subnet: {}
+`)
+	for typ, want := range map[string][]string{
+		"aws_ebs_volume":      {"ec2:volume"},
+		"aws_lb_target_group": {"elasticloadbalancing:targetgroup"},
+		"aws_subnet":          nil,
+	} {
+		e, _ := c.Entry(typ)
+		if got := e.ResourceExplorerTypes(); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %v, want %v", typ, got, want)
+		}
+	}
+}
+
 func TestLoadOverlay(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

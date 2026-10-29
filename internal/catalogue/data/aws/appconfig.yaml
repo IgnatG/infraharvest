@@ -3,4 +3,5 @@ provider: aws
 service: appconfig
 types:
   aws_appconfig_application:
+    resource_explorer: ["appconfig:application"]
     cloud_control: { type: "AWS::AppConfig::Application", identifier: ApplicationId }

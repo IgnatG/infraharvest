@@ -3,4 +3,6 @@ provider: aws
 service: docdb
 types:
   aws_docdb_cluster:
+    cloudformation_types:
+      - { type: "AWS::DocDB::DBCluster", also: [aws_rds_cluster] }
     arn: { service: rds, resource_type: "cluster" }

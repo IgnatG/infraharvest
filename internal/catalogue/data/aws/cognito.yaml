@@ -3,8 +3,12 @@ provider: aws
 service: cognito
 types:
   aws_cognito_user_pool:
+    cloudformation_types: ["AWS::Cognito::UserPool"]
+    # User pool clients need their pool.
+    resource_explorer: arn
     arn: { service: cognito-idp, resource_type: "userpool" }
   aws_cognito_user_pool_client:
+    cloudformation_types: ["AWS::Cognito::UserPoolClient"]
     # The lister records the client ID; Terraform imports a client by its
     # user pool and its ID.
     import_id: "{user_pool_id}/{id}"

@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -19,7 +18,7 @@ import (
 type S3Lister struct {
 	Service
 	// parts gathers the parts of the listing that failed.
-	parts partFailures
+	parts harvest.Parts
 }
 
 // List records every bucket of the region as an aws_s3_bucket,
@@ -33,7 +32,7 @@ type S3Lister struct {
 // or the environment. A listing error fails the service; a bucket whose
 // location can't be read is left out, and one whose policy can't be read is
 // listed without it, and those failures are returned together as a partial
-// error (see partFailures). The buckets of a page are read resourceParallel
+// error (see harvest.Parts). The buckets of a page are read resourceParallel
 // at a time, and recorded in the page's order.
 func (g *S3Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -57,7 +56,7 @@ func (g *S3Lister) list() error {
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
-			return errors.Join(err, g.parts.err())
+			return g.parts.Fail(err)
 		}
 		reads := make([]s3BucketRead, len(page.Buckets))
 		inParallel(len(page.Buckets), resourceParallel, func(i int) {
@@ -65,17 +64,17 @@ func (g *S3Lister) list() error {
 		})
 		for _, read := range reads {
 			g.Resources = append(g.Resources, read.resources...)
-			g.parts.errs = append(g.parts.errs, read.parts.errs...)
+			g.parts.Merge(&read.parts)
 		}
 	}
-	return g.parts.err()
+	return g.parts.Err()
 }
 
 // s3BucketRead is what reading one bucket found: its resources, and the
 // parts of it that failed.
 type s3BucketRead struct {
 	resources []harvest.Resource
-	parts     partFailures
+	parts     harvest.Parts
 }
 
 // readBucket reads into out the bucket if it is in region, asking for its
@@ -85,7 +84,7 @@ func (g *S3Lister) readBucket(svc *s3.Client, bucket s3types.Bucket, region stri
 	if bucketRegion == "" {
 		location, err := svc.GetBucketLocation(g.Context(), &s3.GetBucketLocationInput{Bucket: bucket.Name})
 		if err != nil {
-			out.parts.add("location of bucket "+aws.ToString(bucket.Name), err)
+			out.parts.Add(awsCodes, "location of bucket "+aws.ToString(bucket.Name), err)
 			return
 		}
 		bucketRegion = s3BucketRegion(string(location.LocationConstraint))
@@ -98,8 +97,8 @@ func (g *S3Lister) readBucket(svc *s3.Client, bucket s3types.Bucket, region stri
 
 // addBucket records in out the bucket name and, first, its policy when it
 // has one that can be read. A bucket without a policy answers
-// NoSuchBucketPolicy; any other error, AccessDenied included, is gathered
-// and leaves the policy out.
+// NoSuchBucketPolicy, which leaves nothing out (see awsCodes); any other
+// error, AccessDenied included, is gathered and leaves the policy out.
 func (g *S3Lister) addBucket(svc *s3.Client, name string, out *s3BucketRead) {
 	attributes := map[string]string{"force_destroy": "false", "acl": "private"}
 	policy, err := svc.GetBucketPolicy(g.Context(), &s3.GetBucketPolicyInput{Bucket: aws.String(name)})
@@ -107,8 +106,8 @@ func (g *S3Lister) addBucket(svc *s3.Client, name string, out *s3BucketRead) {
 	case err == nil && policy.Policy != nil:
 		attributes["policy"] = *policy.Policy
 		out.resources = append(out.resources, harvest.RecordBare(name, name, "aws_s3_bucket_policy", "aws"))
-	case err != nil && apiErrorCode(err) != "NoSuchBucketPolicy":
-		out.parts.add("policy of bucket "+name, err)
+	case err != nil:
+		out.parts.Add(awsCodes, "policy of bucket "+name, err)
 	}
 	out.resources = append(out.resources, harvest.Record(name, name, "aws_s3_bucket", "aws", attributes))
 }

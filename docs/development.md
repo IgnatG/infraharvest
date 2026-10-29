@@ -114,7 +114,8 @@ The code is read more than written, so comments carry the reasoning. Write them 
 - **Wrap with what was being done**: `fmt.Errorf("terraform init: %w", err)`, `fmt.Errorf("import into %s: %w", dir, err)`. Messages are lower case, with no trailing full stop and no "failed to" or "error:": the wrapping already says it failed (`revive` enforces the case).
 - **Say what to do** where the user can act: `errors.New("the picker needs a terminal: edit the selection file instead")` (`internal/cli/pick.go`).
 - **Report everything at once** where there can be several problems, with `errors.Join`: the catalogue's checks (`internal/catalogue/check.go`), Terraform's diagnostics (`internal/engine/tfrun/plan.go`).
-- **Match errors by type, not by text**: `errors.As` with `smithy.APIError`, `*net.DNSError` (`unavailableInRegion` in `guarded_lister.go`). Match on a message only where the API gives nothing else, and say so in a comment.
+- **Match errors by type, not by text**: `errors.As` with `smithy.APIError`, `*net.DNSError` (`awsErrorCodes` in `internal/providers/aws/outcomes.go`). Match on a message only where the API gives nothing else, and say so in a comment.
+- **A cloud's answer means one outcome everywhere.** Whether a failed call fails the listing, means the resource is gone, that there is nothing to list, or that the region doesn't offer the service is a `harvest.Outcome`, which `harvest.Codes.Classify` decides from the provider's code table (`awsCodes`, `azureCodes` and `googleCodes`, in each provider's `outcomes.go`). A lister whose parts fail one by one gathers them in a `harvest.Parts`, which drops what leaves nothing out and returns the rest as a partial error, rather than joining errors by hand.
 - **Exit codes** come from the error: commands return an `*importer.ExitError` with one of the `report.Exit*` codes, and `main` maps it through `importer.ExitCode`.
 - Library code doesn't panic. `Must*` functions are for data built into the binary and checked by tests (`catalogue.MustBuiltin`).
 - An error deliberately ignored on a clean-up path is assigned to `_` (`internal/fsutil/fsutil.go`).
@@ -142,6 +143,18 @@ A provider is a `harvest.Provider` whose `Services` maps each service name, as u
 - Record the attributes the catalogue's import ID templates and skip rules use, and the ones `--tag` and `--where` should match.
 - Leave out what the cloud owns or can't be imported through the catalogue (`skip`, `not_importable`), not with `if` statements in the lister.
 - Types without a dedicated lister can come from the Cloud Control API with a `cloud_control` catalogue entry (`internal/providers/aws/cloudcontrol.go`).
+
+### Adding an AWS type
+
+What infraharvest knows of an AWS type is its catalogue entry, in the file of the service that lists it under `internal/catalogue/data/aws/`. Adding a type takes:
+
+1. **A lister for it**, or none: a `cloud_control` entry lists it through the Cloud Control API with no Go at all. A type a lister records goes in the `types` its service declares in `serviceTable` (`internal/providers/aws/services.go`), from which the provider works out the types the `query` service leaves to the others (`harvest.Profile.ListedTypes`). `TestListedTypesAreDeclared` (`internal/cli`) checks them against the lister's code.
+2. **Its catalogue entry**: the import ID, `arn` where its ID isn't an ARN, skip rules and children, as [Catalogue](catalogue.md) describes, and two fields the provider reads besides:
+    - `cloudformation_types`, the CloudFormation types a stack holds it as, so that what a stack manages is left out by type and `--cfn-stack` maps the stack's template to it. Where a stack's resource is listed as several Terraform types, the first one's entry names the CloudFormation type, with the others in `also`, in the order the mapper tries them. A `cloud_control` entry's type counts already.
+    - `resource_explorer`, when Resource Explorer's index has the type, so that `--resource-explorer` can skip its service in a region with none: `arn` where the index names it as its `arn` does, else its Resource Explorer types. A type that can't exist without a parent, such as a load balancer's listener, sets none, and its parent's stand for it; a service with a type that sets none and has no parent that does, or that also lists what other accounts share, sets none at all.
+3. **The services reference**, regenerated: `go test ./internal/cli -run TestGoldenServicesReference -update`.
+
+The read-only permissions and the e2e fixture change as the rest of this page says.
 
 ### Pagination
 

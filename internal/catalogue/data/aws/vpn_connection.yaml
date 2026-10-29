@@ -3,5 +3,6 @@ provider: aws
 service: vpn_connection
 types:
   aws_vpn_connection:
+    resource_explorer: arn
     arn: { service: ec2, resource_type: "vpn-connection" }
     cloud_control: { type: "AWS::EC2::VPNConnection", identifier: VpnConnectionId }

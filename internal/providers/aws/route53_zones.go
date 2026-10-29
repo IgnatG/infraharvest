@@ -6,7 +6,6 @@ package aws
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -44,26 +43,26 @@ func (g *Route53Lister) list() error {
 		return err
 	}
 	client := route53.NewFromConfig(config)
-	recordsErr, err := g.listHostedZones(client)
-	checksErr := g.listHealthChecks(client)
+	var parts harvest.Parts
+	err = g.listHostedZones(client, &parts)
+	parts.Add(nil, "", g.listHealthChecks(client))
 	if err != nil {
-		return errors.Join(err, recordsErr, checksErr)
+		return parts.Fail(err)
 	}
-	return harvest.Partial(errors.Join(recordsErr, checksErr))
+	return parts.Err()
 }
 
 // listHostedZones records every hosted zone by its ID without the
 // "/hostedzone/" prefix, named after its domain, each followed by its
-// records. The zone's domain is recorded with its trailing dot. It returns
-// the errors of the zones whose records failed to list, joined, and the
-// error of the zone list.
-func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, listErr error) {
-	var errs []error
+// records. The zone's domain is recorded with its trailing dot. It adds
+// to parts the errors of the zones whose records failed to list, and
+// returns the error of the zone list.
+func (g *Route53Lister) listHostedZones(client *route53.Client, parts *harvest.Parts) error {
 	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
 		if err != nil {
-			return errors.Join(errs...), fmt.Errorf("route53: hosted zones: %w", err)
+			return fmt.Errorf("route53: hosted zones: %w", err)
 		}
 		for _, zone := range page.HostedZones {
 			zoneID := strings.TrimPrefix(aws.ToString(zone.Id), "/hostedzone/")
@@ -77,11 +76,11 @@ func (g *Route53Lister) listHostedZones(client *route53.Client) (recordsErr, lis
 			// A call or more per zone, for records the import may not
 			// keep.
 			if g.Wants("aws_route53_record") {
-				errs = append(errs, g.listRecords(client, zoneID, domain, zone.LinkedService))
+				parts.Add(nil, "", g.listRecords(client, zoneID, domain, zone.LinkedService))
 			}
 		}
 	}
-	return errors.Join(errs...), nil
+	return nil
 }
 
 // recordPosition is where a page of record sets starts: Route 53 pages

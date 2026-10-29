@@ -3,5 +3,6 @@ provider: aws
 service: codedeploy
 types:
   aws_codedeploy_app:
+    resource_explorer: arn
     arn: { service: codedeploy, resource_type: "application" }
     cloud_control: { type: "AWS::CodeDeploy::Application", identifier: ApplicationName }

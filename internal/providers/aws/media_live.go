@@ -5,8 +5,6 @@ package aws
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/medialive"
@@ -43,16 +41,11 @@ func (g *MediaLiveLister) list() error {
 		{"inputs", g.listInputs},
 		{"input security groups", g.listInputSecurityGroups},
 	}
-	var errs []error
+	var parts harvest.Parts
 	for _, l := range lists {
-		if err := l.list(g.Context(), client); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", l.what, err))
-		}
+		parts.Add(nil, l.what, l.list(g.Context(), client))
 	}
-	if len(errs) == len(lists) {
-		return errors.Join(errs...)
-	}
-	return harvest.Partial(errors.Join(errs...))
+	return parts.ErrOutOf(len(lists))
 }
 
 // listChannels adds each channel as an aws_medialive_channel.

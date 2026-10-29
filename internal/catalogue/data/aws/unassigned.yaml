@@ -1,0 +1,207 @@
+# yaml-language-server: $schema=../../schema.json
+provider: aws
+# Types no service's file has an entry for, which services list or
+# CloudFormation stacks hold: their entries have the CloudFormation types
+# a stack holds them as, and the Resource Explorer types that index them.
+# The service that lists each declares it (see serviceTable in
+# internal/providers/aws/services.go): an entry's service would also make
+# drift take the type as listed in full by it, which has not been checked
+# for these.
+types:
+  aws_accessanalyzer_analyzer:
+    cloudformation_types: ["AWS::AccessAnalyzer::Analyzer"]
+    resource_explorer: ["access-analyzer:analyzer"]
+  aws_api_gateway_api_key:
+    cloudformation_types: ["AWS::ApiGateway::ApiKey"]
+  aws_api_gateway_authorizer:
+    cloudformation_types: ["AWS::ApiGateway::Authorizer"]
+  aws_api_gateway_documentation_part:
+    cloudformation_types: ["AWS::ApiGateway::DocumentationPart"]
+  aws_api_gateway_gateway_response:
+    cloudformation_types: ["AWS::ApiGateway::GatewayResponse"]
+  aws_api_gateway_method:
+    cloudformation_types:
+      - { type: "AWS::ApiGateway::Method", also: [aws_api_gateway_method_response, aws_api_gateway_integration, aws_api_gateway_integration_response] }
+  aws_api_gateway_resource:
+    cloudformation_types: ["AWS::ApiGateway::Resource"]
+  aws_api_gateway_stage:
+    cloudformation_types:
+      - { type: "AWS::ApiGateway::Stage", also: [aws_api_gateway_method_settings] }
+  aws_api_gateway_usage_plan:
+    cloudformation_types: ["AWS::ApiGateway::UsagePlan"]
+  aws_api_gateway_vpc_link:
+    cloudformation_types: ["AWS::ApiGateway::VpcLink"]
+  aws_apigatewayv2_authorizer:
+    cloudformation_types: ["AWS::ApiGatewayV2::Authorizer"]
+  aws_apigatewayv2_model:
+    cloudformation_types: ["AWS::ApiGatewayV2::Model"]
+  aws_apigatewayv2_route:
+    cloudformation_types: ["AWS::ApiGatewayV2::Route"]
+  aws_apigatewayv2_route_response:
+    cloudformation_types: ["AWS::ApiGatewayV2::RouteResponse"]
+  aws_apigatewayv2_vpc_link:
+    cloudformation_types: ["AWS::ApiGatewayV2::VpcLink"]
+    resource_explorer: ["apigateway:vpclinks"]
+  aws_appsync_graphql_api:
+    cloudformation_types: ["AWS::AppSync::GraphQLApi"]
+    resource_explorer: ["appsync:apis"]
+  aws_batch_compute_environment:
+    cloudformation_types: ["AWS::Batch::ComputeEnvironment"]
+    resource_explorer: ["batch:compute-environment"]
+  aws_batch_job_definition:
+    cloudformation_types: ["AWS::Batch::JobDefinition"]
+    resource_explorer: ["batch:job-definition"]
+  aws_batch_job_queue:
+    cloudformation_types: ["AWS::Batch::JobQueue"]
+    resource_explorer: ["batch:job-queue"]
+  aws_budgets_budget:
+    cloudformation_types: ["AWS::Budgets::Budget"]
+  aws_cloud9_environment_ec2:
+    resource_explorer: ["cloud9:environment"]
+  aws_cloudformation_stack_set:
+    cloudformation_types: ["AWS::CloudFormation::StackSet"]
+    # Stack set instances need their stack set.
+    resource_explorer: ["cloudformation:stackset"]
+  aws_cloudfront_cache_policy:
+    cloudformation_types: ["AWS::CloudFront::CachePolicy"]
+  aws_cloudwatch_dashboard:
+    cloudformation_types: ["AWS::CloudWatch::Dashboard"]
+  aws_codepipeline_webhook:
+    cloudformation_types: ["AWS::CodePipeline::Webhook"]
+    resource_explorer: ["codepipeline:webhook"]
+  aws_cognito_identity_pool:
+    cloudformation_types: ["AWS::Cognito::IdentityPool"]
+    resource_explorer: ["cognito-identity:identitypool"]
+  aws_datapipeline_pipeline:
+    resource_explorer: ["datapipeline:pipeline"]
+  aws_db_event_subscription:
+    cloudformation_types: ["AWS::RDS::EventSubscription"]
+  aws_db_proxy:
+    cloudformation_types: ["AWS::RDS::DBProxy"]
+  aws_devicefarm_project:
+    resource_explorer: ["devicefarm:project"]
+  aws_docdb_cluster_instance:
+    cloudformation_types:
+      - { type: "AWS::DocDB::DBInstance", also: [aws_rds_cluster_instance, aws_db_instance] }
+  aws_docdb_cluster_parameter_group:
+    cloudformation_types:
+      - { type: "AWS::DocDB::DBClusterParameterGroup", also: [aws_rds_cluster_parameter_group] }
+  aws_docdb_subnet_group:
+    cloudformation_types:
+      - { type: "AWS::DocDB::DBSubnetGroup", also: [aws_db_subnet_group] }
+  aws_ec2_transit_gateway_route_table:
+    cloudformation_types: ["AWS::EC2::TransitGatewayRouteTable"]
+  aws_ecrpublic_repository:
+    cloudformation_types: ["AWS::ECR::PublicRepository"]
+  aws_ecs_cluster_capacity_providers:
+    cloudformation_types: ["AWS::ECS::ClusterCapacityProviderAssociations"]
+  aws_efs_access_point:
+    cloudformation_types: ["AWS::EFS::AccessPoint"]
+    resource_explorer: ["elasticfilesystem:access-point"]
+  aws_efs_mount_target:
+    cloudformation_types: ["AWS::EFS::MountTarget"]
+  aws_eks_access_entry:
+    cloudformation_types:
+      - { type: "AWS::EKS::AccessEntry", also: [aws_eks_access_policy_association] }
+  aws_eks_addon:
+    cloudformation_types: ["AWS::EKS::Addon"]
+  aws_eks_fargate_profile:
+    cloudformation_types: ["AWS::EKS::FargateProfile"]
+  aws_eks_node_group:
+    cloudformation_types: ["AWS::EKS::Nodegroup"]
+  aws_eks_pod_identity_association:
+    cloudformation_types: ["AWS::EKS::PodIdentityAssociation"]
+  aws_elastic_beanstalk_environment:
+    cloudformation_types: ["AWS::ElasticBeanstalk::Environment"]
+    resource_explorer: ["elasticbeanstalk:environment"]
+  aws_emr_security_configuration:
+    cloudformation_types: ["AWS::EMR::SecurityConfiguration"]
+  aws_glue_catalog_database:
+    cloudformation_types: ["AWS::Glue::Database"]
+    resource_explorer: ["glue:database"]
+  aws_glue_catalog_table:
+    cloudformation_types: ["AWS::Glue::Table"]
+    resource_explorer: ["glue:table"]
+  aws_glue_trigger:
+    cloudformation_types: ["AWS::Glue::Trigger"]
+    resource_explorer: ["glue:trigger"]
+  aws_iam_group:
+    cloudformation_types: ["AWS::IAM::Group"]
+  aws_iam_openid_connect_provider:
+    cloudformation_types: ["AWS::IAM::OIDCProvider"]
+  aws_iam_saml_provider:
+    cloudformation_types: ["AWS::IAM::SAMLProvider"]
+  aws_iam_service_linked_role:
+    cloudformation_types:
+      - { type: "AWS::IAM::ServiceLinkedRole", also: [aws_iam_role] }
+  aws_iam_user_group_membership:
+    cloudformation_types:
+      - { type: "AWS::IAM::UserToGroupAddition", also: [aws_iam_group_membership] }
+  aws_kinesis_firehose_delivery_stream:
+    cloudformation_types: ["AWS::KinesisFirehose::DeliveryStream"]
+    resource_explorer: ["firehose:deliverystream"]
+  aws_lambda_event_source_mapping:
+    cloudformation_types: ["AWS::Lambda::EventSourceMapping"]
+    resource_explorer: ["lambda:event-source-mapping"]
+  aws_lambda_function_event_invoke_config:
+    cloudformation_types: ["AWS::Lambda::EventInvokeConfig"]
+  aws_launch_configuration:
+    cloudformation_types: ["AWS::AutoScaling::LaunchConfiguration"]
+  aws_lb_listener_rule:
+    cloudformation_types:
+      - { type: "AWS::ElasticLoadBalancingV2::ListenerRule", also: [aws_alb_listener_rule] }
+  aws_media_store_container:
+    resource_explorer: ["mediastore:container"]
+  aws_rds_global_cluster:
+    cloudformation_types: ["AWS::RDS::GlobalCluster"]
+  aws_redshift_event_subscription:
+    cloudformation_types: ["AWS::Redshift::EventSubscription"]
+  aws_redshift_parameter_group:
+    cloudformation_types: ["AWS::Redshift::ClusterParameterGroup"]
+  aws_redshift_subnet_group:
+    cloudformation_types: ["AWS::Redshift::ClusterSubnetGroup"]
+  aws_s3_bucket_policy:
+    cloudformation_types: ["AWS::S3::BucketPolicy"]
+  aws_secretsmanager_secret_policy:
+    cloudformation_types: ["AWS::SecretsManager::ResourcePolicy"]
+  aws_secretsmanager_secret_rotation:
+    cloudformation_types: ["AWS::SecretsManager::RotationSchedule"]
+  aws_securityhub_account:
+    cloudformation_types: ["AWS::SecurityHub::Hub"]
+  aws_ses_configuration_set:
+    cloudformation_types: ["AWS::SES::ConfigurationSet"]
+  aws_ses_email_identity:
+    cloudformation_types:
+      - { type: "AWS::SES::EmailIdentity", also: [aws_ses_domain_identity, aws_sesv2_email_identity] }
+  aws_ses_receipt_rule:
+    cloudformation_types: ["AWS::SES::ReceiptRule"]
+  aws_ses_receipt_rule_set:
+    cloudformation_types: ["AWS::SES::ReceiptRuleSet"]
+  aws_ses_template:
+    cloudformation_types: ["AWS::SES::Template"]
+  aws_sfn_activity:
+    cloudformation_types: ["AWS::StepFunctions::Activity"]
+    resource_explorer: ["states:activity"]
+  aws_sns_topic_policy:
+    cloudformation_types: ["AWS::SNS::TopicPolicy"]
+  aws_sqs_queue_policy:
+    cloudformation_types: ["AWS::SQS::QueuePolicy"]
+  aws_wafv2_ip_set:
+    cloudformation_types: ["AWS::WAFv2::IPSet"]
+    resource_explorer: ["wafv2:ipset"]
+  aws_wafv2_regex_pattern_set:
+    cloudformation_types: ["AWS::WAFv2::RegexPatternSet"]
+    resource_explorer: ["wafv2:regexpatternset"]
+  aws_wafv2_rule_group:
+    cloudformation_types: ["AWS::WAFv2::RuleGroup"]
+    resource_explorer: ["wafv2:rulegroup"]
+  aws_wafv2_web_acl:
+    cloudformation_types: ["AWS::WAFv2::WebACL"]
+    # Associations and logging configurations need their web ACL.
+    resource_explorer: ["wafv2:webacl"]
+  aws_wafv2_web_acl_association:
+    cloudformation_types: ["AWS::WAFv2::WebACLAssociation"]
+  aws_wafv2_web_acl_logging_configuration:
+    cloudformation_types: ["AWS::WAFv2::LoggingConfiguration"]
+  aws_xray_sampling_rule:
+    cloudformation_types: ["AWS::XRay::SamplingRule"]
