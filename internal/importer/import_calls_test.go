@@ -381,7 +381,6 @@ func TestImportCancelsOnTheFirstFailure(t *testing.T) {
 // more than that many calls run at once in all.
 func TestImportSharesParallelWithAccounts(t *testing.T) {
 	run := NewRun()
-	t.Cleanup(run.unlockOut)
 	f := newFakeSteps()
 	var running, most atomic.Int32
 	f.list = func(context.Context, string) error {
@@ -397,6 +396,8 @@ func TestImportSharesParallelWithAccounts(t *testing.T) {
 		return nil
 	}
 	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
+	// After TempDir, so that the lock is let go before the directory goes.
+	t.Cleanup(run.unlockOut)
 	plan := Plan{Kind: "account", Scopes: []string{"111", "222", "333"}, Calls: func(account string) []Call {
 		return fakeCalls(options, account+"-global", account+"-eu-west-1", account+"-eu-west-2")
 	}}
