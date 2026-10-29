@@ -566,6 +566,9 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 		// first, then the curated ones of its family (see Run.toolchain),
 		// whose adapters trace changes into their calls.
 		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
+	} else {
+		// A root no provider owns may hold any of their values.
+		engineOpts.Traits = engineTraits(unionTraits(options.Provider, options.Names))
 	}
 	engineOpts.Adapters = own
 	opts := drift.Options{

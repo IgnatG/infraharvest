@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -559,4 +560,65 @@ func engineTraits(t harvest.Traits) engine.Traits {
 		TagAttributes:       t.TagAttributes,
 		MergedTagAttributes: t.MergedTagAttributes,
 	}
+}
+
+// unionTraits returns the traits of the providers of names at once, in
+// their order: what drift checks a root no provider owns with (see
+// rootProvider), so that the values any of them identifies resources by,
+// such as ARNs and Azure resource IDs, are still references.
+func unionTraits(provider func(string) harvest.Provider, names []string) harvest.Traits {
+	var u harvest.Traits
+	var wellKnown []string
+	for _, name := range names {
+		var p harvest.Provider
+		if provider != nil {
+			p = provider(name)
+		}
+		if p == nil {
+			continue
+		}
+		t := p.Profile().Traits
+		u.IDPrefixes = appendNew(u.IDPrefixes, t.IDPrefixes)
+		u.IDSuffixes = appendNew(u.IDSuffixes, t.IDSuffixes)
+		if u.ARNPrefix == "" {
+			u.ARNPrefix = t.ARNPrefix
+		}
+		if t.WellKnownIDs != nil {
+			wellKnown = append(wellKnown, "(?:"+t.WellKnownIDs.String()+")")
+		}
+		for from, to := range t.SelfLinkAliases {
+			if u.SelfLinkAliases == nil {
+				u.SelfLinkAliases = map[string]string{}
+			}
+			if _, ok := u.SelfLinkAliases[from]; !ok {
+				u.SelfLinkAliases[from] = to
+			}
+		}
+		u.IdentityAttributes = appendNew(u.IdentityAttributes, t.IdentityAttributes)
+		for block, attribute := range t.NestedIdentities {
+			if u.NestedIdentities == nil {
+				u.NestedIdentities = map[string]string{}
+			}
+			if _, ok := u.NestedIdentities[block]; !ok {
+				u.NestedIdentities[block] = attribute
+			}
+		}
+		u.OwnerTags = appendNew(u.OwnerTags, t.OwnerTags)
+		u.TagAttributes = appendNew(u.TagAttributes, t.TagAttributes)
+		u.MergedTagAttributes = appendNew(u.MergedTagAttributes, t.MergedTagAttributes)
+	}
+	if len(wellKnown) > 0 {
+		u.WellKnownIDs = regexp.MustCompile(strings.Join(wellKnown, "|"))
+	}
+	return u
+}
+
+// appendNew appends to list those of more it doesn't have yet, in order.
+func appendNew[T comparable](list, more []T) []T {
+	for _, v := range more {
+		if !slices.Contains(list, v) {
+			list = append(list, v)
+		}
+	}
+	return list
 }
