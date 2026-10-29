@@ -70,7 +70,7 @@ const (
 // Conditions): the template, after transforms, is at Template, and each
 // resource maps its logical ID to the addresses it was imported at
 // (Resource.Matches), so a Ref or Fn::GetAtt of a logical ID resolves to
-// a Terraform address. Both are in coverage.json and the JSON report.
+// a Terraform address. Both are in report.json and the JSON report.
 type Stack struct {
 	Name   string `json:"name"`
 	ID     string `json:"id"`

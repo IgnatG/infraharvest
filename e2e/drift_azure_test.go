@@ -82,7 +82,7 @@ resource "azurerm_user_assigned_identity" "ci" {
 		t.Errorf("report only: %s isn't traced through its module call %s: %+v", identity.Address, identity.ModuleCall, identity.Source)
 	}
 	if identity.ModuleCall == "" {
-		t.Logf("the identity isn't in a module call (see manifest.json): its change is accepted at the resource")
+		t.Logf("the identity isn't in a module call (see report.json): its change is accepted at the resource")
 	}
 
 	d = drift.mustExit(t, report.ExitOK, "--accept", "attribute=tags.*", "--detailed-exitcode")

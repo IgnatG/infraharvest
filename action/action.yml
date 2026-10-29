@@ -44,7 +44,7 @@ inputs:
     default: ""
   out:
     description: Directory to write the configuration and the report to.
-    default: infraharvest-out
+    default: infrastructure
   config:
     description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout and catalogue.
     required: false
@@ -381,7 +381,7 @@ runs:
         commands_off
         "$bin" "${args[@]}" 2>&1 > "$json" || code=$?
         commands_on
-        report="$OUT/report/drift.md"
+        report="$OUT/_reports/drift.md"
         found=false
         if [[ "$code" == 4 ]]; then found=true; fi
         # An accepted change that failed verification (1) is drift left too.
@@ -425,7 +425,7 @@ runs:
         commands_off
         "$bin" "${args[@]}" 2>&1 > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
         commands_on
-        report="$OUT/report/report.md"
+        report="$OUT/_reports/report.md"
         output exit-code "$code"
         output report "$report"
         # Not through a link (see the drift step).

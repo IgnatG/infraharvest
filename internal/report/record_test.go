@@ -115,7 +115,7 @@ func TestAddDirectoryOutcome(t *testing.T) {
 	}
 }
 
-// A directory's plans, by step, go into coverage.json as Generate
+// A directory's plans, by step, go into report.json as Generate
 // counted them, and into report.md as a total with each step's.
 func TestAddDirectoryPlans(t *testing.T) {
 	t.Parallel()
@@ -464,7 +464,7 @@ func TestLockProvider(t *testing.T) {
 }
 
 // The exit code of an import that ended with an error is the one set
-// after Finish, in the JSON report and coverage.json alike.
+// after Finish, in the JSON report and report.json alike.
 func TestSetExitCode(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
@@ -485,6 +485,6 @@ func TestSetExitCode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if read.ExitCode != 2 {
-		t.Errorf("coverage.json exit code %d, want 2", read.ExitCode)
+		t.Errorf("report.json exit code %d, want 2", read.ExitCode)
 	}
 }

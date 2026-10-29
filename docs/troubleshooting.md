@@ -1,25 +1,25 @@
 # Troubleshooting
 
-Find the message you see, or the exit code, below. infraharvest logs to stderr, and records what an import did in the `report/` directory of the output (`infraharvest-out/report/` by default): `report.md` for people and `coverage.json` for tools (see [Report](output.md#report)). `infraharvest report [output-directory]` prints it again.
+Find the message you see, or the exit code, below. infraharvest logs to stderr, and records what an import did in the `_reports/` directory of the output (`infrastructure/_reports/` by default): `report.md` for people and `report.json` for tools (see [Report](output.md#report)). `infraharvest report [output-directory]` prints it again.
 
 ## Exit codes
 
 | Code | What happened | Where to look |
 |---|---|---|
 | 0 | Everything found was imported | Nothing to do |
-| 1 | Something couldn't be imported; the log ends with `output is incomplete; rerun with --allow-partial to accept partial output` | `coverage.json`, below |
-| 1 | `infraharvest drift --detailed-exitcode`: a change it was told to accept failed verification, so its edit wasn't written | `report/drift.md`: the change's reason (see [Drift](drift.md#accepting-changes)) |
+| 1 | Something couldn't be imported; the log ends with `output is incomplete; rerun with --allow-partial to accept partial output` | `report.json`, below |
+| 1 | `infraharvest drift --detailed-exitcode`: a change it was told to accept failed verification, so its edit wasn't written | `_reports/drift.md`: the change's reason (see [Drift](drift.md#accepting-changes)) |
 | 2 | The import couldn't run: no credentials, no Terraform, a registry out of reach, state that can't be read | The last line of the log |
-| 3 | Something couldn't be imported, `--allow-partial` is set (`output is incomplete (--allow-partial is set)`), and the output has the rest | `coverage.json`, below |
-| 4 | `infraharvest drift --detailed-exitcode` found drift the code doesn't take yet | `report/drift.md` (see [Drift](drift.md)) |
-| 130 | The import was interrupted with Ctrl-C (SIGINT) | `coverage.json` lists what was done before it stopped |
-| 143 | The import was terminated (SIGTERM), as by a CI runner cancelling the job or a timeout | `coverage.json`, as for 130 |
+| 3 | Something couldn't be imported, `--allow-partial` is set (`output is incomplete (--allow-partial is set)`), and the output has the rest | `report.json`, below |
+| 4 | `infraharvest drift --detailed-exitcode` found drift the code doesn't take yet | `_reports/drift.md` (see [Drift](drift.md)) |
+| 130 | The import was interrupted with Ctrl-C (SIGINT) | `report.json` lists what was done before it stopped |
+| 143 | The import was terminated (SIGTERM), as by a CI runner cancelling the job or a timeout | `report.json`, as for 130 |
 
 See [Exit codes](output.md#exit-codes). A failed check of the [verification gate](output.md#verification-gate) counts as something that couldn't be imported.
 
-### Reading coverage.json
+### Reading report.json
 
-What went wrong is in three places of `coverage.json`:
+What went wrong is in three places of `report.json`:
 
 - `failures`: one line per thing that failed, such as a service that couldn't be listed (`service s3: ...`), a resource Terraform left out (`<directory>: <address> left out (see rejected.hcl): ...`) or a failed check (`<directory>: G3 plan failed: ...`).
 - `directories[].left_out`: the resources of each root that Terraform left out, with its errors. The root's `rejected.hcl` holds their import blocks.
@@ -28,9 +28,9 @@ What went wrong is in three places of `coverage.json`:
 With [jq](https://jqlang.org/):
 
 ```sh
-jq -r '.failures[]?' infraharvest-out/report/coverage.json
-jq -r '.directories[] | .path as $dir | .left_out[]? | "\($dir): \(.address): \(.errors | join("; "))"' infraharvest-out/report/coverage.json
-jq -r '.directories[] | .path as $dir | .checks[]? | select(.passed | not) | "\($dir): \(.name): \(.details // [] | join("; "))"' infraharvest-out/report/coverage.json
+jq -r '.failures[]?' infrastructure/_reports/report.json
+jq -r '.directories[] | .path as $dir | .left_out[]? | "\($dir): \(.address): \(.errors | join("; "))"' infrastructure/_reports/report.json
+jq -r '.directories[] | .path as $dir | .checks[]? | select(.passed | not) | "\($dir): \(.name): \(.details // [] | join("; "))"' infrastructure/_reports/report.json
 ```
 
 ## Access denied

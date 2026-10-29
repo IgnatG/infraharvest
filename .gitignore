@@ -4,7 +4,7 @@
 /infraharvest-*
 /infraharvest.exe
 # The default output directory of an import
-/infraharvest-out/
+/infrastructure/
 .DS_Store
 .terraform
 .vscode

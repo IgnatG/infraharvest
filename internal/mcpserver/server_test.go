@@ -186,7 +186,7 @@ func TestDiscover(t *testing.T) {
 	if res.IsError || !strings.Contains(text, "lists 3 resources: 2 included, 1 excluded") {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"discover", "aws", "--services=vpc,subnet", "--regions=eu-west-2", "--pick=false", "--out=" + filepath.Join(dir, "infraharvest-out"), "--selection=" + path}
+	want := []string{"discover", "aws", "--services=vpc,subnet", "--regions=eu-west-2", "--pick=false", "--out=" + filepath.Join(dir, "infrastructure"), "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}
@@ -622,7 +622,7 @@ func TestDiscoverScopes(t *testing.T) {
 	if res.IsError {
 		t.Errorf("result: %s", text)
 	}
-	want := []string{"discover", "google", "--services=iam", "--projects=my-project", "--pick=false", "--out=" + filepath.Join(dir, "infraharvest-out"), "--selection=" + path}
+	want := []string{"discover", "google", "--services=iam", "--projects=my-project", "--pick=false", "--out=" + filepath.Join(dir, "infrastructure"), "--selection=" + path}
 	if len(runner.runs) != 1 || !slices.Equal(runner.runs[0], want) {
 		t.Errorf("runs: %v, want %v", runner.runs, want)
 	}

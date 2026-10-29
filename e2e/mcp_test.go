@@ -98,8 +98,8 @@ func TestAWSMCP(t *testing.T) {
 		t.Errorf("discover asked the user: %q", asked)
 	}
 	// What it listed is saved under the root, not where the server runs.
-	if _, err := os.Stat(filepath.Join(root, "infraharvest-out", ".infraharvest")); err != nil {
-		t.Errorf("discover saved nothing under the root's infraharvest-out: %v", err)
+	if _, err := os.Stat(filepath.Join(root, report.DefaultOut, ".infraharvest")); err != nil {
+		t.Errorf("discover saved nothing under the root's %s: %v", report.DefaultOut, err)
 	}
 
 	// The agent leaves the jobs queue out, as the user asked.

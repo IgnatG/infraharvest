@@ -574,7 +574,7 @@ func TestImportRecoversAPanicOfOneCall(t *testing.T) {
 					t.Errorf("log %q, want %q", logged.String(), want)
 				}
 			}
-			if _, err := os.Stat(filepath.Join(options.Out, report.Dir, "coverage.json")); err != nil {
+			if _, err := os.Stat(filepath.Join(options.Out, report.Dir, "report.json")); err != nil {
 				t.Errorf("no report: %v", err)
 			}
 		})

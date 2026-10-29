@@ -112,11 +112,11 @@ func TestAWSParallelRegions(t *testing.T) {
 	}
 
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(parallel, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(parallel, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	if len(coverage.Failures) != 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 {
-		t.Errorf("coverage.json: %+v, failures %v", coverage.Totals, coverage.Failures)
+		t.Errorf("report.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 	}
 	imported := map[string]int{}
 	for _, dir := range generatedDirs(t, parallel) {

@@ -70,7 +70,7 @@ func checkMerged(t *testing.T, out string, coverage report.Report, path string, 
 	for _, d := range coverage.Directories {
 		for _, root := range m.Roots {
 			if d.Path == root.Path && d.MergedInto != path {
-				t.Errorf("coverage.json: %s merged into %q, want %s", d.Path, d.MergedInto, path)
+				t.Errorf("report.json: %s merged into %q, want %s", d.Path, d.MergedInto, path)
 			}
 		}
 	}

@@ -62,9 +62,10 @@ func newDriftCmd() *cobra.Command {
 			"--decisions doesn't name isn't applied. Its entries decide over its rules and\n" +
 			"defaults, and --accept and --keep decide over the file. An entry decided for\n" +
 			"other values, as the cloud changed again since, isn't applied.\n\n" +
-			"The report goes into report/drift.json and report/drift.md. Exit code 0 means\n" +
-			"every root was checked, 2 that one couldn't be; with --detailed-exitcode, 4\n" +
-			"means drift is left, and 1 that an accepted change failed verification.",
+			"The report goes into _reports/drift.json and _reports/drift.md. Exit code 0\n" +
+			"means every root was checked, 2 that one couldn't be; with\n" +
+			"--detailed-exitcode, 4 means drift is left, and 1 that an accepted change\n" +
+			"failed verification.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -8,8 +8,8 @@
 // its own and what infraharvest finds shows over time. Run from the
 // repository root, with terraform on the PATH:
 //
-//	go run ./internal/catalogue/cmd/listcoverage                     # the report, in Markdown
-//	go run ./internal/catalogue/cmd/listcoverage -json coverage.json # and the counts as JSON
+//	go run ./internal/catalogue/cmd/listcoverage                          # the report, in Markdown
+//	go run ./internal/catalogue/cmd/listcoverage -json list-coverage.json # and the counts as JSON
 //
 // The types infraharvest lists are those docs/reference/services.md names:
 // the page is generated from the listers and the catalogue, and a golden

@@ -7,7 +7,7 @@ There are two ways, and you can run both:
 | Way | What you get | What it takes |
 |---|---|---|
 | `discover` | Every resource, with whether something manages it and what, in a selection file; counts in the log, and by type, by account and region and by tag with `--format json` | Listing only: seconds to minutes per region, no Terraform |
-| `import` into a scratch `--out` | The same counts in `report.md` and `coverage.json`, with the owner tags discover can't read and the types Terraform can't import | A Terraform plan per root: minutes per region |
+| `import` into a scratch `--out` | The same counts in `report.md` and `report.json`, with the owner tags discover can't read and the types Terraform can't import | A Terraform plan per root: minutes per region |
 
 ## When to use it
 
@@ -22,7 +22,7 @@ There are two ways, and you can run both:
 - For `--managed-state`, read access to the state it reads. The read-only templates don't grant it: the AWS role denies `s3:GetObject` and `kms:Decrypt`, Azure's Reader has no data actions, and Google Cloud's template denies reading and listing objects (`storage.objects.get`, `storage.objects.list`) with an IAM deny policy (`deny_data_reads`, on by default). The drift templates grant read access to the state alone (see [Permissions](permissions.md#drift-reading-the-state)). Blob Storage is read as the azurerm backend reads it, and `tfc://` with the token `terraform login` saved (see [Choosing what to import](usage.md#choosing-what-to-import)). A state that can't be read fails the command before anything is listed.
 - For the full report only, Terraform 1.5 or later, or OpenTofu 1.6 or later, which infraharvest downloads if there is none on `PATH`.
 
-Run it in an empty directory: `discover` writes the selection file into the current directory, and saves what it listed under `<out>/.infraharvest` (`infraharvest-out` by default). That saved list holds every resource's attributes, so it is as sensitive as state: `.infraharvest` is created private to your user (mode 0700, or on Windows an access list that grants your user, SYSTEM and Administrators only), but delete the directory once you are done.
+Run it in an empty directory: `discover` writes the selection file into the current directory, and saves what it listed under `<out>/.infraharvest` (`infrastructure` by default). That saved list holds every resource's attributes, so it is as sensitive as state: `.infraharvest` is created private to your user (mode 0700, or on Windows an access list that grants your user, SYSTEM and Administrators only), but delete the directory once you are done.
 
 ## Quick audit: discover
 
@@ -119,7 +119,7 @@ The import exits 1 when a resource couldn't be imported or a check failed, and 3
 
 ### Reading the report
 
-`audit-out/report/report.md` (`infraharvest report audit-out` prints it again) has:
+`audit-out/_reports/report.md` (`infraharvest report audit-out` prints it again) has:
 
 - A table of totals: discovered, imported, excluded, left out, not importable (types Terraform can't import) and failed.
 - **Managed and unmanaged**: for each type, and for each account and region when there are several, how much was discovered, how much Terraform manages (by the state, by tags, or, with `--incremental`, in a root of the output already), how much another tool manages, how much the cloud manages itself (or the default selection leaves out for another reason, such as a VPC another account shares), and how much none of them does. It is there whenever something was discovered, also when nothing is managed.
@@ -130,19 +130,19 @@ The import exits 1 when a resource couldn't be imported or a check failed, and 3
 
 `Not managed` is what was discovered less what Terraform, other tools and the cloud manage. It still counts what you left out yourself, by the selection file, and types Terraform can't import. What was imported, and what was left out after Terraform rejected it, is what is unmanaged and importable.
 
-`coverage.json` holds the same, for tools, and `--format json` prints the whole report on stdout (see [Report](output.md#report)). `managed`, `other_tool` and `cloud` are left out where they are 0. Each of `excluded` has an `owner`, what manages it: `terraform_state`, `terraform_tag`, `terraform_root` (a root of the output has it), `cloudformation`, `other_tool`, `cloud`, or `selection` (you left it out). With [jq](https://jqlang.org/):
+`report.json` holds the same, for tools, as `--format json` prints it on stdout (see [Report](output.md#report)). `managed`, `other_tool` and `cloud` are left out where they are 0. Each of `excluded` has an `owner`, what manages it: `terraform_state`, `terraform_tag`, `terraform_root` (a root of the output has it), `cloudformation`, `other_tool`, `cloud`, or `selection` (you left it out). With [jq](https://jqlang.org/):
 
 ```sh
 # totals: discovered, imported, excluded, managed, other_tool, cloud ...
-jq '.totals' audit-out/report/coverage.json
+jq '.totals' audit-out/_reports/report.json
 # what isn't managed, by type
-jq -r '.types[] | [.type, .discovered - (.managed // 0) - (.other_tool // 0) - (.cloud // 0)] | @tsv' audit-out/report/coverage.json
+jq -r '.types[] | [.type, .discovered - (.managed // 0) - (.other_tool // 0) - (.cloud // 0)] | @tsv' audit-out/_reports/report.json
 # the same by account and region
-jq -r '.scopes[]? | [.scope, .discovered - (.managed // 0) - (.other_tool // 0) - (.cloud // 0)] | @tsv' audit-out/report/coverage.json
+jq -r '.scopes[]? | [.scope, .discovered - (.managed // 0) - (.other_tool // 0) - (.cloud // 0)] | @tsv' audit-out/_reports/report.json
 # what is unmanaged and importable, one resource per line
-jq -r '.directories[] | (.imported[]?, .left_out[]?) | "\(.address) \(.id)"' audit-out/report/coverage.json
+jq -r '.directories[] | (.imported[]?, .left_out[]?) | "\(.address) \(.id)"' audit-out/_reports/report.json
 # what other tools manage, with the tool
-jq -r '.excluded[]? | select(.owner == "cloudformation" or .owner == "other_tool") | "\(.type) \(.id): \(.reason)"' audit-out/report/coverage.json
+jq -r '.excluded[]? | select(.owner == "cloudformation" or .owner == "other_tool") | "\(.type) \(.id): \(.reason)"' audit-out/_reports/report.json
 ```
 
 `not_in_cloud` stays empty in a scratch directory: it lists what roots an earlier import generated have that the cloud no longer has (see [Choosing what to import](usage.md#choosing-what-to-import)).

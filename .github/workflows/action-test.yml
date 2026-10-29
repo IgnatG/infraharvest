@@ -179,7 +179,7 @@ jobs:
           test "$DRIFT_EXIT_CODE" = 4
           test "$DRIFT_FOUND" = true
           test -f "$DRIFT_REPORT"
-          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
+          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$RUNNER_TEMP/out/_reports/drift.json"
           grep -q "decision: undecided" "$RUNNER_TEMP/decisions/drift.yaml"
           test ! -e "$RUNNER_TEMP/out/drift.yaml"
       - name: Check the new queue was added
@@ -230,7 +230,7 @@ jobs:
           test -z "$EXIT_CODE"
           test "$DRIFT_EXIT_CODE" = 0
           test "$DRIFT_FOUND" = false
-          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "written")] | length == 1' "$RUNNER_TEMP/out/report/drift.json"
+          jq -e '[.changes[] | select(.attribute == "tags.Drift" and .outcome == "written")] | length == 1' "$RUNNER_TEMP/out/_reports/drift.json"
           grep -rq --include='*.tf' -E 'Drift += +"console"' "$RUNNER_TEMP/out"
       # The steady state: the roots applied with what the runs added, their
       # import blocks deleted, and infraharvest's checkpoints not checked
@@ -370,7 +370,7 @@ jobs:
           imports=$(find "$RUNNER_TEMP/out" -name imports.tf -not -path '*/.terraform/*' -exec cat {} +)
           test "$(grep -c '^import {' <<< "$imports")" = 1
           grep -q '/shop-orders"' <<< "$imports"
-          coverage="$RUNNER_TEMP/out/report/coverage.json"
+          coverage="$RUNNER_TEMP/out/_reports/report.json"
           jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/shop-orders-dlq")) and .reason == "excluded by a rule in the selection file")] | length == 1' "$coverage"
           jq -e '[.excluded[] | select(.type == "aws_sqs_queue" and (.id | endswith("/audit")) and .reason == "excluded by the selection file'"'"'s defaults")] | length == 1' "$coverage"
       # After a bare --, the flags would be arguments: the action refuses
@@ -498,7 +498,7 @@ jobs:
           root="$RUNNER_TEMP/out/aws/us-east-1"
           test -f "$root/vars/dev/terraform.tfvars"
           test -f "$root/vars/prod/terraform.tfvars"
-          jq -e '[.merges[] | select(.path == "aws/us-east-1" and .merged)] | length == 1' "$RUNNER_TEMP/out/report/coverage.json"
+          jq -e '[.merges[] | select(.path == "aws/us-east-1" and .merged)] | length == 1' "$RUNNER_TEMP/out/_reports/report.json"
           terraform -chdir="$root" init -input=false
           for env in dev prod; do
             if [[ "$env" == dev ]]; then account=$DEV; else account=$PROD; fi
@@ -529,7 +529,7 @@ jobs:
           test "$OUTCOME" = failure
           # infraharvest refused it before checking anything.
           test "$DRIFT_EXIT_CODE" = 2
-          test ! -e "$RUNNER_TEMP/out/report/drift.json"
+          test ! -e "$RUNNER_TEMP/out/_reports/drift.json"
       # An environment name the configuration file couldn't have, such as
       # one starting with a dot: the action refuses it before anything
       # runs.
@@ -550,7 +550,7 @@ jobs:
         run: |
           test "$OUTCOME" = failure
           test -z "$DRIFT_EXIT_CODE"
-          test ! -e "$RUNNER_TEMP/out/report/drift.json"
+          test ! -e "$RUNNER_TEMP/out/_reports/drift.json"
       - name: Check drift as dev
         id: dev
         uses: ./action
@@ -570,7 +570,7 @@ jobs:
         run: |
           test "$DRIFT_EXIT_CODE" = 4
           test "$DRIFT_FOUND" = true
-          drift="$RUNNER_TEMP/out/report/drift.json"
+          drift="$RUNNER_TEMP/out/_reports/drift.json"
           jq -e '[.roots[] | .path + " " + .environment] == ["aws/us-east-1 dev"]' "$drift"
           jq -e '[.changes[] | select(.environment == "dev" and .attribute == "tags.Drift" and .outcome == "kept")] | length == 1' "$drift"
           grep -q "decision: undecided" "$RUNNER_TEMP/decisions/drift-dev.yaml"
@@ -593,7 +593,7 @@ jobs:
         run: |
           test "$DRIFT_EXIT_CODE" = 0
           test "$DRIFT_FOUND" = false
-          drift="$RUNNER_TEMP/out/report/drift.json"
+          drift="$RUNNER_TEMP/out/_reports/drift.json"
           jq -e '[.roots[] | .path + " " + .environment] == ["aws/us-east-1 prod"] and (.changes // []) == []' "$drift"
       - name: Floci logs
         if: failure()
@@ -673,7 +673,7 @@ jobs:
           grep -q "azurerm_virtual_network" <<< "$imports"
           grep -q "azurerm_network_security_group" <<< "$imports"
           # Nothing failed but the tags floci-az can't list.
-          jq -e '.totals.failed == 0 and .totals.left_out == 0 and all(.failures[]?; startswith("tags:"))' "$RUNNER_TEMP/out/report/coverage.json"
+          jq -e '.totals.failed == 0 and .totals.left_out == 0 and all(.failures[]?; startswith("tags:"))' "$RUNNER_TEMP/out/_reports/report.json"
       - name: floci-az logs
         if: failure()
         run: docker compose -f e2e/compose.yaml --profile azure logs floci-az
@@ -824,7 +824,7 @@ jobs:
           grep -rqE '"?team"?[[:space:]]*=[[:space:]]*"web"' --include='*.tf' "$root"
           # Nothing failed or was left out, and every check of the root,
           # its plan with no changes among them, passed.
-          coverage="$RUNNER_TEMP/out/report/coverage.json"
+          coverage="$RUNNER_TEMP/out/_reports/report.json"
           jq -e '.totals.failed == 0 and .totals.left_out == 0 and (.failures // []) == []' "$coverage"
           jq -e '[.directories[].path] == ["google/infraharvest-e2e/global"] and all(.directories[].checks[]?; .passed)' "$coverage"
           # Planned again, the root imports the two and changes nothing but,
@@ -908,7 +908,7 @@ jobs:
           # As a checkout of an existing branch has it: create-pull-request
           # resets the base to its remote-tracking ref.
           git update-ref "refs/remotes/origin/$BASE_BRANCH" "$GITHUB_SHA"
-          printf '/action-test-out/*\n!/action-test-out/report/\n' >> .git/info/exclude
+          printf '/action-test-out/*\n!/action-test-out/_reports/\n' >> .git/info/exclude
       - name: Run the action
         id: infraharvest
         uses: ./action
@@ -931,7 +931,7 @@ jobs:
           jq -e --arg base "$BASE_BRANCH" --arg head "$PR_BRANCH" \
             '.title == "Import existing resources with infraharvest" and .baseRefName == $base and .headRefName == $head and .state == "OPEN"' "$pr"
           # The report alone, and nothing generated.
-          jq -e '(.files | length) > 0 and all(.files[]; .path | startswith("action-test-out/report/"))' "$pr"
+          jq -e '(.files | length) > 0 and all(.files[]; .path | startswith("action-test-out/_reports/"))' "$pr"
           # The body is the import report, as GitHub keeps it, and as the
           # pull request's branch has it: the action leaves the checkout on
           # the base branch, without the report.
@@ -997,7 +997,7 @@ jobs:
       - name: Create the branch
         run: |
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/heads/$COMMIT_BRANCH" -f "sha=$GITHUB_SHA" > /dev/null
-          printf '/action-test-out/*\n!/action-test-out/report/\n' >> .git/info/exclude
+          printf '/action-test-out/*\n!/action-test-out/_reports/\n' >> .git/info/exclude
       - name: Run the action with commit and pull-request
         id: both
         continue-on-error: true
@@ -1033,8 +1033,8 @@ jobs:
           jq -e --arg parent "$GITHUB_SHA" \
             '.commit.message == "feat: import existing resources with infraharvest" and [.parents[].sha] == [$parent]' "$commit"
           # The report alone, and nothing generated.
-          jq -e '(.files | length) > 0 and all(.files[]; .filename | startswith("action-test-out/report/"))' "$commit"
-          jq -e 'any(.files[]; .filename == "action-test-out/report/report.md")' "$commit"
+          jq -e '(.files | length) > 0 and all(.files[]; .filename | startswith("action-test-out/_reports/"))' "$commit"
+          jq -e 'any(.files[]; .filename == "action-test-out/_reports/report.md")' "$commit"
       - name: Check out no branch
         run: git checkout --detach
       - name: Run the action from a detached checkout
@@ -1110,19 +1110,19 @@ jobs:
           }
 
           # A scheduled import.
-          details import IMPORT=true DRIFT=off OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+          details import IMPORT=true DRIFT=off OUT=infrastructure BRANCH= DRIFT_DECISIONS= \
             IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT=
           expect import title "Import existing resources with infraharvest"
           expect import commit-message "feat: import existing resources with infraharvest"
           expect import branch infraharvest/import
           expect import body-path "$RUNNER_TEMP/import/infraharvest-pull-request.md"
-          expect import add-paths infraharvest-out
+          expect import add-paths infrastructure
           cmp "$RUNNER_TEMP/report.md" "$(output import body-path)"
           # add-paths ends at a delimiter of random bytes, which no path can
           # hold to end it early.
           grep -Eq '^add-paths<<INFRAHARVEST_[0-9a-f]{32}$' "$RUNNER_TEMP/import.out"
           # A branch with a line break would set another output: refused.
-          if details newline IMPORT=true DRIFT=off OUT=infraharvest-out BRANCH=$'infraharvest/x\nbody-path=/etc/passwd' \
+          if details newline IMPORT=true DRIFT=off OUT=infrastructure BRANCH=$'infraharvest/x\nbody-path=/etc/passwd' \
             DRIFT_DECISIONS= IMPORT_REPORT= DRIFT_REPORT=; then
             echo "::error::a branch with a line break was written to the outputs"
             exit 1
@@ -1134,27 +1134,27 @@ jobs:
 
           # Drift accepted, then an import: both reports, and the decisions
           # file, wherever it is.
-          details both IMPORT=true DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
+          details both IMPORT=true DRIFT=accept OUT=infrastructure BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
             IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect both title "Accept cloud changes (drift) and import new resources"
           expect both commit-message "fix: accept drift found by infraharvest"
           expect both branch infraharvest/import
-          expect both add-paths "$(printf 'infraharvest-out\ndecisions/drift.yaml')"
+          expect both add-paths "$(printf 'infrastructure\ndecisions/drift.yaml')"
           printf '# Import report\n\n# Drift report\n' > "$RUNNER_TEMP/both.md"
           cmp "$RUNNER_TEMP/both.md" "$(output both body-path)"
 
           # Drift reported, then an import: the changes are recorded for
           # review, and none accepted.
-          details recorded IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
+          details recorded IMPORT=true DRIFT=report OUT=infrastructure BRANCH= DRIFT_DECISIONS=decisions/drift.yaml \
             IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect recorded title "Import new resources, and record cloud changes (drift) for review"
           expect recorded commit-message "feat: import new resources and record drift found by infraharvest"
           expect recorded branch infraharvest/import
-          expect recorded add-paths "$(printf 'infraharvest-out\ndecisions/drift.yaml')"
+          expect recorded add-paths "$(printf 'infrastructure\ndecisions/drift.yaml')"
           cmp "$RUNNER_TEMP/both.md" "$(output recorded body-path)"
 
           # Drift accepted alone, on a branch of its own.
-          details accepted IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+          details accepted IMPORT=false DRIFT=accept OUT=infrastructure BRANCH= DRIFT_DECISIONS= \
             IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect accepted title "Accept cloud changes (drift)"
           expect accepted commit-message "fix: accept drift found by infraharvest"
@@ -1163,38 +1163,38 @@ jobs:
 
           # Drift reported alone, on a branch of its own, with no drift
           # report: on a first run, out doesn't exist yet.
-          details drift IMPORT=false DRIFT=report OUT=infraharvest-out BRANCH=infraharvest/weekly DRIFT_DECISIONS= \
+          details drift IMPORT=false DRIFT=report OUT=infrastructure BRANCH=infraharvest/weekly DRIFT_DECISIONS= \
             IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/missing/drift.md"
           expect drift title "Record cloud changes (drift) for review"
           expect drift commit-message "chore: record drift found by infraharvest for review"
           expect drift branch infraharvest/weekly
-          expect drift add-paths infraharvest-out
+          expect drift add-paths infrastructure
           test ! -s "$(output drift body-path)"
 
           # A report the repository commits as a link, which a run that
           # failed before writing its report leaves there, isn't read
           # through it into the body, nor is one in a linked directory.
-          mkdir -p linked-out/report
+          mkdir -p linked-out/_reports
           printf 'secret\n' > "$RUNNER_TEMP/secret"
-          ln -s "$RUNNER_TEMP/secret" linked-out/report/report.md
+          ln -s "$RUNNER_TEMP/secret" linked-out/_reports/report.md
           ln -s "$RUNNER_TEMP" linked-report
           printf '# Drift report\n' > "$RUNNER_TEMP/drift.md"
           details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
-            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$GITHUB_WORKSPACE/linked-report/drift.md"
+            IMPORT_REPORT=linked-out/_reports/report.md DRIFT_REPORT="$GITHUB_WORKSPACE/linked-report/drift.md"
           test ! -s "$(output linked body-path)"
 
           # Drift accepted as one environment, in a matrix job of its own:
           # that environment's pull request, on a branch of its own.
-          details prod IMPORT=false DRIFT=accept OUT=infraharvest-out BRANCH= DRIFT_DECISIONS=decisions/drift-prod.yaml \
+          details prod IMPORT=false DRIFT=accept OUT=infrastructure BRANCH= DRIFT_DECISIONS=decisions/drift-prod.yaml \
             ENVIRONMENT=prod IMPORT_REPORT= DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect prod title "Accept cloud changes (drift) in prod"
           expect prod commit-message "fix: accept drift found by infraharvest in prod"
           expect prod branch infraharvest/drift-prod
-          expect prod add-paths "$(printf 'infraharvest-out\ndecisions/drift-prod.yaml')"
+          expect prod add-paths "$(printf 'infrastructure\ndecisions/drift-prod.yaml')"
 
           # Every environment at once, with one set of credentials:
           # --environment all.
-          details all IMPORT=true DRIFT=report OUT=infraharvest-out BRANCH= DRIFT_DECISIONS= \
+          details all IMPORT=true DRIFT=report OUT=infrastructure BRANCH= DRIFT_DECISIONS= \
             ENVIRONMENT=all IMPORT_REPORT="$RUNNER_TEMP/report.md" DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           expect all title "Import new resources, and record cloud changes (drift) for review"
           expect all branch infraharvest/import
@@ -1203,9 +1203,9 @@ jobs:
           # directory linked to another, is left out of the body.
           mkdir -p linked-out "$RUNNER_TEMP/elsewhere"
           printf '# Not a report\n' > "$RUNNER_TEMP/elsewhere/report.md"
-          ln -s "$RUNNER_TEMP/elsewhere" linked-out/report
+          ln -s "$RUNNER_TEMP/elsewhere" linked-out/_reports
           details linked IMPORT=true DRIFT=report OUT=linked-out BRANCH= DRIFT_DECISIONS= \
-            IMPORT_REPORT=linked-out/report/report.md DRIFT_REPORT="$RUNNER_TEMP/drift.md"
+            IMPORT_REPORT=linked-out/_reports/report.md DRIFT_REPORT="$RUNNER_TEMP/drift.md"
           cmp "$RUNNER_TEMP/drift.md" "$(output linked body-path)"
 
   # What action/commit.sh commits and pushes, checked against a repository

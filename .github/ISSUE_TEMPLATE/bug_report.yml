@@ -46,7 +46,7 @@ body:
       label: Engine and provider versions
       description: >-
         What `terraform version` or `tofu version` prints in the generated
-        root, or the versions in the report's manifest.json.
+        root, or the versions in _reports/report.json (tool, engine, provider).
       placeholder: Terraform v1.14.0, hashicorp/aws v6.20.0
   - type: dropdown
     id: install
@@ -91,5 +91,5 @@ body:
       label: Output
       description: >-
         The log lines around the problem (`--verbose` adds detail), or the
-        relevant part of report/report.md.
+        relevant part of _reports/report.md.
       render: text

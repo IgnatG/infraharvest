@@ -23,7 +23,7 @@ import (
 // root has that has been deleted since: a queue created after out, the
 // output of checkIncremental, is added to its root, then deleted, and the
 // import after that, which adds another new queue, reports it no longer
-// in the cloud, in coverage.json and the root's README, without changing
+// in the cloud, in report.json and the root's README, without changing
 // what the root has. The queues are deleted when the test ends, so the
 // emulator has testdata/aws again.
 func checkNoLongerInCloud(ctx context.Context, t *testing.T, engineName, execPath, selectionFile, out string) {

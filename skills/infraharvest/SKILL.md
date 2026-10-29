@@ -52,14 +52,14 @@ Over MCP, the `import` tool asks the user to confirm; a client that can't ask re
 
 ### 4. Verify and read the report
 
-Each root goes through the verification gate (format, validate, a plan with no changes, the output standard, scanners, secrets, determinism). Read `infraharvest-out/report/report.md` (or the `report` tool, or `infraharvest report`) and tell the user what was imported, what was left out and why, and which secret variables each root needs. After any edit to a root, run `infraharvest verify [output-directory]`, before `imports.tf` is deleted.
+Each root goes through the verification gate (format, validate, a plan with no changes, the output standard, scanners, secrets, determinism). Read `infrastructure/_reports/report.md` (or the `report` tool, or `infraharvest report`) and tell the user what was imported, what was left out and why, and which secret variables each root needs. After any edit to a root, run `infraharvest verify [output-directory]`, before `imports.tf` is deleted.
 
 ### 5. Apply: the user's step
 
 Tell the user how, and stop there:
 
 ```sh
-cd infraharvest-out/aws/<account>/eu-west-2
+cd infrastructure/aws/<account>/eu-west-2
 terraform init
 terraform plan    # imports every resource, changes nothing
 terraform apply   # records the resources in the state, without changing them
@@ -80,7 +80,7 @@ After the roots are applied, drift shows what changed in the cloud and which cha
 2. Accept only what the user chooses, with rules (the last rule that matches decides):
 
 ```sh
-infraharvest drift infraharvest-out --accept 'attribute=tags.*' --keep 'type=aws_security_group'
+infraharvest drift infrastructure --accept 'attribute=tags.*' --keep 'type=aws_security_group'
 ```
 
 Over MCP, `drift_accept` takes the same rules in `rules` (`accept attribute=tags.*`, `keep type=aws_security_group`) or a `decisions` file, and asks the user to confirm. `--write-decisions` (or `write_decisions`) writes the changes into a decisions file for the user to decide change by change. Accepted changes are edited into the code; the user reviews and applies them.
@@ -96,7 +96,7 @@ Over MCP, `drift_accept` takes the same rules in `rules` (`accept attribute=tags
 | 4 | | Drift is left that the next apply reverts |
 | 130, 143 | Interrupted or terminated | Interrupted or terminated |
 
-On 1 or 3, read `infraharvest-out/report/coverage.json` (`failures`, `directories[].left_out`, `directories[].checks`); on 2, the last line of the log.
+On 1 or 3, read `infrastructure/_reports/report.json` (`failures`, `directories[].left_out`, `directories[].checks`); on 2, the last line of the log.
 
 ## More
 

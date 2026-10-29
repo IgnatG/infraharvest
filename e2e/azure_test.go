@@ -71,12 +71,12 @@ func TestAzureRoundTrip(t *testing.T) {
 	}
 	// The identity, with its federated credential, becomes a call of Azure
 	// Verified Modules' managed identity module when the module accepts
-	// azurerm's newest major release; when it doesn't, manifest.json says
+	// azurerm's newest major release; when it doesn't, report.json says
 	// the module isn't called, and both stay in the root, on the newest
 	// azurerm, without the module's azapi provider. The plans above check
 	// that either changes nothing.
 	var manifest report.Manifest
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "manifest.json"))), &manifest); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &manifest); err != nil {
 		t.Fatal(err)
 	}
 	unused := slices.ContainsFunc(manifest.Unused, func(m report.UnusedModule) bool {
@@ -184,7 +184,7 @@ func importAzure(t *testing.T, e azureEstate, out string, args ...string) string
 		"--terraform-path=" + e.execPath,
 		"--out=" + out,
 		// Keep going after a failure, so one run reports every problem;
-		// the checks on coverage.json still fail the test.
+		// the checks on report.json still fail the test.
 		"--allow-partial",
 	}, azureScope()...), args...))
 	if err := root.ExecuteContext(e.ctx); importer.ExitCode(err) != report.ExitOK && importer.ExitCode(err) != report.ExitPartial {

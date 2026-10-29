@@ -110,7 +110,7 @@ type driftCheck func(ctx context.Context, dir, staging string, opts drift.Option
 
 // Drift checks the roots an import generated in options.Out for what
 // changed in the cloud since they were applied (see drift.Check), writes
-// report/drift.json and report/drift.md, and prints a summary, or with
+// _reports/drift.json and _reports/drift.md, and prints a summary, or with
 // --format json drift.json. It changes no state; it changes the code only
 // to take the cloud's values of the changes options.Decisions and
 // options.Rules accept, once the plan of the edited code says it takes

@@ -249,9 +249,9 @@ jobs:
     # The generated configuration, encrypted to the OpenPGP key in the
     # SANDBOX_OUTPUT_KEY variable, so that only its owner can read it: the
     # artifacts of a public repository are public. Without the variable,
-    # nothing more is kept. Never any state, .terraform directory, variables
-    # file or saved inventory (.infraharvest/), which lists the estate as
-    # state does.
+    # nothing more is kept. Never any state, .terraform directory or saved
+    # inventory (.infraharvest/), which lists the estate as state does. The
+    # generated vars/<env>/*.tfvars hold no secrets, and are kept.
     - name: Encrypt the output
       if: always() && vars.SANDBOX_OUTPUT_KEY != ''
       env:
@@ -262,7 +262,7 @@ jobs:
           exit 0
         fi
         printf '%s\n' "$OUTPUT_KEY" > "$RUNNER_TEMP/output-key.asc"
-        tar -C "$SANDBOX_OUTPUT_DIR" --exclude=.terraform --exclude=.infraharvest --exclude='*.tfstate*' --exclude='*.tfvars*' -czf "$RUNNER_TEMP/output.tar.gz" .
+        tar -C "$SANDBOX_OUTPUT_DIR" --exclude=.terraform --exclude=.infraharvest --exclude='*.tfstate*' -czf "$RUNNER_TEMP/output.tar.gz" .
         gpg --batch --yes --trust-model always --recipient-file "$RUNNER_TEMP/output-key.asc" \
           --output "$RUNNER_TEMP/output.tar.gz.gpg" --encrypt "$RUNNER_TEMP/output.tar.gz"
         rm "$RUNNER_TEMP/output.tar.gz"
@@ -283,8 +283,8 @@ jobs:
       with:
         name: sandbox-aws-${{ inputs.estate }}-${{ inputs.engine }}
         path: |
-          ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/report.md
-          ${{ env.SANDBOX_OUTPUT_DIR }}/**/report/coverage.json
+          ${{ env.SANDBOX_OUTPUT_DIR }}/**/_reports/report.md
+          ${{ env.SANDBOX_OUTPUT_DIR }}/**/_reports/report.json
         if-no-files-found: ignore
         retention-days: 7
 

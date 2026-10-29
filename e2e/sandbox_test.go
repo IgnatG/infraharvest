@@ -134,7 +134,7 @@ func (e *sandboxEstate) apply(ctx context.Context, t *testing.T, opts ...tfexec.
 func readCoverage(t *testing.T, out string) report.Report {
 	t.Helper()
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	return coverage
@@ -158,7 +158,7 @@ func checkNoAuthorizationErrors(t *testing.T, logged string, coverage report.Rep
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, text := range []struct{ where, content string }{{"the import's log", logged}, {"coverage.json", string(reported)}} {
+	for _, text := range []struct{ where, content string }{{"the import's log", logged}, {"report.json", string(reported)}} {
 		for _, line := range strings.Split(text.content, "\n") {
 			for _, denied := range denials {
 				if strings.Contains(line, denied) {

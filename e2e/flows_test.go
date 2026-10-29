@@ -58,7 +58,7 @@ func logDuring(fn func()) string {
 func coverageOf(t *testing.T, out string) report.Report {
 	t.Helper()
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	return coverage
@@ -74,7 +74,7 @@ func checkCoverage(t *testing.T, what string, coverage report.Report, emulatorFa
 		failures = slices.DeleteFunc(slices.Clone(failures), emulatorFailure)
 	}
 	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(failures) != 0 {
-		t.Errorf("%s: coverage.json: %+v, failures %v", what, coverage.Totals, failures)
+		t.Errorf("%s: report.json: %+v, failures %v", what, coverage.Totals, failures)
 	}
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {

@@ -316,7 +316,7 @@ func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, impor
 // AddMerge records m, the outcome of a stack whose environments' roots are
 // at roots, relative to the output directory: once merged, each root's
 // directory names the merged root, and the merged root's findings
-// (Merge.Findings) are the report's, which coverage.json lists once,
+// (Merge.Findings) are the report's, which report.json lists once,
 // with the others.
 func (r *Report) AddMerge(m Merge, roots []string) {
 	findings := m.Findings

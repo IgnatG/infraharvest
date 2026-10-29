@@ -730,7 +730,7 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 		}
 	}
 	if inRoot == 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json of --incremental: %d in the roots already, failures %v", inRoot, coverage.Failures)
+		t.Errorf("report.json of --incremental: %d in the roots already, failures %v", inRoot, coverage.Failures)
 	}
 	// The account has all the roots have: a listing of real AWS finds it.
 	if len(coverage.NotInCloud) != 0 {
@@ -738,7 +738,7 @@ func checkSandboxIncremental(ctx context.Context, t *testing.T, s *sandbox, esta
 	}
 	if len(coverage.Directories) != 1 || coverage.Directories[0].Path != root ||
 		len(coverage.Directories[0].Imported) != 1 || coverage.Directories[0].Imported[0].ID != logGroup {
-		t.Errorf("coverage.json of --incremental reports %+v, want %s added to %s", coverage.Directories, logGroup, root)
+		t.Errorf("report.json of --incremental reports %+v, want %s added to %s", coverage.Directories, logGroup, root)
 	}
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
@@ -788,7 +788,7 @@ func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *san
 	}
 	coverage := readCoverage(t, out)
 	if len(coverage.Directories) != 1 || len(coverage.Directories[0].Imported) != 1 || coverage.Directories[0].Imported[0].ID != logGroup {
-		t.Fatalf("coverage.json of --incremental reports %+v, want only %s", coverage.Directories, logGroup)
+		t.Fatalf("report.json of --incremental reports %+v, want only %s", coverage.Directories, logGroup)
 	}
 	rel, from := coverage.Directories[0].Path, coverage.Directories[0].Imported[0].Address
 

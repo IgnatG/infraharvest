@@ -71,7 +71,7 @@ func TestFindings(t *testing.T) {
 
 	md := r.Markdown()
 	wantMD := "## Findings by resource\n\n" +
-		"The scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `coverage.json` lists them all, with each resource's type and import ID.\n\n" +
+		"The scanners of the verification gate (G5), with your policies (`--policy`), found these in the roots, by the resource each is about, where they name one. trivy's, checkov's and your policies' describe the infrastructure's own settings, which the configuration mirrors: they don't fail the import, and are for you to review before applying, to change in the cloud, or in the code once it is applied. `report.json` lists them all, with each resource's type and import ID.\n\n" +
 		"- `aws_s3_bucket.logs` in `aws/1/eu-west-2` (`acme-logs`, s3):\n" +
 		"  - conftest: s3 (failure) main.tf: logs has no owner tag\n" +
 		"  - trivy: AWS-0089 (low) main.tf: S3 Bucket Logging\n" +
@@ -87,7 +87,7 @@ func TestFindings(t *testing.T) {
 }
 
 // report.md lists a bounded number of findings, saying how many more
-// coverage.json has, and no section without any.
+// report.json has, and no section without any.
 func TestFindingsMarkdownIsBounded(t *testing.T) {
 	t.Parallel()
 	r := &Report{}
@@ -100,7 +100,7 @@ func TestFindingsMarkdownIsBounded(t *testing.T) {
 	if got := strings.Count(md, "  - trivy: "); got != maxMarkdownFindings {
 		t.Errorf("%d findings listed, want %d", got, maxMarkdownFindings)
 	}
-	if !strings.Contains(md, "\n3 more findings aren't listed here: `coverage.json` has them all.\n") {
+	if !strings.Contains(md, "\n3 more findings aren't listed here: `report.json` has them all.\n") {
 		t.Errorf("no count of the rest:\n%s", md)
 	}
 	if md := (&Report{}).Markdown(); strings.Contains(md, "Findings by resource") {
@@ -108,7 +108,7 @@ func TestFindingsMarkdownIsBounded(t *testing.T) {
 	}
 }
 
-// coverage.json has the findings, and the report read back from it, as
+// report.json has the findings, and the report read back from it, as
 // infraharvest report prints it, too.
 func TestFindingsInCoverage(t *testing.T) {
 	t.Parallel()
@@ -191,7 +191,7 @@ func TestMergedRootFindings(t *testing.T) {
 		t.Errorf("got %+v,\nwant %+v", r.Findings, want)
 	}
 	if r.Merges[0].Findings != nil {
-		t.Errorf("coverage.json would list the merged root's findings twice: %+v", r.Merges[0].Findings)
+		t.Errorf("report.json would list the merged root's findings twice: %+v", r.Merges[0].Findings)
 	}
 	wantMD := "- `aws_s3_bucket.logs` in `aws` as dev (`acme-dev-logs`, s3):\n" +
 		"  - trivy: AWS-0089 (low) main.tf: S3 Bucket Logging\n" +

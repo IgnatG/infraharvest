@@ -105,11 +105,11 @@ func checkQueryRoundTrip(ctx context.Context, t *testing.T, q queryRoundTrip) {
 		t.Fatalf("import %s with the %s service: %v", q.command, harvest.QueryService, err)
 	}
 	var coverage report.Report
-	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "coverage.json"))), &coverage); err != nil {
+	if err := json.Unmarshal([]byte(readFile(t, filepath.Join(out, report.Dir, "report.json"))), &coverage); err != nil {
 		t.Fatal(err)
 	}
 	if coverage.Totals.Imported != 1 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
-		t.Errorf("coverage.json: %+v, failures %v; want the one %s imported", coverage.Totals, coverage.Failures, q.typ)
+		t.Errorf("report.json: %+v, failures %v; want the one %s imported", coverage.Totals, coverage.Failures, q.typ)
 	}
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {

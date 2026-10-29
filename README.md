@@ -50,7 +50,7 @@ The steps are the same on every cloud:
 
 1. `infraharvest discover <provider>` lists the resources into `selection.yaml`, and opens the picker on it in a terminal. By default it leaves out what the cloud creates itself and what another tool manages, with the reason.
 2. Review `selection.yaml`: each resource has `include: true` or `false`. `infraharvest pick --selection selection.yaml` opens the picker again.
-3. `infraharvest import <provider>`, with the same flags and `--selection=selection.yaml`, writes a root for each account (subscription, project) and region under `infraharvest-out/`, and a report in `infraharvest-out/report/`.
+3. `infraharvest import <provider>`, with the same flags and `--selection=selection.yaml`, writes a root for each account (subscription, project) and region under `infrastructure/`, and a report in `infrastructure/_reports/`.
 
 `--all` in place of `--selection` imports everything the default selection includes, without a file. See the [Quickstart](docs/quickstart.md) and [Usage](docs/usage.md).
 
@@ -87,7 +87,7 @@ infraharvest import google --services='*' --projects=my-project --regions=global
 infraharvest writes configuration and no state. Each root holds the generated configuration and `imports.tf`, with one `import` block per resource. You don't create or edit a state file first: the first `terraform apply` writes it.
 
 ```sh
-cd infraharvest-out/aws/123456789012/eu-west-2
+cd infrastructure/aws/123456789012/eu-west-2
 terraform init    # the backend in backend.tf, or local state without one
 terraform plan    # imports every resource, changes nothing
 terraform apply   # writes the resources into the state, changes nothing in the cloud

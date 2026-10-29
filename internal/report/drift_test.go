@@ -153,7 +153,7 @@ func TestDriftWriteFiles(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	for _, name := range []string{"report.md", "coverage.json"} {
+	for _, name := range []string{"report.md", "report.json"} {
 		if _, err := os.Stat(filepath.Join(out, Dir, name)); err == nil {
 			t.Errorf("drift wrote the import's %s", name)
 		}
