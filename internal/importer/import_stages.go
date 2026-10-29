@@ -554,6 +554,8 @@ func engineTraits(t harvest.Traits) engine.Traits {
 		ARNPrefix:           t.ARNPrefix,
 		WellKnownIDs:        t.WellKnownIDs,
 		SelfLinkAliases:     t.SelfLinkAliases,
+		PrimaryIdentities:   t.PrimaryIdentities,
+		NameAttributes:      t.NameAttributes,
 		IdentityAttributes:  t.IdentityAttributes,
 		NestedIdentities:    t.NestedIdentities,
 		OwnerTags:           owners,
@@ -594,7 +596,9 @@ func unionTraits(provider func(string) harvest.Provider, names []string) harvest
 				u.SelfLinkAliases[from] = to
 			}
 		}
+		u.PrimaryIdentities = appendNew(u.PrimaryIdentities, t.PrimaryIdentities)
 		u.IdentityAttributes = appendNew(u.IdentityAttributes, t.IdentityAttributes)
+		u.NameAttributes = appendNew(u.NameAttributes, t.NameAttributes)
 		for block, attribute := range t.NestedIdentities {
 			if u.NestedIdentities == nil {
 				u.NestedIdentities = map[string]string{}

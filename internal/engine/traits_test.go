@@ -12,11 +12,13 @@ import (
 // provider whose resources are like AWS's, Azure's and Google's at once,
 // so that each test can use the fixtures of any of them.
 var testTraits = Traits{
-	IDPrefixes:      []string{"arn:", "/subscriptions/", "projects/"},
-	IDSuffixes:      []string{".gserviceaccount.com"},
-	ARNPrefix:       "arn:",
-	WellKnownIDs:    regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`),
-	SelfLinkAliases: map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},
+	IDPrefixes:        []string{"arn:", "/subscriptions/", "projects/"},
+	IDSuffixes:        []string{".gserviceaccount.com"},
+	ARNPrefix:         "arn:",
+	WellKnownIDs:      regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`),
+	SelfLinkAliases:   map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},
+	PrimaryIdentities: []string{"arn", "self_link"},
+	NameAttributes:    []string{"function_name", "bucket"},
 	IdentityAttributes: []string{
 		"execution_arn", "root_resource_id", "key_id", "zone_id", "hosted_zone_id", "dns_name", "domain_name",
 		"bucket_regional_domain_name", "bucket_domain_name", "fqdn", "arn_suffix", "principal_id", "client_id",

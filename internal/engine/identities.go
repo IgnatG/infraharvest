@@ -98,18 +98,22 @@ func (id identity) replacement() replacement {
 
 // identityAttributes are the attributes identityIndex indexes, in the
 // order a reference prefers them when a resource has the same value in
-// several: an ARN or a self link, those of t (see
+// several: those that identify it first, such as an ARN or a self link
+// (see Traits.PrimaryIdentities), those of t (see
 // Traits.IdentityAttributes), the names, then the ID. Terraform writes
-// every argument into the configuration it generates, so one of t it
-// didn't write is computed only, as the schema says, and identifies the
-// resource; one it wrote names something else, such as a role
-// assignment's principal_id.
+// every argument into the configuration it generates, so one of
+// t.IdentityAttributes it didn't write is computed only, as the schema
+// says, and identifies the resource; one it wrote names something else,
+// such as a role assignment's principal_id.
 func identityAttributes(t Traits) []string {
-	return slices.Concat([]string{"arn", "self_link"}, t.IdentityAttributes, []string{"name", "function_name", "bucket", "id"})
+	return slices.Concat(t.PrimaryIdentities, t.IdentityAttributes, nameAttributes(t), []string{"id"})
 }
 
-// nameAttributes hold names, which resources of other types may share.
-var nameAttributes = map[string]bool{"name": true, "function_name": true, "bucket": true}
+// nameAttributes are the attributes of t that hold names, which
+// resources of other types may share: name and t.NameAttributes.
+func nameAttributes(t Traits) []string {
+	return slices.Concat([]string{"name"}, t.NameAttributes)
+}
 
 // sharedAttributes hold values many resources have without being them:
 // where a resource's identity is one of them, as the region of a
@@ -197,7 +201,7 @@ type identities struct {
 // provider's traits t.
 func identityIndex(values map[string]map[string]any, written map[string]map[string]bool, t Traits) *identities {
 	x := &identities{byValue: map[string][]identity{}, traits: t}
-	keys := identityAttributes(t)
+	keys, names := identityAttributes(t), nameAttributes(t)
 	addresses := make([]string, 0, len(values))
 	for address := range values {
 		addresses = append(addresses, address)
@@ -216,7 +220,10 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 			if v == "" || shared[v] || regionLike.MatchString(v) || (slices.Contains(t.IdentityAttributes, key) && written[address][key]) {
 				continue
 			}
-			named := nameAttributes[key] || attrs["name"] == v || attrs["function_name"] == v || attrs["bucket"] == v || attrs["family"] == v
+			named := attrs["family"] == v
+			for _, name := range names {
+				named = named || key == name || attrs[name] == v
+			}
 			x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: key, named: named})
 		}
 		for _, block := range slices.Sorted(maps.Keys(t.NestedIdentities)) {

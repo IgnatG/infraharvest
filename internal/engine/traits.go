@@ -32,6 +32,10 @@ type Traits struct {
 	// SelfLinkAliases map the start of a self link, as the provider writes
 	// it, to another start some APIs name the same resource by.
 	SelfLinkAliases map[string]string
+	// PrimaryIdentities are the attributes that identify the resource
+	// that has them first, ahead of all others, such as an ARN or a self
+	// link (see identityAttributes).
+	PrimaryIdentities []string
 	// IdentityAttributes are the attributes, in the order a reference
 	// prefers them, that identify the resource that has them where the
 	// provider computes them, such as a load balancer's DNS name, besides
@@ -42,6 +46,10 @@ type Traits struct {
 	// a resource's managed identity. The provider computes them, and a
 	// resource has one such block at most.
 	NestedIdentities map[string]string
+	// NameAttributes are the attributes that hold a resource's name
+	// besides name, such as a Lambda function's function_name, which
+	// resources of other types may share (see identityAttributes).
+	NameAttributes []string
 	// OwnerTags are tags or labels the cloud or the provider gives what a
 	// tool creates, which say that tool manages it (see OwnerTags.OwnedBy).
 	OwnerTags OwnerTags

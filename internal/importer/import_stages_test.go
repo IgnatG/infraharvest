@@ -259,6 +259,8 @@ func TestEngineTraits(t *testing.T) {
 		ARNPrefix:           "arn:",
 		WellKnownIDs:        regexp.MustCompile(`^arn:aws:iam::aws:policy/`),
 		SelfLinkAliases:     map[string]string{"https://a/": "https://b/"},
+		PrimaryIdentities:   []string{"arn"},
+		NameAttributes:      []string{"function_name"},
 		IdentityAttributes:  []string{"dns_name"},
 		NestedIdentities:    map[string]string{"identity": "principal_id"},
 		OwnerTags:           []harvest.OwnerTag{{Key: "k", Value: "v", Tool: "Terraform", Stack: true}},
@@ -303,7 +305,9 @@ func TestUnionTraits(t *testing.T) {
 			own, have []string
 		}{
 			{"IDSuffixes", own.IDSuffixes, u.IDSuffixes},
+			{"PrimaryIdentities", own.PrimaryIdentities, u.PrimaryIdentities},
 			{"IdentityAttributes", own.IdentityAttributes, u.IdentityAttributes},
+			{"NameAttributes", own.NameAttributes, u.NameAttributes},
 			{"TagAttributes", own.TagAttributes, u.TagAttributes},
 			{"MergedTagAttributes", own.MergedTagAttributes, u.MergedTagAttributes},
 		} {
