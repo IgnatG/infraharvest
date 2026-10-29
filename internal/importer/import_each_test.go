@@ -174,7 +174,7 @@ func TestImportEachRecoversAPanic(t *testing.T) {
 // The calls a command makes before its Import calls list with the limiter
 // its Import calls get, in a child's run too, so that they share what the
 // providers keep for the run.
-func TestWithLimiterIsTheImportCallsLimiter(t *testing.T) {
+func TestWithLimiterIsTheCallsLimiter(t *testing.T) {
 	t.Parallel()
 	r := NewRun()
 	limiter := ratelimit.FromContext(r.withLimiter(t.Context(), 5))

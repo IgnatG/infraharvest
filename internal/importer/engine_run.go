@@ -190,9 +190,10 @@ func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
 // of perSecond requests a second, which every Import call of the command
 // gets too (see shared.rateLimiter): the calls the command's plan makes
 // before its Import calls (see Command.Plan), such as those finding the
-// accounts or the stacks it imports, are then of the run, and share with the Import calls what the
-// providers keep for the run, such as the credentials they resolved, so
-// that a profile whose role needs MFA asks for the code once.
+// accounts or the stacks it imports, are then of the run, and share with
+// the Import calls what the providers keep for the run, such as the
+// credentials they resolved, so that a profile whose role needs MFA asks
+// for the code once.
 func (r *Run) withLimiter(ctx context.Context, perSecond float64) context.Context {
 	return ratelimit.NewContext(ctx, r.shared.rateLimiter(perSecond))
 }
@@ -405,8 +406,8 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, pro
 }
 
 // Do runs fn, whose import is into this run (see Run.Import), which then
-// finishes as a provider command does, with the report or the selection file written
-// and the exit code in the error.
+// finishes as a provider command does, with the report or the selection
+// file written and the exit code in the error.
 func (r *Run) Do(fn func() error) error {
 	return r.finish(fn())
 }

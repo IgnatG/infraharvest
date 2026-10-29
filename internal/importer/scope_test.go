@@ -131,7 +131,7 @@ func TestImportScopeWithNothingToList(t *testing.T) {
 	options := pathOptions(out, &fakeEngine{})
 	run := options.run()
 	calls := []Call{{Provider: &stackOnlyProvider{}, Options: options.Options}}
-	if err := run.importScope(t.Context(), options.Options, calls, engineSteps); err != nil {
+	if err := run.importScope(t.Context(), options.Options, "", calls, engineSteps); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.finish(nil); err != nil {

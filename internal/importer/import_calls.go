@@ -72,11 +72,11 @@ type Call struct {
 // (see Run.Do): it checks the options, once, whatever the command covers:
 // --merge-environments against the configuration file's environments
 // (see config.CheckMergeEnvironments), the --policy directories (see
-// resolvePolicies) and the rest (see checkOptions), then the provider's own flags, and with CheckOnly
-// stops there; else it plans the scopes, imports each (see
-// Run.importScope), and merges the roots of each stack's environments
-// (see mergePhase.run). A scope that fails is recorded and the
-// others go on (see Run.importEach).
+// resolvePolicies) and the rest (see checkOptions), then the provider's
+// own flags, and with CheckOnly stops there; else it plans the scopes,
+// imports each (see Run.importScope), and merges the roots of each
+// stack's environments (see mergePhase.run). A scope that fails is
+// recorded and the others go on (see Run.importEach).
 func (r *Run) Import(ctx context.Context, cmd Command) error {
 	options := cmd.Options
 	if err := config.CheckMergeEnvironments(r.environments, options.MergeEnvironments, options.MergeEnvironmentsChosen); err != nil {
@@ -114,7 +114,7 @@ func (r *Run) Import(ctx context.Context, cmd Command) error {
 		steps = engineSteps
 	}
 	importScope := func(scopeRun *Run, scope string) error {
-		return scopeRun.importScope(ctx, options, plan.Calls(scope), steps)
+		return scopeRun.importScope(ctx, options, scope, plan.Calls(scope), steps)
 	}
 	if plan.Scopes == nil {
 		err = importScope(r, "")
@@ -163,12 +163,12 @@ var engineSteps = callSteps{
 }
 
 // importScope makes calls, the Import calls that cover one scope, an
-// account, subscription or project, into r, the scope's run, with steps
-// and the command's options: it lists every call first, then generates
-// each call's roots, so that each root refers to the roots of every other
-// call of the scope (see scopeRoots), as a regional root of an AWS
-// account to its global root's IAM roles, and the global root to a
-// regional bucket. Another scope's roots are never referred to: its
+// account, subscription or project, which scope names (empty without
+// one), into r, the scope's run, with steps and the command's options: it
+// lists every call first, then generates each call's roots, so that each
+// root refers to the roots of every other call of the scope (see
+// scopeRoots), as a regional root of an AWS account to its global root's
+// IAM roles, and the global root to a regional bucket. Another scope's roots are never referred to: its
 // resources are read with other credentials.
 //
 // Both steps go call by call: the first call, and the First calls after
@@ -181,7 +181,7 @@ var engineSteps = callSteps{
 // starts and finishes listing, and generating its roots. The first call
 // that fails stops the others, and its error is the scope's; nothing is
 // generated after a call fails to list.
-func (r *Run) importScope(ctx context.Context, options Options, calls []Call, steps callSteps) error {
+func (r *Run) importScope(ctx context.Context, options Options, scope string, calls []Call, steps callSteps) error {
 	if len(calls) == 0 {
 		return nil
 	}
@@ -220,7 +220,11 @@ func (r *Run) importScope(ctx context.Context, options Options, calls []Call, st
 		lead++
 	}
 	slots := r.shared.callSlots(options.Parallel)
+	// One call alone goes by its scope's name, as the scope's failure does.
 	name := func(i int) string {
+		if len(calls) == 1 && scope != "" {
+			return scope
+		}
 		if calls[i].Where != "" {
 			return calls[i].Where
 		}

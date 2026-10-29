@@ -259,7 +259,7 @@ func importPath(t *testing.T, options pathImport) *Run {
 	run := options.run()
 	defer run.unlockOut()
 	calls := []Call{{Provider: &rootsProvider{}, Options: options.Options}}
-	if err := run.importScope(t.Context(), options.Options, calls, engineSteps); err != nil {
+	if err := run.importScope(t.Context(), options.Options, "", calls, engineSteps); err != nil {
 		t.Fatal(err)
 	}
 	if !run.used {

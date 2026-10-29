@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log"
 	"maps"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -257,7 +258,7 @@ func TestImportDiscovers(t *testing.T) {
 // The First calls list and generate one at a time, before the others,
 // which then run --parallel at once; the run still records in the order
 // of calls, and the first lock file seeds the others.
-func TestImportCallsInParallel(t *testing.T) {
+func TestImportScopeCallsInParallel(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
 	var running, most atomic.Int32
@@ -523,4 +524,58 @@ func TestImportChecksTheOptionsOnce(t *testing.T) {
 // provider (see Run.Import).
 func checkOnly(provider harvest.Provider, options Options) error {
 	return NewRun().Import(context.Background(), Command{Options: options, Provider: provider, CheckOnly: true})
+}
+
+// A call alone that panics fails as an error, not a crash, and the run
+// still writes its report; the log names the call by its scope, as a
+// scope that panics is named, or else as one of several calls is.
+func TestImportRecoversAPanicOfOneCall(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scopes []string
+		// logged are in the log; failure, if set, is the run's failure.
+		logged  []string
+		failure string
+	}{
+		"in a scope": {
+			scopes:  []string{"sub-x"},
+			logged:  []string{"sub-x panicked: unexpected response", "subscription sub-x: panic: unexpected response"},
+			failure: "subscription sub-x: panic: unexpected response",
+		},
+		"of no scope": {
+			logged: []string{"call 1 panicked: unexpected response"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			logged := captureLog(t)
+			f := newFakeSteps()
+			f.list = func(context.Context, string) error { panic("unexpected response") }
+			options := Options{Out: t.TempDir(), All: true}
+			plan := Plan{Kind: "subscription", Scopes: tc.scopes, Calls: func(string) []Call { return fakeCalls(options, "default") }}
+			run := NewRun()
+			t.Cleanup(run.unlockOut)
+			var imported error
+			err := run.Do(func() error {
+				imported = run.Import(t.Context(), fakeCommand(options, plan, f.steps()))
+				return imported
+			})
+			if err == nil {
+				t.Fatal("want the run failed")
+			}
+			if tc.failure != "" {
+				if imported != nil || len(run.failures) != 1 || !strings.HasPrefix(run.failures[0].Error(), tc.failure) {
+					t.Errorf("import %v, failures %v, want %q recorded", imported, run.failures, tc.failure)
+				}
+			} else if imported == nil || !strings.HasPrefix(imported.Error(), "panic: unexpected response") {
+				t.Errorf("import %v, want the panic as its error", imported)
+			}
+			for _, want := range tc.logged {
+				if !strings.Contains(logged.String(), want) {
+					t.Errorf("log %q, want %q", logged.String(), want)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(options.Out, report.Dir, "coverage.json")); err != nil {
+				t.Errorf("no report: %v", err)
+			}
+		})
+	}
 }
