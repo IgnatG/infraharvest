@@ -17,10 +17,11 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
-// awsScope is what an AWS regional root reads of its own account and
-// region, as the importer fills it from the provider's profile.
-func awsScope(account, region string) *ScopeLocals {
-	s := &ScopeLocals{Account: ScopeValue{ID: account, Data: "aws_caller_identity.current", Local: "aws_account_id", Expr: "data.aws_caller_identity.current.account_id"}}
+// awsScope is what an AWS root of account 680077350850 reads of its own
+// account and region, "" for a root of global services, as the importer
+// fills it from the provider's profile.
+func awsScope(region string) *ScopeLocals {
+	s := &ScopeLocals{Account: ScopeValue{ID: "680077350850", Data: "aws_caller_identity.current", Local: "aws_account_id", Expr: "data.aws_caller_identity.current.account_id"}}
 	if region != "" {
 		s.Region = ScopeValue{ID: region, Data: "aws_region.current", Local: "aws_region", Expr: "data.aws_region.current.region"}
 	}
@@ -75,7 +76,7 @@ func lifted(t *testing.T, files map[string]string, scope *ScopeLocals, taken Nam
 // the region stay literal.
 func TestLiftScopeReadsTheRootsAccountAndRegion(t *testing.T) {
 	t.Parallel()
-	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: scopeGenerated}, awsScope("680077350850", "eu-west-2"), nil)
+	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: scopeGenerated}, awsScope("eu-west-2"), nil)
 
 	got := generatedText(t, ws)
 	for _, want := range []string{
@@ -92,7 +93,8 @@ func TestLiftScopeReadsTheRootsAccountAndRegion(t *testing.T) {
 			t.Errorf("generated.tf doesn't have %s:\n%s", want, got)
 		}
 	}
-	data := wsFile(t, ws, rootfile.DataFileName)
+	// As the layout writes it, which collapses the empty blocks.
+	data := string(hclfile.CollapseEmptyBlocks([]byte(wsFile(t, ws, rootfile.DataFileName))))
 	for _, want := range []string{`data "aws_caller_identity" "current" {}`, `data "aws_region" "current" {}`} {
 		if !strings.Contains(data, want) {
 			t.Errorf("data.tf doesn't have %s:\n%s", want, data)
@@ -152,7 +154,7 @@ func sameValues(t *testing.T, before, after string, locals map[string]cty.Value)
 // from a local, and a region in its strings stays literal.
 func TestLiftScopeLeavesTheRegionOfAGlobalRoot(t *testing.T) {
 	t.Parallel()
-	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: scopeGenerated}, awsScope("680077350850", ""), nil)
+	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: scopeGenerated}, awsScope(""), nil)
 
 	got := generatedText(t, ws)
 	if want := `"arn:aws:lambda:eu-west-2:${local.aws_account_id}:function:terramend-proxy-fn"`; !strings.Contains(got, want) {
@@ -170,7 +172,7 @@ func TestLiftScopeAddsNothingWithoutTheScope(t *testing.T) {
   name = "orders"
 }
 `
-	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: src}, awsScope("680077350850", "eu-west-2"), nil)
+	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: src}, awsScope("eu-west-2"), nil)
 
 	if got := generatedText(t, ws); got != src {
 		t.Errorf("generated.tf changed:\n%s", got)
@@ -190,7 +192,7 @@ func TestLiftScopeKeepsLocalsWritable(t *testing.T) {
 	ws := lifted(t, map[string]string{
 		rootfile.GeneratedFileName: "resource \"aws_iam_role_policy_attachment\" \"a\" {\n  role = local.role_arn\n}\n",
 		rootfile.LocalsFileName:    "locals {\n  role_arn = \"arn:aws:iam::680077350850:role/app\"\n  tags = {\n    Account = \"680077350850\"\n  }\n}\n",
-	}, awsScope("680077350850", "eu-west-2"), nil)
+	}, awsScope("eu-west-2"), nil)
 
 	locals := strings.Join(strings.Fields(wsFile(t, ws, rootfile.LocalsFileName)), " ")
 	for _, want := range []string{`role_arn = "arn:aws:iam::${local.aws_account_id}:role/app"`, `Account = "680077350850"`, "aws_account_id = data.aws_caller_identity.current.account_id"} {
@@ -219,7 +221,7 @@ func TestLiftScopeKeepsLocalsWritable(t *testing.T) {
 func TestLiftScopeLeavesANameTaken(t *testing.T) {
 	t.Parallel()
 	src := "resource \"aws_sns_topic_policy\" \"a\" {\n  arn = \"arn:aws:sns:eu-west-2:680077350850:alerts\"\n}\n"
-	scope := &ScopeLocals{Account: awsScope("680077350850", "").Account}
+	scope := &ScopeLocals{Account: awsScope("").Account}
 
 	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: src, rootfile.LocalsFileName: "locals {\n  aws_account_id = \"111111111111\"\n}\n"}, scope, nil)
 	if got := generatedText(t, ws); got != src {
@@ -235,8 +237,9 @@ func TestLiftScopeLeavesANameTaken(t *testing.T) {
 	}
 }
 
-// IDs are whole words: a longer number or a name that only starts with
-// the region holds neither.
+// IDs are the parts of ARNs, paths, hosts and emails, or whole values: a
+// longer number, a name that only starts with the region, and a name
+// made of the project's ID hold neither.
 func TestScopeWordIndex(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -244,9 +247,18 @@ func TestScopeWordIndex(t *testing.T) {
 		want  int
 	}{
 		{"arn:aws:iam::123456789012:role/ci", "123456789012", 13},
+		{"arn:aws:lambda:eu-west-2:123456789012:function:app", "eu-west-2", 15},
+		{"123456789012", "123456789012", 0},
 		{"1234567890123", "123456789012", -1},
 		{"eu-west-2a", "eu-west-2", -1},
 		{"s3.eu-west-2.amazonaws.com", "eu-west-2", 3},
+		{"https://sqs.eu-west-2.amazonaws.com/123456789012/orders", "123456789012", 36},
+		{"logs-eu-west-2", "eu-west-2", -1},
+		{"eu-west-2-logs", "eu-west-2", -1},
+		{"infraharvest-e2e-added", "infraharvest-e2e", -1},
+		{"projects/infraharvest-e2e/topics/orders", "infraharvest-e2e", 9},
+		{"app@infraharvest-e2e.iam.gserviceaccount.com", "infraharvest-e2e", 4},
+		{"/subscriptions/1d07be38-3c3a-4758-bc19-1df3fc4daea6/resourceGroups/app", "1d07be38-3c3a-4758-bc19-1df3fc4daea6", 15},
 		{"$123456789012", "123456789012", -1},
 		{"", "123456789012", -1},
 	} {

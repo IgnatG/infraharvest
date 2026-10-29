@@ -49,7 +49,8 @@ func scopeAnnotation(ws *workspace, s *ScopeLocals, taken Names, keep map[string
 
 // liftScope makes each string value of generated, the generated.tf of
 // ws, and of the literal locals of locals.tf, that holds the root's own
-// account or region of s as a whole word (see scopeWordIndex) read it
+// account or region of s as part of an ARN, a path, a host or an email,
+// or as all of it (see scopeWordIndex), read it
 // from its local, as a root environments share does:
 // "arn:aws:lambda:${local.aws_region}:${local.aws_account_id}:function:app",
 // and account_id = local.aws_account_id where it is the whole value. The
@@ -286,14 +287,19 @@ func liftScopeWord(s, id, with string) (string, bool) {
 }
 
 // scopeWordIndex returns the index of the first occurrence of id in s that
-// is a whole word, as merging finds an environment's account and region
-// in values: with no letter or digit next to it, so that
-// arn:aws:iam::123456789012:role/ci holds the account and eu-west-2a
-// doesn't hold the region eu-west-2. One after $ or %, which would make a
-// template sequence, doesn't count. It returns -1 for none.
+// is a part of an ARN, a path, a host or an email, or all of s: after :,
+// /, . or @ and before :, / or ., so that
+// arn:aws:iam::123456789012:role/ci and projects/app-prod/topics/orders
+// hold their IDs, but eu-west-2a, logs-eu-west-2 and app-prod-orders,
+// names that only have them in part, don't. A name that happens to hold
+// the ID would otherwise change with the account the root plans in.
+// It returns -1 for none.
 func scopeWordIndex(s, id string) int {
 	if id == "" {
 		return -1
+	}
+	if s == id {
+		return 0
 	}
 	for from := 0; from <= len(s); {
 		i := strings.Index(s[from:], id)
@@ -302,17 +308,12 @@ func scopeWordIndex(s, id string) int {
 		}
 		i += from
 		end := i + len(id)
-		before := i == 0 || (!isScopeWordByte(s[i-1]) && s[i-1] != '$' && s[i-1] != '%')
-		after := end == len(s) || !isScopeWordByte(s[end])
+		before := i > 0 && strings.IndexByte(":/.@", s[i-1]) >= 0
+		after := end == len(s) || strings.IndexByte(":/.", s[end]) >= 0
 		if before && after {
 			return i
 		}
 		from = i + 1
 	}
 	return -1
-}
-
-// isScopeWordByte reports whether c is an ASCII letter or digit.
-func isScopeWordByte(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
