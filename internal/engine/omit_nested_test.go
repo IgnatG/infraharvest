@@ -11,6 +11,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -22,7 +23,7 @@ func omitResult(t *testing.T, config string, omit map[string][]string) string {
 	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OmitArguments(path, omit); err != nil {
+	if _, err := editFile(path, func(f *hclfile.File) bool { return OmitArguments(f, omit) }); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(path)

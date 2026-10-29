@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -262,16 +263,14 @@ func omitted(t *testing.T, path string, omit map[string][]string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	copied := filepath.Join(t.TempDir(), "generated.tf")
-	if err := os.WriteFile(copied, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.OmitArguments(copied, omit); err != nil {
-		t.Fatal(err)
-	}
-	result, err := os.ReadFile(copied)
+	f, err := hclfile.Parse(path, content)
 	if err != nil {
 		t.Fatal(err)
+	}
+	result := content
+	if engine.OmitArguments(f, omit) {
+		// As the engine saves it.
+		result = bytes.TrimLeft(hclwrite.Format(f.Edit().Bytes()), "\n")
 	}
 	return bytes.ReplaceAll(result, []byte("\r\n"), []byte("\n"))
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -411,7 +412,7 @@ resource "aws_subnet" "f" {
 		t.Fatal(err)
 	}
 
-	changed, err := resolveConflicts(path, exactHints(subnetMetadata()))
+	changed, err := editFile(path, func(f *hclfile.File) bool { return resolveConflicts(f, exactHints(subnetMetadata())) })
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}
@@ -429,7 +430,7 @@ resource "aws_subnet" "f" {
 		}
 	}
 	// Settled, nothing more conflicts.
-	if changed, err := resolveConflicts(path, exactHints(subnetMetadata())); err != nil || changed {
+	if changed, err := editFile(path, func(f *hclfile.File) bool { return resolveConflicts(f, exactHints(subnetMetadata())) }); err != nil || changed {
 		t.Errorf("second pass: changed=%v err=%v", changed, err)
 	}
 }
@@ -451,7 +452,7 @@ func TestResolveConflictsNeedsTheExactRelease(t *testing.T) {
 	}
 	hints := exactHints(subnetMetadata())
 	hints.exact = false
-	if changed, err := resolveConflicts(path, hints); err != nil || changed {
+	if changed, err := editFile(path, func(f *hclfile.File) bool { return resolveConflicts(f, hints) }); err != nil || changed {
 		t.Errorf("changed=%v err=%v, want no change", changed, err)
 	}
 }

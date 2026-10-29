@@ -103,9 +103,11 @@ func BenchmarkSortAndSplit(b *testing.B) {
 				dir := b.TempDir()
 				imports := scaleGenerated(b, dir, n)
 				b.StartTimer()
-				if _, err := hclfile.SortResources(filepath.Join(dir, rootfile.GeneratedFileName)); err != nil {
+				ws := rootWorkspace(b, dir)
+				if _, err := annotate(ws, []annotation{{name: "resources sorted", edit: hclfile.SortResources}}); err != nil {
 					b.Fatal(err)
 				}
+				flushed(b, ws)
 				if _, err := splitFiles(dir, imports, nil); err != nil {
 					b.Fatal(err)
 				}

@@ -269,7 +269,7 @@ func TestOmitArgumentsForEveryType(t *testing.T) {
 }
 `).Path
 
-	changed, err := OmitArguments(path, map[string][]string{"*": {"region", "tags_all"}})
+	changed, err := editFile(path, func(f *hclfile.File) bool { return OmitArguments(f, map[string][]string{"*": {"region", "tags_all"}}) })
 	if err != nil || !changed {
 		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
 	}

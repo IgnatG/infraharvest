@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,8 +121,7 @@ resource "azurerm_role_assignment" "app" {
 // refers to an identity isn't, nor is another type's.
 func TestNotePrincipals(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "azurerm_role_assignment" "group" {
+	got, noted := annotated(t, `resource "azurerm_role_assignment" "group" {
   principal_id         = "aaaaaaaa-0000-0000-0000-000000000003"
   principal_type       = "Group"
   role_definition_name = "Reader"
@@ -140,13 +138,11 @@ resource "azurerm_role_assignment" "ci" {
 resource "azurerm_key_vault_access_policy" "other" {
   object_id = "aaaaaaaa-0000-0000-0000-000000000003"
 }
-`)
-	path := filepath.Join(dir, rootfile.GeneratedFileName)
-	if noted, err := notePrincipals(path); err != nil || !noted {
-		t.Fatalf("want notes, got %v, %v", noted, err)
+`, notePrincipals)
+	if !noted {
+		t.Fatal("want notes")
 	}
-	got := readFile(t, dir, rootfile.GeneratedFileName)
-	if _, err := hclfile.Load(path); err != nil {
+	if _, err := hclfile.Parse(rootfile.GeneratedFileName, []byte(got)); err != nil {
 		t.Fatalf("the noted file doesn't parse: %v\n%s", err, got)
 	}
 	for _, want := range []string{
@@ -161,7 +157,7 @@ resource "azurerm_key_vault_access_policy" "other" {
 	if strings.Count(got, "# Entra ID ") != 2 {
 		t.Errorf("want two notes:\n%s", got)
 	}
-	if noted, err := notePrincipals(path); err != nil || noted {
-		t.Errorf("noted again: %v, %v\n%s", noted, err, readFile(t, dir, rootfile.GeneratedFileName))
+	if again, noted := annotated(t, got, notePrincipals); noted {
+		t.Errorf("noted again:\n%s", again)
 	}
 }
