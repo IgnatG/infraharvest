@@ -258,3 +258,29 @@ func TestWorkspaceSaveFormatsAsFileSave(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// A root may link a shared file in, as providers.tf often is: the workspace
+// reads it through the link, as hclfile.ConfigFiles does, so an edit keeps
+// what it holds.
+func TestOpenWorkspaceReadsSymlinkedFiles(t *testing.T) {
+	t.Parallel()
+	shared := filepath.Join(t.TempDir(), "providers.tf")
+	const providers = "provider \"aws\" {\n  region = \"eu-west-1\"\n}\n"
+	if err := os.WriteFile(shared, []byte(providers), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Symlink(shared, filepath.Join(dir, "providers.tf")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, "dir.tf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := rootWorkspace(t, dir)
+	if got := string(ws.files["providers.tf"]); got != providers {
+		t.Errorf("providers.tf: got %q, want %q", got, providers)
+	}
+	if _, ok := ws.files["dir.tf"]; ok {
+		t.Error("a directory named dir.tf was read as a file")
+	}
+}

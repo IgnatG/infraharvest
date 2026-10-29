@@ -896,7 +896,8 @@ func appendFile(path string, content []byte) error {
 // on (see AddedFileName) that ws's root doesn't have.
 func nextAddedFile(ws *workspace) string {
 	for n := 2; ; n++ {
-		if name := AddedFileName(n); ws.files[name] == nil {
+		name := AddedFileName(n)
+		if _, ok := ws.files[name]; !ok {
 			return name
 		}
 	}

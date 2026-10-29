@@ -43,23 +43,31 @@ type workspace struct {
 type workspaceSnapshot map[string][]byte
 
 // openWorkspace reads the configuration files of the root in dir, its .tf
-// files. The other files of dir, such as the lock file Terraform writes,
-// stay on disk.
+// files, as hclfile.ConfigFiles finds them: a symlinked file is read
+// through its link. The other files of dir, such as the lock file
+// Terraform writes, stay on disk.
 func openWorkspace(dir string) (*workspace, error) {
-	entries, err := os.ReadDir(dir)
+	if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
 	if err != nil {
 		return nil, err
 	}
 	files := map[string][]byte{}
-	for _, e := range entries {
-		if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".tf") {
-			continue
-		}
-		content, err := os.ReadFile(filepath.Join(dir, e.Name()))
+	for _, path := range paths {
+		info, err := os.Stat(path)
 		if err != nil {
 			return nil, err
 		}
-		files[e.Name()] = content
+		if info.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		files[filepath.Base(path)] = content
 	}
 	return newWorkspace(dir, files), nil
 }
@@ -102,7 +110,7 @@ func (w *workspace) ConfigFiles() ([]*hclfile.File, error) {
 	names := slices.Sorted(maps.Keys(w.files))
 	var files []*hclfile.File
 	for _, name := range names {
-		if name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
+		if !strings.HasSuffix(name, ".tf") || name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
 			continue
 		}
 		f, err := w.Load(name)
