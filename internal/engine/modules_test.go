@@ -88,10 +88,12 @@ func TestModularize(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
-	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
+	ws := rootWorkspace(t, dir)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
+	flushed(t, ws)
 
 	module := created[0]
 	if !strings.HasPrefix(filepath.Base(module), "s3_bucket_") {
@@ -167,9 +169,11 @@ resource "aws_s3_bucket_versioning" "logs" {
 }
 `)
 
-	if _, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
+	ws := rootWorkspace(t, dir)
+	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
+	flushed(t, ws)
 }
 
 // A value that differs between clusters and refers inside them can't be a
@@ -180,9 +184,11 @@ func TestModularizeDeclines(t *testing.T) {
 		"bucket = aws_s3_bucket.logs.bucket", `bucket = "${aws_s3_bucket.logs.bucket}-a"`, 1),
 		"bucket = aws_s3_bucket.state.bucket", `bucket = "${aws_s3_bucket.state.bucket}-b"`, 1))
 
-	if _, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
+	ws := rootWorkspace(t, dir)
+	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
+	flushed(t, ws)
 }
 
 func TestLiftModulesUndoesWhenThePlanChanges(t *testing.T) {
@@ -254,10 +260,12 @@ func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
 		"bucket = \"logs\"\n", "bucket = \"logs\"\n  key    = var.aws_s3_bucket_logs_key\n", 1),
 		"bucket = \"state\"\n", "bucket = \"state\"\n  key    = var.aws_s3_bucket_state_key\n", 1))
 
-	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
+	ws := rootWorkspace(t, dir)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
+	flushed(t, ws)
 
 	variables := squashed(readFile(t, created[0], "variables.tf"))
 	if !strings.Contains(variables, `variable "key" { description = "The key of the module's aws_s3_bucket." type = any sensitive = true }`) {
@@ -308,10 +316,12 @@ func TestModuleRefsKeepSharedModules(t *testing.T) {
 func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
-	created, _, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
+	ws := rootWorkspace(t, dir)
+	created, _, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || len(created) != 1 {
 		t.Fatalf("got created=%v err=%v", created, err)
 	}
+	flushed(t, ws)
 	// The same clusters, with a schema that outputs less.
 	less := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{
 		"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
@@ -320,10 +330,12 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 		}},
 	}}
 	other, otherModules := moduleRoot(t, twoBuckets)
-	createdLess, _, err := modularize(other, otherModules, &ModuleRefs{}, less)
+	otherWS := rootWorkspace(t, other)
+	createdLess, _, err := modularize(otherWS, otherModules, &ModuleRefs{}, less)
 	if err != nil || len(createdLess) != 1 {
 		t.Fatalf("got created=%v err=%v", createdLess, err)
 	}
+	flushed(t, otherWS)
 	if filepath.Base(created[0]) == filepath.Base(createdLess[0]) {
 		t.Errorf("modules with other outputs share the name %s", filepath.Base(created[0]))
 	}
@@ -357,10 +369,12 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 	dir, _ := moduleRoot(t, twoBuckets)
 	modulesDir := filepath.Join(dir, hclfile.ModulesDirName)
 
-	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
+	ws := rootWorkspace(t, dir)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
+	flushed(t, ws)
 
 	want := `source = "./` + hclfile.ModulesDirName + "/" + filepath.Base(created[0]) + `"`
 	if root := readFile(t, dir, rootfile.GeneratedFileName); !strings.Contains(root, want) {
@@ -387,10 +401,12 @@ func TestModularizeLaysOutTheModule(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
-	created, changed, err := modularize(dir, modulesDir, &ModuleRefs{}, bucketSchemas)
+	ws := rootWorkspace(t, dir)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
+	flushed(t, ws)
 
 	main := readFile(t, created[0], "main.tf")
 	if out, ok := hclfile.Layout([]byte(main)); !ok || string(out) != main {

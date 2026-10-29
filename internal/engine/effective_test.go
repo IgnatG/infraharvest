@@ -61,10 +61,12 @@ func TestFillTags(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 
-	filled, err := fillTags(dir, googleLabels, labelledValues(), map[string]bool{"google_pubsub_topic.events": true})
+	ws := rootWorkspace(t, dir)
+	filled, err := fillTags(ws, googleLabels, labelledValues(), map[string]bool{"google_pubsub_topic.events": true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 	if got := strings.Join(filled, ","); got != "google_pubsub_topic.orders" {
 		t.Errorf("filled %s, want google_pubsub_topic.orders: events is skipped, owned has labels, google only Google's", got)
 	}
@@ -149,11 +151,13 @@ func TestFillEffectiveTags(t *testing.T) {
 			writeConfig(t, dir, rootfile.GeneratedFileName, labelledTopics)
 			tf := &fakeTerraform{dir: dir, plans: tc.plans, showns: tc.showns}
 
-			d := tidier(tf, dir, Baseline{changes: noChanges, stateOnly: stateOnly})
-			filled, err := settleEdit(t, d, passEffectiveTags, fillEffectiveTags(dir, googleLabels, labelledValues()))
+			ws := rootWorkspace(t, dir)
+			d := tidier(tf, ws, Baseline{changes: noChanges, stateOnly: stateOnly})
+			filled, err := settleEdit(t, d, passEffectiveTags, fillEffectiveTags(ws, googleLabels, labelledValues()))
 			if err != nil {
 				t.Fatal(err)
 			}
+			flushed(t, ws)
 			if filled != tc.want {
 				t.Errorf("filled: %v, want %v", filled, tc.want)
 			}
@@ -202,9 +206,11 @@ func TestFillTagsBeforeBlocks(t *testing.T) {
 }
 `)
 	values := map[string]map[string]any{"google_pubsub_subscription.orders": {"labels": map[string]any{}, "effective_labels": map[string]any{"env": "prod"}}}
-	if _, err := fillTags(dir, googleLabels, values, nil); err != nil {
+	ws := rootWorkspace(t, dir)
+	if _, err := fillTags(ws, googleLabels, values, nil); err != nil {
 		t.Fatal(err)
 	}
+	flushed(t, ws)
 	want := `resource "google_pubsub_subscription" "orders" { name = "orders" labels = { env = "prod" } expiration_policy { ttl = "86400s" } }`
 	if got := squashed(readFile(t, dir, rootfile.GeneratedFileName)); got != want {
 		t.Errorf("got %s\nwant %s", got, want)

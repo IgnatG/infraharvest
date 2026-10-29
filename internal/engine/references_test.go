@@ -32,8 +32,15 @@ var importedValues = map[string]map[string]any{
 // addReferences is addReferencesSkipping for every resource: it reports
 // whether it changed anything.
 func addReferences(dir string, values map[string]map[string]any) (bool, error) {
-	edited, err := addReferencesSkipping(dir, values, nil)
-	return len(edited) > 0, err
+	ws, err := openWorkspace(dir)
+	if err != nil {
+		return false, err
+	}
+	edited, err := addReferencesSkipping(ws, values, nil)
+	if err != nil {
+		return false, err
+	}
+	return len(edited) > 0, ws.Flush()
 }
 
 func TestReferenceIndex(t *testing.T) {

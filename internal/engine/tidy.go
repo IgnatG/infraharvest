@@ -12,25 +12,8 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
-	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
-
-// tidyFiles are the files of a root that postProcess's passes may change.
-// The driver backs up all of them before a pass and puts them back where it
-// undoes the pass, so that a pass can't change one and leave it behind: a
-// pass that writes another file of the root adds it here.
-var tidyFiles = []string{
-	rootfile.GeneratedFileName,
-	rootfile.ImportsFileName,
-	rootfile.ProvidersFileName,
-	rootfile.VersionsFileName,
-	rootfile.LocalsFileName,
-	rootfile.DataFileName,
-	hclfile.VariablesFileName,
-}
 
 // maxEditRounds bounds how often a pass that makes less of itself for the
 // resources a plan blames it for edits and plans (see resourceEdit).
@@ -41,9 +24,9 @@ const untilSettled = math.MaxInt
 
 // tidyPass is one of postProcess's passes over the configuration, as
 // declared: where it runs, how its plan is judged, and how it starts. The
-// tidying driver runs it (see tidying.settle): it backs up the files, makes
-// the pass's edit, plans, judges the plan against the baseline and, as the
-// pass says, accepts it, edits again or undoes it.
+// tidying driver runs it (see tidying.settle): it takes a snapshot of the
+// root's workspace, makes the pass's edit, plans, judges the plan against
+// the baseline and, as the pass says, accepts it, edits again or undoes it.
 type tidyPass struct {
 	name string
 	// after names the passes this one must run after. The driver orders the
@@ -74,9 +57,9 @@ type tidyPass struct {
 // the plan of it. Only edit is needed; the rest is for the passes that
 // retry or settle in ways of their own.
 type tidyEdit struct {
-	// edit makes the pass's edit of the files in dir, as the driver left
-	// them, and says what it changed. An edit that changes nothing leaves the
-	// files as they were.
+	// edit makes the pass's edit of the files of the root's workspace, as
+	// the driver left them, and says what it changed. An edit that changes
+	// nothing leaves the files as they were.
 	edit func(a *tidyAttempt) (edited, error)
 	// review, if set, decides what to make of the plan of an edit. Without
 	// it, the plan is accepted if it is as the policy requires; otherwise the
@@ -180,15 +163,17 @@ type tidyDecision struct {
 	plan    *shownPlan
 }
 
-// tidying is the driver of postProcess's passes. It owns the plans, the
-// backups, the rounds and the order: a pass is an edit and how its plan is
-// judged. It also holds what the passes share: the plan they compare with, as
-// the passes before them left it, and what the curated modules leave for the
-// passes after them.
+// tidying is the driver of postProcess's passes. It owns the root's
+// workspace, the plans, the snapshots, the rounds and the order: a pass is
+// an edit of the workspace and how its plan is judged. tf writes the
+// workspace to disk before each command (see workspace.terraform). It also
+// holds what the passes share: the plan they compare with, as the passes
+// before them left it, and what the curated modules leave for the passes
+// after them.
 type tidying struct {
 	ctx  context.Context
 	tf   tfrun.Terraform
-	dir  string
+	ws   *workspace
 	r    *run
 	vars []tfexec.PlanOption
 
@@ -323,32 +308,37 @@ func (t *tidying) plan() (shownPlan, []tfjson.Diagnostic, error) {
 // it leaves the files as they were, for the passes to be settled one at a
 // time.
 func (t *tidying) settleTogether(edits []*tidyEdit) (bool, error) {
-	backup, err := fsutil.BackupFiles(t.dir, tidyFiles...)
-	if err != nil {
-		return false, err
+	before := t.ws.Snapshot()
+	restore := func() error {
+		t.ws.Restore(before)
+		return nil
 	}
-	a := &tidyAttempt{rounds: 1, skip: map[string]int{}, restore: backup.Restore}
+	a := &tidyAttempt{rounds: 1, skip: map[string]int{}, restore: restore}
 	changed := false
 	for _, e := range edits {
 		made, err := e.edit(a)
 		if err != nil {
 			// The edit may fail only on top of another's: let the passes
 			// one at a time tell.
-			return false, backup.Restore()
+			t.ws.Restore(before)
+			return false, nil
 		}
 		changed = changed || made.any()
 	}
 	if !changed {
-		return true, backup.Restore()
+		t.ws.Restore(before)
+		return true, nil
 	}
 	shown, diags, err := t.plan()
 	if err != nil {
-		return false, errors.Join(err, backup.Restore())
+		t.ws.Restore(before)
+		return false, err
 	}
 	if t.baseline.Judge(shown, diags, Exact).Accepted() {
 		return true, nil
 	}
-	return false, backup.Restore()
+	t.ws.Restore(before)
+	return false, nil
 }
 
 // settle makes the edit of pass p and keeps it only if its plan is as the
@@ -377,16 +367,13 @@ func (t *tidying) settle(p tidyPass, e *tidyEdit) (bool, error) {
 // attempts makes the rounds of settle, and returns the plan of the edit it
 // kept, or nil if it kept one no plan checked.
 func (t *tidying) attempts(p tidyPass, e *tidyEdit) (bool, *shownPlan, error) {
-	backup, err := fsutil.BackupFiles(t.dir, tidyFiles...)
-	if err != nil {
-		return false, nil, err
-	}
+	before := t.ws.Snapshot()
 	undo := func() error {
-		err := backup.Restore()
+		t.ws.Restore(before)
 		if e.undo != nil {
-			err = errors.Join(e.undo(), err)
+			return e.undo()
 		}
-		return err
+		return nil
 	}
 	a := &tidyAttempt{rounds: max(p.rounds, 1), skip: map[string]int{}, restore: undo}
 	// end is what ended the rounds: a review's outcome, or tidyRetry for the
@@ -462,7 +449,7 @@ func (t *tidying) review(a *tidyAttempt, e *tidyEdit, r tidyReview) (tidyDecisio
 	if a.last() {
 		return tidyDecision{outcome: tidyReject}, nil
 	}
-	blamed, err := blame(t.dir, r.diags, r.verdict)
+	blamed, err := blame(t.ws, r.diags, r.verdict)
 	if err != nil {
 		return tidyDecision{}, err
 	}

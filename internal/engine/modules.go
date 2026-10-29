@@ -96,8 +96,8 @@ type moduleGroup struct {
 // the module directories it wrote, and holds the ones it calls in refs
 // (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
-func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, false, err
 	}
@@ -121,14 +121,14 @@ func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.Provid
 		return nil, false, nil
 	}
 
-	versions, err := moduleVersionsFile(filepath.Join(dir, rootfile.VersionsFileName))
+	versions, err := moduleVersionsFile(ws)
 	if err != nil {
 		return nil, false, err
 	}
 	var created []string
 	for _, g := range groups {
 		path := filepath.Join(modulesDir, g.name)
-		wrote, err := refs.hold(dir, path, func(at string) error { return writeModule(at, g, versions) })
+		wrote, err := refs.hold(ws.dir, path, func(at string) error { return writeModule(at, g, versions) })
 		if err != nil {
 			return created, false, err
 		}
@@ -136,7 +136,7 @@ func modularize(dir, modulesDir string, refs *ModuleRefs, schemas *tfjson.Provid
 			created = append(created, path)
 		}
 	}
-	if err := rewriteRoot(dir, generated, groups, modulesDir); err != nil {
+	if err := rewriteRoot(ws, generated, groups, modulesDir); err != nil {
 		return created, false, err
 	}
 	return created, true, nil
@@ -612,8 +612,8 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 // rewriteRoot replaces the clusters' resources in generated.tf with module
 // calls, makes references to them use the modules' outputs, and imports
 // into the modules.
-func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, modulesDir string) error {
-	source, err := filepath.Rel(dir, modulesDir)
+func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, modulesDir string) error {
+	source, err := filepath.Rel(ws.dir, modulesDir)
 	if err != nil {
 		return err
 	}
@@ -667,10 +667,8 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 		body.AppendNewline()
 		body.AppendBlock(callBlock)
 	}
-	if err := generated.Save(); err != nil {
-		return err
-	}
-	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
+	ws.Save(generated)
+	imports, err := ws.Load(rootfile.ImportsFileName)
 	if err != nil {
 		return err
 	}
@@ -683,7 +681,8 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 			imp.Write.Body().SetAttributeTraversal("to", traversal)
 		}
 	}
-	return imports.Save()
+	ws.Save(imports)
+	return nil
 }
 
 // liftModules is post-processing's module pass: it moves repeated clusters
@@ -691,14 +690,14 @@ func rewriteRoot(dir string, generated *hclfile.File, groups []*moduleGroup, mod
 // installs them, as the module calls need. The pass keeps the change only if
 // the plan is still Exact to the baseline. Undoing it releases the modules
 // it wrote, but for those another root calls (see ModuleRefs).
-func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string, refs *ModuleRefs) *tidyEdit {
+func liftModules(ctx context.Context, tf tfrun.Terraform, ws *workspace, modulesDir string, refs *ModuleRefs) *tidyEdit {
 	return &tidyEdit{
 		edit: func(*tidyAttempt) (edited, error) {
 			schemas, err := tf.ProvidersSchema(ctx)
 			if err != nil {
 				return edited{}, fmt.Errorf("terraform providers schema: %w", err)
 			}
-			_, changed, err := modularize(dir, modulesDir, refs, schemas)
+			_, changed, err := modularize(ws, modulesDir, refs, schemas)
 			if err != nil || !changed {
 				return edited{}, err
 			}
@@ -708,15 +707,15 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, dir, modulesDir string
 			}
 			return edited{other: true}, nil
 		},
-		undo: func() error { return refs.Release(dir) },
+		undo: func() error { return refs.Release(ws.dir) },
 	}
 }
 
 // moduleVersionsFile renders a generated module's versions.tf from its
-// root's: the same providers and Terraform versions, as lower bounds only,
-// as modules should (~> 6.14 becomes >= 6.14). The root pins the rest.
-func moduleVersionsFile(rootVersions string) ([]byte, error) {
-	root, err := hclfile.Load(rootVersions)
+// root's, in ws: the same providers and Terraform versions, as lower bounds
+// only, as modules should (~> 6.14 becomes >= 6.14). The root pins the rest.
+func moduleVersionsFile(ws *workspace) ([]byte, error) {
+	root, err := ws.Load(rootfile.VersionsFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -730,7 +729,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
 				lower, err := rootfile.LowerBound(v.AsString())
 				if err != nil {
-					return nil, fmt.Errorf("%s: required_version: %w", rootVersions, err)
+					return nil, fmt.Errorf("%s: required_version: %w", root.Path, err)
 				}
 				terraform.SetAttributeValue("required_version", cty.StringVal(lower))
 			}
@@ -748,7 +747,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 			for _, name := range names {
 				v, diags := inner.Body.Attributes[name].Expr.Value(nil)
 				if diags.HasErrors() || !v.Type().IsObjectType() {
-					return nil, fmt.Errorf("%s: required_providers.%s isn't an object", rootVersions, name)
+					return nil, fmt.Errorf("%s: required_providers.%s isn't an object", root.Path, name)
 				}
 				requirement := map[string]cty.Value{}
 				if v.Type().HasAttribute("source") {
@@ -757,7 +756,7 @@ func moduleVersionsFile(rootVersions string) ([]byte, error) {
 				if v.Type().HasAttribute("version") {
 					lower, err := rootfile.LowerBound(v.GetAttr("version").AsString())
 					if err != nil {
-						return nil, fmt.Errorf("%s: required_providers.%s: %w", rootVersions, name, err)
+						return nil, fmt.Errorf("%s: required_providers.%s: %w", root.Path, name, err)
 					}
 					requirement["version"] = cty.StringVal(lower)
 				}

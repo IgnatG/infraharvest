@@ -42,10 +42,12 @@ module "logs" {
 }
 `)
 
-	changed, err := referModulesToResources(dir)
+	ws := rootWorkspace(t, dir)
+	changed, err := referModulesToResources(ws)
 	if err != nil || !changed {
 		t.Fatalf("want the calls changed, got %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	got := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`network_name = "acme-prod" project_id = google_project.main.project_id`,
@@ -71,10 +73,12 @@ func TestReferToProjectsWithoutAProject(t *testing.T) {
 }
 `
 	writeConfig(t, dir, rootfile.GeneratedFileName, content)
-	changed, err := referModulesToResources(dir)
+	ws := rootWorkspace(t, dir)
+	changed, err := referModulesToResources(ws)
 	if err != nil || changed {
 		t.Fatalf("want nothing changed, got %v, %v", changed, err)
 	}
+	flushed(t, ws)
 	if got := readFile(t, dir, rootfile.GeneratedFileName); got != content {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}

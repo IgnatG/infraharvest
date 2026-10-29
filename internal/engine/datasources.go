@@ -5,7 +5,6 @@ package engine
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // External is a resource the import listed but doesn't manage, such as one
@@ -60,7 +58,7 @@ type DataSource struct {
 // resource's type. Data sources are named other than those in taken. It
 // leaves the resources in skip as they are (see tidying.settle), and returns
 // the resources it changed.
-func addDataSourcesSkipping(dir string, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
+func addDataSourcesSkipping(ws *workspace, external []External, sources map[string]DataSource, taken Names, skip map[string]int) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it, and
 	// each resource once, with a name if any of its entries has one.
 	external = slices.Clone(external)
@@ -100,7 +98,7 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	if len(index) == 0 {
 		return nil, nil
 	}
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -114,11 +112,9 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 	if len(edited) == 0 {
 		return nil, nil
 	}
-	if err := generated.Save(); err != nil {
-		return nil, err
-	}
+	ws.Save(generated)
 	// Write the data sources the configuration now refers to.
-	saved, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	saved, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -151,5 +147,6 @@ func addDataSourcesSkipping(dir string, external []External, sources map[string]
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
-	return edited, fsutil.WriteFile(filepath.Join(dir, rootfile.DataFileName), hclwrite.Format(f.Bytes()), 0o644)
+	ws.Write(rootfile.DataFileName, hclwrite.Format(f.Bytes()))
+	return edited, nil
 }

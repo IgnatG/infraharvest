@@ -79,10 +79,12 @@ resource "google_dns_record_set" "app" {
 		}},
 	}}}
 
-	changed, err := omitInherited(context.Background(), tf, dir, []string{"project", "region", "zone"})
+	ws := rootWorkspace(t, dir)
+	changed, err := omitInherited(context.Background(), tf, ws, []string{"project", "region", "zone"})
 	if err != nil || !changed {
 		t.Fatalf("changed %v, err %v", changed, err)
 	}
+	flushed(t, ws)
 	generated := squashed(readFile(t, dir, rootfile.GeneratedFileName))
 	for _, want := range []string{
 		`resource "google_pubsub_topic" "orders" { name = "orders" }`,
@@ -105,7 +107,7 @@ func TestOmitInheritedWithoutProviderValues(t *testing.T) {
 	writeConfig(t, dir, rootfile.ProvidersFileName, "provider \"google\" {\n  add_terraform_attribution_label = false\n}\n")
 	writeConfig(t, dir, rootfile.GeneratedFileName, "resource \"google_pubsub_topic\" \"orders\" {\n  project = \"acme\"\n}\n")
 	tf := &fakeTerraform{dir: dir}
-	if changed, err := omitInherited(context.Background(), tf, dir, []string{"project"}); changed || err != nil {
+	if changed, err := omitInherited(context.Background(), tf, rootWorkspace(t, dir), []string{"project"}); changed || err != nil {
 		t.Errorf("changed %v, err %v", changed, err)
 	}
 	if len(tf.calls) != 0 {

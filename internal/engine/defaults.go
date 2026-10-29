@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -89,9 +88,9 @@ func (c defaultCandidate) key() string {
 // shows in the plan, so it could hide a real setting. Where the plan can't
 // settle what to leave out, only nulls and proven defaults go, with no plan
 // to check them (see stripNullsOnly): the pass rebases onto a new plan.
-func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, rules defaultRules) (*tidyEdit, error) {
-	path := filepath.Join(dir, rootfile.GeneratedFileName)
-	current, err := hclfile.Load(path)
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *workspace, rules defaultRules) (*tidyEdit, error) {
+	dir := ws.dir
+	current, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +111,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, rules de
 	return &tidyEdit{
 		edit: func(a *tidyAttempt) (edited, error) {
 			var err error
-			removed, err = removeValid(ctx, tf, dir, a.restore, schemas, rules, keep)
+			removed, err = removeValid(ctx, tf, ws, a.restore, schemas, rules, keep)
 			return edited{other: len(removed) > 0}, err
 		},
 		review: func(a *tidyAttempt, r tidyReview) (tidyDecision, error) {
@@ -126,7 +125,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, rules de
 				// defaultCandidate), as such checks come one at a time, as in
 				// a metric alarm's; then everything, as in the last round but
 				// one.
-				assigned, unassigned, err := assignErrors(dir, r.diags)
+				assigned, unassigned, err := assignErrors(ws, r.diags)
 				if err != nil {
 					return tidyDecision{}, err
 				}
@@ -148,7 +147,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, dir string, rules de
 			return defaultsRetry(dir, a), nil
 		},
 		unplanned: func(a *tidyAttempt) (bool, error) {
-			return stripNullsOnly(ctx, tf, path, a.restore, schemas, rules, keep)
+			return stripNullsOnly(ctx, tf, ws, a.restore, schemas, rules, keep)
 		},
 	}, nil
 }
@@ -165,12 +164,12 @@ func defaultsRetry(dir string, a *tidyAttempt) tidyDecision {
 
 // stripNullsOnly is stripDefaults where the plan can't settle what to
 // leave out, which keeps its constants: it leaves out of generated.tf, in
-// path, only nulls, as Terraform treats null as an omitted argument, and
+// ws, only nulls, as Terraform treats null as an omitted argument, and
 // proven defaults (see defaultCandidate.proven) of the metadata's own
 // release where the configuration still validates without them: no plan
 // would correct a wrong one. It reports whether it changed generated.tf;
 // restore puts it back as it was.
-func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, error) {
+func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, ws *workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, error) {
 	type pass struct {
 		schemas *tfjson.ProviderSchemas
 		rules   defaultRules
@@ -186,7 +185,7 @@ func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restor
 		if err := restore(); err != nil {
 			return false, err
 		}
-		f, err := hclfile.Load(path)
+		f, err := ws.Load(rootfile.GeneratedFileName)
 		if err != nil {
 			return false, err
 		}
@@ -194,9 +193,7 @@ func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, path string, restor
 		if len(removed) == 0 {
 			return false, restore()
 		}
-		if err := f.Save(); err != nil {
-			return false, err
-		}
+		ws.Save(f)
 		if !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return c.proven }) {
 			return true, nil
 		}
@@ -264,13 +261,12 @@ func keepWhatChanged(changed []*tfjson.ResourceChange, removed []defaultCandidat
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
-func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
-	path := filepath.Join(dir, rootfile.GeneratedFileName)
+func removeValid(ctx context.Context, tf tfrun.Terraform, ws *workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
 			return nil, err
 		}
-		generated, err := hclfile.Load(path)
+		generated, err := ws.Load(rootfile.GeneratedFileName)
 		if err != nil {
 			return nil, err
 		}
@@ -278,9 +274,7 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore fu
 		if len(removed) == 0 {
 			return nil, nil
 		}
-		if err := generated.Save(); err != nil {
-			return nil, err
-		}
+		ws.Save(generated)
 		// Leaving out nulls never makes configuration invalid, nor do proven
 		// defaults, which no constraint names (see schemaHints.provenDefault).
 		if validation == maxDefaultValidations || !slices.ContainsFunc(removed, func(c defaultCandidate) bool { return !c.verified() }) {
@@ -293,7 +287,7 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore fu
 		if out.Valid {
 			return removed, nil
 		}
-		assigned, _, err := assignErrors(dir, tfrun.ErrorDiagnostics(out.Diagnostics))
+		assigned, _, err := assignErrors(ws, tfrun.ErrorDiagnostics(out.Diagnostics))
 		if err != nil {
 			return nil, err
 		}
@@ -309,14 +303,14 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, dir string, restore fu
 	}
 }
 
-// assignErrors assigns diags to the resources of dir they are about (see
+// assignErrors assigns diags to the resources of ws they are about (see
 // byResource).
-func assignErrors(dir string, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func assignErrors(ws *workspace, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, nil, err
 	}
-	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
+	imports, err := ws.Load(rootfile.ImportsFileName)
 	if err != nil {
 		return nil, nil, err
 	}

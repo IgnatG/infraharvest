@@ -23,7 +23,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // DefaultTags describes how a provider applies tags to every resource it
@@ -81,9 +80,8 @@ var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 // anything. With dt.Applied, it only leaves those tags out of the
 // resources, or makes the resources refer to them: the root has them
 // already (see applyDefaultTags).
-func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
-	generatedPath := filepath.Join(dir, rootfile.GeneratedFileName)
-	generated, err := hclfile.Load(generatedPath)
+func applyTagLift(ws *workspace, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
 	}
@@ -92,9 +90,10 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 			if !referTags(generated, dt.Attribute, dt.Applied) {
 				return false, nil
 			}
-			return true, generated.Save()
+			ws.Save(generated)
+			return true, nil
 		}
-		return applyAppliedTags(dir, generated, dt, schemas)
+		return applyAppliedTags(ws, generated, dt, schemas)
 	}
 	resources, ok := taggedResources(generated, dt, schemas)
 	if !ok {
@@ -118,12 +117,10 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 	}
 	if dt.Block == "" {
 		referTags(generated, dt.Attribute, common)
-		if err := generated.Save(); err != nil {
-			return false, err
-		}
-		return true, setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(common)})
+		ws.Save(generated)
+		return true, setLocals(ws, map[string]cty.Value{dt.Attribute: mapValue(common)})
 	}
-	providers, provider, err := loadProvider(dir, dt.Provider)
+	providers, provider, err := loadProvider(ws, dt.Provider)
 	if err != nil || provider == nil {
 		return false, err
 	}
@@ -139,10 +136,8 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 		}
 	}
 	removeTags(generated, dt.Attribute, common, uncovered)
-	if err := generated.Save(); err != nil {
-		return false, err
-	}
-	return true, setDefaultTags(dir, providers, provider, dt, common)
+	ws.Save(generated)
+	return true, setDefaultTags(ws, providers, provider, dt, common)
 }
 
 // applyAppliedTags is applyTagLift for the root an incremental import adds
@@ -151,7 +146,7 @@ func applyTagLift(dir string, dt DefaultTags, schemas *tfjson.ProviderSchemas) (
 // don't have, such as untagged ones, keep theirs and use the second
 // configuration of the provider, without dt.Block, as the root's own do
 // (see addRootAlias).
-func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
+func applyAppliedTags(ws *workspace, generated *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
 	resources, ok := taggedResources(generated, dt, schemas)
 	if !ok {
 		return false, nil
@@ -167,7 +162,7 @@ func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schem
 	}
 	changed := removeTags(generated, dt.Attribute, dt.Applied, uncovered)
 	if len(uncovered) > 0 {
-		providers, provider, err := loadProvider(dir, dt.Provider)
+		providers, provider, err := loadProvider(ws, dt.Provider)
 		if err != nil {
 			return false, err
 		}
@@ -179,9 +174,7 @@ func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schem
 			if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 				return false, err
 			}
-			if err := providers.Save(); err != nil {
-				return false, err
-			}
+			ws.Save(providers)
 		}
 		for _, r := range generated.Resources() {
 			if uncovered[r.Address] {
@@ -193,7 +186,8 @@ func applyAppliedTags(dir string, generated *hclfile.File, dt DefaultTags, schem
 	if !changed {
 		return false, nil
 	}
-	return true, generated.Save()
+	ws.Save(generated)
+	return true, nil
 }
 
 // aliasFor is the alias of the second configuration of dt's provider, for
@@ -218,11 +212,11 @@ func hasAlias(providers *hclfile.File, name, alias string) bool {
 	return false
 }
 
-// addRootAlias adds to root's providers.tf the second configuration of
-// dt's provider (see addAliasProvider) if the resources an incremental
-// import staged in staging use it and root has none, and reports whether
-// it did.
-func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
+// addRootAlias adds to the providers.tf of ws's root the second
+// configuration of dt's provider (see addAliasProvider) if the resources an
+// incremental import staged in staging use it and root has none, and
+// reports whether it did.
+func addRootAlias(staging string, ws *workspace, dt DefaultTags) (bool, error) {
 	if dt.Block == "" {
 		return false, nil
 	}
@@ -246,17 +240,18 @@ func addRootAlias(staging, root string, dt DefaultTags) (bool, error) {
 	if !used {
 		return false, nil
 	}
-	providers, provider, err := loadProvider(root, dt.Provider)
+	providers, provider, err := loadProvider(ws, dt.Provider)
 	if err != nil || hasAlias(providers, dt.Provider, alias) {
 		return false, err
 	}
 	if provider == nil {
-		return false, fmt.Errorf("%s has no provider %q", filepath.Join(root, rootfile.ProvidersFileName), dt.Provider)
+		return false, fmt.Errorf("%s has no provider %q", ws.path(rootfile.ProvidersFileName), dt.Provider)
 	}
 	if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 		return false, err
 	}
-	return true, providers.Save()
+	ws.Save(providers)
+	return true, nil
 }
 
 // taggedResource is a resource the provider applies its tags to, with its
@@ -340,27 +335,27 @@ func commonTags(resources []taggedResource, reserved string) map[string]string {
 	return common
 }
 
-// applyDefaultTags makes the provider in dir apply dt.Applied to every
+// applyDefaultTags makes the provider of ws apply dt.Applied to every
 // resource, as the root an incremental import adds to does; without
 // dt.Block, it only defines the local the resources refer to.
-func applyDefaultTags(dir string, dt DefaultTags) error {
+func applyDefaultTags(ws *workspace, dt DefaultTags) error {
 	if dt.Block == "" {
-		return setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(dt.Applied)})
+		return setLocals(ws, map[string]cty.Value{dt.Attribute: mapValue(dt.Applied)})
 	}
-	providers, provider, err := loadProvider(dir, dt.Provider)
+	providers, provider, err := loadProvider(ws, dt.Provider)
 	if err != nil {
 		return err
 	}
 	if provider == nil {
 		return fmt.Errorf("%s has no provider %q to apply default tags", rootfile.ProvidersFileName, dt.Provider)
 	}
-	return setDefaultTags(dir, providers, provider, dt, dt.Applied)
+	return setDefaultTags(ws, providers, provider, dt, dt.Applied)
 }
 
 // loadProvider loads providers.tf and finds the default configuration of
 // the provider named name, the block without an alias, or nil.
-func loadProvider(dir, name string) (*hclfile.File, *hclwrite.Body, error) {
-	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
+func loadProvider(ws *workspace, name string) (*hclfile.File, *hclwrite.Body, error) {
+	providers, err := ws.Load(rootfile.ProvidersFileName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -374,17 +369,15 @@ func loadProvider(dir, name string) (*hclfile.File, *hclwrite.Body, error) {
 
 // setDefaultTags makes provider, in providers, apply tags through local.tags
 // (dt.Attribute) and dt.Block.
-func setDefaultTags(dir string, providers *hclfile.File, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
+func setDefaultTags(ws *workspace, providers *hclfile.File, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
 	local := hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute}}
 	if dt.Argument {
 		provider.SetAttributeTraversal(dt.Block, local)
 	} else {
 		provider.AppendNewBlock(dt.Block, nil).Body().SetAttributeTraversal(dt.Attribute, local)
 	}
-	if err := providers.Save(); err != nil {
-		return err
-	}
-	return setLocals(dir, map[string]cty.Value{dt.Attribute: mapValue(tags)})
+	ws.Save(providers)
+	return setLocals(ws, map[string]cty.Value{dt.Attribute: mapValue(tags)})
 }
 
 // removeTags leaves out of each resource's literal attribute the tags in
@@ -509,8 +502,8 @@ func mapValue(m map[string]string) cty.Value {
 // use refer to the local, named other than the locals in taken. The values
 // stay the same, so the plan does too. It reports whether it lifted
 // anything.
-func liftLiterals(dir string, taken Names) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func liftLiterals(ws *workspace, taken Names) (bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
 	}
@@ -552,7 +545,7 @@ func liftLiterals(dir string, taken Names) (bool, error) {
 	}
 	collect(generated.Syntax, generated.Edit().Body())
 
-	locals, err := readLocals(dir)
+	locals, err := readLocals(ws)
 	if err != nil {
 		return false, err
 	}
@@ -582,10 +575,9 @@ func liftLiterals(dir string, taken Names) (bool, error) {
 	if !lifted {
 		return false, nil
 	}
-	if err := generated.Save(); err != nil {
-		return false, err
-	}
-	return true, writeLocals(dir, locals)
+	ws.Save(generated)
+	writeLocals(ws, locals)
+	return true, nil
 }
 
 func hasLocal(locals map[string]cty.Value, name string) bool {
@@ -594,19 +586,20 @@ func hasLocal(locals map[string]cty.Value, name string) bool {
 }
 
 // setLocals adds values to locals.tf, replacing locals of the same name.
-func setLocals(dir string, values map[string]cty.Value) error {
-	locals, err := readLocals(dir)
+func setLocals(ws *workspace, values map[string]cty.Value) error {
+	locals, err := readLocals(ws)
 	if err != nil {
 		return err
 	}
 	maps.Copy(locals, values)
-	return writeLocals(dir, locals)
+	writeLocals(ws, locals)
+	return nil
 }
 
 // readLocals returns the literal locals in locals.tf, if any.
-func readLocals(dir string) (map[string]cty.Value, error) {
+func readLocals(ws *workspace) (map[string]cty.Value, error) {
 	locals := map[string]cty.Value{}
-	f, err := hclfile.Load(filepath.Join(dir, rootfile.LocalsFileName))
+	f, err := ws.Load(rootfile.LocalsFileName)
 	if errors.Is(err, fs.ErrNotExist) {
 		return locals, nil
 	}
@@ -629,7 +622,7 @@ func readLocals(dir string) (map[string]cty.Value, error) {
 }
 
 // writeLocals writes locals.tf with one locals block, in name order.
-func writeLocals(dir string, locals map[string]cty.Value) error {
+func writeLocals(ws *workspace, locals map[string]cty.Value) {
 	names := make([]string, 0, len(locals))
 	for name := range locals {
 		names = append(names, name)
@@ -640,5 +633,5 @@ func writeLocals(dir string, locals map[string]cty.Value) error {
 	for _, name := range names {
 		body.SetAttributeValue(name, locals[name])
 	}
-	return fsutil.WriteFile(filepath.Join(dir, rootfile.LocalsFileName), hclwrite.Format(f.Bytes()), 0o644)
+	ws.Write(rootfile.LocalsFileName, hclwrite.Format(f.Bytes()))
 }

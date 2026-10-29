@@ -5,7 +5,6 @@ package engine
 
 import (
 	"maps"
-	"path/filepath"
 	"slices"
 
 	"github.com/hashicorp/hcl/v2"
@@ -37,8 +36,8 @@ type moduleTarget struct {
 // omitInherited). Only those arguments count: another argument with the
 // same value, such as a bucket's name, isn't the project. It reports
 // whether it changed generated.tf.
-func referModulesToResources(dir string) (bool, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func referModulesToResources(ws *workspace) (bool, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
 	}
@@ -105,7 +104,8 @@ func referModulesToResources(dir string) (bool, error) {
 	if !changed {
 		return false, nil
 	}
-	return true, generated.Save()
+	ws.Save(generated)
+	return true, nil
 }
 
 // referInTuple returns a list of literal strings, such as a call's

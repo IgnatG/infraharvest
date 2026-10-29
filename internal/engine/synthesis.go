@@ -84,17 +84,17 @@ func (t *trial) moduleAddress(member string) string {
 // passes after to compare with. It returns no edit where the run has no
 // adapters or they map no cluster.
 func (t *tidying) synthesize() (*tidyEdit, error) {
-	opts, dir := t.r.opts, t.dir
+	opts, ws := t.r.opts, t.ws
 	if len(opts.Adapters) == 0 {
 		return nil, nil
 	}
-	trials, declined, err := mapClusters(dir, opts.Adapters, t.r.taken, t.values)
+	trials, declined, err := mapClusters(ws, opts.Adapters, t.r.taken, t.values)
 	if err != nil || len(trials) == 0 {
 		t.declined = declined
 		return nil, err
 	}
 	write := func(ts []*trial) error {
-		return writeCalls(dir, ts, opts.ModuleProviders, opts.DefaultTags)
+		return writeCalls(ws, ts, opts.ModuleProviders, opts.DefaultTags)
 	}
 	// written are the calls the root has now. kept are the calls a plan
 	// accepted together, and keptPlan is that plan.
@@ -211,7 +211,7 @@ func (t *tidying) synthesize() (*tidyEdit, error) {
 					return tidyDecision{}, err
 				}
 			}
-			if err := pinModuleProviders(dir, opts.ModuleProviders); err != nil {
+			if err := pinModuleProviders(ws, opts.ModuleProviders); err != nil {
 				return tidyDecision{}, err
 			}
 			return tidyDecision{outcome: tidyAccept, plan: &keptPlan}, nil
@@ -392,8 +392,8 @@ func rejections(trials []*trial) []ModuleCall {
 // anchor it refers to, if that cluster has no member of its type yet or
 // the type may repeat. It returns the clusters the adapters mapped and the
 // ones they declined.
-func mapClusters(dir string, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func mapClusters(ws *workspace, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -654,8 +654,8 @@ func unfollowable(t *trial, refs clusterReferences, values map[string]map[string
 // module calls, makes references to them use the modules' outputs,
 // imports into the modules, and configures the other providers the
 // modules use, of moduleProviders, with the root's tags of tags.
-func writeCalls(dir string, trials []*trial, moduleProviders map[string]rootfile.Provider, tags *DefaultTags) error {
-	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootfile.Provider, tags *DefaultTags) error {
+	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return err
 	}
@@ -690,7 +690,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]rootfile
 	}
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
-		source, err := hclfile.CallSource(dir, t.adapter.Source)
+		source, err := hclfile.CallSource(ws.dir, t.adapter.Source)
 		if err != nil {
 			return err
 		}
@@ -716,10 +716,8 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]rootfile
 		body.AppendNewline()
 		body.AppendBlock(block)
 	}
-	if err := generated.Save(); err != nil {
-		return err
-	}
-	if err := writeModuleProviders(dir, trials, moduleProviders, tags); err != nil {
+	ws.Save(generated)
+	if err := writeModuleProviders(ws, trials, moduleProviders, tags); err != nil {
 		return err
 	}
 	var added []moduleImport
@@ -728,7 +726,7 @@ func writeCalls(dir string, trials []*trial, moduleProviders map[string]rootfile
 			added = append(added, moduleImport{to: "module." + t.name + "." + imp.To, Import: imp})
 		}
 	}
-	return retargetImports(dir, importTo, added)
+	return retargetImports(ws, importTo, added)
 }
 
 // moduleImport is an import a module call adds, into to.
@@ -743,8 +741,8 @@ type moduleImport struct {
 // resource each names, or, where that resource is imported by its
 // identity, by the identity the adapter makes of its (see
 // adapters.Import.Identity).
-func retargetImports(dir string, to map[string]string, added []moduleImport) error {
-	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
+func retargetImports(ws *workspace, to map[string]string, added []moduleImport) error {
+	imports, err := ws.Load(rootfile.ImportsFileName)
 	if err != nil {
 		return err
 	}
@@ -789,7 +787,8 @@ func retargetImports(dir string, to map[string]string, added []moduleImport) err
 		}
 		block.SetAttributeValue("identity", rootfile.IdentityValue(identity))
 	}
-	return imports.Save()
+	ws.Save(imports)
+	return nil
 }
 
 // identityFrom returns the identity spec makes of of, the identity of
@@ -1027,7 +1026,7 @@ func spells(tokens hclwrite.Tokens, steps []string) bool {
 // root's resource types are named after, such as google for a root of
 // google-beta, also applies the root's default tags, tags (see
 // shareDefaultTags).
-func writeModuleProviders(dir string, trials []*trial, configured map[string]rootfile.Provider, tags *DefaultTags) error {
+func writeModuleProviders(ws *workspace, trials []*trial, configured map[string]rootfile.Provider, tags *DefaultTags) error {
 	var names []string
 	for _, t := range trials {
 		for _, name := range t.adapter.Providers {
@@ -1036,10 +1035,10 @@ func writeModuleProviders(dir string, trials []*trial, configured map[string]roo
 			}
 		}
 	}
-	if err := requireProviders(dir, names, configured); err != nil {
+	if err := requireProviders(ws, names, configured); err != nil {
 		return err
 	}
-	return shareDefaultTags(dir, names, tags)
+	return shareDefaultTags(ws, names, tags)
 }
 
 // shareDefaultTags makes the provider of names that tags.Provider's
@@ -1051,7 +1050,7 @@ func writeModuleProviders(dir string, trials []*trial, configured map[string]roo
 // google-beta for a root of google, applies none: modules create with it
 // only resources that name it, such as the network module's network,
 // which takes no labels.
-func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
+func shareDefaultTags(ws *workspace, names []string, tags *DefaultTags) error {
 	if tags == nil || tags.Block == "" {
 		return nil
 	}
@@ -1059,7 +1058,7 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 	if implied == tags.Provider || !slices.Contains(names, implied) {
 		return nil
 	}
-	providers, root, err := loadProvider(dir, tags.Provider)
+	providers, root, err := loadProvider(ws, tags.Provider)
 	if err != nil || root == nil {
 		return err
 	}
@@ -1078,7 +1077,8 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 			return nil
 		}
 		module.SetAttributeRaw(tags.Block, applied.Expr().BuildTokens(nil))
-		return providers.Save()
+		ws.Save(providers)
+		return nil
 	}
 	applied := root.FirstMatchingBlock(tags.Block, nil)
 	if applied == nil || module.FirstMatchingBlock(tags.Block, nil) != nil {
@@ -1089,7 +1089,8 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 		return fmt.Errorf("provider %s: %w", implied, err)
 	}
 	module.AppendBlock(copied)
-	return providers.Save()
+	ws.Save(providers)
+	return nil
 }
 
 // requireProviders adds to providers.tf the blocks, and to versions.tf
@@ -1098,16 +1099,16 @@ func shareDefaultTags(dir string, names []string, tags *DefaultTags) error {
 // or of resources whose type another provider implies (see
 // resourceProviders). It sets no version: pinModuleProviders pins each
 // to the release init selected.
-func requireProviders(dir string, names []string, configured map[string]rootfile.Provider) error {
+func requireProviders(ws *workspace, names []string, configured map[string]rootfile.Provider) error {
 	if len(names) == 0 {
 		return nil
 	}
 	names = slices.Sorted(slices.Values(names))
-	providers, err := hclfile.Load(filepath.Join(dir, rootfile.ProvidersFileName))
+	providers, err := ws.Load(rootfile.ProvidersFileName)
 	if err != nil {
 		return err
 	}
-	versions, err := hclfile.Load(filepath.Join(dir, rootfile.VersionsFileName))
+	versions, err := ws.Load(rootfile.VersionsFileName)
 	if err != nil {
 		return err
 	}
@@ -1139,27 +1140,26 @@ func requireProviders(dir string, names []string, configured map[string]rootfile
 			return fmt.Errorf("provider %s: %w", name, err)
 		}
 	}
-	if err := providers.Save(); err != nil {
-		return err
-	}
-	return versions.Save()
+	ws.Save(providers)
+	ws.Save(versions)
+	return nil
 }
 
 // pinModuleProviders pins each provider of configured that versions.tf
 // requires without a version to the major and minor version the lock file
 // selected for it, as the root's own provider is pinned.
-func pinModuleProviders(dir string, configured map[string]rootfile.Provider) error {
+func pinModuleProviders(ws *workspace, configured map[string]rootfile.Provider) error {
 	if len(configured) == 0 {
 		return nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, tfrun.LockFileName)); err != nil {
+	if _, err := os.Stat(ws.path(tfrun.LockFileName)); err != nil {
 		return nil
 	}
-	lock, err := hclfile.Load(filepath.Join(dir, tfrun.LockFileName))
+	lock, err := hclfile.Load(ws.path(tfrun.LockFileName))
 	if err != nil {
 		return err
 	}
-	versions, err := hclfile.Load(filepath.Join(dir, rootfile.VersionsFileName))
+	versions, err := ws.Load(rootfile.VersionsFileName)
 	if err != nil {
 		return err
 	}
@@ -1201,7 +1201,8 @@ func pinModuleProviders(dir string, configured map[string]rootfile.Provider) err
 	if !changed {
 		return nil
 	}
-	return versions.Save()
+	ws.Save(versions)
+	return nil
 }
 
 // lockedVersion returns the version the lock file selected of the
