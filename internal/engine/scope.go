@@ -264,56 +264,77 @@ func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[strin
 	return out, changed
 }
 
-// liftScopeWord returns s with each whole-word occurrence of id (see
+// liftScopeWord returns s with each occurrence of id that is an ID (see
 // scopeWordIndex) replaced by with, and whether it had one.
 func liftScopeWord(s, id, with string) (string, bool) {
 	var b strings.Builder
-	found := false
-	for {
-		i := scopeWordIndex(s, id)
-		if i < 0 {
-			break
-		}
-		b.WriteString(s[:i])
+	last := 0
+	for i := scopeWordIndexFrom(s, id, 0); i >= 0; i = scopeWordIndexFrom(s, id, i+len(id)) {
+		b.WriteString(s[last:i])
 		b.WriteString(with)
-		s = s[i+len(id):]
-		found = true
+		last = i + len(id)
 	}
-	if !found {
+	if last == 0 {
 		return s, false
 	}
-	b.WriteString(s)
+	b.WriteString(s[last:])
 	return b.String(), true
 }
 
 // scopeWordIndex returns the index of the first occurrence of id in s that
-// is a part of an ARN, a path, a host or an email, or all of s: after :,
-// /, . or @ and before :, / or ., so that
-// arn:aws:iam::123456789012:role/ci and projects/app-prod/topics/orders
-// hold their IDs, but eu-west-2a, logs-eu-west-2 and app-prod-orders,
-// names that only have them in part, don't. A name that happens to hold
-// the ID would otherwise change with the account the root plans in.
-// It returns -1 for none.
+// is an ID, or -1 for none: all of s; a part of an ARN, a URL, a Google
+// Cloud projects/ path or an Azure /subscriptions/ ID, after :, /, . or @
+// and before :, / or .; or a part of a host or an email, after . or @ and
+// before . (see scopeID). So arn:aws:iam::123456789012:role/ci,
+// projects/app-prod/topics/orders and s3.eu-west-2.amazonaws.com hold
+// their IDs, but eu-west-2a, logs-eu-west-2, app-prod-orders and the log
+// group /app/eu-west-2, names that only have them in part, don't: a name
+// that happens to hold the ID would otherwise change with the account the
+// root plans in.
 func scopeWordIndex(s, id string) int {
+	return scopeWordIndexFrom(s, id, 0)
+}
+
+// scopeWordIndexFrom is scopeWordIndex from index from of s.
+func scopeWordIndexFrom(s, id string, from int) int {
 	if id == "" {
 		return -1
 	}
 	if s == id {
-		return 0
+		if from == 0 {
+			return 0
+		}
+		return -1
 	}
-	for from := 0; from <= len(s); {
+	ids := strings.HasPrefix(s, "arn:") || strings.Contains(s, "://") || strings.Contains(s, "projects/") || strings.Contains(s, "/subscriptions/")
+	for from <= len(s) {
 		i := strings.Index(s[from:], id)
 		if i < 0 {
 			return -1
 		}
 		i += from
 		end := i + len(id)
-		before := i > 0 && strings.IndexByte(":/.@", s[i-1]) >= 0
-		after := end == len(s) || strings.IndexByte(":/.", s[end]) >= 0
-		if before && after {
+		var before, after byte // 0 at either end of s
+		if i > 0 {
+			before = s[i-1]
+		}
+		if end < len(s) {
+			after = s[end]
+		}
+		if scopeID(before, after, ids) {
 			return i
 		}
 		from = i + 1
 	}
 	return -1
+}
+
+// scopeID reports whether an occurrence of an ID between the bytes before
+// and after it, 0 at an end of the string, is the ID (see scopeWordIndex),
+// in a string that ids says is an ARN, a URL or a resource's path.
+func scopeID(before, after byte, ids bool) bool {
+	if (before == '.' || before == '@') && after == '.' {
+		return true
+	}
+	return ids && before != 0 && strings.IndexByte(":/.@", before) >= 0 && (after == 0 || strings.IndexByte(":/.", after) >= 0)
 }

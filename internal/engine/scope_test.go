@@ -237,9 +237,10 @@ func TestLiftScopeLeavesANameTaken(t *testing.T) {
 	}
 }
 
-// IDs are the parts of ARNs, paths, hosts and emails, or whole values: a
-// longer number, a name that only starts with the region, and a name
-// made of the project's ID hold neither.
+// IDs are the parts of ARNs, URLs, resource paths, hosts and emails, or
+// whole values: a longer number, a name that only starts with the region,
+// a name made of the project's ID and a log group named by the region
+// hold neither.
 func TestScopeWordIndex(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -255,6 +256,8 @@ func TestScopeWordIndex(t *testing.T) {
 		{"https://sqs.eu-west-2.amazonaws.com/123456789012/orders", "123456789012", 36},
 		{"logs-eu-west-2", "eu-west-2", -1},
 		{"eu-west-2-logs", "eu-west-2", -1},
+		{"/infraharvest-e2e-regions/eu-west-1", "eu-west-1", -1},
+		{"//pubsub.googleapis.com/projects/infraharvest-e2e/topics/orders", "infraharvest-e2e", 33},
 		{"infraharvest-e2e-added", "infraharvest-e2e", -1},
 		{"projects/infraharvest-e2e/topics/orders", "infraharvest-e2e", 9},
 		{"app@infraharvest-e2e.iam.gserviceaccount.com", "infraharvest-e2e", 4},
