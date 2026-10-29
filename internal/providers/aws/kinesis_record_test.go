@@ -25,7 +25,7 @@ func TestRecordKinesisListsStreamsByName(t *testing.T) {
 	})
 	g := &KinesisLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

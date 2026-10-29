@@ -7,9 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -46,13 +43,13 @@ func TestManagementLockListsTheScope(t *testing.T) {
 		if tc.resourceGroup == "" {
 			items = append(items, armItem(nodes, "nodes", `{"level":"CanNotDelete"}`))
 		}
-		transport := &routedTransport{bodies: map[string]string{tc.path: armList(items...), graphPath: groups}}
+		transport := routed(map[string]string{tc.path: armList(items...), graphPath: groups})
 		g := &ManagementLockLister{}
 		g.SetSettings(serviceSettings{
 			subscriptionID: roleSubscriptionID,
 			resourceGroup:  tc.resourceGroup,
 			credential:     fakeCredential{},
-			clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+			clientOptions:  fakeOptions(transport),
 		})
 
 		resources, err := g.List(t.Context(), harvest.Settings{})
@@ -60,8 +57,8 @@ func TestManagementLockListsTheScope(t *testing.T) {
 			t.Fatalf("resource group %q: %v", tc.resourceGroup, err)
 		}
 
-		if want := []string{tc.path, graphPath}; !reflect.DeepEqual(transport.paths, want) {
-			t.Errorf("resource group %q: requested %v, want %v", tc.resourceGroup, transport.paths, want)
+		if want := []string{tc.path, graphPath}; !reflect.DeepEqual(transport.Paths(), want) {
+			t.Errorf("resource group %q: requested %v, want %v", tc.resourceGroup, transport.Paths(), want)
 		}
 		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("resource group %q: got %+v, want %+v", tc.resourceGroup, got, tc.want)
@@ -77,12 +74,12 @@ func TestManagementLockSkipsTheGroupsQueryWithoutGroups(t *testing.T) {
 		path = roleSubscription + "/providers/Microsoft.Authorization/locks"
 		lock = path + "/all"
 	)
-	transport := &routedTransport{bodies: map[string]string{path: armList(armItem(lock, "all", `{"level":"ReadOnly"}`))}}
+	transport := routed(map[string]string{path: armList(armItem(lock, "all", `{"level":"ReadOnly"}`))})
 	g := &ManagementLockLister{}
 	g.SetSettings(serviceSettings{
 		subscriptionID: roleSubscriptionID,
 		credential:     fakeCredential{},
-		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+		clientOptions:  fakeOptions(transport),
 	})
 
 	resources, err := g.List(t.Context(), harvest.Settings{})
@@ -90,8 +87,8 @@ func TestManagementLockSkipsTheGroupsQueryWithoutGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !reflect.DeepEqual(transport.paths, []string{path}) {
-		t.Errorf("requested %v, want only %s", transport.paths, path)
+	if !reflect.DeepEqual(transport.Paths(), []string{path}) {
+		t.Errorf("requested %v, want only %s", transport.Paths(), path)
 	}
 	want := []listedResource{{Type: "azurerm_management_lock", ID: lock, Name: "all", Attributes: map[string]string{"name": "all"}}}
 	if got := listedResources(resources); !reflect.DeepEqual(got, want) {
@@ -164,29 +161,29 @@ func TestDefenderListersListTheSubscription(t *testing.T) {
 			},
 		},
 	} {
-		transport := &routedTransport{bodies: map[string]string{tc.path: tc.body}}
+		transport := routed(map[string]string{tc.path: tc.body})
 		g := tc.lister()
-		g.SetSettings(routedArgs(transport, ""))
+		g.SetSettings(fakeArgs(transport, ""))
 		resources, err := g.List(t.Context(), harvest.Settings{})
 		if err != nil {
 			t.Fatalf("%s: %v", tc.service, err)
 		}
-		if !reflect.DeepEqual(transport.paths, []string{tc.path}) {
-			t.Errorf("%s: requested %v, want %s", tc.service, transport.paths, tc.path)
+		if !reflect.DeepEqual(transport.Paths(), []string{tc.path}) {
+			t.Errorf("%s: requested %v, want %s", tc.service, transport.Paths(), tc.path)
 		}
 		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %+v, want %+v", tc.service, got, tc.want)
 		}
 
-		transport = &routedTransport{bodies: map[string]string{tc.path: tc.body}}
+		transport = routed(map[string]string{tc.path: tc.body})
 		g = tc.lister()
-		g.SetSettings(routedArgs(transport, "rg1"))
+		g.SetSettings(fakeArgs(transport, "rg1"))
 		resources, err = g.List(t.Context(), harvest.Settings{})
 		if err != nil {
 			t.Errorf("%s with a resource group: %v", tc.service, err)
 		}
-		if len(transport.paths) != 0 || len(resources) != 0 {
-			t.Errorf("%s with a resource group: requested %v, listed %v", tc.service, transport.paths, resources)
+		if len(transport.Paths()) != 0 || len(resources) != 0 {
+			t.Errorf("%s with a resource group: requested %v, listed %v", tc.service, transport.Paths(), resources)
 		}
 	}
 }
@@ -200,7 +197,7 @@ func TestLockAndDefenderListersFailWhenTheListFails(t *testing.T) {
 		"security_center_subscription_pricing": &SecurityCenterSubscriptionPricingLister{},
 	} {
 		// Nothing registered: every request gets a 404.
-		g.SetSettings(routedArgs(&routedTransport{}, ""))
+		g.SetSettings(fakeArgs(routed(nil), ""))
 		resources, err := g.List(t.Context(), harvest.Settings{})
 		if err == nil {
 			t.Errorf("%s: listed %v, want an error", service, resources)

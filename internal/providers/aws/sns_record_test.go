@@ -58,7 +58,7 @@ func TestRecordSnsListsTopicsAndSubscriptions(t *testing.T) {
 	})
 	g := &SnsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 		})
 		g := &SnsLister{}
 
-		resources, err := g.List(ctx, harvest.Settings{})
+		resources, err := listChecked(ctx, t, g, harvest.Settings{})
 
 		at.check(t)
 		topic := func(name string) recordedResource {

@@ -98,7 +98,7 @@ func TestRecordCloud9ListsEnvironments(t *testing.T) {
 	})
 	g := &Cloud9Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestRecordCloud9DescribesInBatches(t *testing.T) {
 	})
 	g := &Cloud9Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

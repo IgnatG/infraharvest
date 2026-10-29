@@ -56,7 +56,7 @@ func TestRecordIdentityStoreListsUsersGroupsAndMemberships(t *testing.T) {
 	})
 	g := &IdentityStoreLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestRecordIdentityStoreWithoutInstance(t *testing.T) {
 	})
 	g := &IdentityStoreLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestRecordIdentityStoreReturnsErrors(t *testing.T) {
 			})
 			g := &IdentityStoreLister{}
 
-			_, err := g.List(ctx, harvest.Settings{})
+			_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDeniedException")
 		})

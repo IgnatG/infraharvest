@@ -103,7 +103,7 @@ func TestSqsPaginates(t *testing.T) {
 	})
 	g := &SqsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestKinesisPaginates(t *testing.T) {
 	})
 	g := &KinesisLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestVpcEndpointPaginates(t *testing.T) {
 	})
 	g := &VpcEndpointLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestBudgetsPaginates(t *testing.T) {
 	})
 	g := &BudgetsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestCloud9Paginates(t *testing.T) {
 	})
 	g := &Cloud9Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestWafPaginates(t *testing.T) {
 	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestWafRegionalPaginates(t *testing.T) {
 	ctx := useFakeAPI(t, serveWafPages(t, wafListOps))
 	g := &WafRegionalLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +276,7 @@ func TestWafv2Paginates(t *testing.T) {
 	ctx := useFakeAPI(t, serveWafPages(t, wafv2ListOps))
 	g := NewWafv2RegionalLister()
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 	})
 	g := &AlbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestIamAccessKeysStopOnError(t *testing.T) {
 	})
 	g := &IamLister{}
 
-	_, err := g.List(ctx, harvest.Settings{})
+	_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "Throttling") {
 		t.Errorf("want the ListAccessKeys error, got %v", err)
@@ -463,7 +463,7 @@ func TestSnsSubscriptionsStopOnError(t *testing.T) {
 	})
 	g := &SnsLister{}
 
-	_, err := g.List(ctx, harvest.Settings{})
+	_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 	if err == nil || !strings.Contains(err.Error(), "AuthorizationError") {
 		t.Errorf("want the ListSubscriptionsByTopic error, got %v", err)

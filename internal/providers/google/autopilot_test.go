@@ -4,15 +4,14 @@
 package google
 
 import (
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 // fakeClusters answers the list of the project acme-prod's GKE clusters
@@ -26,21 +25,18 @@ type fakeClusters struct {
 	fields []string
 }
 
-func (f *fakeClusters) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (f *fakeClusters) answer(r providertest.Request) providertest.Answer {
 	f.mu.Lock()
 	failing := f.fail > 0
 	if failing {
 		f.fail--
 	}
-	f.fields = append(f.fields, r.URL.Query().Get("fields"))
+	f.fields = append(f.fields, r.Query.Get("fields"))
 	f.mu.Unlock()
-	w.Header().Set("Content-Type", "application/json")
 	if failing {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":{"code":403,"message":"Required \"container.clusters.list\" permission","status":"PERMISSION_DENIED"}}`))
-		return
+		return providertest.Status(http.StatusForbidden, `{"error":{"code":403,"message":"Required \"container.clusters.list\" permission","status":"PERMISSION_DENIED"}}`)
 	}
-	_ = json.NewEncoder(w).Encode(f.response)
+	return jsonOf(f.response)
 }
 
 func (f *fakeClusters) requests() int {
@@ -54,15 +50,12 @@ func (f *fakeClusters) requests() int {
 // and cluster lists of other tests kept.
 func clustersAndAssets(t *testing.T, search *fakeAssetSearch, clusters *fakeClusters) {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/projects/acme-prod/locations/-/clusters" {
-			clusters.ServeHTTP(w, r)
-			return
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+		if r.Path == "/v1/projects/acme-prod/locations/-/clusters" {
+			return clusters.answer(r)
 		}
-		search.ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv(EndpointEnv, server.URL)
+		return search.answer(r)
+	})
 }
 
 func nodePool(cluster, name, location string) map[string]any {

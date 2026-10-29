@@ -101,7 +101,7 @@ func TestRecordEcsListsClustersServicesAndTaskDefinitions(t *testing.T) {
 	g := &EcsLister{}
 
 	// The descriptions that fail are returned as a partial error.
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "service/apps/batch-8") || !strings.Contains(err.Error(), "service/jobs/worker") {
 		t.Errorf("want a partial error naming the services not described, got %v", err)
 	}

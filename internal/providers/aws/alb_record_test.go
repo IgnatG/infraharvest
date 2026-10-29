@@ -132,7 +132,7 @@ func TestRecordAlbListsBalancersListenersAndTargetGroups(t *testing.T) {
 	})
 	g := &AlbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) {
 		t.Errorf("want a partial error, got %v", err)
 	}

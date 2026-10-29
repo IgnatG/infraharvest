@@ -69,7 +69,7 @@ func TestRecordRedshiftListsClustersAndTheirParts(t *testing.T) {
 	ctx := useFakeAPI(t, recordRedshiftAPI(t, ""))
 	g := &RedshiftLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestRecordRedshiftReturnsErrors(t *testing.T) {
 			ctx := useFakeAPI(t, recordRedshiftAPI(t, failing))
 			g := &RedshiftLister{}
 
-			_, err := g.List(ctx, harvest.Settings{})
+			_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 			assertRecordedError(t, err, "AccessDenied")
 			if err != nil && !strings.Contains(err.Error(), failing) {

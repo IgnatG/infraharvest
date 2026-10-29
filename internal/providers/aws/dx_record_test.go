@@ -59,7 +59,7 @@ func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
 	})
 	g := &DirectConnectLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
 	ctx := useFakeAPI(t, recordDirectConnectAPI(t))
 	g := &DirectConnectGatewayLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

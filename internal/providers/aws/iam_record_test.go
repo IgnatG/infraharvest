@@ -165,7 +165,7 @@ func TestRecordIamListsUsersGroupsPoliciesRolesAndProfiles(t *testing.T) {
 	})
 	g := &IamLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestRecordIamSkipsUnwantedAccessKeys(t *testing.T) {
 	g := &IamLister{}
 	unwanted := func(typ string) bool { return typ == "aws_iam_access_key" }
 
-	resources, err := g.List(ctx, harvest.Settings{Unwanted: unwanted})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{Unwanted: unwanted})
 	if err != nil {
 		t.Fatal(err)
 	}

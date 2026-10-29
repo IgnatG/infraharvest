@@ -4,9 +4,6 @@
 package google
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"sync"
 	"testing"
 
 	"google.golang.org/api/compute/v1"
@@ -42,15 +39,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		{"Cloud SQL databases", &CloudSQLLister{}, sqlDatabaseType, "us-central1"},
 		{"Cloud DNS record sets", &DNSRecordSetsLister{}, dnsRecordSetType, ""},
 	} {
-		var mu sync.Mutex
-		var asked []string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			mu.Lock()
-			asked = append(asked, r.URL.Path)
-			mu.Unlock()
-			http.Error(w, `{"error": {"code": 404, "message": "`+r.URL.Path+`"}}`, http.StatusNotFound)
-		}))
-		t.Setenv(EndpointEnv, server.URL)
+		cloud := fakeGoogle(t, unexpected)
 
 		tc.lister.SetSettings(listerSettings{
 			region:  compute.Region{Name: tc.region},
@@ -61,8 +50,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		if err != nil {
 			t.Errorf("%s: %v", tc.name, err)
 		}
-		server.Close()
-		if len(asked) != 0 || len(listed) != 0 {
+		if asked := cloud.Paths(); len(asked) != 0 || len(listed) != 0 {
 			t.Errorf("%s: asked for %v and listed %d, want neither", tc.name, asked, len(listed))
 		}
 	}

@@ -49,7 +49,7 @@ func TestRecordWafRegionalListsEveryType(t *testing.T) {
 	}))
 	g := &WafRegionalLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestRecordWafRegionalNamesShortIDs(t *testing.T) {
 	ctx := useFakeAPI(t, recordWafShortIDAPI(t))
 	g := &WafRegionalLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

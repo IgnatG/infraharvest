@@ -25,9 +25,14 @@ import (
 // millisecond (see runRetryDelay), so that the tests of failing calls don't
 // wait for Google's backoff.
 func fastRetries(t *testing.T) context.Context {
+	return fastRetriesIn(t.Context())
+}
+
+// fastRetriesIn is fastRetries, with a context made from ctx.
+func fastRetriesIn(ctx context.Context) context.Context {
 	run := ratelimit.Like(ratelimit.Default())
 	ratelimit.Kept(run, retryDelayKey{}, func() time.Duration { return time.Millisecond })
-	return ratelimit.NewContext(t.Context(), run)
+	return ratelimit.NewContext(ctx, run)
 }
 
 // failingServer answers each request with the next of statuses, then
