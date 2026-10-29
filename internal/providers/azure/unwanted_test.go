@@ -73,13 +73,13 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 		},
 	} {
 		for _, unwanted := range []bool{false, true} {
-			transport := &routedTransport{bodies: tc.bodies}
+			transport := routed(tc.bodies)
 			settings := harvest.Settings{}
 			if unwanted {
 				settings.Unwanted = func(typ string) bool { return slices.Contains(tc.unwanted, typ) }
 			}
 			lister := tc.lister()
-			lister.SetSettings(routedArgs(transport, "rg1"))
+			lister.SetSettings(fakeArgs(transport, "rg1"))
 			resources, err := lister.List(t.Context(), settings)
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
@@ -88,8 +88,8 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			if unwanted {
 				want = tc.unwantedPaths
 			}
-			if !reflect.DeepEqual(transport.paths, want) {
-				t.Errorf("%s, unwanted %v: requested %v, want %v", tc.name, unwanted, transport.paths, want)
+			if !reflect.DeepEqual(transport.Paths(), want) {
+				t.Errorf("%s, unwanted %v: requested %v, want %v", tc.name, unwanted, transport.Paths(), want)
 			}
 			parents, children := 0, 0
 			for _, r := range resources {
@@ -111,7 +111,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 // leaves them out whatever is listed.
 func TestDiagnosticSettingSkipsUnwantedSettings(t *testing.T) {
 	t.Parallel()
-	transport := &diagnosticTransport{}
+	transport := routed(nil)
 	g := &DiagnosticSettingLister{}
 	g.SetSettings(diagnosticArgs(transport, "", listedByOthers()))
 	unwanted := func(typ string) bool { return typ == diagnosticSettingType }
@@ -119,7 +119,7 @@ func TestDiagnosticSettingSkipsUnwantedSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(transport.paths) != 0 || len(resources) != 0 {
-		t.Errorf("asked for %v and listed %d, want neither", transport.paths, len(resources))
+	if len(transport.Paths()) != 0 || len(resources) != 0 {
+		t.Errorf("asked for %v and listed %d, want neither", transport.Paths(), len(resources))
 	}
 }

@@ -4,24 +4,12 @@
 package aws
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/aws/smithy-go/encoding/cbor"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
-
-// recordCloudWatchOp returns the CloudWatch operation call is for. The
-// CloudWatch client speaks Smithy RPC v2 CBOR: the operation ends the
-// path, after /operation/, and the answers are CBOR.
-func recordCloudWatchOp(call apiCall) string {
-	_, op, found := strings.Cut(call.Path, "/operation/")
-	if !found {
-		return ""
-	}
-	return op
-}
 
 // recordCloudWatchPage answers a CloudWatch list with items under listKey,
 // and token as NextToken unless it is empty.
@@ -41,9 +29,6 @@ func recordCloudWatchPage(listKey string, items cbor.List, token string) string 
 func recordCloudWatchAPI(t *testing.T, failing string) func(apiCall) string {
 	return func(call apiCall) string {
 		op := call.Op
-		if op == "" {
-			op = recordCloudWatchOp(call)
-		}
 		if failing != "" && op == failing {
 			return recordJSONError("AccessDeniedException")
 		}
@@ -96,7 +81,7 @@ func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 	ctx := useFakeAPI(t, recordCloudWatchAPI(t, ""))
 	g := &CloudWatchLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

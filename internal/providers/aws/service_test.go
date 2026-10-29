@@ -380,13 +380,13 @@ func TestCallerAccountIsAskedOnce(t *testing.T) {
 	t.Parallel()
 	ctx := newRun(t)
 	calls := 0
-	api := &fakeAPI{handle: func(call apiCall) string {
+	api := fakeAPI(func(call apiCall) string {
 		if call.Op != "GetCallerIdentity" {
 			return recordUnexpected(t, call)
 		}
 		calls++
 		return recordQuery(call.Op, "https://sts.amazonaws.com/doc/2011-06-15/", `<Account>123456789012</Account><Arn>arn:aws:iam::123456789012:user/dev</Arn><UserId>AIDA</UserId>`)
-	}}
+	})
 	credentials := aws.NewCredentialsCache(aws.AnonymousCredentials{})
 	s := &Service{}
 	s.Begin(ctx, harvest.Settings{})

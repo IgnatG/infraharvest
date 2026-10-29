@@ -5,30 +5,19 @@ package aws
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// recordS3API passes each request to handle with the bucket it is for,
-// whether S3 addresses the bucket by host or by path ("" for none).
-type recordS3API struct {
-	handle func(bucket string, call apiCall) string
-}
-
-func (a *recordS3API) Do(r *http.Request) (*http.Response, error) {
-	bucket := strings.Trim(r.URL.Path, "/")
-	host := r.URL.Host
-	if host == "" {
-		host = r.Host
+// s3Bucket is the bucket call is for, whether S3 addresses it by host or
+// by path ("" for none).
+func s3Bucket(call apiCall) string {
+	if name, _, found := strings.Cut(call.Host, ".s3."); found && name != "" {
+		return name
 	}
-	if name, _, found := strings.Cut(host, ".s3."); found && name != "" {
-		bucket = name
-	}
-	fake := &fakeAPI{handle: func(call apiCall) string { return a.handle(bucket, call) }}
-	return fake.Do(r)
+	return strings.Trim(call.Path, "/")
 }
 
 const recordS3NS = `xmlns="http://s3.amazonaws.com/doc/2006-03-01/"`
@@ -50,9 +39,8 @@ var recordS3Buckets = []struct{ name, location, policy string }{
 // handle, in region (see useFakeAPI).
 func useS3API(t *testing.T, region string, handle func(bucket string, call apiCall) string) context.Context {
 	t.Helper()
-	cfg := fakeConfig(func(apiCall) string { return "" })
+	cfg := fakeConfig(func(call apiCall) string { return handle(s3Bucket(call), call) })
 	cfg.Region = region
-	cfg.HTTPClient = &recordS3API{handle: handle}
 	return fakeRun(t, cfg)
 }
 
@@ -100,7 +88,7 @@ func TestRecordS3ListsTheRegionsBuckets(t *testing.T) {
 	g := &S3Lister{}
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") || !strings.Contains(err.Error(), "policy of bucket denied-policy") {
 		t.Errorf("want a partial error for the location of locked and the policy of denied-policy, got %v", err)
 	}
@@ -125,7 +113,7 @@ func TestRecordS3ListsUSEast1Buckets(t *testing.T) {
 	g := &S3Lister{}
 	g.SetSettings(serviceSettings{region: "us-east-1"})
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "location of bucket locked") {
 		t.Errorf("want a partial error for the location of locked, got %v", err)
 	}
@@ -157,7 +145,7 @@ func TestRecordS3UsesTheListedRegions(t *testing.T) {
 	g := &S3Lister{}
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +161,7 @@ func TestRecordS3WithoutRegion(t *testing.T) {
 	g := &S3Lister{}
 	g.SetSettings(serviceSettings{region: ProfileRegion})
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) {
 		t.Errorf("want a partial error, got %v", err)
 	}
@@ -216,7 +204,7 @@ func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
 	g := &S3Lister{}
 	g.SetSettings(serviceSettings{region: "eu-west-1"})
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

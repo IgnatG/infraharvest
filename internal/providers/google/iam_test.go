@@ -6,7 +6,6 @@ package google
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"sort"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/api/compute/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 // The project's IAM members, one per member of each binding, a
@@ -21,27 +21,24 @@ import (
 // roles come from cloud_asset.
 func TestIamList(t *testing.T) {
 	var policyVersion float64
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
 		switch {
-		case r.URL.Path == "/v1/projects/acme:getIamPolicy" && r.Method == http.MethodPost:
+		case r.Path == "/v1/projects/acme:getIamPolicy" && r.Method == http.MethodPost:
 			var body struct {
 				Options struct {
 					RequestedPolicyVersion float64 `json:"requestedPolicyVersion"`
 				} `json:"options"`
 			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
+			_ = json.Unmarshal([]byte(r.Body), &body)
 			policyVersion = body.Options.RequestedPolicyVersion
-			_, _ = w.Write([]byte(`{"version": 3, "bindings": [
+			return providertest.JSON(`{"version": 3, "bindings": [
 				{"role": "roles/viewer", "members": ["user:ana@acme.example", "group:ops@acme.example"]},
 				{"role": "roles/editor", "members": ["user:ana@acme.example"], "condition": {"title": "expires_2027", "expression": "request.time < timestamp('2027-01-01T00:00:00Z')"}}
-			]}`))
+			]}`)
 		default:
-			http.Error(w, r.Method+" "+r.URL.Path, http.StatusNotFound)
+			return providertest.Status(http.StatusNotFound, r.Method+" "+r.Path)
 		}
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+	})
 
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme"})
@@ -107,23 +104,21 @@ func TestGrantName(t *testing.T) {
 
 // The policy is the project's, in the import of global alone.
 func TestIamListsNothingInARegion(t *testing.T) {
-	t.Setenv(EndpointEnv, "http://127.0.0.1:1")
+	cloud := fakeGoogle(t, unexpected)
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme", region: compute.Region{Name: "us-central1"}})
 	ctx := t.Context()
 	resources, err := g.List(ctx, harvest.Settings{})
-	if err != nil || len(resources) != 0 {
-		t.Errorf("got %v, %v", resources, err)
+	if err != nil || len(resources) != 0 || len(cloud.Requests()) != 0 {
+		t.Errorf("got %v, %v, asked for %v", resources, err, cloud.Paths())
 	}
 }
 
 // A failing page is an error, not a loop.
 func TestIamListFails(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, `{"error": {"code": 403, "message": "denied"}}`, http.StatusForbidden)
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+	fakeGoogle(t, func(providertest.Request) providertest.Answer {
+		return providertest.Status(http.StatusForbidden, `{"error": {"code": 403, "message": "denied"}}`)
+	})
 
 	g := &IamLister{}
 	g.SetSettings(listerSettings{project: "acme"})

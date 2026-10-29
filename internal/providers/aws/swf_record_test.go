@@ -27,7 +27,7 @@ func TestRecordSwfListsRegisteredDomains(t *testing.T) {
 	})
 	g := &SWFLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

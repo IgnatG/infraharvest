@@ -415,7 +415,7 @@ func TestRegionStacksAreScannedOnce(t *testing.T) {
 	config := aws.Config{
 		Region:      "us-east-1",
 		Credentials: aws.NewCredentialsCache(aws.AnonymousCredentials{}),
-		HTTPClient:  &fakeAPI{handle: recordStacksAPI(t, &calls)},
+		HTTPClient:  fakeAPI(recordStacksAPI(t, &calls)),
 		Retryer:     func() aws.Retryer { return aws.NopRetryer{} },
 	}
 

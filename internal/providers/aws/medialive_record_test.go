@@ -44,7 +44,7 @@ func TestRecordMediaLiveListsChannelsInputsAndSecurityGroups(t *testing.T) {
 	ctx := useFakeAPI(t, recordMediaLiveAPI(t))
 	g := &MediaLiveLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRecordMediaLiveReturnsPartialErrors(t *testing.T) {
 	ctx := useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputSecurityGroups"))
 	g := &MediaLiveLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "channels") || !strings.Contains(err.Error(), "input security groups") {
 		t.Errorf("want a partial error naming the channels and the input security groups, got %v", err)
 	}
@@ -83,7 +83,7 @@ func TestRecordMediaLiveReturnsErrors(t *testing.T) {
 	ctx := useFakeAPI(t, recordMediaLiveAPI(t, "/prod/channels", "/prod/inputs", "/prod/inputSecurityGroups"))
 	g := &MediaLiveLister{}
 
-	_, err := g.List(ctx, harvest.Settings{})
+	_, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err == nil || harvest.IsPartial(err) {
 		t.Errorf("want the service failed, got %v", err)
 	}

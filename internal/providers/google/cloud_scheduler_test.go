@@ -5,7 +5,6 @@ package google
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +12,7 @@ import (
 	"google.golang.org/api/compute/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 func newSchedulerJobs(t *testing.T, region string) *SchedulerJobsLister {
@@ -24,25 +24,20 @@ func newSchedulerJobs(t *testing.T, region string) *SchedulerJobsLister {
 
 func TestSchedulerJobsList(t *testing.T) {
 	var other []string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/projects/acme/locations/us-central1/jobs" {
-			other = append(other, r.Method+" "+r.URL.Path)
-			http.Error(w, `{"error": {"message": "unexpected"}}`, http.StatusNotFound)
-			return
+	fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+		if r.Method != http.MethodGet || r.Path != "/v1/projects/acme/locations/us-central1/jobs" {
+			other = append(other, r.Method+" "+r.Path)
+			return unexpected(r)
 		}
-		switch r.URL.Query().Get("pageToken") {
+		switch r.Query.Get("pageToken") {
 		case "":
-			_, _ = w.Write([]byte(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/nightly-export", "schedule": "0 2 * * *", "state": "ENABLED"}], "nextPageToken": "t2"}`))
+			return providertest.JSON(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/nightly-export", "schedule": "0 2 * * *", "state": "ENABLED"}], "nextPageToken": "t2"}`)
 		case "t2":
-			_, _ = w.Write([]byte(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/hourly-sync", "schedule": "0 * * * *", "state": "PAUSED"}]}`))
-		default:
-			other = append(other, "page "+r.URL.Query().Get("pageToken"))
-			http.Error(w, `{"error": {"message": "bad page"}}`, http.StatusInternalServerError)
+			return providertest.JSON(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/hourly-sync", "schedule": "0 * * * *", "state": "PAUSED"}]}`)
 		}
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+		other = append(other, "page "+r.Query.Get("pageToken"))
+		return providertest.Status(http.StatusInternalServerError, `{"error": {"message": "bad page"}}`)
+	})
 
 	g := newSchedulerJobs(t, "us-central1")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
@@ -78,21 +73,15 @@ func TestSchedulerJobsList(t *testing.T) {
 
 // Jobs belong to regions, so the import of global asks nothing.
 func TestSchedulerJobsGlobal(t *testing.T) {
-	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests++
-		http.Error(w, `{"error": {"message": "unexpected"}}`, http.StatusInternalServerError)
-	}))
-	defer server.Close()
-	t.Setenv(EndpointEnv, server.URL)
+	cloud := fakeGoogle(t, unexpected)
 
 	g := newSchedulerJobs(t, "")
 	resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resources) != 0 || requests != 0 {
-		t.Errorf("%d resources and %d requests, want none", len(resources), requests)
+	if len(resources) != 0 || len(cloud.Requests()) != 0 {
+		t.Errorf("%d resources and requests %v, want none", len(resources), cloud.Paths())
 	}
 }
 
@@ -147,17 +136,12 @@ func TestSchedulerJobsErrors(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				if r.URL.Query().Get("pageToken") == tt.failOn {
-					w.WriteHeader(tt.status)
-					_, _ = w.Write([]byte(tt.body))
-					return
+			fakeGoogle(t, func(r providertest.Request) providertest.Answer {
+				if r.Query.Get("pageToken") == tt.failOn {
+					return providertest.Status(tt.status, tt.body)
 				}
-				_, _ = w.Write([]byte(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/nightly-export"}], "nextPageToken": "t2"}`))
-			}))
-			defer server.Close()
-			t.Setenv(EndpointEnv, server.URL)
+				return providertest.JSON(`{"jobs": [{"name": "projects/acme/locations/us-central1/jobs/nightly-export"}], "nextPageToken": "t2"}`)
+			})
 
 			g := newSchedulerJobs(t, "us-central1")
 			resources, err := g.List(fastRetries(t), harvest.Settings{Provider: "google"})

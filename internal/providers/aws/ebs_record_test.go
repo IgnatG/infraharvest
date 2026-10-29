@@ -61,7 +61,7 @@ func TestRecordEbsListsVolumesAndAttachments(t *testing.T) {
 	})
 	g := &EbsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestRecordEbsKeepsVolumesOfGoneInstances(t *testing.T) {
 	})
 	g := &EbsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestRecordEbsDescribesNoInstancesForDetachedVolumes(t *testing.T) {
 	})
 	g := &EbsLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestRecordEbsPassesTagFilters(t *testing.T) {
 		{Service: "ebs_volume", Path: "id", Values: []string{"vol-9"}},
 	}
 
-	resources, err := g.List(ctx, harvest.Settings{Filters: filters})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{Filters: filters})
 	if err != nil {
 		t.Fatal(err)
 	}

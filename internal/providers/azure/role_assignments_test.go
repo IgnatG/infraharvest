@@ -4,16 +4,12 @@
 package azure
 
 import (
-	"io"
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -24,30 +20,15 @@ const (
 	roleSubscription   = "/subscriptions/" + roleSubscriptionID
 )
 
-// graphTransport answers each Resource Graph query with authorization for
-// one of the authorizationresources table, and with groups for any
-// other, and records the queries sent in order.
-type graphTransport struct {
-	authorization, groups string
-	sent                  []string
-}
-
-func (f *graphTransport) Do(r *http.Request) (*http.Response, error) {
-	sent, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-	f.sent = append(f.sent, string(sent))
-	body := f.groups
-	if strings.Contains(string(sent), "authorizationresources") {
-		body = f.authorization
-	}
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    r,
-	}, nil
+// byTable answers each Resource Graph query with authorization for one
+// of the authorizationresources table, and with groups for any other.
+func byTable(authorization, groups string) *providertest.Cloud {
+	return providertest.New(func(r providertest.Request) providertest.Answer {
+		if strings.Contains(r.Body, "authorizationresources") {
+			return providertest.JSON(authorization)
+		}
+		return providertest.JSON(groups)
+	})
 }
 
 // graphRows is the JSON of one page of Resource Graph rows.
@@ -113,12 +94,12 @@ var roleGroups = graphRows(
 // roleArgs are the arguments Select hands role_assignment for the tests'
 // subscription and resourceGroup, with every request answered by
 // transport.
-func roleArgs(transport *graphTransport, resourceGroup string) serviceSettings {
+func roleArgs(transport *providertest.Cloud, resourceGroup string) serviceSettings {
 	return serviceSettings{
 		subscriptionID: roleSubscriptionID,
 		resourceGroup:  resourceGroup,
 		credential:     fakeCredential{},
-		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
+		clientOptions:  fakeOptions(transport),
 	}
 }
 
@@ -129,7 +110,7 @@ func roleArgs(transport *graphTransport, resourceGroup string) serviceSettings {
 // named after its scope and its role.
 func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 	t.Parallel()
-	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
+	transport := byTable(roleAuthorization, roleGroups)
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, ""))
 
@@ -138,8 +119,8 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(transport.sent) != 2 || !strings.Contains(transport.sent[0], "authorizationresources") || !strings.Contains(transport.sent[1], "resourcecontainers") {
-		t.Errorf("queries: %v, want authorizationresources, then the resource groups", transport.sent)
+	if len(transport.Bodies()) != 2 || !strings.Contains(transport.Bodies()[0], "authorizationresources") || !strings.Contains(transport.Bodies()[1], "resourcecontainers") {
+		t.Errorf("queries: %v, want authorizationresources, then the resource groups", transport.Bodies())
 	}
 	want := []listedResource{
 		{Type: "azurerm_role_definition", ID: deployerRole + "|" + roleSubscription, Name: "App Deployer", Attributes: map[string]string{"name": "App Deployer"}},
@@ -191,7 +172,7 @@ func TestRoleAssignmentListsTheSubscription(t *testing.T) {
 // can be assigned in the whole subscription isn't the group's.
 func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 	t.Parallel()
-	transport := &graphTransport{authorization: roleAuthorization, groups: roleGroups}
+	transport := byTable(roleAuthorization, roleGroups)
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, "app"))
 
@@ -200,8 +181,8 @@ func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(transport.sent) != 2 || !strings.Contains(transport.sent[1], "resourceGroup =~ 'app'") {
-		t.Errorf("queries: %v, want the resource group app's", transport.sent)
+	if len(transport.Bodies()) != 2 || !strings.Contains(transport.Bodies()[1], "resourceGroup =~ 'app'") {
+		t.Errorf("queries: %v, want the resource group app's", transport.Bodies())
 	}
 	got := listedResources(resources)
 	if len(got) != 1 || got[0].Name != "app Reader" {
@@ -213,9 +194,9 @@ func TestRoleAssignmentHonoursTheResourceGroup(t *testing.T) {
 // asked for.
 func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 	t.Parallel()
-	transport := &graphTransport{authorization: graphRows(
+	transport := byTable(graphRows(
 		assignmentRow(roleSubscription+roleAssignmentsSegment+"22222222-2222-2222-2222-222222222222", roleSubscription, readerRole, "User"),
-	)}
+	), "")
 	g := &RoleAssignmentLister{}
 	g.SetSettings(roleArgs(transport, ""))
 
@@ -224,8 +205,8 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(transport.sent) != 1 {
-		t.Errorf("queries: %v, want authorizationresources alone", transport.sent)
+	if len(transport.Bodies()) != 1 {
+		t.Errorf("queries: %v, want authorizationresources alone", transport.Bodies())
 	}
 	// Resource Graph returned no Reader role: the name starts with the
 	// assignment's.
@@ -238,14 +219,14 @@ func TestRoleAssignmentAsksForGroupsOnlyWhenNeeded(t *testing.T) {
 // before any request.
 func TestRoleAssignmentRejectsAMalformedSubscription(t *testing.T) {
 	t.Parallel()
-	transport := &graphTransport{}
+	transport := byTable("", "")
 	args := roleArgs(transport, "")
 	args.subscriptionID = "sub' or 1==1"
 	g := &RoleAssignmentLister{}
 	g.SetSettings(args)
 	_, err := g.List(t.Context(), harvest.Settings{})
-	if err == nil || len(transport.sent) != 0 {
-		t.Errorf("err %v, queries %v", err, transport.sent)
+	if err == nil || len(transport.Bodies()) != 0 {
+		t.Errorf("err %v, queries %v", err, transport.Bodies())
 	}
 }
 

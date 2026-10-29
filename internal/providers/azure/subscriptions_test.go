@@ -8,18 +8,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 func TestSubscriptionsIn(t *testing.T) {
 	t.Parallel()
-	transport := &fakeTransport{body: `{"totalRecords":4,"count":4,"resultTruncated":"false","data":[
+	transport := providertest.New(answering(`{"totalRecords":4,"count":4,"resultTruncated":"false","data":[
 		{"subscriptionId":"sub-b","state":"Enabled"},
 		{"subscriptionId":"sub-a","state":"Warned"},
 		{"subscriptionId":"sub-off","state":"Disabled"},
 		{"subscriptionId":"sub-b","state":"Enabled"}
-	]}`}
-	options := &arm.ClientOptions{Transport: transport}
+	]}`))
+	options := fakeOptions(transport)
 	got, err := subscriptionsIn(t.Context(), fakeCredential{}, options, "platform")
 	if err != nil {
 		t.Fatal(err)
@@ -27,8 +27,8 @@ func TestSubscriptionsIn(t *testing.T) {
 	if want := []string{"sub-a", "sub-b"}; !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	if len(transport.paths) != 1 || !strings.HasSuffix(transport.paths[0], "/providers/Microsoft.ResourceGraph/resources") {
-		t.Errorf("requests: %v", transport.paths)
+	if len(transport.Paths()) != 1 || !strings.HasSuffix(transport.Paths()[0], "/providers/Microsoft.ResourceGraph/resources") {
+		t.Errorf("requests: %v", transport.Paths())
 	}
 	if _, err := subscriptionsIn(t.Context(), fakeCredential{}, options, "mg' or '1"); err == nil {
 		t.Error("a management group ID with a quote: no error")

@@ -4,11 +4,13 @@
 package azure
 
 import (
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
 // The identities of the subscription, or of --resource-group, are listed
@@ -33,7 +35,7 @@ func TestManagedIdentityLister(t *testing.T) {
 		name          string
 		resourceGroup string
 		bodies        map[string]string
-		refused       map[string]bool
+		statuses      map[string]int
 		want          []listedResource
 		wantPaths     []string
 		// partial is the identity the listing must fail in part naming,
@@ -71,7 +73,7 @@ func TestManagedIdentityLister(t *testing.T) {
 				all:              identities,
 				credentials(app): armList(armItem(credentials(app)+"/aks", "aks", "")),
 			},
-			refused: map[string]bool{credentials(deploy): true},
+			statuses: map[string]int{credentials(deploy): http.StatusForbidden},
 			want: []listedResource{
 				{Type: "azurerm_user_assigned_identity", ID: deploy, Name: "deploy"},
 				{Type: "azurerm_user_assigned_identity", ID: app, Name: "app"},
@@ -94,9 +96,9 @@ func TestManagedIdentityLister(t *testing.T) {
 			wantPaths: []string{all, credentials(deploy), credentials(app)},
 		},
 	} {
-		transport := &routedTransport{bodies: tc.bodies, refused: tc.refused}
+		transport := providertest.New(armRoutes(tc.bodies, tc.statuses))
 		lister := &ManagedIdentityLister{}
-		lister.SetSettings(routedArgs(transport, tc.resourceGroup))
+		lister.SetSettings(fakeArgs(transport, tc.resourceGroup))
 
 		resources, err := lister.List(t.Context(), harvest.Settings{})
 		switch {
@@ -110,8 +112,8 @@ func TestManagedIdentityLister(t *testing.T) {
 		if got := listedResources(resources); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: listed %+v, want %+v", tc.name, got, tc.want)
 		}
-		if !reflect.DeepEqual(transport.paths, tc.wantPaths) {
-			t.Errorf("%s: requested %v, want %v", tc.name, transport.paths, tc.wantPaths)
+		if !reflect.DeepEqual(transport.Paths(), tc.wantPaths) {
+			t.Errorf("%s: requested %v, want %v", tc.name, transport.Paths(), tc.wantPaths)
 		}
 	}
 }

@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,62 +13,97 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 )
 
 // apiCall is an AWS API request as seen by a fake handler.
 type apiCall struct {
-	Op    string     // operation, for JSON and query protocols (e.g. ListQueues)
+	Op    string     // operation, for JSON, query and CBOR protocols (e.g. ListQueues)
+	Host  string     // host the request went to (e.g. bucket.s3.us-east-1.amazonaws.com)
 	Path  string     // URL path, for REST protocols (e.g. /thing-types)
 	Query url.Values // URL query, for REST protocols
 	Body  string
+	// Protocol is the AWS protocol of the request: protocolJSON,
+	// protocolQuery, protocolEC2, protocolRESTJSON, protocolRESTXML or
+	// protocolCBOR (Smithy RPC v2 CBOR, whose operation ends the path).
+	Protocol string
 }
 
-// fakeAPI is an aws.HTTPClient that answers every request with handle.
-type fakeAPI struct {
-	handle func(apiCall) string
+// The AWS protocols a request of the fake API is in (see apiCall).
+const (
+	protocolJSON     = "json"
+	protocolQuery    = "query"
+	protocolEC2      = "ec2"
+	protocolRESTJSON = "rest-json"
+	protocolRESTXML  = "rest-xml"
+	protocolCBOR     = "rpc-v2-cbor"
+)
+
+// restXMLServices start the hosts of the REST services that answer in XML.
+var restXMLServices = []string{"s3", "route53", "cloudfront"}
+
+// fakeAPI returns a fake AWS whose answers are handle's: the body handle
+// returns for each call, with the status and content type AWS answers it
+// with, an error status for a body that is an error of the call's
+// protocol.
+func fakeAPI(handle func(apiCall) string) *providertest.Cloud {
+	return providertest.New(awsAnswers(handle))
 }
 
-func (f *fakeAPI) Do(r *http.Request) (*http.Response, error) {
-	body := ""
-	if r.Body != nil {
-		b, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, err
+// awsAnswers answers each request with the body handle returns for its
+// call, as fakeAPI does.
+func awsAnswers(handle func(apiCall) string) providertest.Handler {
+	return func(r providertest.Request) providertest.Answer {
+		call := callOf(r)
+		body := handle(call)
+		answer := providertest.Answer{Status: http.StatusOK, ContentType: "application/json", Body: body}
+		switch call.Protocol {
+		case protocolJSON:
+			answer.ContentType = r.Header.Get("Content-Type")
+		case protocolQuery, protocolEC2:
+			answer.ContentType = "text/xml"
+		case protocolCBOR:
+			answer.ContentType = "application/cbor"
 		}
-		body = string(b)
+		switch {
+		case strings.Contains(body, `"__type"`), call.Protocol == protocolCBOR && strings.Contains(body, "__type"):
+			// AWS JSON and CBOR protocols name the error in __type and send a 4xx status.
+			answer.Status = http.StatusBadRequest
+		case strings.HasPrefix(body, "<Error>"):
+			// REST-XML (S3) errors; S3's "not configured" errors are 404s.
+			answer.Status, answer.ContentType = http.StatusNotFound, "application/xml"
+		case strings.HasPrefix(body, "<ErrorResponse"), strings.HasPrefix(body, "<Response><Errors>"):
+			// Query (IAM, SNS) and EC2 query errors wrap the error and send a 4xx status.
+			answer.Status = http.StatusBadRequest
+		case strings.HasPrefix(body, "<") && answer.ContentType == "application/json":
+			answer.ContentType = "application/xml" // REST-XML (S3)
+		}
+		return answer
 	}
-	call := apiCall{Path: r.URL.Path, Query: r.URL.Query(), Body: body}
-	contentType := "application/json"
-	if target := r.Header.Get("X-Amz-Target"); target != "" {
-		call.Op = target[strings.LastIndex(target, ".")+1:]
-		contentType = r.Header.Get("Content-Type")
-	} else if form, err := url.ParseQuery(body); err == nil && form.Get("Action") != "" {
-		call.Op = form.Get("Action")
-		contentType = "text/xml"
+}
+
+// callOf is the call r makes.
+func callOf(r providertest.Request) apiCall {
+	call := apiCall{Host: r.Host, Path: r.Path, Query: r.Query, Body: r.Body, Protocol: protocolRESTJSON}
+	if r.Header.Get("Smithy-Protocol") == protocolCBOR {
+		_, call.Op, _ = strings.Cut(r.Path, "/operation/")
+		call.Protocol = protocolCBOR
+	} else if target := r.Header.Get("X-Amz-Target"); target != "" {
+		call.Op, call.Protocol = target[strings.LastIndex(target, ".")+1:], protocolJSON
+	} else if form, err := url.ParseQuery(r.Body); err == nil && form.Get("Action") != "" {
+		call.Op, call.Protocol = form.Get("Action"), protocolQuery
+		if strings.HasPrefix(r.Host, "ec2.") {
+			call.Protocol = protocolEC2
+		}
+	} else {
+		for _, service := range restXMLServices {
+			if strings.HasPrefix(r.Host, service+".") || strings.Contains(r.Host, "."+service+".") {
+				call.Protocol = protocolRESTXML
+			}
+		}
 	}
-	respBody := f.handle(call)
-	status := http.StatusOK
-	switch {
-	case strings.Contains(respBody, `"__type"`):
-		// AWS JSON protocols name the error in __type and send a 4xx status.
-		status = http.StatusBadRequest
-	case strings.HasPrefix(respBody, "<Error>"):
-		// REST-XML (S3) errors; S3's "not configured" errors are 404s.
-		status = http.StatusNotFound
-		contentType = "application/xml"
-	case strings.HasPrefix(respBody, "<ErrorResponse"), strings.HasPrefix(respBody, "<Response><Errors>"):
-		// Query (IAM, SNS) and EC2 query errors wrap the error and send a 4xx status.
-		status = http.StatusBadRequest
-	case strings.HasPrefix(respBody, "<") && contentType == "application/json":
-		contentType = "application/xml" // REST-XML (S3)
-	}
-	return &http.Response{
-		StatusCode: status,
-		Header:     http.Header{"Content-Type": []string{contentType}},
-		Body:       io.NopCloser(strings.NewReader(respBody)),
-		Request:    r,
-	}, nil
+	return call
 }
 
 // useFakeAPI returns a context whose listers send their requests to handle
@@ -86,7 +120,7 @@ func fakeConfig(handle func(apiCall) string) aws.Config {
 	return aws.Config{
 		Region:      "us-east-1",
 		Credentials: aws.AnonymousCredentials{},
-		HTTPClient:  &fakeAPI{handle: handle},
+		HTTPClient:  fakeAPI(handle),
 		Retryer:     func() aws.Retryer { return aws.NopRetryer{} },
 	}
 }
@@ -97,9 +131,14 @@ func fakeConfig(handle func(apiCall) string) aws.Config {
 // other's.
 func fakeRun(t *testing.T, cfg aws.Config) context.Context {
 	t.Helper()
+	return fakeRunIn(t.Context(), cfg)
+}
+
+// fakeRunIn is fakeRun, with a context of its own made from ctx.
+func fakeRunIn(ctx context.Context, cfg aws.Config) context.Context {
 	l := ratelimit.New(0)
 	configsOf(l).fixed = &cfg
-	return ratelimit.NewContext(t.Context(), l)
+	return ratelimit.NewContext(ctx, l)
 }
 
 // resourceIDs returns the IDs of the resources of resourceType.

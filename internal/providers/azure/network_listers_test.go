@@ -4,57 +4,16 @@
 package azure
 
 import (
-	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/cloud"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
-
-// routedTransport answers each request with the body registered for its
-// path, with a Resource Manager 403 for a path in refused, or with a 404
-// for a path nobody registered, and records the paths asked for in order.
-type routedTransport struct {
-	bodies  map[string]string
-	refused map[string]bool
-	paths   []string
-}
-
-func (f *routedTransport) Do(r *http.Request) (*http.Response, error) {
-	f.paths = append(f.paths, r.URL.Path)
-	status := http.StatusOK
-	body, ok := f.bodies[r.URL.Path]
-	switch {
-	case f.refused[r.URL.Path]:
-		status = http.StatusForbidden
-		body = `{"error":{"code":"AuthorizationFailed","message":"no access to ` + r.URL.Path + `"}}`
-	case !ok:
-		status = http.StatusNotFound
-		body = `{"error":{"code":"NotFound","message":"nothing at ` + r.URL.Path + `"}}`
-	}
-	return &http.Response{
-		StatusCode: status,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    r,
-	}, nil
-}
-
-// routedArgs is fakeArgs for a routedTransport.
-func routedArgs(transport *routedTransport, resourceGroup string) serviceSettings {
-	return serviceSettings{
-		subscriptionID: "sub",
-		resourceGroup:  resourceGroup,
-		credential:     fakeCredential{},
-		clientOptions:  &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}},
-	}
-}
 
 // armItem is the JSON of an ARM resource with an ID, a name and, unless
 // properties is empty, the given properties object.
@@ -105,7 +64,7 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 		"rg1": "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/virtualNetworks",
 		"":    "/subscriptions/sub/providers/Microsoft.Network/virtualNetworks",
 	} {
-		transport := &fakeTransport{body: armList(armItem(network, "net1", ""))}
+		transport := providertest.New(answering(armList(armItem(network, "net1", ""))))
 		g := &VirtualNetworkLister{}
 		g.SetSettings(fakeArgs(transport, resourceGroup))
 
@@ -114,8 +73,8 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if !reflect.DeepEqual(transport.paths, []string{wantPath}) {
-			t.Errorf("resource group %q: requested %v, want %s", resourceGroup, transport.paths, wantPath)
+		if !reflect.DeepEqual(transport.Paths(), []string{wantPath}) {
+			t.Errorf("resource group %q: requested %v, want %s", resourceGroup, transport.Paths(), wantPath)
 		}
 		want := []listedResource{{Type: "azurerm_virtual_network", ID: network, Name: "net1"}}
 		if got := listedResources(resources); !reflect.DeepEqual(got, want) {
@@ -129,11 +88,11 @@ func TestVirtualNetworkListsTheResourceGroup(t *testing.T) {
 func TestNetworkInterfaceRecordsItsEndpoint(t *testing.T) {
 	t.Parallel()
 	const network = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/"
-	transport := &fakeTransport{body: armList(
+	transport := providertest.New(answering(armList(
 		armItem(network+"networkInterfaces/pe.nic", "pe.nic", `{"privateEndpoint":{"id":"`+network+`privateEndpoints/pe"}}`),
 		armItem(network+"networkInterfaces/pls.nic", "pls.nic", `{"privateLinkService":{"id":"`+network+`privateLinkServices/pls"}}`),
 		armItem(network+"networkInterfaces/vm1-nic", "vm1-nic", `{"ipConfigurations":[]}`),
-	)}
+	)))
 	g := &NetworkInterfaceLister{}
 	g.SetSettings(fakeArgs(transport, "rg1"))
 	resources, err := g.List(t.Context(), harvest.Settings{})
@@ -253,8 +212,8 @@ func TestListersHonourTheResourceGroup(t *testing.T) {
 			wantTypes: []string{"azurerm_network_interface"},
 		},
 	} {
-		transport := &routedTransport{bodies: tc.bodies}
-		tc.lister.SetSettings(routedArgs(transport, tc.resourceGroup))
+		transport := routed(tc.bodies)
+		tc.lister.SetSettings(fakeArgs(transport, tc.resourceGroup))
 
 		listed, err := tc.lister.List(t.Context(), harvest.Settings{})
 		if err != nil {
@@ -262,8 +221,8 @@ func TestListersHonourTheResourceGroup(t *testing.T) {
 			continue
 		}
 
-		if !reflect.DeepEqual(transport.paths, tc.wantPaths) {
-			t.Errorf("%s, resource group %q: requested %v, want %v", tc.service, tc.resourceGroup, transport.paths, tc.wantPaths)
+		if !reflect.DeepEqual(transport.Paths(), tc.wantPaths) {
+			t.Errorf("%s, resource group %q: requested %v, want %v", tc.service, tc.resourceGroup, transport.Paths(), tc.wantPaths)
 		}
 		var types []string
 		for _, r := range listed {
@@ -279,9 +238,9 @@ func TestListersHonourTheResourceGroup(t *testing.T) {
 // rather than listing nothing.
 func TestResourceGroupThatIsMissingIsAnError(t *testing.T) {
 	t.Parallel()
-	transport := &routedTransport{}
+	transport := routed(nil)
 	g := &ResourceGroupLister{}
-	g.SetSettings(routedArgs(transport, "missing"))
+	g.SetSettings(fakeArgs(transport, "missing"))
 
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if err == nil {
@@ -299,12 +258,9 @@ func TestResourceGroupPageThatFailsIsPartial(t *testing.T) {
 		groups = "/subscriptions/sub/resourcegroups"
 		next   = groups + "/next"
 	)
-	transport := &routedTransport{
-		bodies:  map[string]string{groups: `{"value":[` + armItem("/subscriptions/sub/resourceGroups/rg1", "rg1", "") + `],"nextLink":"https://management.azure.com` + next + `"}`},
-		refused: map[string]bool{next: true},
-	}
+	transport := providertest.New(armRoutes(map[string]string{groups: `{"value":[` + armItem("/subscriptions/sub/resourceGroups/rg1", "rg1", "") + `],"nextLink":"https://management.azure.com` + next + `"}`}, map[string]int{next: http.StatusForbidden}))
 	g := &ResourceGroupLister{}
-	g.SetSettings(routedArgs(transport, ""))
+	g.SetSettings(fakeArgs(transport, ""))
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AuthorizationFailed") {
 		t.Errorf("a later page failing: got %v, want the refusal as a partial error", err)
@@ -314,9 +270,9 @@ func TestResourceGroupPageThatFailsIsPartial(t *testing.T) {
 		t.Errorf("a later page failing: listed %+v, want %+v", got, want)
 	}
 
-	transport = &routedTransport{refused: map[string]bool{groups: true}}
+	transport = providertest.New(armRoutes(nil, map[string]int{groups: http.StatusForbidden}))
 	g = &ResourceGroupLister{}
-	g.SetSettings(routedArgs(transport, ""))
+	g.SetSettings(fakeArgs(transport, ""))
 	resources, err = g.List(t.Context(), harvest.Settings{})
 	if err == nil || harvest.IsPartial(err) || len(resources) != 0 {
 		t.Errorf("the first page failing: got %v, listed %v, want a full failure", err, resources)
@@ -340,7 +296,7 @@ func TestSubnetListsAssociationsAndPolicies(t *testing.T) {
 		nat        = rg + "natGateways/nat"
 		storage    = rg + "serviceEndpointPolicies/storage"
 	)
-	transport := &routedTransport{bodies: map[string]string{
+	transport := routed(map[string]string{
 		rg + "virtualNetworks": armList(armItem(network, "net1", "")),
 		network + "/subnets": armList(
 			armItem(plain, "plain", `{"addressPrefix":"10.0.0.0/24"}`),
@@ -349,9 +305,9 @@ func TestSubnetListsAssociationsAndPolicies(t *testing.T) {
 			`{"id":"`+network+`/subnets/nameless"}`,
 		),
 		rg + "serviceEndpointPolicies": armList(armItem(storage, "storage", "")),
-	}}
+	})
 	g := &SubnetLister{}
-	g.SetSettings(routedArgs(transport, "rg1"))
+	g.SetSettings(fakeArgs(transport, "rg1"))
 
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if err != nil {
@@ -390,7 +346,7 @@ func TestNetworkSecurityGroupListsRules(t *testing.T) {
 		groupA = "/subscriptions/sub/resourceGroups/rg-a/providers/Microsoft.Network/networkSecurityGroups/web"
 		groupB = "/subscriptions/sub/resourceGroups/rg-b/providers/Microsoft.Network/networkSecurityGroups/db"
 	)
-	transport := &routedTransport{bodies: map[string]string{
+	transport := routed(map[string]string{
 		"/subscriptions/sub/providers/Microsoft.Network/networkSecurityGroups": armList(
 			armItem(groupA, "web", ""),
 			armItem(groupB, "db", "")),
@@ -398,9 +354,9 @@ func TestNetworkSecurityGroupListsRules(t *testing.T) {
 			armItem(groupA+"/securityRules/https", "https", `{"priority":100}`),
 			armItem(groupA+"/securityRules/ssh", "ssh", `{"priority":200}`)),
 		groupB + "/securityRules": armList(armItem(groupB+"/securityRules/https", "https", "")),
-	}}
+	})
 	g := &NetworkSecurityGroupLister{}
-	g.SetSettings(routedArgs(transport, ""))
+	g.SetSettings(fakeArgs(transport, ""))
 
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if err != nil {
@@ -423,11 +379,11 @@ func TestNetworkSecurityGroupListsRules(t *testing.T) {
 func TestNetworkSecurityGroupFailsWhenRulesFail(t *testing.T) {
 	t.Parallel()
 	const group = "/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups/web"
-	transport := &routedTransport{bodies: map[string]string{
+	transport := routed(map[string]string{
 		"/subscriptions/sub/resourceGroups/rg1/providers/Microsoft.Network/networkSecurityGroups": armList(armItem(group, "web", "")),
-	}}
+	})
 	g := &NetworkSecurityGroupLister{}
-	g.SetSettings(routedArgs(transport, "rg1"))
+	g.SetSettings(fakeArgs(transport, "rg1"))
 
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if err == nil {
@@ -479,7 +435,7 @@ func TestResourceManagerListersRecordTags(t *testing.T) {
 			}}},
 		},
 	} {
-		transport := &fakeTransport{body: tc.body}
+		transport := providertest.New(answering(tc.body))
 		tc.lister.SetSettings(fakeArgs(transport, "rg1"))
 		listed, err := tc.lister.List(t.Context(), harvest.Settings{})
 		if err != nil {
@@ -511,7 +467,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		bareNet    = rg + "virtualNetworks/bare"
 		standalone = unlisted + "/subnets/db"
 	)
-	groups := &routedTransport{bodies: map[string]string{
+	groups := routed(map[string]string{
 		rg + "networkSecurityGroups": armList(
 			armItem(web, "web", `{"securityRules":[`+armItem(web+"/securityRules/https", "https", `{"priority":100}`)+`],"defaultSecurityRules":[`+armItem(web+"/defaultSecurityRules/AllowVnetInBound", "AllowVnetInBound", "")+`]}`),
 			armItem(empty, "empty", `{"securityRules":[]}`),
@@ -520,15 +476,15 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		),
 		unset + "/securityRules": armList(),
 		bare + "/securityRules":  armList(armItem(bare+"/securityRules/ssh", "ssh", "")),
-	}}
+	})
 	g := &NetworkSecurityGroupLister{}
-	g.SetSettings(routedArgs(groups, "rg1"))
+	g.SetSettings(fakeArgs(groups, "rg1"))
 	resources, err := g.List(t.Context(), harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "networkSecurityGroups", unset + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
-		t.Errorf("security groups: requested %v, want %v", groups.paths, want)
+	if want := []string{rg + "networkSecurityGroups", unset + "/securityRules", bare + "/securityRules"}; !reflect.DeepEqual(groups.Paths(), want) {
+		t.Errorf("security groups: requested %v, want %v", groups.Paths(), want)
 	}
 	wantGroups := []listedResource{
 		{Type: "azurerm_network_security_group", ID: web, Name: "web"},
@@ -542,7 +498,7 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		t.Errorf("security groups: got %+v\nwant %+v", got, wantGroups)
 	}
 
-	networks := &routedTransport{bodies: map[string]string{
+	networks := routed(map[string]string{
 		rg + "virtualNetworks": armList(
 			armItem(network, "net1", `{"subnets":[`+armItem(app, "app", `{"networkSecurityGroup":{"id":"`+nsg+`"}}`)+`]}`),
 			armItem(noSubnets, "none", `{"subnets":[]}`),
@@ -552,15 +508,15 @@ func TestNetworkListersUseInlineChildren(t *testing.T) {
 		unlisted + "/subnets":          armList(armItem(standalone, "db", "")),
 		bareNet + "/subnets":           armList(),
 		rg + "serviceEndpointPolicies": armList(),
-	}}
+	})
 	s := &SubnetLister{}
-	s.SetSettings(routedArgs(networks, "rg1"))
+	s.SetSettings(fakeArgs(networks, "rg1"))
 	resources, err = s.List(t.Context(), harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "virtualNetworks", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.paths, want) {
-		t.Errorf("subnets: requested %v, want %v", networks.paths, want)
+	if want := []string{rg + "virtualNetworks", unlisted + "/subnets", bareNet + "/subnets", rg + "serviceEndpointPolicies"}; !reflect.DeepEqual(networks.Paths(), want) {
+		t.Errorf("subnets: requested %v, want %v", networks.Paths(), want)
 	}
 	wantSubnets := []listedResource{
 		{Type: "azurerm_subnet", ID: app, Name: "app"},
@@ -586,8 +542,8 @@ func TestNetworkListersAskAgainForEmptyChildrenInACustomCloud(t *testing.T) {
 		network = rg + "virtualNetworks/net1"
 		subnet  = network + "/subnets/db"
 	)
-	custom := func(transport *routedTransport) serviceSettings {
-		args := routedArgs(transport, "rg1")
+	custom := func(transport *providertest.Cloud) serviceSettings {
+		args := fakeArgs(transport, "rg1")
 		options := args.clientOptions
 		options.Cloud = cloud.Configuration{
 			ActiveDirectoryAuthorityHost: "https://login.floci.test/",
@@ -597,24 +553,24 @@ func TestNetworkListersAskAgainForEmptyChildrenInACustomCloud(t *testing.T) {
 		}
 		return args
 	}
-	groups := &routedTransport{bodies: map[string]string{
+	groups := routed(map[string]string{
 		rg + "networkSecurityGroups": armList(armItem(group, "empty", `{"securityRules":[]}`)),
 		group + "/securityRules":     armList(armItem(group+"/securityRules/ssh", "ssh", "")),
-	}}
+	})
 	g := &NetworkSecurityGroupLister{}
 	g.SetSettings(custom(groups))
 	_, err := g.List(t.Context(), harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{rg + "networkSecurityGroups", group + "/securityRules"}; !reflect.DeepEqual(groups.paths, want) {
-		t.Errorf("security groups: requested %v, want %v", groups.paths, want)
+	if want := []string{rg + "networkSecurityGroups", group + "/securityRules"}; !reflect.DeepEqual(groups.Paths(), want) {
+		t.Errorf("security groups: requested %v, want %v", groups.Paths(), want)
 	}
-	networks := &routedTransport{bodies: map[string]string{
+	networks := routed(map[string]string{
 		rg + "virtualNetworks":         armList(armItem(network, "net1", `{"subnets":[]}`)),
 		network + "/subnets":           armList(armItem(subnet, "db", "")),
 		rg + "serviceEndpointPolicies": armList(),
-	}}
+	})
 	s := &SubnetLister{}
 	s.SetSettings(custom(networks))
 	resources, err := s.List(t.Context(), harvest.Settings{})

@@ -5,52 +5,49 @@ package azure
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 )
 
-// workspaceGone, registered as a filter's body in a kindTransport, makes
+// workspaceGone, registered as a filter's body for byKind, makes
 // it answer 404, as for a workspace deleted since it was listed.
 const workspaceGone = "404"
 
-// kindTransport answers a list of a workspace's data sources by its
-// $filter, as Resource Manager does: 400 KindNotSpecified without one,
-// and the body registered for the filter (404 for workspaceGone), or a
-// 403, otherwise. It records each request as its path and filter.
-type kindTransport struct {
-	bodies   map[string]string
-	requests []string
+// byKind answers a list of a workspace's data sources by its $filter, as
+// Resource Manager does: 400 KindNotSpecified without one, and the body
+// registered for the filter (404 for workspaceGone), or a 403, otherwise.
+func byKind(bodies map[string]string) providertest.Handler {
+	return func(r providertest.Request) providertest.Answer {
+		filter := r.Query.Get("$filter")
+		body := bodies[filter]
+		switch {
+		case filter == "":
+			return providertest.Status(http.StatusBadRequest, `{"error":{"code":"KindNotSpecified","message":"kind is required"}}`)
+		case body == workspaceGone:
+			return providertest.Status(http.StatusNotFound, `{"error":{"code":"ResourceNotFound","message":"gone"}}`)
+		case body == "":
+			return providertest.Status(http.StatusForbidden, `{"error":{"code":"AuthorizationFailed","message":"no"}}`)
+		}
+		return providertest.JSON(body)
+	}
 }
 
-func (f *kindTransport) Do(r *http.Request) (*http.Response, error) {
-	filter := r.URL.Query().Get("$filter")
-	f.requests = append(f.requests, r.URL.Path+" "+filter)
-	status, body := http.StatusOK, f.bodies[filter]
-	switch {
-	case filter == "":
-		status, body = http.StatusBadRequest, `{"error":{"code":"KindNotSpecified","message":"kind is required"}}`
-	case body == workspaceGone:
-		status, body = http.StatusNotFound, `{"error":{"code":"ResourceNotFound","message":"gone"}}`
-	case body == "":
-		status, body = http.StatusForbidden, `{"error":{"code":"AuthorizationFailed","message":"no"}}`
+// kindRequests are the requests cloud got, each as its path and filter.
+func kindRequests(cloud *providertest.Cloud) []string {
+	var requests []string
+	for _, r := range cloud.Requests() {
+		requests = append(requests, r.Path+" "+r.Query.Get("$filter"))
 	}
-	return &http.Response{
-		StatusCode: status,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    r,
-	}, nil
+	return requests
 }
 
 // Data sources are asked for one supported kind at a time, once per
@@ -116,8 +113,8 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 			want: map[string]string{},
 		},
 	} {
-		transport := &kindTransport{bodies: tc.bodies}
-		options := &arm.ClientOptions{ClientOptions: policy.ClientOptions{Transport: transport}}
+		transport := providertest.New(byKind(tc.bodies))
+		options := fakeOptions(transport)
 		inputs := []azlist.AzureResource{
 			listed(t, group, nil),
 			listed(t, workspace, nil),
@@ -141,8 +138,8 @@ func TestWorkspaceDataSourcesListsSupportedKinds(t *testing.T) {
 				wantRequests = append(wantRequests, path+" kind eq '"+string(k.kind)+"'")
 			}
 		}
-		if !reflect.DeepEqual(transport.requests, wantRequests) {
-			t.Errorf("%s: requested %q, want %q", tc.name, transport.requests, wantRequests)
+		if !reflect.DeepEqual(kindRequests(transport), wantRequests) {
+			t.Errorf("%s: requested %q, want %q", tc.name, kindRequests(transport), wantRequests)
 		}
 		wantTypes := map[string]string{}
 		for id, tfType := range tc.want {

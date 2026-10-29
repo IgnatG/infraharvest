@@ -53,7 +53,7 @@ func TestRecordBatchListsEnvironmentsDefinitionsAndQueues(t *testing.T) {
 	ctx := useFakeAPI(t, recordBatchAPI(t, ""))
 	g := &BatchLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestRecordBatchReturnsErrors(t *testing.T) {
 			ctx := useFakeAPI(t, recordBatchAPI(t, failing))
 			g := &BatchLister{}
 
-			_, err := g.List(ctx, harvest.Settings{})
+			_, err := listChecked(ctx, t, g, harvest.Settings{})
 
 			assertRecordedError(t, err, "ClientException")
 		})

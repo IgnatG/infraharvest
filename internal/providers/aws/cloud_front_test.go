@@ -33,7 +33,7 @@ func TestCloudFrontListsDistributionsAndCustomPolicies(t *testing.T) {
 	})
 	g := &CloudFrontLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestCloudFrontCachePolicyPages(t *testing.T) {
 		})
 		g := &CloudFrontLister{}
 
-		resources, err := g.List(ctx, harvest.Settings{})
+		resources, err := listChecked(ctx, t, g, harvest.Settings{})
 
 		if repeat {
 			if err == nil || !strings.Contains(err.Error(), "did not advance") {

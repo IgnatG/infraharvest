@@ -38,7 +38,7 @@ func TestRecordDynamoDbListsTablesByName(t *testing.T) {
 	})
 	g := &DynamoDbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestRecordDynamoDbRecordsReplicas(t *testing.T) {
 	})
 	g := &DynamoDbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestRecordDynamoDbDescribeErrorIsPartial(t *testing.T) {
 	})
 	g := &DynamoDbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 
 	assertRecordedError(t, err, "AccessDeniedException")
 	if !harvest.IsPartial(err) {
@@ -188,7 +188,7 @@ func TestRecordDynamoDbDescribesTablesInParallel(t *testing.T) {
 	})
 	g := &DynamoDbLister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -54,7 +54,7 @@ func TestAPIGatewayV2ListsWithImportIDs(t *testing.T) {
 	})
 	g := &APIGatewayV2Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestAPIGatewayV2NamesParts(t *testing.T) {
 	})
 	g := &APIGatewayV2Lister{}
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
