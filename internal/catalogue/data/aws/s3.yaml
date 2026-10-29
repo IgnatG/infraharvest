@@ -3,6 +3,7 @@ provider: aws
 service: s3
 types:
   aws_s3_bucket:
+    cloudformation_types: ["AWS::S3::Bucket"]
     arn: { service: s3, resource_type: "" }
     data_source: { type: aws_s3_bucket, argument: bucket }
     # A bucket's regional domain name, as CloudFront origins name buckets:

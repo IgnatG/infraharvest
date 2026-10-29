@@ -3,4 +3,9 @@ provider: aws
 service: eks
 types:
   aws_eks_cluster:
+    # The CDK's eks.Cluster creates its cluster through a custom
+    # resource, whose physical ID is the cluster's name.
+    cloudformation_types: ["AWS::EKS::Cluster", "Custom::AWSCDK-EKS-Cluster"]
+    # Node groups, add-ons, access entries and the rest need their cluster.
+    resource_explorer: arn
     arn: { service: eks, resource_type: "cluster" }

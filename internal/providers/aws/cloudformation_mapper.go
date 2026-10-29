@@ -14,9 +14,10 @@ import (
 // StackMapper returns the mapper the importer carries a stack's template
 // into the roots with (see harvest.ProviderWithStackMapper): what it knows
 // rather than guesses. The Terraform type of a CloudFormation type is the
-// first of those --cfn-stack matches it with (cloudFormationTypes and the
-// catalogue's cloud_control entries) that the provider's schema has; each
-// name cfn.DefaultMapper gives a property is kept only when that type's
+// first of those --cfn-stack matches it with (the catalogue's
+// cloudformation_types and cloud_control entries, see
+// catalogue.Catalogue.CloudFormationTypes) that the provider's schema has;
+// each name cfn.DefaultMapper gives a property is kept only when that type's
 // schema has it, and is no longer a guess then; a Ref or Fn::GetAtt name
 // only when, besides, the default mapper's table knows it, as a name
 // derived from CloudFormation's can be another value. What it doesn't
@@ -24,7 +25,7 @@ import (
 // validate would reject, or that reads the wrong value. An attribute the
 // schema marks sensitive is Sensitive.
 func (p *Provider) StackMapper(schemas *tfjson.ProviderSchemas) cfn.Mapper {
-	return newStackMapper(stackTypes(p.catalogue()), providerResourceSchemas(schemas, "aws"))
+	return newStackMapper(p.catalogue().CloudFormationTypes(), providerResourceSchemas(schemas, "aws"))
 }
 
 // providerResourceSchemas returns the resource schemas of the provider

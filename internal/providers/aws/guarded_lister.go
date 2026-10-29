@@ -20,9 +20,10 @@ type guardedLister struct {
 	// settings are the provider's settings, which the lister has too:
 	// they say which region explorerSkip and where read.
 	settings serviceSettings
-	// resourceExplorer lets Resource Explorer rule the service out (see
-	// Provider.UseResourceExplorer).
-	resourceExplorer bool
+	// explorerTypes are the Resource Explorer types that let the index
+	// rule the service out (see explorerTypes); none without
+	// Provider.UseResourceExplorer.
+	explorerTypes []string
 }
 
 // List lists the service, unless Resource Explorer shows the

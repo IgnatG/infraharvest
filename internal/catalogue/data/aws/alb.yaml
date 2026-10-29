@@ -3,6 +3,11 @@ provider: aws
 service: alb
 types:
   aws_lb:
+    cloudformation_types:
+      - { type: "AWS::ElasticLoadBalancingV2::LoadBalancer", also: [aws_alb] }
+    # Listeners, rules and attachments need a load balancer or target
+    # group, and the index can report an ALB or NLB as the classic type.
+    resource_explorer: ["elasticloadbalancing:loadbalancer", "elasticloadbalancing:loadbalancer/app", "elasticloadbalancing:loadbalancer/gwy", "elasticloadbalancing:loadbalancer/net"]
     # What AWS gives a load balancer that doesn't set them: internet-facing.
     defaults: [enable_prefix_for_ipv6_source_nat=off, internal=false, ip_address_type=ipv4]
     # subnet_mapping blocks that name every subnet of a module's output,
@@ -18,12 +23,18 @@ types:
           - '^(?:internal-)?(?P<name>[A-Za-z0-9-]+)-[0-9a-f]+\.elb\.(?P<region>[a-z0-9-]+)\.amazonaws\.com$'
         id: "arn:{partition}:elasticloadbalancing:{region}:{account}:loadbalancer/{kind}/{name}/{lb_id}"
   aws_lb_listener:
+    cloudformation_types:
+      - { type: "AWS::ElasticLoadBalancingV2::Listener", also: [aws_alb_listener] }
     # Mutual TLS that is off.
     omit: [mutual_authentication when mutual_authentication.mode=off]
     # What AWS gives a listener that doesn't set them: the first action's
     # order is its position.
     defaults: [default_action.order=1, routing_http_response_server_enabled=true, tcp_idle_timeout_seconds=350]
   aws_lb_target_group:
+    cloudformation_types:
+      - { type: "AWS::ElasticLoadBalancingV2::TargetGroup", also: [aws_alb_target_group] }
+    # Attachments need their target group.
+    resource_explorer: ["elasticloadbalancing:targetgroup"]
     state_only: [lambda_multi_value_headers_enabled, proxy_protocol_v2]
     # Stickiness that is off, whatever its cookie settings.
     omit: [stickiness when stickiness.enabled=false]

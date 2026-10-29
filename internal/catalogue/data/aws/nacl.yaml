@@ -13,4 +13,5 @@ types:
       - reason: the default network ACL AWS creates with every VPC, unchanged, with only its allow-all rules; select it to import it
         attributes: { as_created: "true" }
   aws_network_acl:
+    cloudformation_types: ["AWS::EC2::NetworkAcl"]
     arn: { service: ec2, resource_type: "network-acl" }

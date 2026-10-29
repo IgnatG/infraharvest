@@ -3,6 +3,8 @@ provider: aws
 service: codeartifact
 types:
   aws_codeartifact_domain:
+    resource_explorer: ["codeartifact:domain"]
     cloud_control: { type: "AWS::CodeArtifact::Domain", identifier: Arn }
   aws_codeartifact_repository:
+    resource_explorer: ["codeartifact:repository"]
     cloud_control: { type: "AWS::CodeArtifact::Repository", identifier: Arn }

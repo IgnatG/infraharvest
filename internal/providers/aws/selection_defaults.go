@@ -35,8 +35,8 @@ const eksClusterTag = "tags.aws:eks:cluster-name"
 // launch templates of EKS managed node groups, which AWS creates itself; the replicas of a DynamoDB global table in
 // every region but the one that imports the table with its replicas; what
 // CloudFormation stacks manage, which would otherwise have two owners,
-// matched by physical ID and, where cloudFormationTypes knows it, by type;
-// what other accounts share; and the targets Auto Scaling groups and ECS
+// matched by physical ID and, where the catalogue's CloudFormationTypes
+// knows it, by type; what other accounts share; and the targets Auto Scaling groups and ECS
 // services register in their target groups, which they register and
 // deregister themselves. The catalogue's skip rules leave out what IDs
 // and attributes tell, such as service-linked roles, and default security
@@ -65,7 +65,7 @@ func (p *Provider) ExcludedByDefault(ctx context.Context, resources []harvest.Re
 		stacks, stacksErr = p.cloudFormationManaged(ctx, config)
 	}
 	cat := p.catalogue()
-	types := stackTypes(cat)
+	types := cat.CloudFormationTypes()
 	for _, r := range resources {
 		key := r.Address.Type + " " + r.Observed.ID
 		stack, ok := managingStack(stacks[r.Observed.ID], cat, types, r.Address.Type)

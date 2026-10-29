@@ -3,6 +3,8 @@ provider: aws
 service: rds
 types:
   aws_db_instance:
+    cloudformation_types:
+      - { type: "AWS::RDS::DBInstance", also: [aws_rds_cluster_instance, aws_docdb_cluster_instance] }
     arn: { service: rds, resource_type: "db" }
     # AWS never returns the master password, so an import leaves it unset
     # and a plan without it changes nothing. As a variable, any value would
@@ -10,21 +12,27 @@ types:
     omit: [password]
     state_only: [apply_immediately]
   aws_db_option_group:
+    cloudformation_types: ["AWS::RDS::OptionGroup"]
     arn: { service: rds, resource_type: "og" }
     skip:
       - reason: a default option group, which RDS creates for an engine version and Terraform can't manage
         id_prefixes: ["default:"]
   aws_db_parameter_group:
+    cloudformation_types: ["AWS::RDS::DBParameterGroup"]
     arn: { service: rds, resource_type: "pg" }
     skip:
       - reason: a default parameter group, which RDS provides for a family and which can't be changed
         id_prefixes: [default.]
   aws_db_subnet_group:
+    cloudformation_types:
+      - { type: "AWS::RDS::DBSubnetGroup", also: [aws_docdb_subnet_group] }
     arn: { service: rds, resource_type: "subgrp" }
     skip:
       - reason: the default DB subnet group, which RDS creates for the default VPC and Terraform can't manage
         ids: [default]
   aws_rds_cluster:
+    cloudformation_types:
+      - { type: "AWS::RDS::DBCluster", also: [aws_docdb_cluster] }
     arn: { service: rds, resource_type: "cluster" }
     # As an instance's: AWS never returns the master password.
     omit: [master_password]

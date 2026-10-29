@@ -3,6 +3,8 @@ provider: aws
 service: transit_gateway
 types:
   aws_ec2_transit_gateway:
+    cloudformation_types: ["AWS::EC2::TransitGateway"]
     arn: { service: ec2, resource_type: "transit-gateway" }
   aws_ec2_transit_gateway_vpc_attachment:
+    cloudformation_types: ["AWS::EC2::TransitGatewayAttachment", "AWS::EC2::TransitGatewayVpcAttachment"]
     arn: { service: ec2, resource_type: "transit-gateway-attachment" }

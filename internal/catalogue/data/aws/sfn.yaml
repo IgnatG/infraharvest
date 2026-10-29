@@ -3,6 +3,8 @@ provider: aws
 service: sfn
 types:
   aws_sfn_state_machine:
+    cloudformation_types: ["AWS::StepFunctions::StateMachine"]
+    resource_explorer: ["states:stateMachine"]
     # Optional and computed, at what AWS gives a state machine that doesn't
     # set them: encrypted with a key AWS owns, no logging, no tracing.
     omit:

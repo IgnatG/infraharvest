@@ -3,4 +3,6 @@ provider: aws
 service: codebuild
 types:
   aws_codebuild_project:
+    cloudformation_types: ["AWS::CodeBuild::Project"]
+    resource_explorer: arn
     arn: { service: codebuild, resource_type: "project" }

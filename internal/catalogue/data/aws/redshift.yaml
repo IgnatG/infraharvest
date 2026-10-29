@@ -3,6 +3,7 @@ provider: aws
 service: redshift
 types:
   aws_redshift_cluster:
+    cloudformation_types: ["AWS::Redshift::Cluster"]
     arn: { service: redshift, resource_type: "cluster" }
     omit:
       # As an RDS instance's: AWS never returns the master password, so an

@@ -3,4 +3,5 @@ provider: aws
 service: msk
 types:
   aws_msk_cluster:
+    resource_explorer: ["kafka:cluster"]
     cloud_control: { type: "AWS::MSK::Cluster", identifier: Arn }

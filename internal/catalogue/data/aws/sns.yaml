@@ -3,6 +3,7 @@ provider: aws
 service: sns
 types:
   aws_sns_topic:
+    cloudformation_types: ["AWS::SNS::Topic"]
     # What AWS gives a topic that doesn't set them.
     defaults: [signature_version=1, tracing_config=PassThrough]
     # The access policy AWS writes, which lets the account's principals use
@@ -10,6 +11,7 @@ types:
     omit:
       - 'policy={"Version":"2008-10-17","Id":"__default_policy_ID","Statement":[{"Sid":"__default_statement_ID","Effect":"Allow","Principal":{"AWS":"*"},"Action":["SNS:GetTopicAttributes","SNS:SetTopicAttributes","SNS:AddPermission","SNS:RemovePermission","SNS:DeleteTopic","SNS:Subscribe","SNS:ListSubscriptionsByTopic","SNS:Publish"],"Resource":"arn:{*}:sns:{*}:{*}:{name}","Condition":{"StringEquals":{"AWS:SourceOwner":"{*}"}}}]}'
   aws_sns_topic_subscription:
+    cloudformation_types: ["AWS::SNS::Subscription"]
     # Terraform's own settings for waiting on confirmation, which AWS
     # doesn't record.
     state_only: [confirmation_timeout_in_minutes, endpoint_auto_confirms]

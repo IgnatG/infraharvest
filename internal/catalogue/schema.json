@@ -25,6 +25,7 @@
   },
   "$defs": {
     "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "cloudformation_type": { "type": "string", "pattern": "^([A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+|Custom::[A-Za-z0-9-]+)$" },
     "names": {
       "type": "array",
       "items": { "$ref": "#/$defs/name" },
@@ -152,7 +153,7 @@
           "description": "In a --catalogue overlay of a built-in entry: the built-in fields to clear, which an overlay can't clear by setting them. The built-in files don't take it.",
           "type": "array",
           "uniqueItems": true,
-          "items": { "enum": ["arn", "cloud_control", "data_source", "inventory", "lifecycle", "placeholder"] }
+          "items": { "enum": ["arn", "cloud_control", "data_source", "inventory", "lifecycle", "placeholder", "resource_explorer"] }
         },
         "data_source": {
           "description": "The data source that reads one resource by its import ID.",
@@ -183,6 +184,35 @@
             "type": { "type": "string", "pattern": "^[A-Za-z0-9]+::[A-Za-z0-9]+::[A-Za-z0-9]+$" },
             "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]*$" }
           }
+        },
+        "cloudformation_types": {
+          "description": "AWS: the CloudFormation types a stack's resource of which is listed as this type with its physical ID, each a name, or the name with the other Terraform types, in order, that resource is listed as.",
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/cloudformation_type" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type"],
+                "properties": {
+                  "type": { "$ref": "#/$defs/cloudformation_type" },
+                  "also": { "$ref": "#/$defs/names" }
+                }
+              }
+            ]
+          }
+        },
+        "resource_explorer": {
+          "description": "AWS: how Resource Explorer names the type's resources, or those of the type its others need: arn for the service and resource type of the entry's arn, or a list of service:resource_type.",
+          "oneOf": [
+            { "const": "arn" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "pattern": "^[a-z0-9-]+:[A-Za-z0-9/-]+$" }
+            }
+          ]
         },
         "blocks_as_list": {
           "description": "Built-in files only: a nested block that only names an element of a list, which argument takes as the list instead, such as a load balancer's subnet_mapping blocks and subnets: blocks that name every element of a module's list output become argument, set to the output.",

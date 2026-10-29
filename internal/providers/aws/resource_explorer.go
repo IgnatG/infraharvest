@@ -16,85 +16,38 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/resourceexplorer2"
 	retypes "github.com/aws/aws-sdk-go-v2/service/resourceexplorer2/types"
 
+	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// explorerTypes maps the services Resource Explorer may rule out to the
-// Resource Explorer types that cover everything their listers list: each
-// Terraform type's own, or its parent's where it can't exist without one,
-// such as a load balancer's listeners. A service is skipped in a region
-// only if the index supports every one of its types and has none there.
+// explorerTypes returns the Resource Explorer types that cover everything
+// the service called name lists with cat (see serviceTypes): the
+// resource_explorer types of the entries of its types, which each type
+// sets that the index has, or whose parent it can't exist without, such as
+// a load balancer's listeners, does for it. A service is skipped in a
+// region only if the index supports every one of them and has none there.
+// It returns nil for a service none of whose types sets them, which is
+// listed as before, and for a global one.
 //
-// Left out on purpose: the global services; listers that also list what
-// other accounts share with this one, such as subnets, VPCs, security
-// groups and transit gateways, which the index doesn't have; listers of
-// types the index lacks, such as launch configurations, API Gateway keys
-// or SES templates; and listers of what AWS creates for the account, such
-// as default parameter groups, Backup vaults or resolver rules, which it
-// may not index. A service missing here is listed as before.
-var explorerTypes = map[string][]string{
-	"accessanalyzer": {"access-analyzer:analyzer"},
-	"acm":            {"acm:certificate"},
-	// Listeners, rules and attachments need a load balancer or target
-	// group, and the index can report an ALB or NLB as the classic type.
-	"alb": {"elasticloadbalancing:loadbalancer", "elasticloadbalancing:loadbalancer/app", "elasticloadbalancing:loadbalancer/gwy", "elasticloadbalancing:loadbalancer/net", "elasticloadbalancing:targetgroup"},
-	// Routes, stages, integrations and the rest need their API.
-	"api_gatewayv2": {"apigateway:apis", "apigateway:vpclinks"},
-	"appconfig":     {"appconfig:application"},
-	"appsync":       {"appsync:apis"},
-	"batch":         {"batch:compute-environment", "batch:job-definition", "batch:job-queue"},
-	"cloud9":        {"cloud9:environment"},
-	// Stack set instances need their stack set.
-	"cloudformation": {"cloudformation:stack", "cloudformation:stackset"},
-	"codeartifact":   {"codeartifact:domain", "codeartifact:repository"},
-	"codebuild":      {"codebuild:project"},
-	"codedeploy":     {"codedeploy:application"},
-	"codepipeline":   {"codepipeline:pipeline", "codepipeline:webhook"},
-	// User pool clients need their pool.
-	"cognito":          {"cognito-identity:identitypool", "cognito-idp:userpool"},
-	"customer_gateway": {"ec2:customer-gateway"},
-	"datapipeline":     {"datapipeline:pipeline"},
-	"devicefarm":       {"devicefarm:project"},
-	"dynamodb":         {"dynamodb:table"},
-	// Volume attachments need their volume.
-	"ebs":          {"ec2:volume"},
-	"ec2_instance": {"ec2:instance"},
-	// Repository and lifecycle policies need their repository.
-	"ecr": {"ecr:repository"},
-	"ecs": {"ecs:cluster", "ecs:service", "ecs:task-definition"},
-	// Mount targets and file system policies need their file system.
-	"efs": {"elasticfilesystem:access-point", "elasticfilesystem:file-system"},
-	"eip": {"ec2:elastic-ip"},
-	// Node groups, add-ons, access entries and the rest need their cluster.
-	"eks":               {"eks:cluster"},
-	"elastic_beanstalk": {"elasticbeanstalk:application", "elasticbeanstalk:environment"},
-	"elb":               {"elasticloadbalancing:loadbalancer"},
-	"es":                {"es:domain"},
-	"firehose":          {"firehose:deliverystream"},
-	"glue":              {"glue:crawler", "glue:database", "glue:job", "glue:table", "glue:trigger"},
-	"guardduty":         {"guardduty:detector"},
-	"iot":               {"iot:rolealias", "iot:rule", "iot:thing", "iot:thingtype"},
-	"kinesis":           {"kinesis:stream"},
-	// Permissions and invoke configurations need their function.
-	"lambda":          {"lambda:event-source-mapping", "lambda:function", "lambda:layer/version"},
-	"logs":            {"logs:log-group"},
-	"media_package":   {"mediapackage:channels"},
-	"media_store":     {"mediastore:container"},
-	"mq":              {"mq:broker"},
-	"msk":             {"kafka:cluster"},
-	"nat":             {"ec2:natgateway"},
-	"pipes":           {"pipes:pipe"},
-	"placement_group": {"ec2:placement-group"},
-	"resourcegroups":  {"resource-groups:group"},
-	"secretsmanager":  {"secretsmanager:secret"},
-	"sfn":             {"states:activity", "states:stateMachine"},
-	"sqs":             {"sqs:queue"},
-	"ssm":             {"ssm:parameter"},
-	"synthetics":      {"synthetics:canary"},
-	"vpn_connection":  {"ec2:vpn-connection"},
-	"vpn_gateway":     {"ec2:vpn-gateway"},
-	// Associations and logging configurations need their web ACL.
-	"wafv2_regional": {"wafv2:ipset", "wafv2:regexpatternset", "wafv2:rulegroup", "wafv2:webacl"},
+// Left out on purpose, by setting no resource_explorer: the types of
+// listers that also list what other accounts share with this one, such as
+// subnets, VPCs, security groups and transit gateways, which the index
+// doesn't have; types the index lacks, such as launch configurations, API
+// Gateway keys or SES templates, and the services that list them; and
+// what AWS creates for the account, such as default parameter groups,
+// Backup vaults or resolver rules, which it may not index.
+func explorerTypes(cat *catalogue.Catalogue, name string) []string {
+	if slices.Contains(GlobalServices, name) || slices.Contains(EastOnlyServices, name) {
+		return nil
+	}
+	var types []string
+	for _, typ := range serviceTypes(cat, name) {
+		if e, ok := cat.Entry(typ); ok {
+			types = append(types, e.ResourceExplorerTypes()...)
+		}
+	}
+	slices.Sort(types)
+	return slices.Compact(types)
 }
 
 // explorerIndexMinAge is how long an index must have been in place before
@@ -106,21 +59,17 @@ const explorerIndexMinAge = 24 * time.Hour
 const explorerSearchLimit = 1000
 
 // explorerSkip returns why the service called name needn't list its region:
-// Resource Explorer is on and its index shows the service has nothing
-// there. It returns "" otherwise, and whenever the index can't tell. Its
+// Resource Explorer is on, the service has its types (see explorerTypes),
+// and its index shows the service has nothing there. It returns "" otherwise, and whenever the index can't tell. Its
 // calls take ctx.
 func (s *guardedLister) explorerSkip(ctx context.Context, name string) string {
-	if !s.resourceExplorer {
-		return ""
-	}
-	types, ok := explorerTypes[name]
-	if !ok {
+	if len(s.explorerTypes) == 0 {
 		return ""
 	}
 	svc := &Service{}
 	svc.SetSettings(s.settings)
 	svc.Begin(ctx, harvest.Settings{Service: name})
-	return explorerFor(svc).skip(ctx, name, types)
+	return explorerFor(svc).skip(ctx, name, s.explorerTypes)
 }
 
 // explorerRegion is what Resource Explorer says about one account and

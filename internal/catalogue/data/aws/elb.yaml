@@ -3,6 +3,7 @@ provider: aws
 service: elb
 types:
   aws_elb:
+    resource_explorer: arn
     arn: { service: elasticloadbalancing, resource_type: "loadbalancer" }
     cloud_control: { type: "AWS::ElasticLoadBalancing::LoadBalancer", identifier: LoadBalancerName }
     # The DNS name of a Classic Load Balancer, with its name, which is its

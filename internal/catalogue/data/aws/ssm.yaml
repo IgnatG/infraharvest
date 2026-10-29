@@ -3,6 +3,8 @@ provider: aws
 service: ssm
 types:
   aws_ssm_parameter:
+    cloudformation_types: ["AWS::SSM::Parameter"]
+    resource_explorer: arn
     arn: { service: ssm, resource_type: "parameter" }
     omit:
       # Computed, written back as an argument.

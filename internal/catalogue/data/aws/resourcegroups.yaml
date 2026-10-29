@@ -3,5 +3,6 @@ provider: aws
 service: resourcegroups
 types:
   aws_resourcegroups_group:
+    resource_explorer: arn
     arn: { service: resource-groups, resource_type: "group" }
     cloud_control: { type: "AWS::ResourceGroups::Group", identifier: Name }

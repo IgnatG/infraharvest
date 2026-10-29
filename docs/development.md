@@ -144,6 +144,18 @@ A provider is a `harvest.Provider` whose `Services` maps each service name, as u
 - Leave out what the cloud owns or can't be imported through the catalogue (`skip`, `not_importable`), not with `if` statements in the lister.
 - Types without a dedicated lister can come from the Cloud Control API with a `cloud_control` catalogue entry (`internal/providers/aws/cloudcontrol.go`).
 
+### Adding an AWS type
+
+What infraharvest knows of an AWS type is its catalogue entry, in the file of the service that lists it under `internal/catalogue/data/aws/`. Adding a type takes:
+
+1. **A lister for it**, or none: a `cloud_control` entry lists it through the Cloud Control API with no Go at all. A type a lister records goes in the `types` its service declares in `serviceTable` (`internal/providers/aws/services.go`), from which the provider works out the types the `query` service leaves to the others (`harvest.Profile.ListedTypes`). `TestListedTypesAreDeclared` (`internal/cli`) checks them against the lister's code.
+2. **Its catalogue entry**: the import ID, `arn` where its ID isn't an ARN, skip rules and children, as [Catalogue](catalogue.md) describes, and two fields the provider reads besides:
+    - `cloudformation_types`, the CloudFormation types a stack holds it as, so that what a stack manages is left out by type and `--cfn-stack` maps the stack's template to it. Where a stack's resource is listed as several Terraform types, the first one's entry names the CloudFormation type, with the others in `also`, in the order the mapper tries them. A `cloud_control` entry's type counts already.
+    - `resource_explorer`, when Resource Explorer's index has the type, so that `--resource-explorer` can skip its service in a region with none: `arn` where the index names it as its `arn` does, else its Resource Explorer types. A type that can't exist without a parent, such as a load balancer's listener, sets none, and its parent's stand for it; a service with a type that sets none and has no parent that does, or that also lists what other accounts share, sets none at all.
+3. **The services reference**, regenerated: `go test ./internal/cli -run TestGoldenServicesReference -update`.
+
+The read-only permissions and the e2e fixture change as the rest of this page says.
+
 ### Pagination
 
 Every list call pages until the API says it is done, and a page that doesn't advance stops the listing instead of looping:

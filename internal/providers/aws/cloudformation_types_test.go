@@ -5,37 +5,16 @@ package aws
 
 import (
 	"reflect"
-	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// Every CloudFormation type of the table, or custom resource type of the
-// CDK, names its Terraform types.
-func TestCloudFormationTypesAreWellFormed(t *testing.T) {
+// The catalogue's cloud_control entries add their CloudFormation types to
+// its cloudformation_types.
+func TestCloudFormationTypesAddCloudControlTypes(t *testing.T) {
 	t.Parallel()
-	cfn := regexp.MustCompile(`^(AWS::[A-Za-z0-9]+::[A-Za-z0-9]+|Custom::AWSCDK-[A-Za-z0-9-]+)$`)
-	for typ, terraform := range cloudFormationTypes {
-		if !cfn.MatchString(typ) {
-			t.Errorf("%q is not a CloudFormation type", typ)
-		}
-		if len(terraform) == 0 {
-			t.Errorf("%s names no Terraform type", typ)
-		}
-		for _, tf := range terraform {
-			if !strings.HasPrefix(tf, "aws_") {
-				t.Errorf("%s: %q is not an AWS Terraform type", typ, tf)
-			}
-		}
-	}
-}
-
-// The catalogue's cloud_control entries add their CloudFormation types.
-func TestStackTypesAddCloudControlTypes(t *testing.T) {
-	t.Parallel()
-	types := stackTypes(awsCatalogue())
+	types := awsCatalogue().CloudFormationTypes()
 	if got := types["AWS::Athena::WorkGroup"]; !reflect.DeepEqual(got, []string{"aws_athena_workgroup"}) {
 		t.Errorf("AWS::Athena::WorkGroup: %v, want aws_athena_workgroup", got)
 	}

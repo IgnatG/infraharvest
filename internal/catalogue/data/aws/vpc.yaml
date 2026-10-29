@@ -3,5 +3,6 @@ provider: aws
 service: vpc
 types:
   aws_vpc:
+    cloudformation_types: ["AWS::EC2::VPC"]
     arn: { service: ec2, resource_type: "vpc" }
     data_source: { type: aws_vpc, argument: id }

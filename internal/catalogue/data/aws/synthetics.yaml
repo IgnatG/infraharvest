@@ -3,4 +3,5 @@ provider: aws
 service: synthetics
 types:
   aws_synthetics_canary:
+    resource_explorer: ["synthetics:canary"]
     cloud_control: { type: "AWS::Synthetics::Canary", identifier: Name }

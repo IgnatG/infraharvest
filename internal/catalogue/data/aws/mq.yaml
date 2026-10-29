@@ -3,5 +3,6 @@ provider: aws
 service: mq
 types:
   aws_mq_broker:
+    resource_explorer: arn
     arn: { service: mq, resource_type: "broker" }
     cloud_control: { type: "AWS::AmazonMQ::Broker", identifier: Id }

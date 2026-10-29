@@ -3,6 +3,8 @@ provider: aws
 service: kinesis
 types:
   aws_kinesis_stream:
+    cloudformation_types: ["AWS::Kinesis::Stream"]
+    resource_explorer: arn
     arn: { service: kinesis, resource_type: "stream" }
     omit:
       # Computed, written back as an argument.
