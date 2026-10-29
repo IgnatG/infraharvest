@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "tool": {
+    "name": "infraharvest",
+    "version": "v0.0.0-20261029171721-06571132e8e8"
+  },
+  "engine": {
+    "name": "terraform",
+    "version": "1.16.6"
+  },
+  "provider": {
+    "source": "registry.terraform.io/hashicorp/aws",
+    "constraint": "~\u003e 6.71",
+    "version": "6.71.0"
+  },
+  "types": [
+    {
+      "type": "aws_sqs_queue",
+      "discovered": 1,
+      "imported": 1,
+      "left_out": 0,
+      "skipped": 0,
+      "excluded": 0,
+      "failed": 0
+    }
+  ],
+  "directories": [
+    {
+      "path": "aws/000000000000/us-east-1",
+      "scope": "aws/000000000000/us-east-1",
+      "imported": [
+        {
+          "address": "aws_sqs_queue.main",
+          "id": "https://sqs.us-east-1.floci.invalid/000000000000/infraharvest-action"
+        }
+      ],
+      "checks": [
+        {
+          "name": "G1 format",
+          "passed": true
+        },
+        {
+          "name": "G2 validate",
+          "passed": true
+        },
+        {
+          "name": "G3 plan",
+          "passed": true
+        },
+        {
+          "name": "G4 standards",
+          "passed": true
+        },
+        {
+          "name": "G8 moves",
+          "passed": true
+        },
+        {
+          "name": "G5 scanners",
+          "passed": true,
+          "skipped": true,
+          "details": [
+            "no scanner installed (tflint, trivy, checkov)"
+          ]
+        },
+        {
+          "name": "G6 secrets",
+          "passed": true
+        },
+        {
+          "name": "G7 determinism",
+          "passed": true
+        }
+      ],
+      "plans": [
+        {
+          "step": "generate",
+          "plans": 1,
+          "shows": 0
+        },
+        {
+          "step": "prepare",
+          "plans": 1,
+          "shows": 1
+        },
+        {
+          "step": "tidy",
+          "plans": 2,
+          "shows": 2
+        },
+        {
+          "step": "gate",
+          "plans": 1,
+          "shows": 1
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "discovered": 1,
+    "imported": 1,
+    "left_out": 0,
+    "skipped": 0,
+    "excluded": 0,
+    "failed": 0
+  },
+  "scopes": [
+    {
+      "scope": "aws/000000000000/us-east-1",
+      "discovered": 1,
+      "imported": 1,
+      "left_out": 0,
+      "skipped": 0,
+      "excluded": 0,
+      "failed": 0
+    }
+  ],
+  "exit_code": 0
+}
