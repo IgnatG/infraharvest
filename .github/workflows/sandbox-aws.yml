@@ -159,13 +159,19 @@ jobs:
         done
     # Every earlier run's tag (see the script), which only what a run
     # failed to delete still carries: the group lets no other run be live.
+    # Then the estate tag, every engine's, for what an estate applied
+    # without a run_id left with no run tag, so that the estate starts from
+    # an empty account as the Azure and Google Cloud sweeps make it.
     - name: Sweep what earlier runs left
       if: steps.leftovers.outputs.found == 'true'
       timeout-minutes: 30
       env:
         AWS_PROFILE: fixture
         RUN_ID: ${{ github.run_id }}
-      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
+      run: |
+        .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
+        SWEEP_TAG_KEY=infraharvest-sandbox RUN_ID="$E2E_ENGINE" \
+          .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1
     # Redshift creates a cluster through its service-linked role, which an
     # account has only once a cluster was made; created with the cluster,
     # it isn't ready in time and CreateCluster fails ("Unable to assume the
