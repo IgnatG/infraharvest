@@ -17,9 +17,10 @@ import (
 
 // Every lister of serviceTable keeps the listers' contract (see
 // providertest.Contract) against a fake AWS: nothing listed from an empty
-// account, a refusal classified by awsCodes as a failure, and a canceled
-// context honoured. That each lists only the types its row declares is
-// checked by the record tests, which list with listChecked.
+// account, a refusal classified by awsCodes as a failure, with its code,
+// and a canceled context honoured. That each lists only the types its row
+// declares is checked by the record tests, which list with listChecked
+// (or listServiceChecked).
 func TestListerContract(t *testing.T) {
 	t.Parallel()
 	for _, entry := range serviceTable {
@@ -84,13 +85,22 @@ func deniedAnswer(call apiCall) string {
 // that g lists only the types its row of serviceTable declares.
 func listChecked(ctx context.Context, t *testing.T, g harvest.Lister, s harvest.Settings) ([]harvest.Resource, error) {
 	t.Helper()
-	resources, err := g.List(ctx, s)
 	for _, entry := range serviceTable {
 		if reflect.TypeOf(entry.newLister()) == reflect.TypeOf(g) {
-			providertest.CheckDeclared(t, resources, serviceTypes(awsCatalogue(), entry.name))
-			return resources, err
+			return listServiceChecked(ctx, t, g, entry.name, s)
 		}
 	}
 	t.Errorf("%T is the lister of no service of serviceTable", g)
+	return g.List(ctx, s)
+}
+
+// listServiceChecked lists with g, the lister of service, such as one
+// Cloud Control lists or the guarded lister an import lists with, in
+// ctx, and checks that g lists only the types service declares (see
+// serviceTypes).
+func listServiceChecked(ctx context.Context, t *testing.T, g harvest.Lister, service string, s harvest.Settings) ([]harvest.Resource, error) {
+	t.Helper()
+	resources, err := g.List(ctx, s)
+	providertest.CheckDeclared(t, resources, serviceTypes(awsCatalogue(), service))
 	return resources, err
 }

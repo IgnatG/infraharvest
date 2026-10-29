@@ -290,7 +290,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			list := func(unwanted []string) []harvest.Resource {
 				t.Helper()
 				settings := harvest.Settings{Unwanted: func(typ string) bool { return slices.Contains(unwanted, typ) }}
-				resources, err := tc.lister().List(ctx, settings)
+				resources, err := listChecked(ctx, t, tc.lister(), settings)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -337,7 +337,7 @@ func TestWafRegionalSkipsUnwantedAssociations(t *testing.T) {
 			return `{"ResourceArns":[]}`
 		})
 		settings := harvest.Settings{Unwanted: func(typ string) bool { return unwanted && typ == "aws_wafregional_web_acl_association" }}
-		resources, err := (&WafRegionalLister{}).List(ctx, settings)
+		resources, err := listChecked(ctx, t, &WafRegionalLister{}, settings)
 		if err != nil {
 			t.Fatal(err)
 		}

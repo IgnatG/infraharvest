@@ -47,7 +47,7 @@ func TestCloudControlLister(t *testing.T) {
 	})
 	g := newCloudControlLister("eventbridge")
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listServiceChecked(ctx, t, g, "eventbridge", harvest.Settings{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
 	})
 	g := newCloudControlLister("eventbridge")
 
-	resources, err := g.List(ctx, harvest.Settings{})
+	resources, err := listServiceChecked(ctx, t, g, "eventbridge", harvest.Settings{})
 
 	if !harvest.IsPartial(err) || !strings.Contains(err.Error(), "AWS::Events::ApiDestination") || strings.Contains(err.Error(), "AWS::Events::Archive") {
 		t.Errorf("want a partial error naming the denied type only, got %v", err)
