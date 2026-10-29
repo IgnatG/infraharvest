@@ -412,6 +412,7 @@ func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t 
 		opts.EffectiveTags = (*engine.EffectiveTags)(tags)
 	}
 	opts.Inherited = profile.InheritedArguments
+	opts.Scope = scopeLocals(profile.Merge, c.scope, t.root.provider.Config)
 	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
 		opts.ModuleProviders = map[string]rootfile.Provider{}
 		for name, p := range withModuleProviders.ModuleProviders() {
@@ -421,6 +422,28 @@ func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t 
 		}
 	}
 	return opts
+}
+
+// scopeLocals is what the roots of a call whose scope is scope read of
+// their own account and region from data sources (see
+// engine.ScopeLocals), as a root environments share reads them (see
+// harvest.Merge): the scope's account, and its region where the provider
+// block, whose arguments are config, sets the roots' region to it. A
+// root of AWS's global services has no region of its own: its provider
+// is in us-east-1. Nil where the provider can't say which account it
+// lists in (see discoveryScope), or no data source reads it.
+func scopeLocals(m harvest.Merge, scope string, config map[string]any) *engine.ScopeLocals {
+	account := scopeAccount(scope)
+	if account == "" || m.ScopeData == "" {
+		return nil
+	}
+	s := &engine.ScopeLocals{Account: engine.ScopeValue{ID: account, Data: m.ScopeData, Local: m.ScopeLocal, Expr: m.ScopeExpr}}
+	if region := scopeRegion(scope); m.RegionArgument != "" && region != "" {
+		if set, ok := config[m.RegionArgument].(string); ok && set == region {
+			s.Region = engine.ScopeValue{ID: region, Data: m.RegionData, Local: m.RegionLocal, Expr: m.RegionExpr}
+		}
+	}
+	return s
 }
 
 // callResources are the resources an Import call imports: those its

@@ -207,7 +207,7 @@ func TestReferencedAnnotationsNeedNoReplan(t *testing.T) {
   principal_id = "aaaaaaaa-0000-0000-0000-000000000003"
 }
 `})
-	replan, err := annotate(ws, referencedAnnotations())
+	replan, err := annotate(ws, referencedAnnotations(ws, Options{}, nil))
 	if err != nil || len(replan) != 0 {
 		t.Fatalf("got %v, %v, want no replan", replan, err)
 	}

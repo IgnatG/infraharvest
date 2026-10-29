@@ -566,8 +566,7 @@ func liftLiterals(ws *workspace, taken Names, t Traits) (bool, error) {
 		return false, nil
 	}
 	ws.Save(generated)
-	writeLocals(ws, locals)
-	return true, nil
+	return true, writeLocals(ws, locals)
 }
 
 func hasLocal(locals map[string]cty.Value, name string) bool {
@@ -582,11 +581,12 @@ func setLocals(ws *workspace, values map[string]cty.Value) error {
 		return err
 	}
 	maps.Copy(locals, values)
-	writeLocals(ws, locals)
-	return nil
+	return writeLocals(ws, locals)
 }
 
-// readLocals returns the literal locals in locals.tf, if any.
+// readLocals returns the literal locals in locals.tf, if any. The others,
+// such as one that reads a data source (see liftScope), writeLocals
+// keeps as they are.
 func readLocals(ws *workspace) (map[string]cty.Value, error) {
 	locals := map[string]cty.Value{}
 	f, err := ws.Load(rootfile.LocalsFileName)
@@ -601,27 +601,52 @@ func readLocals(ws *workspace) (map[string]cty.Value, error) {
 			continue
 		}
 		for name, attr := range b.Body.Attributes {
-			v, diags := attr.Expr.Value(nil)
-			if diags.HasErrors() {
-				return nil, fmt.Errorf("%s: local.%s isn't a literal", rootfile.LocalsFileName, name)
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() {
+				locals[name] = v
 			}
-			locals[name] = v
 		}
 	}
 	return locals, nil
 }
 
-// writeLocals writes locals.tf with one locals block, in name order.
-func writeLocals(ws *workspace, locals map[string]cty.Value) {
-	names := make([]string, 0, len(locals))
+// writeLocals writes locals.tf with one locals block, in name order: the
+// literal locals, and the others locals.tf has, such as one that reads a
+// data source, as they are, but where locals has one of the same name.
+func writeLocals(ws *workspace, locals map[string]cty.Value) error {
+	others := map[string]hclwrite.Tokens{}
+	existing, err := ws.LoadOptional(rootfile.LocalsFileName)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		for _, b := range existing.Edit().Body().Blocks() {
+			if b.Type() != "locals" {
+				continue
+			}
+			for name, attr := range b.Body().Attributes() {
+				if _, literal := locals[name]; !literal {
+					others[name] = attr.Expr().BuildTokens(nil)
+				}
+			}
+		}
+	}
+	names := make([]string, 0, len(locals)+len(others))
 	for name := range locals {
+		names = append(names, name)
+	}
+	for name := range others {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	f := hclwrite.NewEmptyFile()
 	body := f.Body().AppendNewBlock("locals", nil).Body()
 	for _, name := range names {
-		body.SetAttributeValue(name, locals[name])
+		if v, ok := locals[name]; ok {
+			body.SetAttributeValue(name, v)
+		} else {
+			body.SetAttributeRaw(name, others[name])
+		}
 	}
 	ws.Write(rootfile.LocalsFileName, hclwrite.Format(f.Bytes()))
+	return nil
 }

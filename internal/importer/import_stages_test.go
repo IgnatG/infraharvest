@@ -186,6 +186,34 @@ func TestEngineOptionsOfTheStages(t *testing.T) {
 	}
 }
 
+// The roots of a call read their own account from a local, and their
+// region where the provider block sets it to the call's: a root of AWS's
+// global services, whose provider is in us-east-1, keeps its region
+// literal. A provider that can't say which account it lists in, as Azure
+// and Google Cloud can't yet, keeps both.
+func TestScopeLocalsOfACall(t *testing.T) {
+	t.Parallel()
+	merge := (&awsprovider.Provider{}).Profile().Merge
+	regional := scopeLocals(merge, "aws/680077350850/eu-west-2", map[string]any{"region": "eu-west-2"})
+	want := &engine.ScopeLocals{
+		Account: engine.ScopeValue{ID: "680077350850", Data: "aws_caller_identity.current", Local: "aws_account_id", Expr: "data.aws_caller_identity.current.account_id"},
+		Region:  engine.ScopeValue{ID: "eu-west-2", Data: "aws_region.current", Local: "aws_region", Expr: "data.aws_region.current.region"},
+	}
+	if !reflect.DeepEqual(regional, want) {
+		t.Errorf("regional root: %+v, want %+v", regional, want)
+	}
+	global := scopeLocals(merge, "aws/680077350850/global", map[string]any{"region": "us-east-1"})
+	if global == nil || global.Account != want.Account || global.Region != (engine.ScopeValue{}) {
+		t.Errorf("global root: %+v, want the account alone", global)
+	}
+	if got := scopeLocals(merge, "", map[string]any{"region": "eu-west-2"}); got != nil {
+		t.Errorf("no scope: %+v, want nil", got)
+	}
+	if got := scopeLocals((&azureprovider.Provider{}).Profile().Merge, "", nil); got != nil {
+		t.Errorf("azure without a scope: %+v, want nil", got)
+	}
+}
+
 // Placing a call's resources splits them into roots by their environment
 // tags, and writes each import block whole: the provider left to its
 // type, and what the catalogue leaves out by what the lister recorded.
