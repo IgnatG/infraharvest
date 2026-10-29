@@ -22,8 +22,9 @@ import (
 // are looked up in, and the engine that
 // writes each root, whether it generates, adds to or vacates it, or
 // writes the README of a root added to, or merges the roots of a stack's
-// environments, or writes what their merged root no longer finds in the
-// cloud, or its moved blocks, or vacates it; and Terraform's list
+// environments, planning each with its own Terraform, or writes what their
+// merged root no longer finds in the cloud, or its moved blocks, or
+// vacates it; and Terraform's list
 // resources, which the query service lists through. A nil *callTools, or
 // a nil field, uses the real one.
 type callTools struct {
@@ -48,6 +49,10 @@ type callTools struct {
 	// merge merges the roots of a stack's environments, as
 	// envmerge.MergeRoots does.
 	merge func(ctx context.Context, dir string, roots []envmerge.MergeRoot, opts envmerge.MergeOptions) (*envmerge.MergeResult, error)
+	// terraform returns how Terraform runs in a root of provider's,
+	// which the merge plans as one of its environments: as tr does,
+	// with provider's credentials (see terraformEnv).
+	terraform func(ctx context.Context, tr terraformRun, provider harvest.Provider) (func(dir string) (tfrun.Terraform, error), error)
 	// mergedNotInCloud lists in a merged root's README what is no longer
 	// in the cloud, as envmerge.WriteMergedNotInCloud does.
 	mergedNotInCloud func(dir string, gone map[string][]rootfile.Import) error
@@ -136,6 +141,21 @@ func (t *callTools) mergeRoots(ctx context.Context, dir string, roots []envmerge
 		return t.merge(ctx, dir, roots, opts)
 	}
 	return envmerge.MergeRoots(ctx, dir, roots, opts)
+}
+
+// runner returns how Terraform runs in a root of provider's, as tr does,
+// with provider's credentials in its environment, fresh before each plan
+// where the provider adds any (see terraformEnv and freshTerraformEnv).
+func (t *callTools) runner(ctx context.Context, tr terraformRun, provider harvest.Provider) (func(dir string) (tfrun.Terraform, error), error) {
+	if t != nil && t.terraform != nil {
+		return t.terraform(ctx, tr, provider)
+	}
+	env, err := terraformEnv(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	tr.env, tr.freshEnv = env, freshTerraformEnv(provider)
+	return tr.in, nil
 }
 
 // vacateMerged writes the merged root in dir with removed alone (see

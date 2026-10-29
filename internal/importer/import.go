@@ -83,7 +83,7 @@ type Options struct {
 	DefaultEnv string
 	// MergeEnvironments merges the roots of a stack's environments, which
 	// the configuration file's environments name, into one root they share
-	// (see Run.mergeEnvironments).
+	// (see mergePhase.run).
 	MergeEnvironments bool
 	// MergeEnvironmentsChosen says MergeEnvironments was set, by
 	// --merge-environments or a configuration file, rather than left at its

@@ -97,10 +97,10 @@ func (d *discoverState) add(child *discoverState) {
 }
 
 // mergeState is what the run hands its merge phase (see
-// Run.mergeEnvironments), apart from what it counts for its report.
+// mergePhase.run), apart from what it counts for its report.
 type mergeState struct {
 	// members are the roots the run generated of the configuration file's
-	// environments, which the merge phase merges (see Run.mergeEnvironments).
+	// environments, which the merge phase merges (see mergePhase.run).
 	members []mergeMember
 	// vacating are the handovers of the run's scopes that plan to vacate
 	// merged roots, all of whose resources go to other roots now (see

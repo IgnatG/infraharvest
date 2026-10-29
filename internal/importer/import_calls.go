@@ -75,7 +75,7 @@ type Call struct {
 // resolvePolicies) and the rest (see checkOptions), then the provider's own flags, and with CheckOnly
 // stops there; else it plans the scopes, imports each (see
 // Run.importScope), and merges the roots of each stack's environments
-// (see Run.mergeEnvironments). A scope that fails is recorded and the
+// (see mergePhase.run). A scope that fails is recorded and the
 // others go on (see Run.importEach).
 func (r *Run) Import(ctx context.Context, cmd Command) error {
 	options := cmd.Options
@@ -126,7 +126,7 @@ func (r *Run) Import(ctx context.Context, cmd Command) error {
 	}
 	// Once every scope is imported: the environments of a stack may be in
 	// different accounts, subscriptions or projects.
-	return r.mergeEnvironments(ctx)
+	return r.mergePhase().run(ctx)
 }
 
 // logWhere logs what the call covers, if Where says.

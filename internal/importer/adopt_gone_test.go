@@ -67,7 +67,7 @@ func goneMember(t *testing.T, out, env, account string, ids map[string]string, l
 // checkKeptGone checks that keepGone put back into m, under out, the
 // queue of the merged root at label, of ID id, as m's root would have it,
 // named name, and recorded it no longer in the cloud there.
-func checkKeptGone(t *testing.T, run *Run, out string, m mergeMember, label, id, name string) {
+func checkKeptGone(t *testing.T, p *mergePhase, out string, m mergeMember, label, id, name string) {
 	t.Helper()
 	sqs := readTestFile(t, filepath.Join(m.dir, "sqs.tf"))
 	if !strings.Contains(sqs, `resource "aws_sqs_queue" "`+label+`"`) || !strings.Contains(sqs, `"`+name+`"`) || strings.Contains(sqs, "count") || strings.Contains(sqs, "var.") || strings.Contains(sqs, "local.") {
@@ -76,13 +76,13 @@ func checkKeptGone(t *testing.T, run *Run, out string, m mergeMember, label, id,
 	if imports := readTestFile(t, filepath.Join(m.dir, rootfile.ImportsFileName)); !strings.Contains(imports, "aws_sqs_queue."+label+"\n") || !strings.Contains(imports, `"`+id+`"`) {
 		t.Errorf("%s's imports.tf:\n%s", m.env, imports)
 	}
-	if got := run.goneFrom(m.dir); !reflect.DeepEqual(got, []string{"aws_sqs_queue." + label}) {
+	if got := p.goneFrom(m.dir); !reflect.DeepEqual(got, []string{"aws_sqs_queue." + label}) {
 		t.Errorf("%s: gone %v", m.env, got)
 	}
 	if !slices.ContainsFunc(m.result.Blocks(), func(r engine.Managed) bool { return r.ID == id && r.Address == "aws_sqs_queue."+label }) {
 		t.Errorf("%s's result: %+v", m.env, m.result)
 	}
-	if g := run.report.NotInCloud; len(g) != 1 || g[0].Path != relativePath(out, m.dir) || g[0].ID != id || g[0].Scope != m.scope {
+	if g := p.report.NotInCloud; len(g) != 1 || g[0].Path != relativePath(out, m.dir) || g[0].ID != id || g[0].Scope != m.scope {
 		t.Errorf("not in the cloud: %+v", g)
 	}
 }
@@ -105,19 +105,19 @@ func TestKeepGoneFromAFreshCheckout(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	stack := writeGoneStack(t, out)
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true}
+	p := newTestPhase(out, nil)
+	p.incremental = true
 	dev := goneMember(t, out, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
 	prod := goneMember(t, out, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")
 	members := []mergeMember{dev, prod}
-	prev, why, err := run.adoptedCheckpoint(stack, members)
+	prev, why, err := p.adoptedCheckpoint(stack, members)
 	if err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" {
+	if why, err := p.keepGone(stack, prev, members); err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	checkKeptGone(t, run, out, members[0], "audit", "q-dev-audit", "shop-dev-audit")
+	checkKeptGone(t, p, out, members[0], "audit", "q-dev-audit", "shop-dev-audit")
 	if sqs := readTestFile(t, filepath.Join(prod.dir, "sqs.tf")); strings.Contains(sqs, "audit") {
 		t.Errorf("prod's root gets dev's queue:\n%s", sqs)
 	}
@@ -127,11 +127,11 @@ func TestKeepGoneFromAFreshCheckout(t *testing.T) {
 	stack = writeGoneStack(t, other)
 	dev = goneMember(t, other, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
 	dev.here.types = map[string]bool{}
-	run = NewRun()
-	run.options = Options{Out: other, Incremental: true}
+	p = newTestPhase(other, nil)
+	p.incremental = true
 	members = []mergeMember{dev, goneMember(t, other, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")}
-	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" || len(run.report.NotInCloud) != 0 {
-		t.Errorf("listed in part: %q %v %+v", why, err, run.report.NotInCloud)
+	if why, err := p.keepGone(stack, prev, members); err != nil || why != "" || len(p.report.NotInCloud) != 0 {
+		t.Errorf("listed in part: %q %v %+v", why, err, p.report.NotInCloud)
 	}
 	if sqs := readTestFile(t, filepath.Join(dev.dir, "sqs.tf")); strings.Contains(sqs, "audit") {
 		t.Errorf("listed in part, dev's root gets the queue:\n%s", sqs)
@@ -152,19 +152,19 @@ func TestKeepGoneReadingTheAccount(t *testing.T) {
 		"sqs.tf":    "resource \"aws_sqs_queue\" \"orders\" {\n  name = \"${local.naming_prefix}-orders\"\n}\n\nresource \"aws_sqs_queue\" \"audit\" {\n  count = var.deploy_audit ? 1 : 0\n\n  name = \"${local.naming_prefix}-${local.aws_account_id}-audit\"\n}\n",
 	}
 	writeRootFiles(t, stack, files)
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true}
+	p := newTestPhase(out, nil)
+	p.incremental = true
 	dev := goneMember(t, out, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
 	prod := goneMember(t, out, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")
 	members := []mergeMember{dev, prod}
-	prev, why, err := run.adoptedCheckpoint(stack, members)
+	prev, why, err := p.adoptedCheckpoint(stack, members)
 	if err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" {
+	if why, err := p.keepGone(stack, prev, members); err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	checkKeptGone(t, run, out, members[0], "audit", "q-dev-audit", "shop-dev-111111111111-audit")
+	checkKeptGone(t, p, out, members[0], "audit", "q-dev-audit", "shop-dev-111111111111-audit")
 	if sqs := readTestFile(t, filepath.Join(dev.dir, "sqs.tf")); strings.Contains(sqs, "data.") {
 		t.Errorf("dev's root reads a data source it lacks:\n%s", sqs)
 	}
@@ -176,10 +176,10 @@ func TestKeepGoneReadingTheAccount(t *testing.T) {
 	writeRootFiles(t, stack, files)
 	dev = goneMember(t, other, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders"}, "q-dev-orders")
 	dev.account = ""
-	run = NewRun()
-	run.options = Options{Out: other, Incremental: true}
+	p = newTestPhase(other, nil)
+	p.incremental = true
 	members = []mergeMember{dev, goneMember(t, other, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")}
-	if why, err := run.keepGone(stack, prev, members); err != nil || !strings.Contains(why, "data.aws_caller_identity.current.account_id") {
+	if why, err := p.keepGone(stack, prev, members); err != nil || !strings.Contains(why, "data.aws_caller_identity.current.account_id") {
 		t.Errorf("without dev's account: %q %v", why, err)
 	}
 }
@@ -191,22 +191,22 @@ func TestKeepGoneWithWhatIsNew(t *testing.T) {
 	t.Parallel()
 	out := t.TempDir()
 	stack := writeGoneStack(t, out)
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true}
+	p := newTestPhase(out, nil)
+	p.incremental = true
 	dev := goneMember(t, out, "dev", "111111111111", map[string]string{"shop_dev_audit": "q-dev-audit"}, "q-dev-audit")
 	prod := goneMember(t, out, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders", "shop_prd_billing": "q-prd-billing"}, "q-prd-orders", "q-prd-billing")
 	members := []mergeMember{dev, prod}
-	prev, why, err := run.adoptedCheckpoint(stack, members)
+	prev, why, err := p.adoptedCheckpoint(stack, members)
 	if err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
 	if got := newSinceMerge(prod.result, prev.Imports["prod"]); !reflect.DeepEqual(got, []string{"aws_sqs_queue.shop_prd_billing"}) {
 		t.Errorf("new since the merge: %v", got)
 	}
-	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" {
+	if why, err := p.keepGone(stack, prev, members); err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	checkKeptGone(t, run, out, members[0], "orders", "q-dev-orders", "shop-dev-orders")
+	checkKeptGone(t, p, out, members[0], "orders", "q-dev-orders", "shop-dev-orders")
 	if got := newSinceMerge(members[1].result, prev.Imports["prod"]); !reflect.DeepEqual(got, []string{"aws_sqs_queue.shop_prd_billing"}) {
 		t.Errorf("new since the merge, kept: %v", got)
 	}
@@ -235,21 +235,20 @@ func TestKeepGoneFromManagedState(t *testing.T) {
 	if err := state.Parse([]byte(content), "s3://acme-state/envs/prod/aws/222222222222/eu-west-2/terraform.tfstate"); err != nil {
 		t.Fatal(err)
 	}
-	run := NewRun()
-	run.options = Options{Out: out, Incremental: true, ManagedState: []string{"backend"}}
-	run.shared.managed = map[string]managed.Resources{"s3://acme-state/?region=eu-west-2": state}
+	p := newTestPhase(out, nil)
+	p.incremental, p.state = true, func() managed.Resources { return state }
 	dev := goneMember(t, out, "dev", "111111111111", map[string]string{"shop_dev_orders": "q-dev-orders", "shop_dev_audit": "q-dev-audit"}, "q-dev-orders", "q-dev-audit")
 	prod := goneMember(t, out, "prod", "222222222222", map[string]string{"shop_prd_orders": "q-prd-orders"}, "q-prd-orders")
 	members := []mergeMember{dev, prod}
-	prev, why, err := run.adoptedCheckpoint(stack, members)
+	prev, why, err := p.adoptedCheckpoint(stack, members)
 	if err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
 	if got := prev.Imports["prod"]["aws_sqs_queue.audit[0]"]; got != "q-prd-audit" {
 		t.Errorf("prod's imports: %v", prev.Imports["prod"])
 	}
-	if why, err := run.keepGone(stack, prev, members); err != nil || why != "" {
+	if why, err := p.keepGone(stack, prev, members); err != nil || why != "" {
 		t.Fatalf("%q %v", why, err)
 	}
-	checkKeptGone(t, run, out, members[1], "audit", "q-prd-audit", "shop-prd-audit")
+	checkKeptGone(t, p, out, members[1], "audit", "q-prd-audit", "shop-prd-audit")
 }
