@@ -5,6 +5,7 @@ package engine
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -95,29 +96,17 @@ func (id identity) replacement() replacement {
 	return replacement{{ref: &referenceTarget{address: id.address, attribute: id.attribute}}}
 }
 
-// computedIdentities are the attributes, besides the ones every resource
-// has, that identify the resource that has them where the provider
-// computes them: an API's root resource and execution ARN, a KMS key's
-// key ID, a hosted zone's ID, a load balancer's DNS name and zone, the
-// domain names and zones of a distribution and a bucket, a
-// managed identity's principal, an Azure role definition's resource ID,
-// which role assignments name it by (its id has the scope too). Terraform
-// writes every argument into the configuration it generates, so an
-// attribute it didn't write is computed only, as the schema says; one it
-// wrote names something else, such as a role assignment's principal_id.
-var computedIdentities = []string{"execution_arn", "root_resource_id", "key_id", "zone_id", "hosted_zone_id", "dns_name", "domain_name", "bucket_regional_domain_name", "bucket_domain_name", "fqdn", "arn_suffix", "principal_id", "client_id", "unique_id", "role_definition_resource_id"}
-
-// nestedIdentities are the attributes of nested blocks that identify the
-// resource that has them, by block: the principal of an Azure resource's
-// system-assigned identity, identity[0].principal_id, which a role
-// assignment grants a role to. The provider computes them, and a resource
-// has one such block at most.
-var nestedIdentities = map[string]string{"identity": "principal_id"}
-
 // identityAttributes are the attributes identityIndex indexes, in the
 // order a reference prefers them when a resource has the same value in
-// several.
-var identityAttributes = append(append([]string{"arn", "self_link"}, computedIdentities...), "name", "function_name", "bucket", "id")
+// several: an ARN or a self link, those of t (see
+// Traits.IdentityAttributes), the names, then the ID. Terraform writes
+// every argument into the configuration it generates, so one of t it
+// didn't write is computed only, as the schema says, and identifies the
+// resource; one it wrote names something else, such as a role
+// assignment's principal_id.
+func identityAttributes(t Traits) []string {
+	return slices.Concat([]string{"arn", "self_link"}, t.IdentityAttributes, []string{"name", "function_name", "bucket", "id"})
+}
 
 // nameAttributes hold names, which resources of other types may share.
 var nameAttributes = map[string]bool{"name": true, "function_name": true, "bucket": true}
@@ -187,9 +176,9 @@ func numberString(v any) (string, bool) {
 //     for a KMS key's key_id), or its ID is distinctive and the argument
 //     takes IDs (an API's root resource as a parent_id);
 //   - the other attributes that identify a resource (see
-//     computedIdentities and nestedIdentities), and those of several
-//     attributes (see derivedIdentity), such as an ECS task definition's
-//     family:revision;
+//     Traits.IdentityAttributes and Traits.NestedIdentities), and those
+//     of several attributes (see derivedIdentity), such as an ECS task
+//     definition's family:revision;
 //   - IDs and ARNs inside a longer string, whole between its / and :
 //     separators: "integrations/${aws_apigatewayv2_integration.x.id}";
 //   - an Azure resource's location, as its resource group's (see
@@ -199,12 +188,16 @@ func numberString(v any) (string, bool) {
 // the others' parent, or the one another argument of the block refers to.
 type identities struct {
 	byValue map[string][]identity
+	// traits are the provider's (see Options.Traits).
+	traits Traits
 }
 
 // identityIndex indexes the identities of the resources of values, with
-// the arguments written in their configuration, by address.
-func identityIndex(values map[string]map[string]any, written map[string]map[string]bool) *identities {
-	x := &identities{byValue: map[string][]identity{}}
+// the arguments written in their configuration, by address, and the
+// provider's traits t.
+func identityIndex(values map[string]map[string]any, written map[string]map[string]bool, t Traits) *identities {
+	x := &identities{byValue: map[string][]identity{}, traits: t}
+	keys := identityAttributes(t)
 	addresses := make([]string, 0, len(values))
 	for address := range values {
 		addresses = append(addresses, address)
@@ -218,15 +211,16 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 				shared[v] = true
 			}
 		}
-		for _, key := range identityAttributes {
+		for _, key := range keys {
 			v, _ := attrs[key].(string)
-			if v == "" || shared[v] || regionLike.MatchString(v) || (slices.Contains(computedIdentities, key) && written[address][key]) {
+			if v == "" || shared[v] || regionLike.MatchString(v) || (slices.Contains(t.IdentityAttributes, key) && written[address][key]) {
 				continue
 			}
 			named := nameAttributes[key] || attrs["name"] == v || attrs["function_name"] == v || attrs["bucket"] == v || attrs["family"] == v
 			x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: key, named: named})
 		}
-		for block, key := range nestedIdentities {
+		for _, block := range slices.Sorted(maps.Keys(t.NestedIdentities)) {
+			key := t.NestedIdentities[block]
 			if v := nestedIdentity(attrs, block, key); v != "" && !shared[v] {
 				x.byValue[v] = append(x.byValue[v], identity{address: address, attribute: block + "[0]." + key})
 			}
@@ -327,7 +321,7 @@ func (x *identities) whole(address, argument, value string, preferred map[string
 	switch {
 	case len(named) > 0:
 		return choose(named, func(identity) bool { return true })
-	case takesIDs(argument) && distinctive(value):
+	case takesIDs(argument) && x.traits.distinctive(value):
 		return choose(candidates, func(id identity) bool { return !id.named })
 	case strings.ContainsAny(value, "./"):
 		return choose(candidates, func(id identity) bool { return dnsAttribute(id.attribute) || id.attribute == "arn_suffix" })
@@ -373,7 +367,7 @@ func (x *identities) embedded(address, value string) (replacement, bool) {
 				continue
 			}
 			sub := value[start:end]
-			if !distinctive(sub) {
+			if !x.traits.distinctive(sub) {
 				continue
 			}
 			ref, ok := x.embeddable(address, sub)
@@ -505,10 +499,10 @@ func idAttribute(attribute string) bool {
 }
 
 // distinctive reports whether value identifies a resource on its own
-// (see referenceable), or looks like a generated ID: six characters or
+// (see Traits.referenceable), or looks like a generated ID: six characters or
 // more, letters and digits, no spaces.
-func distinctive(value string) bool {
-	if referenceable(value) {
+func (t Traits) distinctive(value string) bool {
+	if t.referenceable(value) {
 		return true
 	}
 	return len(value) >= 6 && strings.ContainsFunc(value, unicode.IsLetter) && strings.ContainsFunc(value, unicode.IsDigit) && !strings.ContainsFunc(value, unicode.IsSpace)

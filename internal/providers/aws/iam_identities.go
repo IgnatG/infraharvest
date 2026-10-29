@@ -256,8 +256,8 @@ func (g *IamLister) getInstanceProfiles(client *iam.Client) error {
 // withIamTags adds an IAM user's or role's tags to attributes as
 // tags.<key>, which the authorization details carry at no extra call, so
 // that the default selection sees them before generating anything, such
-// as a ManagedBy tag (see engine.OwnedBy). It returns attributes, or a
-// new map when that is nil.
+// as a ManagedBy tag (see engine.OwnerTags.OwnedBy). It returns
+// attributes, or a new map when that is nil.
 func withIamTags(attributes map[string]string, tags []iamtypes.Tag) map[string]string {
 	if attributes == nil {
 		attributes = map[string]string{}

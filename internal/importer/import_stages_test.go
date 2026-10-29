@@ -5,8 +5,10 @@ package importer
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -237,5 +239,43 @@ func TestPlaceWarnsOfUnreadEnvTags(t *testing.T) {
 				t.Errorf("warnings %q, want one saying %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// awsTraits are traits like the aws provider's, which the tests of what
+// listed tags say manages a resource go by.
+var awsTraits = harvest.Traits{OwnerTags: []harvest.OwnerTag{{Key: "aws:cloudformation:stack-name", Tool: "CloudFormation", Stack: true}}}
+
+// engineTraits hands the engine every trait the profile has: each field
+// of the engine's traits has the value of the profile's of its name.
+func TestEngineTraits(t *testing.T) {
+	t.Parallel()
+	profile := harvest.Traits{
+		IDPrefixes:          []string{"arn:"},
+		IDSuffixes:          []string{".example.com"},
+		ARNPrefix:           "arn:",
+		WellKnownIDs:        regexp.MustCompile(`^arn:aws:iam::aws:policy/`),
+		SelfLinkAliases:     map[string]string{"https://a/": "https://b/"},
+		IdentityAttributes:  []string{"dns_name"},
+		NestedIdentities:    map[string]string{"identity": "principal_id"},
+		OwnerTags:           []harvest.OwnerTag{{Key: "k", Value: "v", Tool: "Terraform", Stack: true}},
+		TagAttributes:       []string{"tags"},
+		MergedTagAttributes: []string{"tags_all"},
+	}
+	got := reflect.ValueOf(engineTraits(profile))
+	want := reflect.ValueOf(profile)
+	for i := range got.NumField() {
+		name := got.Type().Field(i).Name
+		w := want.FieldByName(name)
+		if !w.IsValid() {
+			t.Errorf("engineTraits: the profile has no %s", name)
+			continue
+		}
+		if g := got.Field(i); fmt.Sprint(g.Interface()) != fmt.Sprint(w.Interface()) || g.IsZero() {
+			t.Errorf("engineTraits: %s is %v, want %v", name, g.Interface(), w.Interface())
+		}
+	}
+	if got.NumField() != want.NumField() {
+		t.Errorf("engineTraits: %d fields, the profile has %d", got.NumField(), want.NumField())
 	}
 }

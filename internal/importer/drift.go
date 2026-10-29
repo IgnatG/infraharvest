@@ -537,6 +537,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 			return root, nil
 		}
 		engineOpts = catalogueDriftOptions(cat, lockedProviderVersion(dir, engineBinary(options.Engine).Registry, provider))
+		engineOpts.Traits = engineTraits(provider.Profile().Traits)
 		// As the import passes its provider's modules alone, its own
 		// first, then the curated ones of its family (see Run.toolchain),
 		// whose adapters trace changes into their calls.

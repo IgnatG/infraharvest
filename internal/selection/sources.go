@@ -38,7 +38,8 @@ type Sources struct {
 	// provider are the reasons of the provider's defaults, which take a
 	// cloud API call to find (see harvest.ProviderWithSelectionDefaults).
 	provider map[string]string
-	// owners are what the tags say manages a resource (see engine.OwnedBy).
+	// owners are what the tags say manages a resource (see
+	// engine.OwnerTags.OwnedBy).
 	owners map[string]engine.Owner
 	// managed are where the states of --managed-state have a resource.
 	managed map[string]string
@@ -48,13 +49,14 @@ type Sources struct {
 }
 
 // NewSources returns the sources of the default selection of listed: the catalogue's
-// skip rules, what the tags say manages a resource unless includeOwned is
-// set, and what provider finds, if the provider has defaults of its own.
+// skip rules, what the tags say manages a resource (see
+// engine.OwnerTags.OwnedBy, with the provider's cloud's owners) unless
+// includeOwned is set, and what provider finds, if the provider has defaults of its own.
 // The provider sees each resource's tags among its attributes as
 // tags.<key>, the way listers record the tags they read themselves, so
 // that a tag can tell what owns a resource without another call. The
 // error is the provider's; what it found before it failed is kept.
-func NewSources(ctx context.Context, cat *catalogue.Catalogue, provider harvest.ProviderWithSelectionDefaults, listed []Listed, includeOwned bool) (*Sources, error) {
+func NewSources(ctx context.Context, cat *catalogue.Catalogue, provider harvest.ProviderWithSelectionDefaults, listed []Listed, includeOwned bool, owners engine.OwnerTags) (*Sources, error) {
 	s := &Sources{
 		includeOwned: includeOwned,
 		skipped:      map[string]string{},
@@ -67,7 +69,7 @@ func NewSources(ctx context.Context, cat *catalogue.Catalogue, provider harvest.
 		if reason := cat.Skipped(l.Address.Type, l.Observed.ID, l.Observed.Attributes); reason != "" {
 			s.skipped[k] = reason
 		}
-		if owner, ok := engine.OwnedBy(l.Tags); ok {
+		if owner, ok := owners.OwnedBy(l.Tags); ok {
 			s.owners[k] = owner
 		}
 		all = append(all, withTagAttributes(l.Resource, l.Tags))

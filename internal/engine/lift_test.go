@@ -68,7 +68,7 @@ func TestLiftLiterals(t *testing.T) {
 	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
 
 	ws := rootWorkspace(t, dir)
-	lifted, err := liftLiterals(ws, nil)
+	lifted, err := liftLiterals(ws, nil, testTraits)
 	if err != nil || !lifted {
 		t.Fatalf("want a lift, got lifted=%v err=%v", lifted, err)
 	}
@@ -100,7 +100,7 @@ func TestLiftLiteralsLeavesManagedPolicies(t *testing.T) {
 `, 3))
 
 	ws := rootWorkspace(t, dir)
-	if lifted, err := liftLiterals(ws, nil); err != nil || lifted {
+	if lifted, err := liftLiterals(ws, nil, testTraits); err != nil || lifted {
 		t.Errorf("want no lift, got lifted=%v err=%v", lifted, err)
 	}
 	flushed(t, ws)
@@ -118,7 +118,7 @@ func TestLiftLiteralsNamesAreUnique(t *testing.T) {
 `, 3))
 
 	ws := rootWorkspace(t, dir)
-	if _, err := liftLiterals(ws, nil); err != nil {
+	if _, err := liftLiterals(ws, nil, testTraits); err != nil {
 		t.Fatal(err)
 	}
 	flushed(t, ws)

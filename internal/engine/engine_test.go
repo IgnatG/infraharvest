@@ -409,7 +409,7 @@ resource "aws_iam_role" "app" {
 			dir := t.TempDir()
 			tf := &fakeTerraform{dir: dir, generated: generated}
 
-			if _, err := Generate(context.Background(), tf, dir, imports, Options{IncludeOwned: tt.includeOwned}); err != nil {
+			if _, err := Generate(context.Background(), tf, dir, imports, Options{IncludeOwned: tt.includeOwned, Traits: testTraits}); err != nil {
 				t.Fatal(err)
 			}
 

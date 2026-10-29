@@ -56,12 +56,11 @@ var ownerKeys = map[string]bool{"managedby": true, "provisionedby": true}
 // OwnedBy returns the tool tags (or labels) say manages a resource, if they
 // name one: a ManagedBy, managed-by or managed_by tag (any case) naming
 // Terraform, OpenTofu, Pulumi, CloudFormation, the CDK or Crossplane; a
-// Terraform tag set to true, as the Terraform AWS modules' examples set; the
-// aws:cloudformation:stack-name tag CloudFormation gives what its stacks
-// create; or the goog-terraform-provisioned label the Google provider gives
-// what Terraform creates. Importing such a resource again would give it two
-// owners.
-func OwnedBy(tags map[string]string) (Owner, bool) {
+// Terraform tag set to true, as the Terraform AWS modules' examples set; or
+// one of o, the tags a provider's cloud gives what tools create, such as
+// the one CloudFormation gives what its stacks create. Importing such a
+// resource again would give it two owners.
+func (o OwnerTags) OwnedBy(tags map[string]string) (Owner, bool) {
 	keys := make([]string, 0, len(tags))
 	for k := range tags {
 		keys = append(keys, k)
@@ -70,11 +69,10 @@ func OwnedBy(tags map[string]string) (Owner, bool) {
 	for _, k := range keys {
 		v := tags[k]
 		tag := k + "=" + v
+		if owner, ok := o.owner(k, v); ok {
+			return owner, true
+		}
 		switch normalized := normalizeKey(k); {
-		case k == "aws:cloudformation:stack-name":
-			return Owner{Tool: "CloudFormation", Stack: v, Tag: tag}, true
-		case k == "goog-terraform-provisioned" && strings.EqualFold(v, "true"):
-			return Owner{Tool: "Terraform", Tag: tag}, true
 		case normalized == "terraform" && (strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")):
 			return Owner{Tool: "Terraform", Tag: tag}, true
 		case ownerKeys[normalized]:
@@ -117,10 +115,11 @@ type OwnedResource struct {
 }
 
 // leaveOutOwned moves out of imports.tf and generated.tf the resources whose
-// tags or labels, as Terraform generated them, say another tool manages
-// them, but those keep names by "<type> <import ID>": the listing doesn't
-// read the tags of every type, such as IAM roles'.
-func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
+// tags or labels, in the tag attributes of t as Terraform generated them,
+// say another tool manages them (see OwnerTags.OwnedBy), but those keep
+// names by "<type> <import ID>": the listing doesn't read the tags of
+// every type, such as IAM roles'.
+func leaveOutOwned(dir string, keep map[string]bool, t Traits) ([]OwnedResource, error) {
 	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -137,7 +136,7 @@ func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
 	errs := map[string][]tfjson.Diagnostic{}
 	for _, r := range generated.Resources() {
 		tags := map[string]string{}
-		for _, name := range []string{"tags", "labels", "terraform_labels", "effective_labels"} {
+		for _, name := range t.TagAttributes {
 			obj, ok := hclfile.AttributeExpr(r.Syntax.Body, name).(*hclsyntax.ObjectConsExpr)
 			if !ok {
 				continue
@@ -149,7 +148,7 @@ func leaveOutOwned(dir string, keep map[string]bool) ([]OwnedResource, error) {
 			}
 		}
 		typ, _, _ := strings.Cut(r.Address, ".")
-		if owner, ok := OwnedBy(tags); ok && !keep[typ+" "+ids[r.Address]] {
+		if owner, ok := t.OwnerTags.OwnedBy(tags); ok && !keep[typ+" "+ids[r.Address]] {
 			owners[r.Address] = owner
 			errs[r.Address] = []tfjson.Diagnostic{{Severity: tfjson.DiagnosticSeverityError, Summary: "managed by " + owner.Tool}}
 		}

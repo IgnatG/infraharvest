@@ -332,7 +332,7 @@ resource "aws_subnet" "a" {
 
 	ws := rootWorkspace(t, dir)
 	kept, err := settleEdit(t, tidier(tf, ws, Baseline{changes: changes}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
-		return addReferencesSkipping(ws, values, skip)
+		return addReferencesSkipping(ws, values, skip, testTraits)
 	})})
 	if err != nil || !kept {
 		t.Fatalf("want the references kept, got %v, %v", kept, err)
@@ -363,7 +363,7 @@ func TestVerifyEachUndoesWhatNoResourceExplains(t *testing.T) {
 
 	ws := rootWorkspace(t, dir)
 	kept, err := settleEdit(t, tidier(tf, ws, Baseline{}), passReferences, &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
-		return addReferencesSkipping(ws, values, skip)
+		return addReferencesSkipping(ws, values, skip, testTraits)
 	})})
 	if err != nil || kept {
 		t.Fatalf("want nothing kept, got %v, %v", kept, err)

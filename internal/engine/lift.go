@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -52,16 +51,6 @@ type DefaultTags struct {
 
 // minRepeats is how often a value must appear to be lifted into a local.
 const minRepeats = 3
-
-// liftable matches the values worth naming: identifiers and resource names
-// of the clouds (vpc-0abc12de, arn:aws:..., /subscriptions/...,
-// projects/...), not words and settings such as "Enabled" or "tcp".
-var liftable = regexp.MustCompile(`^(arn:|/subscriptions/|projects/)|^[a-z][a-z0-9]*-[0-9a-f]{8,}$`)
-
-// wellKnown matches identifiers that read better where they are used than
-// as a local: AWS-managed policies, such as
-// arn:aws:iam::aws:policy/ReadOnlyAccess, whose name says what they grant.
-var wellKnown = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 
 // applyTagLift moves the tags most tagged resources share (see
 // commonTags) into local.tags, and makes the resources that have them,
@@ -496,13 +485,14 @@ func mapValue(m map[string]string) cty.Value {
 	return cty.MapVal(vals)
 }
 
-// liftLiterals moves identifier-like string values (see liftable) that
-// the generated configuration repeats at least minRepeats times into
-// locals named after the argument that holds them most, and makes every
-// use refer to the local, named other than the locals in taken. The values
+// liftLiterals moves identifier-like string values (see Traits.liftable),
+// but the well-known IDs of t (see Traits.WellKnownIDs), that the
+// generated configuration repeats at least minRepeats times into locals
+// named after the argument that holds them most, and makes every use
+// refer to the local, named other than the locals in taken. The values
 // stay the same, so the plan does too. It reports whether it lifted
 // anything.
-func liftLiterals(ws *workspace, taken Names) (bool, error) {
+func liftLiterals(ws *workspace, taken Names, t Traits) (bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
@@ -528,7 +518,7 @@ func liftLiterals(ws *workspace, taken Names) (bool, error) {
 				continue
 			}
 			v, diags := tmpl.Value(nil)
-			if diags.HasErrors() || !liftable.MatchString(v.AsString()) || wellKnown.MatchString(v.AsString()) {
+			if diags.HasErrors() || !t.liftable(v.AsString()) || t.wellKnown(v.AsString()) {
 				continue
 			}
 			if _, seen := uses[v.AsString()]; !seen {

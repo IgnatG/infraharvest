@@ -32,7 +32,7 @@ func TestOwnedBy(t *testing.T) {
 		{map[string]string{"Name": "terraform-state"}, Owner{}, false},
 		{nil, Owner{}, false},
 	} {
-		owner, owned := OwnedBy(tc.tags)
+		owner, owned := testTraits.OwnerTags.OwnedBy(tc.tags)
 		if owner != tc.owner || owned != tc.owned {
 			t.Errorf("OwnedBy(%v): got %+v, %v; want %+v, %v", tc.tags, owner, owned, tc.owner, tc.owned)
 		}
@@ -58,7 +58,7 @@ resource "aws_iam_role" "other" {
 	imports := []rootfile.Import{{Type: "aws_iam_role", Name: "app", ID: "app"}, {Type: "aws_iam_role", Name: "other", ID: "other"}}
 
 	dir := t.TempDir()
-	result, err := Generate(context.Background(), &fakeTerraform{dir: dir, generated: generated}, dir, imports, Options{})
+	result, err := Generate(context.Background(), &fakeTerraform{dir: dir, generated: generated}, dir, imports, Options{Traits: testTraits})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ resource "aws_iam_role" "other" {
 	}
 
 	dir = t.TempDir()
-	result, err = Generate(context.Background(), &fakeTerraform{dir: dir, generated: generated}, dir, imports, Options{IncludeOwned: true})
+	result, err = Generate(context.Background(), &fakeTerraform{dir: dir, generated: generated}, dir, imports, Options{IncludeOwned: true, Traits: testTraits})
 	if err != nil {
 		t.Fatal(err)
 	}
