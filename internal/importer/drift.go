@@ -228,29 +228,34 @@ func driftDecider(options DriftOptions) (driftpolicy.Decider, *driftpolicy.Decis
 	return decider, merge, nil
 }
 
-// checkDriftRoots checks the targets, up to run.Parallel at a time,
-// and returns each one's result and changes, in the targets' order. A
-// target the context ends before it starts has the context's error.
+// checkDriftRoots checks the targets, up to run.Parallel at a time, as
+// the import runs its calls (see eachCall), and returns each one's result
+// and changes, in the targets' order. A root that fails to be checked is
+// in its result, so the others go on. A target that wasn't checked, as the
+// context ended before it started, has the context's error.
 func checkDriftRoots(ctx context.Context, run DriftOptions, decider driftpolicy.Decider, check driftCheck, own []adapters.Adapter, targets []driftTarget) ([]report.DriftRoot, [][]report.DriftChange) {
 	results := make([]report.DriftRoot, len(targets))
 	changes := make([][]report.DriftChange, len(targets))
-	slots := make(chan struct{}, run.Parallel)
-	var wg sync.WaitGroup
+	names := make([]string, len(targets))
 	for i, target := range targets {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case slots <- struct{}{}:
-			case <-ctx.Done():
-				results[i] = report.DriftRoot{Path: relativePath(run.Out, target.dir), Environment: target.env, Error: ctx.Err().Error()}
-				return
-			}
-			defer func() { <-slots }()
-			results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, target)
-		}()
+		results[i] = report.DriftRoot{Path: relativePath(run.Out, target.dir), Environment: target.env}
+		names[i] = results[i].Name()
 	}
-	wg.Wait()
+	name := func(i int) string { return names[i] }
+	checked := make([]bool, len(targets))
+	err := eachCall(ctx, make(chan struct{}, run.Parallel), len(targets), 0, run.Parallel, name, func(ctx context.Context, i int) error {
+		results[i], changes[i] = checkDriftRoot(ctx, run, decider, check, own, targets[i])
+		checked[i] = true
+		return nil
+	})
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	for i := range targets {
+		if !checked[i] && err != nil {
+			results[i].Error = err.Error()
+		}
+	}
 	return results, changes
 }
 
@@ -516,8 +521,8 @@ func driftAdapters(ctx context.Context, modules []config.Module) []adapters.Adap
 	}
 	// A directory is no other provider's (see forOtherProvider): the
 	// adapters of each root's provider are picked from these by their
-	// resources (see catalogueAdapters).
-	return fetchAdapters(ctx, "", "", "", local)
+	// resources (see catalogueAdapters). Nothing is fetched, so no tools.
+	return fetchAdapters(ctx, nil, "", "", "", local)
 }
 
 // checkDriftRoot checks the root of target, staged under the output
