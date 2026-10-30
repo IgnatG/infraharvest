@@ -370,6 +370,10 @@ func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, que
 			mapped[i] = m.records(id, attributes[i])
 			continue
 		}
+		if m, ok := configurationFromListing(res, attributes[i]); ok {
+			mapped[i] = m.records(id, attributes[i])
+			continue
+		}
 		lookups = append(lookups, i)
 	}
 	inParallel(lookups, func(i int) {
@@ -580,10 +584,14 @@ const (
 //     <solution>(<workspace>)_..., such as the LogManagement searches
 //     every workspace has: the solution, and from_solution "true".
 //
-// and what tells a resource another one creates and deletes with itself:
+// and what tells a resource another one creates and deletes with itself, or
+// that Azure creates for every one:
 //
 //   - of a network interface: the private endpoint (private_endpoint) or
 //     Private Link service (private_link_service) that created it.
+//   - of a flexible server's parameter: where its value comes from
+//     (configuration_source: system-default or user-override), so that
+//     the hundreds each server has at the service's defaults are left out.
 //
 // Other resources get nothing.
 func builtInAttributes(res azlist.AzureResource, attributes map[string]string) {
@@ -615,6 +623,8 @@ func builtInAttributes(res azlist.AzureResource, attributes map[string]string) {
 				attributes[attribute] = strconv.FormatBool(asDefault)
 			}
 		}
+	case configurationSource(res) != "":
+		attributes["configuration_source"] = configurationSource(res)
 	case strings.EqualFold(typ, workspaceSavedSearchType):
 		if names := res.Id.Names(); len(names) == 2 {
 			if solution := savedSearchSolution(names[0], names[1]); solution != "" {
