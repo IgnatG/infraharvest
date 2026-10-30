@@ -320,3 +320,48 @@ resource "aws_cloudfront_distribution" "c" {
 		}
 	}
 }
+
+// An enum's unspecified value, which the Google Cloud API returns for a
+// field never set and the provider refuses, is unset too, in a block
+// nested in another, whose path the error gives in full.
+func TestRemoveRejectedUnspecifiedEnum(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), rootfile.GeneratedFileName)
+	config := `resource "google_sql_database_instance" "main" {
+  name = "db"
+  settings {
+    tier = "db-f1-micro"
+    ip_configuration {
+      ipv4_enabled                     = true
+      server_certificate_rotation_mode = "SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED"
+    }
+  }
+}
+`
+	if err := os.WriteFile(path, []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	diags := []tfjson.Diagnostic{
+		errorAt(1, `expected settings.0.ip_configuration.0.server_certificate_rotation_mode to be one of ["NO_AUTOMATIC_ROTATION" "AUTOMATIC_ROTATION_DURING_MAINTENANCE"], got SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED`, ""),
+	}
+
+	changed, err := rewrite(path, func(f *hclwrite.File, syntax *hclsyntax.Body) bool {
+		return removeRejected(f, syntax, rootfile.GeneratedFileName, diags)
+	})
+	if err != nil || !changed {
+		t.Fatalf("want a change, got changed=%v err=%v", changed, err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "server_certificate_rotation_mode") {
+		t.Errorf("server_certificate_rotation_mode not removed:\n%s", got)
+	}
+	for _, kept := range []string{`tier = "db-f1-micro"`, `ipv4_enabled = true`, `name = "db"`} {
+		if !strings.Contains(string(got), kept) {
+			t.Errorf("%s not kept:\n%s", kept, got)
+		}
+	}
+}

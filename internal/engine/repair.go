@@ -74,7 +74,7 @@ type attribute struct {
 	body   *hclwrite.Body  // the body to remove it from
 	block  *hclsyntax.Body // the body it belongs to, to find its siblings
 	rng    hcl.Range       // its source range
-	zero   bool            // whether its value is 0, false, "" or empty
+	zero   bool            // whether its value is a zero value (see isZero)
 	empty  bool            // whether its value is ""
 }
 
@@ -90,7 +90,8 @@ var missingArgument = regexp.MustCompile(`The argument "([A-Za-z0-9_.]+)" is req
 // removeRejected edits what validation errors in filename point at, where
 // that keeps the meaning of the configuration:
 //
-//   - it removes an attribute set to its zero value (0, false, "" or empty),
+//   - it removes an attribute set to its zero value (0, false, "", empty or
+//     an enum's unspecified value, see isZero),
 //     which providers treat like unset: generated configuration lists every
 //     optional argument, including ones the provider then rejects, such as
 //     a 0 outside an allowed range or a false that requires other arguments;
@@ -169,9 +170,12 @@ func removeRejected(f *hclwrite.File, syntax *hclsyntax.Body, filename string, d
 	return changed || len(removed) > 0
 }
 
-// attributePath finds the argument an SDK validation message names, such as
-// "expected subnet_mapping.0.ipv6_address to contain a valid IPv6 address".
-var attributePath = regexp.MustCompile(`\b([a-z0-9_]+)\.[0-9]+\.([a-z0-9_]+)\b`)
+// attributePath finds the argument an SDK validation message names, and the
+// block it is in, the last of the path, such as
+// "expected subnet_mapping.0.ipv6_address to contain a valid IPv6 address"
+// or "expected settings.0.ip_configuration.0.server_certificate_rotation_mode
+// to be one of [...]".
+var attributePath = regexp.MustCompile(`\b(?:[a-z0-9_]+\.[0-9]+\.)*([a-z0-9_]+)\.[0-9]+\.([a-z0-9_]+)\b`)
 
 // attributeName finds the argument a validation message names on its own,
 // as the SDK names one in a block of a set: "expected ip_address_type to be
@@ -413,15 +417,21 @@ func sibling(attrs []*attribute, a *attribute, name string) *attribute {
 	return nil
 }
 
-// isZero reports whether v is 0, false, "" or empty. null is not zero here:
-// Terraform writes null for values it can't show, such as sensitive ones
+// unspecifiedEnum is an API enum's zero value, which means unset, such as
+// Google Cloud's SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED: the API
+// returns it for a field never set, and the provider refuses it.
+var unspecifiedEnum = regexp.MustCompile(`^[A-Z][A-Z0-9_]*_UNSPECIFIED$`)
+
+// isZero reports whether v is 0, false, "", an enum's unspecified value
+// (see unspecifiedEnum) or empty. null is not zero here: Terraform writes
+// null for values it can't show, such as sensitive ones
 // ("value = null # sensitive"), and the user has to fill those in.
 func isZero(v cty.Value) bool {
 	switch {
 	case v.IsNull(), !v.IsKnown():
 		return false
 	case v.Type() == cty.String:
-		return v.AsString() == ""
+		return v.AsString() == "" || unspecifiedEnum.MatchString(v.AsString())
 	case v.Type() == cty.Number:
 		return v.Equals(cty.Zero).True()
 	case v.Type() == cty.Bool:
