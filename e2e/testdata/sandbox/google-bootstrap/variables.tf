@@ -38,6 +38,12 @@ variable "github_subject" {
   default     = "repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox"
 }
 
+variable "github_cleanup_subject" {
+  description = "The subject of the GitHub OIDC tokens the fixture service account also trusts: the sandbox-cleanup environment's jobs, the scheduled clean-up (sandbox-leftovers.yml), which deploys from main alone and needs no approval. The read-only service account doesn't trust it."
+  type        = string
+  default     = "repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox-cleanup"
+}
+
 variable "pool_id" {
   description = "The workload identity pool's ID. A deleted pool keeps its ID for 30 days, so pick another to create the pool again sooner."
   type        = string
