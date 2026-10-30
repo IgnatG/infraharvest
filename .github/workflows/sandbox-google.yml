@@ -267,16 +267,17 @@ jobs:
         if-no-files-found: ignore
         retention-days: 7
 
-  # When the round trip was cancelled, timed out or failed: its destroy
-  # and sweep may not have run, or not to the end. always() starts this
-  # job after a cancel too, and keeps it running if the run is cancelled
-  # again, with no approval. The state was on the round
-  # trip's runner, and is never uploaded (the artifacts of a public
-  # repository are public), so it sweeps by name alone, in both
+  # After every round trip, whatever its result, so that nothing a run
+  # made outlives it: when it was cancelled, timed out or failed, its
+  # destroy and sweep may not have run, or not to the end, and when it
+  # passed this finds nothing and takes a minute. always() starts this job
+  # after a cancel too, and keeps it running if the run is cancelled again,
+  # with no approval. The state was on the round trip's runner, and is
+  # never uploaded (the artifacts of a public repository are public), so it sweeps by name alone, in both
   # projects for the environments estate.
   clean-up:
     needs: round-trip
-    if: always() && needs.round-trip.result != 'success'
+    if: always()
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
