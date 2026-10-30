@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-main", "name": "pg_main", "attributes": {"name": "pg-main", "resource_group_name": "rg-data"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-v2", "name": "pg_v2", "attributes": {"name": "pg-v2", "resource_group_name": "rg-data"}}
+]}

@@ -122,7 +122,7 @@ Pushing the branch as `tidy/<anything>` does the same. Pin GitHub Actions to a f
 
 ### Sandbox
 
-The `sandbox-aws`, `sandbox-azure` and `sandbox-google` workflows import a real estate from the AWS sandbox account, the Azure sandbox subscription and the Google Cloud sandbox project. They run by hand, after a reviewer approves them, and only for changes to their cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether any should run, and why.
+The `sandbox-aws`, `sandbox-azure` and `sandbox-google` workflows import a real estate from the AWS sandbox account, the Azure sandbox subscription and the Google Cloud sandbox project. They run by hand, with no approval step, and only for changes to their cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether any should run, and why.
 
 ## Documentation
 

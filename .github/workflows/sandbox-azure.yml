@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 # Imports a small estate from the Azure sandbox subscription and checks it
-# plans with no changes. Runs only when started by hand, and only after a
-# reviewer of the sandbox environment approves it. The estate is created in
+# plans with no changes. Runs only when started by hand, from a
+# branch of this repository (the sandbox environment allows no other). The estate is created in
 # its resource group as the fixture identity, imported as the read-only
 # identity, which has what permissions/azure grants, and destroyed at the
 # end, whatever happened. The identities and the resource group come from
@@ -19,10 +19,8 @@
 # stops it, too few for the destroy, and a job that times out or whose
 # runner is lost runs no more steps. So when the round trip doesn't
 # succeed, the clean-up job, a job of its own with its full timeout,
-# sweeps the resource group as the round trip does when it fails. Like
-# any job of the sandbox environment, it waits for a reviewer to approve
-# it first, after a cancel too, and the run, and so the next one, waits
-# with it.
+# sweeps the resource group as the round trip does when it fails. It needs no
+# approval, after a cancel too.
 name: Sandbox (Azure)
 
 on:
@@ -80,7 +78,7 @@ jobs:
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
-      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
+      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created." >> "$GITHUB_STEP_SUMMARY"
     - name: Directories
       run: |
         {
@@ -254,17 +252,17 @@ jobs:
         if-no-files-found: ignore
         retention-days: 7
 
-  # When the round trip was cancelled, timed out or failed: its destroy
-  # and sweep may not have run, or not to the end. always() starts this
-  # job after a cancel too, and keeps it running if the run is cancelled
-  # again; a reviewer of the sandbox environment approves it first, as for
-  # the round trip, or rejects it to skip it. The state was on the round
-  # trip's runner, and is never uploaded (the artifacts of a public
-  # repository are public), so it sweeps by tag and name alone, in both
+  # After every round trip, whatever its result, so that nothing a run
+  # made outlives it: when it was cancelled, timed out or failed, its
+  # destroy and sweep may not have run, or not to the end, and when it
+  # passed this finds nothing and takes a minute. always() starts this job
+  # after a cancel too, and keeps it running if the run is cancelled again,
+  # with no approval. The state was on the round trip's runner, and is
+  # never uploaded (the artifacts of a public repository are public), so it sweeps by tag and name alone, in both
   # subscriptions for the environments estate.
   clean-up:
     needs: round-trip
-    if: always() && needs.round-trip.result != 'success'
+    if: always()
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
