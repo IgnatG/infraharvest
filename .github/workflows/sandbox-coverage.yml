@@ -1,0 +1,35 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Sandbox coverage
+
+# Every kind of resource a sandbox estate creates must be one its cloud's
+# sweep deletes, or one that goes with what holds it, so that what a
+# failed run leaves is cleaned up (see .github/scripts/sandbox-sweep-coverage.sh).
+# It reads the repository's files alone: nothing here signs in to a cloud.
+on:
+  pull_request:
+    paths:
+      - e2e/testdata/sandbox/**
+      - .github/scripts/sandbox-*.sh
+      - .github/workflows/sandbox-*.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the sweeps cover the estates
+        run: .github/scripts/sandbox-sweep-coverage.sh
