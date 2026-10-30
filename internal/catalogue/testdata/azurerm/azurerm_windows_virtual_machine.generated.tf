@@ -1,5 +1,5 @@
 resource "azurerm_windows_virtual_machine" "win" {
-  admin_password        = "placeholder"
+  admin_password        = null # sensitive
   admin_username        = "azureuser"
   location              = "uksouth"
   name                  = "win"
