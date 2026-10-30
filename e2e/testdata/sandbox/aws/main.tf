@@ -369,19 +369,23 @@ resource "aws_cloudwatch_log_group" "fn" {
 }
 
 # A type no lister lists, which the test lists through the query service
-# (Terraform's list resources). It takes no tags and goes with its log
-# group. The function logs no errors, so the metric gets no data, which
-# is what CloudWatch charges for.
-resource "aws_cloudwatch_log_metric_filter" "fn_errors" {
-  name           = "${local.name}-fn-errors"
-  log_group_name = aws_cloudwatch_log_group.fn.name
-  pattern        = "ERROR"
+# (Terraform's list resources): a flow log of the main VPC, delivered to a
+# bucket of its own (a CloudWatch destination would need a role the
+# fixture role can't pass to the flow logs service). Its list resource
+# takes no arguments, unlike the metric filter's, whose log group name
+# infraharvest can't supply. AWS adds the delivery policy to the bucket.
+resource "aws_s3_bucket" "flows" {
+  bucket        = "${local.name}-${data.aws_caller_identity.current.account_id}-flows"
+  force_destroy = true
+  tags          = local.tags
+}
 
-  metric_transformation {
-    name      = "${local.name}-fn-errors"
-    namespace = "infraharvest-sandbox"
-    value     = "1"
-  }
+resource "aws_flow_log" "main" {
+  vpc_id               = aws_vpc.main.id
+  traffic_type         = "REJECT"
+  log_destination_type = "s3"
+  log_destination      = aws_s3_bucket.flows.arn
+  tags                 = local.tags
 }
 
 resource "aws_lambda_function" "fn" {
