@@ -320,8 +320,9 @@ resource "azurerm_role_assignment" "app_custom" {
   description        = "${local.name}: the import must refer this to the identity and the custom role."
 }
 
-# An App Service plan, Linux on B1, the smallest that runs apps all day,
-# with one worker. No app runs on it: azurerm reads a web or function
+# An App Service plan, Linux on F1, the free tier: a new subscription has
+# no quota for B1 or above until it asks for one, and F1 has the same
+# resource type. No app runs on it: azurerm reads a web or function
 # app's settings and publishing credentials, which the Reader role
 # permissions/azure grants can't list.
 resource "azurerm_service_plan" "main" {
@@ -329,7 +330,7 @@ resource "azurerm_service_plan" "main" {
   location            = local.location
   resource_group_name = local.rg
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "F1"
   worker_count        = 1
   tags                = local.tags
 }
@@ -379,7 +380,8 @@ resource "azurerm_container_registry" "main" {
 # namespace on Basic, with one throughput unit, with an event hub of one
 # partition that keeps events a day. Each namespace has the
 # RootManageSharedAccessKey rule Azure creates, and the event hub the
-# $Default consumer group, which the default selection leaves out.
+# $Default consumer group, which the default selection leaves out. Event
+# Hubs and Service Bus namespaces share one DNS zone, so their names differ.
 resource "azurerm_servicebus_namespace" "main" {
   name                = local.name
   location            = local.location
@@ -394,7 +396,7 @@ resource "azurerm_servicebus_queue" "orders" {
 }
 
 resource "azurerm_eventhub_namespace" "main" {
-  name                = local.name
+  name                = "${local.name}-hub"
   location            = local.location
   resource_group_name = local.rg
   sku                 = "Basic"
