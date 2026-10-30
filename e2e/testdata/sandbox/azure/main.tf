@@ -10,8 +10,8 @@
 # (testdata/sandbox/azure-bootstrap) creates, with its tags, and lets the
 # fixture identity change, and it is destroyed after each run. Each takes
 # the smallest tier there is, with no zone redundancy, replication or
-# high availability: together about USD 0.15 an hour (the plan, the
-# server, the machine and the load balancer bill by the hour).
+# high availability: together about USD 0.14 an hour (the server, the
+# machine and the load balancer bill by the hour; the plan is free).
 # The provider signs in through the ARM_* variables the test sets.
 
 terraform {
@@ -320,16 +320,17 @@ resource "azurerm_role_assignment" "app_custom" {
   description        = "${local.name}: the import must refer this to the identity and the custom role."
 }
 
-# An App Service plan, Linux on B1, the smallest that runs apps all day,
-# with one worker. No app runs on it: azurerm reads a web or function
-# app's settings and publishing credentials, which the Reader role
-# permissions/azure grants can't list.
+# An App Service plan, Linux on F1, the free tier, with one worker: the
+# sandbox subscription has no quota for the paid tiers (B1 and up). No app
+# runs on it: azurerm reads a web or function app's settings and
+# publishing credentials, which the Reader role permissions/azure grants
+# can't list.
 resource "azurerm_service_plan" "main" {
   name                = local.name
   location            = local.location
   resource_group_name = local.rg
   os_type             = "Linux"
-  sku_name            = "B1"
+  sku_name            = "F1"
   worker_count        = 1
   tags                = local.tags
 }
@@ -379,7 +380,9 @@ resource "azurerm_container_registry" "main" {
 # namespace on Basic, with one throughput unit, with an event hub of one
 # partition that keeps events a day. Each namespace has the
 # RootManageSharedAccessKey rule Azure creates, and the event hub the
-# $Default consumer group, which the default selection leaves out.
+# $Default consumer group, which the default selection leaves out. The two
+# share one name space across Azure (servicebus.windows.net), so they take
+# different names.
 resource "azurerm_servicebus_namespace" "main" {
   name                = local.name
   location            = local.location
@@ -394,7 +397,7 @@ resource "azurerm_servicebus_queue" "orders" {
 }
 
 resource "azurerm_eventhub_namespace" "main" {
-  name                = local.name
+  name                = "${local.name}-events"
   location            = local.location
   resource_group_name = local.rg
   sku                 = "Basic"
