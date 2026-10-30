@@ -35,14 +35,13 @@ const sandboxAzureResourceGroup = "infraharvest-sandbox"
 // import must find, by ID: what floci-az can't serve, the lock, which
 // Resource Graph doesn't index, and the role assignments, which only its
 // authorizationresources table has, and what a team runs, which floci-az
-// doesn't serve either: the App Service plan, the PostgreSQL server, the
-// registry, the messaging namespaces with their queue and event hub, the
+// doesn't serve either: the PostgreSQL server, the registry, the messaging namespaces with their queue and event hub, the
 // load balancer with its parts, the private endpoint with its DNS zone
 // and link, and the virtual machine with its network interface.
 var sandboxAzureFound = []string{
 	"azurerm_key_vault", "azurerm_management_lock", "azurerm_role_assignment", "azurerm_route_table",
 	"azurerm_storage_account", "azurerm_storage_container",
-	"azurerm_service_plan", "azurerm_postgresql_flexible_server", "azurerm_container_registry",
+	"azurerm_postgresql_flexible_server", "azurerm_container_registry",
 	"azurerm_servicebus_namespace", "azurerm_servicebus_queue", "azurerm_eventhub_namespace", "azurerm_eventhub",
 	"azurerm_public_ip", "azurerm_lb", "azurerm_lb_backend_address_pool", "azurerm_lb_probe", "azurerm_lb_rule",
 	"azurerm_private_dns_zone", "azurerm_private_dns_zone_virtual_network_link", "azurerm_private_endpoint",
