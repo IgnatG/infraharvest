@@ -8,8 +8,8 @@
 # not. With delete set, it then deletes what AWS still holds with a sandbox
 # tag: the sweep's kinds, ECS services, clusters and task definitions, VPC
 # endpoints, and KMS keys, which are scheduled for deletion after the
-# shortest wait, 7 days. Runs only when started by hand, and only after a
-# reviewer of the sandbox environment approves it. It prints names and IDs
+# shortest wait, 7 days. Runs only when started by hand, from a
+# branch of this repository (the sandbox environment allows no other). It prints names and IDs
 # only, to the run's summary, and no cost figures: the logs and summaries
 # of a public repository's runs are public. The costs are in each
 # cloud's console.

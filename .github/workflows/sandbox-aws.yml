@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 # Imports a small estate from the AWS sandbox account and checks it plans
-# with no changes. Runs only when started by hand, and only after a
-# reviewer of the sandbox environment approves it. The estate is created as
+# with no changes. Runs only when started by hand, from a
+# branch of this repository (the sandbox environment allows no other). The estate is created as
 # the fixture role, imported as the read-only role, and destroyed at the
 # end, whatever happened. The main estate (TestSandboxAWS) is the usual
 # one; clusters (TestSandboxAWSClusters) holds an RDS database, an
@@ -20,9 +20,8 @@
 # stops it, too few for the destroy, and a job that times out or whose
 # runner is lost runs no more steps. So when the round trip doesn't
 # succeed, the clean-up job, a job of its own with its full timeout,
-# sweeps whatever still carries the run's tag. Like any job of the
-# sandbox environment, it waits for a reviewer to approve it first, after
-# a cancel too, and the run, and so the next one, waits with it.
+# sweeps whatever still carries the run's tag. It needs no
+# approval, after a cancel too.
 name: Sandbox (AWS)
 
 on:
@@ -80,7 +79,7 @@ jobs:
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
-      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created, once a reviewer of the sandbox environment approves it." >> "$GITHUB_STEP_SUMMARY"
+      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created." >> "$GITHUB_STEP_SUMMARY"
     # An unset variable is an empty string, which would surface only
     # minutes into the apply: without the boundary, the fixture role is
     # denied iam:CreateRole. The bootstrap's gh_commands output sets them.
@@ -297,8 +296,7 @@ jobs:
   # When the round trip was cancelled, timed out or failed: its destroy
   # and sweep may not have run, or not to the end. always() starts this
   # job after a cancel too, and keeps it running if the run is cancelled
-  # again; a reviewer of the sandbox environment approves it first, as for
-  # the round trip, or rejects it to skip it. The state was on the round
+  # again, with no approval. The state was on the round
   # trip's runner, and is never uploaded (the artifacts of a public
   # repository are public), so it sweeps by the run's tag alone.
   clean-up:
