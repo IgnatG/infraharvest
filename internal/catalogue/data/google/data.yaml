@@ -8,6 +8,11 @@ service: cloud_asset
 types:
   google_sql_database_instance:
     inventory: { type: sqladmin.googleapis.com/Instance }
+    # An instance whose certificate rotation was never chosen reads back as
+    # the enum's zero value, which the provider rejects as an argument: it
+    # accepts only NO_AUTOMATIC_ROTATION and
+    # AUTOMATIC_ROTATION_DURING_MAINTENANCE.
+    omit: ["settings.ip_configuration.server_certificate_rotation_mode={*}_UNSPECIFIED"]
   # With AUTH enabled, the provider reads the AUTH string too
   # (redis.instances.getAuthString), which roles/viewer lacks, so such an
   # instance fails to import with permissions/google, as the docs say.
