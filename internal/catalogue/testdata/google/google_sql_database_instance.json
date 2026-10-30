@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "projects/acme-prod/instances/orders-db", "name": "orders_db"},
+  {"id": "projects/acme-prod/instances/billing-db", "name": "billing_db"}
+]}
