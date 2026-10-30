@@ -292,6 +292,8 @@ func TestSecretReason(t *testing.T) {
 		{"source_code_hash", secret, false, false},
 		{"Sid", "AWSLogDeliveryWrite3fG9kQ2xR7mT", true, false}, // a policy statement's ID
 		{"SESSION_SID", "AWSLogDeliveryWrite3fG9kQ2xR7mT", true, true},
+		{"sid", "AWSLogDeliveryWrite3fG9kQ2xR7mT", true, true},
+		{"Sid", "Ab3+cD4/eF5gH6iJ7kL8" + "mN9oP0qR1sT2", true, true}, // not a Sid IAM takes; betterleaks:allow
 		{"description", "keep the API secret safe", true, false},
 	} {
 		if got := Reason(tc.key, tc.value, tc.freeForm) != ""; got != tc.secret {

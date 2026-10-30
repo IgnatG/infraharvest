@@ -367,8 +367,8 @@ func scriptValue(v string) bool {
 // make it plain, as a passphrase or a PIN has them. Any other value must
 // also not be plainly something else (see plainValue). An IAM policy
 // statement's Sid is its ID, however random it looks, such as the
-// AWSLogDeliveryWrite<digits> AWS gives a flow log's bucket; only the key
-// Sid itself, so that SESSION_SID and the like are still checked.
+// AWSLogDeliveryWrite<digits> AWS gives a flow log's bucket (see policySid);
+// SESSION_SID and the like are still checked.
 func Reason(key, value string, freeForm bool) string {
 	if name := CredentialFormat(value); name != "" {
 		return "looks like a " + name
@@ -385,10 +385,16 @@ func Reason(key, value string, freeForm bool) string {
 	if plainValue(value) {
 		return ""
 	}
-	if !hashLikeKey(key) && !strings.EqualFold(key, "Sid") && highEntropy(value) {
+	if !hashLikeKey(key) && !policySid(key, value) && highEntropy(value) {
 		return "looks like a random key or token"
 	}
 	return ""
+}
+
+// policySid reports whether key and value are an IAM policy statement's
+// Sid: the key Sid as policies spell it, and a value IAM takes as one.
+func policySid(key, value string) bool {
+	return key == "Sid" && sidPattern.MatchString(value)
 }
 
 // authorizationPattern matches the value of an Authorization header with
@@ -434,6 +440,8 @@ var (
 	uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	hexPattern  = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 	keyPattern  = regexp.MustCompile(`^[A-Za-z0-9+/=_-]+$`)
+	// sidPattern is what IAM takes as a policy statement's Sid.
+	sidPattern = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 )
 
 // plainWords are values that are settings, not secrets, whatever they go
