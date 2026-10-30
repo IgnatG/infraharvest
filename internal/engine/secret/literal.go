@@ -365,7 +365,10 @@ func scriptValue(v string) bool {
 // the key is a name someone chose. A value whose key names a secret is one
 // unless it holds no secret at all (see noSecret): spaces and digits don't
 // make it plain, as a passphrase or a PIN has them. Any other value must
-// also not be plainly something else (see plainValue).
+// also not be plainly something else (see plainValue). An IAM policy
+// statement's Sid is its ID, however random it looks, such as the
+// AWSLogDeliveryWrite<digits> AWS gives a flow log's bucket; only the key
+// Sid itself, so that SESSION_SID and the like are still checked.
 func Reason(key, value string, freeForm bool) string {
 	if name := CredentialFormat(value); name != "" {
 		return "looks like a " + name
@@ -382,7 +385,7 @@ func Reason(key, value string, freeForm bool) string {
 	if plainValue(value) {
 		return ""
 	}
-	if !hashLikeKey(key) && highEntropy(value) {
+	if !hashLikeKey(key) && !strings.EqualFold(key, "Sid") && highEntropy(value) {
 		return "looks like a random key or token"
 	}
 	return ""
