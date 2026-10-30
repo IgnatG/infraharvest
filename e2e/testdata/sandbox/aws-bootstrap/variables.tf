@@ -26,3 +26,14 @@ variable "create_github_oidc_provider" {
   type        = bool
   default     = false
 }
+
+variable "github_cleanup_subject" {
+  description = "The subject of the GitHub OIDC tokens the fixture role also trusts: the sandbox-cleanup environment's jobs, the scheduled clean-up (sandbox-leftovers.yml), which deploys from main alone and needs no approval."
+  type        = string
+  default     = "repo:IgnatG@6107088/infraharvest@1420684118:environment:sandbox-cleanup"
+
+  validation {
+    condition     = can(regex("^repo:[A-Za-z0-9_.-]+@[0-9]+/[A-Za-z0-9_.-]+@[0-9]+:environment:[^*?]+$", var.github_cleanup_subject))
+    error_message = "Name one environment of one repository, with the owner's and the repository's IDs and no wildcard: repo:<owner>@<ID>/<repository>@<ID>:environment:<name>."
+  }
+}

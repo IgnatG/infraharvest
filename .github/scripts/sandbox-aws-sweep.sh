@@ -2,11 +2,11 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# The sandbox-aws workflow's last resort, after the estate's destroy, and
-# what its clean-up job runs when the round trip was cancelled, timed out
-# or failed: finds what is still tagged infraharvest-sandbox-run=$RUN_ID
-# and deletes it, in the order its dependencies allow, without final
-# snapshots:
+# The sandbox-aws workflow's last resort, the round trip's last step after
+# the estate's destroy, whatever happened, and the first step of the
+# scheduled clean-up (sandbox-leftovers.yml): finds what is still tagged
+# infraharvest-sandbox-run=$RUN_ID and deletes it, in the order its
+# dependencies allow, without final snapshots:
 #
 #   1. Route 53 hosted zones, with their records, and CloudFront
 #      distributions, which are disabled now and deleted last, once
@@ -19,8 +19,9 @@
 #      HTTP APIs, Step Functions state machines, DynamoDB tables, with
 #      their replicas in other regions, Kinesis streams, SQS queues, SNS
 #      topics, S3 buckets, Secrets Manager secrets, CloudWatch log groups
-#      and alarms, EventBridge rules, SSM parameters named /ih-sbx-...,
-#      which would fail the next run's create, ECS task definitions,
+#      and alarms, EventBridge rules, VPC flow logs, SSM parameters named
+#      /ih-sbx-..., which would fail the next run's create, ECS task
+#      definitions,
 #      CloudFormation stacks, and KMS keys, which are scheduled for
 #      deletion after the shortest wait, 7 days, with their aliases.
 #   4. What the first waited for: ECS clusters, load balancers' target
@@ -35,7 +36,7 @@
 #
 # It sweeps what earlier runs left with their own run tag the same way:
 # runs never overlap (sandbox-aws.yml's concurrency group, which the
-# delete of sandbox-leftovers.yml waits in too), so another run's
+# scheduled clean-up of sandbox-leftovers.yml waits in too), so another run's
 # tag only remains on what that run failed to delete, as when it was
 # cancelled during its destroy. It touches nothing without the tag but the
 # log groups Lambda names after the CloudFormation estate's ih-sbx-
@@ -49,8 +50,38 @@
 #
 # With SWEEP_TAG_KEY=infraharvest-sandbox and RUN_ID=<engine>, it sweeps by
 # the estate tag instead, every engine's: what an estate applied with no
-# run_id carries no run tag, and only that finds it (the delete of
-# sandbox-leftovers.yml).
+# run_id carries no run tag, and only that finds it (the scheduled
+# clean-up, sandbox-leftovers.yml). What a tagged ARN of a kind this
+# script doesn't know is, the clean-up's sandbox-aws-leftovers.sh deletes
+# through the Cloud Control API.
+#
+# The estates' resource types this sweep deletes, or that go with what
+# holds them. sandbox-sweep-coverage.sh fails a pull request whose
+# estates (e2e/testdata/sandbox/aws*) use a type listed in neither.
+#
+# sweep-coverage swept: aws_api_gateway_rest_api aws_apigatewayv2_api aws_cloudformation_stack
+# sweep-coverage swept: aws_cloudfront_distribution aws_cloudwatch_event_rule aws_cloudwatch_log_group
+# sweep-coverage swept: aws_cloudwatch_metric_alarm aws_db_instance aws_db_parameter_group aws_db_subnet_group
+# sweep-coverage swept: aws_dynamodb_table aws_ecs_cluster aws_ecs_service aws_ecs_task_definition aws_eip
+# sweep-coverage swept: aws_eks_cluster aws_elasticache_parameter_group aws_elasticache_replication_group
+# sweep-coverage swept: aws_elasticache_subnet_group aws_flow_log aws_iam_instance_profile aws_iam_role
+# sweep-coverage swept: aws_instance aws_internet_gateway aws_kinesis_stream aws_kms_alias aws_kms_key
+# sweep-coverage swept: aws_lambda_function aws_lb aws_lb_target_group aws_nat_gateway aws_redshift_cluster
+# sweep-coverage swept: aws_redshift_subnet_group aws_route53_record aws_route53_zone aws_route_table
+# sweep-coverage swept: aws_s3_bucket aws_secretsmanager_secret aws_security_group aws_sfn_state_machine
+# sweep-coverage swept: aws_sns_topic aws_sqs_queue aws_ssm_parameter aws_subnet aws_vpc aws_vpc_endpoint
+# sweep-coverage swept: aws_wafv2_ip_set aws_wafv2_web_acl
+# sweep-coverage with-parent: aws_api_gateway_deployment aws_api_gateway_integration
+# sweep-coverage with-parent: aws_api_gateway_integration_response aws_api_gateway_method
+# sweep-coverage with-parent: aws_api_gateway_method_response aws_api_gateway_resource aws_api_gateway_stage
+# sweep-coverage with-parent: aws_apigatewayv2_integration aws_apigatewayv2_route aws_apigatewayv2_stage
+# sweep-coverage with-parent: aws_cloudwatch_event_target aws_eks_access_entry
+# sweep-coverage with-parent: aws_eks_access_policy_association aws_iam_role_policy_attachment
+# sweep-coverage with-parent: aws_lambda_permission aws_lb_listener aws_route_table_association
+# sweep-coverage with-parent: aws_s3_bucket_public_access_block
+# sweep-coverage with-parent: aws_s3_bucket_server_side_encryption_configuration aws_s3_bucket_versioning
+# sweep-coverage with-parent: aws_s3_object aws_sns_topic_subscription aws_vpc_security_group_egress_rule
+# sweep-coverage with-parent: aws_vpc_security_group_ingress_rule aws_wafv2_web_acl_association
 #
 # Usage: [SWEEP_TAG_KEY=<key>] RUN_ID=<run id> sandbox-aws-sweep.sh <region>...
 # Not -e: one failed call mustn't stop the sweep of the rest.
@@ -381,6 +412,10 @@ for region in "${regions[@]}"; do
             try aws events remove-targets --region "$region" --rule "$name" --ids "${targets[@]}"
           fi
           try aws events delete-rule --region "$region" --name "$name"
+          ;;
+        ec2:vpc-flow-log/*)
+          echo "deleting VPC flow log ${resource#vpc-flow-log/}"
+          try aws ec2 delete-flow-logs --region "$region" --flow-log-ids "${resource#vpc-flow-log/}"
           ;;
         # The estates name their parameters /ih-sbx-..., which the ARN
         # writes without the leading slash.

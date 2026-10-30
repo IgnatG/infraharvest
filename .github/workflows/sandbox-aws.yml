@@ -3,7 +3,9 @@
 
 # Imports a small estate from the AWS sandbox account and checks it plans
 # with no changes. Runs only when started by hand, from a
-# branch of this repository (the sandbox environment allows no other). The estate is created as
+# branch of this repository, once the repository admin approves its job:
+# the sandbox environment requires that, and allows no other branches.
+# The estate is created as
 # the fixture role, imported as the read-only role, and destroyed at the
 # end, whatever happened. The main estate (TestSandboxAWS) is the usual
 # one; clusters (TestSandboxAWSClusters) holds an RDS database, an
@@ -18,10 +20,12 @@
 #
 # A cancelled job gets five minutes for its always() steps before GitHub
 # stops it, too few for the destroy, and a job that times out or whose
-# runner is lost runs no more steps. So when the round trip doesn't
-# succeed, the clean-up job, a job of its own with its full timeout,
-# sweeps whatever still carries the run's tag. It needs no
-# approval, after a cancel too.
+# runner is lost runs no more steps. So the round trip sweeps as its last
+# step, whatever happened, and nothing else: a second job in the sandbox
+# environment would wait for another approval. What a run that never got
+# to its sweep left, the scheduled clean-up (sandbox-leftovers.yml) deletes
+# within a day, in the sandbox-cleanup environment, which needs no
+# approval.
 name: Sandbox (AWS)
 
 on:
@@ -42,8 +46,8 @@ permissions: {}
 
 # One run at a time: each imports the whole of its regions, so another
 # run's estate would show up in its import, and change between its runs.
-# The group holds the whole run, its clean-up job too, so the next run
-# starts only once this one's estate is swept.
+# The scheduled clean-up waits in this group too, so it never sweeps while
+# a run is live (see sandbox-leftovers.yml).
 concurrency:
   group: sandbox-aws
   cancel-in-progress: false
@@ -79,7 +83,7 @@ jobs:
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
-      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created." >> "$GITHUB_STEP_SUMMARY"
+      run: echo "If this job is cancelled, times out or loses its runner before its last step, the scheduled clean-up (sandbox-leftovers) sweeps what the run created within a day." >> "$GITHUB_STEP_SUMMARY"
     # An unset variable is an empty string, which would surface only
     # minutes into the apply: without the boundary, the fixture role is
     # denied iam:CreateRole. The bootstrap's gh_commands output sets them.
@@ -292,47 +296,3 @@ jobs:
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/_reports/report.json
         if-no-files-found: ignore
         retention-days: 7
-
-  # After every round trip, whatever its result, so that nothing a run
-  # made outlives it: when it was cancelled, timed out or failed, its
-  # destroy and sweep may not have run, or not to the end, and when it
-  # passed this finds nothing and takes a minute. always() starts this job
-  # after a cancel too, and keeps it running if the run is cancelled again,
-  # with no approval. The state was on the round trip's runner, and is
-  # never uploaded (the artifacts of a public repository are public), so it sweeps by the run's tag alone.
-  clean-up:
-    needs: round-trip
-    if: always()
-    runs-on: ubuntu-latest
-    environment: sandbox
-    permissions:
-      contents: read
-      id-token: write # OpenID Connect, for the fixture role
-    # The sweep waits up to half an hour for CloudFront, and up to ten
-    # minutes for the network to let go of what used it.
-    timeout-minutes: 90
-    env:
-      AWS_REGION: ${{ vars.AWS_REGION }}
-      SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
-    steps:
-    - name: Why
-      env:
-        RESULT: ${{ needs.round-trip.result }}
-      run: |
-        echo "The round trip ended $RESULT: sweeping what still carries the run's tag." >> "$GITHUB_STEP_SUMMARY"
-    - name: Check out the code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-    - name: Credentials to sweep the estate
-      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-      with:
-        role-to-assume: ${{ vars.AWS_FIXTURE_ROLE_ARN }}
-        role-session-name: infraharvest-cleanup-${{ github.run_id }}
-        role-duration-seconds: 7200
-        aws-region: ${{ vars.AWS_REGION }}
-    # Both regions, and us-east-1, as in the round trip.
-    - name: Sweep what the run left
-      env:
-        RUN_ID: ${{ github.run_id }}
-      run: .github/scripts/sandbox-aws-sweep.sh "$AWS_REGION" "$SANDBOX_AWS_SECOND_REGION" us-east-1

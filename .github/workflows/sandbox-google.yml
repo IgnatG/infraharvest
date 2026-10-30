@@ -3,7 +3,9 @@
 
 # Imports a small estate from the Google Cloud sandbox project and checks
 # it plans with no changes. Runs only when started by hand, from a
-# branch of this repository (the sandbox environment allows no other). The estate is created
+# branch of this repository, once the repository admin approves its job:
+# the sandbox environment requires that, and allows no other branches.
+# The estate is created
 # as the fixture service account, imported as the read-only one, which has
 # what permissions/google grants, and destroyed at the end, whatever
 # happened. The service accounts, the workload identity provider they
@@ -18,10 +20,12 @@
 #
 # A cancelled job gets five minutes for its always() steps before GitHub
 # stops it, too few for the destroy, and a job that times out or whose
-# runner is lost runs no more steps. So when the round trip doesn't
-# succeed, the clean-up job, a job of its own with its full timeout,
-# sweeps the project as the round trip does when it fails. It needs no
-# approval, after a cancel too.
+# runner is lost runs no more steps. So the round trip sweeps as its last
+# step, whatever happened, and nothing else: a second job in the sandbox
+# environment would wait for another approval. What a run that never got
+# to its sweep left, the scheduled clean-up (sandbox-leftovers.yml) deletes
+# within a day, in the sandbox-cleanup environment, which needs no
+# approval.
 name: Sandbox (Google Cloud)
 
 on:
@@ -42,8 +46,8 @@ permissions: {}
 
 # One run at a time, whatever its estate: each imports the whole project,
 # so another run's estate would show up in its import.
-# The group holds the whole run, its clean-up job too, so the next run
-# starts only once this one's estate is swept.
+# The scheduled clean-up waits in this group too, so it never sweeps while
+# a run is live (see sandbox-leftovers.yml).
 concurrency:
   group: sandbox-google
   cancel-in-progress: false
@@ -68,7 +72,7 @@ jobs:
     steps:
     # First in the run's summary, where it shows at once.
     - name: Clean-up
-      run: echo "If this job is cancelled, times out or fails, the clean-up job sweeps what the run created." >> "$GITHUB_STEP_SUMMARY"
+      run: echo "If this job is cancelled, times out or loses its runner before its last step, the scheduled clean-up (sandbox-leftovers) sweeps what the run created within a day." >> "$GITHUB_STEP_SUMMARY"
     - name: Directories
       run: |
         {
@@ -139,7 +143,6 @@ jobs:
     # earlier run deleted minutes ago. What it finds is swept at the end of
     # the run.
     - name: Leftovers
-      id: leftovers
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.readonly.outputs.credentials_file_path }}
       run: |
@@ -161,7 +164,6 @@ jobs:
             --format 'value(name,displayName)' | grep -E 'ih[-_]sbx[-_]' || true)
           if [ -n "$left" ]; then
             echo "::warning::Sandbox resources in $project before the run: $left"
-            echo "found=true" >> "$GITHUB_OUTPUT"
           fi
         done
     - name: Round trip
@@ -209,18 +211,18 @@ jobs:
           echo "::error::Left in the estate: $left"
           exit 1
         fi
-    # When the run failed, or an earlier run left something: deletes what
-    # Terraform's state doesn't hold, such as a resource whose creation
-    # failed half-way, and what an earlier run left, by name, as the
+    # Whatever happened, and in this job, which needs no second approval:
+    # deletes what Terraform's state doesn't hold, such as a resource
+    # whose creation failed half-way, and what an earlier run left, by name, as the
     # fixture service account (see the script).
     - name: Sweep the project
-      if: failure() || cancelled() || steps.leftovers.outputs.found == 'true'
+      if: always()
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
       run: .github/scripts/sandbox-google-sweep.sh
     - name: Sweep the second project
-      if: inputs.estate == 'environments' && (failure() || cancelled() || steps.leftovers.outputs.found == 'true')
+      if: always() && inputs.estate == 'environments'
       env:
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.second-fixture.outputs.credentials_file_path }}
         CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_SECOND_PROJECT_ID }}
@@ -266,65 +268,3 @@ jobs:
           ${{ env.SANDBOX_OUTPUT_DIR }}/**/_reports/report.json
         if-no-files-found: ignore
         retention-days: 7
-
-  # After every round trip, whatever its result, so that nothing a run
-  # made outlives it: when it was cancelled, timed out or failed, its
-  # destroy and sweep may not have run, or not to the end, and when it
-  # passed this finds nothing and takes a minute. always() starts this job
-  # after a cancel too, and keeps it running if the run is cancelled again,
-  # with no approval. The state was on the round trip's runner, and is
-  # never uploaded (the artifacts of a public repository are public), so it sweeps by name alone, in both
-  # projects for the environments estate.
-  clean-up:
-    needs: round-trip
-    if: always()
-    runs-on: ubuntu-latest
-    environment: sandbox
-    permissions:
-      contents: read
-      id-token: write # OpenID Connect, for the fixture service account
-    timeout-minutes: 30
-    env:
-      # The region of the estate's Cloud Run services, scheduler jobs,
-      # repositories and key rings, which the sweep lists by region.
-      SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
-    steps:
-    - name: Why
-      env:
-        RESULT: ${{ needs.round-trip.result }}
-      run: |
-        echo "The round trip ended $RESULT: sweeping the project." >> "$GITHUB_STEP_SUMMARY"
-    - name: Check out the code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-    - name: Credentials of the fixture service account
-      id: fixture
-      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-      with:
-        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
-        service_account: ${{ vars.GOOGLE_FIXTURE_SERVICE_ACCOUNT }}
-        create_credentials_file: true
-        export_environment_variables: false
-    - name: Sweep the project
-      env:
-        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.fixture.outputs.credentials_file_path }}
-        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
-      run: .github/scripts/sandbox-google-sweep.sh
-    # The environments estate's prod is in the second project. Swept
-    # whatever the first sweep found.
-    - name: Credentials of the second project's fixture service account
-      id: second-fixture
-      if: always() && inputs.estate == 'environments'
-      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-      with:
-        workload_identity_provider: ${{ vars.GOOGLE_SECOND_WORKLOAD_IDENTITY_PROVIDER }}
-        service_account: ${{ vars.GOOGLE_SECOND_FIXTURE_SERVICE_ACCOUNT }}
-        create_credentials_file: true
-        export_environment_variables: false
-    - name: Sweep the second project
-      if: always() && inputs.estate == 'environments'
-      env:
-        CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: ${{ steps.second-fixture.outputs.credentials_file_path }}
-        CLOUDSDK_CORE_PROJECT: ${{ vars.GOOGLE_SECOND_PROJECT_ID }}
-      run: .github/scripts/sandbox-google-sweep.sh

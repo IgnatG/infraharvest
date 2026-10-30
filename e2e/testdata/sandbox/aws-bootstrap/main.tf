@@ -17,7 +17,10 @@
 #   without the reads of data.
 #
 # Both trust the GitHub OIDC tokens of the repository's sandbox
-# environment, and nothing else: no key is stored.
+# environment, and nothing else: no key is stored. The fixture role also
+# trusts those of the sandbox-cleanup environment, which deploys from main
+# alone and needs no approval, for the scheduled clean-up
+# (sandbox-leftovers.yml), which only deletes.
 
 provider "aws" {
   region = var.region
@@ -89,7 +92,7 @@ data "aws_iam_policy_document" "fixture_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.issuer}:sub"
-      values   = [var.github_subject]
+      values   = [var.github_subject, var.github_cleanup_subject]
     }
   }
 }

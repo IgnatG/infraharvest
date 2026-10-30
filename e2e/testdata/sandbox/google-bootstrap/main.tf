@@ -42,6 +42,9 @@ locals {
   # environment's subject. The pool's name holds the project's number.
   principal = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/${var.github_subject}"
 
+  # The scheduled clean-up's, which only the fixture trusts.
+  cleanup_principal = "principal://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/subject/${var.github_cleanup_subject}"
+
   # What the estate creates (compute, dns, pubsub, storage, iam, run,
   # sqladmin, bigquery, cloudkms, secretmanager, artifactregistry,
   # cloudscheduler, and cloudfunctions, with cloudbuild, which a 2nd gen
@@ -190,14 +193,17 @@ resource "google_iam_workload_identity_pool" "github" {
   depends_on = [google_project_service.enabled]
 }
 
-# Accepts the tokens of the repository's sandbox environment alone, by the
+# Accepts the tokens of the repository's sandbox environment, and of its
+# sandbox-cleanup environment, which deploys from main alone for the
+# scheduled clean-up (sandbox-leftovers.yml), and no others, by the
 # repository's and its owner's immutable IDs. A token's subject becomes
-# the principal's, which the service accounts trust.
+# the principal's, which the service accounts trust: the read-only one
+# trusts the sandbox environment's alone.
 resource "google_iam_workload_identity_pool_provider" "github" {
   workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
   workload_identity_pool_provider_id = "github-actions"
   display_name                       = "GitHub Actions"
-  description                        = "GitHub's OIDC tokens for the sandbox environment of ${var.github_repository}."
+  description                        = "GitHub's OIDC tokens for the sandbox and sandbox-cleanup environments of ${var.github_repository}."
 
   attribute_mapping = {
     "google.subject"                = "assertion.sub"
@@ -208,7 +214,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
   attribute_condition = join(" && ", [
     "assertion.repository_id == '${var.github_repository_id}'",
     "assertion.repository_owner_id == '${var.github_repository_owner_id}'",
-    "assertion.environment == 'sandbox'",
+    "assertion.environment in ['sandbox', 'sandbox-cleanup']",
   ])
 
   oidc {
@@ -276,6 +282,15 @@ resource "google_service_account_iam_member" "fixture_github" {
   service_account_id = google_service_account.fixture.name
   role               = "roles/iam.workloadIdentityUser"
   member             = local.principal
+}
+
+# The scheduled clean-up, in the sandbox-cleanup environment, signs in as
+# the fixture alone: it deletes what the sweeps cover and lists what is
+# left.
+resource "google_service_account_iam_member" "fixture_cleanup_github" {
+  service_account_id = google_service_account.fixture.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = local.cleanup_principal
 }
 
 resource "google_service_account_iam_member" "readonly_github" {

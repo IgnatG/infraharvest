@@ -122,7 +122,9 @@ Pushing the branch as `tidy/<anything>` does the same. Pin GitHub Actions to a f
 
 ### Sandbox
 
-The `sandbox-aws`, `sandbox-azure` and `sandbox-google` workflows import a real estate from the AWS sandbox account, the Azure sandbox subscription and the Google Cloud sandbox project. They run by hand, with no approval step, and only for changes to their cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether any should run, and why.
+The `sandbox-aws`, `sandbox-azure` and `sandbox-google` workflows import a real estate from the AWS sandbox account, the Azure sandbox subscription and the Google Cloud sandbox project. They run by hand, each job once the repository admin approves it (the `sandbox` environment requires that), and only for changes to their cloud's listers or permissions template, the catalogue, the engine, the adapters or the sandbox itself. Say in the pull request whether any should run, and why.
+
+What a run leaves, the scheduled `sandbox-leftovers` workflow deletes every day, unattended, in the `sandbox-cleanup` environment, which needs no approval, deploys from `main` alone and only deletes. A pull request that changes a sandbox estate or sweep must keep the `Sandbox coverage` check green: every kind of resource an estate creates must be one its cloud's sweep deletes, or one that goes with what holds it (see [Cleaning up](e2e/README.md#cleaning-up)).
 
 ## Documentation
 
