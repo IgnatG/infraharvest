@@ -3,15 +3,15 @@
 # as Resource Graph listing, route tables, a storage account, a Key Vault
 # and a management lock, the resource group's tags, and a template spec,
 # which azurerm has no resource type for, for --azapi, and the kinds of
-# resource a team runs: an App Service plan, a PostgreSQL flexible server,
-# a container registry, Service Bus and Event Hubs, a load balancer, a
-# private endpoint with its private DNS zone, and a virtual machine. It is
+# resource a team runs: a PostgreSQL flexible server, a container registry,
+# Service Bus and Event Hubs, a load balancer, a private endpoint with its
+# private DNS zone, and a virtual machine. It is
 # all in the estate's resource group, which the sandbox bootstrap
 # (testdata/sandbox/azure-bootstrap) creates, with its tags, and lets the
 # fixture identity change, and it is destroyed after each run. Each takes
 # the smallest tier there is, with no zone redundancy, replication or
 # high availability: together about USD 0.14 an hour (the server, the
-# machine and the load balancer bill by the hour; the plan is free).
+# machine and the load balancer bill by the hour).
 # The provider signs in through the ARM_* variables the test sets.
 
 terraform {
@@ -320,20 +320,8 @@ resource "azurerm_role_assignment" "app_custom" {
   description        = "${local.name}: the import must refer this to the identity and the custom role."
 }
 
-# An App Service plan, Linux on F1, the free tier, with one worker: the
-# sandbox subscription has no quota for the paid tiers (B1 and up). No app
-# runs on it: azurerm reads a web or function app's settings and
-# publishing credentials, which the Reader role permissions/azure grants
-# can't list.
-resource "azurerm_service_plan" "main" {
-  name                = local.name
-  location            = local.location
-  resource_group_name = local.rg
-  os_type             = "Linux"
-  sku_name            = "F1"
-  worker_count        = 1
-  tags                = local.tags
-}
+# No App Service plan: the sandbox subscription has no App Service quota,
+# not even for the free tier (F1).
 
 # A PostgreSQL flexible server on the smallest burstable size and storage,
 # with no high availability, geo-redundant backup or public access, and
