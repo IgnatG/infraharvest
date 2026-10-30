@@ -216,6 +216,22 @@ types:
       - reason: a saved search a solution adds to the Log Analytics workspace, such as the LogManagement searches every workspace has; select it to import it
         ignore_case: true
         attributes: { from_solution: "true" }
+  azurerm_postgresql_flexible_server_configuration:
+    # Every flexible server lists all of its parameters, a few hundred, at
+    # the service's defaults (source system-default), most of them with an
+    # empty value, which azurerm requires: only those a user set
+    # (user-override) are resources. configuration_source is the listing's
+    # source (see builtInAttributes in
+    # internal/providers/azure/resource_graph.go).
+    skip:
+      - reason: a server parameter at the service's default (source system-default); only a parameter someone set is imported
+        ignore_case: true
+        attributes: { configuration_source: system-default }
+  azurerm_mysql_flexible_server_configuration:
+    skip:
+      - reason: a server parameter at the service's default (source system-default); only a parameter someone set is imported
+        ignore_case: true
+        attributes: { configuration_source: system-default }
   azurerm_storage_account_queue_properties:
     skip:
       - reason: the queue service settings every storage account has, which Terraform reads through the storage data plane, with the account's keys or a data role, which the Reader role doesn't grant; select it to import it
@@ -312,3 +328,24 @@ types:
       - share_properties.retention_policy.days=7
       - shared_access_key_enabled=true
       - table_encryption_key_type=Service
+  azurerm_linux_virtual_machine:
+    # A machine in no scale set reads back platform_fault_domain -1, the
+    # provider's default, which azurerm refuses without a
+    # virtual_machine_scale_set_id: left out, it is -1 anyway.
+    defaults: [platform_fault_domain=-1]
+  azurerm_windows_virtual_machine:
+    defaults: [platform_fault_domain=-1]
+  azurerm_servicebus_queue:
+    # The size limit of a Basic or Standard namespace's queue, 256 KB,
+    # which azurerm rejects as an argument: it accepts 1024 to 102400, as
+    # only a Premium namespace sets the limit. max_message_size_in_kilobytes
+    # is optional and computed, so left out, the queue keeps it.
+    omit: [max_message_size_in_kilobytes=256]
+  azurerm_postgresql_flexible_server:
+    # On the default Premium_LRS storage, IOPS and throughput follow from
+    # storage_tier (120 for P4), and azurerm rejects them as arguments: it
+    # accepts them only with PremiumV2_LRS, from 3000 and 125. Both are
+    # optional and computed, so left out, the server keeps them.
+    omit:
+      - storage_iops when !storage_type=PremiumV2_LRS
+      - storage_throughput when !storage_type=PremiumV2_LRS
