@@ -10,14 +10,13 @@
 #
 # The estate's locks first, which would stop the rest, the estate's role
 # assignments and custom roles, then every resource in the estate's
-# resource group, whatever its kind, a few rounds over, as some can only
-# go once what uses them has. The group is the sandbox's own: the
-# bootstrap creates it, tagged purpose=infraharvest-sandbox-estate, it
-# holds nothing between runs, and the fixture identity can change nothing
-# outside it. Without that tag, it deletes only what is tagged
-# infraharvest-sandbox or named ih-sbx-. The group itself stays, and so
-# do locks, role assignments and custom roles not named ih-sbx-, the
-# bootstrap's among them. It fails if anything is left in the group.
+# resource group tagged infraharvest-sandbox or named ih-sbx-, whatever
+# its kind, a few rounds over, as some can only go once what uses them
+# has. Only the sandbox's own resources are deleted: anything else in the
+# group stays, and so do the group itself and the locks, role
+# assignments and custom roles not named ih-sbx-, the bootstrap's among
+# them. The group holds nothing between runs, so it fails if anything is
+# left in it, ours or not, and names it.
 #
 # The estates' resource types this sweep deletes, or that go with what
 # holds them. sandbox-sweep-coverage.sh fails a pull request whose
@@ -73,15 +72,9 @@ while IFS= read -r role; do
     az role definition delete "${sub[@]}" --name "$role" --scope "$scope" || true
   fi
 done <<< "$roles"
-# Everything in the group when the group is the sandbox's, by its tag;
-# else only what is the sandbox's by tag or name.
-purpose=$(az group show "${sub[@]}" -n "$group" --query 'tags.purpose' -o tsv)
-if [ "$purpose" = infraharvest-sandbox-estate ]; then
-  query="[].id"
-else
-  echo "::warning::$group isn't tagged purpose=infraharvest-sandbox-estate: sweeping only what is tagged infraharvest-sandbox or named ih-sbx-"
-  query="[?tags.\"infraharvest-sandbox\" != null || starts_with(name, 'ih-sbx-')].id"
-fi
+# What is the sandbox's, by its tag or its name: a resource that takes
+# no tags, such as a virtual machine's OS disk, is named ih-sbx-.
+query="[?tags.\"infraharvest-sandbox\" != null || starts_with(name, 'ih-sbx-')].id"
 for round in 1 2 3 4 5 6; do
   ids=$(az resource list "${sub[@]}" -g "$group" --query "$query" -o tsv)
   if [ -z "$ids" ]; then
