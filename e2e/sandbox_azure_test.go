@@ -7,15 +7,20 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
@@ -122,6 +127,7 @@ func TestSandboxAzure(t *testing.T) {
 		"suffix="+s.engineName, "resource_group="+s.resourceGroup)
 	created := estate.apply(ctx, t)
 	group := sandboxResourceGroup(ctx, t, estate)
+	s.waitForResourceGraph(ctx, t, created)
 
 	logged := s.importAzure(ctx, t, s.out)
 	coverage := readCoverage(t, s.out)
@@ -267,6 +273,96 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 		}
 	}
 	return root, imported
+}
+
+// resourceGraphWait is how long the test waits for Resource Graph to index
+// the estate, and resourceGraphPoll how often it asks. Resource Graph lags
+// behind Resource Manager by seconds to minutes: the PostgreSQL server, the
+// last resource the estate creates, isn't in it yet when the apply ends.
+const (
+	resourceGraphWait = 15 * time.Minute
+	resourceGraphPoll = 30 * time.Second
+)
+
+// graphIndexed returns, by lower-case ID, the resources of created that
+// Resource Graph indexes: those of the types sandboxAzureFound names that
+// stand alone in a resource group (/providers/<namespace>/<type>/<name>),
+// not the child resources the import reads from Resource Manager, nor the
+// lock and the role assignments, which Resource Graph doesn't index.
+func graphIndexed(created []*tfjson.StateResource) []string {
+	var ids []string
+	for _, r := range created {
+		if !slices.Contains(sandboxAzureFound, r.Type) || r.Type == "azurerm_management_lock" || r.Type == "azurerm_role_assignment" {
+			continue
+		}
+		id, _ := r.AttributeValues["id"].(string)
+		_, rest, ok := strings.Cut(strings.ToLower(id), "/providers/")
+		if ok && len(strings.Split(rest, "/")) == 3 && !slices.Contains(ids, strings.ToLower(id)) {
+			ids = append(ids, strings.ToLower(id))
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// waitForResourceGraph waits, up to resourceGraphWait, for Resource Graph
+// to return every resource graphIndexed names, as the Azure CLI's sign-in
+// (the fixture identity's, which the workflow sets up) sees it: the import
+// lists through Resource Graph, so a resource it hasn't indexed yet is not
+// found, neither imported nor reported. It asks every resourceGraphPoll. A
+// sign-in or a query that fails is logged and the test goes on, to fail
+// with the import's own findings.
+func (s *azureSandbox) waitForResourceGraph(ctx context.Context, t *testing.T, created []*tfjson.StateResource) {
+	t.Helper()
+	want := graphIndexed(created)
+	if len(want) == 0 {
+		t.Fatal("the estate creates nothing Resource Graph indexes")
+	}
+	credential, err := azidentity.NewAzureCLICredential(nil)
+	if err != nil {
+		t.Logf("not waiting for Resource Graph: %v", err)
+		return
+	}
+	client, err := armresourcegraph.NewClient(credential, nil)
+	if err != nil {
+		t.Logf("not waiting for Resource Graph: %v", err)
+		return
+	}
+	query := fmt.Sprintf("resources | where subscriptionId =~ '%s' and resourceGroup =~ '%s' | project id", s.subscriptionID, s.resourceGroup)
+	start := time.Now()
+	for {
+		missing := slices.Clone(want)
+		resp, err := client.Resources(ctx, armresourcegraph.QueryRequest{
+			Query:         to.Ptr(query),
+			Subscriptions: []*string{to.Ptr(s.subscriptionID)},
+			Options: &armresourcegraph.QueryRequestOptions{
+				ResultFormat: to.Ptr(armresourcegraph.ResultFormatObjectArray),
+				Top:          to.Ptr[int32](1000),
+			},
+		}, nil)
+		if err == nil {
+			rows, _ := resp.Data.([]any)
+			for _, row := range rows {
+				obj, _ := row.(map[string]any)
+				id, _ := obj["id"].(string)
+				missing = slices.DeleteFunc(missing, func(m string) bool { return m == strings.ToLower(id) })
+			}
+			if len(missing) == 0 {
+				t.Logf("Resource Graph finds the estate after %v", time.Since(start).Round(time.Second))
+				return
+			}
+		}
+		if time.Since(start) >= resourceGraphWait {
+			t.Logf("after %v, Resource Graph doesn't find %v (error %v); importing anyway", resourceGraphWait, missing, err)
+			return
+		}
+		t.Logf("waiting for Resource Graph: not found yet %v; error %v", missing, err)
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(resourceGraphPoll):
+		}
+	}
 }
 
 // sandboxAzureQueried is a type of the estate no lister of its own
@@ -523,5 +619,30 @@ func checkAzureRoles(t *testing.T, coverage report.Report, created []*tfjson.Sta
 	}
 	if !builtInRoleByName.MatchString(generated) {
 		t.Error(`no role assignment names the built-in role by name, role_definition_name = "Reader"`)
+	}
+}
+
+// The test waits for Resource Graph to index the estate's resources that
+// stand alone in the resource group, as the PostgreSQL server is not yet
+// when the apply ends, and not for children, the lock or role assignments.
+func TestGraphIndexed(t *testing.T) {
+	const base = "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg/providers/"
+	resource := func(typ, id string) *tfjson.StateResource {
+		return &tfjson.StateResource{Type: typ, AttributeValues: map[string]any{"id": id}}
+	}
+	got := graphIndexed([]*tfjson.StateResource{
+		resource("azurerm_postgresql_flexible_server", base+"Microsoft.DBforPostgreSQL/flexibleServers/PG"),
+		resource("azurerm_linux_virtual_machine", base+"Microsoft.Compute/virtualMachines/vm"),
+		resource("azurerm_servicebus_queue", base+"Microsoft.ServiceBus/namespaces/ns/queues/q"),
+		resource("azurerm_management_lock", base+"Microsoft.Authorization/locks/l"),
+		resource("azurerm_role_assignment", "/subscriptions/s/providers/Microsoft.Authorization/roleAssignments/r"),
+		resource("azurerm_virtual_network", base+"Microsoft.Network/virtualNetworks/vnet"),
+	})
+	want := []string{
+		strings.ToLower(base + "Microsoft.Compute/virtualMachines/vm"),
+		strings.ToLower(base + "Microsoft.DBforPostgreSQL/flexibleServers/PG"),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
