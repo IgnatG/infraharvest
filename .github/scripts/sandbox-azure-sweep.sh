@@ -2,17 +2,42 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# The sandbox-azure workflow's sweep, which its round trip runs when it
-# failed or found leftovers, and its clean-up job when the round trip was
-# cancelled, timed out or failed: deletes what Terraform's state doesn't
-# hold, such as a resource whose creation failed half-way, or what a run
-# whose destroy never finished left. The estate's locks first, which would
-# stop the rest, the estate's role assignments and custom roles, then every
-# resource tagged infraharvest-sandbox or named ih-sbx- (an OS disk takes
-# no tags from its machine), whichever engine's run made it
-# (runs never overlap), a few rounds over, as some can only go once what
-# uses them has. The resource group itself stays. It fails if anything is
-# left in the group.
+# The sandbox-azure workflow's sweep, the round trip's last step after the
+# estate's destroy, whatever happened, and the scheduled clean-up's
+# (sandbox-leftovers.yml): deletes what Terraform's state doesn't hold,
+# such as a resource whose creation failed half-way, or what a run whose
+# destroy never finished left.
+#
+# The estate's locks first, which would stop the rest, the estate's role
+# assignments and custom roles, then every resource in the estate's
+# resource group tagged infraharvest-sandbox or named ih-sbx-, whatever
+# its kind, a few rounds over, as some can only go once what uses them
+# has. Only the sandbox's own resources are deleted: anything else in the
+# group stays, and so do the group itself and the locks, role
+# assignments and custom roles not named ih-sbx-, the bootstrap's among
+# them. The group holds nothing between runs, so it fails if anything is
+# left in it, ours or not, and names it.
+#
+# The estates' resource types this sweep deletes, or that go with what
+# holds them. sandbox-sweep-coverage.sh fails a pull request whose
+# estates (e2e/testdata/sandbox/azure*) use a type listed in neither.
+# Every resource of the group is swept, whatever its type; these are the
+# ones the estates create.
+#
+# sweep-coverage swept: azapi_resource azurerm_application_security_group azurerm_container_registry
+# sweep-coverage swept: azurerm_eventhub_namespace azurerm_key_vault azurerm_lb azurerm_linux_virtual_machine
+# sweep-coverage swept: azurerm_log_analytics_workspace azurerm_management_lock azurerm_network_interface
+# sweep-coverage swept: azurerm_network_security_group azurerm_postgresql_flexible_server
+# sweep-coverage swept: azurerm_private_dns_zone azurerm_private_endpoint azurerm_public_ip
+# sweep-coverage swept: azurerm_role_assignment azurerm_role_definition azurerm_route_table
+# sweep-coverage swept: azurerm_servicebus_namespace azurerm_storage_account azurerm_user_assigned_identity
+# sweep-coverage swept: azurerm_virtual_network
+# sweep-coverage with-parent: azurerm_eventhub azurerm_lb_backend_address_pool azurerm_lb_probe azurerm_lb_rule
+# sweep-coverage with-parent: azurerm_log_analytics_datasource_windows_event azurerm_network_security_rule
+# sweep-coverage with-parent: azurerm_private_dns_zone_virtual_network_link azurerm_route
+# sweep-coverage with-parent: azurerm_servicebus_queue azurerm_storage_container azurerm_subnet
+# sweep-coverage with-parent: azurerm_subnet_network_security_group_association
+# sweep-coverage with-parent: azurerm_subnet_route_table_association
 #
 # Usage: ARM_SUBSCRIPTION_ID=<id> SANDBOX_AZURE_RESOURCE_GROUP=<group> sandbox-azure-sweep.sh
 # Signed in to the Azure CLI as the fixture identity.
@@ -25,6 +50,7 @@ group=${SANDBOX_AZURE_RESOURCE_GROUP:?}
 locks=$(az lock list "${sub[@]}" -g "$group" --query "[?starts_with(name, 'ih-sbx-')].id" -o tsv)
 while IFS= read -r lock; do
   if [ -n "$lock" ]; then
+    echo "deleting lock ${lock##*/}"
     az lock delete "${sub[@]}" --ids "$lock" || true
   fi
 done <<< "$locks"
@@ -35,27 +61,35 @@ scope="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/$group"
 assignments=$(az role assignment list "${sub[@]}" --scope "$scope" --query "[?starts_with(description || '', 'ih-sbx-')].id" -o tsv)
 while IFS= read -r assignment; do
   if [ -n "$assignment" ]; then
+    echo "deleting role assignment ${assignment##*/}"
     az role assignment delete "${sub[@]}" --ids "$assignment" || true
   fi
 done <<< "$assignments"
 roles=$(az role definition list "${sub[@]}" --custom-role-only true --scope "$scope" --query "[?starts_with(roleName, 'ih-sbx-')].name" -o tsv)
 while IFS= read -r role; do
   if [ -n "$role" ]; then
+    echo "deleting custom role $role"
     az role definition delete "${sub[@]}" --name "$role" --scope "$scope" || true
   fi
 done <<< "$roles"
+# What is the sandbox's, by its tag or its name: a resource that takes
+# no tags, such as a virtual machine's OS disk, is named ih-sbx-.
 query="[?tags.\"infraharvest-sandbox\" != null || starts_with(name, 'ih-sbx-')].id"
-for _ in 1 2 3 4 5; do
+for round in 1 2 3 4 5 6; do
   ids=$(az resource list "${sub[@]}" -g "$group" --query "$query" -o tsv)
   if [ -z "$ids" ]; then
     break
   fi
+  if [ "$round" -gt 1 ]; then
+    sleep 20
+  fi
   while IFS= read -r id; do
-    az resource delete "${sub[@]}" --ids "$id" || true
+    echo "deleting ${id#*/providers/}, round $round"
+    az resource delete "${sub[@]}" --ids "$id" > /dev/null || true
   done <<< "$ids"
 done
-left=$(az resource list "${sub[@]}" -g "$group" --query '[].id' -o tsv)
+left=$(az resource list "${sub[@]}" -g "$group" --query '[].[type, name]' -o tsv)
 if [ -n "$left" ]; then
-  echo "::error::Left in $group: $left"
+  echo "::error::Left in $group: $(tr '\t\n' '  ' <<< "$left")"
   exit 1
 fi

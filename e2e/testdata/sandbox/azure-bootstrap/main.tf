@@ -14,9 +14,10 @@
 #   grants it what it grants users: Reader on the whole subscription.
 #
 # Both trust the GitHub OIDC tokens of the repository's sandbox
-# environment, through federated identity credentials: no secret is
-# stored, and no app registration (nor the Entra ID rights to make one)
-# is needed.
+# environment, through federated identity credentials, and the fixture
+# those of the sandbox-cleanup environment too, for the scheduled clean-up:
+# no secret is stored, and no app registration (nor the Entra ID rights
+# to make one) is needed.
 #
 # A second subscription (slot = "second"), in the same tenant, holds the
 # prod half of the environments estate: the same identities and resource
@@ -94,6 +95,18 @@ resource "azurerm_federated_identity_credential" "fixture" {
   audience                  = [local.github_audience]
   issuer                    = local.github_issuer
   subject                   = var.github_subject
+}
+
+# The scheduled clean-up (sandbox-leftovers.yml) signs in as the fixture
+# alone, from the sandbox-cleanup environment, which deploys from main and
+# needs no approval: it deletes what the sweeps cover and lists what is
+# left.
+resource "azurerm_federated_identity_credential" "fixture_cleanup" {
+  name                      = "github-sandbox-cleanup"
+  user_assigned_identity_id = azurerm_user_assigned_identity.fixture.id
+  audience                  = [local.github_audience]
+  issuer                    = local.github_issuer
+  subject                   = var.github_cleanup_subject
 }
 
 resource "azurerm_federated_identity_credential" "readonly" {

@@ -2,9 +2,9 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# The sandbox-google workflow's sweep, which its round trip runs when it
-# failed or found leftovers, and its clean-up job when the round trip was
-# cancelled, timed out or failed: deletes what Terraform's state doesn't
+# The sandbox-google workflow's sweep, the round trip's last step after
+# the estate's destroy, whatever happened, and the scheduled clean-up's
+# (sandbox-leftovers.yml): deletes what Terraform's state doesn't
 # hold, such as a resource whose creation failed half-way, or what a run
 # whose destroy never finished left: every resource of a sandbox estate,
 # whichever engine's run made it (runs never overlap). Networks,
@@ -23,6 +23,25 @@
 # the service account. KMS key rings and keys can't be deleted: it
 # schedules the destruction of their versions still enabled or disabled,
 # and leaves them. It fails if anything else is left.
+#
+# The estates' resource types this sweep deletes, or that go with what
+# holds them. sandbox-sweep-coverage.sh fails a pull request whose
+# estates (e2e/testdata/sandbox/google*) use a type listed in neither:
+# a new kind needs its own delete here, in the order its dependencies
+# allow, and in the check of what is left at the end.
+#
+# sweep-coverage swept: google_artifact_registry_repository google_bigquery_dataset
+# sweep-coverage swept: google_cloud_run_v2_service google_cloud_scheduler_job google_cloudfunctions2_function
+# sweep-coverage swept: google_compute_backend_bucket google_compute_backend_service google_compute_disk
+# sweep-coverage swept: google_compute_firewall google_compute_global_address google_compute_global_forwarding_rule
+# sweep-coverage swept: google_compute_instance google_compute_network google_compute_network_firewall_policy
+# sweep-coverage swept: google_compute_region_network_endpoint_group google_compute_router
+# sweep-coverage swept: google_compute_subnetwork google_compute_target_http_proxy google_compute_url_map
+# sweep-coverage swept: google_dns_managed_zone google_dns_record_set google_kms_crypto_key google_kms_key_ring
+# sweep-coverage swept: google_pubsub_subscription google_pubsub_topic google_secret_manager_secret
+# sweep-coverage swept: google_service_account google_sql_database_instance google_storage_bucket
+# sweep-coverage with-parent: google_bigquery_table google_sql_database google_sql_user
+# sweep-coverage with-parent: google_storage_bucket_object
 #
 # Usage: CLOUDSDK_CORE_PROJECT=<project> [SANDBOX_GOOGLE_REGION=<region>]
 # sandbox-google-sweep.sh. SANDBOX_GOOGLE_REGION names the region of the
