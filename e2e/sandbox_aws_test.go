@@ -51,7 +51,7 @@ var sandboxAWSServices = []string{
 // lister lists: the query service lists it, through Terraform's list
 // resources (see checkSandboxAWSQuery), and the import of the services
 // leaves it out.
-const sandboxAWSQueried = "aws_cloudwatch_log_metric_filter"
+const sandboxAWSQueried = "aws_flow_log"
 
 // sandboxSecondRegion is where testdata/sandbox/aws creates the resources
 // of its second region, unless SANDBOX_AWS_SECOND_REGION names another.
@@ -286,29 +286,35 @@ func checkAWSFound(t testing.TB, created []*tfjson.StateResource, imported map[s
 	}
 }
 
-// checkSandboxAWSQuery takes the estate's metric filter through the
+// checkSandboxAWSQuery takes the estate's flow log through the
 // query service as the read-only profile, in the region of the estate
 // (see checkQueryRoundTrip). Call it once the importer has signed in as
 // that profile.
 func checkSandboxAWSQuery(ctx context.Context, t *testing.T, s *sandbox, created []*tfjson.StateResource) {
 	t.Helper()
-	var filter *tfjson.StateResource
+	var flowLog *tfjson.StateResource
 	for _, r := range created {
 		if r.Type == sandboxAWSQueried {
-			filter = r
+			flowLog = r
 		}
 	}
-	if filter == nil {
+	if flowLog == nil {
 		t.Fatalf("the estate has no %s", sandboxAWSQueried)
 	}
-	name, _ := filter.AttributeValues["name"].(string)
-	group, _ := filter.AttributeValues["log_group_name"].(string)
+	id, _ := flowLog.AttributeValues["id"].(string)
+	// The identity has the account, which the flow log's ARN holds:
+	// arn:aws:ec2:<region>:<account>:vpc-flow-log/<id>.
+	arn, _ := flowLog.AttributeValues["arn"].(string)
+	parts := strings.Split(arn, ":")
+	if id == "" || len(parts) < 6 || parts[4] == "" {
+		t.Fatalf("the estate's %s has no ID or ARN to take its identity from: id %q, arn %q", sandboxAWSQueried, id, arn)
+	}
 	checkQueryRoundTrip(ctx, t, queryRoundTrip{
 		command:  "aws",
 		scope:    []string{"--profile=" + s.readonlyProfile, "--regions=" + s.region},
 		typ:      sandboxAWSQueried,
-		identity: map[string]string{"region": s.region, "log_group_name": group, "name": name},
-		file:     "logs.tf",
+		identity: map[string]string{"account_id": parts[4], "region": s.region, "id": id},
+		file:     "flow_log.tf",
 		plugins:  s.plugins,
 	})
 }
@@ -987,7 +993,7 @@ func TestCheckAWSFound(t *testing.T) {
 	created := []*tfjson.StateResource{
 		{Address: "aws_instance.app", Type: "aws_instance", AttributeValues: map[string]any{"id": "i-estate"}},
 		{Address: "aws_iam_role_policy_attachment.app", Type: "aws_iam_role_policy_attachment", AttributeValues: map[string]any{"id": "app-20261028"}},
-		{Address: "aws_cloudwatch_log_metric_filter.app", Type: sandboxAWSQueried, AttributeValues: map[string]any{"id": "app"}},
+		{Address: "aws_flow_log.main", Type: sandboxAWSQueried, AttributeValues: map[string]any{"id": "fl-estate"}},
 	}
 	for _, tc := range []struct {
 		name     string

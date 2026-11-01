@@ -1,0 +1,6 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-main/configurations/azure.extensions", "name": "azure_extensions", "attributes": {"name": "azure.extensions", "resource_group_name": "rg-data", "configuration_source": "user-override"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-main/configurations/work_mem", "name": "work_mem", "attributes": {"name": "work_mem", "resource_group_name": "rg-data", "configuration_source": "user-override"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-main/configurations/application_name", "name": "application_name", "attributes": {"name": "application_name", "resource_group_name": "rg-data", "configuration_source": "system-default"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforPostgreSQL/flexibleServers/pg-main/configurations/anon.salt", "name": "anon_salt", "attributes": {"name": "anon.salt", "resource_group_name": "rg-data", "configuration_source": "system-default"}}
+]}

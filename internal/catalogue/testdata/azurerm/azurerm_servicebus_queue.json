@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.ServiceBus/namespaces/sb-app/queues/orders", "name": "orders", "attributes": {"name": "orders", "resource_group_name": "rg-app"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-app/providers/Microsoft.ServiceBus/namespaces/sb-premium/queues/events", "name": "events", "attributes": {"name": "events", "resource_group_name": "rg-app"}}
+]}

@@ -1,0 +1,4 @@
+{"resources": [
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforMySQL/flexibleServers/my-main/configurations/slow_query_log", "name": "slow_query_log", "attributes": {"name": "slow_query_log", "resource_group_name": "rg-data", "configuration_source": "user-override"}},
+  {"id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.DBforMySQL/flexibleServers/my-main/configurations/sql_mode", "name": "sql_mode", "attributes": {"name": "sql_mode", "resource_group_name": "rg-data", "configuration_source": "system-default"}}
+]}
