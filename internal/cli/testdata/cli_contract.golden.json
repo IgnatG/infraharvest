@@ -1042,6 +1042,62 @@
     ]
   },
   {
+    "path": "infraharvest export",
+    "use": "export [output-directory]",
+    "run_e": true,
+    "run": false,
+    "args": "0,1",
+    "silence_usage": true,
+    "silence_errors": false,
+    "flags": [
+      {
+        "name": "drop-tag",
+        "type": "stringSlice",
+        "default": "[]",
+        "persistent": false
+      },
+      {
+        "name": "drop-tags",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "hash-ids",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "hash-key-file",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "out-file",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "print-schema",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "schema",
+        "type": "string",
+        "default": "inventory",
+        "persistent": false
+      }
+    ]
+  },
+  {
     "path": "infraharvest import",
     "use": "import",
     "run_e": false,

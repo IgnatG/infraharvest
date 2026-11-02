@@ -242,6 +242,24 @@ infraharvest drift [output-directory] [flags]
 | `--untrusted-roots` |  | Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first |
 | `--write-decisions` |  | write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else drift.yaml in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
 
+## infraharvest export
+
+Write the metadata of an import that a control plane may receive (default directory: infrastructure)
+
+```
+infraharvest export [output-directory] [flags]
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |
+| `--drop-tags` |  | leave all tags out of the inventory |
+| `--hash-ids` |  | replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
+| `--hash-key-file` |  | file with the key --hash-ids hashes with (at least 16 bytes), instead of INFRAHARVEST_EXPORT_KEY |
+| `--out-file` |  | file to write the document to (default: standard output) |
+| `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
+| `--schema` | `inventory` | document to write: inventory, run, gate |
+
 ## infraharvest import
 
 Generate Terraform configuration for existing cloud resources
