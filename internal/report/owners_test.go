@@ -76,3 +76,22 @@ func TestDiscovery(t *testing.T) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
 	}
 }
+
+func TestStatusOf(t *testing.T) {
+	t.Parallel()
+	for owner, want := range map[string][2]string{
+		OwnerTerraformState: {StatusManaged, BasisState},
+		OwnerTerraformRoot:  {StatusManaged, BasisState},
+		OwnerTerraformTag:   {StatusManaged, BasisTag},
+		OwnerCloudFormation: {StatusOtherIaC, BasisTag},
+		OwnerOtherTool:      {StatusOtherIaC, BasisTag},
+		OwnerCloud:          {StatusUnmanaged, BasisNone},
+		OwnerSelection:      {StatusUnmanaged, BasisNone},
+		"":                  {StatusUnmanaged, BasisNone},
+		"something new":     {StatusUnmanaged, BasisNone},
+	} {
+		if status, basis := StatusOf(owner); status != want[0] || basis != want[1] {
+			t.Errorf("%q: got %s/%s, want %s/%s", owner, status, basis, want[0], want[1])
+		}
+	}
+}

@@ -246,3 +246,45 @@ func (d *Discovery) WriteJSON(w io.Writer) error {
 	_, err = w.Write(content)
 	return err
 }
+
+// What a resource's owner says of whether it is managed, as export puts
+// it (see StatusOf).
+const (
+	// StatusManaged: Terraform or OpenTofu manages it.
+	StatusManaged = "managed"
+	// StatusOtherIaC: another infrastructure-as-code tool manages it, such
+	// as CloudFormation.
+	StatusOtherIaC = "other_iac"
+	// StatusUnmanaged: nothing manages it, or the cloud does itself, or
+	// the import took it over.
+	StatusUnmanaged = "unmanaged"
+)
+
+// How the owner of a resource was found (see StatusOf).
+const (
+	// BasisState: a Terraform state, or a root of the output, has it.
+	BasisState = "state"
+	// BasisTag: its tags or labels say who manages it.
+	BasisTag = "tag"
+	// BasisNone: nothing says; there is no owner.
+	BasisNone = "none"
+)
+
+// StatusOf returns whether a resource whose owner is owner, one of the
+// Owner constants or "" for a resource the import took over or left out
+// for another reason, is managed, and what says so. Terraform's state and
+// the roots of the output make it managed (basis state), Terraform's tags
+// too (basis tag); CloudFormation and other tools make it other_iac, with
+// basis tag; the cloud's own resources, those the selection left out, and
+// those imported are unmanaged with no basis.
+func StatusOf(owner string) (status, basis string) {
+	switch owner {
+	case OwnerTerraformState, OwnerTerraformRoot:
+		return StatusManaged, BasisState
+	case OwnerTerraformTag:
+		return StatusManaged, BasisTag
+	case OwnerCloudFormation, OwnerOtherTool:
+		return StatusOtherIaC, BasisTag
+	}
+	return StatusUnmanaged, BasisNone
+}

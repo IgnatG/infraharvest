@@ -16,6 +16,16 @@ A run connects only to what it needs, with the credentials you give it:
 - **The output directory** (`infraharvest-out` by default): the generated configuration, the report and, under `.infraharvest/`, the inventory of what was listed. The inventory describes the estate as state does, so keep the directory where you would keep state. Secrets never go into the configuration, the report or the logs (see [Output](output.md)).
 - **A cache** in your user cache directory (`infraharvest` under it), for the Terraform it downloads and the providers Terraform installs.
 
+## Export
+
+`infraharvest export` is opt-in: nothing runs it for you. It is local: it reads the output directory of an import, makes no network calls and uploads nothing, so whether the file goes anywhere is for you to decide. It writes one document, to standard output or to `--out-file`:
+
+- **`inventory`**: for each resource its type, ID, account, region, name, tags and who manages it, with counts by type and scope. Tags whose key or value looks like a secret are dropped, and you can drop more with `--drop-tag` and `--drop-tags`, or hash IDs and names with `--hash-ids` under a key only you hold.
+- **`run`**: the exit code and outcome, the versions of infraharvest and Terraform or OpenTofu, and the counts.
+- **`gate`**: whether each check of the verification gate passed, with reason codes from a fixed list.
+
+It holds no attributes, values, resource addresses, paths or messages, and each document is checked against its schema before it is written. See [Export](export.md).
+
 ## The GitHub Action and the MCP server
 
 The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md) runs infraharvest in your own workflow, with your workflow's credentials, and downloads the release it runs from GitHub. The [MCP server](mcp.md) runs on your machine and talks to the AI host that started it over standard input and output. What the host does with the results, such as sending them to a model, is up to the host.

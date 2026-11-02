@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/gate-v1.schema.json",
+  "title": "infraharvest gate, version 1",
+  "description": "What infraharvest export writes of the verification gate: whether each of its checks G1 to G8 passed or was skipped, with reason codes from a closed list. No messages, addresses or values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "passed", "checks"],
+  "properties": {
+    "schema": {"const": "infraharvest/gate/v1"},
+    "run_id": {"$ref": "#/$defs/uuid"},
+    "passed": {"type": "boolean"},
+    "checks": {"type": "array", "items": {"$ref": "#/$defs/check"}}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "passed", "skipped", "reason_codes"],
+      "properties": {
+        "id": {"enum": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]},
+        "passed": {"type": "boolean"},
+        "skipped": {"type": "boolean"},
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["not_formatted", "invalid_configuration", "plan_failed", "standards_violation", "scanner_findings", "secrets_found", "not_deterministic", "moves_invalid", "tool_missing", "not_run", "other"]}
+        }
+      }
+    }
+  }
+}

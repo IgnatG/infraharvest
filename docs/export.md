@@ -1,0 +1,42 @@
+# Export
+
+`infraharvest export` writes the metadata of an import into a file you can hand to a hosted control plane, or keep. It is opt-in and local: it reads the output directory of an import, uploads nothing and makes no network calls. What you do with the file is up to you.
+
+```sh
+infraharvest export infrastructure --out-file inventory.json
+infraharvest export infrastructure --schema run --out-file run.json
+infraharvest export infrastructure --schema gate --out-file gate.json
+```
+
+Without `--out-file` the document goes to standard output. The directory defaults to `infrastructure`, as for [`report`](reference/cli.md#infraharvest-report).
+
+## The documents
+
+Each document has a JSON Schema (2020-12, no fields beyond the ones it lists), and the three share one `run_id`, made from the report, so they can be matched. `infraharvest export --schema inventory --print-schema` prints a schema; the files are under [`schemas/`](https://github.com/IgnatG/infraharvest/tree/main/schemas) in the repository.
+
+| `--schema` | What it has |
+|---|---|
+| `inventory` | The cloud, the scopes (provider, account and region), and for each resource its type, ID, account, region, name, tags and who manages it: `managed` (by a Terraform state, a root of the output, or Terraform's tags), `other_iac` (CloudFormation or another tool) or `unmanaged`, with whether a state, a tag or nothing says so. The counts of the report, in all, by type and by scope. What the export left out (see below). |
+| `run` | The command, exit code and outcome (`ok`, `partial`, `failed` or `interrupted`), the versions of infraharvest and of Terraform or OpenTofu, the counts, and failure codes from a fixed list. |
+| `gate` | For each check of the [verification gate](output.md#verification-gate) (G1 to G8): whether it passed or was skipped, with reason codes from a fixed list, such as `secrets_found` or `tool_missing`. |
+
+It has no attributes, no values, no resource addresses, no file paths and no messages: every field is copied by name, and nothing else of the report or the saved inventory is read. The inventory takes its names and tags from what `discover` saved under `.infraharvest/`; without it, the resources are those the report names, without names or tags. Before it is written, each document is checked against its schema, and an export that doesn't match writes nothing.
+
+## What it leaves out
+
+- **Tags that look like secrets.** A tag is dropped when the detectors the verification gate uses flag its key or its value, such as `db_password`, or a GitHub token. The inventory lists the dropped keys (`redaction.tag_keys_dropped`), unless the key is itself a credential.
+- **Tags you choose.** `--drop-tag <key>` drops a tag key (repeat it, or separate keys with commas), and `--drop-tags` drops all tags.
+- **IDs and names, if you hash them.** `--hash-ids` replaces each ID and name with its HMAC-SHA256 in hexadecimal. The key is yours: it comes from the environment variable `INFRAHARVEST_EXPORT_KEY`, or from a file with `--hash-key-file`, and must have at least 16 bytes. Nothing writes it down. The same key gives the same hash for a resource in every export, so the control plane can follow it over time; without the key, nobody can check a guess. `--hash-ids` without a key is an error.
+
+```sh
+export INFRAHARVEST_EXPORT_KEY="$(openssl rand -hex 32)"   # keep it: another key hashes differently
+infraharvest export infrastructure --hash-ids --drop-tag owner-email --out-file inventory.json
+```
+
+Resource types, accounts, regions and scopes, and the counts, stay readable: they are what the control plane groups by. Account IDs are not hashed.
+
+## Notes
+
+- The export describes the last import in the directory. It adds the resources `discover` listed that the report doesn't name, as unmanaged.
+- `started_at` and `finished_at` of the run document are left out: the report holds no timestamps.
+- A resource whose ID looks like a credential stops the export.

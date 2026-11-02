@@ -46,6 +46,7 @@ func NewCmdRoot() *cobra.Command {
 		newVerifyCmd(),
 		newDriftCmd(),
 		newReportCmd(),
+		newExportCmd(),
 		newBootstrapCmd(),
 		newVersionCmd(),
 	)
