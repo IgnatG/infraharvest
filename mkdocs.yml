@@ -73,6 +73,7 @@ nav:
       - AI agents (MCP): mcp.md
       - Catalogue: catalogue.md
       - Troubleshooting: troubleshooting.md
+      - Privacy: privacy.md
   - Clouds:
       - AWS: aws.md
       - Azure: azure.md

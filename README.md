@@ -163,6 +163,10 @@ Each is covered in depth: inventory APIs, the catalogue, curated modules, and en
 4.  Add catalogue entries under `internal/catalogue/data/<provider>/` for types that need them, such as an import ID template when the ID a lister records isn't the one Terraform imports by, each with a golden test (see [docs/catalogue.md](docs/catalogue.md)).
 5.  Add a page under `docs/`, list it in `mkdocs.yml`'s navigation, and link it from this README. To have the [command-line](docs/reference/cli.md) and [services](docs/reference/services.md) references cover it, add it to `referenceProviders` in `internal/cli/clireference_test.go` and rewrite them with the `golden` task of the `remote` workflow (see [CONTRIBUTING.md](CONTRIBUTING.md#documentation)).
 
+## Privacy
+
+infraharvest collects no telemetry and sends nothing to its authors or anyone else. A run connects only to your clouds' APIs, the registries Terraform downloads providers and modules from, the state you point it at, and HashiCorp's release site when it has to download Terraform. [Privacy](docs/privacy.md) lists every connection and every file it writes.
+
 ## Contributing
 
 Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) describes the workflow: branches and pull requests against `main`, commit messages, the checks CI runs, and how to rewrite golden files and generated docs on GitHub without a local Go toolchain. [docs/development.md](docs/development.md) is the reference for how the code is written: the layout, the conventions, the tests and the checks behind them. The [documentation](docs/index.md) explains how infraharvest works from the user's side. Report vulnerabilities privately, as [SECURITY.md](SECURITY.md) says, and follow the [code of conduct](CODE_OF_CONDUCT.md).
