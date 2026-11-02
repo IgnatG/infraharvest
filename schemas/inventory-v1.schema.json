@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/inventory-v1.schema.json",
+  "title": "infraharvest inventory, version 1",
+  "description": "What infraharvest export writes of an estate: each resource's type, ID, account and who manages it, with the tags the customer chose to share. No attributes and no values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "generated_at", "tool", "cloud", "scopes", "resources", "redaction", "coverage"],
+  "properties": {
+    "schema": {"const": "infraharvest/inventory/v1"},
+    "run_id": {"$ref": "#/$defs/uuid"},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "tool": {"$ref": "#/$defs/component"},
+    "cloud": {"enum": ["aws", "azure", "google"]},
+    "scopes": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "resources": {"type": "array", "items": {"$ref": "#/$defs/resource"}},
+    "redaction": {"$ref": "#/$defs/redaction"},
+    "coverage": {"$ref": "#/$defs/coverage"}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "account", "status", "status_basis"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "account": {"type": "string", "minLength": 1},
+        "status": {"enum": ["managed", "other_iac", "unmanaged"]},
+        "status_basis": {"enum": ["state", "tag", "none"]},
+        "name": {"type": "string", "minLength": 1},
+        "region": {"type": "string", "minLength": 1},
+        "tags": {"type": "object", "additionalProperties": {"type": "string"}},
+        "owner": {"enum": ["terraform_state", "terraform_tag", "terraform_root", "cloudformation", "other_tool", "cloud"]}
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag_keys_dropped", "ids_hashed", "hash_alg"],
+      "properties": {
+        "tag_keys_dropped": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "all_tags_dropped": {"type": "boolean"},
+        "ids_hashed": {"type": "boolean"},
+        "hash_alg": {"const": "hmac-sha256"}
+      }
+    },
+    "count": {"type": "integer", "minimum": 0},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["discovered", "imported", "left_out", "skipped", "excluded", "failed", "managed", "other_tool", "cloud"],
+      "properties": {
+        "discovered": {"$ref": "#/$defs/count"},
+        "imported": {"$ref": "#/$defs/count"},
+        "left_out": {"$ref": "#/$defs/count"},
+        "skipped": {"$ref": "#/$defs/count"},
+        "excluded": {"$ref": "#/$defs/count"},
+        "failed": {"$ref": "#/$defs/count"},
+        "managed": {"$ref": "#/$defs/count"},
+        "other_tool": {"$ref": "#/$defs/count"},
+        "cloud": {"$ref": "#/$defs/count"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totals", "types", "scopes"],
+      "properties": {
+        "totals": {"$ref": "#/$defs/counts"},
+        "types": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "counts"],
+            "properties": {"type": {"type": "string", "minLength": 1}, "counts": {"$ref": "#/$defs/counts"}}
+          }
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["scope", "counts"],
+            "properties": {"scope": {"type": "string", "minLength": 1}, "counts": {"$ref": "#/$defs/counts"}}
+          }
+        }
+      }
+    }
+  }
+}
