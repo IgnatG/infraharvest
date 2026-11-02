@@ -8,17 +8,15 @@ version: 2
 # with the release (Go modules, actions, the Dockerfile's images).
 # Security updates aren't held back.
 updates:
-  # One grouped PR per week: every PR runs the full (heavy) CI.
+  # Go security updates only: a limit of 0 turns off the version updates,
+  # which the weekly Go modules workflow opens as one PR instead
+  # (.github/workflows/go-modules.yml), as checking about 240 modules in one
+  # job outgrew Dependabot's time limit.
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 1
-    groups:
-      go-modules:
-        patterns: ["*"]
-    cooldown:
-      default-days: 7
+    open-pull-requests-limit: 0
 
   # The Floci emulator image the end-to-end tests run against.
   - package-ecosystem: docker-compose

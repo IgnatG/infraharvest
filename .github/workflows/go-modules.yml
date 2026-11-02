@@ -1,0 +1,98 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Go modules
+
+# Each week, updates the direct Go modules to their newest releases at
+# least 7 days old (.github/scripts/go-modules-refresh.sh) and opens, or
+# updates, one draft pull request with them. Dependabot's grouped Go update
+# did this until checking about 240 modules outgrew its job's time limit;
+# Dependabot still opens Go security updates (.github/dependabot.yml).
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-modules
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: github.event.repository.fork != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      BRANCH: go-modules/update
+      GH_TOKEN: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Update the modules
+        id: refresh
+        run: |
+          status=0
+          .github/scripts/go-modules-refresh.sh > "$RUNNER_TEMP/updated.md" || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/updated.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Build it
+        if: steps.refresh.outputs.changed == 'true'
+        run: go build ./... && go vet ./...
+      - name: Commit it
+        if: steps.refresh.outputs.changed == 'true'
+        run: |
+          count=$(($(wc -l < "$RUNNER_TEMP/updated.md") - 2))
+          title="build(deps): update $count Go modules to their newest releases at least 7 days old"
+          echo "TITLE=$title" >> "$GITHUB_ENV"
+          {
+            echo "The weekly Go modules workflow updated the direct modules to their newest releases at least 7 days old ([run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)), and tidied \`go.mod\`."
+            echo
+            cat "$RUNNER_TEMP/updated.md"
+            echo
+            echo "The workflow started the required checks by dispatch, as GitHub starts none for a pull request a workflow opens. CodeQL can't be dispatched: close and reopen this pull request to start it."
+          } > "$RUNNER_TEMP/body.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add go.mod go.sum
+          git commit -m "$title"
+      - name: Push it and open the pull request
+        if: steps.refresh.outputs.changed == 'true'
+        run: |
+          git push --force "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$BRANCH"
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --draft --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          fi
+      - name: Start its checks
+        if: steps.refresh.outputs.changed == 'true'
+        run: |
+          for workflow in test.yml megalinter.yml govulncheck.yml; do
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          done
