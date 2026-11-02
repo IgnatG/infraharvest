@@ -75,14 +75,12 @@ func newRedactor(drop []string, all bool, key []byte) *redactor {
 func (r *redactor) tags(tags map[string]string) map[string]string {
 	var kept map[string]string
 	for k, v := range tags {
+		// A key that is itself a credential is dropped without being
+		// listed, however it came to be dropped.
+		listable := secret.CredentialFormat(k) == ""
 		switch {
-		case r.all:
-			r.dropped[k] = true
-		case r.drop[k]:
-			r.dropped[k] = true
-		case looksSecret(k, v):
-			// A key that is a credential must not be listed either.
-			if secret.CredentialFormat(k) == "" {
+		case r.all, r.drop[k], looksSecret(k, v):
+			if listable {
 				r.dropped[k] = true
 			}
 		default:

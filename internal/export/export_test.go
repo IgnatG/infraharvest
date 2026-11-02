@@ -198,6 +198,28 @@ func TestDropTags(t *testing.T) {
 	}
 }
 
+// A tag whose key is itself a credential is dropped and never listed among
+// the dropped keys, whichever way it came to be dropped.
+func TestCredentialKeyNeverListed(t *testing.T) {
+	t.Parallel()
+	tags := map[string]string{credentialTag: "x", "team": "data"}
+	for name, r := range map[string]*redactor{
+		"detected":  newRedactor(nil, false, nil),
+		"drop-tag":  newRedactor([]string{credentialTag}, false, nil),
+		"drop-tags": newRedactor(nil, true, nil),
+	} {
+		kept := r.tags(tags)
+		if _, ok := kept[credentialTag]; ok {
+			t.Errorf("%s: kept the credential key", name)
+		}
+		for _, k := range r.droppedKeys() {
+			if k == credentialTag {
+				t.Errorf("%s: listed the credential key as dropped", name)
+			}
+		}
+	}
+}
+
 func TestHashing(t *testing.T) {
 	t.Parallel()
 	out := writeOut(t)
