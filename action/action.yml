@@ -87,6 +87,24 @@ inputs:
   commit-branch:
     description: With commit, the branch to push to. Default the branch checked out; a detached checkout, such as a pull request's, needs one. The push never forces, so it fails when the branch has commits the checkout doesn't have.
     required: false
+  control-plane-url:
+    description: Send the metadata of the import (infraharvest export's inventory, run and gate documents, nothing else) to a hosted control plane at this URL, to <url>/api/v1/ingest/{inventory|run|gate}, with the job's GitHub Actions OIDC token (audience infraharvest-api) as a bearer token. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
+    default: ""
+  control-plane-drop-tags:
+    description: With control-plane-url, leave all tags out of the inventory (export --drop-tags).
+    default: "false"
+  control-plane-drop-tag:
+    description: With control-plane-url, tag keys to leave out of the inventory (export --drop-tag), one a line or comma-separated.
+    required: false
+  control-plane-hash-ids:
+    description: With control-plane-url, replace IDs and names in the inventory with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
+    default: "false"
+  control-plane-hash-key:
+    description: The key control-plane-hash-ids hashes with. Pass a secret, or set INFRAHARVEST_EXPORT_KEY in the job's environment instead.
+    required: false
+  control-plane-optional:
+    description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
+    default: "false"
 
 outputs:
   exit-code:
@@ -110,6 +128,9 @@ outputs:
   commit-sha:
     description: SHA of the commit pushed with commit; empty when the output didn't change, or commit is false.
     value: ${{ steps.commit.outputs.commit-sha }}
+  control-plane-run-id:
+    description: The run_id of the run document the control plane accepted (all three documents sent); empty without control-plane-url, or when the upload failed or was skipped.
+    value: ${{ steps.control-plane.outputs.control-plane-run-id }}
 
 runs:
   using: composite
@@ -130,6 +151,11 @@ runs:
         COMMIT: ${{ inputs.commit }}
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
         OUT: ${{ inputs.out }}
+        URL: ${{ inputs.control-plane-url }}
+        DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
+        HASH_IDS: ${{ inputs.control-plane-hash-ids }}
+        HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        OPTIONAL: ${{ inputs.control-plane-optional }}
       # Only what must be checked before infraharvest is installed, or what
       # the action itself makes of its inputs: infraharvest checks the
       # provider and the import's flags (see Check the import), such as
@@ -210,6 +236,8 @@ runs:
         if [[ -n "$DRIFT_DECISIONS" ]] && linked "$DRIFT_DECISIONS"; then
           fail "drift-decisions: $DRIFT_DECISIONS, or a directory it is in, is a symbolic link; remove it"
         fi
+        # The control plane's URL and the rest of what it takes.
+        bash "$GITHUB_ACTION_PATH/control-plane.sh" check
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       if: inputs.binary == ''
@@ -477,3 +505,23 @@ runs:
         ADD_PATHS: ${{ steps.pull-request-details.outputs.add-paths }}
         COMMIT_MESSAGE: ${{ steps.pull-request-details.outputs.commit-message }}
       run: bash "$GITHUB_ACTION_PATH/commit.sh"
+    # Last, so that a control plane that is down doesn't keep the pull request
+    # or the commit from being made, and after a failed import too: its
+    # report says what failed. Only after an import ran; the script skips a
+    # run with no report. The inputs reach it as variables, never in the
+    # script.
+    - name: Control plane
+      id: control-plane
+      if: ${{ !cancelled() && inputs.control-plane-url != '' && (steps.import.outcome == 'success' || steps.import.outcome == 'failure') }}
+      shell: bash
+      env:
+        URL: ${{ inputs.control-plane-url }}
+        DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
+        DROP_TAG: ${{ inputs.control-plane-drop-tag }}
+        HASH_IDS: ${{ inputs.control-plane-hash-ids }}
+        HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        OPTIONAL: ${{ inputs.control-plane-optional }}
+        BINARY: ${{ inputs.binary }}
+        OUT: ${{ inputs.out }}
+        IMPORT_OUTCOME: ${{ steps.import.outcome }}
+      run: bash "$GITHUB_ACTION_PATH/control-plane.sh" upload
