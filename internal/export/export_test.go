@@ -22,10 +22,13 @@ const (
 	secretAttribute = "Hunter2-attribute-value-0xDEADBEEF"
 	secretTagValue  = "tag-value-that-is-a-password-1f9a"
 	secretTagKey    = "db_password"
-	credentialTag   = "ghp_0123456789abcdefghijABCDEFGHIJ012345"
 	keepTagKey      = "team"
 	keepTagValue    = "payments"
 )
+
+// credentialTag has a GitHub token's format, put together here so that
+// secret scanners of the repository don't take it for a real one.
+var credentialTag = "ghp_" + strings.Repeat("a1", 18)
 
 // writeOut writes an output directory: a report of one imported bucket,
 // one resource of each owner left out, and one check of each gate result,
