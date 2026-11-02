@@ -23,7 +23,7 @@ services:
   # --profile google up -d floci-gcp. Control planes only, without Docker.
   # 0.10.0 is the first release with Compute Engine.
   floci-gcp:
-    image: floci/floci-gcp:0.11.0@sha256:eae9683d806ceb643bcb36aee97cdb8cad13c3e2959cd053bf40e481994fde12
+    image: floci/floci-gcp:0.12.0@sha256:d02e70407d6b37c3e24e31b5ccf100606735cba4f84fd476708b35afd052abb3
     profiles: [google]
     ports:
       - "127.0.0.1:4588:4588"
