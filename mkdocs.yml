@@ -66,6 +66,7 @@ nav:
       - Usage: usage.md
       - Audit: audit.md
       - Drift: drift.md
+      - Export: export.md
       - Configuration: configuration.md
       - Output: output.md
       - Modules: modules.md
