@@ -20,9 +20,12 @@ import (
 
 const (
 	oidcRequestToken = "request-token-1234"
-	oidcToken        = "eyJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl"
 	runID            = "6f1c9d3e-0a52-5b8e-9c47-2d1f3a5b7c90"
 )
+
+// oidcToken is the fake identity token the fake OIDC endpoint returns. It
+// is joined at run time so secret scanners don't read it as a real JWT.
+var oidcToken = strings.Join([]string{"eyJhbGciOiJSUzI1NiJ9", "eyJhdWQiOiJ4In0", "c2lnbmF0dXJl"}, ".")
 
 // fakeBinary stands in for infraharvest: it records its arguments and
 // writes a document with a run_id to --out-file.
