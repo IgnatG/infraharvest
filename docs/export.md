@@ -40,3 +40,19 @@ Resource types, accounts, regions and scopes, and the counts, stay readable: the
 - The export describes the last import in the directory. It adds the resources `discover` listed that the report doesn't name, as unmanaged.
 - `started_at` and `finished_at` of the run document are left out: the report holds no timestamps.
 - A resource whose ID looks like a credential stops the export.
+
+## Control plane API
+
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) sends the documents to a control plane when `control-plane-url` is set. `infraharvest export` itself never does. A server that implements the following can receive them; `<base>` is the URL as given, without a trailing slash, and may have a path.
+
+| Request | Body |
+|---|---|
+| `POST <base>/api/v1/ingest/inventory` | an `inventory/v1` document |
+| `POST <base>/api/v1/ingest/run` | a `run/v1` document |
+| `POST <base>/api/v1/ingest/gate` | a `gate/v1` document |
+
+- **Order.** The three are sent one after another, in that order, and the next is not sent if one fails. They share a `run_id`, and sending a document again (after a retry) must give the same result: key it by `run_id` and the endpoint.
+- **Headers.** `Content-Type: application/json`, and `Authorization: Bearer <token>`, a GitHub Actions OIDC token with the audience `infraharvest-api`. Verify it against GitHub's keys (`https://token.actions.githubusercontent.com/.well-known/jwks`): the issuer, the audience, the expiry, and the `repository`, `ref` and `sub` claims that say which workflow sent it. The token lives for minutes; the Action requests one per upload.
+- **Body.** The document, as `infraharvest export` wrote it, validated against its schema ([`schemas/`](https://github.com/IgnatG/infraharvest/tree/main/schemas)). A server should check it again.
+- **Response.** Any `2xx` means the document was accepted; the body is ignored (`201` or `204` are fine). `401` and `403` (token refused), `400` and `422` (document refused) fail the run without a retry. `429` and `5xx` are retried up to four times in all, after 2, 4 and 8 seconds, so a server that is overloaded can say so. Redirects are not followed.
+- **Transport.** The Action accepts `https://` URLs only, and `http://` for `localhost`, `127.0.0.1` and `[::1]`, for a server run in the same job.

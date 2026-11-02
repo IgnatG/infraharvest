@@ -18,7 +18,7 @@ A run connects only to what it needs, with the credentials you give it:
 
 ## Export
 
-`infraharvest export` is opt-in: nothing runs it for you. It is local: it reads the output directory of an import, makes no network calls and uploads nothing, so whether the file goes anywhere is for you to decide. It writes one document, to standard output or to `--out-file`:
+`infraharvest export` is opt-in: nothing runs it for you. It is local: it reads the output directory of an import, makes no network calls and uploads nothing, so whether the file goes anywhere is for you to decide. (The GitHub Action can send the documents for you, but only when you set `control-plane-url`: see below.) It writes one document, to standard output or to `--out-file`:
 
 - **`inventory`**: for each resource its type, ID, account, region, name, tags and who manages it, with counts by type and scope. Tags whose key or value looks like a secret are dropped, and you can drop more with `--drop-tag` and `--drop-tags`, or hash IDs and names with `--hash-ids` under a key only you hold.
 - **`run`**: the exit code and outcome, the versions of infraharvest and Terraform or OpenTofu, and the counts.
@@ -28,4 +28,4 @@ It holds no attributes, values, resource addresses, paths or messages, and each 
 
 ## The GitHub Action and the MCP server
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md) runs infraharvest in your own workflow, with your workflow's credentials, and downloads the release it runs from GitHub. The [MCP server](mcp.md) runs on your machine and talks to the AI host that started it over standard input and output. What the host does with the results, such as sending them to a model, is up to the host.
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md) runs infraharvest in your own workflow, with your workflow's credentials, and downloads the release it runs from GitHub. It sends nothing anywhere else by default. Only if you set `control-plane-url` does it send anything: then it runs `infraharvest export` and sends exactly the three [export](export.md) documents, inventory, run and gate, with the redaction you chose, to that URL (HTTPS only), authenticated with the job's GitHub Actions OIDC token, to the endpoints under `/api/v1/ingest/`, and nothing else. See [Sending a run to a control plane](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane). The [MCP server](mcp.md) runs on your machine and talks to the AI host that started it over standard input and output. What the host does with the results, such as sending them to a model, is up to the host.
