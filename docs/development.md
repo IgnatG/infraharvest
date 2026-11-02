@@ -195,6 +195,7 @@ A bug fix comes with a test that fails without it. New behaviour comes with test
 - **Golden files** (`testdata/*.golden.*`) record output that is long or easier to review as a file: the catalogue's import blocks, the harvest core's behaviour, the command-line contract, the CloudFormation conversions of `pkg/cfn`, and the generated references (`docs/reference/cli.md`, `docs/reference/services.md`). Tests take `-update` to rewrite them. Don't edit a golden file by hand: run the `golden` task of the `remote` workflow (`make ci-golden PKG=<package>`), download what it rewrote (`make ci-download RUN=<id>`), and review the diff before committing it.
 - **Characterization before a rewrite**: record what the code does today, in its own pull request, before changing how it does it (see [Rewriting code](#rewriting-code)).
 - The emulator round trips in `e2e/` must keep planning with no changes on both Terraform and OpenTofu. To cover a new service, add it to the emulator's fixture as [e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md) describes.
+- **Coverage** of the unit tests, every package's own, goes in the `go test` job's summary, and the job fails below a floor set a little under the total (`COVERAGE_FLOOR` in `.github/workflows/test.yml`). Raise the floor when the total has grown; lower it only with a reason in the pull request.
 
 ## Formatting and lint
 

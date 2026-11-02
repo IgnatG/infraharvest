@@ -16,6 +16,14 @@ import (
 )
 
 func main() {
+	// Terraform checks for a newer release, sending HashiCorp its version
+	// and platform, each time it starts, unless CHECKPOINT_DISABLE is set.
+	// infraharvest sends nothing anywhere a run doesn't need (see
+	// docs/privacy.md), so every Terraform it runs inherits the variable,
+	// unless it is set already.
+	if _, ok := os.LookupEnv("CHECKPOINT_DISABLE"); !ok {
+		_ = os.Setenv("CHECKPOINT_DISABLE", "1")
+	}
 	// Logs go to stderr: stdout carries only results, such as the list of
 	// services or the JSON report, and the MCP server reads it as data.
 	log.SetOutput(logging.Filter(os.Stderr))
