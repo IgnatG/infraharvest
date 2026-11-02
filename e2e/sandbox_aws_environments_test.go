@@ -93,9 +93,17 @@ func TestSandboxAWSEnvironments(t *testing.T) {
 	if timeout := regexp.MustCompile(`visibility_timeout_seconds\s*=\s*var\.(\w+)`).FindStringSubmatch(files); timeout == nil {
 		t.Errorf("no variable sets the orders queue's visibility timeout:\n%s", files)
 	} else {
+		// An environment's terraform.tfvars sets only the values that differ
+		// from the defaults in variables.tf, so the environment whose value
+		// became the default leaves it out.
+		def := variableDefault(t, dir, timeout[1])
 		for _, tc := range []struct{ env, vars, want string }{{"dev", devVars, "30"}, {"prod", prodVars, "120"}} {
-			if !regexp.MustCompile(`(?m)^\s*` + timeout[1] + `\s*=\s*` + tc.want + `\s*$`).MatchString(tc.vars) {
-				t.Errorf("%s's terraform.tfvars doesn't set %s to %s:\n%s", tc.env, timeout[1], tc.want, tc.vars)
+			set := regexp.MustCompile(`(?m)^\s*` + timeout[1] + `\s*=\s*(\S+)\s*$`).FindStringSubmatch(tc.vars)
+			switch {
+			case set != nil && set[1] != tc.want:
+				t.Errorf("%s's terraform.tfvars sets %s to %s, want %s", tc.env, timeout[1], set[1], tc.want)
+			case set == nil && def != tc.want:
+				t.Errorf("%s's terraform.tfvars doesn't set %s, whose default is %q, not %s:\n%s", tc.env, timeout[1], def, tc.want, tc.vars)
 			}
 		}
 	}
@@ -204,4 +212,30 @@ func checkSandboxEnvironmentSecrets(t *testing.T, out, dir string, secrets map[s
 		}
 	}
 	return sensitive[0]
+}
+
+// variableDefault returns the default of variable name in the root in dir,
+// as HCL writes a number or a string, or "" if it has none.
+func variableDefault(t *testing.T, dir, name string) string {
+	t.Helper()
+	for _, block := range configBlocks(t, dir) {
+		if block.Type != "variable" || len(block.Labels) != 1 || block.Labels[0] != name {
+			continue
+		}
+		attr, ok := block.Body.Attributes["default"]
+		if !ok {
+			return ""
+		}
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() || v.IsNull() || !v.IsKnown() {
+			return ""
+		}
+		switch v.Type() {
+		case cty.Number:
+			return v.AsBigFloat().Text('f', -1)
+		case cty.String:
+			return v.AsString()
+		}
+	}
+	return ""
 }
