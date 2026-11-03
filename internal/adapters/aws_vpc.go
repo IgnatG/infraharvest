@@ -894,7 +894,10 @@ func vpcTags(call *Call, parts []*vpcPart, byInput map[string][]*vpcPart) error 
 		if !sameTokens(p.base, first.base) {
 			return Declinef("%s and %s don't merge their tags over the same local, and the module sets tags for both", first.Address(), p.Address())
 		}
-		maps.DeleteFunc(common, func(k, v string) bool { return p.tags[k] != v })
+		maps.DeleteFunc(common, func(k, v string) bool {
+			pv, ok := p.tags[k]
+			return !ok || pv != v
+		})
 	}
 	switch {
 	case first != nil && first.base != nil && len(common) > 0:
@@ -911,7 +914,10 @@ func vpcTags(call *Call, parts []*vpcPart, byInput map[string][]*vpcPart) error 
 				continue
 			}
 			own := maps.Clone(p.tags)
-			maps.DeleteFunc(own, func(k, v string) bool { return common[k] == v })
+			maps.DeleteFunc(own, func(k, v string) bool {
+				cv, ok := common[k]
+				return ok && cv == v
+			})
 			if i > 0 && !maps.Equal(own, extra) {
 				return Declinef("%s and %s have different tags, and the module sets %s for both", byInput[input][0].Address(), p.Address(), input)
 			}
