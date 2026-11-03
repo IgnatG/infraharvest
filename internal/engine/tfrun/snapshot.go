@@ -204,8 +204,11 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 		applyCtx, cancel = context.WithTimeout(ctx, b.Timeout)
 		defer cancel()
 	}
-	// -backup=- keeps a second copy of the state from being written.
-	if err := b.Apply.Apply(applyCtx, tfexec.DirOrPlan(planFile), tfexec.State(s.state), tfexec.StateOut(s.state), tfexec.Lock(false), tfexec.Backup("-")); err != nil {
+	// -backup=- keeps a second copy of the state from being written. -state
+	// is a legacy flag that Terraform and OpenTofu still take for the local
+	// backend, as statelessTerraform uses it.
+	state := tfexec.State(s.state) //nolint:staticcheck // see above
+	if err := b.Apply.Apply(applyCtx, tfexec.DirOrPlan(planFile), state, tfexec.StateOut(s.state), tfexec.Lock(false), tfexec.Backup("-")); err != nil {
 		return fmt.Errorf("terraform apply of the import-only plan: %w", err)
 	}
 	_ = os.Remove(planFile)

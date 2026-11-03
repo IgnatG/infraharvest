@@ -318,7 +318,7 @@ func TestCachedPlans(t *testing.T) {
 
 func TestBuildSnapshot(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir()) // snapshots go to the system's temporary directory
-	build := func(plan *tfjson.Plan, imports int) (*fakeState, *Snapshot, error, string) {
+	build := func(plan *tfjson.Plan, imports int) (*fakeState, *Snapshot, string, error) {
 		dir := t.TempDir()
 		tf := &fakeState{imports: imports, plan: plan}
 		s, err := BuildSnapshot(context.Background(), SnapshotBuild{
@@ -326,10 +326,10 @@ func TestBuildSnapshot(t *testing.T) {
 			Resources: []string{"aws_s3_bucket.a"},
 			Imports:   []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}},
 		})
-		return tf, s, err, dir
+		return tf, s, dir, err
 	}
 
-	tf, s, err, dir := build(importPlan("aws_s3_bucket.a"), 1)
+	tf, s, dir, err := build(importPlan("aws_s3_bucket.a"), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,12 +355,12 @@ func TestBuildSnapshot(t *testing.T) {
 	// A plan that does more than import is never applied.
 	update := importPlan("aws_s3_bucket.a")
 	update.ResourceChanges[0].Change.Actions = tfjson.Actions{tfjson.ActionUpdate}
-	tf, _, err, _ = build(update, 1)
+	tf, _, _, err = build(update, 1)
 	if err == nil || tf.applies != 0 {
 		t.Errorf("an update plan: error %v, applies %d", err, tf.applies)
 	}
 	// Neither is one that doesn't import every import block.
-	tf, _, err, _ = build(importPlan(), 0)
+	tf, _, _, err = build(importPlan(), 0)
 	if err == nil || tf.applies != 0 {
 		t.Errorf("a plan without the imports: error %v, applies %d", err, tf.applies)
 	}
