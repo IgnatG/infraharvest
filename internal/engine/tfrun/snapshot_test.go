@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -340,7 +341,7 @@ func TestBuildSnapshot(t *testing.T) {
 	if err != nil || !strings.Contains(string(override), "ignore_changes = all") {
 		t.Errorf("override: %q, %v", override, err)
 	}
-	if info, err := os.Stat(filepath.Dir(s.Path())); err != nil || info.Mode().Perm() != 0o700 && !isWindows() {
+	if info, err := os.Stat(filepath.Dir(s.Path())); err != nil || info.Mode().Perm() != 0o700 && runtime.GOOS != "windows" {
 		t.Errorf("the snapshot directory is not private: %v, %v", info, err)
 	}
 	if !strings.Contains(filepath.Base(filepath.Dir(s.Path())), SnapshotPattern) {
