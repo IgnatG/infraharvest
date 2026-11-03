@@ -64,6 +64,7 @@ environments:
 | Key | What it is |
 |---|---|
 | `aws.accounts`, `azure.subscriptions`, `google.projects` | The environment's AWS accounts, Azure subscriptions and Google Cloud projects, by ID |
+| `aws.profile`, `aws.assume_role`, `azure.tenant_id`, `azure.client_id`, `google.impersonate_service_account` | The identity the environment's accounts, subscriptions or projects are read with (see [Reading each environment with its own identity](#reading-each-environment-with-its-own-identity)) |
 | `tags` | Tags (labels on Google Cloud) every resource of the environment has, compared as `--env-tags` compares environments: in lower case, with spaces and other characters made dashes, so `Prod` and `prod` are the same |
 | `tokens` | The words that stand for the environment in resource names, such as `prd`; by default the environment's name. They match in any case, so `prd`, `Prd` and `PRD` are the same token. Merging (see [Merging environments](#merging-environments)) takes them out of names, and `var.env`, in `variables.tf` and each environment's var file, is set to the one the names use most, as they write it: `PRD` where the names say `shop-PRD-orders` |
 
@@ -77,6 +78,34 @@ Each resource is placed by where it was listed first, then by its tags:
 An environment's name is a directory's: lower-case letters, digits, dots, dashes and underscores, and not `shared`, nor `all`, which stands for every environment in `drift --environment all`. With `--env-tags`, the directory is the tag's value in lower case, with other characters made dashes, so resources tagged `Prod`, `PROD` and `prod` share `envs/prod/`. `environments` doesn't go with `--env-tags`, which places resources in environments by itself, and a `--layout` of your own needs `{env}`.
 
 A root an earlier import generated into the same `--out` keeps its directory, as its state key comes from its path: the resources the environments would now put under `envs/<env>/` stay in it, with `--resume` and `--incremental` too, and the report names each such root. `--regenerate` hands them over instead, as for a changed `--layout` (see [`--regenerate`](usage.md#choosing-what-to-import)): the root gets a `removed` block for each in `moves.tf`, with `destroy = false`, and the root of its environment imports it; a root they all leave keeps only `versions.tf`, `providers.tf`, `moves.tf` and its README. Apply it before the roots of the environments, or, where they merge, the merged root, whose README lists what it imports from other roots. A root keeps them, and the log says why, where removed blocks can't take them all: the run lists only some of its resources, its `moves.tf` still moves one, or where it has one is only inferred, as its import blocks are deleted. A root with no resources left, as one handed over from, takes none back, also without `--regenerate`. To lay an estate out by environment from the start, import it into a new `--out`.
+
+### Reading each environment with its own identity
+
+Without more, a run reads every account, subscription or project it names with the credentials of the run: `--profile` and the role `--assume-role` names for each AWS account, and the one sign-in of the environment on Azure and Google Cloud. An environment can name the identity its own are read with instead, so that one run, such as the first merge or an `--incremental` run of several environments, reads each with its own. The file holds references only, never a secret.
+
+```yaml
+environments:
+  dev:
+    aws: { accounts: ["111111111111"], profile: dev-sso }
+    azure: { subscriptions: ["00000000-0000-0000-0000-000000000001"], tenant_id: 11111111-1111-1111-1111-111111111111 }
+    google: { projects: [shop-dev], impersonate_service_account: reader@shop-dev.iam.gserviceaccount.com }
+  prod:
+    aws: { accounts: ["222222222222"], assume_role: infraharvest-readonly }
+    azure: { subscriptions: ["00000000-0000-0000-0000-000000000002"], client_id: 22222222-2222-2222-2222-222222222222 }
+    google: { projects: [shop-prod], impersonate_service_account: reader@shop-prod.iam.gserviceaccount.com }
+```
+
+| Key | What it does |
+|---|---|
+| `aws.profile` | The shared-configuration profile whose credentials the environment's accounts are read with, in place of `--profile`: an SSO session, or a role with MFA, is resolved for it as for `--profile`, once per profile |
+| `aws.assume_role` | The role to assume in each of the environment's accounts, in place of `--assume-role`: a role name (`infraharvest-readonly`, or `path/name`) in the account, or an ARN, in which `{account}` stands for the account's ID. An ARN with an account of its own is accepted only for an environment that names that one account |
+| `azure.tenant_id` | The Entra tenant, an ID or a domain name, in place of `ARM_TENANT_ID`: the Azure CLI signs in to it with its own login |
+| `azure.client_id` | The application, or user-assigned managed identity, to sign in as, in place of `ARM_CLIENT_ID`. It goes with the federated (`ARM_USE_OIDC`), managed identity or other settings of the `ARM_*` variables, which stay in the environment: a client secret or certificate is never read from the file |
+| `google.impersonate_service_account` | The service account to impersonate, in place of `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`, with the credentials of the run (Application Default Credentials, or `GOOGLE_CREDENTIALS`) |
+
+An environment's identity reads the scopes it names, and only the ones the run names: with `--accounts` or `--organization`, `--subscriptions` or `--management-group`, `--projects`, `--organization` or `--folders`. A run that names none reads the one account, subscription or project its credentials reach, with those credentials. Environments that share an account, subscription or project are read with one identity, so they must give the same (or all give none). An identity needs the environment to name the scopes it is for, a key the provider doesn't have is an error, and so is a value that isn't the key's kind of name, such as an access key where a profile goes, or that has the shape of a secret.
+
+The generated Terraform holds no credentials. The identity decides how infraharvest lists, and how Terraform's plans of the roots it generates sign in while the roots are checked (an Azure `tenant_id` and `client_id` become `ARM_TENANT_ID` and `ARM_CLIENT_ID`, a Google service account `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`, and an AWS profile's credentials are handed to Terraform as keys). The provider blocks stay as they are without an identity: on AWS, the `assume_role` of an environment's root is the role its accounts were read through, as with `--assume-role`, and a root environments share has none (each environment plans and applies with its own credentials, see below). `infraharvest verify` and `infraharvest drift` plan with the credentials of their own run, as before; run them once per environment with that environment's credentials (`--environment`), or, for a root that assumes a role, with credentials that may assume it.
 
 ### Merging environments
 

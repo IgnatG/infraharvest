@@ -37,6 +37,7 @@ var (
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
 	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
+	_ harvest.ProviderWithTerraformEnv    = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider the generated configuration uses,
@@ -100,6 +101,10 @@ type Provider struct {
 	// azapi is --azapi (Init's args[2]): resource_graph imports what
 	// azurerm has no type for as azapi_resource (see azapiCandidates).
 	azapi bool
+	// tenantID and clientID are the identity the environment that names
+	// the subscription reads it with (see IdentityKeys), "" for ARM_TENANT_ID's
+	// and ARM_CLIENT_ID's.
+	tenantID, clientID string
 }
 
 // Init takes the resource group (args[0], "" for the whole subscription),
@@ -107,7 +112,9 @@ type Provider struct {
 // ARM_SUBSCRIPTION_ID, and the provider type (args[2]): azapi for
 // --azapi, else "". It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
-// any request. A custom cloud's endpoints are read from its metadata host,
+// any request. The args after the third are an environment's identity,
+// tenant_id=<tenant> and client_id=<client> (see IdentityArgs), which
+// replace ARM_TENANT_ID and ARM_CLIENT_ID. A custom cloud's endpoints are read from its metadata host,
 // with ctx, and the requests are limited at the rate of the run's limiter
 // in ctx (see ratelimit.FromContext).
 func (p *Provider) Init(ctx context.Context, args []string) error {
@@ -117,6 +124,15 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	}
 	if len(args) > 1 && args[1] != "" {
 		cfg.subscriptionID = args[1]
+	}
+	p.tenantID, p.clientID = "", ""
+	for _, arg := range args[min(len(args), 3):] {
+		switch key, value, _ := strings.Cut(arg, "="); key {
+		case tenantIDKey:
+			p.tenantID, cfg.tenantID = value, value
+		case clientIDKey:
+			p.clientID, cfg.clientID = value, value
+		}
 	}
 	if cfg.subscriptionID == "" {
 		return errNoSubscription
@@ -419,6 +435,7 @@ func (*Provider) Profile() harvest.Profile {
 		Scope: harvest.Scope{
 			Noun:     "subscription",
 			Field:    "subscriptions",
+			Identity: IdentityKeys(),
 			FoldCase: true,
 			Flags:    []string{"subscriptions", "management-group", "resource-group", "azapi"},
 			Describe: describeScope,

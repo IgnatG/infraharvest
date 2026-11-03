@@ -76,7 +76,7 @@ func (f *failingServer) count() int {
 func networks(t *testing.T, server *httptest.Server) (*compute.NetworkList, error) {
 	t.Helper()
 	t.Setenv(EndpointEnv, server.URL)
-	svc, err := compute.NewService(t.Context(), clientOptions(fastRetries(t))...)
+	svc, err := compute.NewService(t.Context(), clientOptions(fastRetries(t), "")...)
 	if err != nil {
 		t.Fatal(err)
 	}

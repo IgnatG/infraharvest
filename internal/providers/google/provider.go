@@ -29,6 +29,7 @@ var (
 	_ harvest.ProviderWithScope           = (*Provider)(nil)
 	_ harvest.ProviderWithCatalogue       = (*Provider)(nil)
 	_ harvest.ProviderWithQueryScope      = (*Provider)(nil)
+	_ harvest.ProviderWithTerraformEnv    = (*Provider)(nil)
 )
 
 // providerName is the Terraform provider's name, google, which a provider
@@ -57,6 +58,10 @@ type Provider struct {
 	region compute.Region
 	// providerType is "" for the google provider, or beta for google-beta.
 	providerType string
+	// serviceAccount is the service account the environment that names
+	// the project says to read it as (Init's args[3]), "" for the
+	// environment's credentials.
+	serviceAccount string
 	// catalogue is the catalogue of the import (see SetCatalogue), nil
 	// until it is set.
 	catalogue *catalogue.Catalogue
@@ -99,6 +104,12 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	}
 	p.projectName = project
 	p.providerType = arg(2)
+	p.serviceAccount = strings.TrimPrefix(arg(3), impersonateKey+"=")
+	if p.serviceAccount != "" {
+		impersonations.Store(project, p.serviceAccount)
+	} else {
+		impersonations.Delete(project)
+	}
 	p.region = compute.Region{}
 	region := arg(0)
 	if region == "" || region == globalRegion {
@@ -149,7 +160,7 @@ func lookUpRegion(ctx context.Context, project, region string) (string, error) {
 func askRegion(ctx context.Context, project, region string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, regionLookupTimeout)
 	defer cancel()
-	svc, err := compute.NewService(ctx, clientOptions(ctx)...)
+	svc, err := compute.NewService(ctx, clientOptions(ctx, project)...)
 	if err != nil {
 		return "", err
 	}
@@ -261,6 +272,7 @@ func (*Provider) Profile() harvest.Profile {
 		Scope: harvest.Scope{
 			Noun:     "project",
 			Field:    "projects",
+			Identity: IdentityKeys(),
 			Needs:    []string{"projects", "organization", "folders"},
 			Flags:    []string{"regions", "projects", "organization", "folders"},
 			Describe: describeScope,
