@@ -34,7 +34,7 @@ The output is formatted as `terraform fmt` would, and is the same, byte for byte
 | `Ref` | `var.<parameter>`, or the resource attribute the Mapper names (usually `id`) |
 | `Fn::GetAtt` | the attribute the Mapper names |
 | `Fn::Sub` | a template string (a heredoc when it spans lines); `${!Literal}` stays literal |
-| `Fn::Join`, `Fn::Select`, `Fn::Split`, `Fn::Base64` | `join()`, `element()`, `split()`, `base64encode()` |
+| `Fn::Join`, `Fn::Select`, `Fn::Split`, `Fn::Base64` | `join()`, an index (`list[0]`), `split()`, `base64encode()` |
 | `Fn::Cidr` | `cidrsubnets()`, or `cidrsubnet()` in a `for` expression |
 | `Fn::GetAZs` | `data.aws_availability_zones.available.names` |
 | `Fn::If`, `Fn::Equals`, `Fn::And`, `Fn::Or`, `Fn::Not` | `? :`, `==`, `&&`, `\|\|`, `!` |

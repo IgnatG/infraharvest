@@ -56,16 +56,16 @@ resource "aws_internet_gateway_attachment" "gateway_attachment" {
 # PublicSubnetA (AWS::EC2::Subnet)
 resource "aws_subnet" "public_subnet_a" {
   vpc_id                  = aws_vpc.vpc.id
-  availability_zone       = element(data.aws_availability_zones.available.names, 0)
-  cidr_block              = element([for b in [aws_vpc.vpc.cidr_block] : [for i in range(4) : cidrsubnet(b, (strcontains(b, ":") ? 128 : 32) - 8 - tonumber(split("/", b)[1]), i)]][0], 0)
+  availability_zone       = data.aws_availability_zones.available.names[0]
+  cidr_block              = [for b in [aws_vpc.vpc.cidr_block] : [for i in range(4) : cidrsubnet(b, (strcontains(b, ":") ? 128 : 32) - 8 - tonumber(split("/", b)[1]), i)]][0][0]
   map_public_ip_on_launch = true
 }
 
 # PublicSubnetB (AWS::EC2::Subnet)
 resource "aws_subnet" "public_subnet_b" {
   vpc_id                  = aws_vpc.vpc.id
-  availability_zone       = element(data.aws_availability_zones.available.names, 1)
-  cidr_block              = element(cidrsubnets("10.20.0.0/16", 8, 8, 8, 8), 1)
+  availability_zone       = data.aws_availability_zones.available.names[1]
+  cidr_block              = cidrsubnets("10.20.0.0/16", 8, 8, 8, 8)[1]
   map_public_ip_on_launch = true
 }
 
@@ -103,7 +103,7 @@ resource "aws_security_group" "bastion_group" {
     protocol    = "tcp"
     from_port   = 22
     to_port     = 22
-    cidr_blocks = [element(var.admin_cidrs, 0)]
+    cidr_blocks = [var.admin_cidrs[0]]
   }
   dynamic "ingress" {
     for_each = local.is_prod ? [1] : []
@@ -111,7 +111,7 @@ resource "aws_security_group" "bastion_group" {
       protocol    = "tcp"
       from_port   = 22
       to_port     = 22
-      cidr_blocks = [element(var.admin_cidrs, 1)]
+      cidr_blocks = [var.admin_cidrs[1]]
     }
   }
 }
