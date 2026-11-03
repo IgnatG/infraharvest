@@ -89,7 +89,7 @@ func TestModularize(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
 	ws := rootWorkspace(t, dir)
-	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -170,7 +170,7 @@ resource "aws_s3_bucket_versioning" "logs" {
 `)
 
 	ws := rootWorkspace(t, dir)
-	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
+	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 	flushed(t, ws)
@@ -185,7 +185,7 @@ func TestModularizeDeclines(t *testing.T) {
 		"bucket = aws_s3_bucket.state.bucket", `bucket = "${aws_s3_bucket.state.bucket}-b"`, 1))
 
 	ws := rootWorkspace(t, dir)
-	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas); err != nil || changed {
+	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas); err != nil || changed {
 		t.Errorf("want no change, got changed=%v err=%v", changed, err)
 	}
 	flushed(t, ws)
@@ -261,7 +261,7 @@ func TestModularizeMarksSecretInputsSensitive(t *testing.T) {
 		"bucket = \"state\"\n", "bucket = \"state\"\n  key    = var.aws_s3_bucket_state_key\n", 1))
 
 	ws := rootWorkspace(t, dir)
-	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -317,7 +317,7 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	t.Parallel()
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 	ws := rootWorkspace(t, dir)
-	created, _, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
+	created, _, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas)
 	if err != nil || len(created) != 1 {
 		t.Fatalf("got created=%v err=%v", created, err)
 	}
@@ -331,7 +331,7 @@ func TestModuleNameCoversVariablesAndOutputs(t *testing.T) {
 	}}
 	other, otherModules := moduleRoot(t, twoBuckets)
 	otherWS := rootWorkspace(t, other)
-	createdLess, _, err := modularize(otherWS, otherModules, &ModuleRefs{}, less)
+	createdLess, _, err := modularize(otherWS, otherModules, &ModuleRefs{}, nil, less)
 	if err != nil || len(createdLess) != 1 {
 		t.Fatalf("got created=%v err=%v", createdLess, err)
 	}
@@ -370,7 +370,7 @@ func TestModularizeIntoTheRootsOwnModulesDir(t *testing.T) {
 	modulesDir := filepath.Join(dir, hclfile.ModulesDirName)
 
 	ws := rootWorkspace(t, dir)
-	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -402,7 +402,7 @@ func TestModularizeLaysOutTheModule(t *testing.T) {
 	dir, modulesDir := moduleRoot(t, twoBuckets)
 
 	ws := rootWorkspace(t, dir)
-	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, bucketSchemas)
+	created, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, nil, bucketSchemas)
 	if err != nil || !changed || len(created) != 1 {
 		t.Fatalf("want one module, got created=%v changed=%v err=%v", created, changed, err)
 	}
@@ -411,5 +411,31 @@ func TestModularizeLaysOutTheModule(t *testing.T) {
 	main := readFile(t, created[0], "main.tf")
 	if out, ok := hclfile.Layout([]byte(main)); !ok || string(out) != main {
 		t.Errorf("main.tf isn't laid out:\n%s", main)
+	}
+}
+
+// The calls of the modules a root has already, curated ones in its files
+// and those taken, such as the root an incremental import adds to, keep
+// their names: a new call gets another.
+func TestModularizeDoesNotReuseModuleCallNames(t *testing.T) {
+	t.Parallel()
+	dir, modulesDir := moduleRoot(t, twoBuckets+"\nmodule \"logs\" {\n  source = \"terraform-aws-modules/s3-bucket/aws\"\n}\n")
+
+	ws := rootWorkspace(t, dir)
+	if _, changed, err := modularize(ws, modulesDir, &ModuleRefs{}, Names{"module.state": true}, bucketSchemas); err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	flushed(t, ws)
+
+	root := readFile(t, dir, rootfile.GeneratedFileName)
+	for _, name := range []string{"logs", "state"} {
+		if n := strings.Count(root, `module "`+name+`"`); n > 1 {
+			t.Errorf("%d module calls named %s:\n%s", n, name, root)
+		}
+	}
+	for _, want := range []string{`module "logs_2"`, `module "state_2"`} {
+		if !strings.Contains(root, want) {
+			t.Errorf("generated.tf misses %s:\n%s", want, root)
+		}
 	}
 }

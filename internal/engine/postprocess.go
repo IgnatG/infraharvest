@@ -212,7 +212,7 @@ func (t *tidying) localModules() (*tidyEdit, error) {
 	if t.r.opts.ModulesDir == "" {
 		return nil, nil
 	}
-	return liftModules(t.ctx, t.tf, t.ws, t.r.opts.ModulesDir, t.r.modules), nil
+	return liftModules(t.ctx, t.tf, t.ws, t.r.opts.ModulesDir, t.r.modules, t.r.taken), nil
 }
 
 // liftLiteralsValidated lifts repeated identifiers when the configuration

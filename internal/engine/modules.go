@@ -96,7 +96,7 @@ type moduleGroup struct {
 // the module directories it wrote, and holds the ones it calls in refs
 // (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
-func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
+func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, taken Names, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, false, err
@@ -136,7 +136,7 @@ func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, schemas *tfj
 			created = append(created, path)
 		}
 	}
-	if err := rewriteRoot(ws, generated, groups, modulesDir); err != nil {
+	if err := rewriteRoot(ws, generated, groups, modulesDir, taken); err != nil {
 		return created, false, err
 	}
 	return created, true, nil
@@ -612,7 +612,7 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 // rewriteRoot replaces the clusters' resources in generated.tf with module
 // calls, makes references to them use the modules' outputs, and imports
 // into the modules.
-func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, modulesDir string) error {
+func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, modulesDir string, taken Names) error {
 	source, err := filepath.Rel(ws.dir, modulesDir)
 	if err != nil {
 		return err
@@ -623,7 +623,23 @@ func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, 
 	importTo := map[string][]string{}
 	var renames []prefixRename
 	var calls []*hclwrite.Block
+	// The module calls the root already has, in any file or taken (a module
+	// of the root an incremental import adds to), are not free for a call.
 	used := map[string]bool{}
+	files, err := ws.ConfigFiles()
+	if err != nil {
+		return err
+	}
+	for name := range rootNames(append(files, generated)) {
+		if label, ok := strings.CutPrefix(name, "module."); ok {
+			used[label] = true
+		}
+	}
+	for name := range taken {
+		if label, ok := strings.CutPrefix(name, "module."); ok {
+			used[label] = true
+		}
+	}
 	for _, g := range groups {
 		for ci, c := range g.clusters {
 			// Named after the parent (see hclfile.CallName); unique across
@@ -689,15 +705,16 @@ func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, 
 // into generated modules under modulesDir, whose users refs counts, and
 // installs them, as the module calls need. The pass keeps the change only if
 // the plan is still Exact to the baseline. Undoing it releases the modules
-// it wrote, but for those another root calls (see ModuleRefs).
-func liftModules(ctx context.Context, tf tfrun.Terraform, ws *workspace, modulesDir string, refs *ModuleRefs) *tidyEdit {
+// it wrote, but for those another root calls (see ModuleRefs). The module calls of taken are not
+// reused for the calls it adds.
+func liftModules(ctx context.Context, tf tfrun.Terraform, ws *workspace, modulesDir string, refs *ModuleRefs, taken Names) *tidyEdit {
 	return &tidyEdit{
 		edit: func(*tidyAttempt) (edited, error) {
 			schemas, err := tf.ProvidersSchema(ctx)
 			if err != nil {
 				return edited{}, fmt.Errorf("terraform providers schema: %w", err)
 			}
-			_, changed, err := modularize(ws, modulesDir, refs, schemas)
+			_, changed, err := modularize(ws, modulesDir, refs, taken, schemas)
 			if err != nil || !changed {
 				return edited{}, err
 			}
