@@ -202,8 +202,8 @@ func configText(f *config.File, use configUse) string {
 
 // scope returns s, the scope a tool's input sets, with what the file sets
 // of the rest, as the provider command applies it (see config.File.Apply):
-// a flag the input sets wins, then the file's settings, then the
-// provider's section. Its values are checked as the input's are, as the
+// a flag the input sets wins, then the provider's section, then the
+// file's settings. Its values are checked as the input's are, as the
 // confirmation names them.
 func (c *toolConfig) scope(s Scope) (Scope, error) {
 	if c == nil {
@@ -233,9 +233,10 @@ func (c *toolConfig) scope(s Scope) (Scope, error) {
 }
 
 // setting returns the file's value of the setting name as the provider
-// command applies it: its settings' first, then the provider's section.
+// command applies it: the provider's section's, which replaces the
+// settings' (see config.File.Apply).
 func (c *toolConfig) setting(name string) (any, bool) {
-	for _, settings := range []map[string]any{c.file.Settings, c.file.Providers[c.use.provider]} {
+	for _, settings := range []map[string]any{c.file.Providers[c.use.provider], c.file.Settings} {
 		if setting, ok := settings[name]; ok {
 			return setting, true
 		}

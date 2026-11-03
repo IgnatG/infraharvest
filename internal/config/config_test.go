@@ -338,3 +338,39 @@ func TestApplyShared(t *testing.T) {
 		t.Errorf("a provider's engine: %v, want an error saying to set it under settings", err)
 	}
 }
+
+// A key of the provider's section replaces the same key of the settings,
+// a list's too; the command line wins over both.
+func TestApplyProviderSectionWinsOverSettings(t *testing.T) {
+	t.Parallel()
+	f, err := Load(write(t, "version: 1\nsettings:\n  engine: terraform\n  profile: base\n  tag: [a=1, b=2]\n  id: x=1\nproviders:\n  aws:\n    engine: tofu\n    tag: [c=3]\n"), testProfiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func() (*pflag.FlagSet, *string, *string, *[]string, *[]string) {
+		fs := pflag.NewFlagSet("aws", pflag.ContinueOnError)
+		engine := fs.String("engine", "", "")
+		profile := fs.String("profile", "", "")
+		tags := fs.StringArray("tag", nil, "")
+		ids := fs.StringArray("id", nil, "")
+		return fs, engine, profile, tags, ids
+	}
+	fs, engine, profile, tags, ids := build()
+	if err := f.Apply(fs, "aws"); err != nil {
+		t.Fatal(err)
+	}
+	if *engine != "tofu" || *profile != "base" || strings.Join(*tags, ",") != "c=3" || strings.Join(*ids, ",") != "x=1" {
+		t.Errorf("got engine=%s profile=%s tag=%q id=%q", *engine, *profile, *tags, *ids)
+	}
+
+	fs, engine, _, tags, _ = build()
+	if err := fs.Parse([]string{"--engine=terraform", "--tag=z=9"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Apply(fs, "aws"); err != nil {
+		t.Fatal(err)
+	}
+	if *engine != "terraform" || strings.Join(*tags, ",") != "z=9" {
+		t.Errorf("command line: got engine=%s tag=%q", *engine, *tags)
+	}
+}
