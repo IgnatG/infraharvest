@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -35,6 +36,7 @@ func init() {
 		sampleIDs:      "management_lock=LOCK_ID",
 		parallelScopes: "subscriptions of --subscriptions or --management-group",
 		flags:          azureFlags,
+		identityArgs:   azureIdentityArgs,
 	})
 }
 
@@ -121,4 +123,11 @@ func (s *azureScopes) args(subscription string) []string {
 		args = append(args, "azapi")
 	}
 	return args
+}
+
+// azureIdentityArgs returns args, the Init args of an Azure call, with
+// the tenant and client the environment that names the subscription says
+// to read it with (see azure.IdentityKeys).
+func azureIdentityArgs(args []string, _ string, id config.Identity) []string {
+	return azure.IdentityArgs(args, id["tenant_id"], id["client_id"])
 }

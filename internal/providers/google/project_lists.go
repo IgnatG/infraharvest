@@ -31,7 +31,7 @@ type runCaches struct {
 	// sqlInstancesOnce).
 	sqlInstances projectLists[[]*sqladmin.DatabaseInstance]
 
-	// mu guards rejectedTypes and unlistedSQLDatabases, which services
+	// mu guards rejectedTypes, unlistedSQLDatabases and impersonations, which services
 	// listing at once read and write.
 	mu sync.Mutex
 	// rejectedTypes are the asset types the search has rejected in the
@@ -45,6 +45,9 @@ type runCaches struct {
 	// its partial types are not the same: every service of an import has
 	// a provider of its own.
 	unlistedSQLDatabases map[string]bool
+	// impersonations are the service accounts the run reads projects as, by
+	// project ID (see setImpersonation).
+	impersonations map[string]string
 }
 
 // runCachesKey is the key of a run's caches kept with its limiter.
@@ -62,7 +65,7 @@ func cachesOf(ctx context.Context) *runCaches {
 		l = nil // Kept keeps nothing with a nil Limiter.
 	}
 	return ratelimit.Kept(l, runCachesKey{}, func() *runCaches {
-		return &runCaches{rejectedTypes: map[string]bool{}, unlistedSQLDatabases: map[string]bool{}}
+		return &runCaches{rejectedTypes: map[string]bool{}, unlistedSQLDatabases: map[string]bool{}, impersonations: map[string]string{}}
 	})
 }
 

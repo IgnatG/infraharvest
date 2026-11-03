@@ -30,7 +30,7 @@ func TestClientOptionsUseTheEmulator(t *testing.T) {
 	defer server.Close()
 	t.Setenv(EndpointEnv, server.URL)
 
-	svc, err := compute.NewService(context.Background(), clientOptions(t.Context())...)
+	svc, err := compute.NewService(context.Background(), clientOptions(t.Context(), "")...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestClientOptionsUseTheEmulator(t *testing.T) {
 
 func TestClientOptionsWithoutAnEmulator(t *testing.T) {
 	t.Setenv(EndpointEnv, "")
-	if clientOptions(t.Context()) != nil {
+	if clientOptions(t.Context(), "") != nil {
 		t.Error("want Google's endpoints and credentials")
 	}
 }

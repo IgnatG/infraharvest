@@ -35,15 +35,15 @@ var (
 )
 
 // The importer's defaults apply where Provider has no capability of
-// its own: no child imports, no selection defaults, no Terraform
-// environment, the hashicorp/azurerm source.
+// its own: no child imports, no selection defaults, the
+// hashicorp/azurerm source. (Its Terraform environment is only an
+// environment's identity, see TestInitTakesTheIdentity.)
 func TestCapabilitiesNotImplemented(t *testing.T) {
 	t.Parallel()
 	var p harvest.Provider = &Provider{}
 	for name, has := range map[string]bool{
 		"ChildImports":      implements[harvest.ProviderWithChildImports](p),
 		"ExcludedByDefault": implements[harvest.ProviderWithSelectionDefaults](p),
-		"TerraformEnv":      implements[harvest.ProviderWithTerraformEnv](p),
 		// The listers record the tags themselves, from their answers.
 		"Tags": implements[harvest.ProviderWithTags](p),
 	} {

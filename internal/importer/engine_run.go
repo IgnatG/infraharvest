@@ -406,6 +406,14 @@ func (r *Run) ApplyConfig(path string, flags *pflag.FlagSet, command string, pro
 	return nil
 }
 
+// ScopeIdentity returns, for the provider command whose profile is p, the
+// identity the configuration file's environments say an account,
+// subscription or project is read with, none for one they don't name (see
+// config.Environments.IdentityFor).
+func (r *Run) ScopeIdentity(p harvest.Profile) func(scope string) config.Identity {
+	return func(scope string) config.Identity { return r.environments.IdentityFor(p, scope) }
+}
+
 // Do runs fn, whose import is into this run (see Run.Import), which then
 // finishes as a provider command does, with the report or the selection
 // file written and the exit code in the error.

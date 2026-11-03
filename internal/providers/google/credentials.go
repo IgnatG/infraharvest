@@ -40,8 +40,9 @@ var credentialsEnvs = []string{"GOOGLE_CREDENTIALS", "GOOGLE_CLOUD_KEYFILE_JSON"
 // takes them (an access token, else a credentials file or its contents,
 // then a service account to impersonate), or none, for the application
 // default credentials. ctx is kept by an impersonated token source, to
-// refresh its tokens.
-func credentialOptions(ctx context.Context) ([]option.ClientOption, error) {
+// refresh its tokens. serviceAccount, if set, is the service account to
+// impersonate, in place of the environment's.
+func credentialOptions(ctx context.Context, serviceAccount string) ([]option.ClientOption, error) {
 	opts := []option.ClientOption{option.WithScopes(cloudPlatformScope)}
 	if token := os.Getenv(accessTokenEnv); token != "" {
 		opts = append(opts, option.WithTokenSource(oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})))
@@ -56,13 +57,16 @@ func credentialOptions(ctx context.Context) ([]option.ClientOption, error) {
 		}
 		opts = append(opts, option.WithAuthCredentialsJSON(credType, credentials))
 	}
-	target := os.Getenv(impersonateEnv)
+	target, name := serviceAccount, "impersonate_service_account"
+	if target == "" {
+		target, name = os.Getenv(impersonateEnv), impersonateEnv
+	}
 	if target == "" {
 		return opts, nil
 	}
 	source, err := impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{TargetPrincipal: target, Scopes: []string{cloudPlatformScope}}, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", impersonateEnv, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return []option.ClientOption{option.WithTokenSource(source)}, nil
 }

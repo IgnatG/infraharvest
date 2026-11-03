@@ -109,7 +109,7 @@ func clusterKey(id string) string {
 // fails the list: its clusters would be missing from it.
 func autopilotClustersOnce(ctx context.Context, project string) (map[string]bool, error) {
 	return cachesOf(ctx).autopilotClusters.once(project, func() (map[string]bool, error) {
-		svc, err := container.NewService(ctx, clientOptions(ctx)...)
+		svc, err := container.NewService(ctx, clientOptions(ctx, project)...)
 		if err != nil {
 			return nil, err
 		}

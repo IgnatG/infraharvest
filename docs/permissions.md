@@ -20,6 +20,8 @@ terraform apply -var 'trusted_principal_arns=["arn:aws:iam::123456789012:role/pl
 
 Then run infraharvest with a profile that assumes the role (`role_arn = <role_arn output>` in `~/.aws/config`).
 
+To read each environment's account with an identity of its own (see [Reading each environment with its own identity](configuration.md#reading-each-environment-with-its-own-identity)), apply the template in each account, trusting the principals the environment's `profile` signs in as, and name the role in the environment's `assume_role`. Nothing in the template changes.
+
 `ReadOnlyAccess` also lets infraharvest read Resource Explorer's index and search it, for `--resource-explorer` (see [Resource Explorer](aws.md#resource-explorer)), and read CloudFormation stacks, their resources and their templates (`cloudformation:DescribeStacks`, `ListStacks`, `ListStackResources` and `GetTemplate`), for the default selection and `--cfn-stack` (see [Migrating a CloudFormation stack](aws.md#migrating-a-cloudformation-stack)).
 
 Trade-off: `kms:Decrypt` is denied, so SSM `SecureString` parameters fail to import instead of having their decrypted values written into the generated code.
@@ -67,6 +69,8 @@ az identity federated-credential create --name github-main \
 ```
 
 The subject is matched exactly, so add a credential for each branch or GitHub environment that runs infraharvest. The workflow signs in with `azure/login`, or with `ARM_USE_OIDC=true` and the identity's client ID (see [Azure](azure.md)).
+
+Per-environment identities (see [Reading each environment with its own identity](configuration.md#reading-each-environment-with-its-own-identity)) need no change to the templates below: an environment's `azure.tenant_id` and `client_id` name the identity the role is assigned to in its subscriptions, which must be one the run can sign in as (the Azure CLI's login for the tenant, or a federated credential for the client); and `google.impersonate_service_account` names a service account the credentials of the run may impersonate, which takes `roles/iam.serviceAccountTokenCreator` on it, besides the roles below on its project.
 
 ## Google Cloud
 

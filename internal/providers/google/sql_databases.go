@@ -86,7 +86,7 @@ func (g *CloudSQLLister) list() error {
 	if !g.Wants(sqlDatabaseType) {
 		return nil
 	}
-	svc, err := sqladmin.NewService(ctx, clientOptions(ctx)...)
+	svc, err := sqladmin.NewService(ctx, clientOptions(ctx, project)...)
 	if err != nil {
 		return err
 	}
