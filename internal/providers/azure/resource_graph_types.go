@@ -20,10 +20,10 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 	"github.com/magodo/armid"
 	"github.com/magodo/azlist/azlist"
 	"github.com/magodo/aztft/aztft"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -316,15 +316,13 @@ func (t *listingTransport) listedBody(r *http.Request) ([]byte, bool) {
 // inParallel calls do with each of items, up to lookupParallel at once,
 // and returns when every call has.
 func inParallel(items []int, do func(int)) {
-	var calls errgroup.Group
-	calls.SetLimit(lookupParallel)
+	calls := workers.New(lookupParallel)
 	for _, item := range items {
-		calls.Go(func() error {
+		calls.Go(func() {
 			do(item)
-			return nil
 		})
 	}
-	_ = calls.Wait()
+	calls.Wait()
 }
 
 // interruptedError is the error a lookup's requests fail with once the

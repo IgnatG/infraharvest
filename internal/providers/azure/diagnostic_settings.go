@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 	"github.com/magodo/armid"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -103,16 +103,14 @@ func (az *DiagnosticSettingLister) list() error {
 	found := make([][]harvest.Resource, len(targets))
 	failed := make([]error, len(targets))
 	// Every target is asked, whatever the others answer: each failure is
-	// kept in failed, and the group's own error is always nil.
-	var lists errgroup.Group
-	lists.SetLimit(diagnosticListParallel)
+	// kept in failed.
+	lists := workers.New(diagnosticListParallel)
 	for i, target := range targets {
-		lists.Go(func() error {
+		lists.Go(func() {
 			found[i], failed[i] = listDiagnosticSettings(ctx, client, target, az.Provider())
-			return nil
 		})
 	}
-	_ = lists.Wait()
+	lists.Wait()
 	if err := ctx.Err(); err != nil {
 		return err
 	}

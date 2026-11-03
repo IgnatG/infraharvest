@@ -7,13 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 )
 
 // reasonCloudFormation is why the default selection leaves out a resource
@@ -86,16 +87,11 @@ func (p *Provider) cloudFormationManaged(ctx context.Context, config aws.Config)
 	run := p.service(ctx).configs()
 	found := make([]map[string][]stackResource, len(regions))
 	errs := make([]error, len(regions))
-	slots := make(chan struct{}, stackScanParallel)
-	var wg sync.WaitGroup
+	wg := workers.New(stackScanParallel)
 	for i, region := range regions {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			slots <- struct{}{}
-			defer func() { <-slots }()
+		wg.Go(func() {
 			found[i], errs[i] = run.regionStacks(ctx, config, region)
-		}()
+		})
 	}
 	wg.Wait()
 	managed := map[string][]stackResource{}

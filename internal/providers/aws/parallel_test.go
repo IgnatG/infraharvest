@@ -79,3 +79,27 @@ func (o *overlap) check(t *testing.T) {
 		t.Errorf("the calls were made one at a time, want %d at once", o.n)
 	}
 }
+
+// A panic in a read is raised again on the caller's goroutine, where the
+// discoverer's recovery turns it into the service's failure, once the
+// other reads have returned.
+func TestInParallelRaisesAReadsPanicOnTheCaller(t *testing.T) {
+	t.Parallel()
+	var done atomic.Int32
+	var got any
+	func() {
+		defer func() { got = recover() }()
+		inParallel(8, 3, func(i int) {
+			if i == 2 {
+				panic("boom")
+			}
+			done.Add(1)
+		})
+	}()
+	if got == nil {
+		t.Fatal("a read's panic didn't reach the caller")
+	}
+	if done.Load() != 7 {
+		t.Errorf("%d of the other 7 reads finished, want all", done.Load())
+	}
+}
