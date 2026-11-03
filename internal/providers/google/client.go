@@ -35,14 +35,14 @@ const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 // credentials with (see credentialsClient).
 //
 // project is the project the client reads, whose impersonated service
-// account, if an environment names one (see impersonations), the
+// account, if an environment names one (see runCaches.setImpersonation), the
 // client's credentials are of; "" for none.
 func clientOptions(ctx context.Context, project string) []option.ClientOption {
 	if target := emulator(); target != nil {
 		run := ratelimit.FromContext(ctx)
 		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: run.Transport(emulatorTransport{target: target}), delay: runRetryDelay(run)}})}
 	}
-	if client := limitedClient(ctx, impersonation(project)); client != nil {
+	if client := limitedClient(ctx, impersonation(ctx, project)); client != nil {
 		return []option.ClientOption{option.WithHTTPClient(client)}
 	}
 	return nil

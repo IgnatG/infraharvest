@@ -105,11 +105,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	p.projectName = project
 	p.providerType = arg(2)
 	p.serviceAccount = strings.TrimPrefix(arg(3), impersonateKey+"=")
-	if p.serviceAccount != "" {
-		impersonations.Store(project, p.serviceAccount)
-	} else {
-		impersonations.Delete(project)
-	}
+	p.caches.setImpersonation(project, p.serviceAccount)
 	p.region = compute.Region{}
 	region := arg(0)
 	if region == "" || region == globalRegion {

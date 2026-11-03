@@ -6,7 +6,6 @@ package google
 import (
 	"context"
 	"regexp"
-	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -37,18 +36,28 @@ func IdentityArg(serviceAccount string) string {
 	return impersonateKey + "=" + serviceAccount
 }
 
-// impersonations holds the service account each project of the process is
-// read as, by project ID, as Init was given it: the clients of a project's
-// listers take their credentials from it (see clientOptions).
-var impersonations sync.Map
-
-// impersonation returns the service account project is read as, "" for
-// none.
-func impersonation(project string) string {
-	if account, ok := impersonations.Load(project); ok {
-		return account.(string)
+// setImpersonation records the service account project is read as in the
+// run, by project ID, as Init was given it, "" for none: the clients of the
+// project's listers take their credentials from it (see clientOptions).
+// Another run, such as a server's next, may read the same project as
+// another account.
+func (c *runCaches) setImpersonation(project, account string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if account == "" {
+		delete(c.impersonations, project)
+	} else {
+		c.impersonations[project] = account
 	}
-	return ""
+}
+
+// impersonation returns the service account project is read as in ctx's
+// run, "" for none.
+func impersonation(ctx context.Context, project string) string {
+	c := cachesOf(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.impersonations[project]
 }
 
 // TerraformEnv gives Terraform the service account a project is read as,
