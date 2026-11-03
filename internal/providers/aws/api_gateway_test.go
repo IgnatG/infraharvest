@@ -4,6 +4,8 @@
 package aws
 
 import (
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -133,5 +135,35 @@ func TestAPIGatewayWithoutNames(t *testing.T) {
 		if got, ok := names[key]; !ok || got != want {
 			t.Errorf("%s: named %q, want %q", key, got, want)
 		}
+	}
+}
+
+// An API that keeps answering with the position it was sent doesn't make
+// the lister page forever: the list fails once the position repeats.
+func TestAPIGatewayStopsOnARepeatedPosition(t *testing.T) {
+	t.Parallel()
+	for _, part := range []string{"gatewayresponses", "documentation/parts", "authorizers"} {
+		t.Run(part, func(t *testing.T) {
+			t.Parallel()
+			var calls atomic.Int32
+			ctx := useFakeAPI(t, func(call apiCall) string {
+				switch call.Path {
+				case "/restapis":
+					return `{"item":[{"id":"a1","name":"orders"}]}`
+				case "/restapis/a1/" + part:
+					if calls.Add(1) > 5 {
+						t.Errorf("%s was paged %d times past a repeated position", part, calls.Load())
+						return `{"item":[]}`
+					}
+					return `{"item":[],"position":"p1"}`
+				}
+				return `{"item":[]}`
+			})
+			g := &APIGatewayLister{}
+
+			if err := listError(ctx, g); err == nil || !strings.Contains(err.Error(), "did not advance") {
+				t.Errorf("got error %v, want one that the position did not advance", err)
+			}
+		})
 	}
 }
