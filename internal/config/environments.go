@@ -201,6 +201,13 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 			tokens[lower] = name
 		}
 	}
+	// An environment without tokens is known by its name (see
+	// EnvironmentTokens), which no other environment may have as a token.
+	for _, name := range slices.Sorted(maps.Keys(envs)) {
+		if other, taken := tokens[name]; taken && len(envs[name].Tokens) == 0 && other != name {
+			return fmt.Errorf("%s: tokens: it has none, so its name stands for it, which is %s's token too", name, other)
+		}
+	}
 	// What several environments share must be told apart by tags.
 	for _, p := range profiles {
 		sharing := map[string][]string{}

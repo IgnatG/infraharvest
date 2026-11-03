@@ -216,7 +216,7 @@ resource "azurerm_storage_container" "state" {
 
 func gcsBootstrap(g *GCS) map[string]string {
 	return map[string]string{
-		"versions.tf": versionsTF(">= 1.10, < 2.0", "google", "hashicorp/google", "~> 7.0"),
+		"versions.tf": versionsTF(">= 1.10, < 2.0", "google", "hashicorp/google", "~> 8.0"),
 		"variables.tf": `variable "project" {
   description = "Google Cloud project of the state bucket."
   type        = string

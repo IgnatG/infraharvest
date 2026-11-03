@@ -507,3 +507,19 @@ func TestAddReferencesBySelfLinkOnTheComputeHost(t *testing.T) {
 		t.Errorf("generated.tf:\n%s", got)
 	}
 }
+
+// Regions and zones are shared by many resources, so none is theirs; a
+// name that merely ends with a number, such as web-server-1, is.
+func TestRegionLike(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"us-east-1", "eu-west-2", "eu-west-2a", "ap-southeast-1", "eu-central-1", "us-gov-west-1", "europe-west1", "us-central1", "us-central1-a", "northamerica-northeast1", "asia-southeast1-b"} {
+		if !regionLike.MatchString(v) {
+			t.Errorf("%s isn't taken for a region", v)
+		}
+	}
+	for _, v := range []string{"web-server-1", "prod-api-2", "orders-queue-10", "app-db-1a", "my-service1", "dev-test-3"} {
+		if regionLike.MatchString(v) {
+			t.Errorf("%s is taken for a region", v)
+		}
+	}
+}

@@ -266,6 +266,10 @@ func unmergedBody(b *strings.Builder, body *hclsyntax.Body, src []byte, ctx *hcl
 				// has its value, as it was generated.
 				if _, diags := t.TraverseAbs(ctx); !diags.HasErrors() {
 					reads = true
+				} else {
+					// Not one unmergeData tells: the environment's root, generated
+					// afresh, may not have it, nor by this label.
+					return fmt.Sprintf("%s = %s, which reads %s, whose value in the environment the run can't tell", attr.Name, text, strings.Join(untoldData(attr.Expr, locals, ctx), ", "))
 				}
 			case "count", "each", "self":
 				return fmt.Sprintf("%s reads %s", attr.Name, t.RootName())

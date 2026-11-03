@@ -5,6 +5,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -363,5 +364,21 @@ func TestUnionTraits(t *testing.T) {
 	}
 	if got := unionTraits(nil, names); !reflect.DeepEqual(got, harvest.Traits{}) {
 		t.Errorf("without providers: %+v, want none", got)
+	}
+}
+
+// failingScope is a provider that has a scope but can't say it.
+type failingScope struct{ catalogueProvider }
+
+func (*failingScope) Scope(context.Context) (string, string, error) {
+	return "", "", errors.New("sts: throttled")
+}
+
+// A provider that can't say its account and region fails the call: with no
+// scope the selection would match the entries of any other account.
+func TestPrepareCallFailsWhenTheScopeIsUnknown(t *testing.T) {
+	_, err := NewRun().prepareCall(t.Context(), &failingScope{}, Options{All: true}, nil)
+	if err == nil || !strings.Contains(err.Error(), "throttled") {
+		t.Fatalf("prepareCall: got %v, want the scope's error", err)
 	}
 }

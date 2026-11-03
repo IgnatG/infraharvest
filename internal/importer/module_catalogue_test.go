@@ -188,3 +188,22 @@ func TestFetchAdaptersThroughTools(t *testing.T) {
 		}
 	}
 }
+
+// A cached module that is incomplete, without its manifest, is removed
+// to be fetched again, rather than failing every later import.
+func TestFetchModuleReplacesIncompleteCache(t *testing.T) {
+	t.Parallel()
+	cacheDir := t.TempDir()
+	pinned := config.Module{Source: "example.com/platform/network/aws", Version: "1.2.0"}
+	cached := cachedModule(cacheDir, pinned)
+	if err := os.MkdirAll(filepath.Join(cached, ".terraform", "modules", "m"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No engine: the fetch fails, but the incomplete module is gone.
+	if _, _, err := fetchModule(t.Context(), nil, "", cacheDir, pinned); err == nil {
+		t.Fatal("want the fetch to fail without an engine")
+	}
+	if isDir(cached) {
+		t.Error("the incomplete cached module is still there")
+	}
+}

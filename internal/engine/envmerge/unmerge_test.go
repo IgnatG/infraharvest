@@ -219,3 +219,18 @@ func TestUnmergedBlocksReadingDataSources(t *testing.T) {
 		}
 	}
 }
+
+// An argument that reads only a data source the run can't tell for the
+// environment isn't copied as it is: the environment's root may not have
+// that data source.
+func TestUnmergedBlocksDeclinesAnArgumentThatOnlyReadsAnUntoldDataSource(t *testing.T) {
+	t.Parallel()
+	dir := writeUnmergeRoot(t)
+	if err := os.WriteFile(filepath.Join(dir, "direct.tf"), []byte("resource \"aws_sqs_queue\" \"direct\" {\n  name       = \"direct\"\n  kms_key_id = data.aws_vpc.shop.id\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocks, why, err := UnmergedBlocks(dir, devEnv, map[string]string{"aws_sqs_queue.direct": "q-direct"})
+	if err != nil || blocks != nil || !strings.Contains(why, "reads data.aws_vpc.shop.id, whose value") {
+		t.Errorf("%v, %q, %v; want why reading data.aws_vpc.shop.id", blocks, why, err)
+	}
+}

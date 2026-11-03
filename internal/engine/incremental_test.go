@@ -1083,3 +1083,18 @@ func TestAdding(t *testing.T) {
 		})
 	}
 }
+
+// An azapi resource's ID ends with the API version, which changes while
+// the resource stays: Existing keys it as the lookups of what is added do.
+func TestExistingKeysByIdentity(t *testing.T) {
+	t.Parallel()
+	id := "/subscriptions/s/resourceGroups/rg/providers/Microsoft.Web/sites/app"
+	previous := &Result{Imported: []rootfile.Import{{Type: "azapi_resource", Name: "app", ID: id + "?api-version=2023-04-01"}}}
+	got, err := Existing(t.TempDir(), previous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got[ResourceKey("azapi_resource", id+"?api-version=2024-10-01")]; !ok {
+		t.Errorf("not found by the identity of the resource: %v", got)
+	}
+}

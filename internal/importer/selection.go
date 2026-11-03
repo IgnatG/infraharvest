@@ -436,16 +436,17 @@ func stateLocation(where string) string {
 
 // discoveryScope names where provider lists, as the roots are laid out:
 // the provider's directory (see providerDir), account and region
-// (aws/123456789012/eu-west-2), or "" if the provider can't say.
-func discoveryScope(ctx context.Context, provider harvest.Provider) string {
+// (aws/123456789012/eu-west-2), or "" if the provider has no scope. A
+// provider that has one but can't say it fails the call: with "" the
+// selection would match the entries of any other account or region.
+func discoveryScope(ctx context.Context, provider harvest.Provider) (string, error) {
 	withScope, ok := provider.(harvest.ProviderWithScope)
 	if !ok {
-		return ""
+		return "", nil
 	}
 	account, region, err := withScope.Scope(ctx)
 	if err != nil {
-		log.Printf("%s: the selection file won't say which account and region the resources are in: %v", provider.Name(), err)
-		return ""
+		return "", fmt.Errorf("%s: which account and region the resources are in: %w", provider.Name(), err)
 	}
-	return providerDir(provider) + "/" + account + "/" + region
+	return providerDir(provider) + "/" + account + "/" + region, nil
 }

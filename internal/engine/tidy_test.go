@@ -661,7 +661,7 @@ func settleLocalModules(t *testing.T, tf tfrun.Terraform, dir, modulesDir string
 	t.Helper()
 	ws := rootWorkspace(t, dir)
 	d := tidier(tf, ws, baseline)
-	kept, err := settleEdit(t, d, passLocalModules, liftModules(d.ctx, d.tf, ws, modulesDir, &ModuleRefs{}))
+	kept, err := settleEdit(t, d, passLocalModules, liftModules(d.ctx, d.tf, ws, modulesDir, &ModuleRefs{}, nil))
 	flushed(t, ws)
 	return kept, err
 }

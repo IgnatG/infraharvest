@@ -120,9 +120,11 @@ func nameAttributes(t Traits) []string {
 // region-wide setting, it identifies nothing.
 var sharedAttributes = []string{"region", "location", "project", "account_id", "owner_id", "tenant_id", "subscription_id"}
 
-// regionLike matches cloud regions and zones, such as eu-west-2 and
-// us-central1-a, which some region-wide settings have as their ID.
-var regionLike = regexp.MustCompile(`^[a-z]{2,}(-[a-z]+)+-?[0-9]+[a-z]?$`)
+// regionLike matches cloud regions and zones, such as AWS's eu-west-2 and
+// eu-west-2a and Google's europe-west1 and us-central1-a, which some
+// region-wide settings have as their ID. It matches the shapes the clouds
+// name them by, not any name that ends with a number, such as web-server-1.
+var regionLike = regexp.MustCompile(`^(?:[a-z]{2}(?:-gov|-iso[a-z]?)?-(?:north|south|east|west|central)(?:east|west)?-[0-9]+[a-z]?|(?:us|europe|asia|australia|southamerica|northamerica|me|africa)-(?:north|south|east|west|central)(?:east|west)?[0-9]+(?:-[a-z])?)$`)
 
 // derivedIdentity returns the identity the resource at address, of
 // attrs, has of several attributes, as Terraform reads it back in other
