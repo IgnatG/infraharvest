@@ -61,3 +61,12 @@ func (c *Counting) ShowPlanFile(ctx context.Context, planPath string, opts ...tf
 	c.count().Shows++
 	return c.Terraform.ShowPlanFile(ctx, planPath, opts...)
 }
+
+// Add counts plans and shown plans the current step ran outside the
+// Terraform it counts, such as the plan that builds a snapshot in a copy
+// of the root.
+func (c *Counting) Add(plans, shows int) {
+	n := c.count()
+	n.Plans += plans
+	n.Shows += shows
+}

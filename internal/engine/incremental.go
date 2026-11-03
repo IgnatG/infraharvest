@@ -310,6 +310,7 @@ func adding(opts Options, lock []byte, root []*hclfile.File, existing map[Extern
 	}
 	r.taken = rootNames(root)
 	o.ModulesDir = ""
+	o.ImportOnce = nil
 	o.Adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
 	if opts.DefaultTags != nil {
 		dt := *opts.DefaultTags

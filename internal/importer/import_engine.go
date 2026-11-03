@@ -166,11 +166,18 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	if err != nil {
 		return nil, nil, err
 	}
-	claimed, err := claimRoot(run.outputIndex(options.Out), dir, fp, d, run.shared)
+	newClaim := func() (*claim, error) {
+		claimed, err := claimRoot(run.outputIndex(options.Out), dir, fp, d, run.shared)
+		if err != nil {
+			return nil, err
+		}
+		claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
+		return claimed, nil
+	}
+	claimed, err := newClaim()
 	if err != nil {
 		return nil, err, nil
 	}
-	claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
 	if len(imports) == 0 {
 		log.Printf("%s: %s hands every resource it had over to other roots", c.provider.Name(), dir)
 	} else {
@@ -196,7 +203,26 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	if len(imports) == 0 {
 		result, err = run.tools.vacate(dir, dirOpts)
 	} else {
+		dirOpts.ImportOnce = importOnceFor(tr)
 		result, err = run.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
+		if dirOpts.ImportOnce != nil && ctx.Err() == nil && engine.NeedsFreshGeneration(result, err) {
+			// What the snapshot cached went wrong, or the root's real plan
+			// differs from the cached ones: generate it once more as before,
+			// so that a snapshot costs time, never a wrong root.
+			log.Printf("%s: %s: generating the root again without its import-once snapshot", c.provider.Name(), dir)
+			dirOpts.ImportOnce = nil
+			if undoErr := claimed.discard(options.Out, dir); undoErr != nil {
+				return nil, undoErr, nil
+			}
+			if claimed, err = newClaim(); err != nil {
+				return nil, err, nil
+			}
+			dirOpts.Previous = claimed.previousRoot()
+			if d.premerged {
+				dirOpts.Previous = nil
+			}
+			result, err = run.tools.generateDir(ctx, dir, tr, imports, dirOpts, lock)
+		}
 		if err == nil && untemplated {
 			result.Warnings = append(result.Warnings, mergedRootNoTemplate)
 		}

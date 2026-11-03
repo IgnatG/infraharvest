@@ -59,6 +59,11 @@ type fakeEngine struct {
 	// returns, if set, once it has written the root's files, as the
 	// engine does; leak the root whose secrets check fails.
 	fail, leak string
+	// snapshotFails is the root whose first generation, with import-once
+	// state, fails its gate's plan check, as the engine reports it;
+	// withSnapshot records, per generation, whether it had the option.
+	snapshotFails string
+	withSnapshot  []bool
 	// label, if set, gives the label of each resource the root imports,
 	// for its address; its name otherwise.
 	label func(rootfile.Import) string
@@ -114,6 +119,10 @@ func (f *fakeEngine) tools() *callTools {
 			}
 			if f.fail != "" && filepath.Base(dir) == f.fail {
 				return nil, errors.New("plan failed")
+			}
+			f.withSnapshot = append(f.withSnapshot, opts.ImportOnce != nil)
+			if opts.ImportOnce != nil && f.snapshotFails != "" && filepath.Base(dir) == f.snapshotFails {
+				return &engine.Result{Imported: imports, UsedSnapshot: true, Gate: gate.Gate{{Name: gate.CheckPlan, Details: []string{"fake_thing.x: update"}}}}, nil
 			}
 			result := &engine.Result{Imported: imports}
 			if f.leak != "" && filepath.Base(dir) == f.leak {
