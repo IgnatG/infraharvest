@@ -477,3 +477,42 @@ func TestMergeStackFailingKeepsTheMergedRoot(t *testing.T) {
 		})
 	}
 }
+
+// A stack merged before whose roots can't be removed once it has merged
+// again keeps the merged root it had: the new one isn't left over it,
+// without a checkpoint to say what it is.
+func TestMergeStackFailingToRemoveTheRootsKeepsTheMergedRoot(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{}
+	p, stack, members := stackMembers(t, out, f, "dev", "prod")
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	// What the first merge wrote, to tell it from what the second does.
+	if err := os.WriteFile(filepath.Join(stack, "main.tf"), []byte("# first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := mergeCheckpoints.read(out, stack)
+	if err != nil || before == nil {
+		t.Fatalf("merge checkpoint %+v, %v", before, err)
+	}
+	for i, m := range members {
+		writeRootFiles(t, m.dir, map[string]string{rootfile.VersionsFileName: "terraform {}\n", rootfile.GeneratedFileName: "resource \"fake_thing\" \"" + m.env + "_again\" {}\n"})
+		members[i].fingerprint += "-again"
+		members[i].premerged = false
+		// Its files can be read, copied aside, but not removed.
+		if err := os.Chmod(m.dir, 0o555); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(m.dir, 0o755) })
+	}
+	if err := p.mergeStack(t.Context(), stack, members); err == nil {
+		t.Skip("the roots can be removed here (running as root?)")
+	}
+	if content, err := os.ReadFile(filepath.Join(stack, "main.tf")); err != nil || string(content) != "# first\n" {
+		t.Errorf("the merged root isn't as it was: %q, %v", content, err)
+	}
+	if after, err := mergeCheckpoints.read(out, stack); err != nil || after == nil || after.Fingerprint != before.Fingerprint {
+		t.Errorf("merge checkpoint %+v, %v, want it as it was, %+v", after, err, before)
+	}
+}
