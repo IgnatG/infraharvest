@@ -256,3 +256,48 @@ func TestRowsShowEscapesInNames(t *testing.T) {
 		t.Errorf("rows %q don't show the escape", got)
 	}
 }
+
+// A scope's row lists its resources in the file's order, whatever the
+// order the map of its types is ranged in.
+func TestScopeRowOrder(t *testing.T) {
+	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}}
+	for i := range 40 {
+		f.Resources = append(f.Resources, selection.Resource{Type: "aws_type_" + string(rune('a'+i%20)), ID: "id", Scope: euWest, Include: true})
+		f.Resources[i].ID = strings.Repeat("x", i+1)
+	}
+	f.Resources = append(f.Resources, selection.Resource{Type: "aws_vpc", ID: "v", Scope: global, Include: true})
+	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f)
+	for range 20 {
+		m.invalidate()
+		for _, r := range m.rows() {
+			if r.depth != 0 {
+				continue
+			}
+			for i := 1; i < len(r.resources); i++ {
+				if r.resources[i-1] > r.resources[i] {
+					t.Fatalf("scope row %q lists %v", r.label, r.resources)
+				}
+			}
+		}
+	}
+}
+
+// Saving the file leaves the rows pointing at the resources they were
+// for, even when the loaded file wasn't sorted.
+func TestToggleAfterSave(t *testing.T) {
+	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: []selection.Resource{
+		{Type: "aws_vpc", ID: "vpc-b", Scope: euWest, Include: true},
+		{Type: "aws_iam_role", ID: "app", Scope: euWest, Include: true},
+	}}
+	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f)
+	m.rows()
+	if err := f.Save(m.path); err != nil {
+		t.Fatal(err)
+	}
+	press(m, "n") // exclude everything the rows list
+	for _, r := range f.Resources {
+		if r.Include {
+			t.Errorf("%s %s is still included", r.Type, r.ID)
+		}
+	}
+}

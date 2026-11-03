@@ -214,6 +214,7 @@ func (m *Model) layout() []row {
 			all = append(all, indexes...)
 		}
 		sort.Strings(types)
+		sort.Ints(all)
 		depth := 0
 		if m.withScopes {
 			rows = append(rows, row{key: scopeKey(scope), label: scopeLabel(scope), resources: all})
