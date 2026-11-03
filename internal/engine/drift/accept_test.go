@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -464,5 +465,31 @@ func TestPlanRejectionBlamesTheRoundsEdits(t *testing.T) {
 	want := driftRejection{RejectedByPlan, "the plan of the edited code doesn't take the edits"}
 	if !reflect.DeepEqual(dropped, map[*Change]driftRejection{a: want, b: want}) {
 		t.Errorf("dropped %+v, want a and b with %+v", dropped, want)
+	}
+}
+
+// The accepted files keep the permissions of the files they replace, a
+// private terraform.tfvars's included; a new file is 0644.
+func TestWriteDriftFilesKeepsPermissions(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("no permission bits here")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "terraform.tfvars"), []byte("a = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	contents := map[string][]byte{"terraform.tfvars": []byte("a = 2\n"), "new.tf": []byte("# new\n")}
+	if err := writeDriftFiles(dir, contents, []string{"terraform.tfvars", "new.tf"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]os.FileMode{"terraform.tfvars": 0o600, "new.tf": 0o644} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Errorf("%s mode = %o, want %o", name, got, want)
+		}
 	}
 }
