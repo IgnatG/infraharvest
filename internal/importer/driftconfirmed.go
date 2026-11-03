@@ -5,6 +5,7 @@ package importer
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -95,7 +96,11 @@ func (c *confirmedRoots) copyStates() error {
 // that the run added to the copy or changed there, as drift did into the
 // roots before it ran on a copy: the code of the changes it accepted, and
 // the dependency lock files its inits wrote.
+// It writes all or nothing: if one file fails, those it already wrote
+// are restored, as drift's own writes are.
 func (c *confirmedRoots) writeBack() error {
+	var names []string
+	contents := map[string][]byte{}
 	_, err := driftpolicy.ReadRoots(c.copy, func(path string, content []byte) error {
 		rel, err := filepath.Rel(c.copy, path)
 		if err != nil || inCheckpoints(rel) {
@@ -104,18 +109,38 @@ func (c *confirmedRoots) writeBack() error {
 		if hash, ok := c.hashes[rel]; ok && hash == sha256.Sum256(content) {
 			return nil
 		}
-		target := filepath.Join(c.out, rel)
-		perm := fs.FileMode(0o644)
-		if info, err := os.Stat(target); err == nil {
-			perm = info.Mode().Perm()
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		return fsutil.WriteFile(target, content, perm)
+		names = append(names, rel)
+		contents[rel] = content
+		return nil
 	})
-	return err
+	if err != nil || len(names) == 0 {
+		return err
+	}
+	backup, err := fsutil.BackupFiles(c.out, names...)
+	if err != nil {
+		return err
+	}
+	for _, rel := range names {
+		target := filepath.Join(c.out, rel)
+		err := os.MkdirAll(filepath.Dir(target), 0o755)
+		if err == nil {
+			err = writeBackFile(target, contents[rel], backup.Mode(rel))
+		}
+		if err != nil {
+			werr := fmt.Errorf("write back %s: %w", rel, err)
+			if rerr := backup.Restore(); rerr != nil {
+				return errors.Join(werr, fmt.Errorf("restore the roots' files: %w", rerr))
+			}
+			return fmt.Errorf("%w; the roots' files were restored", werr)
+		}
+	}
+	return nil
 }
+
+// writeBackFile writes a file writeBack writes back; a variable, for tests.
+var writeBackFile = defaultWriteBackFile
+
+var defaultWriteBackFile = fsutil.WriteFile
 
 // remove removes the copy.
 func (c *confirmedRoots) remove() {

@@ -25,7 +25,7 @@ func clearCredentialsEnv(t *testing.T) {
 // application default credentials, with the cloud-platform scope alone.
 func TestCredentialOptionsDefault(t *testing.T) {
 	clearCredentialsEnv(t)
-	opts, err := credentialOptions(t.Context())
+	opts, err := credentialOptions(t.Context(), "")
 	if err != nil || len(opts) != 1 {
 		t.Errorf("got %d options, %v; want the scope alone", len(opts), err)
 	}
@@ -51,7 +51,7 @@ func TestCredentialOptionsFromTheEnvironment(t *testing.T) {
 			for k, v := range env {
 				t.Setenv(k, v)
 			}
-			opts, err := credentialOptions(t.Context())
+			opts, err := credentialOptions(t.Context(), "")
 			if err != nil || len(opts) != 2 {
 				t.Errorf("got %d options, %v; want the scope and the credentials", len(opts), err)
 			}
@@ -70,7 +70,7 @@ func TestCredentialOptionsFail(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			clearCredentialsEnv(t)
 			t.Setenv("GOOGLE_CREDENTIALS", value)
-			_, err := credentialOptions(t.Context())
+			_, err := credentialOptions(t.Context(), "")
 			if err == nil || !strings.Contains(err.Error(), "GOOGLE_CREDENTIALS") || strings.Contains(err.Error(), "secret") {
 				t.Errorf("error %v, want one naming GOOGLE_CREDENTIALS without its value", err)
 			}

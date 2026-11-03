@@ -120,6 +120,12 @@ type Scope struct {
 	// FoldCase says two IDs that differ only in case are the same scope,
 	// as Azure's subscription IDs, which are GUIDs, are.
 	FoldCase bool
+	// Identity are the keys, in an environment of the configuration file,
+	// that name the identity its scopes are read with, under the
+	// provider's command beside Field, such as profile and assume_role in
+	// aws: { accounts: [...], assume_role: ... }. They are references
+	// only, never secrets.
+	Identity []IdentityKey
 	// Needs are the command's flags of which it needs one to know what to
 	// import, such as google's projects, organization and folders; none
 	// for a command that has a default, such as the account of aws's
@@ -312,4 +318,42 @@ func (d EnvironmentData) Set(typ, value string, names ...string) {
 	for _, name := range names {
 		d[typ][name] = value
 	}
+}
+
+// IdentityKey is a key of an environment's section for a provider command
+// that names the identity its scopes are read with: a reference to
+// credentials the machine has or can get, such as an AWS profile, never a
+// secret.
+type IdentityKey struct {
+	// Key is the key in the section, such as assume_role.
+	Key string
+	// Match, if set, matches a value of the key, and Format says what
+	// that is, for the error of one that doesn't, such as "a role name or
+	// ARN". A value that matches is no secret: the patterns have none of
+	// the shapes of one.
+	Match  *regexp.Regexp
+	Format string
+	// Check, if set, returns why value, with the environment's scopes
+	// (the IDs of Field), can't be that environment's.
+	Check func(value string, scopes []string) error
+}
+
+// IdentityKey returns the identity key called key, or nil.
+func (s Scope) IdentityKey(key string) *IdentityKey {
+	for i := range s.Identity {
+		if s.Identity[i].Key == key {
+			return &s.Identity[i]
+		}
+	}
+	return nil
+}
+
+// Keys returns the keys of an environment's section for the provider
+// command: Field, then the identity's.
+func (s Scope) Keys() []string {
+	keys := []string{s.Field}
+	for _, k := range s.Identity {
+		keys = append(keys, k.Key)
+	}
+	return keys
 }

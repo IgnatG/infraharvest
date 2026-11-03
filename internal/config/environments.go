@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
@@ -42,6 +44,12 @@ type Environment struct {
 	// has none of its own: Load checks each against the profile of the
 	// command it names, and fails on one the binary isn't built with.
 	Sections map[string]Section `yaml:",inline"`
+	// Identities are, by the provider command's name, the identity its
+	// section's scopes are read with: references to credentials, by the
+	// keys its profile names (harvest.Scope.Identity), such as
+	// assume_role. They are written beside the IDs in the section, as in
+	// aws: { accounts: [...], assume_role: infraharvest-readonly }.
+	Identities map[string]Identity `yaml:"-"`
 	// Tags are tag keys and values (labels on Google Cloud) a resource of
 	// the environment has, all of them, compared as --env-tags compares
 	// environments: in lower case, with anything but letters, digits,
@@ -50,6 +58,88 @@ type Environment struct {
 	// Tokens are the words that stand for the environment inside
 	// resources' names, such as prd for prod; by default its name.
 	Tokens []string `yaml:"tokens,omitempty"`
+}
+
+// Identity is how one provider command reads an environment's scopes, by
+// key (harvest.IdentityKey): a profile, a role, a service account, never
+// a secret.
+type Identity map[string]string
+
+// UnmarshalYAML reads an environment: its tags and tokens, and a section
+// for each provider command, in which a list holds the IDs of its scopes
+// and a single value one key of the identity they are read with. Which
+// keys a provider command has is its profile's to say (see checkSections).
+func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: an environment is a mapping", node.Line)
+	}
+	*e = Environment{}
+	seen := map[string]bool{}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i].Value, node.Content[i+1]
+		if seen[key] {
+			return fmt.Errorf("line %d: key %q is set twice", node.Content[i].Line, key)
+		}
+		seen[key] = true
+		switch key {
+		case "tags":
+			if err := value.Decode(&e.Tags); err != nil {
+				return err
+			}
+		case "tokens":
+			if err := value.Decode(&e.Tokens); err != nil {
+				return err
+			}
+		default:
+			section, identity, err := decodeSection(key, value)
+			if err != nil {
+				return err
+			}
+			if e.Sections == nil {
+				e.Sections = map[string]Section{}
+			}
+			e.Sections[key] = section
+			if len(identity) > 0 {
+				if e.Identities == nil {
+					e.Identities = map[string]Identity{}
+				}
+				e.Identities[key] = identity
+			}
+		}
+	}
+	return nil
+}
+
+// decodeSection reads the section of the provider command name: the lists
+// of IDs, and the single values that name an identity.
+func decodeSection(name string, node *yaml.Node) (Section, Identity, error) {
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!null" {
+		return Section{}, nil, nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil, nil, fmt.Errorf("line %d: %s: a mapping, such as { accounts: [...] }", node.Line, name)
+	}
+	section, identity := Section{}, Identity{}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key, value := node.Content[i].Value, node.Content[i+1]
+		if _, dup := section[key]; dup || identity[key] != "" {
+			return nil, nil, fmt.Errorf("line %d: %s: key %q is set twice", node.Content[i].Line, name, key)
+		}
+		switch value.Kind {
+		case yaml.ScalarNode:
+			identity[key] = strings.TrimSpace(value.Value)
+			if identity[key] == "" {
+				return nil, nil, fmt.Errorf("line %d: %s: %s is empty", value.Line, name, key)
+			}
+		default:
+			var ids []string
+			if err := value.Decode(&ids); err != nil {
+				return nil, nil, fmt.Errorf("line %d: %s: %s: %w", value.Line, name, key, err)
+			}
+			section[key] = ids
+		}
+	}
+	return section, identity, nil
 }
 
 // Section is an environment's section for one provider command: the IDs
@@ -201,6 +291,13 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 			tokens[lower] = name
 		}
 	}
+	// An environment without tokens is known by its name (see
+	// EnvironmentTokens), which no other environment may have as a token.
+	for _, name := range slices.Sorted(maps.Keys(envs)) {
+		if other, taken := tokens[name]; taken && len(envs[name].Tokens) == 0 && other != name {
+			return fmt.Errorf("%s: tokens: it has none, so its name stands for it, which is %s's token too", name, other)
+		}
+	}
 	// What several environments share must be told apart by tags.
 	for _, p := range profiles {
 		sharing := map[string][]string{}
@@ -218,6 +315,9 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 		}
 		for _, scope := range scopes {
 			if err := envs.apart(sharing[scope]); err != nil {
+				return fmt.Errorf("%s %s: %w", p.Command, scope, err)
+			}
+			if err := envs.sameIdentity(p.Command, sharing[scope]); err != nil {
 				return fmt.Errorf("%s %s: %w", p.Command, scope, err)
 			}
 		}
@@ -240,6 +340,11 @@ func (envs Environments) check(profiles []harvest.Profile) error {
 // for accounts, or an ID that is empty or isn't one by its profile, such
 // as an AWS account that isn't 12 digits.
 func (e Environment) checkSections(profiles []harvest.Profile) error {
+	for command := range e.Identities {
+		if _, ok := e.Sections[command]; !ok {
+			return fmt.Errorf("%s: identity without a section", command)
+		}
+	}
 	for _, command := range slices.Sorted(maps.Keys(e.Sections)) {
 		i := slices.IndexFunc(profiles, func(p harvest.Profile) bool { return p.Command == command })
 		if i < 0 {
@@ -247,9 +352,16 @@ func (e Environment) checkSections(profiles []harvest.Profile) error {
 		}
 		p := profiles[i]
 		for _, field := range slices.Sorted(maps.Keys(e.Sections[command])) {
-			if field != p.Scope.Field {
-				return fmt.Errorf("%s: unknown key %q: use %s", command, field, p.Scope.Field)
+			switch {
+			case field == p.Scope.Field:
+			case p.Scope.IdentityKey(field) != nil:
+				return fmt.Errorf("%s: %s takes one value, not a list", command, field)
+			default:
+				return fmt.Errorf("%s: unknown key %q: use %s", command, field, strings.Join(p.Scope.Keys(), ", "))
 			}
+		}
+		if err := e.checkIdentity(command, p); err != nil {
+			return err
 		}
 		for _, scope := range e.Scopes(command) {
 			switch {
@@ -258,6 +370,82 @@ func (e Environment) checkSections(profiles []harvest.Profile) error {
 			case p.Scope.ID != nil && !p.Scope.ID.MatchString(scope):
 				return fmt.Errorf("%s: %q isn't %s", command, scope, p.Scope.IDFormat)
 			}
+		}
+	}
+	return nil
+}
+
+// checkIdentity returns why the identity e's section for the provider
+// command whose profile is p names isn't one: a key other than the
+// profile's (harvest.Scope.Identity), the scope's field with a single
+// value, a value that isn't of the key's format or looks like a secret
+// (the file holds references, never credentials), or an identity for
+// scopes the environment doesn't name, which would read nothing.
+func (e Environment) checkIdentity(command string, p harvest.Profile) error {
+	identity := e.Identities[command]
+	if len(identity) == 0 {
+		return nil
+	}
+	if _, ok := identity[p.Scope.Field]; ok {
+		return fmt.Errorf("%s: %s is a list of IDs", command, p.Scope.Field)
+	}
+	if len(e.Scopes(command)) == 0 {
+		return fmt.Errorf("%s: %s read the %s the environment names: name its %s", command, sentence.List(slices.Sorted(maps.Keys(identity)), "and"), p.Scope.Noun, p.Scope.Field)
+	}
+	for _, key := range slices.Sorted(maps.Keys(identity)) {
+		value := identity[key]
+		k := p.Scope.IdentityKey(key)
+		switch {
+		case key == p.Scope.Field:
+			return fmt.Errorf("%s: %s is a list of IDs", command, key)
+		case k == nil:
+			return fmt.Errorf("%s: unknown key %q: use %s", command, key, strings.Join(p.Scope.Keys(), ", "))
+		case looksSecret(value):
+			return fmt.Errorf("%s: %s: the value looks like a secret: name the identity, such as a profile, a role or a service account, never a credential", command, key)
+		case k.Match != nil && !k.Match.MatchString(value):
+			return fmt.Errorf("%s: %s: %q isn't %s", command, key, value, k.Format)
+		}
+		if k.Check != nil {
+			if err := k.Check(value, e.Scopes(command)); err != nil {
+				return fmt.Errorf("%s: %s: %w", command, key, err)
+			}
+		}
+	}
+	return nil
+}
+
+// secretShapes are values that are credentials, which no identity of the
+// file is: a private key, an AWS access key ID or a 40-character secret
+// access key, a JWT or Google OAuth access token, a GitHub token, and an
+// Azure client secret.
+var secretShapes = regexp.MustCompile(`-----BEGIN|^\{|^(AKIA|ASIA|AGPA|AIDA|AROA)[A-Z0-9]{12,}$|^[A-Za-z0-9/+=]{40}$|^eyJ[\w-]+\.[\w-]+\.|^ya29\.|^gh[pousr]_|^[A-Za-z0-9_.-]{3}[0-9]Q~[A-Za-z0-9_.~-]{20,}$`)
+
+// looksSecret reports whether value has the shape of a credential.
+func looksSecret(value string) bool {
+	return secretShapes.MatchString(strings.TrimSpace(value))
+}
+
+// sameIdentity returns why the environments names, which name the same
+// account, subscription or project, would read it with different
+// identities, if they do: it is read once.
+func (envs Environments) sameIdentity(command string, names []string) error {
+	for _, name := range names[1:] {
+		if !maps.Equal(envs[names[0]].Identities[command], envs[name].Identities[command]) {
+			return fmt.Errorf("%s and %s name it, and are read with different identities: give them the same", names[0], name)
+		}
+	}
+	return nil
+}
+
+// IdentityFor returns the identity the scope of the provider command
+// whose profile is provider is read with, by key (see
+// harvest.Scope.Identity): that of the environments that name it, which
+// the file's check leaves the same. None means the ambient credentials.
+func (envs Environments) IdentityFor(provider harvest.Profile, scope string) Identity {
+	for _, name := range slices.Sorted(maps.Keys(envs)) {
+		e := envs[name]
+		if len(e.Identities[provider.Command]) > 0 && slices.ContainsFunc(e.Scopes(provider.Command), func(s string) bool { return scopeKey(provider.Scope, s) == scopeKey(provider.Scope, scope) }) {
+			return e.Identities[provider.Command]
 		}
 	}
 	return nil

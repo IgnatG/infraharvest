@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -45,6 +46,7 @@ func init() {
 		sampleIDs:      "vpc=vpc-0a1b2c3d",
 		parallelScopes: "accounts of --accounts or --organization and regions of --regions",
 		flags:          awsFlags,
+		identityArgs:   awsIdentityArgs,
 	})
 }
 
@@ -373,4 +375,22 @@ func groupAWSServices(options importer.Options) (global, eastOnly, regional []st
 		}
 	}
 	return global, eastOnly, regional
+}
+
+// awsIdentityArgs returns args, the Init args of an AWS call for account,
+// with the profile and the role the environment that names the account
+// says to read it with (see awsprovider.IdentityKeys): the profile
+// replaces --profile, and the role --assume-role's, as a role ARN or a
+// role name, in the account.
+func awsIdentityArgs(args []string, account string, id config.Identity) []string {
+	for len(args) < 3 {
+		args = append(args, "")
+	}
+	if profile := id["profile"]; profile != "" {
+		args[1] = profile
+	}
+	if role := id["assume_role"]; role != "" {
+		args[2] = awsprovider.RoleARN(role, account)
+	}
+	return args
 }

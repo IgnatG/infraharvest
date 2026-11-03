@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -59,6 +60,11 @@ type definition struct {
 	// with (see managedStores). The store links the cloud's SDK, as the
 	// provider does, so only a build with the provider has it.
 	stores func(stores *managed.Stores)
+	// identityArgs returns args, the Init args of a call that covers
+	// scope, with the identity the configuration file's environment says
+	// scope is read with (see harvest.Scope.Identity) in place of the
+	// command's own: its profile, role, tenant or service account.
+	identityArgs func(args []string, scope string, id config.Identity) []string
 }
 
 // checker rejects what the options and the provider's own flags say that
@@ -86,6 +92,10 @@ type plan struct {
 	// place of the definition's, such as an AWS provider scoped to
 	// CloudFormation stacks.
 	newProvider func() harvest.Provider
+	// identify, if set, returns args, the Init args of a call that covers
+	// scope, with the identity the environments of the configuration
+	// file read scope with.
+	identify func(args []string, scope string) []string
 }
 
 // call is one Import call (see importer.Call).
@@ -114,6 +124,9 @@ func (p plan) importerPlan(options importer.Options, newProvider func() harvest.
 		planned := p.calls(options, scope)
 		calls := make([]importer.Call, len(planned))
 		for i, c := range planned {
+			if p.identify != nil {
+				c.args = p.identify(c.args, scope)
+			}
 			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
 		}
 		return calls
@@ -171,6 +184,15 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 				p, err := planScopes(ctx, options)
 				if err != nil {
 					return importer.Plan{}, err
+				}
+				if d.identityArgs != nil {
+					scopeIdentity := run.ScopeIdentity(d.newProvider().Profile())
+					p.identify = func(args []string, scope string) []string {
+						if id := scopeIdentity(scope); len(id) > 0 {
+							return d.identityArgs(slices.Clone(args), scope, id)
+						}
+						return args
+					}
 				}
 				return p.importerPlan(options, d.newProvider), nil
 			},

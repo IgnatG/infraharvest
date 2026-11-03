@@ -5,8 +5,11 @@ package engine
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
+
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
@@ -56,5 +59,34 @@ func TestPostProcessPlanCount(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, dir, rootfile.ProvidersFileName), "default_tags") {
 		t.Error("tags not lifted")
+	}
+}
+
+// The imported values leave out the attributes the plan marks sensitive,
+// so that a reference replaced by a value never writes a secret.
+func TestValuesOfLeavesOutSensitiveAttributes(t *testing.T) {
+	t.Parallel()
+	p := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{{
+		Address: "aws_db_instance.main",
+		Mode:    tfjson.ManagedResourceMode,
+		Change: &tfjson.Change{
+			Before:          map[string]any{"identifier": "main", "password": "hunter2"},
+			BeforeSensitive: map[string]any{"password": true},
+		},
+	}, {
+		Address: "aws_db_instance.new",
+		Mode:    tfjson.ManagedResourceMode,
+		Change: &tfjson.Change{
+			After:          map[string]any{"identifier": "new", "password": "hunter2"},
+			AfterSensitive: map[string]any{"password": true},
+		},
+	}}}
+	got := valuesOf(p)
+	want := map[string]map[string]any{
+		"aws_db_instance.main": {"identifier": "main"},
+		"aws_db_instance.new":  {"identifier": "new"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

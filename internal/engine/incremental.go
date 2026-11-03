@@ -97,7 +97,10 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 		if !resources[address] {
 			address = ""
 		}
-		e := External{Type: typ, ID: id}
+		// By identity, as the lookups of what is added are (see ResourceKey):
+		// an ID with a part that changes, such as an azapi one, is the same
+		// resource whatever the part is.
+		e := ResourceKey(typ, id)
 		if existing[e] == "" {
 			existing[e] = address
 		}

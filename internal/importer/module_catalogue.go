@@ -111,6 +111,14 @@ func fetchModule(ctx context.Context, tools *callTools, execPath, cacheDir strin
 		if moduleDir, err := installedModule(cached, "m"); err == nil && isDir(moduleDir) {
 			return moduleDir, func() {}, nil
 		}
+		// A module only ever moves into the cache whole, so one that is
+		// there but incomplete, as an older release or a hand edit could
+		// leave it, is fetched again rather than failing every import.
+		if isDir(cached) {
+			if err := os.RemoveAll(cached); err != nil {
+				return "", nil, fmt.Errorf("remove the incomplete cached module in %s: %w", cached, err)
+			}
+		}
 		// Fetched next to the cache, so that it moves there in one rename.
 		if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 			return "", nil, err

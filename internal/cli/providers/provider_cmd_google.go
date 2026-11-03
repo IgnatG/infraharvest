@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/pflag"
 
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/managed"
@@ -38,6 +39,7 @@ func init() {
 		sampleIDs:      "storage_bucket=my-logs",
 		parallelScopes: "projects of --projects, --organization or --folders and regions of --regions",
 		flags:          googleFlags,
+		identityArgs:   googleIdentityArgs,
 	})
 }
 
@@ -156,4 +158,14 @@ func (s *googleScopes) providerType() string {
 		return "beta"
 	}
 	return ""
+}
+
+// googleIdentityArgs returns args, the Init args of a Google call, with
+// the service account the environment that names the project says to read
+// it as (see google.IdentityKeys).
+func googleIdentityArgs(args []string, _ string, id config.Identity) []string {
+	for len(args) < 3 {
+		args = append(args, "")
+	}
+	return append(args[:3], google.IdentityArg(id["impersonate_service_account"]))
 }

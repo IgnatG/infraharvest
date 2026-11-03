@@ -73,6 +73,7 @@ func listedInScope(provider harvest.Provider, c *callContext, pattern string, li
 					continue
 				}
 				here.ids[strings.ToLower(r.Observed.ID)] = true
+				here.ids[strings.ToLower(engine.ResourceKey(r.Address.Type, r.Observed.ID).ID)] = true
 				if id, ok := c.importID(r); ok {
 					here.ids[strings.ToLower(id)] = true
 				}

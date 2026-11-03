@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -564,6 +565,20 @@ func (e *editedFiles) get(name string) *editedFile {
 	return f
 }
 
+// inEditedFile reports whether a diagnostic's filename, relative to the
+// directory the plan ran in (the root's copy), is the file edited, relative
+// to the root: the same path, not just the same base name, as a root has
+// files of one name in several directories, such as vars/dev/terraform.tfvars
+// and vars/prod/terraform.tfvars. A path the plan spelled absolute is the
+// file if it ends with it.
+func inEditedFile(filename, edited string) bool {
+	filename, edited = path.Clean(filepath.ToSlash(filename)), path.Clean(filepath.ToSlash(edited))
+	if filename == edited {
+		return true
+	}
+	return path.IsAbs(filename) && strings.HasSuffix(filename, "/"+edited)
+}
+
 // diagnosticOf reports whether d is about the edit of c, made as src
 // says in edited: in its resource, or in the file and block it edits.
 func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, edited *editedFiles) bool {
@@ -571,12 +586,12 @@ func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, edited *edited
 		if d.Address != "" {
 			return slices.ContainsFunc(c.Covers, func(a string) bool { return hclfile.TrimInstanceKey(a) == hclfile.TrimInstanceKey(d.Address) })
 		}
-		return d.Range != nil && src.Edit != nil && filepath.Base(d.Range.Filename) == src.Edit.File
+		return d.Range != nil && src.Edit != nil && inEditedFile(d.Range.Filename, src.Edit.File)
 	}
 	if d.Address != "" {
 		return hclfile.TrimInstanceKey(d.Address) == hclfile.TrimInstanceKey(c.Address)
 	}
-	if d.Range == nil || src.Edit == nil || filepath.Base(d.Range.Filename) != src.Edit.File {
+	if d.Range == nil || src.Edit == nil || !inEditedFile(d.Range.Filename, src.Edit.File) {
 		return false
 	}
 	f := edited.get(src.Edit.File)
@@ -586,9 +601,13 @@ func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, edited *edited
 	if address := f.resources.At(d.Range.Start.Line); address != "" {
 		return address == hclfile.TrimInstanceKey(c.Address)
 	}
+	inBlock := false
 	for _, b := range f.file.Syntax.Blocks {
+		if !hclfile.Spans(b.Range(), d.Range.Start.Line) {
+			continue
+		}
+		inBlock = true
 		switch {
-		case !hclfile.Spans(b.Range(), d.Range.Start.Line):
 		case b.Type == "locals":
 			return src.Kind == sourceLocal
 		case b.Type == "module" && len(b.Labels) == 1 && src.Module != "":
@@ -596,7 +615,9 @@ func diagnosticOf(d tfjson.Diagnostic, c *Change, src codeSource, edited *edited
 			return ok && calls[0].name == b.Labels[0]
 		}
 	}
-	return false
+	// An argument of a file with no block around it, such as a variable's
+	// value in a tfvars file, is the edit of the changes that edit the file.
+	return !inBlock
 }
 
 // referredTo returns the resources the blocks of addresses refer to, in

@@ -18,6 +18,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -491,5 +492,44 @@ func TestWriteDriftFilesKeepsPermissions(t *testing.T) {
 		if got := info.Mode().Perm(); got != want {
 			t.Errorf("%s mode = %o, want %o", name, got, want)
 		}
+	}
+}
+
+// A plan's error in a file of a subdirectory is the edit of the change
+// that edits that file, by its path, not by its name: a root has several
+// terraform.tfvars and main.tf.
+func TestDiagnosticOfAttributesByPath(t *testing.T) {
+	t.Parallel()
+	edited := &editedFiles{
+		contents: map[string][]byte{
+			"sub/main.tf":               []byte("resource \"aws_s3_bucket\" \"a\" {\n  bucket = \"a\"\n}\n"),
+			"vars/dev/terraform.tfvars": []byte("name = \"dev\"\n"),
+		},
+		parsed: map[string]*editedFile{},
+	}
+	diag := func(file string, line int) tfjson.Diagnostic {
+		return tfjson.Diagnostic{Severity: tfjson.DiagnosticSeverityError, Range: &tfjson.Range{Filename: file, Start: tfjson.Pos{Line: line}, End: tfjson.Pos{Line: line}}}
+	}
+	at := func(file string) codeSource {
+		return codeSource{File: file, Kind: sourceLiteral, Edit: &hclfile.Edit{File: file}}
+	}
+	a := &Change{Address: "aws_s3_bucket.a"}
+	b := &Change{Address: "aws_s3_bucket.b"}
+
+	if !diagnosticOf(diag("sub/main.tf", 2), a, at("sub/main.tf"), edited) {
+		t.Error("an error in a's block of sub/main.tf isn't a's")
+	}
+	if diagnosticOf(diag("sub/main.tf", 2), b, at("other/main.tf"), edited) {
+		t.Error("an error in sub/main.tf is the edit of another main.tf")
+	}
+	if !diagnosticOf(diag("vars/dev/terraform.tfvars", 1), a, at("vars/dev/terraform.tfvars"), edited) {
+		t.Error("an error in a tfvars file isn't the edit of the change that edits it")
+	}
+	if diagnosticOf(diag("vars/dev/terraform.tfvars", 1), b, at("vars/prod/terraform.tfvars"), edited) {
+		t.Error("an error in vars/dev is the edit of vars/prod")
+	}
+	shared := &Change{Address: "local.tags", shared: &tagShare{}}
+	if !diagnosticOf(diag("sub/main.tf", 2), shared, at("sub/main.tf"), edited) {
+		t.Error("an error in the file of shared tags' edit isn't theirs")
 	}
 }

@@ -244,3 +244,26 @@ func TestAddToRootReportsWhatIsNoLongerInTheCloud(t *testing.T) {
 		t.Errorf("what is gone is a failure: %v", r.failures)
 	}
 }
+
+// A resource whose ID ends with a part that changes, such as an azapi
+// one's API version, is found by the identity it is kept under (see
+// engine.Existing): it isn't gone while the listing finds it.
+func TestListedInScopeFindsAResourceByItsIdentity(t *testing.T) {
+	t.Parallel()
+	cat := catalogue.MustBuiltin("aws")
+	id := "/subscriptions/1/resourceGroups/app/providers/Microsoft.Web/sites/web"
+	listed := listing{resources: map[string][]harvest.Resource{"sqs": {
+		harvest.RecordBare(id+"?api-version=2024-10-01", "web", "azapi_resource", "azapi"),
+	}}}
+	here, why := listedInScope(&fakeProvider{}, &callContext{cat: cat, services: []string{"sqs"}, scope: "aws/123/eu-west-2", importID: importIDFunc(cat)}, "", listed, nil, nil)
+	if here == nil {
+		t.Fatal(why)
+	}
+	here.types["azapi_resource"] = true
+	existing := map[engine.External]string{
+		engine.ResourceKey("azapi_resource", id+"?api-version=2023-04-01"): "azapi_resource.web",
+	}
+	if got := here.notInCloud(existing); len(got) != 0 {
+		t.Errorf("got %+v; want nothing gone", got)
+	}
+}

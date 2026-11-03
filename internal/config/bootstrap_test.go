@@ -40,6 +40,7 @@ func TestBootstrap(t *testing.T) {
 		"gcs": {
 			Backend{GCS: &GCS{Bucket: "acme-state"}},
 			map[string][]string{
+				"versions.tf":  {`source  = "hashicorp/google"`, `version = "~> 8.0"`},
 				"main.tf":      {`name                        = "acme-state"`, `public_access_prevention    = "enforced"`, "enabled = true"},
 				"variables.tf": {`variable "project"`, `variable "location"`},
 			},

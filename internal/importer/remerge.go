@@ -492,9 +492,8 @@ func (s *stackMerge) conclude(ctx context.Context) error {
 			}
 		}
 	} else {
-		// The merged root is written for good: what it had doesn't come
-		// back over it.
-		s.backup = nil
+		// The merged root is written for good once its checkpoint is:
+		// until then an error puts back what it had (see mergeStack).
 		log.Printf("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(s.envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
 		if s.prev != nil && s.prev.Merge.Merged {
 			p.report.AddMergedMoves(merge.Path, s.prev.Imports, s.imports, s.removed)
@@ -516,7 +515,12 @@ func (s *stackMerge) conclude(ctx context.Context) error {
 			}
 		}
 	}
-	return mergeCheckpoints.write(out, s.stack, mergeCheckpoint{Fingerprint: s.fp, Members: checkpointMembers(out, members), Merge: merge, Files: s.result.Files, Imports: s.imports})
+	if err := mergeCheckpoints.write(out, s.stack, mergeCheckpoint{Fingerprint: s.fp, Members: checkpointMembers(out, members), Merge: merge, Files: s.result.Files, Imports: s.imports}); err != nil {
+		return err
+	}
+	// What the merged root had doesn't come back over the one written.
+	s.backup = nil
+	return nil
 }
 
 // restoredMembers returns the members of missing, environments the

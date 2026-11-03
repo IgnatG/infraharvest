@@ -130,7 +130,7 @@ type instanceList struct {
 // reached fails the list: its instances would be missing from it.
 func instancesOnce(ctx context.Context, project string) (instanceList, error) {
 	return cachesOf(ctx).instances.once(project, func() (instanceList, error) {
-		svc, err := compute.NewService(ctx, clientOptions(ctx)...)
+		svc, err := compute.NewService(ctx, clientOptions(ctx, project)...)
 		if err != nil {
 			return instanceList{}, err
 		}
