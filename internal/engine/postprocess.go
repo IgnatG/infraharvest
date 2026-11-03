@@ -336,7 +336,8 @@ func replanValues(ctx context.Context, tf tfrun.Terraform, vars []tfexec.PlanOpt
 }
 
 // valuesOf returns each resource's imported attribute values in p, by
-// address.
+// address, but for those the plan marks sensitive, so that no pass can
+// write one into the configuration.
 func valuesOf(p *tfjson.Plan) map[string]map[string]any {
 	values := map[string]map[string]any{}
 	for _, rc := range p.ResourceChanges {
@@ -345,8 +346,19 @@ func valuesOf(p *tfjson.Plan) map[string]map[string]any {
 		}
 		// An import's before is the imported object.
 		attrs, ok := rc.Change.Before.(map[string]any)
+		sensitive := rc.Change.BeforeSensitive
 		if !ok {
 			attrs, _ = rc.Change.After.(map[string]any)
+			sensitive = rc.Change.AfterSensitive
+		}
+		if marks, ok := sensitive.(map[string]any); ok {
+			kept := make(map[string]any, len(attrs))
+			for name, v := range attrs {
+				if marked, _ := marks[name].(bool); !marked {
+					kept[name] = v
+				}
+			}
+			attrs = kept
 		}
 		values[rc.Address] = attrs
 	}
