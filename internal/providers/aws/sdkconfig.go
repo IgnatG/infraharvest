@@ -228,7 +228,7 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 			// A build cut short because this service was interrupted, or ran
 			// out of time, says nothing of the credentials: the failure isn't
 			// kept, for the other services to take for theirs.
-			if !(isContextError(err) && s.Context().Err() != nil) {
+			if !isContextError(err) || s.Context().Err() == nil {
 				run.buildFailures[key] = buildFailure{err: err, at: time.Now()}
 			}
 			return aws.Config{}, err

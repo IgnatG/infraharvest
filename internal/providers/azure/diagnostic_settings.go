@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
-	"github.com/IgnatG/infraharvest/internal/providers/workers"
 	"github.com/magodo/armid"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )

@@ -11,9 +11,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/providers/workers"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sqladmin/v1"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )

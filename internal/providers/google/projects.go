@@ -10,8 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/internal/providers/workers"
 	"google.golang.org/api/cloudresourcemanager/v3"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 )
 
 // Projects returns the IDs of the active projects under organization (an
