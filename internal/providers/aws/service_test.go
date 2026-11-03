@@ -5,6 +5,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 
@@ -423,5 +425,64 @@ func TestListerPassesTheSettings(t *testing.T) {
 	}
 	if got := guard.lister.(*SqsLister).cacheKey(); got != want {
 		t.Errorf("the lister's cacheKey: got %+v, want %+v", got, want)
+	}
+}
+
+// A flight cut short by its starter's own context ends with that error for
+// the starter only: a caller that waited for it, whose context is fine,
+// runs it again and gets its result, not the starter's context error.
+func TestShareFlightRetriesAWaiterOfACanceledStarter(t *testing.T) {
+	t.Parallel()
+	var g singleflight.Group
+	starterCtx, cancel := context.WithCancel(context.Background())
+	started, release := make(chan struct{}), make(chan struct{})
+
+	starterErr := make(chan error, 1)
+	go func() {
+		_, err := shareFlight(starterCtx, &g, "k", func() (any, error) {
+			close(started)
+			<-release
+			return nil, starterCtx.Err()
+		})
+		starterErr <- err
+	}()
+	<-started
+
+	type answer struct {
+		v   any
+		err error
+	}
+	waiter := make(chan answer, 1)
+	go func() {
+		v, err := shareFlight(context.Background(), &g, "k", func() (any, error) { return "built", nil })
+		waiter <- answer{v, err}
+	}()
+	// The waiter has joined the flight once it is in progress and the
+	// starter's context is canceled; give it a moment to do so.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	close(release)
+
+	if err := <-starterErr; !errors.Is(err, context.Canceled) {
+		t.Errorf("the starter got %v, want its own context error", err)
+	}
+	if got := <-waiter; got.err != nil || got.v != "built" {
+		t.Errorf("the waiter got %v, %v, want the flight run again for it", got.v, got.err)
+	}
+}
+
+// An error that isn't the starter's context's is shared as it is, and not
+// retried.
+func TestShareFlightSharesOtherErrors(t *testing.T) {
+	t.Parallel()
+	var g singleflight.Group
+	boom := errors.New("boom")
+	calls := 0
+	_, err := shareFlight(context.Background(), &g, "k", func() (any, error) {
+		calls++
+		return nil, boom
+	})
+	if !errors.Is(err, boom) || calls != 1 {
+		t.Errorf("got %v after %d calls, want boom after one", err, calls)
 	}
 }

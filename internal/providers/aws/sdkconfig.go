@@ -216,7 +216,7 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 	if cfg, ok, err := run.cached(key); ok {
 		return cfg, err
 	}
-	built, err, _ := run.flight.Do(key.flightKey(), func() (any, error) {
+	built, err := shareFlight(s.Context(), &run.flight, key.flightKey(), func() (any, error) {
 		// Another flight of key may have ended since the cache was read.
 		if cfg, ok, err := run.cached(key); ok {
 			return cfg, err
@@ -225,7 +225,12 @@ func (s *Service) sdkConfig() (aws.Config, error) {
 		run.mu.Lock()
 		defer run.mu.Unlock()
 		if err != nil {
-			run.buildFailures[key] = buildFailure{err: err, at: time.Now()}
+			// A build cut short because this service was interrupted, or ran
+			// out of time, says nothing of the credentials: the failure isn't
+			// kept, for the other services to take for theirs.
+			if !(isContextError(err) && s.Context().Err() != nil) {
+				run.buildFailures[key] = buildFailure{err: err, at: time.Now()}
+			}
 			return aws.Config{}, err
 		}
 		delete(run.buildFailures, key)
@@ -291,7 +296,7 @@ func (r *runConfigs) resolveCredentials(ctx context.Context, shared credentialsK
 	if resolved, ok := r.keptCredentials(shared); ok {
 		return resolved, nil
 	}
-	resolved, err, _ := r.credentialsFlight.Do(shared.flightKey(), func() (any, error) {
+	resolved, err := shareFlight(ctx, &r.credentialsFlight, shared.flightKey(), func() (any, error) {
 		// Another flight of shared may have ended since they were read.
 		if resolved, ok := r.keptCredentials(shared); ok {
 			return resolved, nil
@@ -451,4 +456,50 @@ type redactingLogger struct {
 // Logf logs the formatted entry, redacted.
 func (l redactingLogger) Logf(classification logging.Classification, format string, v ...any) {
 	l.logger.Logf(classification, "%s", ihlogging.RedactHTTP(fmt.Sprintf(format, v...)))
+}
+
+// flightRetries is how many times a caller that waited for another's
+// flight retries it when that flight was cut short by the other's context.
+const flightRetries = 3
+
+// isContextError reports whether err is a canceled context or a missed
+// deadline.
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// cutShort is what a flight returns when its caller's own context ended
+// it, so that the callers that waited for it can tell.
+type cutShort struct{ err error }
+
+func (c *cutShort) Error() string { return c.err.Error() }
+
+func (c *cutShort) Unwrap() error { return c.err }
+
+// shareFlight calls fn once at a time for key, as g.Do does, and returns
+// what it returns. fn runs with the context of the caller that starts the
+// flight, which is ctx for that caller; so when ctx ends the flight, with
+// an interrupted or timed-out service's error, the callers that only
+// waited for it, whose own ctx is fine, run it again, a few times at most,
+// rather than failing with an error that isn't theirs.
+func shareFlight(ctx context.Context, g *singleflight.Group, key string, fn func() (any, error)) (any, error) {
+	for attempt := 0; ; attempt++ {
+		led := false
+		v, err, _ := g.Do(key, func() (any, error) {
+			led = true
+			v, err := fn()
+			if err != nil && isContextError(err) && ctx.Err() != nil {
+				return nil, &cutShort{err}
+			}
+			return v, err
+		})
+		var cut *cutShort
+		if !errors.As(err, &cut) {
+			return v, err
+		}
+		if !led && ctx.Err() == nil && attempt < flightRetries {
+			continue
+		}
+		return v, cut.err
+	}
 }
