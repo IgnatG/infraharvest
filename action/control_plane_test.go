@@ -389,3 +389,41 @@ func TestCheckInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestUploadPassesTheImportTimes(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{
+		"STARTED_AT":  "2026-11-03T09:30:00Z",
+		"FINISHED_AT": "2026-11-03T09:37:00Z",
+	})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	times := "--started-at=2026-11-03T09:30:00Z --finished-at=2026-11-03T09:37:00Z"
+	var exports []string
+	for _, line := range strings.Split(res.args, "\n") {
+		if strings.HasPrefix(line, "export ") {
+			exports = append(exports, line)
+		}
+	}
+	if len(exports) != 3 {
+		t.Fatalf("exports: %q", exports)
+	}
+	// The inventory (generated_at) and the run have them; the gate has no time.
+	for i, want := range []bool{true, true, false} {
+		if got := strings.Contains(exports[i], times); got != want {
+			t.Errorf("export %d ran as %q, times wanted: %v", i, exports[i], want)
+		}
+	}
+}
+
+func TestUploadWithoutImportTimes(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"STARTED_AT": "", "FINISHED_AT": ""})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if strings.Contains(res.args, "--started-at") || strings.Contains(res.args, "--finished-at") {
+		t.Errorf("exports ran as %q", res.args)
+	}
+}

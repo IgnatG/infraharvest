@@ -254,11 +254,13 @@ infraharvest export [output-directory] [flags]
 |---|---|---|
 | `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |
 | `--drop-tags` |  | leave all tags out of the inventory |
+| `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now) |
 | `--hash-ids` |  | replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
 | `--hash-key-file` |  | file with the key --hash-ids hashes with (at least 16 bytes), instead of INFRAHARVEST_EXPORT_KEY |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
 | `--schema` | `inventory` | document to write: inventory, run, gate |
+| `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
 
 ## infraharvest import
 

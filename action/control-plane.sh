@@ -22,7 +22,9 @@
 #
 # Inputs, as variables: URL, DROP_TAGS, DROP_TAG, HASH_IDS, HASH_KEY (else
 # INFRAHARVEST_EXPORT_KEY), OPTIONAL; and, for upload, BINARY, OUT, IMPORT,
-# IMPORT_OUTCOME, and the runner's ACTIONS_ID_TOKEN_REQUEST_URL and
+# IMPORT_OUTCOME, STARTED_AT and FINISHED_AT (when the import started and
+# finished, RFC 3339, from the Import step; either may be empty), and the
+# runner's ACTIONS_ID_TOKEN_REQUEST_URL and
 # ACTIONS_ID_TOKEN_REQUEST_TOKEN. INFRAHARVEST_UPLOAD_RETRY_DELAY is the
 # first delay in seconds between attempts (default 2, doubling), for tests.
 set -euo pipefail
@@ -199,10 +201,18 @@ upload() {
   # or the workflow's own variable.
   key="${HASH_KEY:-${INFRAHARVEST_EXPORT_KEY-}}"
 
+  # The report holds no times: the import's own start and finish go to the
+  # run (started_at, finished_at) and the inventory (generated_at is the
+  # finish), so that sending the same run again changes neither.
+  local times=()
+  [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
+  [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT")
+
   local doc
   for doc in inventory run gate; do
     flags=()
     if [[ "$doc" == inventory ]]; then flags=(${redact[@]+"${redact[@]}"}); fi
+    if [[ "$doc" != gate ]]; then flags+=(${times[@]+"${times[@]}"}); fi
     if ! err=$(INFRAHARVEST_EXPORT_KEY="$key" "$bin" export "$out" "--schema=$doc" "--out-file=$tmp/$doc.json" ${flags[@]+"${flags[@]}"} 2>&1 > /dev/null); then
       problem "infraharvest export ($doc) failed: $err"
     fi

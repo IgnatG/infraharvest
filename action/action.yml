@@ -451,10 +451,16 @@ runs:
         code=0
         # As drift's: no commands from what the import logs.
         commands_off
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         "$bin" "${args[@]}" 2>&1 > "$RUNNER_TEMP/infraharvest-report.json" || code=$?
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         commands_on
         report="$OUT/_reports/report.md"
         output exit-code "$code"
+        # Recorded here, as the report holds no times: the Control plane step
+        # hands them to infraharvest export.
+        output started-at "$started"
+        output finished-at "$finished"
         output report "$report"
         # Not through a link (see the drift step).
         if unlinked "$report"; then
@@ -524,4 +530,6 @@ runs:
         BINARY: ${{ inputs.binary }}
         OUT: ${{ inputs.out }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
+        STARTED_AT: ${{ steps.import.outputs.started-at }}
+        FINISHED_AT: ${{ steps.import.outputs.finished-at }}
       run: bash "$GITHUB_ACTION_PATH/control-plane.sh" upload

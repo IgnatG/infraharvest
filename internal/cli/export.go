@@ -25,6 +25,8 @@ func newExportCmd() *cobra.Command {
 		dropAllTags bool
 		hashIDs     bool
 		hashKeyFile string
+		startedAt   string
+		finishedAt  string
 	)
 	cmd := &cobra.Command{
 		Use:   "export [output-directory]",
@@ -38,6 +40,9 @@ func newExportCmd() *cobra.Command {
 			"It holds no attributes, values or addresses. Tags whose key or value looks like\n" +
 			"a secret are dropped; --drop-tag and --drop-tags drop more, and --hash-ids\n" +
 			"replaces IDs and names with HMAC-SHA256 hashes under a key only you hold.\n" +
+			"The report holds no times, so pass --started-at and --finished-at (RFC 3339) to\n" +
+			"put them in the run document; --finished-at is also the inventory's\n" +
+			"generated_at, which is the time of the export without it.\n" +
 			"--print-schema prints the JSON Schema of the document instead.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -47,7 +52,7 @@ func newExportCmd() *cobra.Command {
 			if printSchema {
 				content, err = export.Schema(document)
 			} else {
-				content, err = buildExport(args, document, dropTags, dropAllTags, hashIDs, hashKeyFile)
+				content, err = buildExport(args, document, dropTags, dropAllTags, hashIDs, hashKeyFile, startedAt, finishedAt)
 			}
 			if err != nil {
 				return err
@@ -66,17 +71,30 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dropAllTags, "drop-tags", false, "leave all tags out of the inventory")
 	cmd.Flags().BoolVar(&hashIDs, "hash-ids", false, "replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
 	cmd.Flags().StringVar(&hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
+	cmd.Flags().StringVar(&startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")
+	cmd.Flags().StringVar(&finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now)")
 	return cmd
 }
 
 // buildExport builds the document of the output directory the arguments
 // name.
-func buildExport(args []string, document string, dropTags []string, dropAllTags, hashIDs bool, hashKeyFile string) ([]byte, error) {
+func buildExport(args []string, document string, dropTags []string, dropAllTags, hashIDs bool, hashKeyFile, startedAt, finishedAt string) ([]byte, error) {
 	out := report.DefaultOut
 	if len(args) == 1 {
 		out = args[0]
 	}
 	opts := export.Options{Out: out, Document: document, DropTags: dropTags, DropAllTags: dropAllTags}
+	var err error
+	if startedAt != "" {
+		if opts.StartedAt, err = export.ParseTime("--started-at", startedAt); err != nil {
+			return nil, err
+		}
+	}
+	if finishedAt != "" {
+		if opts.FinishedAt, err = export.ParseTime("--finished-at", finishedAt); err != nil {
+			return nil, err
+		}
+	}
 	switch {
 	case hashIDs:
 		key, err := export.ReadKey(hashKeyFile, os.Getenv)

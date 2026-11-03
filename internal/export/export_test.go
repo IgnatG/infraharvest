@@ -457,3 +457,76 @@ func TestInventoryDirIsTheImporters(t *testing.T) {
 		t.Errorf("inventoryDir %s, want %s", inventoryDir, want)
 	}
 }
+
+func TestRunTimes(t *testing.T) {
+	t.Parallel()
+	out := writeOut(t)
+	started := time.Date(2026, 11, 3, 9, 30, 0, 0, time.UTC)
+	finished := started.Add(7 * time.Minute)
+
+	var run runDoc
+	if err := json.Unmarshal(build(t, Options{Out: out, Document: DocRun, StartedAt: started, FinishedAt: finished}), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.StartedAt != "2026-11-03T09:30:00Z" || run.FinishedAt != "2026-11-03T09:37:00Z" {
+		t.Errorf("run times: %q, %q", run.StartedAt, run.FinishedAt)
+	}
+
+	// Without times, the run document has none.
+	run = runDoc{}
+	if err := json.Unmarshal(build(t, Options{Out: out, Document: DocRun}), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.StartedAt != "" || run.FinishedAt != "" {
+		t.Errorf("run times without any: %q, %q", run.StartedAt, run.FinishedAt)
+	}
+
+	// An offset is the same instant, in UTC.
+	run = runDoc{}
+	other := time.FixedZone("x", 2*3600)
+	if err := json.Unmarshal(build(t, Options{Out: out, Document: DocRun, StartedAt: started.In(other)}), &run); err != nil {
+		t.Fatal(err)
+	}
+	if run.StartedAt != "2026-11-03T09:30:00Z" || run.FinishedAt != "" {
+		t.Errorf("run times: %q, %q", run.StartedAt, run.FinishedAt)
+	}
+
+	if _, err := Build(Options{Out: out, Document: DocRun, StartedAt: finished, FinishedAt: started}); err == nil {
+		t.Error("a run that finished before it started worked")
+	}
+}
+
+// Exporting the same run twice says the same time, later or not.
+func TestGeneratedAtIsFinishedAt(t *testing.T) {
+	t.Parallel()
+	out := writeOut(t)
+	finished := time.Date(2026, 11, 3, 9, 37, 0, 0, time.UTC)
+	var first, second inventoryDoc
+	for i, doc := range []*inventoryDoc{&first, &second} {
+		opts := Options{Out: out, Document: DocInventory, FinishedAt: finished}
+		opts.Now = func() time.Time { return time.Date(2026, 11, 3, 12+i, 0, 0, 0, time.UTC) }
+		content, err := Build(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(content, doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.GeneratedAt != "2026-11-03T09:37:00Z" || second.GeneratedAt != first.GeneratedAt || first.RunID != second.RunID {
+		t.Errorf("generated_at: %q then %q", first.GeneratedAt, second.GeneratedAt)
+	}
+}
+
+func TestParseTime(t *testing.T) {
+	t.Parallel()
+	got, err := ParseTime("--started-at", "2026-11-03T11:30:00+02:00")
+	if err != nil || formatTime(got) != "2026-11-03T09:30:00Z" {
+		t.Errorf("offset: %v, %v", got, err)
+	}
+	for _, bad := range []string{"yesterday", "2026-11-03", "2026-11-03 09:30:00", "1730626200", "2026-13-03T09:30:00Z"} {
+		if _, err := ParseTime("--started-at", bad); err == nil || !strings.Contains(err.Error(), "--started-at") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+}

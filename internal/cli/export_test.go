@@ -81,3 +81,26 @@ func TestExportCommand(t *testing.T) {
 		t.Error("an unknown document worked")
 	}
 }
+
+func TestExportTimes(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := writeExportReport(t)
+
+	stdout, err := runExport(t, out, "--schema", "run", "--started-at", "2026-11-03T09:30:00Z", "--finished-at", "2026-11-03T09:37:00Z")
+	if err != nil || !strings.Contains(stdout, `"started_at": "2026-11-03T09:30:00Z"`) || !strings.Contains(stdout, `"finished_at": "2026-11-03T09:37:00Z"`) {
+		t.Fatalf("run times: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, out, "--finished-at", "2026-11-03T11:37:00+02:00")
+	if err != nil || !strings.Contains(stdout, `"generated_at": "2026-11-03T09:37:00Z"`) {
+		t.Fatalf("generated_at: %v\n%s", err, stdout)
+	}
+	for _, args := range [][]string{
+		{"--started-at", "yesterday"},
+		{"--finished-at", "2026-11-03"},
+		{"--started-at", "2026-11-03T09:37:00Z", "--finished-at", "2026-11-03T09:30:00Z"},
+	} {
+		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
+			t.Errorf("%v worked", args)
+		}
+	}
+}
