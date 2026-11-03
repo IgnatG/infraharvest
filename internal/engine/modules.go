@@ -743,7 +743,7 @@ func moduleVersionsFile(ws *workspace) ([]byte, error) {
 			continue
 		}
 		if attr, ok := b.Body.Attributes["required_version"]; ok {
-			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && v.Type() == cty.String {
+			if v, diags := attr.Expr.Value(nil); !diags.HasErrors() && isKnownString(v) {
 				lower, err := rootfile.LowerBound(v.AsString())
 				if err != nil {
 					return nil, fmt.Errorf("%s: required_version: %w", root.Path, err)
@@ -770,7 +770,7 @@ func moduleVersionsFile(ws *workspace) ([]byte, error) {
 				if v.Type().HasAttribute("source") {
 					requirement["source"] = v.GetAttr("source")
 				}
-				if v.Type().HasAttribute("version") {
+				if v.Type().HasAttribute("version") && isKnownString(v.GetAttr("version")) {
 					lower, err := rootfile.LowerBound(v.GetAttr("version").AsString())
 					if err != nil {
 						return nil, fmt.Errorf("%s: required_providers.%s: %w", root.Path, name, err)
@@ -805,4 +805,10 @@ func localSource(rel, name string) string {
 		source = "./" + source
 	}
 	return source
+}
+
+// isKnownString reports whether v is a string with a value, not a null or
+// unknown one, which have none to read.
+func isKnownString(v cty.Value) bool {
+	return v.Type() == cty.String && v.IsKnown() && !v.IsNull()
 }

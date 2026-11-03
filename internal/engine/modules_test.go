@@ -439,3 +439,29 @@ func TestModularizeDoesNotReuseModuleCallNames(t *testing.T) {
 		}
 	}
 }
+
+// A provider requirement without a version string, or a Terraform version
+// that isn't one, is carried over without one rather than panicking.
+func TestModuleVersionsFileSkipsVersionsThatAreNotStrings(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.VersionsFileName, `terraform {
+  required_version = null
+  required_providers {
+    aws    = { source = "hashicorp/aws", version = null }
+    random = { source = "hashicorp/random", version = 3 }
+    time   = { source = "hashicorp/time", version = "~> 0.12" }
+  }
+}
+`)
+	got, err := moduleVersionsFile(rootWorkspace(t, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions := squashed(string(got))
+	for _, want := range []string{`aws = { source = "hashicorp/aws" }`, `random = { source = "hashicorp/random" }`, `version = ">= 0.12"`} {
+		if !strings.Contains(versions, want) {
+			t.Errorf("versions.tf misses %q:\n%s", want, got)
+		}
+	}
+}
