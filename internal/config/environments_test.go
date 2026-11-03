@@ -148,6 +148,9 @@ func TestLoadRejectsEnvironmentMistakes(t *testing.T) {
 		"a token two environments use": {
 			"  dev: { aws: { accounts: [\"111111111111\"] }, tokens: [dev] }\n  test: { aws: { accounts: [\"222222222222\"] }, tokens: [Dev] }\n", "is dev's too",
 		},
+		"a token another environment's name stands for": {
+			"  dev: { aws: { accounts: [\"111111111111\"] }, tokens: [prod] }\n  prod: { aws: { accounts: [\"222222222222\"] } }\n", "is dev's token too",
+		},
 		"an account in two without tags": {
 			"  dev: { aws: { accounts: [\"111111111111\"] } }\n  prod: { aws: { accounts: [\"111111111111\"] }, tags: { Environment: prod } }\n", "dev has no tags",
 		},
