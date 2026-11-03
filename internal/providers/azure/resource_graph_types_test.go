@@ -275,3 +275,21 @@ func TestFromQueryLeavesOutPartsAzurermLacks(t *testing.T) {
 		t.Errorf("got %+v", m)
 	}
 }
+
+// A panic in a lookup is raised again on the caller's goroutine, where the
+// discoverer's recovery turns it into the service's failure.
+func TestInParallelRaisesALookupsPanicOnTheCaller(t *testing.T) {
+	t.Parallel()
+	var got any
+	func() {
+		defer func() { got = recover() }()
+		inParallel([]int{1, 2, 3}, func(i int) {
+			if i == 2 {
+				panic("boom")
+			}
+		})
+	}()
+	if got == nil {
+		t.Fatal("a lookup's panic didn't reach the caller")
+	}
+}

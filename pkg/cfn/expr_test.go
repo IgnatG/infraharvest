@@ -129,8 +129,9 @@ func TestExpressions(t *testing.T) {
 		// Other functions.
 		{"Join", `!Join [",", [a, !Ref Env]]`, `join(",", ["a", var.env])`, none},
 		{"Join list parameter", `!Join [",", !Ref Subnets]`, `join(",", var.subnets)`, none},
-		{"Select", `!Select [0, !GetAZs ""]`, `element(data.aws_availability_zones.available.names, 0)`, none},
-		{"Select string index", `!Select ["1", !Ref Subnets]`, `element(var.subnets, 1)`, none},
+		{"Select", `!Select [0, !GetAZs ""]`, `data.aws_availability_zones.available.names[0]`, none},
+		{"Select string index", `!Select ["1", !Ref Subnets]`, `var.subnets[1]`, none},
+		{"Select split", `!Select [1, !Split [",", "a,b"]]`, `split(",", "a,b")[1]`, none},
 		{"Split", `!Split [",", "a,b"]`, `split(",", "a,b")`, none},
 		{"Base64", `!Base64 abc`, `base64encode("abc")`, none},
 		{"Base64 heredoc", "!Base64 |\n  #!/bin/sh\n  echo hi\n", "base64encode(<<EOT\n#!/bin/sh\necho hi\nEOT\n)", none},

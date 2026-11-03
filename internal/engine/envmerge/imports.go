@@ -5,6 +5,8 @@ package envmerge
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
@@ -101,7 +103,7 @@ func (m *stackMerge) importKinds() (map[string]importBy, error) {
 	kinds := map[string]importBy{}
 	for e := range m.envs {
 		identities := m.identities(e)
-		for address := range m.imports(e) {
+		for _, address := range slices.Sorted(maps.Keys(m.imports(e))) {
 			kind := importByID
 			if identities[address] != nil {
 				kind = importByIdentity

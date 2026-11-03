@@ -267,8 +267,8 @@ func TestConfigSettingsByTool(t *testing.T) {
 
 // The confirmation of an import says what it reads with the scope the
 // configuration file sets where the input doesn't, as the command applies
-// it: the input's first, then the file's settings, then the provider's
-// section.
+// it: the input's first, then the provider's section, then the file's
+// settings.
 func TestConfigScopeInConfirmation(t *testing.T) {
 	for name, tc := range map[string]struct {
 		content string
@@ -297,10 +297,10 @@ func TestConfigScopeInConfirmation(t *testing.T) {
 			map[string]any{"provider": "aws", "services": []string{"vpc"}, "regions": []string{"eu-west-1"}},
 			"infraharvest reads the aws account in eu-west-1 (vpc)",
 		},
-		"the settings win over the provider's": {
+		"the provider's win over the settings": {
 			"version: 1\nsettings:\n  regions: [eu-west-3]\nproviders:\n  aws:\n    regions: [eu-west-2]\n",
 			map[string]any{"provider": "aws", "services": []string{"vpc"}},
-			"infraharvest reads the aws account in eu-west-3 (vpc)",
+			"infraharvest reads the aws account in eu-west-2 (vpc)",
 		},
 		"the stacks": {
 			"version: 1\nproviders:\n  aws:\n    cfn-stack: [app]\n",

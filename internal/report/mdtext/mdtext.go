@@ -21,7 +21,8 @@ import (
 // which render as they are, < and > are entities, so that no HTML,
 // comments included, comes through, and @ is followed by an empty HTML
 // comment, which GitHub shows as nothing but which keeps @name from
-// mentioning anyone.
+// mentioning anyone. [, ], the ! of an image and | are escaped, so that
+// [x](url) is no link, ![x](url) no image and | ends no table cell.
 func Prose(s string) string {
 	s = flatten(s)
 	var b strings.Builder
@@ -34,6 +35,19 @@ func Prose(s string) string {
 				b.WriteString(s[i : i+2])
 				i += 2
 				continue
+			}
+			if i+1 < len(s) && escapable(s, i+1) {
+				// The escape that follows would be escaped itself.
+				b.WriteString(`\\`)
+			} else {
+				b.WriteByte(c)
+			}
+		case '[', ']', '|':
+			b.WriteByte('\\')
+			b.WriteByte(c)
+		case '!':
+			if escapable(s, i) {
+				b.WriteByte('\\')
 			}
 			b.WriteByte(c)
 		case '`':
@@ -57,6 +71,19 @@ func Prose(s string) string {
 		i++
 	}
 	return b.String()
+}
+
+// escapable reports whether Prose escapes the byte of s at i: [, ], | and
+// the ! of an image, which would make [x](url) and ![x](url) a link and an
+// image, and | a table cell's end.
+func escapable(s string, i int) bool {
+	switch s[i] {
+	case '[', ']', '|':
+		return true
+	case '!':
+		return i+1 < len(s) && s[i+1] == '['
+	}
+	return false
 }
 
 // Code returns s as a Markdown code span, whatever backticks it holds: its
@@ -85,9 +112,24 @@ func Code(s string) string {
 	return fence + s + fence
 }
 
-// Cell escapes text for a Markdown table cell, code spans included.
+// Cell escapes text for a Markdown table cell, code spans included. A |
+// that is escaped already, as Prose does, stays as it is.
 func Cell(text string) string {
-	return strings.ReplaceAll(text, "|", `\|`)
+	var b strings.Builder
+	slashes := 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		if c == '|' && slashes%2 == 0 {
+			b.WriteByte('\\')
+		}
+		b.WriteByte(c)
+		if c == '\\' {
+			slashes++
+		} else {
+			slashes = 0
+		}
+	}
+	return b.String()
 }
 
 // flatten returns s with each control character, line breaks included, a

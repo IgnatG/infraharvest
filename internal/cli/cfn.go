@@ -103,10 +103,8 @@ func convertTemplate(path, out string, opts cfn.Options, allowPartial bool, stdi
 			return couldNotRun(err)
 		}
 	}
-	for _, name := range res.FileNames() {
-		if err := writeNewFile(filepath.Join(out, name), res.Files[name]); err != nil {
-			return couldNotRun(err)
-		}
+	if err := writeNewFiles(out, res.FileNames(), res.Files); err != nil {
+		return couldNotRun(err)
 	}
 	for _, d := range res.Diagnostics {
 		fmt.Fprintln(diagnostics, d)
@@ -118,6 +116,24 @@ func convertTemplate(path, out string, opts cfn.Options, allowPartial bool, stdi
 			code = report.ExitPartial
 		}
 		return &importer.ExitError{Code: code, Err: errors.New("some of the template couldn't be converted: see the diagnostics marked error")}
+	}
+	return nil
+}
+
+// writeNewFiles writes the files names of contents into dir, each one
+// new (see writeNewFile). If one fails, it removes those it wrote, so that
+// the next run finds the directory as it was.
+func writeNewFiles(dir string, names []string, contents map[string][]byte) error {
+	var wrote []string
+	for _, name := range names {
+		path := filepath.Join(dir, name)
+		if err := writeNewFile(path, contents[name]); err != nil {
+			for _, w := range wrote {
+				_ = os.Remove(w)
+			}
+			return err
+		}
+		wrote = append(wrote, path)
 	}
 	return nil
 }
@@ -136,7 +152,12 @@ func writeNewFile(path string, content []byte) error {
 	}
 	if _, err := f.Write(content); err != nil {
 		_ = f.Close()
+		_ = os.Remove(path)
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }

@@ -10,8 +10,9 @@ import (
 	"slices"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/cloudresourcemanager/v3"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 )
 
 // Projects returns the IDs of the active projects under organization (an
@@ -54,17 +55,14 @@ func projectsUnder(ctx context.Context, svc *cloudresourcemanager.Service, organ
 		subfolders := make([][]string, len(level))
 		errs := make([]error, len(level))
 		// Every parent of the level is listed, whatever the others answer:
-		// each failure is kept in errs, and the group's own error is
-		// always nil.
-		var lists errgroup.Group
-		lists.SetLimit(folderParallel)
+		// each failure is kept in errs.
+		lists := workers.New(folderParallel)
 		for i, parent := range level {
-			lists.Go(func() error {
+			lists.Go(func() {
 				ids[i], subfolders[i], errs[i] = listParent(ctx, svc, parent)
-				return nil
 			})
 		}
-		_ = lists.Wait()
+		lists.Wait()
 		if err := errors.Join(errs...); err != nil {
 			return nil, err
 		}

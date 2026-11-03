@@ -416,3 +416,35 @@ func TestMkdirPrivate(t *testing.T) {
 		t.Error("a file was taken for a directory")
 	}
 }
+
+func TestBackupRestoreKeepsPermissions(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("no permission bits here")
+	}
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "terraform.tfvars")
+	if err := os.WriteFile(secret, []byte("token = \"x\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := BackupFiles(dir, "terraform.tfvars", "new.tf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(secret, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := backup.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("restored mode = %o, want 600", got)
+	}
+	if got := backup.Mode("new.tf"); got != 0o644 {
+		t.Errorf("mode of a file that didn't exist = %o, want 644", got)
+	}
+}

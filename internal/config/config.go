@@ -252,9 +252,10 @@ func required(values map[string]string) []string {
 // check its flags and import nothing.
 var commandLineOnly = []string{"check", "config"}
 
-// Apply sets the flags the command line didn't, from the file's settings
-// and the provider's. It fails on a setting that isn't a flag, or is one
-// of commandLineOnly, and on settings for a provider that is neither one
+// Apply sets the flags the command line didn't, from the provider's section
+// and the file's settings: a key of the provider's section replaces the
+// same key of the settings, a list's too. It fails on a setting that isn't
+// a flag, or is one of commandLineOnly, and on settings for a provider that is neither one
 // of the provider commands the binary is built with, whose profiles Load
 // was given, nor provider, which would otherwise never apply (see
 // unknownProvider).
@@ -264,13 +265,17 @@ func (f *File) Apply(flags *pflag.FlagSet, provider string) error {
 			return fmt.Errorf("providers: %w", unknownProvider(name, f.profiles))
 		}
 	}
-	for _, settings := range []map[string]any{f.Settings, f.Providers[provider]} {
+	section := f.Providers[provider]
+	for i, settings := range []map[string]any{section, f.Settings} {
 		for _, name := range slices.Sorted(maps.Keys(settings)) {
 			if slices.Contains(commandLineOnly, name) {
 				return fmt.Errorf("%q is for the command line, not a setting of the configuration file", name)
 			}
 			if flags.Lookup(name) == nil {
 				return fmt.Errorf("%q isn't a setting of infraharvest %s", name, provider)
+			}
+			if _, replaced := section[name]; replaced && i == 1 {
+				continue
 			}
 			if err := applySetting(flags, name, settings[name]); err != nil {
 				return err

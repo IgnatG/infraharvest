@@ -39,7 +39,12 @@ type Options struct {
 	DropAllTags bool
 	// HashKey, if set, hashes IDs and names (see ReadKey).
 	HashKey []byte
-	// Now is the time generated_at has; time.Now if nil.
+	// StartedAt and FinishedAt are when the import ran, if the caller knows
+	// them: the report holds no times, as its bytes name the run. The run
+	// document has them when set, and the inventory's generated_at is
+	// FinishedAt, so that exporting the same run again says the same time.
+	StartedAt, FinishedAt time.Time
+	// Now is the time generated_at has without FinishedAt; time.Now if nil.
 	Now func() time.Time
 }
 
@@ -59,16 +64,22 @@ func Build(opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
+		return nil, fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
+	}
 	var doc any
 	switch opts.Document {
 	case DocInventory:
-		now := time.Now
-		if opts.Now != nil {
-			now = opts.Now
+		generated := opts.FinishedAt
+		if generated.IsZero() {
+			generated = time.Now()
+			if opts.Now != nil {
+				generated = opts.Now()
+			}
 		}
-		doc, err = buildInventory(r, opts, runID, now().UTC())
+		doc, err = buildInventory(r, opts, runID, generated)
 	case DocRun:
-		doc = buildRun(r, runID)
+		doc = buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
 	case DocGate:
 		doc = buildGate(r, runID)
 	}
@@ -83,6 +94,22 @@ func Build(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("the %s document doesn't match its schema, so nothing is written: %w", opts.Document, err)
 	}
 	return append(content, '\n'), nil
+}
+
+// timeLayout is the form of every timestamp in the documents: UTC, to the
+// second (see the schemas).
+const timeLayout = "2006-01-02T15:04:05Z"
+
+func formatTime(t time.Time) string { return t.UTC().Format(timeLayout) }
+
+// ParseTime reads the time the flag called name has: RFC 3339, such as
+// 2026-11-03T09:30:00Z. Another offset is converted to UTC.
+func ParseTime(name, value string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s %q isn't an RFC 3339 time, such as 2026-11-03T09:30:00Z", name, value)
+	}
+	return t.UTC(), nil
 }
 
 // runID names the run, as a version 5 style UUID of its report.json: the
@@ -218,7 +245,7 @@ func buildInventory(r *report.Report, opts Options, runID string, now time.Time)
 	doc := &inventoryDoc{
 		Schema:      schemaInventory,
 		RunID:       runID,
-		GeneratedAt: now.Format("2006-01-02T15:04:05Z"),
+		GeneratedAt: formatTime(now),
 		Tool:        toComponent(r.Tool),
 		Scopes:      []string{},
 		Resources:   []resource{},
@@ -302,7 +329,7 @@ func outcomeOf(code int) string {
 	return outcomeFailed
 }
 
-func buildRun(r *report.Report, runID string) *runDoc {
+func buildRun(r *report.Report, runID string, started, finished time.Time) *runDoc {
 	doc := &runDoc{
 		Schema:   schemaRun,
 		RunID:    runID,
@@ -312,6 +339,12 @@ func buildRun(r *report.Report, runID string) *runDoc {
 		Tool:     toComponent(r.Tool),
 		Engine:   toComponent(r.Engine),
 		Coverage: toCounts(r.Totals),
+	}
+	if !started.IsZero() {
+		doc.StartedAt = formatTime(started)
+	}
+	if !finished.IsZero() {
+		doc.FinishedAt = formatTime(finished)
 	}
 	if len(r.Failures) > 0 {
 		doc.FailureCodes = append(doc.FailureCodes, failRun)

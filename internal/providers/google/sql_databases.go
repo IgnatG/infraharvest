@@ -11,9 +11,10 @@ import (
 	"net/http"
 	"strings"
 
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/sqladmin/v1"
+
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -99,17 +100,15 @@ func (g *CloudSQLLister) list() error {
 	}
 	// Databases aren't paged: the response holds every one. Every
 	// instance is asked, whatever the others answer: each answer is kept
-	// in lists, and the group's own error is always nil.
+	// in lists.
 	lists := make([]sqlDatabaseList, len(instances))
-	var group errgroup.Group
-	group.SetLimit(sqlDatabaseListParallel)
+	group := workers.New(sqlDatabaseListParallel)
 	for i, instance := range instances {
-		group.Go(func() error {
+		group.Go(func() {
 			lists[i].list, lists[i].err = svc.Databases.List(project, instance.Name).Context(ctx).Do()
-			return nil
 		})
 	}
-	_ = group.Wait()
+	group.Wait()
 	// In the instances' order, whichever answered first.
 	var resources []harvest.Resource
 	var parts harvest.Parts
