@@ -152,7 +152,12 @@ func ShowPlan(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfj
 		return nil, nil, nil, err
 	}
 	defer os.RemoveAll(tmp)
-	planFile := filepath.Join(tmp, "plan")
+	return showPlanTo(ctx, tf, filepath.Join(tmp, "plan"), vars)
+}
+
+// showPlanTo is ShowPlan into planFile, which it leaves for the caller to
+// remove, in a private directory of the caller's.
+func showPlanTo(ctx context.Context, tf Terraform, planFile string, vars []tfexec.PlanOption) (*tfjson.Plan, *ChangeSummary, []tfjson.Diagnostic, error) {
 	opts := append(append([]tfexec.PlanOption(nil), vars...), tfexec.Out(planFile))
 	diags, summary, err := Plan(ctx, tf, opts...)
 	if err != nil {

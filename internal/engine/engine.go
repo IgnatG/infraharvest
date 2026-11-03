@@ -87,6 +87,10 @@ type Result struct {
 	// to that its listing found no longer in the cloud, for the README; a
 	// checkpoint doesn't keep them, as the next run looks again.
 	NotInCloud []rootfile.Import `json:"-"`
+	// UsedSnapshot says the root's later plans ran against a state snapshot
+	// (see Options.ImportOnce), which a caller may generate it again
+	// without (see NeedsFreshGeneration).
+	UsedSnapshot bool `json:"-"`
 	// Plans count the plans Generate ran for the root, by step (see the
 	// step constants), and the plan files it showed: each plan imports
 	// every resource of the root again.
@@ -225,6 +229,11 @@ type Options struct {
 	// carry a CloudFormation stack's template into the root (AWS
 	// --cfn-stack).
 	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
+	// ImportOnce, if set, has Generate import the root's resources once
+	// into a private state snapshot, which its later plans read (see
+	// ImportOnce). It is internal and off by default: the output is the
+	// same with and without it.
+	ImportOnce *ImportOnce `json:"-"`
 	// RefineKey identifies what Refine carries into the root, such as the
 	// templates and parameter values of its stacks, for the fingerprint
 	// --resume compares: a root whose Refine input changed is generated
@@ -274,6 +283,9 @@ const (
 	// stepRepair plans again after repairing the configuration or leaving
 	// out what still had errors.
 	stepRepair = "repair"
+	// stepSnapshot imports the root once into a state snapshot, if
+	// Options.ImportOnce is set.
+	stepSnapshot = "snapshot"
 	// stepSecrets makes secret attributes read from variables.
 	stepSecrets = "secrets"
 	// stepTidy post-processes the configuration, each edit checked by a
@@ -311,7 +323,7 @@ func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 // import (leaveOut), makes the secret attributes read from variables
 // (secretVariables), tidies the configuration (tidy, finish) and gates it
 // (gate). Last, it writes the README.
-func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run) (*Result, error) {
+func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run) (result *Result, err error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -328,17 +340,37 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	// No plan shows the secret values Generate finds (see
 	// secret.RedactingTerraform), and none reads the state the root may have
 	// locally (see tfrun.WithoutLocalState).
+	raw := tf
 	tf, removeEmptyState, err := tfrun.WithoutLocalState(tf, dir)
 	if err != nil {
 		return nil, err
 	}
 	defer removeEmptyState()
-	redacting := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, r.opts.CommandTimeout)}
+	timed := tfrun.WithTimeout(tf, r.opts.CommandTimeout)
+	plain := timed
+	// With Options.ImportOnce the plans after leaveOut run against a state
+	// snapshot (see buildSnapshot), until the gate, which plans as the user
+	// will.
+	cache := cachedRunner(timed, raw, dir, r.opts)
+	if cache != nil {
+		plain = cache
+	}
+	defer cache.Release()
+	defer func() {
+		if result != nil {
+			result.UsedSnapshot = cache.CachedPlans() > 0
+		}
+		if err != nil && cache.CachedPlans() > 0 {
+			err = &SnapshotError{Err: err}
+		}
+	}()
+	redacting := &secret.RedactingTerraform{Terraform: plain}
 	counting := &tfrun.Counting{Terraform: redacting}
 	g := &generation{
 		tf:        &schemaCache{Terraform: counting},
 		redacting: redacting,
 		counting:  counting,
+		cache:     cache,
 		dir:       dir,
 		generated: generated,
 		imports:   relabelled(imports, r.taken, r.opts.TidyLabels, r.opts.Previous),
@@ -372,6 +404,9 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 		return nil, err
 	}
 	if err := g.leaveOut(); err != nil {
+		return nil, err
+	}
+	if err := g.buildSnapshot(ctx); err != nil {
 		return nil, err
 	}
 	counting.Step(stepSecrets)
@@ -408,7 +443,10 @@ type generation struct {
 	redacting *secret.RedactingTerraform
 	// counting counts tf's plans by the step generate is at.
 	counting *tfrun.Counting
-	dir      string
+	// cache is tf's plain runner that plans against the state snapshot, if
+	// Options.ImportOnce is set (see buildSnapshot).
+	cache *tfrun.Cached
+	dir   string
 	// generated is the path of generated.tf.
 	generated string
 	imports   []rootfile.Import
@@ -796,6 +834,9 @@ func (g *generation) finish(ctx context.Context) error {
 // gate refines the finished root if opts.Refine is set, then gates it
 // (see gateRefined).
 func (g *generation) gate(ctx context.Context) error {
+	// The gate plans the root as the user will: with import blocks, no
+	// state.
+	g.cache.Release()
 	var unrefined map[string][]byte
 	warned := len(g.result.Warnings)
 	if g.opts.Refine != nil {
