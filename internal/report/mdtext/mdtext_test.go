@@ -21,6 +21,12 @@ func TestProse(t *testing.T) {
 		// code span, as Markdown reads it.
 		{"\\\\`x` <!--", "\\\\`x` &lt;!--"},
 		{"\\\\` <!-- `", "\\\\` <!-- `"},
+		// Links, images and table cells.
+		{"[x](http://evil)", "\\[x\\](http://evil)"},
+		{"![x](http://evil)", "\\!\\[x\\](http://evil)"},
+		{"wow! a|b", "wow! a\\|b"},
+		{"a\\[x]", "a\\\\\\[x\\]"},
+		{"`[x](u)` [y](u)", "`[x](u)` \\[y\\](u)"},
 	}
 	for _, tt := range tests {
 		if got := Prose(tt.in); got != tt.want {
@@ -45,5 +51,18 @@ func TestCode(t *testing.T) {
 	}
 	if got := Cell(Code("a|b")); got != "`a\\|b`" {
 		t.Errorf("Cell(Code(a|b)) = %q", got)
+	}
+}
+
+func TestCellKeepsEscapedPipes(t *testing.T) {
+	for in, want := range map[string]string{
+		"a|b":             `a\|b`,
+		`a\|b`:            `a\|b`,
+		"x":               "x",
+		Prose("[a|b](u)"): `\[a\|b\](u)`,
+	} {
+		if got := Cell(in); got != want {
+			t.Errorf("Cell(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
