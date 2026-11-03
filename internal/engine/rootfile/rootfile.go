@@ -188,12 +188,24 @@ func WithoutCredentials(args map[string]interface{}) (map[string]interface{}, []
 			dropped = append(dropped, k)
 			continue
 		}
-		if nested, ok := v.(map[string]interface{}); ok {
+		switch nested := v.(type) {
+		case map[string]interface{}:
 			var nestedDropped []string
 			v, nestedDropped = WithoutCredentials(nested)
 			for _, name := range nestedDropped {
 				dropped = append(dropped, k+"."+name)
 			}
+		case []map[string]interface{}:
+			// Repeated nested blocks (see WriteBody).
+			items := make([]map[string]interface{}, len(nested))
+			for i, item := range nested {
+				var nestedDropped []string
+				items[i], nestedDropped = WithoutCredentials(item)
+				for _, name := range nestedDropped {
+					dropped = append(dropped, fmt.Sprintf("%s[%d].%s", k, i, name))
+				}
+			}
+			v = items
 		}
 		kept[k] = v
 	}
