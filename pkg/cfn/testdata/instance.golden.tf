@@ -34,7 +34,7 @@ resource "aws_iam_instance_profile" "profile" {
 resource "aws_instance" "server" {
   ami                  = data.aws_ssm_parameter.image_id.insecure_value
   instance_type        = try(local.sizes["medium"]["Type"], "t3.medium")
-  subnet_id            = element(var.subnets, 0)
+  subnet_id            = var.subnets[0]
   iam_instance_profile = aws_iam_instance_profile.profile.name
   user_data_base64 = base64encode(<<EOT
 #!/bin/bash

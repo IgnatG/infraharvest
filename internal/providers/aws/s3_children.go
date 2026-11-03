@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/providers/workers"
 )
 
 // s3NotConfigured are the error codes S3 answers with when a bucket has no
@@ -109,19 +109,17 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 	// answers are read in the catalogue's order, which the output keeps.
 	configured := make([]bool, len(entry.Children))
 	probeErrs := make([]error, len(entry.Children))
-	var wg sync.WaitGroup
+	var wg workers.Group
 	for i, child := range entry.Children {
 		probe, ok := s3Probes[child]
 		if !ok {
 			probeErrs[i] = errors.New("no way to tell whether a bucket has one")
 			continue
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			name := bucket
 			configured[i], probeErrs[i] = probe(ctx, svc, &name)
-		}()
+		})
 	}
 	wg.Wait()
 	var children []harvest.Resource

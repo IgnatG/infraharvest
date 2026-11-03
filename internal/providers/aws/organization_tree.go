@@ -146,6 +146,10 @@ func (g *OrganizationLister) addPolicy(client *organizations.Client, policy orgt
 	g.Resources = append(g.Resources, harvest.Record(policyID, policyName, "aws_organizations_policy", "aws",
 		map[string]string{"id": policyID, "arn": aws.ToString(policy.Arn), "aws_managed": awsManaged}))
 
+	// One call per policy, for attachments the import may not keep.
+	if !g.Wants("aws_organizations_policy_attachment") {
+		return nil
+	}
 	targets := organizations.NewListTargetsForPolicyPaginator(client,
 		&organizations.ListTargetsForPolicyInput{PolicyId: policy.Id}, stopOnDuplicateToken)
 	for targets.HasMorePages() {

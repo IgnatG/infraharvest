@@ -4,6 +4,7 @@
 package aws
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -171,5 +172,37 @@ func TestRecordOrganizationReturnsErrors(t *testing.T) {
 
 			assertRecordedError(t, listError(ctx, g), "AccessDenied")
 		})
+	}
+}
+
+// An import that leaves policy attachments out doesn't ask for the targets
+// of each policy, but still lists the policies.
+func TestRecordOrganizationSkipsUnwantedPolicyAttachments(t *testing.T) {
+	t.Parallel()
+	api := recordOrgAPI(t, "111111111111", "")
+	var targetCalls atomic.Int32
+	ctx := useFakeAPI(t, func(call apiCall) string {
+		if call.Op == "ListTargetsForPolicy" {
+			targetCalls.Add(1)
+		}
+		return api(call)
+	})
+	g := &OrganizationLister{}
+	unwanted := func(typ string) bool { return typ == "aws_organizations_policy_attachment" }
+
+	resources, err := listChecked(ctx, t, g, harvest.Settings{Unwanted: unwanted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := targetCalls.Load(); n != 0 {
+		t.Errorf("made %d ListTargetsForPolicy calls, want none", n)
+	}
+	for _, r := range resources {
+		if r.Address.Type == "aws_organizations_policy_attachment" {
+			t.Errorf("listed attachment %s, which the import leaves out", r.Observed.ID)
+		}
+	}
+	if len(resourceIDs(resources, "aws_organizations_policy")) != 2 {
+		t.Errorf("listed policies %v, want both", resourceIDs(resources, "aws_organizations_policy"))
 	}
 }

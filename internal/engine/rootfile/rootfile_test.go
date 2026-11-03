@@ -156,3 +156,26 @@ func TestProvidersFileRejectsUnsupportedValue(t *testing.T) {
 		t.Errorf("want an error naming the argument, got %v", err)
 	}
 }
+
+func TestProvidersFileLeavesOutCredentialsOfRepeatedBlocks(t *testing.T) {
+	t.Parallel()
+	got, err := ProvidersFile(Provider{
+		Name:   "example",
+		Source: "example/example",
+		Config: map[string]interface{}{
+			"endpoint": []map[string]interface{}{{"url": "https://a", "token": "t"}, {"url": "https://b"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), "token") {
+		t.Errorf("a repeated block kept its credential:\n%s", got)
+	}
+	_, dropped := WithoutCredentials(map[string]interface{}{
+		"endpoint": []map[string]interface{}{{"url": "https://a", "token": "t"}, {"password": "p"}},
+	})
+	if want := []string{"endpoint[0].token", "endpoint[1].password"}; !reflect.DeepEqual(dropped, want) {
+		t.Errorf("dropped %v, want %v", dropped, want)
+	}
+}

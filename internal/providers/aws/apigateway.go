@@ -320,10 +320,11 @@ func (g *APIGatewayLister) listModels(svc *apigateway.Client, api restAPIRef) er
 // followed by their position until a page returns none.
 func (g *APIGatewayLister) listResponses(svc *apigateway.Client, api restAPIRef) error {
 	input := &apigateway.GetGatewayResponsesInput{RestApiId: aws.String(api.id)}
-	for {
+	return paginateByMarker(func(position *string) (*string, error) {
+		input.Position = position
 		output, err := svc.GetGatewayResponses(g.Context(), input)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, response := range output.Items {
 			if response.DefaultResponse {
@@ -341,21 +342,19 @@ func (g *APIGatewayLister) listResponses(svc *apigateway.Client, api restAPIRef)
 				},
 			))
 		}
-		if aws.ToString(output.Position) == "" {
-			return nil
-		}
-		input.Position = output.Position
-	}
+		return output.Position, nil
+	})
 }
 
 // listDocumentationParts lists the API's documentation parts, following
 // the pages by their position as listResponses does.
 func (g *APIGatewayLister) listDocumentationParts(svc *apigateway.Client, api restAPIRef) error {
 	input := &apigateway.GetDocumentationPartsInput{RestApiId: aws.String(api.id)}
-	for {
+	return paginateByMarker(func(position *string) (*string, error) {
+		input.Position = position
 		output, err := svc.GetDocumentationParts(g.Context(), input)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, part := range output.Items {
 			partID := aws.ToString(part.Id)
@@ -367,21 +366,19 @@ func (g *APIGatewayLister) listDocumentationParts(svc *apigateway.Client, api re
 				map[string]string{"rest_api_id": api.id},
 			))
 		}
-		if aws.ToString(output.Position) == "" {
-			return nil
-		}
-		input.Position = output.Position
-	}
+		return output.Position, nil
+	})
 }
 
 // listAuthorizers lists the API's authorizers, following the pages by
 // their position as listResponses does.
 func (g *APIGatewayLister) listAuthorizers(svc *apigateway.Client, api restAPIRef) error {
 	input := &apigateway.GetAuthorizersInput{RestApiId: aws.String(api.id)}
-	for {
+	return paginateByMarker(func(position *string) (*string, error) {
+		input.Position = position
 		output, err := svc.GetAuthorizers(g.Context(), input)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, authorizer := range output.Items {
 			// AWS requires a name for every authorizer, but an emulator
@@ -399,11 +396,8 @@ func (g *APIGatewayLister) listAuthorizers(svc *apigateway.Client, api restAPIRe
 				},
 			))
 		}
-		if aws.ToString(output.Position) == "" {
-			return nil
-		}
-		input.Position = output.Position
-	}
+		return output.Position, nil
+	})
 }
 
 // listVPCLinks lists the VPC links of API Gateway version 1, which private

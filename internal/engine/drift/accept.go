@@ -322,7 +322,8 @@ func writeAccepted(dir string, root map[string][]byte, pending []*Change, editor
 }
 
 // writeDriftFiles writes the files names of contents into dir, with write
-// (nil for fsutil.WriteFile); if one fails, it restores those it wrote.
+// (nil for fsutil.WriteFile), keeping the permissions of a file that exists
+// (0644 for a new one); if one fails, it restores those it wrote.
 func writeDriftFiles(dir string, contents map[string][]byte, names []string, write func(string, []byte, os.FileMode) error) error {
 	if write == nil {
 		write = fsutil.WriteFile
@@ -332,7 +333,7 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 		return err
 	}
 	for _, name := range names {
-		if err := write(filepath.Join(dir, name), contents[name], 0o644); err != nil {
+		if err := write(filepath.Join(dir, name), contents[name], backup.Mode(name)); err != nil {
 			werr := fmt.Errorf("write the accepted changes into %s: %w", name, err)
 			if rerr := backup.Restore(); rerr != nil {
 				return errors.Join(werr, fmt.Errorf("restore the root's files: %w", rerr))

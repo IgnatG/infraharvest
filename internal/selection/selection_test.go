@@ -656,3 +656,51 @@ func TestSummary(t *testing.T) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
+
+// A * pattern on a tag matches resources that have the tag, not those
+// without it; only the empty pattern matches an absent tag.
+func TestTagGlobNeedsTheTag(t *testing.T) {
+	t.Parallel()
+	f, err := Load(write(t, `version: 1
+defaults:
+  include: true
+rules:
+  - exclude: { type: aws_vpc, tags: { env: "*" } }
+resources: []
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Decide("aws_vpc", "vpc-1", "").Include != true {
+		t.Error("a resource without the tag was excluded by a * pattern")
+	}
+	if got := f.decideIn("", "aws_vpc", "vpc-2", "", map[string]string{"env": "dev"}, false); got.Include {
+		t.Error("a resource with the tag wasn't excluded by a * pattern")
+	}
+	if f.excludesWhole("aws_vpc") {
+		t.Error("a rule on a tag with * excludes the whole type")
+	}
+}
+
+// Save leaves f.Resources in its order, so that pointers into it and the
+// lookup indexes stay right.
+func TestSaveKeepsOrder(t *testing.T) {
+	t.Parallel()
+	f := &File{Version: Version, Defaults: Defaults{Include: true}, Resources: []Resource{
+		{Type: "aws_vpc", ID: "vpc-b", Include: true},
+		{Type: "aws_iam_role", ID: "app", Include: true},
+	}}
+	if _, ok := f.lookup("", "aws_vpc", "vpc-b"); !ok {
+		t.Fatal("no entry")
+	}
+	if err := f.Save(filepath.Join(t.TempDir(), "selection.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if f.Resources[0].ID != "vpc-b" || f.Resources[1].ID != "app" {
+		t.Errorf("Save reordered Resources: %+v", f.Resources)
+	}
+	r, ok := f.lookup("", "aws_vpc", "vpc-b")
+	if !ok || r.ID != "vpc-b" || r.Type != "aws_vpc" {
+		t.Errorf("index points at %+v", r)
+	}
+}

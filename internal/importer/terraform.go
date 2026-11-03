@@ -14,6 +14,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -79,7 +80,7 @@ func generateDir(ctx context.Context, dir string, tr terraformRun, imports []roo
 	}
 	lockPath := filepath.Join(dir, tfrun.LockFileName)
 	if *lock != nil {
-		if err := os.WriteFile(lockPath, *lock, 0o644); err != nil {
+		if err := fsutil.WriteFile(lockPath, *lock, 0o644); err != nil {
 			return nil, err
 		}
 	}

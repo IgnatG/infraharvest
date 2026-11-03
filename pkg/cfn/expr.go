@@ -213,7 +213,9 @@ func (c *converter) function(f Func, path string, sc *scope) string {
 		if !ok {
 			return "null"
 		}
-		return fmt.Sprintf("element(%s, %s)", c.expr(a[1], path+"[1]", nil), c.numberExpr(a[0], path+"[0]"))
+		// Index syntax, not element(), which wraps past the end of the list as
+		// CloudFormation does not.
+		return fmt.Sprintf("%s[%s]", c.operand(a[1], path+"[1]", nil), c.numberExpr(a[0], path+"[0]"))
 	case "Fn::Split":
 		a, ok := c.args(f, path, 2, 2)
 		if !ok {

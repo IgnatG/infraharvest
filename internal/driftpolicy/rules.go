@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
@@ -136,17 +137,25 @@ func (r Rule) matches(c report.DriftChange) bool {
 	return matches(value)
 }
 
+// compiled holds the compiled patterns, by pattern: a drift run matches
+// every change against the rules, and there are few patterns.
+var compiled sync.Map
+
 // matchPattern reports whether value matches pattern, in which * matches
-// any text, as the selection file's patterns do. Rules are few and drift
-// matches each change against them once, so a pattern is compiled where
-// it is matched rather than kept.
+// any text, as the selection file's patterns do. A pattern is compiled
+// once.
 func matchPattern(pattern, value string) bool {
 	if !strings.Contains(pattern, "*") {
 		return pattern == value
+	}
+	if re, ok := compiled.Load(pattern); ok {
+		return re.(*regexp.Regexp).MatchString(value)
 	}
 	parts := strings.Split(pattern, "*")
 	for i, part := range parts {
 		parts[i] = regexp.QuoteMeta(part)
 	}
-	return regexp.MustCompile("^" + strings.Join(parts, ".*") + "$").MatchString(value)
+	re := regexp.MustCompile("^" + strings.Join(parts, ".*") + "$")
+	compiled.Store(pattern, re)
+	return re.MatchString(value)
 }

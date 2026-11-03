@@ -98,8 +98,8 @@ type Rule struct {
 
 // Match selects resources by type, ID, name and tags, each a list of
 // patterns in which * matches any text. A resource matches if every field
-// given has a pattern it matches. Tags match by key: a resource without
-// the tag has the value "", so { owner: "" } matches untagged resources.
+// given has a pattern it matches. Tags match by key: { owner: "" } matches
+// resources without the tag, which a pattern with a * doesn't.
 type Match struct {
 	Type Patterns            `yaml:"type,omitempty"`
 	ID   Patterns            `yaml:"id,omitempty"`
@@ -232,12 +232,8 @@ func (m *Match) matchesEvery() bool {
 	if !m.ID.matchesAny() || !m.Name.matchesAny() {
 		return false
 	}
-	for _, patterns := range m.Tags {
-		if !patterns.matchesAny() {
-			return false
-		}
-	}
-	return true
+	// A * doesn't match a resource without the tag (see matchesTags).
+	return len(m.Tags) == 0
 }
 
 // matchesAny reports whether p matches any value: there are no patterns,
@@ -295,10 +291,19 @@ func (m *Match) matchesNames(resourceType, id, name string) bool {
 	return m.Type.match(resourceType) && m.ID.match(id) && m.Name.match(name)
 }
 
-// matchesTags reports whether m's tag patterns match tags.
+// matchesTags reports whether m's tag patterns match tags. A resource
+// without a tag matches only the empty pattern ({ owner: "" }), not a
+// pattern with a *.
 func (m *Match) matchesTags(tags map[string]string) bool {
 	for key, patterns := range m.Tags {
-		if !patterns.match(tags[key]) {
+		value, ok := tags[key]
+		if !ok {
+			if len(patterns) > 0 && !slices.Contains(patterns, "") {
+				return false
+			}
+			continue
+		}
+		if !patterns.match(value) {
 			return false
 		}
 	}
@@ -404,8 +409,11 @@ const header = `# infraharvest selection file: which listed resources to import.
 
 // Save writes the file with its resources in a stable order.
 func (f *File) Save(path string) error {
-	sort.SliceStable(f.Resources, func(i, j int) bool {
-		a, b := f.Resources[i], f.Resources[j]
+	// Sort a copy: callers hold pointers into f.Resources, and f's indexes
+	// point into it, so it keeps its order.
+	sorted := slices.Clone(f.Resources)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
 		if a.Type != b.Type {
 			return a.Type < b.Type
 		}
@@ -418,7 +426,8 @@ func (f *File) Save(path string) error {
 	out.WriteString(header)
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
-	if err := encoder.Encode(f); err != nil {
+	file := &File{Version: f.Version, Defaults: f.Defaults, Rules: f.Rules, Resources: sorted}
+	if err := encoder.Encode(file); err != nil {
 		return err
 	}
 	if err := encoder.Close(); err != nil {

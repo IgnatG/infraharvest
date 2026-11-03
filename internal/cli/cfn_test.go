@@ -161,3 +161,28 @@ func TestCfnConvertCommand(t *testing.T) {
 		t.Error("convert without a template succeeded")
 	}
 }
+
+// A write that fails midway removes the files this run wrote, not the one
+// that was there already, so that the next run finds the directory as it
+// was.
+func TestWriteNewFilesRemovesWhatItWroteIfOneFails(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contents := map[string][]byte{"locals.tf": []byte("a"), "main.tf": []byte("b"), "variables.tf": []byte("c")}
+	err := writeNewFiles(dir, []string{"locals.tf", "main.tf", "variables.tf"}, contents)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("err = %v, want the existing file refused", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "main.tf" {
+		t.Errorf("directory holds %v, want main.tf alone", entries)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "main.tf")); string(got) != "mine\n" {
+		t.Errorf("main.tf = %q, want it untouched", got)
+	}
+}
