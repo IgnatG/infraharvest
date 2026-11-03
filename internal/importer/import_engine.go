@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -100,7 +101,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 	if err == nil && run.backend != nil {
 		// After the checks, which run on a local working directory: the
 		// import never needs access to the state backend.
-		if err := os.WriteFile(filepath.Join(rootSource(out, dir), BackendFileName), run.backend.File(relativePath(out, dir)), 0o644); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(rootSource(out, dir), BackendFileName), run.backend.File(relativePath(out, dir)), 0o644); err != nil {
 			return err
 		}
 	}
