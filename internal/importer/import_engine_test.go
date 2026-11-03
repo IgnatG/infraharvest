@@ -207,8 +207,8 @@ func TestProviderDir(t *testing.T) {
 	if got := providerDir(directoryProvider{}); got != "azure" {
 		t.Errorf("providerDir(directoryProvider): got %q, want azure", got)
 	}
-	if got, want := discoveryScope(t.Context(), directoryProvider{}), "azure/111122223333/eu-west-2"; got != want {
-		t.Errorf("discoveryScope(directoryProvider): got %q, want %q", got, want)
+	if got, err := discoveryScope(t.Context(), directoryProvider{}); err != nil || got != "azure/111122223333/eu-west-2" {
+		t.Errorf("discoveryScope(directoryProvider): got %q, %v, want azure/111122223333/eu-west-2", got, err)
 	}
 }
 

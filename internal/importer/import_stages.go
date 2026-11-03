@@ -197,7 +197,9 @@ func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, option
 		c.unwanted = selection.Unwanted(cat, chosen)
 	}
 	c.services = ResolveServices(provider, options)
-	c.scope = discoveryScope(ctx, provider)
+	if c.scope, err = discoveryScope(ctx, provider); err != nil {
+		return nil, err
+	}
 	c.importID = importIDFunc(cat)
 	if usesQuery(options) {
 		c.query = func(provider harvest.Provider, listedByOthers []harvest.Resource) harvest.Query {
