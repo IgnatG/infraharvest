@@ -14,7 +14,7 @@
 
 FROM hashicorp/terraform:1.17.0@sha256:4d1b496a256f2989bccdb04b9104a4ede97234b10fba90259e173e905ec4fb58 AS terraform
 
-FROM ghcr.io/opentofu/opentofu:1.13.2-minimal@sha256:622dc6bb98b105c18f53cf419ab64a4f3b88bd9f8c16cc978cf89e4202f4613f AS tofu
+FROM ghcr.io/opentofu/opentofu:1.13.8-minimal@sha256:f4ef496a61579469a1afe5bd355d15fe1c01dbbe9c4e91a7ee1695c973393ead AS tofu
 
 # The working directory, owned by the image's non-root user.
 FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS workdir
