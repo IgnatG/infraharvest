@@ -184,6 +184,10 @@ func TestListErrors(t *testing.T) {
 	complete := `{"@level":"info","@message":"list.aws_ebs_volume.all: Result found","@module":"terraform.ui","@timestamp":"2026-10-28T05:44:17.951000Z","list_resource_found":{"address":"list.aws_ebs_volume.all","display_name":"vol-1","identity":{"id":"vol-1","region":"eu-west-2"},"identity_version":0,"resource_type":"aws_ebs_volume"},"type":"list_resource_found"}
 {"@level":"info","@message":"list.aws_ebs_volume.all: List complete","@module":"terraform.ui","@timestamp":"2026-10-28T05:44:17.960000Z","list_complete":{"address":"list.aws_ebs_volume.all","resource_type":"aws_ebs_volume","total":1},"type":"list_complete"}
 `
+	// terraform-json decodes numbers as json.Number: an identity with one
+	// is found as one with a string.
+	numeric := `{"@level":"info","@message":"list.aws_ebs_volume.all: Result found","@module":"terraform.ui","@timestamp":"2026-10-28T05:44:17.951000Z","list_resource_found":{"address":"list.aws_ebs_volume.all","display_name":"vol-2","identity":{"id":"vol-2","port":443,"region":"eu-west-2"},"identity_version":0,"resource_type":"aws_ebs_volume"},"type":"list_resource_found"}
+`
 	unowned := `{"@level":"error","@message":"Error: Invalid provider configuration","@module":"terraform.ui","@timestamp":"2026-10-28T05:44:24.592917Z","diagnostic":{"severity":"error","summary":"Invalid provider configuration","detail":"no credentials"},"type":"diagnostic"}
 `
 	for name, tt := range map[string]struct {
@@ -193,6 +197,7 @@ func TestListErrors(t *testing.T) {
 		fails  bool
 	}{
 		"complete":        {output: complete, found: 1},
+		"numeric":         {output: numeric + complete, found: 2},
 		"unowned error":   {output: complete + unowned, exit: errors.New("exit status 1"), fails: true},
 		"failed silently": {output: "", exit: errors.New("exit status 1"), fails: true},
 	} {
