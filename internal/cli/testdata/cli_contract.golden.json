@@ -2066,6 +2066,12 @@
         "persistent": false
       },
       {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
+        "persistent": false
+      },
+      {
         "name": "policy",
         "type": "stringSlice",
         "default": "[]",

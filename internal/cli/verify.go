@@ -21,8 +21,10 @@ func newVerifyCmd() *cobra.Command {
 			"initialised without their backend, so no access to the state is needed; the\n" +
 			"plan reads the cloud. Set secret variables first, with TF_VAR_ environment\n" +
 			"variables or a .auto.tfvars file. A root environments share is planned once\n" +
-			"per environment, with its var files (--environment names which). Exit code 0\n" +
-			"means every check passed, 1 that one failed.",
+			"per environment, with its var files (--environment names which). A root that\n" +
+			"can't be checked is reported as such, and the others are still checked.\n" +
+			"Exit code 0 means every check passed, 1 that one failed, 2 that a root\n" +
+			"couldn't be checked.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,5 +44,6 @@ func newVerifyCmd() *cobra.Command {
 		CatalogueHelp:   ": those the import used",
 		EnvironmentHelp: "for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/)",
 	})
+	cmd.Flags().IntVar(&options.Parallel, "parallel", 1, "how many roots to check at once; each runs its own Terraform, so memory use grows with it")
 	return cmd
 }
