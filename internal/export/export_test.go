@@ -491,6 +491,14 @@ func TestSchemasAreEmbeddedAndNamed(t *testing.T) {
 	}
 }
 
+// The saved inventories this reads are in the format the importer writes.
+func TestInventoryVersionIsTheImporters(t *testing.T) {
+	t.Parallel()
+	if inventoryVersion != importer.InventoryVersion {
+		t.Errorf("inventoryVersion %d, want the importer's %d", inventoryVersion, importer.InventoryVersion)
+	}
+}
+
 func TestInventoryDirIsTheImporters(t *testing.T) {
 	t.Parallel()
 	if want := filepath.Join(importer.CheckpointDir, "inventory"); inventoryDir != want {

@@ -16,7 +16,7 @@ import (
 var inventoryDir = filepath.Join(".infraharvest", "inventory")
 
 // inventoryVersion is the format of the saved inventories this reads
-// (importer.inventoryVersion).
+// (importer.InventoryVersion, which a test checks it against).
 const inventoryVersion = 2
 
 // listed is what export reads of a saved inventory: a projection, not the
