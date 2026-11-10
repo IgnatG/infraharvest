@@ -379,6 +379,9 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 		result:    &Result{},
 		leftOut:   map[string]bool{},
 	}
+	if cache != nil {
+		cache.MoveIn(g.moveCopy)
+	}
 	restoreAccess, err := g.write(ctx)
 	if err != nil {
 		return nil, err

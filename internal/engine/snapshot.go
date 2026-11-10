@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"slices"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
@@ -173,4 +174,69 @@ func (g *generation) snapshotOf(ctx context.Context) (*tfrun.Snapshot, error) {
 		Vars:      g.r.secrets.Options(),
 		Timeout:   g.opts.CommandTimeout,
 	})
+}
+
+// moveCopy makes the private copy of the root that the snapshot's moves
+// are made in at once (see tfrun.MoveCopy): as snapshotOf's copy, without
+// the import blocks, which the plan of the moves must not import, or the
+// root's own moved blocks, which would move more than it asks for.
+func (g *generation) moveCopy(context.Context) (*tfrun.MoveCopy, error) {
+	copied, remove, err := gate.VerifyCopy(g.dir)
+	if err != nil {
+		return nil, err
+	}
+	c, err := g.moveCopyIn(copied)
+	if err != nil {
+		remove()
+		return nil, err
+	}
+	c.Remove = remove
+	return c, nil
+}
+
+func (g *generation) moveCopyIn(copied string) (*tfrun.MoveCopy, error) {
+	if err := dropBlocks(copied, "import", "moved"); err != nil {
+		return nil, err
+	}
+	resources, err := resourceAddresses(copied)
+	if err != nil {
+		return nil, err
+	}
+	tf, err := g.opts.ImportOnce.NewRunner(copied)
+	if err != nil {
+		return nil, err
+	}
+	apply, ok := tf.(tfrun.StateTerraform)
+	if !ok {
+		return nil, errors.New("the runner can't apply")
+	}
+	// The copy's plans show nothing of the secrets either.
+	plan := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, g.opts.CommandTimeout)}
+	plan.Hide(g.literal)
+	return &tfrun.MoveCopy{Dir: copied, Plan: plan, Apply: apply, Resources: resources, Vars: g.r.secrets.Options()}, nil
+}
+
+// dropBlocks removes the top-level blocks of the types types from the
+// configuration files of the root in dir.
+func dropBlocks(dir string, types ...string) error {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		body := f.Edit().Body()
+		dropped := false
+		for _, b := range body.Blocks() {
+			if slices.Contains(types, b.Type()) {
+				body.RemoveBlock(b)
+				dropped = true
+			}
+		}
+		if dropped {
+			if err := f.Save(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

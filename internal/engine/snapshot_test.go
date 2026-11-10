@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
@@ -111,5 +112,24 @@ func TestCachedRunnerNeedsTheOption(t *testing.T) {
 	}
 	if (*tfrun.Cached)(nil).CachedPlans() != 0 {
 		t.Error("a nil cache has plans")
+	}
+}
+
+func TestDropBlocks(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	main := "resource \"aws_s3_bucket\" \"a\" {\n  bucket = \"a\"\n}\n\nimport {\n  to = aws_s3_bucket.a\n  id = \"a\"\n}\n\nmoved {\n  from = aws_s3_bucket.old\n  to   = aws_s3_bucket.a\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropBlocks(dir, "import", "moved"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "main.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "resource \"aws_s3_bucket\" \"a\" {\n  bucket = \"a\"\n}"; strings.TrimSpace(string(got)) != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
