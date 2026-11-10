@@ -106,6 +106,38 @@ func TestVacateMerged(t *testing.T) {
 	}
 }
 
+// A vacating that fails once it has begun to remove files puts the root
+// back as it was.
+func TestVacateMergedRestoresOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	files := vacatedFixture(t, dir)
+	before := map[string]string{}
+	for _, name := range files {
+		before[name] = readFile(t, dir, name)
+	}
+	// An address that doesn't parse fails the writing of moves.tf, after
+	// the code is removed.
+	removed := []rootfile.Removal{{From: "aws_sqs_queue.orders }", Resources: []rootfile.Departure{
+		{Type: "aws_sqs_queue", ID: "https://sqs/shop-dev-orders", Address: "aws_sqs_queue.orders", Root: "envs/dev/aws/sqs/us-east-1"},
+	}}}
+	if _, _, err := VacateMerged(dir, files, removed); err == nil || !strings.Contains(err.Error(), "restored") {
+		t.Fatalf("want an error that says the files were restored, got %v", err)
+	}
+	for name, want := range before {
+		if got := readFile(t, dir, name); got != want {
+			t.Errorf("%s isn't restored:\n%s\nwant:\n%s", name, got, want)
+		}
+	}
+	for _, name := range []string{rootfile.MovesFileName, rootfile.ReadmeFileName} {
+		if _, ok := before[name]; ok {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s is left: %v", name, err)
+		}
+	}
+}
+
 // A merged root whose moves.tf still moves resources isn't vacated: its
 // moved blocks may not have been applied in every environment yet.
 func TestVacateMergedStillMoving(t *testing.T) {
