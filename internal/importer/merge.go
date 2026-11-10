@@ -375,12 +375,11 @@ func premergeDir(out, dir string) string {
 
 // copyRoot copies the files directly in the root at from, but Terraform's
 // working directory and local state (see tfrun.LocalStateFile), into
-// to, which it empties first: the state stays where Terraform keeps it.
+// to, which it empties first of all but its own local state and working
+// directory: the state stays where Terraform keeps it, in both, as a root
+// restored from its copy may have been applied before it was set aside.
 func copyRoot(from, to string) error {
-	if err := os.RemoveAll(to); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(to, 0o755); err != nil {
+	if err := emptyRoot(to); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(from)
@@ -396,6 +395,28 @@ func copyRoot(from, to string) error {
 			return err
 		}
 		if err := fsutil.WriteFile(filepath.Join(to, e.Name()), content, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// emptyRoot creates the directory dir, or removes everything in it but
+// its local state (see tfrun.LocalStateFile) and Terraform's working
+// directory.
+func emptyRoot(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return os.MkdirAll(dir, 0o755)
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if tfrun.LocalStateFile(e.Name()) || e.Name() == ".terraform" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
 			return err
 		}
 	}

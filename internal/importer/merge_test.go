@@ -247,6 +247,23 @@ func TestCopyAndRemoveRootLeaveLocalState(t *testing.T) {
 			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
 		}
 	}
+	// Restored from its copy, as --incremental and a merge without it do,
+	// the root keeps the state it was applied with.
+	writeRootFiles(t, dir, map[string]string{"stray.tf": "# left by the merge\n"})
+	if err := copyRoot(premerge, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "sqs.tf")); err != nil || string(got) != "# queues\n" {
+		t.Errorf("sqs.tf isn't restored: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "stray.tf")); err == nil {
+		t.Errorf("stray.tf isn't removed on restore")
+	}
+	for name, want := range map[string]string{"terraform.tfstate": "state", "terraform.tfstate.backup": "backup", filepath.Join("terraform.tfstate.d", "dev", "terraform.tfstate"): "dev"} {
+		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != want {
+			t.Errorf("after the restore, %s: %q, %v, want %q", name, got, err, want)
+		}
+	}
 }
 
 func TestRecordMerge(t *testing.T) {
