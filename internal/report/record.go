@@ -12,6 +12,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // An import records what it does as it goes, root by root and resource by
@@ -315,6 +316,30 @@ func (r *Report) ReaddressNotInCloud(path string, envOf map[string]string, impor
 		gone[env] = append(gone[env], rootfile.Import{Type: typ, Name: strings.TrimPrefix(g.Address, typ+"."), ID: g.ID})
 	}
 	return gone
+}
+
+// AddPlans adds plans, counts of plans run for the directory at path
+// outside generating it, such as the merge's (see envmerge.StepMerge), to
+// those of its step, if it has one already, or after the others. A
+// directory the report doesn't have, such as a root an earlier import
+// generated, gets none.
+func (r *Report) AddPlans(path string, plans []tfrun.StepPlans) {
+	i := slices.IndexFunc(r.Directories, func(d Directory) bool { return d.Path == path })
+	if i < 0 {
+		return
+	}
+	d := &r.Directories[i]
+	for _, p := range plans {
+		if p.Plans == 0 && p.Shows == 0 {
+			continue
+		}
+		if j := slices.IndexFunc(d.Plans, func(q Plans) bool { return q.Step == p.Step }); j >= 0 {
+			d.Plans[j].Plans += p.Plans
+			d.Plans[j].Shows += p.Shows
+			continue
+		}
+		d.Plans = append(d.Plans, Plans(p))
+	}
 }
 
 // AddMerge records m, the outcome of a stack whose environments' roots are

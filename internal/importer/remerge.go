@@ -338,6 +338,7 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 	opts := imported.opts
 	mergeOptions := envmerge.MergeOptions{Profile: imported.profile, Gate: engine.FullGate(opts), StateOnly: opts.StateOnly, CommandTimeout: opts.CommandTimeout}
 	result, err := p.tools.mergeRoots(ctx, s.stack, roots, mergeOptions)
+	s.recordPlans(result)
 	// What the merged root matched across environments isn't kept apart:
 	// it would get another address all the same.
 	var shared map[string]bool
@@ -353,6 +354,7 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 			return err
 		}
 		result, err = p.tools.mergeRoots(ctx, s.stack, roots, mergeOptions)
+		s.recordPlans(result)
 	}
 	if err != nil {
 		p.warnMergedIncomplete(s.stack, s.members, err.Error())
@@ -458,6 +460,21 @@ func (s *stackMerge) handOver() error {
 		return clearMerged(s.stack, result.Files)
 	}
 	return nil
+}
+
+// recordPlans adds the plans the merge result ran as each member's
+// environment to the member's directory in the report (see
+// envmerge.MergeResult.Plans): each read the environment's resources,
+// whether the stack merged or not.
+func (s *stackMerge) recordPlans(result *envmerge.MergeResult) {
+	if result == nil {
+		return
+	}
+	for i, plans := range result.Plans {
+		if i < len(s.members) {
+			s.phase.report.AddPlans(relativePath(s.out, s.members[i].dir), plans)
+		}
+	}
 }
 
 // conclude records the merge's outcome. Where a stack merged before

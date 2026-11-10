@@ -148,6 +148,25 @@ func TestAddDirectoryPlans(t *testing.T) {
 	}
 }
 
+// The merge's plans of an environment go with its directory's: added to
+// a step it has, after the others otherwise, and nowhere for a directory
+// the report doesn't have.
+func TestAddPlans(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	r.AddDirectory("envs/dev/aws", "", &engine.Result{Plans: []tfrun.StepPlans{{Step: "generate", Plans: 1}, {Step: "gate", Plans: 1, Shows: 1}}})
+	r.AddPlans("envs/dev/aws", []tfrun.StepPlans{{Step: "merge", Plans: 2, Shows: 2}})
+	r.AddPlans("envs/dev/aws", []tfrun.StepPlans{{Step: "merge", Plans: 1, Shows: 1}, {Step: "gate", Plans: 0}})
+	r.AddPlans("envs/prod/aws", []tfrun.StepPlans{{Step: "merge", Plans: 1}})
+	want := []Plans{{Step: "generate", Plans: 1}, {Step: "gate", Plans: 1, Shows: 1}, {Step: "merge", Plans: 3, Shows: 3}}
+	if got := r.Directories[0].Plans; !reflect.DeepEqual(got, want) {
+		t.Errorf("plans %+v, want %+v", got, want)
+	}
+	if len(r.Directories) != 1 {
+		t.Errorf("directories %+v", r.Directories)
+	}
+}
+
 // A directory's moves are recorded with it: a move into a module call the
 // result has no address for keeps its resource's type, and what a root
 // imports from another is the address the other's departure goes to.

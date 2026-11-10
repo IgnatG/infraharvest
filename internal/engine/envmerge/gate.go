@@ -77,7 +77,15 @@ type MergeResult struct {
 	// Environments are each environment's part of the merged root, in the
 	// order of the roots.
 	Environments []MergedEnvironment
+	// Plans count the plans the merge ran as each environment, and the
+	// plan files it showed, under the step StepMerge, in the order of the
+	// roots: each plan imports, and so reads from the cloud, every resource
+	// of the environment again. An environment that didn't plan has none.
+	Plans [][]tfrun.StepPlans
 }
+
+// StepMerge is the step MergeResult.Plans counts the merge's plans under.
+const StepMerge = "merge"
 
 // MergeResidue is a resource of one environment the merged root keeps as
 // that environment's root had it: Address is its address there, and
@@ -148,8 +156,11 @@ func MergeRoots(ctx context.Context, dir string, roots []MergeRoot, opts MergeOp
 		return nil, err
 	}
 	defer removeState()
-	g := &mergeGate{dir: dir, roots: roots, opts: opts, emptyState: state}
+	g := &mergeGate{dir: dir, roots: roots, opts: opts, emptyState: state, counts: make([]*tfrun.Counting, len(roots))}
 	result, err := g.merge(ctx, envRoots)
+	if result != nil {
+		result.Plans = g.plans()
+	}
 	if err != nil || result.Reason != "" {
 		return result, errors.Join(err, g.clear())
 	}
@@ -168,6 +179,43 @@ type mergeGate struct {
 	newest int
 	// emptyState is the state its plans read (see tfrun.EmptyState).
 	emptyState string
+	// counts count the plans of each environment's runners (see plans).
+	counts []*tfrun.Counting
+	// initialised says dir has been initialised for the configuration
+	// whose initKey is initKey (see init).
+	initialised bool
+	initKey     string
+}
+
+// plans returns the counts of each environment's plans (see
+// MergeResult.Plans).
+func (g *mergeGate) plans() [][]tfrun.StepPlans {
+	plans := make([][]tfrun.StepPlans, len(g.counts))
+	for e, c := range g.counts {
+		if c != nil {
+			plans[e] = c.Counts()
+		}
+	}
+	return plans
+}
+
+// init runs terraform init in dir, with tf, for the configuration files,
+// by path in dir with forward slashes, that it holds now, unless dir has
+// been initialised for a configuration that needs the same of init: the
+// same providers, and no module calls (see initKey). Init installs no more
+// than that, and it takes seconds with every provider in the plugin
+// cache, each time the merged root is written again.
+func (g *mergeGate) init(ctx context.Context, tf tfrun.Terraform, files map[string][]byte) error {
+	key, ok := initKey(files)
+	if ok && g.initialised && key == g.initKey {
+		return nil
+	}
+	g.initialised = false
+	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
+		return fmt.Errorf("terraform init: %w", err)
+	}
+	g.initialised, g.initKey = ok, key
+	return nil
 }
 
 // merge merges envRoots, read from g.roots, in rounds (see MergeRoots).
@@ -200,7 +248,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 		if err := g.write(gated); err != nil {
 			return nil, err
 		}
-		envs, err := g.check(ctx, m, w)
+		envs, err := g.check(ctx, m, w, gated)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +309,8 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	if envRoots[g.newest].requiredVersion != "" {
 		required = envRoots[g.newest].requiredVersion
 	}
-	if err := g.write(map[string][]byte{rootfile.VersionsFileName: rootfile.VersionsFile(required, envRoots[g.newest].provider)}); err != nil {
+	versions := map[string][]byte{rootfile.VersionsFileName: rootfile.VersionsFile(required, envRoots[g.newest].provider)}
+	if err := g.write(versions); err != nil {
 		return nil, err
 	}
 	first := slices.IndexFunc(g.roots, func(r MergeRoot) bool { return r.Terraform != nil })
@@ -272,8 +321,8 @@ func (g *mergeGate) schemas(ctx context.Context, envRoots []envRoot) (*tfjson.Pr
 	if err != nil {
 		return nil, err
 	}
-	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
+	if err := g.init(ctx, tf, versions); err != nil {
+		return nil, err
 	}
 	schemas, err := tf.ProvidersSchema(ctx)
 	if err != nil {
@@ -309,7 +358,13 @@ func (g *mergeGate) terraform(env int) (tfrun.Terraform, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tfrun.WithTimeout(tfrun.Stateless(tf, g.emptyState), g.opts.CommandTimeout), nil
+	// One count per environment, whichever of its runners plans.
+	if g.counts[env] == nil {
+		g.counts[env] = &tfrun.Counting{}
+		g.counts[env].Step(StepMerge)
+	}
+	g.counts[env].Terraform = tfrun.WithTimeout(tfrun.Stateless(tf, g.emptyState), g.opts.CommandTimeout)
+	return g.counts[env], nil
 }
 
 // record notes that g wrote name, a path in dir with forward slashes.
@@ -392,7 +447,7 @@ func (g *mergeGate) removeOverride() error {
 // environment's check finds a secret value: a value only a later
 // environment's plan marks sensitive, such as a literal in its var file,
 // is as secret as the first's.
-func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]MergedEnvironment, error) {
+func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter, files map[string][]byte) ([]MergedEnvironment, error) {
 	// The first environment the run can plan as runs the whole gate.
 	first := slices.IndexFunc(g.roots, func(r MergeRoot) bool { return r.Terraform != nil })
 	if first < 0 {
@@ -402,8 +457,9 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter) ([]
 	if err != nil {
 		return nil, err
 	}
-	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
+	// files are those the gate checks, which dir holds now.
+	if err := g.init(ctx, tf, files); err != nil {
+		return nil, err
 	}
 	envs := make([]MergedEnvironment, len(g.roots))
 	for e := range g.roots {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
 	azureprovider "github.com/IgnatG/infraharvest/internal/providers/azure"
@@ -279,6 +280,24 @@ func TestRecordMerge(t *testing.T) {
 	}
 	if len(p.report.Merges) != 1 {
 		t.Errorf("merges: %+v", p.report.Merges)
+	}
+}
+
+// The merge's plans as each environment count with the plans of its
+// member's directory.
+func TestRecordMergePlans(t *testing.T) {
+	t.Parallel()
+	p := newTestPhase("out", nil)
+	p.report.Directories = []report.Directory{{Path: "envs/dev/aws", Plans: []report.Plans{{Step: "generate", Plans: 1}}}, {Path: "envs/prod/aws"}}
+	members := []mergeMember{{env: "dev", dir: filepath.Join("out", "envs", "dev", "aws")}, {env: "prod", dir: filepath.Join("out", "envs", "prod", "aws")}}
+	s := &stackMerge{phase: p, out: "out", members: members}
+	s.recordPlans(&envmerge.MergeResult{Plans: [][]tfrun.StepPlans{{{Step: envmerge.StepMerge, Plans: 2, Shows: 2}}, nil}})
+	s.recordPlans(nil)
+	if got, want := p.report.Directories[0].Plans, []report.Plans{{Step: "generate", Plans: 1}, {Step: "merge", Plans: 2, Shows: 2}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("dev: %+v, want %+v", got, want)
+	}
+	if got := p.report.Directories[1].Plans; len(got) != 0 {
+		t.Errorf("prod: %+v, want none", got)
 	}
 }
 

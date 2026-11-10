@@ -374,7 +374,9 @@ type LeftOut struct {
 
 // Plans counts the plans a step of generating a directory ran, failed
 // ones included, and the plan files it read back (shows): generate,
-// prepare, repair, secrets, tidy, finish, refine or gate.
+// prepare, repair, secrets, tidy, finish, refine or gate, or merge for
+// the plans of the merged root of its stack as its environment (see
+// AddPlans).
 type Plans struct {
 	Step  string `json:"step"`
 	Plans int    `json:"plans"`
