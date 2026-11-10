@@ -174,7 +174,7 @@ infraharvest import aws --services=ec2_instance,ebs --regions=eu-west-2 --all \
 
 See [Filtering](usage.md#filtering) for the syntax.
 
-`SQS_PREFIX`, when set, makes the `sqs` service list only the queues whose names start with it.
+`INFRAHARVEST_SQS_PREFIX`, when set, makes the `sqs` service list only the queues whose names start with it. Its old name, `SQS_PREFIX`, is still read when the new one isn't set.
 
 ## Services listed through Cloud Control
 

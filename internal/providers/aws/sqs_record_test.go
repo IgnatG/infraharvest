@@ -15,7 +15,7 @@ const recordSQSURL = "https://sqs.us-east-1.amazonaws.com/123456789012/"
 
 // TestSqsPaginates (pagination_test.go) pins the IDs across two pages and
 // MaxResults. This records the names (the URL's last part) and the
-// SQS_PREFIX environment variable, which, when set even to "", is the
+// INFRAHARVEST_SQS_PREFIX environment variable, which, when set even to "", is the
 // queue name prefix.
 func TestRecordSqsListsQueuesByURL(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -23,14 +23,19 @@ func TestRecordSqsListsQueuesByURL(t *testing.T) {
 		prefix     string
 		wantPrefix bool
 	}{
-		"no SQS_PREFIX":    {},
-		"SQS_PREFIX":       {set: true, prefix: "orders", wantPrefix: true},
-		"empty SQS_PREFIX": {set: true, prefix: "", wantPrefix: true},
+		"no prefix":    {},
+		"a prefix":     {set: true, prefix: "orders", wantPrefix: true},
+		"empty prefix": {set: true, prefix: "", wantPrefix: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("SQS_PREFIX", tc.prefix)
+			// The old name, unset, mustn't decide.
+			t.Setenv(sqsPrefixOldEnv, "")
+			if err := os.Unsetenv(sqsPrefixOldEnv); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(sqsPrefixEnv, tc.prefix)
 			if !tc.set {
-				if err := os.Unsetenv("SQS_PREFIX"); err != nil {
+				if err := os.Unsetenv(sqsPrefixEnv); err != nil {
 					t.Fatal(err)
 				}
 			}
