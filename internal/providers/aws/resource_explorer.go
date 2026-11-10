@@ -42,7 +42,7 @@ func explorerTypes(cat *catalogue.Catalogue, name string) []string {
 	}
 	var types []string
 	for _, typ := range serviceTypes(cat, name) {
-		if e, ok := cat.Entry(typ); ok {
+		if e, ok := cat.View(typ); ok {
 			types = append(types, e.ResourceExplorerTypes()...)
 		}
 	}

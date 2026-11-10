@@ -34,6 +34,16 @@ func TestBuiltinLoads(t *testing.T) {
 	if e, ok := aws.Entry("aws_vpc"); !ok || e.Service != "vpc" || e.DataSource == nil {
 		t.Errorf("aws_vpc: got %+v, want the vpc service's entry with a data source", e)
 	}
+	view, ok := aws.View("aws_vpc")
+	if copied, _ := aws.Entry("aws_vpc"); !ok || !reflect.DeepEqual(view, copied) || view == copied {
+		t.Errorf("View of aws_vpc: got %+v, %v, want the entry Entry copies", view, ok)
+	}
+	if view2, _ := aws.View("aws_vpc"); view2 != view {
+		t.Error("View copied the entry")
+	}
+	if e, ok := aws.View("aws_nope"); ok || e != nil {
+		t.Errorf("View of a type without an entry: got %+v, %v", e, ok)
+	}
 	if got := aws.Omit(nil)[AllTypes]; !reflect.DeepEqual(got, []string{"region", "tags_all", "*.tags_all"}) {
 		t.Errorf("omit for every type: got %v", got)
 	}

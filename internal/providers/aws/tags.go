@@ -30,7 +30,7 @@ type arnResource struct {
 // Resources of the other types are tagged only if their ID, import ID or
 // arn attribute is an ARN the Resource Groups Tagging API lists.
 func arnResourceOf(cat *catalogue.Catalogue, typ string) (arnResource, bool) {
-	e, ok := cat.Entry(typ)
+	e, ok := cat.View(typ)
 	if !ok || e.ARN == nil {
 		return arnResource{}, false
 	}

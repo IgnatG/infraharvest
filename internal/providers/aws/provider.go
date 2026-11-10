@@ -50,6 +50,9 @@ type Provider struct {
 	account, resolvedRegion string
 	// cat is the catalogue of the import, nil until SetCatalogue sets it.
 	cat *catalogue.Catalogue
+	// catCloudControl are the Cloud Control services of cat, worked out
+	// when SetCatalogue sets it (see cloudControl).
+	catCloudControl map[string][]cloudControlType
 	// stackScope, when set, scopes the import to the resources of
 	// CloudFormation stacks (see SetStackScope).
 	stackScope *StackScope

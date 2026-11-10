@@ -571,6 +571,14 @@ func (c *Catalogue) Entry(typ string) (*Entry, bool) {
 	return e.copy(), true
 }
 
+// View returns the entry for a Terraform type itself, not a copy, for
+// the hot paths that only read it, such as one lookup per resource: the
+// caller must not change it, or anything it holds. Entry returns a copy.
+func (c *Catalogue) View(typ string) (*Entry, bool) {
+	e, ok := c.entries[typ]
+	return e, ok
+}
+
 // Source names the file the entry for typ came from.
 func (c *Catalogue) Source(typ string) string {
 	return c.sources[typ]
