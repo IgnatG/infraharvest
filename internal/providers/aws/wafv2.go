@@ -23,6 +23,8 @@ import (
 type Wafv2Lister struct {
 	Service
 	scope types.Scope
+	// parts gathers the parts of the listing that failed.
+	parts harvest.Parts
 }
 
 // NewWafv2CloudfrontLister returns the lister of the WAFv2 resources
@@ -57,7 +59,9 @@ func wafv2ImportID(id, name *string, scope types.Scope) string {
 
 // List lists the web ACLs (with their associations), IP sets,
 // regex pattern sets, rule groups and logging configurations, in that
-// order. Any error stops the listing and is returned.
+// order. A web ACL whose associations can't be read keeps those read
+// before the failure, and the failure makes the listing partial (see
+// harvest.Parts). Any other error stops the listing and is returned.
 func (g *Wafv2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -77,10 +81,10 @@ func (g *Wafv2Lister) list() error {
 		g.listLoggingConfigurations,
 	} {
 		if err := list(svc); err != nil {
-			return err
+			return g.parts.Fail(err)
 		}
 	}
-	return nil
+	return g.parts.Err()
 }
 
 // listWebACLs lists the web ACLs, each followed, in the regional scope, by
@@ -107,9 +111,7 @@ func (g *Wafv2Lister) listWebACLs(svc *wafv2.Client) error {
 			// only regional web ACLs have associations: a call per
 			// resource type, for associations the import may not keep.
 			if g.scope == types.ScopeRegional && g.Wants("aws_wafv2_web_acl_association") {
-				if err := g.listWebACLAssociations(svc, acl); err != nil {
-					return nil, err
-				}
+				g.parts.Add(awsCodes, "the associations of web ACL "+aws.ToString(acl.Name), g.listWebACLAssociations(svc, acl))
 			}
 		}
 		return output.NextMarker, nil

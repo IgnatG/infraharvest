@@ -26,9 +26,11 @@ type OrganizationLister struct {
 // List records the organization when the credentials are the
 // management account's, walks the organization's tree from each root,
 // then lists the service control policies, each followed by its
-// attachments. Every list is read across pages, and every error is
-// returned: a part of the tree left out would leave out all that is below
-// it.
+// attachments. Every list is read across pages, and every error of the
+// tree is returned: a part of the tree left out would leave out all that
+// is below it. A policy whose attachments can't be read is kept with those
+// read before the failure, which makes the listing partial (see
+// harvest.Parts).
 func (g *OrganizationLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -57,20 +59,19 @@ func (g *OrganizationLister) list() error {
 		}
 	}
 
+	var parts harvest.Parts
 	input := &organizations.ListPoliciesInput{Filter: orgtypes.PolicyTypeServiceControlPolicy}
 	policies := organizations.NewListPoliciesPaginator(client, input, stopOnDuplicateToken)
 	for policies.HasMorePages() {
 		page, err := policies.NextPage(g.Context())
 		if err != nil {
-			return err
+			return parts.Fail(err)
 		}
 		for _, policy := range page.Policies {
-			if err := g.addPolicy(client, policy); err != nil {
-				return err
-			}
+			parts.Add(awsCodes, "", g.addPolicy(client, policy))
 		}
 	}
-	return nil
+	return parts.Err()
 }
 
 // addOrganization records the organization by its ID (o-...), which

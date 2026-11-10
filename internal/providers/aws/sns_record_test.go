@@ -82,11 +82,14 @@ func TestRecordSnsReturnsListTopicsError(t *testing.T) {
 }
 
 // The topics' subscriptions are asked for several topics at once, and
-// recorded in the listed order. A topic whose subscriptions fail fails the
-// service, with the topics before it, and itself, recorded.
+// recorded in the listed order. A topic whose subscriptions fail is still
+// recorded, without them, the other topics are recorded with theirs, and
+// the listing is partial; a topic deleted since it was listed (NotFound)
+// only has no subscriptions.
 func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 	t.Parallel()
-	for _, failing := range []string{"", "b"} {
+	for _, tt := range []struct{ failing, code string }{{"", ""}, {"b", "AuthorizationError"}, {"b", "NotFound"}} {
+		failing := tt.failing
 		at := newOverlap(3)
 		ctx := useFakeAPI(t, func(call apiCall) string {
 			switch call.Op {
@@ -101,7 +104,7 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 				form, _ := url.ParseQuery(call.Body)
 				topic := snsLastPart(form.Get("TopicArn"))
 				if topic == failing {
-					return recordQueryError(recordSNSNS, "AuthorizationError")
+					return recordQueryError(recordSNSNS, tt.code)
 				}
 				return recordQuery(call.Op, recordSNSNS, `<Subscriptions>`+
 					recordSNSSubscription(recordSNSARN+topic+":sub", "sqs", recordSNSARN+topic+"-queue")+
@@ -120,14 +123,23 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 		subscription := func(name string) recordedResource {
 			return recordedResource{"aws_sns_topic_subscription", recordSNSARN + name + ":sub", name + "-queue sqs", nil}
 		}
-		if failing == "" {
+		switch tt.code {
+		case "":
 			if err != nil {
 				t.Fatal(err)
 			}
 			assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"), subscription("b"), topic("c"), subscription("c"))
-			continue
+		case "NotFound":
+			if err != nil {
+				t.Fatalf("a topic deleted since it was listed failed the listing: %v", err)
+			}
+			assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"), topic("c"), subscription("c"))
+		default:
+			assertRecordedError(t, err, tt.code)
+			if !harvest.IsPartial(err) {
+				t.Errorf("the listing failed whole, want partial: %v", err)
+			}
+			assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"), topic("c"), subscription("c"))
 		}
-		assertRecordedError(t, err, "AuthorizationError")
-		assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"))
 	}
 }

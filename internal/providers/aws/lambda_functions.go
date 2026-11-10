@@ -36,9 +36,12 @@ type lambdaResourcePolicy struct {
 
 // List records the functions, each followed by its permissions and
 // event invoke configs, then the event source mappings, then the layer
-// versions: each layer's latest, and those the functions use. Any error
-// fails the service, except that a function without a resource policy
-// simply has no permissions.
+// versions: each layer's latest, and those the functions use. A function
+// without a resource policy simply has no permissions. A function whose
+// permissions or event invoke configs can't be read is still recorded,
+// with what was read of them, and the failure makes the listing partial (see
+// harvest.Parts); one deleted since it was listed has none. Any other
+// error fails the service.
 func (g *LambdaLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -50,13 +53,17 @@ func (g *LambdaLister) list() error {
 	}
 	svc := lambda.NewFromConfig(config)
 	used := map[string]bool{}
-	if err := g.addFunctions(svc, used); err != nil {
-		return err
+	var parts harvest.Parts
+	if err := g.addFunctions(svc, used, &parts); err != nil {
+		return parts.Fail(err)
 	}
 	if err := g.addEventSourceMappings(svc); err != nil {
-		return err
+		return parts.Fail(err)
 	}
-	return g.addLayerVersions(svc, used)
+	if err := g.addLayerVersions(svc, used); err != nil {
+		return parts.Fail(err)
+	}
+	return parts.Err()
 }
 
 // addFunctions records every function as an aws_lambda_function, imported
@@ -65,19 +72,20 @@ func (g *LambdaLister) list() error {
 // invoke configs. The ARNs of the layer versions the functions use, which
 // the list answers already, are added to used. The functions of a page are
 // read resourceParallel at a time, as each takes two calls of its
-// own, and recorded in the page's order.
-func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) error {
+// own, and recorded in the page's order; a function whose calls fail is
+// recorded with what they read before the failure, which goes to parts.
+func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool, parts *harvest.Parts) error {
 	pages := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
 	for pages.HasMorePages() {
 		page, err := pages.NextPage(g.Context())
 		if err != nil {
 			return err
 		}
-		parts := make([][]harvest.Resource, len(page.Functions))
+		reads := make([][]harvest.Resource, len(page.Functions))
 		errs := make([]error, len(page.Functions))
 		inParallel(len(page.Functions), resourceParallel, func(i int) {
 			function := page.Functions[i]
-			parts[i], errs[i] = g.functionParts(svc, aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName))
+			reads[i], errs[i] = g.functionParts(svc, aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName))
 		})
 		for i, function := range page.Functions {
 			arn, name := aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName)
@@ -86,10 +94,8 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool) er
 			}
 			g.Resources = append(g.Resources, harvest.Record(arn, name, "aws_lambda_function", "aws",
 				map[string]string{"function_name": name}))
-			if errs[i] != nil {
-				return errs[i]
-			}
-			g.Resources = append(g.Resources, parts[i]...)
+			g.Resources = append(g.Resources, reads[i]...)
+			parts.Add(awsCodes, "the permissions and event invoke configs of "+name, errs[i])
 		}
 	}
 	return nil

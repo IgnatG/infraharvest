@@ -358,7 +358,11 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := g.createRules(cloudwatchevents.NewFromConfig(config)); err != nil {
+	var parts harvest.Parts
+	if err := g.createRules(cloudwatchevents.NewFromConfig(config), &parts); err != nil {
+		t.Fatal(err)
+	}
+	if err := parts.Err(); err != nil {
 		t.Fatal(err)
 	}
 
