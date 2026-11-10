@@ -39,7 +39,7 @@ func TestAWSRegistryModuleMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	for _, name := range []string{"into", "out-of"} {
 		dir := t.TempDir()
 		fixture := filepath.Join("testdata", "aws-registry-moves", name, "main.tf")

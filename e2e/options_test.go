@@ -96,7 +96,7 @@ func seedOptions(t *testing.T) optionsEstate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pluginCache := filepath.Join(cache, "plugins")
+	pluginCache := pluginCacheDir(cache)
 	optionsSeeded.Lock()
 	defer optionsSeeded.Unlock()
 	if optionsSeeded.state == nil {

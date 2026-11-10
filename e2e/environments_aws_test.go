@@ -72,7 +72,7 @@ func setUpAWSEnvironments(t *testing.T) *awsEnvironments {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	return &awsEnvironments{
 		ctx:        ctx,
 		engineName: engineName,
@@ -486,7 +486,7 @@ func TestAWSEnvironmentsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	seedApplied(ctx, t, "aws-environments-data", execPath, plugins)
 	accounts := map[string]string{"dev": "717171717171", "prod": "818181818181"}
 	config := writeConfig(t, `version: 1

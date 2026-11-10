@@ -58,7 +58,7 @@ func TestAWSRegenerateMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixture := seedApplied(ctx, t, "aws-moves", execPath, plugins)
 	renamed, handed, kept := fixture.queueURL(ctx, t, "renamed"), fixture.queueURL(ctx, t, "handed"), fixture.queueURL(ctx, t, "kept")
 	t.Setenv("AWS_ACCESS_KEY_ID", movesAccount)

@@ -68,7 +68,7 @@ func TestAWSDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixture := seedApplied(ctx, t, "aws-drift", execPath, plugins)
 	vars := map[string]string{"project": "infraharvest-e2e-drift", "team": "web", "retention": "86400", "bucket_team": "data"}
 	change := func(values map[string]string) {

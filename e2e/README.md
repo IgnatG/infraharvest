@@ -4,6 +4,8 @@ These tests run infraharvest against local cloud emulators, so they need no clou
 
 A test whose emulator or sandbox isn't set up skips. CI sets `INFRAHARVEST_E2E_REQUIRED=1`, which makes it fail instead, so a broken setup doesn't pass as a run that tested nothing.
 
+Each test downloads the providers it needs into a plugin cache of its own, unless `INFRAHARVEST_E2E_PLUGIN_CACHE` names one for them all to share. CI sets it to a directory it keeps between runs.
+
 ## AWS (Floci)
 
 [`TestAWSRoundTrip`](aws_test.go) uses [Floci](https://github.com/floci-io/floci), an open-source AWS emulator:

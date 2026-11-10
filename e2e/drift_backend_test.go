@@ -53,7 +53,7 @@ func TestAWSDriftBackend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	account := tfexec.Var("account=" + driftBackendAccount)
 	fixture := seedApplied(ctx, t, "aws-drift-queues", execPath, plugins, account)
 	bucket := stateValue(t, fixture.resources(ctx, t), "aws_s3_bucket", "state", "bucket")

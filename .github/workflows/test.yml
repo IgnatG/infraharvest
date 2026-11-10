@@ -544,10 +544,20 @@ jobs:
     # The AWS provider is ~700 MB unpacked and is installed twice.
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
+    # The providers the tests install, kept between runs: an init then
+    # downloads only what is new, and registry timeouts matter less.
+    - name: Restore the provider cache
+      id: plugins
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: terraform-plugins-aws-${{ matrix.engine }}-${{ hashFiles('internal/engine/rootfile/required.go', 'internal/config/bootstrap.go', 'e2e/testdata/**/*.tf') }}
+        restore-keys: terraform-plugins-aws-${{ matrix.engine }}-
     - name: Test
       env:
         # Fail, rather than skip, if the test has nothing to run against.
         INFRAHARVEST_E2E_REQUIRED: "1"
+        INFRAHARVEST_E2E_PLUGIN_CACHE: ${{ runner.temp }}/terraform-plugins
         AWS_ENDPOINT_URL: http://localhost:4566
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
@@ -572,6 +582,14 @@ jobs:
       with:
         path: ${{ steps.cache.outputs.paths }}
         key: ${{ steps.cache.outputs.key }}
+    - name: Save the provider cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.plugins.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: ${{ steps.plugins.outputs.cache-primary-key }}
 
   # TestGoogleIncremental adds to the estate the other tests import, and
   # TestGoogleDrift and TestGoogleEnvironments change it, so each runs on a
@@ -630,10 +648,20 @@ jobs:
         docker compose -f e2e/compose.yaml --profile google up -d floci-gcp
         for _ in $(seq 60); do curl -s -o /dev/null http://localhost:4588/ && exit 0; sleep 2; done
         echo "floci-gcp didn't start"; exit 1
+    # The providers the tests install, kept between runs: an init then
+    # downloads only what is new, and registry timeouts matter less.
+    - name: Restore the provider cache
+      id: plugins
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: terraform-plugins-google-${{ matrix.engine }}-${{ hashFiles('internal/engine/rootfile/required.go', 'internal/config/bootstrap.go', 'e2e/testdata/**/*.tf') }}
+        restore-keys: terraform-plugins-google-${{ matrix.engine }}-
     - name: Test
       env:
         # Fail, rather than skip, if the test has nothing to run against.
         INFRAHARVEST_E2E_REQUIRED: "1"
+        INFRAHARVEST_E2E_PLUGIN_CACHE: ${{ runner.temp }}/terraform-plugins
         INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
@@ -655,6 +683,14 @@ jobs:
       with:
         path: ${{ steps.cache.outputs.paths }}
         key: ${{ steps.cache.outputs.key }}
+    - name: Save the provider cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.plugins.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: ${{ steps.plugins.outputs.cache-primary-key }}
 
   # TestAzureIncremental adds to the estate the other tests import, and
   # TestAzureDrift changes it, so each runs on a runner of its own, with
@@ -723,10 +759,20 @@ jobs:
           sleep 2
         done
         echo "floci-az didn't start"; exit 1
+    # The providers the tests install, kept between runs: an init then
+    # downloads only what is new, and registry timeouts matter less.
+    - name: Restore the provider cache
+      id: plugins
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: terraform-plugins-azure-${{ matrix.engine }}-${{ hashFiles('internal/engine/rootfile/required.go', 'internal/config/bootstrap.go', 'e2e/testdata/**/*.tf') }}
+        restore-keys: terraform-plugins-azure-${{ matrix.engine }}-
     - name: Test
       env:
         # Fail, rather than skip, if the test has nothing to run against.
         INFRAHARVEST_E2E_REQUIRED: "1"
+        INFRAHARVEST_E2E_PLUGIN_CACHE: ${{ runner.temp }}/terraform-plugins
         E2E_AZURE_METADATA_HOST: localhost:4577
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
@@ -748,6 +794,14 @@ jobs:
       with:
         path: ${{ steps.cache.outputs.paths }}
         key: ${{ steps.cache.outputs.key }}
+    - name: Save the provider cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.plugins.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/terraform-plugins
+        key: ${{ steps.plugins.outputs.cache-primary-key }}
 
   # A required check, whatever the shards: passes when every e2e job passed,
   # or was skipped.

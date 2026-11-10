@@ -93,7 +93,7 @@ func TestAzureEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixture := seedApplied(ctx, t, "azure-environments", execPath, plugins)
 	config := writeConfig(t, azureEnvironmentsConfig)
 

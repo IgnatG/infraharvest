@@ -32,6 +32,22 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 )
 
+// pluginCacheEnv names the plugin cache the tests share where it is set,
+// as CI sets it to a directory it keeps between runs, so that a run
+// doesn't download every provider again for each test.
+const pluginCacheEnv = "INFRAHARVEST_E2E_PLUGIN_CACHE"
+
+// pluginCacheDir is the plugin cache of a test whose cache directory is
+// cache: the shared one of pluginCacheEnv, or one under cache. The
+// runners hold the cache's lock while they install into it (see
+// tfrun.Runner.Init), so tests may share it.
+func pluginCacheDir(cache string) string {
+	if dir := os.Getenv(pluginCacheEnv); dir != "" {
+		return dir
+	}
+	return filepath.Join(cache, "plugins")
+}
+
 // seed applies testdata/<fixture> and returns the resources it created.
 func seed(ctx context.Context, t *testing.T, fixture, execPath, pluginCache string) []*tfjson.StateResource {
 	t.Helper()

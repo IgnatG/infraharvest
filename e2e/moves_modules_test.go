@@ -117,7 +117,7 @@ func checkModuleMoves(t *testing.T, c moduleMoves) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	seedApplied(ctx, t, c.fixture, execPath, plugins)
 	useAWSAccount(t, c.account, c.profile)
 

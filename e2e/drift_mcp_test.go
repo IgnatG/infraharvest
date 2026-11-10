@@ -55,7 +55,7 @@ func TestAWSDriftMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	account := tfexec.Var("account=" + driftMCPAccount)
 	fixture := seedApplied(ctx, t, "aws-drift-queues", execPath, plugins, account)
 	useAWSAccount(t, driftMCPAccount, driftMCPProfile)
@@ -165,7 +165,7 @@ func TestAWSDriftMCPRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	account := tfexec.Var("account=" + driftMCPRulesAccount)
 	fixture := seedApplied(ctx, t, "aws-drift-queues", execPath, plugins, account)
 	useAWSAccount(t, driftMCPRulesAccount, driftMCPRulesProfile)
