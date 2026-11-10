@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -50,6 +51,20 @@ func TestClientOptionsWithoutAnEmulator(t *testing.T) {
 	t.Setenv(EndpointEnv, "")
 	if clientOptions(t.Context(), "") != nil {
 		t.Error("want Google's endpoints and credentials")
+	}
+}
+
+// An emulator address that isn't a URL, such as one without its scheme,
+// fails every call, rather than letting them go to Google itself.
+func TestClientOptionsRefuseAnEndpointThatIsNotAURL(t *testing.T) {
+	t.Setenv(EndpointEnv, "localhost:4588")
+	svc, err := compute.NewService(context.Background(), clientOptions(t.Context(), "")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Networks.List("infraharvest-e2e").Do()
+	if err == nil || !strings.Contains(err.Error(), EndpointEnv) {
+		t.Errorf("got %v, want an error naming %s", err, EndpointEnv)
 	}
 }
 

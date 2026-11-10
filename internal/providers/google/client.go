@@ -38,7 +38,13 @@ const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 // account, if an environment names one (see runCaches.setImpersonation), the
 // client's credentials are of; "" for none.
 func clientOptions(ctx context.Context, project string) []option.ClientOption {
-	if target := emulator(); target != nil {
+	target, err := emulator()
+	if err != nil {
+		// A call to Google itself would read a real project where the
+		// emulator was meant: every call fails instead, saying why.
+		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: failingTransport{err: err}})}
+	}
+	if target != nil {
 		run := ratelimit.FromContext(ctx)
 		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: run.Transport(emulatorTransport{target: target}), delay: runRetryDelay(run)}})}
 	}
@@ -159,17 +165,28 @@ func credentialsClient(ctx context.Context, impersonate string) *http.Client {
 	return found.client
 }
 
-// emulator returns EndpointEnv as a URL, or nil.
-func emulator() *url.URL {
+// emulator returns EndpointEnv as a URL, nil if it is unset, or an error
+// if it is set to something that isn't a URL with a scheme and a host,
+// such as localhost:4588.
+func emulator() (*url.URL, error) {
 	endpoint := os.Getenv(EndpointEnv)
 	if endpoint == "" {
-		return nil
+		return nil, nil
 	}
 	target, err := url.Parse(endpoint)
-	if err != nil || target.Host == "" {
-		return nil
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return nil, fmt.Errorf("google: %s=%q isn't a URL such as http://localhost:4588", EndpointEnv, endpoint)
 	}
-	return target
+	return target, nil
+}
+
+// failingTransport fails every request with err.
+type failingTransport struct {
+	err error
+}
+
+func (t failingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, t.err
 }
 
 // emulatorTransport sends requests for Google's APIs to target.
