@@ -242,7 +242,9 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 		src := []byte(strings.Join(texts, "\n"))
 		out, ok := hclfile.Layout(src)
 		if !ok {
-			return nil, fmt.Errorf("%s doesn't parse:\n%s", name, src)
+			// Its source holds the stack's values: the reason, which the
+			// report shows, says only where it fails.
+			return nil, fmt.Errorf("%s doesn't parse: %s", name, firstParseError(name, src))
 		}
 		files[name] = out
 	}
@@ -1297,4 +1299,24 @@ func (w *rootWriter) arrivals() string {
 		return ""
 	}
 	return "\n## Moves\n\nThese resources come from other roots of the output, whose removed blocks make their state forget them. Apply the root each comes from first, then this root as the environment, which imports it: until then, both would manage it.\n\n| Environment | Imported | Comes from | Was |\n|---|---|---|---|\n" + rows.String()
+}
+
+// firstParseError returns the first error of parsing src, the content of
+// the file name, without the source of the line it is on.
+func firstParseError(name string, src []byte) string {
+	_, diags := hclsyntax.ParseConfig(src, name, hcl.InitialPos)
+	for _, d := range diags {
+		if d.Severity != hcl.DiagError {
+			continue
+		}
+		msg := d.Summary
+		if d.Detail != "" {
+			msg += ": " + d.Detail
+		}
+		if d.Subject != nil {
+			msg = fmt.Sprintf("line %d: %s", d.Subject.Start.Line, msg)
+		}
+		return msg
+	}
+	return "its layout fails"
 }

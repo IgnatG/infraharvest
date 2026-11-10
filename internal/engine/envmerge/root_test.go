@@ -701,3 +701,14 @@ func TestMergedRepeatedShapes(t *testing.T) {
 		}
 	})
 }
+
+// A merged file that doesn't parse is reported by its first error, never
+// with its source, which holds the stack's values.
+func TestFirstParseError(t *testing.T) {
+	t.Parallel()
+	src := []byte("resource \"aws_sqs_queue\" \"orders\" {\n  name = \"shop-prd-orders\"\n  oops = \n}\n")
+	got := firstParseError("sqs.tf", src)
+	if !strings.HasPrefix(got, "line 3: ") || strings.Contains(got, "shop-prd-orders") {
+		t.Errorf("got %q", got)
+	}
+}
