@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
 
 // driftConfig is a root's configuration files, parsed, as resolve reads
@@ -76,7 +77,7 @@ func tfContents(dir string) (map[string][]byte, error) {
 // parseDriftConfig parses the root's files of contents, without the files
 // of the modules it calls it may hold (see isModuleFile).
 func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
-	return reparseDriftConfig(nil, contents)
+	return reparseDriftConfig(nil, contents, nil)
 }
 
 // reparse returns the configuration of contents, as parseDriftConfig
@@ -85,10 +86,16 @@ func parseDriftConfig(contents map[string][]byte) (*driftConfig, error) {
 // edits one change at a time, each found in the files as the edits before
 // left them, and an edit touches a file or two of the many.
 func (cfg *driftConfig) reparse(contents map[string][]byte) (*driftConfig, error) {
-	return reparseDriftConfig(cfg, contents)
+	return reparseDriftConfig(cfg, contents, nil)
 }
 
-func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftConfig, error) {
+// reparseWith is reparse, taking the parse of a file from parses where
+// it has one of the file's content, as the check of an edit leaves it.
+func (cfg *driftConfig) reparseWith(contents map[string][]byte, parses parseCache) (*driftConfig, error) {
+	return reparseDriftConfig(cfg, contents, parses)
+}
+
+func reparseDriftConfig(prev *driftConfig, contents map[string][]byte, parses parseCache) (*driftConfig, error) {
 	parsed := map[string]*driftConfig{}
 	changed := prev == nil
 	for _, name := range slices.Sorted(maps.Keys(contents)) {
@@ -101,7 +108,11 @@ func reparseDriftConfig(prev *driftConfig, contents map[string][]byte) (*driftCo
 				continue
 			}
 		}
-		file, err := parseDriftFile(name, contents[name])
+		f, err := parses.parse(name, contents[name])
+		if err != nil {
+			return nil, err
+		}
+		file, err := driftFileOf(name, f)
 		if err != nil {
 			return nil, err
 		}
@@ -131,6 +142,12 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return driftFileOf(name, f)
+}
+
+// driftFileOf is the configuration of the root's file name, parsed as f,
+// alone.
+func driftFileOf(name string, f *hclfile.File) (*driftConfig, error) {
 	cfg := newDriftConfig()
 	cfg.files[name] = f
 	for _, b := range f.Syntax.Blocks {
@@ -169,6 +186,48 @@ func parseDriftFile(name string, content []byte) (*driftConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// parseCache keeps the last parse of each file of an apply, by the name
+// the file goes by, with the literal secrets it holds once asked for:
+// apply checks each edited file, parsing it, and the next change is
+// resolved in the same file, so that parse, and its findings, are kept
+// for both rather than made again. A nil parseCache parses every time.
+type parseCache map[string]*cachedParse
+
+type cachedParse struct {
+	f        *hclfile.File
+	literals []string
+	checked  bool
+}
+
+// parse returns the parse of content, the file name: the kept one where
+// it is of the same content.
+func (c parseCache) parse(name string, content []byte) (*hclfile.File, error) {
+	if p, ok := c[name]; ok && bytes.Equal(p.f.Src, content) {
+		return p.f, nil
+	}
+	f, err := hclfile.Parse(name, content)
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
+		c[name] = &cachedParse{f: f}
+	}
+	return f, nil
+}
+
+// literals returns secret.Literals of f, which parse returned for name,
+// once per parse.
+func (c parseCache) literals(name string, f *hclfile.File) []string {
+	p, ok := c[name]
+	if !ok || p.f != f {
+		return secret.Literals(f)
+	}
+	if !p.checked {
+		p.literals, p.checked = secret.Literals(f), true
+	}
+	return p.literals
 }
 
 // add adds what other declares and refers to to cfg, over what cfg has.
