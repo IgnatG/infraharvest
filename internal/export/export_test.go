@@ -5,6 +5,7 @@ package export
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,7 +212,7 @@ func TestCredentialKeyNeverListed(t *testing.T) {
 		"drop-tag":  newRedactor([]string{credentialTag}, false, nil),
 		"drop-tags": newRedactor(nil, true, nil),
 	} {
-		kept := r.tags(tags)
+		kept := r.tags(tags, "", "")
 		if _, ok := kept[credentialTag]; ok {
 			t.Errorf("%s: kept the credential key", name)
 		}
@@ -247,6 +248,45 @@ func TestHashing(t *testing.T) {
 		if res.Name != "" && (res.Name == "logs" || res.Name == "main") {
 			t.Errorf("name not hashed: %s", res.Name)
 		}
+		for k, v := range res.Tags {
+			if strings.Contains(k, "logs-bucket") || strings.Contains(v, "logs-bucket") || v == "logs" || v == "main" {
+				t.Errorf("%s: the tag %s=%s gives away a hashed ID or name", res.Type, k, v)
+			}
+		}
+	}
+}
+
+// With --hash-ids, a tag doesn't give away the ID or name hashed: the Name
+// tag and values that are or hold them are hashed alike, and a key that
+// holds one is dropped without being listed. Other tags stay.
+func TestHashingTags(t *testing.T) {
+	t.Parallel()
+	r := newRedactor(nil, false, []byte("0123456789abcdef-key"))
+	got := r.tags(map[string]string{
+		"Name":                              "web",
+		"arn":                               "arn:aws:s3:::logs-bucket",
+		"alias":                             "logs",
+		"kubernetes.io/cluster/logs-bucket": "owned",
+		"env":                               "prod",
+		"tier":                              "a",
+	}, "logs-bucket", "logs")
+	want := map[string]string{
+		"Name":  r.hash("web"),
+		"arn":   r.hash("arn:aws:s3:::logs-bucket"),
+		"alias": r.hash("logs"),
+		"env":   "prod",
+		"tier":  "a",
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if keys := r.droppedKeys(); len(keys) != 0 {
+		t.Errorf("listed as dropped: %v", keys)
+	}
+	// Without --hash-ids, tags stay as they are.
+	plain := newRedactor(nil, false, nil).tags(map[string]string{"Name": "web", "alias": "logs"}, "logs-bucket", "logs")
+	if plain["Name"] != "web" || plain["alias"] != "logs" {
+		t.Errorf("tags changed without --hash-ids: %v", plain)
 	}
 }
 
