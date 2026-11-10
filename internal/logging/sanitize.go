@@ -52,7 +52,10 @@ func hasControl(p []byte) bool {
 }
 
 // Printable returns s with each control character shown as an escape
-// (see Sanitize).
+// (see Sanitize). The delete character and the characters above it are
+// shown as \u escapes, which JSON reads as the same character: the JSON
+// encoder escapes the other controls itself, so JSON a command prints, such
+// as the report with --format json, stays valid JSON once escaped.
 func Printable(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -62,7 +65,7 @@ func Printable(s string) string {
 			// Not UTF-8: a terminal that reads 8-bit characters would take a
 			// byte such as 0x9b as a control.
 			fmt.Fprintf(&b, `\x%02x`, s[i])
-		case isControl(r) && r < 0x80:
+		case isControl(r) && r < 0x7f:
 			fmt.Fprintf(&b, `\x%02x`, r)
 		case isControl(r):
 			fmt.Fprintf(&b, `\u%04x`, r)
