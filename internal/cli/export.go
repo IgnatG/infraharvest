@@ -20,6 +20,7 @@ func newExportCmd() *cobra.Command {
 	var (
 		document    string
 		outFile     string
+		outFlag     string
 		printSchema bool
 		dropTags    []string
 		dropAllTags bool
@@ -52,7 +53,11 @@ func newExportCmd() *cobra.Command {
 			if printSchema {
 				content, err = export.Schema(document)
 			} else {
-				content, err = buildExport(args, document, dropTags, dropAllTags, hashIDs, hashKeyFile, startedAt, finishedAt)
+				var out string
+				if out, err = outDir(cmd, args, outFlag); err != nil {
+					return err
+				}
+				content, err = buildExport(out, document, dropTags, dropAllTags, hashIDs, hashKeyFile, startedAt, finishedAt)
 			}
 			if err != nil {
 				return err
@@ -64,6 +69,7 @@ func newExportCmd() *cobra.Command {
 			return fsutil.WriteFile(outFile, content, 0o644)
 		},
 	}
+	addOutFlag(cmd, &outFlag)
 	cmd.Flags().StringVar(&document, "schema", export.DocInventory, "document to write: "+strings.Join(export.Documents, ", "))
 	cmd.Flags().BoolVar(&printSchema, "print-schema", false, "print the JSON Schema of the document --schema names, not the document")
 	cmd.Flags().StringVar(&outFile, "out-file", "", "file to write the document to (default: standard output)")
@@ -76,13 +82,8 @@ func newExportCmd() *cobra.Command {
 	return cmd
 }
 
-// buildExport builds the document of the output directory the arguments
-// name.
-func buildExport(args []string, document string, dropTags []string, dropAllTags, hashIDs bool, hashKeyFile, startedAt, finishedAt string) ([]byte, error) {
-	out := report.DefaultOut
-	if len(args) == 1 {
-		out = args[0]
-	}
+// buildExport builds the document of the output directory out.
+func buildExport(out, document string, dropTags []string, dropAllTags, hashIDs bool, hashKeyFile, startedAt, finishedAt string) ([]byte, error) {
 	opts := export.Options{Out: out, Document: document, DropTags: dropTags, DropAllTags: dropAllTags}
 	var err error
 	if startedAt != "" {

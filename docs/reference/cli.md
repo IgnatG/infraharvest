@@ -235,6 +235,7 @@ infraharvest drift [output-directory] [flags]
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a line per root; json prints drift.json |
 | `--keep` |  | keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable) |
+| `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |
 | `--rules` |  | accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given) |
@@ -257,6 +258,7 @@ infraharvest export [output-directory] [flags]
 | `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now) |
 | `--hash-ids` |  | replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
 | `--hash-key-file` |  | file with the key --hash-ids hashes with (at least 16 bytes), instead of INFRAHARVEST_EXPORT_KEY |
+| `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
 | `--schema` | `inventory` | document to write: inventory, run, gate |
@@ -467,6 +469,7 @@ infraharvest report [output-directory] [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--format` | `text` | text prints the report as Markdown; json as JSON |
+| `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 
 ## infraharvest services
 
