@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -208,6 +210,71 @@ func TestResourceAt(t *testing.T) {
 		m, ok := ResourceAt(managed, address)
 		if ok != (want != "") || m.ID != want {
 			t.Errorf("%q: got %+v, %v, want %q", address, m, ok, want)
+		}
+	}
+}
+
+// resourceAtByScan is ResourceAt as it read every resource for each
+// address, before ManagedIndex.
+func resourceAtByScan(managed []Managed, address string) (Managed, bool) {
+	if address == "" {
+		return Managed{}, false
+	}
+	for _, m := range managed {
+		if m.Address == address {
+			return m, true
+		}
+	}
+	bare := strings.Join(hclfile.AddressNames(address), ".")
+	one := func(match func(string) bool) (Managed, bool) {
+		var found []Managed
+		for _, m := range managed {
+			if match(strings.Join(hclfile.AddressNames(m.Address), ".")) {
+				found = append(found, m)
+			}
+		}
+		if len(found) == 1 {
+			return found[0], true
+		}
+		return Managed{}, false
+	}
+	if m, ok := one(func(a string) bool { return a == bare }); ok {
+		return m, true
+	}
+	if hclfile.NamesModuleCall(address) {
+		return one(func(a string) bool { return strings.HasPrefix(a, bare+".") })
+	}
+	return Managed{}, false
+}
+
+// ManagedIndex answers as reading every resource for each address did,
+// with resources at the same address, at the same address but for
+// instance keys, and in module calls of one or several resources.
+func TestManagedIndexAnswersAsAScan(t *testing.T) {
+	t.Parallel()
+	managed := []Managed{
+		{Type: "aws_s3_bucket", ID: "logs", Address: "aws_s3_bucket.logs"},
+		{Type: "aws_s3_bucket", ID: "logs-again", Address: "aws_s3_bucket.logs"},
+		{Type: "aws_s3_bucket", ID: "q0", Address: "aws_sqs_queue.q[0]"},
+		{Type: "aws_s3_bucket", ID: "q1", Address: "aws_sqs_queue.q[1]"},
+		{Type: "aws_s3_bucket", ID: "data", Address: "module.data.aws_s3_bucket.this[0]"},
+		{Type: "aws_iam_role", ID: "a", Address: `module.roles["a"].aws_iam_role.this`},
+		{Type: "aws_iam_role", ID: "b", Address: `module.roles["b"].aws_iam_role.this`},
+		{Type: "aws_vpc", ID: "vpc", Address: "module.net.aws_vpc.this"},
+		{Type: "aws_subnet", ID: "s", Address: "module.net.aws_subnet.private[0]"},
+		{Type: "aws_kms_key", ID: "k", Address: "module.outer.module.inner.aws_kms_key.this"},
+	}
+	index := NewManagedIndex(managed)
+	for _, address := range []string{
+		"", "aws_s3_bucket.logs", "aws_sqs_queue.q", "aws_sqs_queue.q[1]", "aws_sqs_queue.q[2]",
+		"module.data", "module.data.aws_s3_bucket.this", "module.roles", `module.roles["a"]`,
+		"module.roles.aws_iam_role.this", "module.net", "module.net.aws_vpc.this",
+		"module.outer", "module.outer.module.inner", "aws_s3_bucket.other", "data.aws_caller_identity.this",
+	} {
+		want, wantOK := resourceAtByScan(managed, address)
+		got, ok := index.At(address)
+		if got != want || ok != wantOK {
+			t.Errorf("%q: got %+v, %v, want %+v, %v", address, got, ok, want, wantOK)
 		}
 	}
 }
