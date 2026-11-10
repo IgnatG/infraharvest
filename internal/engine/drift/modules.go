@@ -5,6 +5,7 @@ package drift
 
 import (
 	"fmt"
+	"log"
 	"maps"
 	"math/big"
 	"path"
@@ -46,10 +47,12 @@ type driftModule struct {
 // loadDriftModules reads the modules the root in dir calls, by their keys
 // in the modules.json of its last init, whose working files are in
 // dataDir, or .terraform in dir for "", such as logs, or net.vpc for a
-// call inside a module: none if it calls none, or if they can't be read.
+// call inside a module: none if it calls none, or if they can't be read,
+// which it logs, as changes inside them then can't be traced.
 func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 	installed, err := tfrun.InstalledModules(dir, dataDir)
 	if err != nil {
+		log.Printf("%s: drift: can't read the modules the root calls, so changes inside them can't be traced: %v", dir, err)
 		return nil
 	}
 	calls := map[string]int{}
@@ -59,11 +62,16 @@ func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 	modules := map[string]*driftModule{}
 	for _, m := range installed {
 		contents, err := tfContents(m.Dir)
-		if err != nil || len(contents) == 0 {
+		if err != nil {
+			log.Printf("%s: drift: can't read module %s, so changes inside it can't be traced: %v", dir, m.Key, err)
+			continue
+		}
+		if len(contents) == 0 {
 			continue
 		}
 		cfg, err := parseDriftConfig(contents)
 		if err != nil {
+			log.Printf("%s: drift: module %s doesn't parse, so changes inside it can't be traced: %v", dir, m.Key, err)
 			continue
 		}
 		mod := newDriftModule(cfg)
