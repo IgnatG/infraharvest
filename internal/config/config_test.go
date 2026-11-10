@@ -249,6 +249,8 @@ func TestLoadRejectsUnpinnedModules(t *testing.T) {
 		"a registry module unversion":  {"source: app.terraform.io/acme/queue/aws", "needs an exact version"},
 		"a version range":              {"source: app.terraform.io/acme/queue/aws\n    version: \"~> 2.1\"", "needs an exact version"},
 		"a versioned directory":        {"source: ./modules/role\n    version: 1.0.0", "a directory has no version"},
+		"an s3 getter with a ref":      {"source: s3::https://s3.amazonaws.com/acme/modules.zip?ref=v1.0.0", "a registry module at an exact version"},
+		"an archive's URL":             {"source: https://example.com/modules.zip\n    version: 1.0.0", "a registry module at an exact version"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := Load(write(t, "version: 1\nmodules:\n  - "+tc.module+"\n"), testProfiles)

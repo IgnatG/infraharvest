@@ -131,8 +131,8 @@ func Load(file string, profiles []harvest.Profile) (*File, error) {
 	return f, nil
 }
 
-// check returns m with a directory'"'"'s path made absolute, from dir, or why
-// m isn'"'"'t pinned: a generated root must call what was tested.
+// check returns m with a directory's path made absolute, from dir, or why
+// m isn't pinned: a generated root must call what was tested.
 func (m Module) check(dir string) (Module, error) {
 	switch {
 	case m.Source == "":
@@ -160,6 +160,8 @@ func (m Module) check(dir string) (Module, error) {
 		if m.Version != "" {
 			return m, fmt.Errorf("%s: a git source takes its version from ref", m.Source)
 		}
+	case isOtherGetter(m.Source):
+		return m, fmt.Errorf("%s: use a registry module at an exact version, a git repository at a ?ref= or a directory, whose pin infraharvest can check", m.Source)
 	default:
 		if _, err := version.NewVersion(m.Version); err != nil || strings.ContainsAny(m.Version, "<>=~, ") {
 			return m, fmt.Errorf("%s: a registry module needs an exact version, not %q", m.Source, m.Version)
@@ -168,16 +170,25 @@ func (m Module) check(dir string) (Module, error) {
 	return m, nil
 }
 
-// isGitSource reports whether a module source is a git repository's.
+// isGitSource reports whether a module source is a git repository's: the
+// git:: getter, or a form Terraform reads as git (git@ and the GitHub and
+// Bitbucket shorthands).
 func isGitSource(source string) bool {
-	return strings.Contains(source, "::") || strings.HasPrefix(source, "github.com/") || strings.HasPrefix(source, "bitbucket.org/")
+	return strings.HasPrefix(source, "git::") || strings.HasPrefix(source, "git@") || strings.HasPrefix(source, "github.com/") || strings.HasPrefix(source, "bitbucket.org/")
+}
+
+// isOtherGetter reports whether a module source names another getter than
+// git's, such as s3::, gcs::, hg:: or an archive's URL, which neither a
+// version nor ?ref= pins in a way infraharvest can check.
+func isOtherGetter(source string) bool {
+	return !isGitSource(source) && (strings.Contains(source, "::") || strings.Contains(source, "://"))
 }
 
 // RegistryProvider returns the provider a registry module's source ends
 // with, aws for example.com/platform/network/aws, or "" for a git
 // repository's or a directory's module.
 func (m Module) RegistryProvider() string {
-	if m.Source == "" || IsLocalModule(m.Source) || isGitSource(m.Source) {
+	if m.Source == "" || IsLocalModule(m.Source) || isGitSource(m.Source) || isOtherGetter(m.Source) {
 		return ""
 	}
 	address, _, _ := strings.Cut(m.Source, "//")
@@ -194,7 +205,7 @@ func (m Module) RegistryProvider() string {
 // edited.
 func (m Module) Immutable() bool {
 	switch {
-	case m.Source == "" || IsLocalModule(m.Source):
+	case m.Source == "" || IsLocalModule(m.Source) || isOtherGetter(m.Source):
 		return false
 	case isGitSource(m.Source):
 		return commitSHA.MatchString(gitRef(m.Source))
