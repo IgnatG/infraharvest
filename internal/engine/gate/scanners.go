@@ -151,7 +151,9 @@ func DefaultScanners(policies []string) []Scanner {
 			// every file but the local state of a root applied without a
 			// backend, which holds secret values (see tfrun.LocalStateFile). It
 			// reads the .checkov.yaml of the directory it scans whatever
-			// --config-file names, so that is left as it is.
+			// --config-file names: a root infraharvest generates has none,
+			// and the copy verify checks leaves a root's out (see
+			// VerifyCopy).
 			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err

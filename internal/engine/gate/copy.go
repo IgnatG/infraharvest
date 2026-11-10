@@ -36,8 +36,10 @@ func IsVerifyCopy(name string) bool {
 // directory or any state, and its top-level .tf files without backend or
 // cloud blocks: Terraform refuses to plan a backend that init, run
 // without it (-backend=false), hasn't initialised, and a root initialised
-// with its backend would plan against its state. It returns the copy and
-// a function that removes it.
+// with its backend would plan against its state. checkov's configuration
+// files are left out too: checkov reads the one of the directory it scans
+// whatever it is told, and a root can come from anyone. It returns the
+// copy and a function that removes it.
 func VerifyCopy(dir string) (string, func(), error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -63,7 +65,7 @@ func VerifyCopy(dir string) (string, func(), error) {
 			}
 			return os.MkdirAll(filepath.Join(copied, rel), 0o700)
 		}
-		if !d.Type().IsRegular() || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" {
+		if !d.Type().IsRegular() || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" || checkovConfig(name) {
 			return nil
 		}
 		content, err := os.ReadFile(path)
@@ -80,4 +82,10 @@ func VerifyCopy(dir string) (string, func(), error) {
 		return "", nil, err
 	}
 	return copied, remove, nil
+}
+
+// checkovConfig reports whether name is that of a checkov configuration
+// file, which checkov reads from the directory it scans.
+func checkovConfig(name string) bool {
+	return name == ".checkov.yaml" || name == ".checkov.yml"
 }
