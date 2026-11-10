@@ -4,7 +4,9 @@
 package hcp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	svchost "github.com/hashicorp/terraform-svchost"
 )
@@ -214,7 +217,7 @@ func TestDownloadErrorsHideTheURL(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(body)
 		}))
-		h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
+		h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token", retryBase: time.Millisecond}
 		_, err := h.Get(t.Context(), "acme", "prod")
 		api.Close()
 		if err == nil {
@@ -226,6 +229,85 @@ func TestDownloadErrorsHideTheURL(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "acme/prod") {
 			t.Errorf("%s: the error doesn't name the workspace: %v", name, err)
+		}
+	}
+}
+
+// A request the API throttles or fails is asked again, with the wait its
+// Retry-After asks for; one it refuses isn't, and the retries stop at
+// fetchAttempts.
+func TestFetchRetries(t *testing.T) {
+	t.Parallel()
+	for name, tt := range map[string]struct {
+		statuses []int
+		wantErr  bool
+		requests int32
+	}{
+		"throttled once": {statuses: []int{http.StatusTooManyRequests, http.StatusOK}, requests: 2},
+		"failed twice":   {statuses: []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusOK}, requests: 3},
+		"failing":        {statuses: []int{http.StatusServiceUnavailable}, wantErr: true, requests: fetchAttempts},
+		"refused":        {statuses: []int{http.StatusForbidden}, wantErr: true, requests: 1},
+		"not found":      {statuses: []int{http.StatusNotFound}, wantErr: true, requests: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var requests atomic.Int32
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := int(requests.Add(1))
+				status := tt.statuses[min(n, len(tt.statuses))-1]
+				if status != http.StatusOK {
+					w.Header().Set("Retry-After", "0")
+					http.Error(w, http.StatusText(status), status)
+					return
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer api.Close()
+			h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token", retryBase: time.Millisecond}
+			_, err := h.fetch(t.Context(), api.URL+"/api/v2/x", "x", "application/json")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error %v, want one: %v", err, tt.wantErr)
+			}
+			if got := requests.Load(); got != tt.requests {
+				t.Errorf("%d requests, want %d", got, tt.requests)
+			}
+		})
+	}
+}
+
+// A cancelled context stops the waits between retries.
+func TestFetchRetryStopsOnCancel(t *testing.T) {
+	t.Parallel()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	defer api.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token"}
+	start := time.Now()
+	if _, err := h.fetch(ctx, api.URL+"/api/v2/x", "x", "application/json"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("want the context's error, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("the wait went on for %s after the context ended", elapsed)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	for value, want := range map[string]time.Duration{
+		"":                              0,
+		"7":                             7 * time.Second,
+		"-3":                            0,
+		"soon":                          0,
+		"Tue, 10 Nov 2026 12:00:05 GMT": 5 * time.Second,
+		"Tue, 10 Nov 2026 11:00:00 GMT": 0,
+	} {
+		if got := parseRetryAfter(value, now); got != want {
+			t.Errorf("%q: %s, want %s", value, got, want)
 		}
 	}
 }
