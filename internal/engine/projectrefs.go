@@ -43,7 +43,7 @@ func referModulesToResources(ws *workspace) (bool, error) {
 	}
 	// The resources module calls name, by type.
 	targets := map[string]*moduleTarget{}
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		typ := AddressType(r.Address)
 		refs, ok := catalogue.ForType(typ).ModuleReferences(typ)
 		if !ok {

@@ -259,7 +259,7 @@ func nestedIdentity(attrs map[string]any, block, key string) string {
 // of f sets, by address.
 func writtenArguments(f *hclfile.File) map[string]map[string]bool {
 	written := map[string]map[string]bool{}
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		set := map[string]bool{}
 		for name := range r.Syntax.Body.Attributes {
 			set[name] = true

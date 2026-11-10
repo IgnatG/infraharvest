@@ -108,7 +108,7 @@ func unconfigured(dir string) (map[string][]tfjson.Diagnostic, error) {
 		return nil, err
 	}
 	configured := map[string]bool{}
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		configured[r.Address] = true
 	}
 	missing := map[string][]tfjson.Diagnostic{}

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -76,6 +77,15 @@ func LoadOptional(path string) (*File, error) {
 		return nil, nil
 	}
 	return f, err
+}
+
+// Unedited returns the file as it was loaded, without the edits made to
+// f since: a new File that shares f's source and syntax tree, which no
+// edit changes, and builds an editable tree of its own when it is first
+// edited. It costs nothing like a parse, so a reader that loads the same
+// content again can keep the File it parsed and take this.
+func (f *File) Unedited() *File {
+	return &File{Path: f.Path, Src: f.Src, Syntax: f.Syntax}
 }
 
 // New is an empty file at path, to fill and save.
@@ -161,7 +171,28 @@ type Resource struct {
 	Syntax  *hclsyntax.Block
 }
 
-// Resources lists the resource blocks of the file.
+// ResourceSyntax is a top-level resource block in the syntax tree alone.
+type ResourceSyntax struct {
+	Address string
+	Syntax  *hclsyntax.Block
+}
+
+// ResourceSyntax yields the resource blocks of the file from the syntax
+// tree alone. It is Resources for readers: it doesn't build the editable
+// tree, which costs about twice the parse on a large file.
+func (f *File) ResourceSyntax() iter.Seq[ResourceSyntax] {
+	return func(yield func(ResourceSyntax) bool) {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type == "resource" && len(b.Labels) == 2 {
+				if !yield(ResourceSyntax{Address: b.Labels[0] + "." + b.Labels[1], Syntax: b}) {
+					return
+				}
+			}
+		}
+	}
+}
+
+// Resources lists the resource blocks of the file in both trees.
 func (f *File) Resources() []Resource {
 	var resources []Resource
 	blocks := f.Edit().Body().Blocks()
@@ -177,7 +208,7 @@ func (f *File) Resources() []Resource {
 // the lines they span (see LineIndex).
 func (f *File) ResourceIndex() LineIndex {
 	var x LineIndex
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		x.add(r.Syntax.Range(), r.Address)
 	}
 	return x

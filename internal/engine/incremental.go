@@ -88,7 +88,7 @@ func Existing(dir string, previous *Result) (map[External]string, error) {
 	}
 	resources := map[string]bool{}
 	for _, f := range files {
-		for _, r := range f.Resources() {
+		for r := range f.ResourceSyntax() {
 			resources[r.Address] = true
 		}
 	}

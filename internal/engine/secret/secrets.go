@@ -270,7 +270,7 @@ func ToVariables(f *hclfile.File, secrets map[string][]Sensitive, taken map[stri
 			used[v] = true
 		}
 	}
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		for _, s := range secrets[r.Address] {
 			// Shells can only set TF_VAR_<name> for names without dashes.
 			base := strings.Trim(notInVariableName.ReplaceAllString(s.address+"_"+s.path, "_"), "_")

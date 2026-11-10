@@ -487,7 +487,7 @@ func externalReferencesFollowable(f *hclfile.File, moved map[string]string, grou
 			}
 		}
 	}
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		_, isMoved := moved[r.Address]
 		for _, t := range hclfile.Traversals(r.Syntax.Body) {
 			target := hclfile.ResourceAddress(t)

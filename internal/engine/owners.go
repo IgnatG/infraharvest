@@ -134,7 +134,7 @@ func leaveOutOwned(dir string, keep map[string]bool, t Traits) ([]OwnedResource,
 	}
 	owners := map[string]Owner{}
 	errs := map[string][]tfjson.Diagnostic{}
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		tags := map[string]string{}
 		for _, name := range t.TagAttributes {
 			obj, ok := hclfile.AttributeExpr(r.Syntax.Body, name).(*hclsyntax.ObjectConsExpr)
