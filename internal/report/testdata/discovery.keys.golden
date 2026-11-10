@@ -1,0 +1,42 @@
+cloud number
+cloudformation number
+excluded number
+failures array of string omitempty
+included number
+listed number
+other_tool number
+schema_version number
+scopes array of object omitempty
+scopes[].cloud number
+scopes[].cloudformation number
+scopes[].excluded number
+scopes[].included number
+scopes[].listed number
+scopes[].other_tool number
+scopes[].scope string
+scopes[].terraform_state number
+scopes[].terraform_tag number
+selection string
+tags array of object omitempty
+tags[].cloud number
+tags[].cloudformation number
+tags[].excluded number
+tags[].included number
+tags[].key string
+tags[].listed number
+tags[].other_tool number
+tags[].terraform_state number
+tags[].terraform_tag number
+tags[].value string
+terraform_state number
+terraform_tag number
+types array of object
+types[].cloud number
+types[].cloudformation number
+types[].excluded number
+types[].included number
+types[].listed number
+types[].other_tool number
+types[].terraform_state number
+types[].terraform_tag number
+types[].type string
