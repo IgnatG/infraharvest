@@ -64,7 +64,7 @@ func TestOutDir(t *testing.T) {
 // output directory takes --out, as those that write it do.
 func TestOutFlagOnReaders(t *testing.T) {
 	root := NewCmdRoot()
-	for _, name := range []string{"drift", "report", "export"} {
+	for _, name := range []string{"verify", "drift", "report", "export"} {
 		cmd, _, err := root.Find([]string{name})
 		if err != nil {
 			t.Fatal(err)

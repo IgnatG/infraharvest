@@ -2035,6 +2035,12 @@
         "persistent": false
       },
       {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "engine",
         "type": "string",
         "default": "terraform",
@@ -2063,6 +2069,13 @@
         "name": "format",
         "type": "string",
         "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infrastructure",
         "persistent": false
       },
       {

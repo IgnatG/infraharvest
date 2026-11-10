@@ -4,15 +4,24 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
+// verifySettings are the settings of the import's configuration file
+// that verify applies: how it runs the engine, the catalogue and the
+// policies the import used. It leaves the import's others to the import.
+var verifySettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue", "policy"}
+
 func newVerifyCmd() *cobra.Command {
 	options := importer.VerifyOptions{Provider: providers.New, Names: providers.Names()}
+	var configFile string
 	cmd := &cobra.Command{
 		Use:   "verify [output-directory]",
 		Short: "Check generated roots again: format, validate, plan, standards, scanners, secrets, determinism",
@@ -23,20 +32,34 @@ func newVerifyCmd() *cobra.Command {
 			"variables or a .auto.tfvars file. A root environments share is planned once\n" +
 			"per environment, with its var files (--environment names which). A root that\n" +
 			"can't be checked is reported as such, and the others are still checked.\n" +
+			"--config takes the import's configuration file: its settings verify has,\n" +
+			"engine, terraform-path, engine-timeout, catalogue and policy, apply where the\n" +
+			"command line doesn't give them.\n" +
 			"Exit code 0 means every check passed, 1 that one failed, 2 that a root\n" +
 			"couldn't be checked.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			options.Out = report.DefaultOut
-			if len(args) == 1 {
-				options.Out = args[0]
+			if configFile != "" {
+				f, err := config.Load(configFile, providers.Profiles())
+				if err != nil {
+					return err
+				}
+				if err := f.ApplyShared(cmd.Flags(), cmd.Name(), verifySettings); err != nil {
+					return fmt.Errorf("%s: %w", configFile, err)
+				}
+			}
+			var err error
+			if options.Out, err = outDir(cmd, args, options.Out); err != nil {
+				return err
 			}
 			ctx, stop := interruptContext(cmd.Context())
 			defer stop()
 			return importer.Interrupted(ctx, importer.Verify(ctx, options, cmd.OutOrStdout()))
 		},
 	}
+	addOutFlag(cmd, &options.Out)
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, catalogue and policy, apply where not given on the command line")
 	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
 		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
 		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments, Policies: &options.Policies,

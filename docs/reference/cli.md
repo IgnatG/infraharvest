@@ -490,11 +490,13 @@ infraharvest verify [output-directory] [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: those the import used (see https://ignatg.github.io/infraharvest/catalogue/) |
+| `--config` |  | the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, catalogue and policy, apply where not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--environment` |  | for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/) |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a summary; json prints each root's checks as JSON |
+| `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
