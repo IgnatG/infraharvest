@@ -48,7 +48,7 @@ func Plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjso
 	if errors.Is(err, context.DeadlineExceeded) {
 		return nil, nil, err
 	}
-	uiDiags, scanErr := parseUIDiagnostics(out.Bytes())
+	uiDiags, summary, scanErr := parsePlanOutput(out.Bytes())
 	if scanErr != nil {
 		return nil, nil, fmt.Errorf("read the plan's output: %w", scanErr)
 	}
@@ -56,43 +56,60 @@ func Plan(ctx context.Context, tf Terraform, opts ...tfexec.PlanOption) ([]tfjso
 	if err != nil && len(diags) == 0 {
 		return nil, nil, err
 	}
-	summary, scanErr := parseChangeSummary(out.Bytes())
-	if scanErr != nil {
-		return nil, nil, fmt.Errorf("read the plan's output: %w", scanErr)
-	}
 	return diags, summary, nil
 }
+
+// parsePlanOutput returns the diagnostics and the change summary in
+// Terraform's machine-readable UI output, in one pass. A plan's output
+// has a line or two per resource, each as large as what the plan shows of
+// it, and only a few are diagnostics or the summary: a line is decoded
+// only if it has "diagnostic" or "change_summary" as a string, as a line
+// of either type has its type as one.
+func parsePlanOutput(out []byte) ([]tfjson.Diagnostic, *ChangeSummary, error) {
+	var diags []tfjson.Diagnostic
+	var summary *ChangeSummary
+	err := eachUIMessage(out, func(line []byte) {
+		if bytes.Contains(line, diagnosticType) {
+			var msg struct {
+				Type       string            `json:"type"`
+				Diagnostic tfjson.Diagnostic `json:"diagnostic"`
+			}
+			if json.Unmarshal(line, &msg) == nil && msg.Type == "diagnostic" {
+				diags = append(diags, msg.Diagnostic)
+				return
+			}
+		}
+		if bytes.Contains(line, changeSummaryType) {
+			var msg struct {
+				Type    string        `json:"type"`
+				Changes ChangeSummary `json:"changes"`
+			}
+			if json.Unmarshal(line, &msg) == nil && msg.Type == "change_summary" {
+				changes := msg.Changes
+				summary = &changes
+			}
+		}
+	})
+	return diags, summary, err
+}
+
+// The types of the UI output's lines parsePlanOutput reads, as strings.
+var (
+	diagnosticType    = []byte(`"diagnostic"`)
+	changeSummaryType = []byte(`"change_summary"`)
+)
 
 // parseChangeSummary returns the change summary in Terraform's
 // machine-readable UI output, or nil.
 func parseChangeSummary(out []byte) (*ChangeSummary, error) {
-	var summary *ChangeSummary
-	err := eachUIMessage(out, func(line []byte) {
-		var msg struct {
-			Type    string        `json:"type"`
-			Changes ChangeSummary `json:"changes"`
-		}
-		if json.Unmarshal(line, &msg) == nil && msg.Type == "change_summary" {
-			changes := msg.Changes
-			summary = &changes
-		}
-	})
+	_, summary, err := parsePlanOutput(out)
 	return summary, err
 }
 
 // parseUIDiagnostics returns the diagnostics in Terraform's machine-readable
 // UI output (one JSON message per line).
 func parseUIDiagnostics(out []byte) ([]tfjson.Diagnostic, error) {
-	var diags []tfjson.Diagnostic
-	err := eachUIMessage(out, func(line []byte) {
-		var msg struct {
-			Type       string            `json:"type"`
-			Diagnostic tfjson.Diagnostic `json:"diagnostic"`
-		}
-		if json.Unmarshal(line, &msg) == nil && msg.Type == "diagnostic" {
-			diags = append(diags, msg.Diagnostic)
-		}
-	})
+	diags, _, err := parsePlanOutput(out)
 	return diags, err
 }
 
