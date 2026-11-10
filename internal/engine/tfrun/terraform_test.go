@@ -6,9 +6,11 @@ package tfrun
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +159,33 @@ func TestLockPluginCache(t *testing.T) {
 	}
 }
 
+// The Terraform infraharvest downloads is of the minor release the
+// container image has, which Dependabot raises: a raise that leaves Tested
+// behind fails here, and the release that raises it is the one tested
+// with the new Terraform.
+func TestTestedTerraformIsTheImages(t *testing.T) {
+	t.Parallel()
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^FROM hashicorp/terraform:(\d+\.\d+\.\d+)`).FindSubmatch(dockerfile)
+	if m == nil {
+		t.Fatal("no hashicorp/terraform image in the Dockerfile")
+	}
+	image := version.Must(version.NewVersion(string(m[1])))
+	tested := TerraformBinary.Tested.Segments()
+	if got := image.Segments(); got[0] != tested[0] || got[1] != tested[1] {
+		t.Errorf("the Dockerfile has Terraform %s, TerraformBinary.Tested is %s: raise Tested to the image's", image, TerraformBinary.Tested)
+	}
+	allowed := TerraformBinary.downloads()
+	for v, want := range map[string]bool{"1.4.6": false, "1.5.0": true, image.String(): true, fmt.Sprintf("%d.%d.0", tested[0], tested[1]+1): false} {
+		if got := allowed.Check(version.Must(version.NewVersion(v))); got != want {
+			t.Errorf("downloads allow %s: %t, want %t", v, got, want)
+		}
+	}
+}
+
 func TestBinaryFind(t *testing.T) {
 	versions := map[string]string{}
 	versionOf := func(_ context.Context, path string) (*version.Version, error) {
@@ -168,7 +197,7 @@ func TestBinaryFind(t *testing.T) {
 	}
 	installed := ""
 	terraform := TerraformBinary
-	terraform.install = func(_ context.Context, dir string) (string, error) {
+	terraform.install = func(_ context.Context, _ Binary, dir string) (string, error) {
 		if _, err := os.Stat(dir); err != nil {
 			return "", err // find must create the cache directory first
 		}
@@ -197,6 +226,39 @@ func TestBinaryFind(t *testing.T) {
 
 		if err != nil || got != cached || installed != "" {
 			t.Errorf("got %q, %v (installed %q); want the cached binary without installing", got, err, installed)
+		}
+	})
+
+	t.Run("cached binary newer than tested is replaced", func(t *testing.T) {
+		cache := t.TempDir()
+		cached := filepath.Join(cache, terraform.fileName())
+		if err := os.WriteFile(cached, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		versions[cached] = "1.18.0"
+		installed = ""
+
+		got, err := terraform.find(context.Background(), "", cache, versionOf)
+
+		if err != nil || got != cached || installed != cached {
+			t.Errorf("got %q, %v (installed %q); want a download over the cached binary", got, err, installed)
+		}
+	})
+
+	t.Run("a newer binary on PATH is used", func(t *testing.T) {
+		bin := t.TempDir()
+		onPath := filepath.Join(bin, terraform.fileName())
+		if err := os.WriteFile(onPath, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		versions[onPath] = "1.30.2"
+		t.Setenv("PATH", bin)
+		installed = ""
+
+		got, err := terraform.find(context.Background(), "", t.TempDir(), versionOf)
+
+		if err != nil || got != onPath || installed != "" {
+			t.Errorf("got %q, %v (installed %q); want the binary on PATH", got, err, installed)
 		}
 	})
 

@@ -79,17 +79,27 @@ type Binary struct {
 	// Minimum is the first release with import blocks and
 	// `plan -generate-config-out`.
 	Minimum *version.Version
-	// install downloads the latest release into a directory and returns the
-	// binary's path; nil if the engine isn't downloaded automatically.
-	install func(ctx context.Context, dir string) (string, error)
+	// Tested is the newest release infraharvest is tested with: a binary it
+	// downloads, or keeps in its cache, is of that minor release or older,
+	// so that a new minor release reaches users only with a release of
+	// infraharvest. A binary the user installs may be newer. Nil for an
+	// engine that isn't downloaded.
+	Tested *version.Version
+	// install downloads the newest release b allows into a directory and
+	// returns the binary's path; nil if the engine isn't downloaded
+	// automatically.
+	install func(ctx context.Context, b Binary, dir string) (string, error)
 }
 
 var (
 	// TerraformBinary is HashiCorp Terraform, downloaded if not installed.
+	// Tested is the Terraform of the container image (Dockerfile), which a
+	// test keeps in step.
 	TerraformBinary = Binary{
 		Name:     "terraform",
 		Registry: DefaultRegistry,
 		Minimum:  version.Must(version.NewVersion("1.5.0")),
+		Tested:   version.Must(version.NewVersion("1.17.0")),
 		install:  installLatestTerraform,
 	}
 	// TofuBinary is OpenTofu. It must be installed.
@@ -107,10 +117,10 @@ var findMu sync.Mutex
 type versionOf func(ctx context.Context, execPath string) (*version.Version, error)
 
 // Find returns a binary of at least b.Minimum, in this order: explicitPath
-// (which must qualify), b.Name on PATH, a binary cached in cacheDir, or,
-// for engines downloaded automatically, the latest release downloaded into
-// cacheDir. Terraform downloads are verified against HashiCorp's signed
-// checksums.
+// (which must qualify), b.Name on PATH, a binary cached in cacheDir of
+// b.Tested's minor release or older, or, for engines downloaded
+// automatically, the newest such release downloaded into cacheDir.
+// Terraform downloads are verified against HashiCorp's signed checksums.
 func (b Binary) Find(ctx context.Context, explicitPath, cacheDir string) (string, error) {
 	// One at a time: imports running in parallel would download into the
 	// same cache.
@@ -126,7 +136,8 @@ func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, version
 		}
 		return explicitPath, nil
 	}
-	candidates := []string{filepath.Join(cacheDir, b.fileName())}
+	cached := filepath.Join(cacheDir, b.fileName())
+	candidates := []string{cached}
 	if onPath, err := exec.LookPath(b.Name); err == nil {
 		candidates = append([]string{onPath}, candidates...)
 	}
@@ -136,6 +147,9 @@ func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, version
 			continue
 		}
 		err := b.checkVersion(ctx, path, versionOf)
+		if err == nil && path == cached {
+			err = b.checkTested(ctx, path, versionOf)
+		}
 		if err == nil {
 			return path, nil
 		}
@@ -154,7 +168,7 @@ func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, version
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return "", err
 	}
-	return b.install(ctx, cacheDir)
+	return b.install(ctx, b, cacheDir)
 }
 
 func (b Binary) checkVersion(ctx context.Context, execPath string, versionOf versionOf) error {
@@ -166,6 +180,29 @@ func (b Binary) checkVersion(ctx context.Context, execPath string, versionOf ver
 		return fmt.Errorf("%s at %s is %s; %s or newer is required", b.Name, execPath, v, b.Minimum)
 	}
 	return nil
+}
+
+// checkTested checks that the binary at execPath, one infraharvest
+// downloaded, is of b.Tested's minor release or older.
+func (b Binary) checkTested(ctx context.Context, execPath string, versionOf versionOf) error {
+	if b.Tested == nil {
+		return nil
+	}
+	v, err := versionOf(ctx, execPath)
+	if err != nil {
+		return fmt.Errorf("%s at %s: %w", b.Name, execPath, err)
+	}
+	if !b.downloads().Check(v) {
+		return fmt.Errorf("%s at %s is %s, newer than the %s infraharvest is tested with", b.Name, execPath, v, b.Tested)
+	}
+	return nil
+}
+
+// downloads returns the releases infraharvest downloads of b: from
+// b.Minimum up to b.Tested's minor release.
+func (b Binary) downloads() version.Constraints {
+	s := b.Tested.Segments()
+	return version.MustConstraints(version.NewConstraint(fmt.Sprintf(">= %s, < %d.%d.0", b.Minimum, s[0], s[1]+1)))
 }
 
 func (b Binary) fileName() string {
@@ -186,8 +223,8 @@ func BinaryVersion(ctx context.Context, execPath string) (*version.Version, erro
 	return v, err
 }
 
-func installLatestTerraform(ctx context.Context, dir string) (string, error) {
-	src := &releases.LatestVersion{Product: product.Terraform, InstallDir: dir}
+func installLatestTerraform(ctx context.Context, b Binary, dir string) (string, error) {
+	src := &releases.LatestVersion{Product: product.Terraform, Constraints: b.downloads(), InstallDir: dir}
 	if err := src.Validate(); err != nil {
 		return "", err
 	}

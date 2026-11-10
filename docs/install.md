@@ -1,6 +1,6 @@
 # Install
 
-infraharvest needs Terraform or OpenTofu to generate configuration. With the default `--engine=terraform`, it uses the Terraform on `PATH` if it is 1.5 or later, or else downloads the latest release and verifies it. `--engine=tofu` needs OpenTofu 1.6 or later installed. `--terraform-path` names a binary to use instead. Terraform downloads the providers itself, so there is nothing else to install.
+infraharvest needs Terraform or OpenTofu to generate configuration. With the default `--engine=terraform`, it uses the Terraform on `PATH` if it is 1.5 or later, or else downloads the newest release of the minor version infraharvest is tested with (the container image's, 1.17 at present) and verifies it. A Terraform you install yourself may be newer. `--engine=tofu` needs OpenTofu 1.6 or later installed. `--terraform-path` names a binary to use instead. Terraform downloads the providers itself, so there is nothing else to install.
 
 ## From a release
 
