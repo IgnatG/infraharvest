@@ -350,9 +350,12 @@ func withStated(previous, stated []engine.Managed) []engine.Managed {
 // rootfile.Retype). Applied on the root's state, its next plan would
 // destroy them, and create them where they go. The root is put back as
 // it was, without the generated modules it took up (see
-// engine.ModuleRefs.Release). A resource the run no longer imports at all,
-// such as one deleted in the cloud since, isn't counted.
-func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []rootfile.Import, elsewhere map[engine.External]string) error {
+// engine.ModuleRefs.Release). So are resources the import listed but
+// leaves out, of listed, such as those the selection now excludes: they
+// are still in the cloud, and the next plan would destroy them. A
+// resource the run no longer lists at all, such as one deleted in the
+// cloud since, isn't counted: the next plan only forgets it.
+func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []rootfile.Import, elsewhere map[engine.External]string, listed []engine.External) error {
 	changed := engine.Readdressed(c.previous, result.Addresses, result.Moves)
 	changed = append(changed, engine.Retyped(c.previous, result.Addresses)...)
 	now := map[engine.External]bool{}
@@ -369,16 +372,22 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []r
 			handed[engine.ResourceKey(d.Type, d.ID)] = true
 		}
 	}
+	excluded := map[engine.External]bool{}
+	for _, e := range listed {
+		excluded[engine.ResourceKey(e.Type, e.ID)] = true
+	}
+	var unselected []string
 	for _, p := range c.previous {
 		if handed[engine.ResourceKey(p.Type, p.ID)] {
 			continue
 		}
-		var kept, left bool
+		var kept, left, out bool
 		root := ""
 		for _, typ := range append([]string{p.Type}, tftypes.Aliases(p.Type)...) {
 			key := engine.External{Type: typ, ID: p.ID}
 			kept = kept || now[key]
 			left = left || asked[key]
+			out = out || excluded[engine.ResourceKey(typ, p.ID)]
 			if to, ok := elsewhere[key]; ok && root == "" {
 				root = to
 			}
@@ -389,14 +398,23 @@ func (c *claim) refuseReaddressed(dir string, result *engine.Result, imports []r
 			changed = append(changed, fmt.Sprintf("%s is now in %s", p.Address, root))
 		case left:
 			changed = append(changed, p.Address+" is left out")
+		case out:
+			unselected = append(unselected, p.Address)
 		}
 	}
-	if len(changed) == 0 && len(result.Unmoved) == 0 {
+	if len(changed) == 0 && len(unselected) == 0 && len(result.Unmoved) == 0 {
 		return nil
 	}
 	sort.Strings(changed)
-	err := fmt.Errorf("generating %s again would move or leave out %d of its resources where no moved block can follow them, which a plan on its state would destroy, and create where they go, so it is left as it was: %s", dir, len(changed), strings.Join(append(changed, result.Unmoved...), "; "))
-	return errors.Join(err, c.putBack(dir))
+	sort.Strings(unselected)
+	var errs []error
+	if len(changed) > 0 || len(result.Unmoved) > 0 {
+		errs = append(errs, fmt.Errorf("generating %s again would move or leave out %d of its resources where no moved block can follow them, which a plan on its state would destroy, and create where they go, so it is left as it was: %s", dir, len(changed), strings.Join(append(changed, result.Unmoved...), "; ")))
+	}
+	if len(unselected) > 0 {
+		errs = append(errs, fmt.Errorf("generating %s again would leave out %d of its resources that the import still lists but no longer selects, which a plan on its state would destroy, so it is left as it was: %s. Select them again, or, to keep them in the cloud without this root, remove them from its state first (terraform state rm <address>) and run again with --managed-state naming that state", dir, len(unselected), strings.Join(unselected, ", ")))
+	}
+	return errors.Join(append(errs, c.putBack(dir))...)
 }
 
 // putBack puts the claimed root in dir back as it was before it was

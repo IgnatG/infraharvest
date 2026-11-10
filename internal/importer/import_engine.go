@@ -248,7 +248,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		err = errors.Join(err, claimed.discard(options.Out, dir))
 	}
 	if err == nil && dirOpts.Previous != nil {
-		err = claimed.refuseReaddressed(dir, result, imports, inOtherRoots(options.Out, roots, dir))
+		err = claimed.refuseReaddressed(dir, result, imports, inOtherRoots(options.Out, roots, dir), dirOpts.External)
 	}
 	if err == nil {
 		if err := saveCheckpoint(options.Out, dir, fp, result); err != nil {

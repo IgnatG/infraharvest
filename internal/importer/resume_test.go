@@ -349,7 +349,7 @@ func TestRefuseReaddressed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := claimed.refuseReaddressed(dir, &engine.Result{Addresses: addresses}, nil, nil); err != nil {
+	if err := claimed.refuseReaddressed(dir, &engine.Result{Addresses: addresses}, nil, nil, nil); err != nil {
 		t.Errorf("the same addresses: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func TestRefuseReaddressed(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeRoot(t, dir, rootfile.ImportsFileName, rootfile.ReadmeFileName)
-	err = claimed.refuseReaddressed(dir, &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}, nil, nil)
+	err = claimed.refuseReaddressed(dir, &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "aws_subnet.a is now aws_subnet.private") || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("want an error naming the root and the new address, got %v", err)
 	}
@@ -389,7 +389,7 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}}
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2"}
 
-	err := claimed.refuseReaddressed("root", result, imports, elsewhere)
+	err := claimed.refuseReaddressed("root", result, imports, elsewhere, nil)
 	if err == nil {
 		t.Fatal("want the root refused")
 	}
@@ -400,6 +400,36 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "aws_subnet.gone") {
 		t.Errorf("%v names what the run doesn't import", err)
+	}
+}
+
+// A resource the root had that the import still lists, but the selection
+// now leaves out, is refused: it is still in the cloud, and a plan on the
+// root's state would destroy it. One deleted in the cloud since isn't.
+func TestRefuseReaddressedCountsWhatTheSelectionLeavesOut(t *testing.T) {
+	claimed := &claim{previous: []engine.Managed{
+		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"},
+		{Type: "aws_subnet", ID: "subnet-2", Address: "aws_subnet.b"},
+		{Type: "aws_subnet", ID: "gone", Address: "aws_subnet.gone"},
+	}}
+	imports := []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
+	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}}
+	listed := []engine.External{{Type: "aws_subnet", ID: "subnet-2", Name: "b"}}
+
+	if err := claimed.refuseReaddressed("root", result, imports, nil, nil); err != nil {
+		t.Errorf("without knowing it is still listed, b is taken as gone: %v", err)
+	}
+	err := claimed.refuseReaddressed("root", result, imports, nil, listed)
+	if err == nil {
+		t.Fatal("want the root refused")
+	}
+	for _, want := range []string{"1 of its resources that the import still lists but no longer selects", "aws_subnet.b", "terraform state rm"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v misses %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "aws_subnet.gone") {
+		t.Errorf("%v names what the cloud no longer has", err)
 	}
 }
 
@@ -494,11 +524,11 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 	}
 	// An aws_alb another root imports as an aws_lb is in that root now.
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2", {Type: "aws_lb", ID: "arn:edge"}: "envs/prod/aws/111/eu-west-2"}
-	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:2], Moves: result.Moves, Retyped: result.Retyped}, nil, nil); err != nil {
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:2], Moves: result.Moves, Retyped: result.Retyped}, nil, nil, nil); err != nil {
 		t.Errorf("only what moved and removed blocks follow: %v", err)
 	}
 
-	err := claimed.refuseReaddressed("root", result, nil, elsewhere)
+	err := claimed.refuseReaddressed("root", result, nil, elsewhere, nil)
 	if err == nil {
 		t.Fatal("want the root refused")
 	}
@@ -512,7 +542,7 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 	}
 
 	result.Unmoved = []string{"the moves from aws_subnet.x come back to aws_subnet.x"}
-	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
 		t.Errorf("with moves the engine couldn't write: %v", err)
 	}
 }
