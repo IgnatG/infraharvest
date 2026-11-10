@@ -37,7 +37,7 @@ func mcpSession(ctx context.Context, t *testing.T, root, execPath string, elicit
 		}
 		return slices.Clone(args)
 	}
-	run := func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
+	run := func(ctx context.Context, args []string, _ func(string)) ([]byte, []byte, int, error) {
 		args = withEngine(args)
 		var stdout, stderr bytes.Buffer
 		cmd := cli.NewCmdRoot()

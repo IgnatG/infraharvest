@@ -51,9 +51,11 @@ import (
 	"github.com/IgnatG/infraharvest/internal/sentence"
 )
 
-// Runner runs infraharvest with args and returns its standard output, its
-// standard error and its exit code. err is set only if it couldn't run.
-type Runner func(ctx context.Context, args []string) (stdout, stderr []byte, exitCode int, err error)
+// Runner runs infraharvest with args and returns its standard output, the
+// last lines of its standard error and its exit code, as a ChildOutput
+// keeps them, passing each line of standard error to progress as it
+// comes, if progress is not nil. err is set only if it couldn't run.
+type Runner func(ctx context.Context, args []string, progress func(line string)) (stdout, stderr []byte, exitCode int, err error)
 
 // Checker checks infraharvest's args as the command they name would before
 // running, without running it, and returns the error the command would
@@ -511,7 +513,7 @@ type TypeCount struct {
 	Excluded int    `json:"excluded"`
 }
 
-func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in DiscoverInput) (*mcp.CallToolResult, *SelectionSummary, error) {
+func (t *tools) discover(ctx context.Context, req *mcp.CallToolRequest, in DiscoverInput) (*mcp.CallToolResult, *SelectionSummary, error) {
 	args, err := t.providers.commandArgs("discover", in.Scope, in)
 	if err != nil {
 		return nil, nil, err
@@ -546,7 +548,7 @@ func (t *tools) discover(ctx context.Context, _ *mcp.CallToolRequest, in Discove
 	}
 	// Never the picker: the client talks to this process over stdio.
 	args = append(args, "--pick=false", "--out="+out, "--selection="+in.Selection)
-	_, stderr, code, err := t.run(ctx, config.run(args))
+	_, stderr, code, err := t.runReporting(ctx, req, config.run(args))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -719,7 +721,7 @@ func (t *tools) importSelection(ctx context.Context, req *mcp.CallToolRequest, i
 			childArgs[i] = "--selection=" + snapshot.path
 		}
 	}
-	stdout, stderr, code, err := t.run(ctx, childArgs)
+	stdout, stderr, code, err := t.runReporting(ctx, req, childArgs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1418,12 +1420,20 @@ func errorResult(text string) *mcp.CallToolResult {
 	return r
 }
 
+// runReporting runs args, sending the client the lines the child logs as
+// progress, where the request req asks for it (see progress).
+func (t *tools) runReporting(ctx context.Context, req *mcp.CallToolRequest, args []string) ([]byte, []byte, int, error) {
+	report, stop := progress(ctx, req)
+	defer stop()
+	return t.run(ctx, args, report)
+}
+
 // tail returns the last lines of a command's standard error, each cut to
 // maxLine bytes.
 func tail(stderr []byte) string {
 	lines := strings.Split(strings.TrimSpace(string(bytes.TrimSpace(stderr))), "\n")
-	if len(lines) > 20 {
-		lines = lines[len(lines)-20:]
+	if len(lines) > tailLines {
+		lines = lines[len(lines)-tailLines:]
 	}
 	for i, line := range lines {
 		if len(line) > maxLine {
