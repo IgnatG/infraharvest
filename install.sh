@@ -19,6 +19,9 @@
 #   INFRAHARVEST_REQUIRE_SIGNATURE=1  the default; wins over SKIP_SIGNATURE
 #   GITHUB_TOKEN              token for the GitHub API and downloads, if needed
 #   INFRAHARVEST_BASE_URL     where the release files are (for testing)
+#
+# Everything runs from main, called on the last line: a download that
+# `curl | sh` cuts short runs nothing, rather than part of the script.
 
 set -eu
 
@@ -30,16 +33,17 @@ fail() {
   exit 1
 }
 
-# fetch URL FILE downloads URL to FILE, with GITHUB_TOKEN if set. curl
-# sends the token to URL's host only, not to the host a release download
-# redirects to; wget sends it on every redirect, so it gets the token for
-# the GitHub API alone, which doesn't redirect elsewhere.
+# fetch URL FILE downloads URL to FILE, with GITHUB_TOKEN if set, trying
+# again on a transient failure. curl sends the token to URL's host only,
+# not to the host a release download redirects to; wget sends it on every
+# redirect, so it gets the token for the GitHub API alone, which doesn't
+# redirect elsewhere.
 fetch() {
   if command -v curl > /dev/null 2>&1; then
     if [ -n "${GITHUB_TOKEN:-}" ]; then
-      curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" -o "$2" "$1"
+      curl -fsSL --retry 3 -H "Authorization: Bearer $GITHUB_TOKEN" -o "$2" "$1"
     else
-      curl -fsSL -o "$2" "$1"
+      curl -fsSL --retry 3 -o "$2" "$1"
     fi
   elif command -v wget > /dev/null 2>&1; then
     case "$1" in
@@ -47,87 +51,100 @@ fetch() {
       *) with_token= ;;
     esac
     if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "$with_token" ]; then
-      wget -q --header "Authorization: Bearer $GITHUB_TOKEN" -O "$2" "$1"
+      wget -q --tries=3 --header "Authorization: Bearer $GITHUB_TOKEN" -O "$2" "$1"
     else
-      wget -q -O "$2" "$1"
+      wget -q --tries=3 -O "$2" "$1"
     fi
   else
     fail "needs curl or wget"
   fi
 }
 
-case "$(uname -s)" in
-  Linux) os=linux ;;
-  Darwin) os=darwin ;;
-  *) fail "unsupported system $(uname -s); on Windows, download the zip from https://github.com/$repo/releases" ;;
-esac
-case "$(uname -m)" in
-  x86_64 | amd64) arch=amd64 ;;
-  aarch64 | arm64) arch=arm64 ;;
-  *) fail "unsupported architecture $(uname -m)" ;;
-esac
+main() {
+  case "$(uname -s)" in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *) fail "unsupported system $(uname -s); on Windows, download the zip from https://github.com/$repo/releases" ;;
+  esac
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=amd64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) fail "unsupported architecture $(uname -m)" ;;
+  esac
 
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
 
-version="${INFRAHARVEST_VERSION:-}"
-if [ -z "$version" ]; then
-  # GitHub's latest release is the newest that isn't a prerelease: a
-  # repository with only prereleases, or none yet, has no latest release
-  # and the API answers 404, which fetch reports as a failure.
-  no_latest="no release found: GitHub's latest release leaves out prereleases, and there may be none yet (or the API refused the request: see any error above, and set GITHUB_TOKEN if it is a rate limit). Set INFRAHARVEST_VERSION=vX.Y.Z to install a given release, prereleases included"
-  fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json" || fail "$no_latest"
-  version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
-  [ -n "$version" ] || fail "$no_latest"
-fi
-case "$version" in
-  v*) ;;
-  *) version="v$version" ;;
-esac
-number="${version#v}"
-base="${INFRAHARVEST_BASE_URL:-https://github.com/$repo/releases/download/$version}"
-archive="infraharvest_${number}_${os}_${arch}.tar.gz"
-sums="infraharvest_${number}_SHA256SUMS"
-
-echo "Installing infraharvest $version ($os/$arch) into $install_dir"
-fetch "$base/$archive" "$tmp/$archive"
-fetch "$base/$sums" "$tmp/$sums"
-
-if [ "${INFRAHARVEST_SKIP_SIGNATURE:-}" = 1 ] && [ "${INFRAHARVEST_REQUIRE_SIGNATURE:-}" != 1 ]; then
-  echo "INFRAHARVEST_SKIP_SIGNATURE=1: not verifying the release's signature, checking the checksum only." >&2
-elif command -v cosign > /dev/null 2>&1; then
-  fetch "$base/$sums.sigstore.json" "$tmp/$sums.sigstore.json"
-  # cosign's own output says why a verification failed: a bad signature,
-  # but also a cosign too old for the bundle format, or no network access to
-  # the Sigstore trust root.
-  if ! cosign verify-blob \
-    --certificate-identity "https://github.com/$repo/.github/workflows/release.yml@refs/heads/main" \
-    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    --bundle "$tmp/$sums.sigstore.json" "$tmp/$sums" > "$tmp/cosign.log" 2>&1; then
-    cat "$tmp/cosign.log" >&2
-    cosign_version=$(cosign version 2> /dev/null | sed -n 's/^GitVersion: *//p' | head -n 1)
-    fail "the checksum file's signature doesn't verify (cosign ${cosign_version:-of unknown version}; its output is above): not installing. The release is signed with cosign v3: an older cosign may not read its bundle, and verifying needs network access to the Sigstore services"
+  version="${INFRAHARVEST_VERSION:-}"
+  if [ -z "$version" ]; then
+    # GitHub's latest release is the newest that isn't a prerelease: a
+    # repository with only prereleases, or none yet, has no latest release
+    # and the API answers 404, which fetch reports as a failure.
+    no_latest="no release found: GitHub's latest release leaves out prereleases, and there may be none yet (or the API refused the request: see any error above, and set GITHUB_TOKEN if it is a rate limit). Set INFRAHARVEST_VERSION=vX.Y.Z to install a given release, prereleases included"
+    fetch "https://api.github.com/repos/$repo/releases/latest" "$tmp/latest.json" || fail "$no_latest"
+    version=$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
+    [ -n "$version" ] || fail "$no_latest"
   fi
-  echo "Verified the release's signature."
-else
-  fail "cosign isn't installed, so the release's signature can't be verified: not installing. Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/), or set INFRAHARVEST_SKIP_SIGNATURE=1 to check only the checksum"
-fi
+  case "$version" in
+    v*) ;;
+    *) version="v$version" ;;
+  esac
+  number="${version#v}"
+  base="${INFRAHARVEST_BASE_URL:-https://github.com/$repo/releases/download/$version}"
+  archive="infraharvest_${number}_${os}_${arch}.tar.gz"
+  sums="infraharvest_${number}_SHA256SUMS"
 
-expected=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/$sums")
-[ -n "$expected" ] || fail "$archive isn't in $sums"
-if command -v sha256sum > /dev/null 2>&1; then
-  actual=$(sha256sum "$tmp/$archive" | awk '{ print $1 }')
-else
-  actual=$(shasum -a 256 "$tmp/$archive" | awk '{ print $1 }')
-fi
-[ "$actual" = "$expected" ] || fail "$archive doesn't match its checksum: not installing"
+  echo "Installing infraharvest $version ($os/$arch) into $install_dir"
+  fetch "$base/$archive" "$tmp/$archive"
+  fetch "$base/$sums" "$tmp/$sums"
 
-tar -xzf "$tmp/$archive" -C "$tmp" infraharvest
-mkdir -p "$install_dir"
-mv "$tmp/infraharvest" "$install_dir/infraharvest"
-chmod 755 "$install_dir/infraharvest"
-echo "Installed $("$install_dir/infraharvest" version)."
-case ":$PATH:" in
-  *":$install_dir:"*) ;;
-  *) echo "Add $install_dir to your PATH to run infraharvest." ;;
-esac
+  if [ "${INFRAHARVEST_SKIP_SIGNATURE:-}" = 1 ] && [ "${INFRAHARVEST_REQUIRE_SIGNATURE:-}" != 1 ]; then
+    echo "INFRAHARVEST_SKIP_SIGNATURE=1: not verifying the release's signature, checking the checksum only." >&2
+  elif command -v cosign > /dev/null 2>&1; then
+    fetch "$base/$sums.sigstore.json" "$tmp/$sums.sigstore.json"
+    # The commit the release's tag names. The release workflow runs from
+    # main, so its certificate names main, not the tag; it names the commit
+    # too, which must be the tag's, so that a checksum file another run of
+    # the workflow signed doesn't verify for this release.
+    fetch "https://api.github.com/repos/$repo/commits/$version" "$tmp/commit.json" ||
+      fail "couldn't find the commit of $version's tag (set GITHUB_TOKEN if it is a rate limit)"
+    sha=$(sed -n 's/^  "sha": *"\([0-9a-f]\{40\}\)".*/\1/p' "$tmp/commit.json" | head -n 1)
+    [ -n "$sha" ] || fail "couldn't find the commit of $version's tag"
+    # cosign's own output says why a verification failed: a bad signature,
+    # but also a cosign too old for the bundle format, or no network access to
+    # the Sigstore trust root.
+    if ! cosign verify-blob \
+      --certificate-identity "https://github.com/$repo/.github/workflows/release.yml@refs/heads/main" \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      --certificate-github-workflow-sha "$sha" \
+      --bundle "$tmp/$sums.sigstore.json" "$tmp/$sums" > "$tmp/cosign.log" 2>&1; then
+      cat "$tmp/cosign.log" >&2
+      cosign_version=$(cosign version 2> /dev/null | sed -n 's/^GitVersion: *//p' | head -n 1)
+      fail "the checksum file's signature doesn't verify (cosign ${cosign_version:-of unknown version}; its output is above): not installing. The release is signed with cosign v3: an older cosign may not read its bundle, and verifying needs network access to the Sigstore services"
+    fi
+    echo "Verified the release's signature."
+  else
+    fail "cosign isn't installed, so the release's signature can't be verified: not installing. Install cosign (https://docs.sigstore.dev/cosign/system_config/installation/), or set INFRAHARVEST_SKIP_SIGNATURE=1 to check only the checksum"
+  fi
+
+  expected=$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/$sums")
+  [ -n "$expected" ] || fail "$archive isn't in $sums"
+  if command -v sha256sum > /dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/$archive" | awk '{ print $1 }')
+  else
+    actual=$(shasum -a 256 "$tmp/$archive" | awk '{ print $1 }')
+  fi
+  [ "$actual" = "$expected" ] || fail "$archive doesn't match its checksum: not installing"
+
+  tar -xzf "$tmp/$archive" -C "$tmp" infraharvest
+  mkdir -p "$install_dir"
+  mv "$tmp/infraharvest" "$install_dir/infraharvest"
+  chmod 755 "$install_dir/infraharvest"
+  echo "Installed $("$install_dir/infraharvest" version)."
+  case ":$PATH:" in
+    *":$install_dir:"*) ;;
+    *) echo "Add $install_dir to your PATH to run infraharvest." ;;
+  esac
+}
+
+main "$@"
