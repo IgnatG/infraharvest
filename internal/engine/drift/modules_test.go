@@ -825,3 +825,38 @@ func TestSplitModuleAddress(t *testing.T) {
 		}
 	}
 }
+
+// A change inside a module that can't be read says why: the module
+// doesn't parse, or modules.json can't be read.
+func TestDriftModuleThatCantBeReadSaysWhy(t *testing.T) {
+	t.Parallel()
+	broken := map[string]string{"main.tf": "resource \"aws_s3_bucket\" \"this\" {\n  bucket = \n}\n"}
+	dir, _ := driftModuleRoot(t, map[string]string{"main.tf": appCall}, map[string]map[string]string{"app_0a1b2c3d": broken}, map[string]string{"app": "app_0a1b2c3d"})
+	modules, unread := loadDriftModules(dir, "")
+	if _, ok := modules["app"]; ok || !strings.HasPrefix(unread["app"], "the module doesn't parse: ") || strings.Contains(unread["app"], "\n") {
+		t.Fatalf("modules %v, unread %q", modules, unread)
+	}
+	cfg, err := parseDriftConfig(byteFiles(map[string]string{"main.tf": appCall}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := moduleDrift("module.app.aws_s3_bucket.this", "aws_s3_bucket", "tags.Env", "dev")
+	e := testEditor(map[string]map[string]any{c.Address: {"tags": map[string]any{"Env": "dev"}}})
+	e.modules, e.unreadModules = modules, unread
+	src := e.locate(cfg, c)
+	if src.Edit != nil || !strings.Contains(src.Reason, "in the module call module.app: the module doesn't parse: ") || !strings.HasSuffix(src.Reason, ", so what it sets can't be told: change the call by hand") {
+		t.Errorf("source %+v", src)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".terraform", "modules", "modules.json"), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	modules, unread = loadDriftModules(dir, "")
+	if modules != nil || !strings.HasPrefix(unread[""], "the modules the root calls can't be read: ") {
+		t.Fatalf("modules %v, unread %q", modules, unread)
+	}
+	e.modules, e.unreadModules = modules, unread
+	if src := e.locate(cfg, c); !strings.Contains(src.Reason, "the modules the root calls can't be read: ") {
+		t.Errorf("source %+v", src)
+	}
+}

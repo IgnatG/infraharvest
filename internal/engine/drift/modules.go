@@ -4,6 +4,7 @@
 package drift
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -47,13 +48,17 @@ type driftModule struct {
 // loadDriftModules reads the modules the root in dir calls, by their keys
 // in the modules.json of its last init, whose working files are in
 // dataDir, or .terraform in dir for "", such as logs, or net.vpc for a
-// call inside a module: none if it calls none, or if they can't be read,
-// which it logs, as changes inside them then can't be traced.
-func loadDriftModules(dir, dataDir string) map[string]*driftModule {
+// call inside a module: none if it calls none, or if they can't be read.
+// It returns too why each module it couldn't read can't be, by key, and
+// by "" why none can be, where modules.json can't be read, so that a
+// change inside one says why it can't be traced; and it logs them.
+func loadDriftModules(dir, dataDir string) (map[string]*driftModule, map[string]string) {
+	unread := map[string]string{}
 	installed, err := tfrun.InstalledModules(dir, dataDir)
 	if err != nil {
 		log.Printf("%s: drift: can't read the modules the root calls, so changes inside them can't be traced: %v", dir, err)
-		return nil
+		unread[""] = "the modules the root calls can't be read: " + err.Error()
+		return nil, unread
 	}
 	calls := map[string]int{}
 	for _, m := range installed {
@@ -64,6 +69,7 @@ func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 		contents, err := tfContents(m.Dir)
 		if err != nil {
 			log.Printf("%s: drift: can't read module %s, so changes inside it can't be traced: %v", dir, m.Key, err)
+			unread[m.Key] = "the module's files can't be read: " + err.Error()
 			continue
 		}
 		if len(contents) == 0 {
@@ -72,6 +78,7 @@ func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 		cfg, err := parseDriftConfig(contents)
 		if err != nil {
 			log.Printf("%s: drift: module %s doesn't parse, so changes inside it can't be traced: %v", dir, m.Key, err)
+			unread[m.Key] = "the module doesn't parse: " + firstDiagnostic(err)
 			continue
 		}
 		mod := newDriftModule(cfg)
@@ -82,7 +89,17 @@ func loadDriftModules(dir, dataDir string) map[string]*driftModule {
 		mod.calls = calls[filepath.Clean(m.Dir)]
 		modules[m.Key] = mod
 	}
-	return modules
+	return modules, unread
+}
+
+// firstDiagnostic is err, an error of a parse, as its first diagnostic
+// alone: the rest may be many, and a reason needs only why.
+func firstDiagnostic(err error) string {
+	var diags hcl.Diagnostics
+	if errors.As(err, &diags) && len(diags) > 0 {
+		return diags[0].Error()
+	}
+	return err.Error()
 }
 
 // newDriftModule is the module of cfg, its files parsed.
@@ -557,6 +574,17 @@ func (w *driftWalk) known(n int) bool {
 	return w.mod == nil || n >= w.mod.offset
 }
 
+// unreadModule is why the module of key, a key of modules.json, couldn't
+// be read (see loadDriftModules), with the run's secrets redacted; "" where
+// nothing says.
+func (e *driftEditor) unreadModule(key string) string {
+	why, ok := e.unreadModules[key]
+	if !ok {
+		why = e.unreadModules[""]
+	}
+	return secret.RedactText(why, e.secretForms)
+}
+
 // locateInModule finds where the root's code sets c's attribute of a
 // resource in a module call, and the edit that takes the cloud's value:
 // in the argument of the root's call that the module sets it from, as
@@ -583,7 +611,11 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *Change) codeSource {
 		}
 		blocks[i] = b
 		if mods[i] = e.modules[moduleKey(calls[:i+1])]; mods[i] == nil {
-			src := manual("modules.json doesn't list the module, so what it sets can't be told: change the call by hand")
+			reason := "modules.json doesn't list the module, so what it sets can't be told: change the call by hand"
+			if why := e.unreadModule(moduleKey(calls[:i+1])); why != "" {
+				reason = why + ", so what it sets can't be told: change the call by hand"
+			}
+			src := manual(reason)
 			src.File, src.Range = blocks[0].file, blocks[0].b.DefRange()
 			return src
 		}

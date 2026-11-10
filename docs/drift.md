@@ -125,6 +125,8 @@ A resource in a module call, such as `module.logs.aws_s3_bucket.this`, gets its 
 
 Another release of a registry module, such as one `--modules latest-untested` called, is traced through its code, as a local module is.
 
+A module drift can't read, because `modules.json` can't be read, or the module's files can't be read or don't parse, isn't traced: a change inside it takes a hand edit at the call, and its reason says why, such as `the module doesn't parse: main.tf:2,12-3,1: Invalid expression; ...`.
+
 A value removed in the cloud, so that the resource has none, is taken by the call's argument as follows. Where the module's variable has `default = null`, the argument is deleted, so the call gets the default, which is the cloud's none. Where its default is another value, or it has none, the argument is set to `null`, and the report's reason says that the module's default differs from the cloud's value. Where the module's code doesn't say, as for a variable it doesn't declare, the argument is set to `null`.
 
 A literal made a variable is planned like any other edit, with the staged copy calling an edited copy of the module, and every other call of it, in this root or another, keeps the literal as the variable's default: the plan rejects the edit if any other resource would change. Then the module's files are written with the root's.

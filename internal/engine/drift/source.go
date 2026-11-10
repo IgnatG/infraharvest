@@ -128,6 +128,10 @@ type driftEditor struct {
 	// modules.json (see loadDriftModules), to trace changes of their
 	// resources to the calls.
 	modules map[string]*driftModule
+	// unreadModules are why each module the root calls that
+	// loadDriftModules couldn't read can't be, by key, and by "" why
+	// none can be.
+	unreadModules map[string]string
 	// adapters are the run's (see Options.Adapters), whose Inverse
 	// traces a change of a curated module's resource to its call (see
 	// curatedAdapter).
