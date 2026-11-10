@@ -26,9 +26,21 @@ import (
 )
 
 // fingerprint identifies what a root is generated from: infraharvest's
-// version, the engine, the imports, the files written besides them, and
-// the options that change the output.
-func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Options) (string, error) {
+// version, the engine, the imports, the files written besides them, the
+// options that change the output, and policies, the digest of the --policy
+// directories the gate checks the root against (see policyDigest), which
+// change the gate's result kept with the root.
+func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Options, policies string) (string, error) {
+	content, err := fingerprintContent(engineVersion, imports, opts, policies)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// fingerprintContent returns what fingerprint hashes.
+func fingerprintContent(engineVersion string, imports []rootfile.Import, opts engine.Options, policies string) ([]byte, error) {
 	// Imports come in listing order, which varies between runs.
 	imports = append([]rootfile.Import(nil), imports...)
 	sort.Slice(imports, func(i, j int) bool {
@@ -41,7 +53,7 @@ func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Op
 	for _, a := range opts.Adapters {
 		adapters = append(adapters, a.Source+"@"+a.Version)
 	}
-	content, err := json.Marshal(struct {
+	return json.Marshal(struct {
 		Version, Engine string
 		Imports         []rootfile.Import
 		Config          map[string][]byte
@@ -67,12 +79,43 @@ func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Op
 		// Scope is what the root reads of its own account and region;
 		// nil, it leaves the fingerprint of a root without it as it was.
 		Scope *engine.ScopeLocals `json:",omitempty"`
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey, opts.Scope})
-	if err != nil {
-		return "", err
+		// Policies is the digest of the --policy directories; empty, it
+		// leaves the fingerprint of a root without them as it was.
+		Policies string `json:",omitempty"`
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey, opts.Scope, policies})
+}
+
+// policyDigest returns a digest of the files in dirs, the --policy
+// directories, by their paths in their directory and their content, in
+// order, or "" for none: a policy that changes changes the digest.
+func policyDigest(dirs []string) (string, error) {
+	if len(dirs) == 0 {
+		return "", nil
 	}
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:]), nil
+	h := sha256.New()
+	for i, dir := range dirs {
+		fmt.Fprintf(h, "dir %d\x00", i)
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || !d.Type().IsRegular() {
+				return err
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			rel, err := filepath.Rel(dir, path)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(h, "%s\x00%d\x00", filepath.ToSlash(rel), len(content))
+			h.Write(content)
+			return nil
+		})
+		if err != nil {
+			return "", fmt.Errorf("--policy: %w", err)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // claim is a root claimRoot got ready for generating.

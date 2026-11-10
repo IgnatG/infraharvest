@@ -36,7 +36,7 @@ func TestCheckpoints(t *testing.T) {
 	}
 	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
 	opts := engine.Options{Config: map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")}}
-	fp, err := fingerprint("1.16.5", imports, opts)
+	fp, err := fingerprint("1.16.5", imports, opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,11 @@ func TestCheckpoints(t *testing.T) {
 	}
 
 	// Other imports or options make another root.
-	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts)
+	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	newerEngine, err := fingerprint("1.17.0", imports, opts)
+	newerEngine, err := fingerprint("1.17.0", imports, opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestCheckpoints(t *testing.T) {
 func TestFingerprintIgnoresOrder(t *testing.T) {
 	a := []rootfile.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
 	b := []rootfile.Import{a[1], a[0]}
-	fa, err := fingerprint("1.16.5", a, engine.Options{})
+	fa, err := fingerprint("1.16.5", a, engine.Options{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fb, err := fingerprint("1.16.5", b, engine.Options{})
+	fb, err := fingerprint("1.16.5", b, engine.Options{}, "")
 	if err != nil || fa != fb {
 		t.Errorf("fingerprints differ: %s, %s, %v", fa, fb, err)
 	}
@@ -569,7 +569,7 @@ func TestFingerprintCoversOptions(t *testing.T) {
 		"TidyLabels":      "always set by an import",
 		"Modules":         "the run's count of module calls, not an input",
 		"ModuleProviders": "the provider's, compiled into the build",
-		"Scanners":        "run by the gate, which checks the root and writes nothing into it",
+		"Scanners":        "the gate's, which writes nothing into the root; the --policy directories it checks with are fingerprinted from their files (see policyDigest)",
 		"ScannerSlots":    "the run's, not an input",
 		"Previous":        "what the root had, which a regeneration reads",
 		"Arrivals":        "the handovers, which have checkpoints of their own",
@@ -598,5 +598,68 @@ func TestFingerprintCoversOptions(t *testing.T) {
 		if !fields[name] {
 			t.Errorf("engine.Options has no field %s any more: take it out of this test", name)
 		}
+	}
+}
+
+// A policy that changes changes the fingerprint of the roots it checks,
+// so --resume generates them again; a root without --policy keeps the
+// fingerprint it had before policies were part of it.
+func TestFingerprintPolicies(t *testing.T) {
+	t.Parallel()
+	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
+	content, err := fingerprintContent("1.16.5", imports, engine.Options{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), `"Policies"`) {
+		t.Errorf("a root without --policy has Policies in its fingerprint: %s", content)
+	}
+
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := func() string {
+		t.Helper()
+		d, err := policyDigest([]string{dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d, err := policyDigest(nil); err != nil || d != "" {
+		t.Errorf("no policies: %q, %v", d, err)
+	}
+	write("s3.rego", "package main\n")
+	first := digest()
+	if first == "" || digest() != first {
+		t.Fatalf("the digest of the same policies should be the same and set: %q", first)
+	}
+	write("s3.rego", "package main\n\ndeny contains msg if { false }\n")
+	edited := digest()
+	if edited == first {
+		t.Error("editing a policy left the digest as it was")
+	}
+	write("lib/tags.rego", "package lib\n")
+	if digest() == edited {
+		t.Error("adding a policy left the digest as it was")
+	}
+
+	without, err := fingerprint("1.16.5", imports, engine.Options{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	with, err := fingerprint("1.16.5", imports, engine.Options{}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if with == without {
+		t.Error("policies left the fingerprint as it was")
 	}
 }

@@ -35,6 +35,11 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.I
 	dirs = c.handovers.order(dirs)
 	others := newOtherRoots(c.opts, roots, c.options.Out)
 	refine, refineKey := c.stackIntent()
+	// The gate's result kept with a root depends on the policies too.
+	policies, err := policyDigest(c.options.Policies)
+	if err != nil {
+		return err
+	}
 	for _, dir := range dirs {
 		dirOpts := others.of(dir)
 		// A root its stack's merge is to take, with its other
@@ -46,7 +51,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.I
 		if !merged {
 			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
 		}
-		fp, err := fingerprint(c.toolchain.root.engineVersion, c.byDir[dir], dirOpts)
+		fp, err := fingerprint(c.toolchain.root.engineVersion, c.byDir[dir], dirOpts, policies)
 		if err != nil {
 			return err
 		}

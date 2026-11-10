@@ -41,7 +41,7 @@ func BenchmarkOtherRoots(b *testing.B) {
 		others := newOtherRoots(opts, byDir, out)
 		for dir, imports := range byDir {
 			dirOpts := others.of(dir)
-			if _, err := fingerprint("v1", imports, dirOpts); err != nil {
+			if _, err := fingerprint("v1", imports, dirOpts, ""); err != nil {
 				b.Fatal(err)
 			}
 		}
