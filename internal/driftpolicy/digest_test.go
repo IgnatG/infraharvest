@@ -47,6 +47,7 @@ func TestRootsDigest(t *testing.T) {
 		"_reports/drift.md":                            "# Drift\n",
 		"aws/1/eu-west-2/terraform.tfstate":            "{}",
 		"aws/1/eu-west-2/.terraform/modules/m/main.tf": "# installed\n",
+		".git/refs/heads/fix.tf":                       "0123abcd\n",
 	})
 	if digest() != before {
 		t.Errorf("the digest changed with files it leaves out")

@@ -303,7 +303,9 @@ func (t checkpointTree[T]) write(out, dir string, c T) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFile(path, append(content, '\n'), 0o644)
+	// Private, as the inventories are: a checkpoint names every resource
+	// of its root.
+	return fsutil.WriteFile(path, append(content, '\n'), 0o600)
 }
 
 // storedCheckpoint is a checkpoint file as it is: its content, and what
