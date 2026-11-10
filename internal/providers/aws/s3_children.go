@@ -89,6 +89,30 @@ var s3Probes = map[string]s3Probe{
 	},
 }
 
+// s3ProbeParallel is how many probes of one bucket run at once.
+const s3ProbeParallel = 4
+
+// s3ChildrenClient returns the S3 client ChildImports asks with for
+// service's configuration: one per configuration of the run, kept with it
+// (see runConfigs), rather than one per bucket, so that the client's
+// adaptive retry, which slows down once S3 throttles, remembers it from
+// one bucket to the next.
+func s3ChildrenClient(service *Service) (*s3.Client, error) {
+	config, err := service.sdkConfig()
+	if err != nil {
+		return nil, err
+	}
+	run, key := service.configs(), service.cacheKey()
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if c, ok := run.s3Children[key]; ok {
+		return c, nil
+	}
+	c := s3.NewFromConfig(config)
+	run.s3Children[key] = c
+	return c, nil
+}
+
 // ChildImports lists, for an S3 bucket, the separate resources that hold
 // the parts of its configuration it has: of the types the catalogue names
 // as its children, which carry the settings of the arguments it omits from
@@ -98,18 +122,18 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 	if r.Address.Type != "aws_s3_bucket" || !ok || len(entry.Children) == 0 {
 		return nil, nil
 	}
-	service := p.service(ctx)
-	config, err := service.sdkConfig()
+	svc, err := s3ChildrenClient(p.service(ctx))
 	if err != nil {
 		return nil, err
 	}
-	svc := s3.NewFromConfig(config)
 	bucket := r.Observed.ID
-	// The probes ask about one bucket each, so they run at once, and their
-	// answers are read in the catalogue's order, which the output keeps.
+	// The probes ask about one bucket each, so they run at once, a few at
+	// a time, as the importer asks about several buckets at once too, and
+	// their answers are read in the catalogue's order, which the output
+	// keeps.
 	configured := make([]bool, len(entry.Children))
 	probeErrs := make([]error, len(entry.Children))
-	var wg workers.Group
+	wg := workers.New(s3ProbeParallel)
 	for i, child := range entry.Children {
 		probe, ok := s3Probes[child]
 		if !ok {
