@@ -600,8 +600,11 @@ func TestGoldenListerAccessors(t *testing.T) {
 	record("zero: Wants", zero.Wants("aws_vpc"))
 	record("zero: WantsAny", zero.WantsAny("aws_vpc", "aws_subnet"))
 	record("zero: WantsAny of nothing", zero.WantsAny())
-	record("zero: Context is Background", zero.Context() == context.Background())
-	record("zero: Context has no Done channel", zero.Context().Done() == nil)
+	record("zero: Context panics under go test", func() (panicked bool) {
+		defer func() { panicked = recover() != nil }()
+		_ = zero.Context()
+		return false
+	}())
 	record("zero: Resources is nil", zero.Resources == nil)
 	record("zero: Settings", zero.Settings())
 
