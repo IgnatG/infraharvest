@@ -43,7 +43,7 @@ func Partial(err error) error {
 // reads as a full failure.
 func IsPartial(err error) bool {
 	for err != nil {
-		if _, ok := err.(*PartialError); ok {
+		if _, ok := err.(*PartialError); ok { //nolint:errorlint // walks single wraps only, on purpose (see above)
 			return true
 		}
 		u, ok := err.(interface{ Unwrap() error })

@@ -453,7 +453,7 @@ func removeRoot(out, dir string) error {
 			break // not empty
 		}
 	}
-	return nil
+	return nil //nolint:nilerr // a directory that is not empty stays
 }
 
 // mergeCheckpoint records what the merge phase did with a stack: what it

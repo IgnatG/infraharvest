@@ -634,7 +634,7 @@ func TestGoldenListerAccessors(t *testing.T) {
 		return listErr
 	})
 	record("run: returns the listed resources", goldenResourceViews(resources))
-	record("run: returns the list's error", err == listErr)
+	record("run: returns the list's error", err == listErr) //nolint:errorlint // the same error, not one wrapping it
 
 	goldenCheck(t, "lister_accessors", got)
 }

@@ -112,11 +112,7 @@ func reparseDriftConfig(prev *driftConfig, contents map[string][]byte, parses pa
 		if err != nil {
 			return nil, err
 		}
-		file, err := driftFileOf(name, f)
-		if err != nil {
-			return nil, err
-		}
-		parsed[name] = file
+		parsed[name] = driftFileOf(name, f)
 		changed = true
 	}
 	if !changed && len(parsed) == len(prev.parsed) {
@@ -136,18 +132,9 @@ func newDriftConfig() *driftConfig {
 	return &driftConfig{files: map[string]*hclfile.File{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 }
 
-// parseDriftFile parses the root's file name, of content, alone.
-func parseDriftFile(name string, content []byte) (*driftConfig, error) {
-	f, err := hclfile.Parse(name, content)
-	if err != nil {
-		return nil, err
-	}
-	return driftFileOf(name, f)
-}
-
 // driftFileOf is the configuration of the root's file name, parsed as f,
 // alone.
-func driftFileOf(name string, f *hclfile.File) (*driftConfig, error) {
+func driftFileOf(name string, f *hclfile.File) *driftConfig {
 	cfg := newDriftConfig()
 	cfg.files[name] = f
 	for _, b := range f.Syntax.Blocks {
@@ -185,7 +172,7 @@ func driftFileOf(name string, f *hclfile.File) (*driftConfig, error) {
 			}
 		}
 	}
-	return cfg, nil
+	return cfg
 }
 
 // parseCache keeps the last parse of each file of an apply, by the name

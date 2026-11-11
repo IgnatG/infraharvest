@@ -143,7 +143,7 @@ func confinedModule(dir, moduleDir, out string) (bool, error) {
 	}
 	rel, err := filepath.Rel(out, moduleDir)
 	if err != nil || !inDir(out, dir) || !inDir(out, moduleDir) || rel == "." {
-		return false, nil
+		return false, nil //nolint:nilerr // a module outside the output is not one to promote
 	}
 	current := out
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {

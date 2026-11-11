@@ -522,7 +522,7 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 		checkGenerated(t, b.File("aws/1/eu-west-2"), "terraform", nil, func(body hcl.Body) error {
 			content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "backend", LabelNames: []string{"type"}}}})
 			if diags.HasErrors() || len(content.Blocks) != 1 {
-				return fmt.Errorf("no backend: %v", diags)
+				return fmt.Errorf("no backend: %w", diags)
 			}
 			s, ok := backends[content.Blocks[0].Labels[0]]
 			if !ok {

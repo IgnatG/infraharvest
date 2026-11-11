@@ -29,9 +29,13 @@
   "linters": {
     "default": "standard",
     "enable": [
+      "bodyclose",
       "depguard",
+      "errorlint",
       "funlen",
       "gocritic",
+      "nilerr",
+      "noctx",
       "revive",
       "unconvert",
       "unparam"

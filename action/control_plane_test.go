@@ -137,7 +137,7 @@ func run(t *testing.T, mode string, env map[string]string, noReport bool) result
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", script, mode)
+	cmd := exec.CommandContext(t.Context(), "bash", script, mode)
 	cmd.Dir = dir
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),

@@ -79,7 +79,7 @@ func TestTransportAndClient(t *testing.T) {
 		},
 		"client": func(l *Limiter) func(*http.Request) (*http.Response, error) { return l.Client(http.DefaultClient).Do },
 	} {
-		do := through(New(1))
+		do := through(New(1)) //nolint:bodyclose // the responses of do are closed below
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 		resp, err := do(req)
 		if err != nil {
@@ -88,7 +88,11 @@ func TestTransportAndClient(t *testing.T) {
 		resp.Body.Close()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
-		if _, err := do(req); err == nil {
+		resp, err = do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err == nil {
 			t.Errorf("%s: the second request went at once", name)
 		}
 		cancel()
@@ -203,8 +207,11 @@ func TestTransportAndClientHoldBack(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			body := &closeRecorder{Reader: strings.NewReader("Action=ListQueues")}
 			req, _ = http.NewRequestWithContext(ctx, http.MethodPost, "https://sqs.eu-west-2.amazonaws.com/", body)
-			_, err = tc.send(l, base, req)
+			resp, err = tc.send(l, base, req)
 			cancel()
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err == nil || base.called {
 				t.Errorf("%s: the held-back request: %v, sent %t", tc.name, err, base.called)
 			}

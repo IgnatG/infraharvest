@@ -1154,7 +1154,7 @@ func pinModuleProviders(ws *workspace, configured map[string]rootfile.Provider) 
 		return nil
 	}
 	if _, err := os.Stat(ws.path(tfrun.LockFileName)); err != nil {
-		return nil
+		return nil //nolint:nilerr // no lock file yet, nothing to read
 	}
 	lock, err := hclfile.Load(ws.path(tfrun.LockFileName))
 	if err != nil {

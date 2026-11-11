@@ -251,8 +251,11 @@ func TestRunsKeepTheirOwnLimits(t *testing.T) {
 		for i := range 2 {
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://management.azure.com/subscriptions/sub-runs/resourceGroups", http.NoBody)
-			_, err := r.client.Do(req)
+			resp, err := r.client.Do(req)
 			cancel()
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err != nil {
 				waited = i == 1
 				break
@@ -446,9 +449,11 @@ func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.Do(req); err != nil {
+		resp, err := a.Do(req)
+		if err != nil {
 			t.Fatal(err)
 		}
+		_ = resp.Body.Close()
 	}
 	if want := []string{"/providers/Microsoft.ResourceGraph/resources", "/providers/microsoft.resourcegraph/resources"}; !slices.Equal(graph.got, want) {
 		t.Errorf("through the Resource Graph limiter: %v, want %v", graph.got, want)

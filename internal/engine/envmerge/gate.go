@@ -216,7 +216,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 	// The provider release the merged root pins (see newestProvider).
 	newest, err := newestProvider(envRoots)
 	if err != nil {
-		return &MergeResult{Reason: err.Error()}, nil
+		return &MergeResult{Reason: err.Error()}, nil //nolint:nilerr // a reason the stack does not merge, not a failure of the run
 	}
 	g.newest = newest
 	schemas, err := g.schemas(ctx, envRoots)
@@ -229,7 +229,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 		m := mergeStackWith(g.roots[0].Provider.Name, g.opts.Profile, envRoots, schemas, controls)
 		files, w, err := buildMergedRoot(m)
 		if err != nil {
-			return &MergeResult{Reason: err.Error()}, nil
+			return &MergeResult{Reason: err.Error()}, nil //nolint:nilerr // a reason the stack does not merge, not a failure of the run
 		}
 		// The gate plans without the backend, which its init leaves out, as
 		// a root's backend.tf is written only once its gate passes.

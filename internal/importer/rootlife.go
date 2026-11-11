@@ -79,7 +79,7 @@ func (d rootDecision) refused(reason error) rootDecision {
 func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	out, options := c.options.Out, c.options
 	if err := c.handovers.refusal(dir); err != nil {
-		return rootDecision{mode: rootRefused, reason: err}, nil
+		return rootDecision{mode: rootRefused, reason: err}, nil //nolint:nilerr // the refusal is the decision, not an error of the call
 	}
 	if options.Resume {
 		result, err := resumed(out, dir, fp)
@@ -358,7 +358,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 		return nil, err
 	}
 	if s.err != nil || s.c.Fingerprint != fp || s.c.Result == nil {
-		return nil, nil // an unreadable checkpoint means generating again
+		return nil, nil //nolint:nilerr // an unreadable checkpoint means generating again
 	}
 	c := s.c
 	// A root its stack's merge set aside is resumed from there.
@@ -369,7 +369,7 @@ func resumed(out, dir, fp string) (*engine.Result, error) {
 	}
 	for _, name := range names {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
-			return nil, nil // a missing file means generating again
+			return nil, nil //nolint:nilerr // a missing file means generating again
 		}
 	}
 	return c.Result, nil
