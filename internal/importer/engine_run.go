@@ -27,6 +27,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -155,10 +156,11 @@ type shared struct {
 	callsMu sync.Mutex
 	calls   chan struct{}
 
-	// limiter limits the requests of the command's listings to each API
-	// host, made with --rate-limit on first use (see rateLimiter).
-	limiterMu sync.Mutex
-	limiter   *ratelimit.Limiter
+	// run is the state the command's listings share: the limiter of their
+	// requests to each API host, made with --rate-limit on first use, and
+	// what the providers keep for the run (see runState).
+	runMu sync.Mutex
+	run   *runstate.Run
 
 	// modules counts the roots of the command that call each generated
 	// module, which they share (see engine.Options.Modules).
@@ -173,29 +175,30 @@ type shared struct {
 	scanners gate.ScannerSlots
 }
 
-// rateLimiter returns the command's limiter, of perSecond requests a
-// second, made on first use: every Import call of the command, in every
-// account and region, gives its listing the same one (see listCall), and
-// no other run in the process changes its rate.
-func (s *shared) rateLimiter(perSecond float64) *ratelimit.Limiter {
-	s.limiterMu.Lock()
-	defer s.limiterMu.Unlock()
-	if s.limiter == nil {
-		s.limiter = ratelimit.New(perSecond)
+// runState returns the command's run state, with a limiter of perSecond
+// requests a second, made on first use: every Import call of the command,
+// in every account and region, gives its listing the same one (see
+// listCall), and no other run in the process changes its rate or sees
+// what it keeps.
+func (s *shared) runState(perSecond float64) *runstate.Run {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	if s.run == nil {
+		s.run = runstate.New(ratelimit.New(perSecond))
 	}
-	return s.limiter
+	return s.run
 }
 
-// withLimiter returns ctx carrying the limiter of the command's listings,
-// of perSecond requests a second, which every Import call of the command
-// gets too (see shared.rateLimiter): the calls the command's plan makes
+// withLimiter returns ctx carrying the run state of the command's
+// listings, with a limiter of perSecond requests a second, which every
+// Import call of the command gets too (see shared.runState): the calls the command's plan makes
 // before its Import calls (see Command.Plan), such as those finding the
 // accounts or the stacks it imports, are then of the run, and share with
 // the Import calls what the providers keep for the run, such as the
 // credentials they resolved, so that a profile whose role needs MFA asks
 // for the code once.
 func (r *Run) withLimiter(ctx context.Context, perSecond float64) context.Context {
-	return ratelimit.NewContext(ctx, r.shared.rateLimiter(perSecond))
+	return runstate.NewContext(ctx, r.shared.runState(perSecond))
 }
 
 // callSlots returns the slots the Import calls of the command take while

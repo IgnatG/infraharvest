@@ -24,6 +24,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 func TestAssetID(t *testing.T) {
@@ -545,7 +546,7 @@ func TestCloudAssetPartialTypes(t *testing.T) {
 	caches.rejectedTypes["pubsub.googleapis.com/Topic"] = true
 	caches.mu.Unlock()
 	// Another run's rejections aren't this one's.
-	other := cachesOf(ratelimit.NewContext(t.Context(), ratelimit.New(1)))
+	other := cachesOf(runstate.NewContext(t.Context(), runstate.New(ratelimit.New(1))))
 	other.mu.Lock()
 	other.rejectedTypes["compute.googleapis.com/Network"] = true
 	other.mu.Unlock()
@@ -562,8 +563,8 @@ func TestCloudAssetSearchesOncePerRun(t *testing.T) {
 	const rejected = "pubsub.googleapis.com/Topic"
 	search := &fakeAssetSearch{results: searchResults, perPage: 500, reject: []string{rejected}}
 	fakeGoogle(t, search.answer)
-	first := ratelimit.NewContext(t.Context(), ratelimit.New(0))
-	second := ratelimit.NewContext(t.Context(), ratelimit.New(0))
+	first := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	second := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
 	list := func(ctx context.Context, region string) {
 		t.Helper()
 		g := assetLister(t, nil, region)
@@ -599,7 +600,7 @@ func TestCloudAssetSearchesOncePerRun(t *testing.T) {
 	if !partial(first) {
 		t.Error("the run's search rejected pubsub topics, which it doesn't list in part")
 	}
-	if partial(ratelimit.NewContext(t.Context(), ratelimit.New(0))) {
+	if partial(runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))) {
 		t.Error("a run that searched nothing lists pubsub topics in part")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // Init takes the service account an environment reads its project as
@@ -65,7 +66,7 @@ func TestRunsKeepTheirOwnServiceAccount(t *testing.T) {
 	accounts := []string{"first@shop.iam.gserviceaccount.com", "second@shop.iam.gserviceaccount.com"}
 	runs := make([]context.Context, len(accounts))
 	for i := range runs {
-		runs[i] = ratelimit.NewContext(t.Context(), ratelimit.Like(ratelimit.Default()))
+		runs[i] = runstate.NewContext(t.Context(), runstate.New(ratelimit.Like(ratelimit.Default())))
 	}
 	for i, account := range accounts {
 		t.Run(account, func(t *testing.T) {

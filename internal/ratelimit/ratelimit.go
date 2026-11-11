@@ -31,12 +31,6 @@ type Limiter struct {
 	// mu guards hosts.
 	mu    sync.Mutex
 	hosts map[string]*rate.Limiter
-
-	// keptMu guards kept, apart from mu, so that making a value never
-	// holds up a request.
-	keptMu sync.Mutex
-	// kept are the values kept with the Limiter, by key (see Kept).
-	kept map[any]any
 }
 
 // New returns a Limiter of perSecond requests a second to each host; 0 or
@@ -65,7 +59,9 @@ type contextKey struct{}
 
 // NewContext returns ctx carrying l, the Limiter of the run whose calls
 // list with ctx: each run has its own, so that runs in one process, at
-// once or one after another, never reset each other's rate.
+// once or one after another, never reset each other's rate. What else a
+// run keeps for its listings is in its runstate.Run, which carries its
+// Limiter too.
 func NewContext(ctx context.Context, l *Limiter) context.Context {
 	return context.WithValue(ctx, contextKey{}, l)
 }
@@ -77,30 +73,6 @@ func FromContext(ctx context.Context) *Limiter {
 		return l
 	}
 	return std
-}
-
-// Kept returns the value kept with l for key, which build makes the first
-// time it is asked for. A run's Limiter is the one thing every listing of
-// the run shares (see NewContext), so the providers keep with it what
-// the run builds once for all of them, such as the clients it limits: it
-// lasts as long as the run, and no other run sees it. build runs with l's
-// values locked, so it must be quick and must not ask l for another. A
-// nil Limiter keeps nothing: each call makes the value again.
-func Kept[T any](l *Limiter, key any, build func() T) T {
-	if l == nil {
-		return build()
-	}
-	l.keptMu.Lock()
-	defer l.keptMu.Unlock()
-	if value, ok := l.kept[key]; ok {
-		return value.(T)
-	}
-	value := build()
-	if l.kept == nil {
-		l.kept = map[any]any{}
-	}
-	l.kept[key] = value
-	return value
 }
 
 // Rate is the requests a second each host gets; 0 or below: no limit.

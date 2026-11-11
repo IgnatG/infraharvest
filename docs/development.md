@@ -25,6 +25,7 @@ Everything but `main.go` and `pkg/cfn` is under `internal/`: infraharvest has no
 | `pkg/cfn`, `pkg/cfn/hclname`, `internal/stackintent` | The CloudFormation translator (`infraharvest cfn convert`), the names and numbers it writes that the rest must write alike, and the stack intent: a stack's parameters, outputs and conditions carried into the root generated from its live resources (AWS `--cfn-stack`). |
 | `internal/mcpserver`, `picker` | The MCP server for AI agents and the terminal picker. |
 | `internal/ratelimit`, `fsutil`, `filelock`, `logging`, `version`, `tftypes` | Small shared helpers: request rates per cloud API, atomic file writes, locks on the output directory and the provider cache, the filter that drops client libraries' debug lines, the version a build reports (set at link time by release builds), and the resource types that are other names of each other, such as `aws_alb` and `aws_lb`, which the engine and `managed` match alike, and the ID of a resource imported by its identity, which they key it by alike. |
+| `internal/runstate` | The state one command's run keeps for all its listings: its rate limiter, and what the providers build once for the run, such as SDK configurations, credentials and limited clients (`runstate.Kept`). It travels in the context, so runs in one process never share it. |
 | `internal/repocheck` | Tests of the repository's scripts and `.gitignore`, run against real Git repositories. |
 | `e2e/` | Round trips against cloud emulators, behind the `e2e` build tag ([e2e/README.md](https://github.com/IgnatG/infraharvest/blob/main/e2e/README.md)). |
 | `permissions/`, `action/`, `docs/` | Read-only IAM templates, the GitHub Action, and this site. |
@@ -85,6 +86,7 @@ Imports run one way across the modules' seams, and CI fails a change that turns 
 | `internal/selection`, `report` | `importer`, `internal/providers/*`, `cli`, `mcpserver` | The importer uses them, and they see listed resources through `harvest`. |
 | `internal/discovery` | anything of infraharvest's but `harvest` | It reads listed resources through `harvest`; the importer drives it. |
 | `internal/fsutil`, `ratelimit`, `logging`, `version`, `catalogue/schemameta`, `tftypes` | anything of infraharvest's | Leaf helpers: anything can use them without a cycle. |
+| `internal/runstate` | anything of infraharvest's but `ratelimit` | Every provider and the engine can use a run's state without a cycle. |
 | `internal/filelock` | anything of infraharvest's but `fsutil` | The lock checks its file with the leaf `fsutil`, as the output's other files are checked. |
 | `pkg/cfn`, `pkg/cfn/hclname` | anything of infraharvest's but `pkg/cfn/hclname`, which imports nothing of infraharvest's | The two can move to a module of their own: the `depguard` rule keeps `internal/` out, and `TestNoInternalImports` the rest. |
 

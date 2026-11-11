@@ -20,8 +20,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 	"github.com/IgnatG/infraharvest/internal/selection"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -77,9 +77,9 @@ type callRecorder struct {
 // every resource in its root (see Run.place). It returns nil, with no
 // error, for discover, which generates nothing.
 func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
-	// The provider signs in and lists with the run's limiter, not another
-	// run's (see ratelimit.FromContext).
-	ctx = ratelimit.NewContext(ctx, run.shared.rateLimiter(options.RateLimit))
+	// The provider signs in and lists with the run's limiter and state,
+	// not another run's (see runstate.FromContext).
+	ctx = runstate.NewContext(ctx, run.shared.runState(options.RateLimit))
 	c, err := run.prepareCall(ctx, provider, options, args)
 	if err != nil {
 		return nil, err

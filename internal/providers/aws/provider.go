@@ -10,8 +10,8 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report/cfn"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // The capabilities Provider has, checked when it builds: one whose method
@@ -63,18 +63,18 @@ type Provider struct {
 	// Explorer shows have none of their resources (see
 	// UseResourceExplorer).
 	resourceExplorer bool
-	// limiter is the limiter of the run Init was given (see
-	// ratelimit.FromContext), whose configurations the provider's own
-	// calls use, whatever context they are given (see service).
-	limiter *ratelimit.Limiter
+	// run is the run Init was given (see runstate.FromContext), whose
+	// limiter and configurations the provider's own calls use, whatever
+	// context they are given (see service).
+	run *runstate.Run
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]), and the run's limiter from ctx. It contacts
+// a role to assume (args[2]), and the run from ctx. It contacts
 // nothing, so it never fails: the credentials are resolved when the first
 // service lists.
 func (p *Provider) Init(ctx context.Context, args []string) error {
-	p.limiter = ratelimit.FromContext(ctx)
+	p.run = runstate.FromContext(ctx)
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -297,8 +297,8 @@ func (p *Provider) settings() serviceSettings {
 // are asked for with the context of the generation, which carries no
 // limiter, and they must come from the run's configuration all the same.
 func (p *Provider) service(ctx context.Context) *Service {
-	if p.limiter != nil {
-		ctx = ratelimit.NewContext(ctx, p.limiter)
+	if p.run != nil {
+		ctx = runstate.NewContext(ctx, p.run)
 	}
 	service := &Service{}
 	service.SetSettings(p.settings())

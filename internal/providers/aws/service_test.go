@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -28,7 +29,7 @@ import (
 // resolved and built.
 func newRun(t *testing.T) context.Context {
 	t.Helper()
-	return ratelimit.NewContext(t.Context(), ratelimit.New(0))
+	return runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
 }
 
 // One import covers global services (region aws-global) and then each
@@ -282,12 +283,12 @@ func TestSDKConfigIsTheRunsOwn(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer server.Close()
 
-	runs := []*ratelimit.Limiter{ratelimit.New(1), ratelimit.New(1000)}
+	runs := []*runstate.Run{runstate.New(ratelimit.New(1)), runstate.New(ratelimit.New(1000))}
 	built := make([]aws.Config, len(runs))
 	var wg sync.WaitGroup
 	for i, run := range runs {
 		wg.Go(func() {
-			s := serviceIn(ratelimit.NewContext(t.Context(), run), "eu-west-1")
+			s := serviceIn(runstate.NewContext(t.Context(), run), "eu-west-1")
 			cfg, err := s.sdkConfig()
 			if err != nil {
 				t.Error(err)
@@ -349,7 +350,7 @@ func TestSDKConfigResolvesEachRunsCredentials(t *testing.T) {
 // credentials are asked for.
 func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
-	ctx := ratelimit.NewContext(t.Context(), ratelimit.New(5))
+	ctx := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(5)))
 	p := &Provider{}
 	if err := p.Init(ctx, []string{"eu-west-1", ""}); err != nil {
 		t.Fatal(err)

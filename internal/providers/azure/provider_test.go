@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // The capabilities the importer looks for.
@@ -184,7 +185,7 @@ func TestSignInSharesTheCredential(t *testing.T) {
 // run's rate; other subscriptions have their own.
 func TestSubscriptionLimiterIsShared(t *testing.T) {
 	t.Parallel()
-	run := limitersOf(ratelimit.New(7))
+	run := limitersOf(runstate.New(ratelimit.New(7)))
 	a := run.subscription("sub-limiter-a")
 	if a == nil || run.subscription("sub-limiter-a") != a {
 		t.Error("the same subscription got another limiter")
@@ -204,19 +205,19 @@ func TestSubscriptionLimiterIsShared(t *testing.T) {
 func TestRunsKeepTheirOwnLimits(t *testing.T) {
 	t.Parallel()
 	type run struct {
-		limiter     *ratelimit.Limiter
+		limiter     *runstate.Run
 		graph, subs float64
 		waits       bool
 		client      ratelimit.Doer
 	}
 	runs := []*run{
-		{limiter: ratelimit.New(1), graph: 1, subs: 1, waits: true},
-		{limiter: ratelimit.New(1000), graph: graphRate, subs: 1000},
+		{limiter: runstate.New(ratelimit.New(1)), graph: 1, subs: 1, waits: true},
+		{limiter: runstate.New(ratelimit.New(1000)), graph: graphRate, subs: 1000},
 	}
 	var wg sync.WaitGroup
 	for _, r := range runs {
 		wg.Go(func() {
-			ctx := ratelimit.NewContext(t.Context(), r.limiter)
+			ctx := runstate.NewContext(t.Context(), r.limiter)
 			if _, _, options, err := signIn(ctx, authConfig{subscriptionID: "sub-runs", tenantID: "tenant-runs"}); err != nil || options.Transport == nil {
 				t.Errorf("sign-in: %v", err)
 			}
@@ -406,14 +407,14 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 // throttles them per user; every other request keeps its subscription's.
 func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 	t.Parallel()
-	run := ratelimit.New(ratelimit.DefaultRate)
+	run := runstate.New(ratelimit.New(ratelimit.DefaultRate))
 	a := limitedClient(run, "sub-graph-a", nil).(*limitedDoer)
 	b := limitedClient(run, "sub-graph-b", nil).(*limitedDoer)
 	limiters := limitersOf(run)
 	if graph := limiters.graph; graph == nil || limitersOf(run).graph != graph {
 		t.Fatal("Resource Graph queries got more than one limiter")
 	}
-	if got, want := limiters.graph.Rate(), min(graphRate, run.Rate()); got != want {
+	if got, want := limiters.graph.Rate(), min(graphRate, run.Limiter().Rate()); got != want {
 		t.Errorf("Resource Graph queries are limited to %v a second, want %v", got, want)
 	}
 	if limiters.graph == limiters.subscription("sub-graph-a") || limiters.subscription("sub-graph-a") == limiters.subscription("sub-graph-b") {

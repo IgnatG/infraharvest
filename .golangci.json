@@ -326,6 +326,21 @@
               }
             ]
           },
+          "runstate": {
+            "files": [
+              "**/internal/runstate/*.go"
+            ],
+            "list-mode": "lax",
+            "allow": [
+              "github.com/IgnatG/infraharvest/internal/ratelimit"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "a run's state imports only the leaf ratelimit of infraharvest's, so that every provider and the engine can use it without a cycle"
+              }
+            ]
+          },
           "filelock": {
             "files": [
               "**/internal/filelock/*.go"

@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	ihlogging "github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // serviceSettings are the settings each service gets (see
@@ -171,14 +172,13 @@ type runConfigs struct {
 }
 
 // runConfigsKey is the key of the run's configurations kept with its
-// limiter.
+// state (see runstate.Kept).
 type runConfigsKey struct{}
 
-// configsOf returns the configurations of the run whose limiter is l,
-// made the first time it is asked for: they are kept with the limiter, so
-// they last as long as the run.
-func configsOf(l *ratelimit.Limiter) *runConfigs {
-	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
+// configsOf returns the configurations of the run r, made the first time
+// it is asked for: they are kept with the run, so they last as long as it.
+func configsOf(r *runstate.Run) *runConfigs {
+	return runstate.Kept(r, runConfigsKey{}, func() *runConfigs {
 		return &runConfigs{
 			configs:         map[configKey]aws.Config{},
 			s3Children:      map[configKey]*s3.Client{},
@@ -200,9 +200,9 @@ func (s *Service) cacheKey() configKey {
 }
 
 // configs returns the configurations of the service's run: those kept
-// with the limiter of its context (see ratelimit.FromContext).
+// with the run of its context (see runstate.FromContext).
 func (s *Service) configs() *runConfigs {
-	return configsOf(ratelimit.FromContext(s.Context()))
+	return configsOf(runstate.FromContext(s.Context()))
 }
 
 // sdkConfig returns the SDK configuration of the service's account

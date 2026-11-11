@@ -13,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 const ec2NS = `xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"`
@@ -225,7 +226,7 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"aws_s3_bucket app-assets": reasonCloudFormation("app"),
+		"aws_s3_bucket app-assets":                                        reasonCloudFormation("app"),
 		"aws_ecs_cluster arn:aws:ecs:us-east-1:123456789012:cluster/apps": reasonCloudFormation("app"),
 	}
 	if !reflect.DeepEqual(excluded, want) {
@@ -410,7 +411,7 @@ func TestCloudFormationManagedScansEveryRegion(t *testing.T) {
 // another region, other credentials, or another run, are scanned.
 func TestRegionStacksAreScannedOnce(t *testing.T) {
 	t.Parallel()
-	run := configsOf(ratelimit.New(0))
+	run := configsOf(runstate.New(ratelimit.New(0)))
 	var calls atomic.Int32
 	config := aws.Config{
 		Region:      "us-east-1",
@@ -441,7 +442,7 @@ func TestRegionStacksAreScannedOnce(t *testing.T) {
 		t.Errorf("other credentials reused another's scan: %d ListStacks calls, want 3", calls.Load())
 	}
 
-	if _, err := configsOf(ratelimit.New(0)).regionStacks(t.Context(), config, "eu-west-1"); err != nil {
+	if _, err := configsOf(runstate.New(ratelimit.New(0))).regionStacks(t.Context(), config, "eu-west-1"); err != nil {
 		t.Fatal(err)
 	}
 	if calls.Load() != 4 {
