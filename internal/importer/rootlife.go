@@ -140,7 +140,7 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	if set && !options.Regenerate && !options.Resume {
 		return d.refused(fmt.Errorf("%s was merged into the root its stack's environments share, which may be in use: pass --regenerate to generate both again, or --incremental to add what is new", dir)), nil
 	}
-	return d.generated(out, dir, files, options.Resume, options.Regenerate || options.Incremental), nil
+	return d.generated(out, dir, files, options.Resume, options.Roots() != RootsFresh), nil
 }
 
 // generated returns d, deciding how the root in dir, under out, whose

@@ -28,29 +28,6 @@ import (
 // --selection says otherwise.
 const DefaultSelectionFile = "selection.yaml"
 
-// checkSelectionOptions makes an import say what to import: a selection
-// file, --all, or the CloudFormation stacks to take over (AWS --cfn-stack).
-// An import without any could bring a whole account under Terraform by
-// accident. It also refuses --regenerate with
-// --incremental: one generates the roots again, the other only adds to
-// them.
-func checkSelectionOptions(options Options) error {
-	switch {
-	case options.Regenerate && options.Incremental:
-		return errors.New("use either --regenerate or --incremental")
-	case options.Discover:
-		if options.All {
-			return errors.New("discover lists everything; --all is for import")
-		}
-		return nil
-	case options.Selection != "" && options.All:
-		return errors.New("use either --selection or --all")
-	case options.Selection == "" && !options.All && !options.stackScoped():
-		return selection.ErrNoSelection
-	}
-	return nil
-}
-
 // defaultSelection returns the default selection of what the call listed
 // (see selection.NewSources), with what provider finds, if it has
 // defaults of its own (see harvest.ProviderWithSelectionDefaults). With
@@ -364,7 +341,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	// only where no merge checkpoint keeps those roots: the import adds to
 	// the kept ones otherwise, which have it.
 	var mergedOwn map[string]mergedState
-	if (options.Regenerate || options.Resume || options.Incremental) && options.Out != "" {
+	if options.readsEarlierRoots() && options.Out != "" {
 		if mergedOwn, err = mergedOwnStates(run.outputIndex(options.Out), !options.Regenerate && !options.Resume); err != nil {
 			return err
 		}

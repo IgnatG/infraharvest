@@ -108,7 +108,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var childFailures []error
 	resources.byService, resources.parents, childFailures = withChildImports(ctx, provider, listed.selected, childParallel(provider, options))
 	var here *listedHere
-	if options.Incremental {
+	if options.Roots() == RootsIncremental {
 		var why string
 		if here, why = listedInScope(provider, c, layout.pattern, listed.listed, listed.listFailures, resources.byService); here == nil {
 			log.Printf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
@@ -122,7 +122,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
 	recorder := callRecorder{run: run, scope: c.scope, here: here}
-	if options.Incremental {
+	if options.Roots() == RootsIncremental {
 		// What an earlier import put in another root stays there.
 		held, err := run.outputIndex(options.Out).heldElsewhere(placed.byDir)
 		if err != nil {

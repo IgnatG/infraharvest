@@ -100,7 +100,7 @@ func markMerging(options Options, calls []*listedCall) error {
 			byStack[p.stack] = append(byStack[p.stack], mergeMember{dir: dir, stack: p.stack, env: p.env})
 		}
 	}
-	adopted := options.Incremental || options.Resume || options.Regenerate
+	adopted := options.readsEarlierRoots()
 	for _, stack := range slices.Sorted(maps.Keys(byStack)) {
 		members := byStack[stack]
 		envs := map[string]bool{}

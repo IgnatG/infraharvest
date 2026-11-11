@@ -242,7 +242,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 	if err := checkImportOptions(options); err != nil {
 		return err
 	}
-	if err := checkSelectionOptions(options); err != nil {
+	if err := checkModes(options); err != nil {
 		return err
 	}
 	// An overlay can add services, such as an AWS cloud_control entry of
