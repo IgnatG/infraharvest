@@ -212,7 +212,7 @@ func TestDriftAllowedOfTheProvidersPassed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed := newDriftAllowed(Providers{Profiles: []harvest.Profile{aws}, Sources: compiled.Sources, Check: compiled.Check})
+	allowed := newDriftAllowed(Providers{Profiles: []harvest.Profile{aws}, Sources: compiled.Sources, Settings: compiled.Settings, Check: compiled.Check})
 	if want := map[string]bool{"hashicorp/aws": true}; !maps.Equal(allowed.sources, want) {
 		t.Errorf("sources %v, want %v", allowed.sources, want)
 	}
@@ -478,9 +478,9 @@ provider "aws" {
 // configures it with, and the provider blocks and backends infraharvest
 // writes pass the check.
 func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
-	sources := newDriftAllowed(compiled).sources
-	for source := range sources {
-		if providerSettings[source] == nil {
+	allowed := newDriftAllowed(compiled)
+	for source := range allowed.sources {
+		if allowed.providers[source] == nil {
 			t.Errorf("no settings for %s", source)
 		}
 	}
@@ -506,7 +506,7 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 			source = "hashicorp/" + p.Name
 		}
 		checkGenerated(t, content, "provider", []string{"name"}, func(body hcl.Body) error {
-			return checkSettings(body, providerSettings[providerAddress(source)], "the provider "+p.Name)
+			return checkSettings(body, allowed.providers[providerAddress(source)], "the provider "+p.Name)
 		})
 	}
 	// The backend of each cloud whose provider is built in.

@@ -31,7 +31,16 @@ const DefaultAssumeRole = "arn:aws:iam::{account}:role/infraharvest-readonly"
 
 func init() {
 	define(definition{
-		name:        "aws",
+		name: "aws",
+		settings: map[string]harvest.BlockSettings{
+			"hashicorp/aws": {
+				Arguments: []string{"alias", "allowed_account_ids", "region"},
+				Blocks: map[string]harvest.BlockSettings{
+					"assume_role":  {Arguments: []string{"external_id", "role_arn", "session_name"}},
+					"default_tags": {Arguments: []string{"tags"}},
+				},
+			},
+		},
 		newProvider: newAWSProvider,
 		stores:      func(s *managed.Stores) { s.S3 = s3store.New },
 		short:       "Generate Terraform configuration for the resources of AWS accounts",

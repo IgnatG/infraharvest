@@ -366,34 +366,12 @@ func checkSources(options Options) error {
 	return nil
 }
 
-// ExitError is an error that sets the process's exit code (see the Exit
-// codes of package report).
-type ExitError struct {
-	Code int
-	Err  error
-}
+// ExitError is report.ExitError, kept here for the callers that know it
+// from the importer.
+type ExitError = report.ExitError
 
-func (e *ExitError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *ExitError) Unwrap() error {
-	return e.Err
-}
-
-// ExitCode returns the exit code for err: report.ExitOK for nil, the code
-// of an ExitError it wraps, and report.ExitCouldNotRun for any other
-// error.
-func ExitCode(err error) int {
-	if err == nil {
-		return report.ExitOK
-	}
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.Code
-	}
-	return report.ExitCouldNotRun
-}
+// ExitCode is report.ExitCode.
+func ExitCode(err error) int { return report.ExitCode(err) }
 
 // checkFailures returns the error for an import in which failures, of
 // services or resources, happened: nil if none did, else an error that

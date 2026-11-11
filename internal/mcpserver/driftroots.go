@@ -21,6 +21,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
+	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
 // driftAllowed is what the drift tools run Terraform with: the providers
@@ -37,12 +38,25 @@ type driftAllowed struct {
 	// providers' clouds with (see harvest.Profile.Backend), in their
 	// blocks and in an environment's backend settings, by type.
 	backends map[string]*settings
+	// providers are what infraharvest configures each provider of sources
+	// with, by source address as sources has it (see Providers.Settings):
+	// the providers' own blocks (each provider's ProviderBlock, written
+	// without credentials by the engine's ProvidersFile, and in a root
+	// environments share with the region and what differs as variables),
+	// those of the providers curated modules use (ModuleProviders), and
+	// the second configuration of a provider, with an alias, for the
+	// resources without its default tags. A custom Azure cloud's endpoints
+	// for azapi aren't among them: they would send the requests elsewhere.
+	providers map[string]*settings
 }
 
 // newDriftAllowed returns what the drift tools run Terraform with, of
 // the providers compiled.
 func newDriftAllowed(compiled Providers) driftAllowed {
-	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}, backends: map[string]*settings{}}
+	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}, backends: map[string]*settings{}, providers: map[string]*settings{}}
+	for source, b := range compiled.Settings {
+		a.providers[providerAddress(source)] = settingsOf(b)
+	}
 	for _, profile := range compiled.Profiles {
 		if b := profile.Backend; b != nil {
 			a.backends[b.Type] = &settings{arguments: b.Settings}
@@ -366,7 +380,7 @@ func checkModuleDir(out, dir string, files, backendConfigs []*hcl.File, allowed 
 			sources = []string{"hashicorp/" + b.Labels[0]}
 		}
 		for _, source := range sources {
-			if err := checkSettings(b.Body, providerSettings[providerAddress(source)], "the provider "+b.Labels[0]); err != nil {
+			if err := checkSettings(b.Body, allowed.providers[providerAddress(source)], "the provider "+b.Labels[0]); err != nil {
 				return nil, err
 			}
 		}
@@ -406,27 +420,16 @@ type settings struct {
 	blocks    map[string]*settings
 }
 
-// providerSettings are what infraharvest configures each provider of
-// driftAllowed with, by source address as driftAllowed has it: the
-// providers' own blocks (each provider's ProviderBlock, written without
-// credentials by the engine's ProvidersFile, and in a root environments
-// share with the region and what differs as variables), those of the
-// providers curated modules use (ModuleProviders), and the second
-// configuration of a provider, with an alias, for the resources without
-// its default tags. A custom Azure cloud's endpoints for azapi aren't
-// among them: they would send the requests elsewhere.
-var providerSettings = map[string]*settings{
-	"hashicorp/aws": {
-		arguments: []string{"alias", "allowed_account_ids", "region"},
-		blocks: map[string]*settings{
-			"assume_role":  {arguments: []string{"external_id", "role_arn", "session_name"}},
-			"default_tags": {arguments: []string{"tags"}},
-		},
-	},
-	"hashicorp/azurerm":     {arguments: []string{"alias", "subscription_id"}, blocks: map[string]*settings{"features": {}}},
-	"azure/azapi":           {arguments: []string{"alias", "subscription_id"}},
-	"hashicorp/google":      {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
-	"hashicorp/google-beta": {arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
+// settingsOf returns b as checkSettings takes it.
+func settingsOf(b harvest.BlockSettings) *settings {
+	s := &settings{arguments: b.Arguments}
+	if len(b.Blocks) > 0 {
+		s.blocks = make(map[string]*settings, len(b.Blocks))
+		for name, nested := range b.Blocks {
+			s.blocks[name] = settingsOf(nested)
+		}
+	}
+	return s
 }
 
 // checkSettings refuses body, the body of what, a provider or backend
