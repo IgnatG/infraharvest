@@ -44,6 +44,9 @@ type Provider struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
+	// externalID and sessionName are what the role is assumed with, ""
+	// for none (see AssumeRole).
+	externalID, sessionName string
 	// account and resolvedRegion are the account the import covers and,
 	// for ProfileRegion, the region the SDK resolved, once Scope has found
 	// them; the provider block pins both.
@@ -70,7 +73,9 @@ type Provider struct {
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]), and the run from ctx. It contacts
+// a role to assume (args[2]), with the external ID (args[3]) and the
+// session name (args[4]) to assume it with (see AssumeRole.Args), and the
+// run from ctx. It contacts
 // nothing, so it never fails: the credentials are resolved when the first
 // service lists.
 func (p *Provider) Init(ctx context.Context, args []string) error {
@@ -84,6 +89,8 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	p.region = arg(0)
 	p.profile = arg(1)
 	p.roleARN = arg(2)
+	p.externalID = arg(3)
+	p.sessionName = arg(4)
 	return nil
 }
 
@@ -202,7 +209,7 @@ func describeScope(flags map[string][]string) string {
 // resolved; the account the import covers, as the only one of
 // allowed_account_ids, so that a later plan with other credentials fails
 // rather than reading another account's resources; and the role to assume,
-// if any. The account and the resolved region are known once Scope has run,
+// if any, with its external ID and session name, if set. The account and the resolved region are known once Scope has run,
 // as it does before the configuration is generated; before that, they are
 // left out, and for ProfileRegion Terraform resolves the same default
 // region as the listing did.
@@ -222,7 +229,14 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 		config["allowed_account_ids"] = []string{p.account}
 	}
 	if p.roleARN != "" {
-		config["assume_role"] = map[string]interface{}{"role_arn": p.roleARN}
+		role := map[string]interface{}{"role_arn": p.roleARN}
+		if p.externalID != "" {
+			role["external_id"] = p.externalID
+		}
+		if p.sessionName != "" {
+			role["session_name"] = p.sessionName
+		}
+		config["assume_role"] = role
 	}
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -289,7 +303,7 @@ func (p *Provider) Lister(name string) (harvest.Lister, error) {
 // region, the profile and the role, which pick its SDK configuration (see
 // Service.sdkConfig).
 func (p *Provider) settings() serviceSettings {
-	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}
+	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN, externalID: p.externalID, sessionName: p.sessionName}
 }
 
 // service returns a Service of the provider's settings, for the provider's

@@ -90,7 +90,7 @@ func cdkStacksAPI(t *testing.T) func(apiCall) string {
 func TestCDKCustomResources(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, cdkStacksAPI(t))
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"cdk"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"cdk"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestCDKCustomResources(t *testing.T) {
 func TestAcknowledge(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, cdkStacksAPI(t))
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"cdk", "other"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"cdk", "other"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}

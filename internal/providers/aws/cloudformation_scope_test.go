@@ -123,7 +123,7 @@ func scopeStacksAPI(t *testing.T) func(apiCall) string {
 func resolveScope(t *testing.T) *StackScope {
 	t.Helper()
 	ctx := useFakeAPI(t, scopeStacksAPI(t))
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app", scopeOldStack, scopeAppStack}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"app", scopeOldStack, scopeAppStack}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestResolveStacksNotFound(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, scopeStacksAPI(t))
 
-	_, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"gone"}, awsCatalogue())
+	_, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"gone"}, awsCatalogue())
 
 	if err == nil || !strings.Contains(err.Error(), "--cfn-stack gone: no such stack") || !strings.Contains(err.Error(), "by its stack ID") {
 		t.Errorf("got %v", err)
@@ -236,7 +236,7 @@ func TestResolveStacksWarns(t *testing.T) {
 		return recordUnexpected(t, call)
 	})
 
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"awseb-e-abc-stack"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"awseb-e-abc-stack"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}

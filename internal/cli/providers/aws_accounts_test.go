@@ -301,3 +301,39 @@ func TestAWSManagedStateSource(t *testing.T) {
 		}
 	}
 }
+
+// --external-id and --role-session-name come from the configuration file
+// too, reach every account's call, and are checked before anything runs.
+func TestAWSRoleSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "infraharvest.yaml")
+	if err := os.WriteFile(path, []byte("version: 1\nproviders:\n  aws:\n    external-id: ext-1\n    role-session-name: ci-42\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := config.Load(path, Profiles())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd, _ := Command("aws", importer.Options{})
+	if err := f.Apply(cmd.PersistentFlags(), "aws"); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"external-id": "ext-1", "role-session-name": "ci-42"} {
+		if got, _ := cmd.PersistentFlags().GetString(name); got != want {
+			t.Errorf("--%s %q, want %q", name, got, want)
+		}
+	}
+
+	scope := &awsScope{accounts: []string{"111122223333"}, assumeRole: DefaultAssumeRole, externalID: "ext-1", sessionName: "ci-42"}
+	p, err := scope.plan(context.Background(), importer.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := p.calls(importer.Options{}, "111122223333")[0].args
+	if want := []string{"profile", "", "arn:aws:iam::111122223333:role/infraharvest-readonly", "ext-1", "ci-42"}; !slices.Equal(args[2:], want[2:]) {
+		t.Errorf("args %q, want the role with %q", args, want[2:])
+	}
+
+	if err := (&awsScope{assumeRole: DefaultAssumeRole, sessionName: "has space"}).check(importer.Options{}); err == nil || !strings.Contains(err.Error(), "--role-session-name") {
+		t.Errorf("a bad session name: %v", err)
+	}
+}

@@ -419,7 +419,7 @@ var providerSettings = map[string]*settings{
 	"hashicorp/aws": {
 		arguments: []string{"alias", "allowed_account_ids", "region"},
 		blocks: map[string]*settings{
-			"assume_role":  {arguments: []string{"role_arn"}},
+			"assume_role":  {arguments: []string{"external_id", "role_arn", "session_name"}},
 			"default_tags": {arguments: []string{"tags"}},
 		},
 	},

@@ -76,6 +76,7 @@ infraharvest discover aws
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
+| `--external-id` |  | external ID to assume each role with, as a role's trust policy may require (sts:ExternalId); the generated roots' provider blocks assume the role with it too |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -101,6 +102,7 @@ infraharvest discover aws
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
+| `--role-session-name` |  | session name to assume each role with, as CloudTrail shows it (default "infraharvest" for the listing, and Terraform's own for the generated roots' plans) |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as vpc,s3, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as vpc,s3 |
@@ -299,6 +301,7 @@ infraharvest import aws
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
+| `--external-id` |  | external ID to assume each role with, as a role's trust policy may require (sts:ExternalId); the generated roots' provider blocks assume the role with it too |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it) |
 | `--id` |  | keep only the resources of a type with these IDs, as <type>=<id>[,<id>...] such as vpc=vpc-0a1b2c3d; repeat for other types (see https://ignatg.github.io/infraharvest/usage/#filtering) |
@@ -323,6 +326,7 @@ infraharvest import aws
 | `--resource-explorer` |  | don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see https://ignatg.github.io/infraharvest/aws/#resource-explorer) |
 | `--resume` |  | skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way |
 | `--reuse-inventory` |  | import from the resources infraharvest discover listed into the same --out, instead of listing them again |
+| `--role-session-name` |  | session name to assume each role with, as CloudTrail shows it (default "infraharvest" for the listing, and Terraform's own for the generated roots' plans) |
 | `--selection` |  | selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml) |
 | `-s`, `--services` |  | services to import, such as vpc,s3, or "*" for all (infraharvest services <provider> lists them) |
 | `--skip` |  | services to leave out of --services, such as vpc,s3 |

@@ -39,6 +39,8 @@ Each account goes into roots of its own, so a custom `--layout` must contain `{a
 
 Without `--accounts` or `--organization`, an `--assume-role` ARN without `{account}` is assumed as it is, for the one account it names.
 
+A role that a third party assumes often requires an external ID in its trust policy (`sts:ExternalId`). `--external-id` assumes every role with it, and the generated provider blocks' `assume_role` set it as `external_id`, so that their plans can assume the role too; an external ID is an identifier, not a secret. `--role-session-name` names the sessions, as CloudTrail shows them and as a trust policy's `sts:RoleSessionName` condition may require: by default the listing's are `infraharvest`, and the roots' plans use Terraform's own, unless the flag is set, when `session_name` is set in the provider blocks as well. Both apply to the roles environments name with `assume_role` too, and both can be set under `providers: aws:` in the configuration file, as `external-id` and `role-session-name`.
+
 ## Resource Explorer
 
 Listing every service in every region makes many calls, most of them for services a region doesn't use. `--resource-explorer` asks [AWS Resource Explorer](https://docs.aws.amazon.com/resource-explorer/latest/userguide/welcome.html) first, and skips a service in a region when the index has none of the service's resource types there. It is off by default, because the index can take hours to find new resources, and one it hasn't found yet would be left out.
