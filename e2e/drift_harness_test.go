@@ -217,7 +217,7 @@ func checkPlanClean(t *testing.T, what string, plan *tfjson.Plan) {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change.Actions.NoOp() {
 			continue
 		}
-		changed := changedAttributes(rc.Change.Before, rc.Change.After)
+		changed := changedAttributes(rc.Change)
 		if !rc.Change.Actions.Update() || !stateOnly(rc.Type, changed) {
 			t.Errorf("%s: %s is planned to %v: %v", what, rc.Address, rc.Change.Actions, changed)
 		}

@@ -33,7 +33,8 @@ const driftProfile = "infraharvest-e2e-drift"
 //
 //   - Report only: a queue's tag and retention are kept, with
 //     --detailed-exitcode exiting 4, and the code isn't changed.
-//   - --accept and --keep: the last rule that matches a change decides it.
+//   - --accept and --keep: the last rule that matches a change decides it,
+//     and so does it for the same rules in a --rules file.
 //   - The decisions file: --write-decisions writes the retention's entry,
 //     undecided; set to accept, it is kept and marked decision_stale once
 //     the retention changes again, and, set to accept again, written.
@@ -134,6 +135,17 @@ func TestAWSDrift(t *testing.T) {
 	checkDriftChange(t, "--accept then --keep", driftChange(t, "--accept then --keep", d, "aws_sqs_queue", "tags.team"), "web", "ops", report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
 	checkDriftChange(t, "--accept then --keep", driftChange(t, "--accept then --keep", d, "aws_sqs_queue", "message_retention_seconds"), "86400", "172800", report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
 	checkCodeUnchanged(t, "--accept then --keep", code, out)
+	// The same rules from a file, with a comment and a blank line, and a
+	// rule alone, which is accepted, then keep: the last that matches
+	// decides, as with the flags.
+	rules := filepath.Join(t.TempDir(), "drift.rules")
+	if err := os.WriteFile(rules, []byte("# the team tag, then every queue\nattribute=tags.team\n\nkeep type=aws_sqs_queue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d = drift.mustExit(t, report.ExitOK, "--rules", rules)
+	checkDriftChange(t, "--rules", driftChange(t, "--rules", d, "aws_sqs_queue", "tags.team"), "web", "ops", report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
+	checkDriftChange(t, "--rules", driftChange(t, "--rules", d, "aws_sqs_queue", "message_retention_seconds"), "86400", "172800", report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
+	checkCodeUnchanged(t, "--rules", code, out)
 	d = drift.mustExit(t, report.ExitOK, "--keep", "all", "--accept", "attribute=tags.team")
 	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, "aws_sqs_queue", "tags.team"), "web", "ops", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
 	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, "aws_sqs_queue", "message_retention_seconds"), "86400", "172800", report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
