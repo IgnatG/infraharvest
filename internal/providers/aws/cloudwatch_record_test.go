@@ -97,6 +97,8 @@ func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 			map[string]string{"rule": "nightly", "target_id": "report"}},
 		recordedResource{"aws_cloudwatch_event_target", "nightly/audit", "nightly/audit",
 			map[string]string{"rule": "nightly", "target_id": "audit"}},
+		recordedResource{"aws_cloudwatch_event_rule", "StepFunctionsGetEventsForStepFunctionsExecutionRule", "StepFunctionsGetEventsForStepFunctionsExecutionRule",
+			map[string]string{"managed_by": "states.amazonaws.com"}},
 		recordedResource{"aws_cloudwatch_event_rule", "on-upload", "on-upload", nil},
 	)
 }

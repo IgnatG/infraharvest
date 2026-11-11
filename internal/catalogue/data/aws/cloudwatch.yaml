@@ -9,6 +9,9 @@ types:
     omit: [is_enabled]
     # What AWS gives a rule that doesn't set them.
     defaults: [event_bus_name=default, state=ENABLED]
+    skip:
+      - reason: a rule another AWS service manages, which only that service can change
+        attributes_present: [managed_by]
   aws_cloudwatch_metric_alarm:
     cloudformation_types: ["AWS::CloudWatch::Alarm"]
     arn: { service: cloudwatch, resource_type: "alarm" }

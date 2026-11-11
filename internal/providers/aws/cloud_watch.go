@@ -83,8 +83,9 @@ func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
 
 // createRules records the rules of the default event bus by name, each
 // followed by its targets. A rule that another AWS service manages (it has
-// ManagedBy set) is left out with its targets: that service owns it, and
-// it cannot be changed through Terraform. The API has no SDK paginator, so
+// ManagedBy set) is recorded with managed_by, which the catalogue skips,
+// with its reason, as that service owns it and it can't be changed through
+// Terraform; its targets aren't asked for. The API has no SDK paginator, so
 // pages are walked by NextToken. A rule whose targets can't be read keeps
 // those read, and the failure goes to parts.
 func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *harvest.Parts) error {
@@ -94,10 +95,11 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *h
 			return nil, err
 		}
 		for _, rule := range page.Rules {
+			name := aws.ToString(rule.Name)
 			if rule.ManagedBy != nil {
+				g.Resources = append(g.Resources, harvest.Record(name, name, "aws_cloudwatch_event_rule", "aws", map[string]string{"managed_by": aws.ToString(rule.ManagedBy)}))
 				continue
 			}
-			name := aws.ToString(rule.Name)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudwatch_event_rule", "aws"))
 			// A call per rule, for targets the import may not keep.
 			if !g.Wants("aws_cloudwatch_event_target") {

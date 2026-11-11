@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -64,9 +63,9 @@ func (g *RedshiftLister) listClusters(client *redshift.Client) error {
 	return nil
 }
 
-// listParameterGroups records every parameter group by name, but the
-// default ones AWS provides, whose names ("default.redshift-1.0") are the
-// only ones that may hold a dot.
+// listParameterGroups records every parameter group by name, the default
+// ones AWS provides ("default.redshift-1.0") included: the catalogue skips
+// them, with their reason.
 func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
 	p := redshift.NewDescribeClusterParameterGroupsPaginator(client, &redshift.DescribeClusterParameterGroupsInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
@@ -76,9 +75,6 @@ func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
 		}
 		for _, group := range page.ParameterGroups {
 			name := aws.ToString(group.ParameterGroupName)
-			if strings.Contains(name, ".") {
-				continue
-			}
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_redshift_parameter_group", "aws"))
 		}
 	}

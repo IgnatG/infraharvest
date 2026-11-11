@@ -331,7 +331,7 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 
 // The target lister used to page with the rule list's token, which looped
 // forever once there was more than one page of rules. Rules a service
-// manages are left out, with their targets.
+// manages are recorded, for the catalogue to skip, without their targets.
 func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 	t.Parallel()
 	calls := 0
@@ -366,7 +366,7 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule", "rule-1", "rule-2")
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule", "rule-1", "managed-rule-1", "rule-2", "managed-rule-2")
 	assertIDs(t, g.Resources, "aws_cloudwatch_event_target", "rule-1/target-1", "rule-1/target-2", "rule-2/target-1", "rule-2/target-2")
 }
 
