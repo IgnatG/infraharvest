@@ -248,6 +248,10 @@ func (w *rootWriter) resourceFiles() (map[string][]byte, error) {
 
 // resourceText writes a resource block of type typ and label, with meta,
 // its meta-arguments, and body.
+//
+// The merged root is rendered as text and parsed back, unlike the rest of
+// the engine, which edits an hclwrite tree. It works and is tested, so it
+// stays. New rendering code, here and elsewhere, uses hclwrite.
 func resourceText(typ, label string, meta []string, body *mergedBody) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "resource %q %q {\n", typ, label)
