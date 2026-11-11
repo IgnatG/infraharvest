@@ -29,9 +29,14 @@ import (
 // version, the engine, the imports, the files written besides them, the
 // options that change the output, and policies, the digest of the --policy
 // directories the gate checks the root against (see policyDigest), which
-// change the gate's result kept with the root.
-func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Options, policies string) (string, error) {
-	content, err := fingerprintContent(engineVersion, imports, opts, policies)
+// change the gate's result kept with the root. others, if set, stands for
+// opts.External and opts.OtherRoots, which are then left out: it is what
+// otherRoots.of returns with the options it makes, a digest of what every
+// root of the call manages and which root this one is, from which those
+// two follow, hashed once for all the call's roots rather than encoded
+// for each.
+func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Options, others, policies string) (string, error) {
+	content, err := fingerprintContent(engineVersion, imports, opts, others, policies)
 	if err != nil {
 		return "", err
 	}
@@ -40,7 +45,10 @@ func fingerprint(engineVersion string, imports []rootfile.Import, opts engine.Op
 }
 
 // fingerprintContent returns what fingerprint hashes.
-func fingerprintContent(engineVersion string, imports []rootfile.Import, opts engine.Options, policies string) ([]byte, error) {
+func fingerprintContent(engineVersion string, imports []rootfile.Import, opts engine.Options, others, policies string) ([]byte, error) {
+	if others != "" {
+		opts.External, opts.OtherRoots = nil, nil
+	}
 	// Imports come in listing order, which varies between runs.
 	imports = append([]rootfile.Import(nil), imports...)
 	sort.Slice(imports, func(i, j int) bool {
@@ -82,7 +90,11 @@ func fingerprintContent(engineVersion string, imports []rootfile.Import, opts en
 		// Policies is the digest of the --policy directories; empty, it
 		// leaves the fingerprint of a root without them as it was.
 		Policies string `json:",omitempty"`
-	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey, opts.Scope, policies})
+		// Others stands for External and OtherRoots (see fingerprint);
+		// empty, it leaves the fingerprint of a root of a call of one root
+		// as it was.
+		Others string `json:",omitempty"`
+	}{version.Version, engineVersion, imports, opts.Config, opts.Omit, opts.Defaults, opts.StateOnly, opts.KeepEmpty, opts.DefaultTags, opts.EffectiveTags, opts.Inherited, opts.ModulesDir != "", adapters, opts.External, opts.DataSources, opts.Placeholders, opts.Lifecycles, opts.IncludeOwned, opts.KeepOwned, opts.OtherRoots, opts.ARNs, opts.RefineKey, opts.Scope, policies, others})
 }
 
 // policyDigest returns a digest of the files in dirs, the --policy

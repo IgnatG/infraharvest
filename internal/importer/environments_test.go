@@ -101,7 +101,7 @@ func TestOtherRoots(t *testing.T) {
 			"aws_sqs_queue": {Type: "aws_sqs_queue", Argument: "name"},
 		},
 	}
-	dirOpts := newOtherRoots(opts, byDir, "").of("envs/prod")
+	dirOpts, _ := newOtherRoots(opts, byDir, "").of("envs/prod")
 	want := []engine.External{{Type: "aws_s3_bucket", ID: "logs-staging"}, {Type: "aws_sqs_queue", ID: "https://sqs/jobs"}, {Type: "aws_vpc", ID: "vpc-1"}}
 	if got := dirOpts.External; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
@@ -118,7 +118,7 @@ func TestOtherRoots(t *testing.T) {
 	if len(opts.External) != 1 {
 		t.Error("opts changed")
 	}
-	if one := newOtherRoots(opts, map[string][]rootfile.Import{"a": nil}, "").of("a"); len(one.External) != 1 {
+	if one, _ := newOtherRoots(opts, map[string][]rootfile.Import{"a": nil}, "").of("a"); len(one.External) != 1 {
 		t.Errorf("one root: %v", one.External)
 	}
 }
