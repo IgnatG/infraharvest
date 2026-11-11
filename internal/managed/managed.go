@@ -71,12 +71,6 @@ type Resource struct {
 	Where, Type, Address, ID string
 }
 
-// Lookup returns where the state of a resource of typ with any of ids is.
-func (r Resources) Lookup(typ string, ids ...string) (string, bool) {
-	res, ok := r.Find(typ, ids...)
-	return res.Where, ok
-}
-
 // Find returns the managed resource of typ with any of ids.
 func (r Resources) Find(typ string, ids ...string) (Resource, bool) {
 	for _, id := range ids {
