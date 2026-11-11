@@ -4,7 +4,10 @@
 package aws
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -111,5 +114,35 @@ func TestSDKConfigAssumesWithExternalID(t *testing.T) {
 	want := []string{"|infraharvest", "ext-1|ci-42"}
 	if !slices.Equal(asked, want) {
 		t.Errorf("AssumeRole asked with %q, want %q (the second region shares the credentials)", asked, want)
+	}
+}
+
+// TestInitLogsIgnoredRoleSettings checks that an external ID or a session
+// name without a role to assume is logged as ignored, and that one with a
+// role is not.
+func TestInitLogsIgnoredRoleSettings(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"external ID without a role", []string{"eu-west-1", "", "", "id-1"}, true},
+		{"session name without a role", []string{"eu-west-1", "", "", "", "ci"}, true},
+		{"with a role", []string{"eu-west-1", "", "arn:aws:iam::123456789012:role/r", "id-1", "ci"}, false},
+		{"neither", []string{"eu-west-1"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			prev, flags := log.Writer(), log.Flags()
+			log.SetOutput(&buf)
+			log.SetFlags(0)
+			t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
+			if err := new(Provider).Init(context.Background(), tt.args); err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(buf.String(), "ignored"); got != tt.want {
+				t.Errorf("logged %q, want a warning: %v", buf.String(), tt.want)
+			}
+		})
 	}
 }

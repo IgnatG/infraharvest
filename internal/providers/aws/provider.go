@@ -5,6 +5,7 @@ package aws
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"strings"
 
@@ -75,9 +76,9 @@ type Provider struct {
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
 // a role to assume (args[2]), with the external ID (args[3]) and the
 // session name (args[4]) to assume it with (see AssumeRole.Args), and the
-// run from ctx. It contacts
-// nothing, so it never fails: the credentials are resolved when the first
-// service lists.
+// run from ctx. It contacts nothing, so it never fails: the credentials
+// are resolved when the first service lists. An external ID or a session
+// name without a role is logged as ignored.
 func (p *Provider) Init(ctx context.Context, args []string) error {
 	p.run = runstate.FromContext(ctx)
 	arg := func(i int) string {
@@ -91,6 +92,11 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	p.roleARN = arg(2)
 	p.externalID = arg(3)
 	p.sessionName = arg(4)
+	if p.roleARN == "" && (p.externalID != "" || p.sessionName != "") {
+		// Only a role is assumed with them: say so, rather than read the
+		// account the credentials reach as if they applied.
+		log.Printf("aws: --external-id and --role-session-name apply to an assumed role, and this call assumes none (region %q): they are ignored", p.region)
+	}
 	return nil
 }
 
