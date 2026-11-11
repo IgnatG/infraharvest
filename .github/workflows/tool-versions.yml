@@ -1,0 +1,66 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+name: Tool versions
+
+# Once a week, lists the tool versions that no updater tracks and that a
+# newer release has passed (.github/scripts/tool-versions.sh): GoReleaser,
+# conftest, TFLint, Trivy, golangci-lint, the MegaLinter image, govulncheck,
+# benchstat, markdownlint-cli2 and the Go toolchain line of go.mod. It
+# opens an issue with the list, updates it while the list changes, and
+# closes it when nothing is behind. Bump a tool by hand, in one pull
+# request, with its checksum where it has one.
+on:
+  schedule:
+  - cron: "29 6 * * 3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: List the tools behind, and open, update or close the issue
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        rows=$(.github/scripts/tool-versions.sh)
+        printf '%s\n' "$rows"
+        title="Tool versions behind"
+        gh label create tool-versions --color 0E8A16 \
+          --description "Pinned tool versions no updater tracks" > /dev/null 2>&1 || true
+        number=$(gh issue list --label tool-versions --state open --limit 100 --json number,title |
+          jq -r --arg title "$title" '[.[] | select(.title == $title) | .number] | first // empty')
+        if [ -z "$rows" ]; then
+          if [ -n "$number" ]; then
+            gh issue close "$number" --comment "Every tool is current in $RUN_URL."
+          fi
+          exit 0
+        fi
+        body=$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+          "These pinned tools have a newer release (found by $RUN_URL):" \
+          "| Tool | Pinned | Latest | Where |" \
+          "| --- | --- | --- | --- |" \
+          "$rows" \
+          "Read each release's notes, bump the pin and its checksum where it has one, and let the checks run. This issue closes when a later run finds nothing behind.")
+        if [ -n "$number" ]; then
+          gh issue edit "$number" --body "$body" > /dev/null
+        else
+          gh issue create --title "$title" --label tool-versions --body "$body"
+        fi
