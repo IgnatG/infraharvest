@@ -6,7 +6,9 @@ name: Release
 # Publishes a release from main with GoReleaser (see .goreleaser.yaml):
 #   gh workflow run release.yml --ref main -f version=v0.1.0
 #
-# The tests run in a job of their own, with a read-only token: no test or
+# The checks job first checks that the commit passed the tests, lint and
+# sandbox runs a release depends on (release-gate.sh). The tests run in a
+# job of their own, with a read-only token: no test or
 # dependency code runs where the token can write the repository or packages
 # or mint the OIDC token cosign signs with. GoReleaser publishes a draft
 # release; the release job makes it public only once the provenance is
@@ -24,6 +26,10 @@ on:
         description: Release tag (e.g. v0.1.0 or v0.1.0-rc.1)
         type: string
         required: true
+      unchecked:
+        description: Release without checking what the release commit passed (see the checks job); say why in the release notes
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,7 +40,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The release commit, or the pull request it merged, must have passed
+  # Tests (the race and e2e jobs among them) and MegaLinter, and the
+  # sandbox round trips must have passed on the commit itself
+  # (.github/scripts/release-gate.sh). The unchecked input skips this, for
+  # a release that can't wait, such as a security fix while a sandbox
+  # account is down.
+  checks:
+    if: ${{ !inputs.unchecked }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read        # the workflow runs of the commit
+      contents: read
+      pull-requests: read  # the pull request the commit merged
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check what the release commit passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: .github/scripts/release-gate.sh
+
   test:
+    needs: checks
+    # Runs once the checks passed, or were skipped with unchecked.
+    if: ${{ !cancelled() && (needs.checks.result == 'success' || needs.checks.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -68,6 +103,8 @@ jobs:
 
   release:
     needs: test
+    # Said outright: a skipped checks job would otherwise skip this one too.
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     # A reviewer of the release environment approves the release before it
     # runs, as one of the sandbox environment approves a sandbox run; the
