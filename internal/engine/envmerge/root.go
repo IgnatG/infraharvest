@@ -67,7 +67,7 @@ type rootWriter struct {
 // readsEnv matches a reference to var.env.
 var readsEnv = regexp.MustCompile(`\bvar\.` + envVariableName + `\b`)
 
-// mergedRootFiles returns the files of m's merged root, the one root
+// buildMergedRoot returns the files of m's merged root, the one root
 // that every environment plans and applies with its own var files, by
 // path with forward slashes: providers.tf, with the terraform block and its partial
 // backend; variables.tf; locals.tf and data.tf, where values read them;
@@ -78,13 +78,8 @@ var readsEnv = regexp.MustCompile(`\bvar\.` + envVariableName + `\b`)
 // root as they are: they use different providers or versions, set a
 // provider argument that differs and isn't a value, or a resource refers
 // to locals or data sources of the roots.
-func mergedRootFiles(m *stackMerge) (map[string][]byte, error) {
-	files, _, err := buildMergedRoot(m)
-	return files, err
-}
-
-// buildMergedRoot is mergedRootFiles, which also returns the writer that
-// wrote the files, which knows their variables.
+// It also returns the writer that wrote the files, which knows their
+// variables.
 func buildMergedRoot(m *stackMerge) (map[string][]byte, *rootWriter, error) {
 	if len(m.roots) == 0 || len(m.roots) != len(m.envs) {
 		return nil, nil, errors.New("no roots to merge")

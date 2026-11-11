@@ -49,7 +49,7 @@ type envRoot struct {
 	data *hclfile.File
 
 	// What the merged root's other files are written from (see
-	// mergedRootFiles): the root's provider, its configuration without
+	// buildMergedRoot): the root's provider, its configuration without
 	// credentials; its required_version; the tags its provider applies
 	// to every resource (default_tags), if any, and whether it applies
 	// them with an argument (default_labels); the file each resource

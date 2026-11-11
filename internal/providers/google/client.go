@@ -72,14 +72,9 @@ func limitedClient(ctx context.Context, impersonate string) *http.Client {
 	return limitedByKey(runstate.FromContext(ctx), impersonate, credentialsClient(ctx, impersonate))
 }
 
-// limitedBy returns base limited by run, made the first time the run asks
-// (see limitedClient), or nil for no base.
-func limitedBy(run *runstate.Run, base *http.Client) *http.Client {
-	return limitedByKey(run, "", base)
-}
-
-// limitedByKey is limitedBy for the credentials of the service account
-// impersonate, "" for none.
+// limitedByKey returns base limited by run, made the first time the run
+// asks (see limitedClient), for the credentials of the service account
+// impersonate, "" for none; nil for no base.
 func limitedByKey(run *runstate.Run, impersonate string, base *http.Client) *http.Client {
 	if base == nil {
 		return nil
