@@ -704,3 +704,19 @@ func TestSaveKeepsOrder(t *testing.T) {
 		t.Errorf("index points at %+v", r)
 	}
 }
+
+// mayInclude answers from the index of the types entries include, which a
+// Merge builds again.
+func TestMayIncludeFollowsMerge(t *testing.T) {
+	f := &File{Version: Version, Resources: []Resource{
+		{Type: "aws_s3_bucket", ID: "a", Include: true},
+		{Type: "aws_sqs_queue", ID: "q"},
+	}}
+	if !f.mayInclude("aws_s3_bucket") || f.mayInclude("aws_sqs_queue") || f.mayInclude("aws_iam_role") {
+		t.Fatal("mayInclude doesn't follow the entries")
+	}
+	f.Merge([]Resource{{Type: "aws_s3_bucket", ID: "a", Include: true}}, func(Resource) bool { return true })
+	if !f.mayInclude("aws_s3_bucket") || f.mayInclude("aws_sqs_queue") {
+		t.Error("mayInclude doesn't follow the entries Merge kept")
+	}
+}

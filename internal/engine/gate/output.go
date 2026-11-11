@@ -4,6 +4,7 @@
 package gate
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -16,11 +17,23 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
+// maxOutputFile is the largest file walkOutput reads. The checks that walk
+// the output read each file whole; a file larger than this, which no root
+// infraharvest generates comes near, fails the walk rather than being
+// skipped, as a check that skipped it would pass what it never read.
+const maxOutputFile = 512 << 20
+
 // walkOutput calls visit with each file Generate wrote into dir, by path
 // relative to dir, skipping Terraform's working files, and the local state
 // of a root applied without a backend (see tfrun.LocalStateFile), which no
-// check reads: it holds the secret values the configuration mustn't.
+// check reads: it holds the secret values the configuration mustn't. A
+// file larger than maxOutputFile fails it.
 func walkOutput(dir string, visit func(rel, content string)) error {
+	return walkOutputUpTo(dir, maxOutputFile, visit)
+}
+
+// walkOutputUpTo is walkOutput with files of up to limit bytes.
+func walkOutputUpTo(dir string, limit int64, visit func(rel, content string)) error {
 	return filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -33,6 +46,13 @@ func walkOutput(dir string, visit func(rel, content string)) error {
 		}
 		if d.Name() == tfrun.LockFileName || tfrun.LocalStateFile(d.Name()) {
 			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() > limit {
+			return fmt.Errorf("%s: %d bytes, more than the %d the checks read", path, info.Size(), limit)
 		}
 		content, err := os.ReadFile(path)
 		if err != nil {

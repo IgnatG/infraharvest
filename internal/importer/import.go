@@ -18,7 +18,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // Defaults of the flags every provider command shares.
@@ -341,17 +340,12 @@ func checkLayout(layout string, envTags []string) error {
 	return nil
 }
 
-// checkSources rejects the files and sources the import reads that can be
-// checked before anything is listed: a --selection file that doesn't load
-// (discover writes it instead), and a --managed-state source that doesn't
-// parse or, for a local path, doesn't exist. The state itself is read
-// once the resources are listed.
+// checkSources rejects the sources the import reads that can be checked
+// before anything is listed: a --managed-state source that doesn't parse
+// or, for a local path, doesn't exist. The state itself is read once the
+// resources are listed. The --selection file is checked as the run loads
+// it, once (see Run.Import).
 func checkSources(options Options) error {
-	if options.Selection != "" && !options.Discover {
-		if _, err := selection.Load(options.Selection); err != nil {
-			return fmt.Errorf("--selection: %w", err)
-		}
-	}
 	// The configured backend's state is resolved with the configuration
 	// file (see excludeManaged).
 	sources := make([]string, 0, len(options.ManagedState))
