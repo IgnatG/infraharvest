@@ -171,7 +171,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.6
 	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.6
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.1
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchevents v1.41.6
 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.2
 	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.6
 	github.com/aws/aws-sdk-go-v2/service/codecommit v1.44.1
@@ -192,8 +191,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/elasticache v1.64.1
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.43.5
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.5
-	github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.51.6
 	github.com/aws/aws-sdk-go-v2/service/emr v1.70.6
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.55.5
 	github.com/aws/aws-sdk-go-v2/service/firehose v1.52.6
 	github.com/aws/aws-sdk-go-v2/service/glue v1.172.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.5
@@ -203,6 +202,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.3
 	github.com/aws/aws-sdk-go-v2/service/medialive v1.112.3
 	github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.6
+	github.com/aws/aws-sdk-go-v2/service/opensearch v1.86.1
 	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.2
 	github.com/aws/aws-sdk-go-v2/service/rds v1.131.1
 	github.com/aws/aws-sdk-go-v2/service/redshift v1.71.5

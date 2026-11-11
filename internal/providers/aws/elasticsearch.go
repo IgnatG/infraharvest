@@ -7,8 +7,8 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice"
-	"github.com/aws/aws-sdk-go-v2/service/elasticsearchservice/types"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch"
+	"github.com/aws/aws-sdk-go-v2/service/opensearch/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -34,8 +34,8 @@ func (g *EsLister) list() error {
 	if err != nil {
 		return err
 	}
-	client := elasticsearchservice.NewFromConfig(config)
-	out, err := client.ListDomainNames(g.Context(), &elasticsearchservice.ListDomainNamesInput{})
+	client := opensearch.NewFromConfig(config)
+	out, err := client.ListDomainNames(g.Context(), &opensearch.ListDomainNamesInput{})
 	if err != nil {
 		return err
 	}

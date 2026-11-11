@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/cloudcontrol"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -359,7 +359,7 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 	}
 
 	var parts harvest.Parts
-	if err := g.createRules(cloudwatchevents.NewFromConfig(config), &parts); err != nil {
+	if err := g.createRules(eventbridge.NewFromConfig(config), &parts); err != nil {
 		t.Fatal(err)
 	}
 	if err := parts.Err(); err != nil {

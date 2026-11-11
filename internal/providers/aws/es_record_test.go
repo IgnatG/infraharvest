@@ -16,7 +16,7 @@ import (
 func TestRecordEsListsDomainsByName(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, func(call apiCall) string {
-		if call.Path != "/2015-01-01/domain" {
+		if call.Path != "/2021-01-01/domain" {
 			return recordUnexpected(t, call)
 		}
 		if call.Query.Get("engineType") != "" {

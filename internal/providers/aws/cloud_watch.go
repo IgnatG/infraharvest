@@ -8,7 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -42,7 +42,7 @@ func (g *CloudWatchLister) list() error {
 		return err
 	}
 	var parts harvest.Parts
-	if err := g.createRules(cloudwatchevents.NewFromConfig(config), &parts); err != nil {
+	if err := g.createRules(eventbridge.NewFromConfig(config), &parts); err != nil {
 		return parts.Fail(err)
 	}
 	return parts.Err()
@@ -84,9 +84,9 @@ func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
 // Terraform; its targets aren't asked for. The API has no SDK paginator, so
 // pages are walked by NextToken. A rule whose targets can't be read keeps
 // those read, and the failure goes to parts.
-func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *harvest.Parts) error {
+func (g *CloudWatchLister) createRules(client *eventbridge.Client, parts *harvest.Parts) error {
 	return paginateByMarker(func(token *string) (*string, error) {
-		page, err := client.ListRules(g.Context(), &cloudwatchevents.ListRulesInput{NextToken: token})
+		page, err := client.ListRules(g.Context(), &eventbridge.ListRulesInput{NextToken: token})
 		if err != nil {
 			return nil, err
 		}
@@ -110,9 +110,9 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *h
 // createTargets records the targets of the rule ruleName as
 // "<rule>/<target ID>", Terraform's import ID for the default bus. Its
 // pages are walked with the target list's own NextToken.
-func (g *CloudWatchLister) createTargets(client *cloudwatchevents.Client, ruleName string) error {
+func (g *CloudWatchLister) createTargets(client *eventbridge.Client, ruleName string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
-		page, err := client.ListTargetsByRule(g.Context(), &cloudwatchevents.ListTargetsByRuleInput{
+		page, err := client.ListTargetsByRule(g.Context(), &eventbridge.ListTargetsByRuleInput{
 			Rule:      aws.String(ruleName),
 			NextToken: token,
 		})
