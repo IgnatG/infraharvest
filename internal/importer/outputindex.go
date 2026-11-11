@@ -86,6 +86,13 @@ func newDiskIndex(out string) *outputIndex {
 	return newOutputIndex(out, diskOutput{out: out})
 }
 
+// newCachedDiskIndex is newDiskIndex, decoding the checkpoints through
+// cache, which the indexes of every scope of a command share (see
+// checkpointCache).
+func newCachedDiskIndex(out string, cache *checkpointCache) *outputIndex {
+	return newOutputIndex(out, diskOutput{out: out, cache: cache})
+}
+
 // lazy is a value read once, when first asked for, with the error that
 // reading it gave.
 type lazy[T any] struct {

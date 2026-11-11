@@ -151,6 +151,11 @@ type shared struct {
 	// tfrun.SchemaCache).
 	schemas tfrun.SchemaCache
 
+	// checkpoints are the checkpoints of the output directory the
+	// command's scopes have read, decoded once for all of them (see
+	// Run.openOutput).
+	checkpoints checkpointCache
+
 	// calls bounds how many Import calls of the command list or generate
 	// at once, over every account and region (see callSlots).
 	callsMu sync.Mutex
@@ -439,7 +444,7 @@ func (r *Run) SelectionToPick() string {
 // scope's own roots write isn't in it, and what the scopes before it left
 // is.
 func (r *Run) openOutput(out string) {
-	r.index = newDiskIndex(out)
+	r.index = newCachedDiskIndex(out, &r.shared.checkpoints)
 }
 
 // outputIndex returns the index of what earlier imports left in out that

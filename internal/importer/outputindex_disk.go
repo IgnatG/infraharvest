@@ -16,9 +16,11 @@ import (
 )
 
 // diskOutput is an outputSource that reads the checkpoints and roots under
-// the output directory out.
+// the output directory out, decoding the checkpoints through cache, if
+// set: the command's, which every scope's index shares.
 type diskOutput struct {
-	out string
+	out   string
+	cache *checkpointCache
 }
 
 func (d diskOutput) roots() ([]string, error) { return rootCheckpoints.dirs(d.out) }
@@ -28,6 +30,9 @@ func (d diskOutput) recorded(dir string) (bool, error) {
 }
 
 func (d diskOutput) checkpoint(dir string) (*checkpoint, error) {
+	if d.cache != nil {
+		return d.cache.root(d.out, dir)
+	}
 	return rootCheckpoints.read(d.out, dir)
 }
 
@@ -49,6 +54,9 @@ func (d diskOutput) removed(dir string) ([]rootfile.Removal, error) {
 func (d diskOutput) stacks() ([]string, error) { return mergeCheckpoints.dirs(d.out) }
 
 func (d diskOutput) mergeCheckpoint(stack string) (*mergeCheckpoint, error) {
+	if d.cache != nil {
+		return d.cache.merge(d.out, stack)
+	}
 	return mergeCheckpoints.read(d.out, stack)
 }
 
