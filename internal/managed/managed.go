@@ -8,6 +8,7 @@
 package managed
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,30 @@ type ObjectStore interface {
 	// List returns the keys under prefix.
 	List(ctx context.Context, bucket, prefix string) ([]string, error)
 	Get(ctx context.Context, bucket, key string) ([]byte, error)
+}
+
+// StreamStore is an ObjectStore that can also open an object to read as
+// it goes: its states are decoded as they are read (see ParseFrom),
+// rather than read whole first. Open returns nil, and no error, for an
+// object that has no state, as Get does.
+type StreamStore interface {
+	ObjectStore
+	Open(ctx context.Context, bucket, key string) (io.ReadCloser, error)
+}
+
+// opener returns how to read the objects of bucket in store: as a stream
+// where store is a StreamStore, else whole.
+func opener(store ObjectStore, bucket string) func(ctx context.Context, key string) (io.ReadCloser, error) {
+	if s, ok := store.(StreamStore); ok {
+		return func(ctx context.Context, key string) (io.ReadCloser, error) { return s.Open(ctx, bucket, key) }
+	}
+	return func(ctx context.Context, key string) (io.ReadCloser, error) {
+		content, err := store.Get(ctx, bucket, key)
+		if err != nil || content == nil {
+			return nil, err
+		}
+		return io.NopCloser(bytes.NewReader(content)), nil
+	}
 }
 
 // Resources are managed resources, by "type id" (and "type arn", where a
@@ -322,9 +347,7 @@ func (r Resources) loadObjects(ctx context.Context, source string, stores Stores
 	if len(states) == 0 {
 		return errors.New("no .tfstate object under the prefix")
 	}
-	return r.parseAll(ctx, states, func(ctx context.Context, key string) ([]byte, error) {
-		return store.Get(ctx, bucket, key)
-	}, base)
+	return r.parseAll(ctx, states, opener(store, bucket), base)
 }
 
 // defaultWorkspaceKeyPrefix is the S3 backend's workspace_key_prefix when
@@ -398,20 +421,18 @@ func (r Resources) loadWorkspaces(ctx context.Context, source string, stores Sto
 	if host != DefaultHCPTerraformHost {
 		base = "tfc://" + host + "/" + organization + "/"
 	}
-	return r.parseAll(ctx, names, func(ctx context.Context, name string) ([]byte, error) {
-		return store.Get(ctx, organization, name)
-	}, base)
+	return r.parseAll(ctx, names, opener(store, organization), base)
 }
 
 // fetchParallel is how many states parseAll reads at once.
 const fetchParallel = 8
 
-// parseAll reads the state at each of keys with get, fetchParallel at a
-// time, and adds what each manages to r, found at base+key. A key get
-// returns no state for, such as a workspace with none yet, manages
-// nothing. The first failure stops the rest and is returned. What the
+// parseAll reads the state at each of keys with open, fetchParallel at a
+// time, decoding each as it is read, and adds what each manages to r,
+// found at base+key. A key open returns no state for, such as a workspace
+// with none yet, manages nothing. The first failure stops the rest and is returned. What the
 // states manage is added in the order of keys, as if read one by one.
-func (r Resources) parseAll(ctx context.Context, keys []string, get func(ctx context.Context, key string) ([]byte, error), base string) error {
+func (r Resources) parseAll(ctx context.Context, keys []string, open func(ctx context.Context, key string) (io.ReadCloser, error), base string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	parsed := make([]Resources, len(keys))
@@ -437,17 +458,20 @@ func (r Resources) parseAll(ctx context.Context, keys []string, get func(ctx con
 		}
 		wg.Go(func() {
 			defer func() { <-slots }()
-			content, err := get(ctx, key)
+			in, err := open(ctx, key)
 			if err != nil {
 				fail(err)
 				return
 			}
-			if content == nil {
+			if in == nil {
 				return
 			}
+			defer func() { _ = in.Close() }()
 			state := Resources{}
-			if err := state.Parse(content, base+key); err != nil {
-				fail(err)
+			// A store whose URLs carry a credential returns its errors
+			// without them (see WithoutURL), those of reading too.
+			if err := state.ParseFrom(in, base+key); err != nil {
+				fail(WithoutURL(err))
 				return
 			}
 			parsed[i] = state
@@ -472,11 +496,7 @@ func (r Resources) loadLocal(source string) error {
 		return err
 	}
 	if !info.IsDir() {
-		content, err := readStateFile(source)
-		if err != nil {
-			return err
-		}
-		return r.Parse(content, source)
+		return r.parseStateFile(source)
 	}
 	found := 0
 	err = filepath.WalkDir(source, func(path string, d fs.DirEntry, err error) error {
@@ -490,11 +510,7 @@ func (r Resources) loadLocal(source string) error {
 			return nil
 		}
 		found++
-		content, err := readStateFile(path)
-		if err != nil {
-			return err
-		}
-		return r.Parse(content, path)
+		return r.parseStateFile(path)
 	})
 	if err == nil && found == 0 {
 		return errors.New("no .tfstate file in the directory, outside .terraform")
@@ -502,9 +518,9 @@ func (r Resources) loadLocal(source string) error {
 	return err
 }
 
-// stateSizeLimit is the most bytes one state may take: state is read whole
-// into memory, and an object that big under a prefix is most likely not
-// state.
+// stateSizeLimit is the most bytes one state may take: a store may read
+// state whole into memory (see ReadState), and an object that big under a
+// prefix is most likely not state.
 var stateSizeLimit int64 = 512 << 20
 
 // ReadState reads one state from r, failing rather than cutting it off if
@@ -533,14 +549,15 @@ func WithoutURL(err error) error {
 	return err
 }
 
-// readStateFile reads the state file at path (see ReadState).
-func readStateFile(path string) ([]byte, error) {
+// parseStateFile adds what the state file at path manages, read as it is
+// decoded (see ParseFrom).
+func (r Resources) parseStateFile(path string) error {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer f.Close()
-	return ReadState(f)
+	return r.ParseFrom(f, path)
 }
 
 // Parse adds the managed resources of a state file found at where, in
@@ -549,57 +566,199 @@ func readStateFile(path string) ([]byte, error) {
 // upgrade it. Each resource has its address in the state, or none where
 // the state doesn't name it.
 func (r Resources) Parse(content []byte, where string) error {
-	var state struct {
-		Version   int `json:"version"`
-		Resources []struct {
-			Mode      string `json:"mode"`
-			Module    string `json:"module"`
-			Type      string `json:"type"`
-			Name      string `json:"name"`
-			Instances []struct {
-				IndexKey   any            `json:"index_key"`
-				Identity   map[string]any `json:"identity"`
-				Attributes struct {
-					ID  string `json:"id"`
-					ARN string `json:"arn"`
-				} `json:"attributes"`
-			} `json:"instances"`
-		} `json:"resources"`
-	}
-	if err := json.Unmarshal(content, &state); err != nil {
+	return r.ParseFrom(bytes.NewReader(content), where)
+}
+
+// ParseFrom is Parse of the state in, read as it is decoded: one resource
+// of the state is held at a time, and of it only what Parse keeps, so that
+// a large state doesn't take its size in memory twice over. It fails, as
+// ReadState does, on a state larger than stateSizeLimit, and, as Parse
+// does, adds nothing from a state it fails on.
+func (r Resources) ParseFrom(in io.Reader, where string) error {
+	found := Resources{}
+	version, err := decodeState(json.NewDecoder(&limitedState{r: in}), found, where)
+	if err != nil {
+		var tooLarge *stateTooLarge
+		if errors.As(err, &tooLarge) {
+			return tooLarge
+		}
 		return fmt.Errorf("%s: %w", where, err)
 	}
-	switch state.Version {
+	switch version {
 	case 4:
 	case 3:
 		return errors.New(where + ": state format version 3 is not supported; upgrade it with Terraform 0.12 or later")
 	default:
 		return errors.New(where + ": not a version 4 state file")
 	}
-	for _, res := range state.Resources {
-		if res.Mode != "managed" {
-			continue
-		}
-		for _, i := range res.Instances {
-			stateID := i.Attributes.ID
-			if stateID == "" {
-				stateID = i.Attributes.ARN
+	maps.Copy(r, found)
+	return nil
+}
+
+// stateResource is what Parse reads of a resource of a state.
+type stateResource struct {
+	Mode      string `json:"mode"`
+	Module    string `json:"module"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Instances []struct {
+		IndexKey   any            `json:"index_key"`
+		Identity   map[string]any `json:"identity"`
+		Attributes struct {
+			ID  string `json:"id"`
+			ARN string `json:"arn"`
+		} `json:"attributes"`
+	} `json:"instances"`
+}
+
+// decodeState reads a state from dec as encoding/json would unmarshal it
+// into a struct of its version and its resources (see stateResource),
+// one resource at a time, adding each managed one to found as it goes,
+// and returns its version. Keys match as encoding/json matches them,
+// whatever their case, and of a key given twice, the last counts; for
+// resources, encoding/json would decode the second array into the
+// elements of the first, which no state has (see FuzzParseFromIsParseWhole).
+func decodeState(dec *json.Decoder, found Resources, where string) (int, error) {
+	tok, err := dec.Token()
+	if err != nil {
+		return 0, err
+	}
+	version := 0
+	switch tok {
+	case nil:
+		// null, which unmarshals into the zero state.
+	case json.Delim('{'):
+		for dec.More() {
+			tok, err := dec.Token()
+			if err != nil {
+				return 0, err
 			}
-			ids := []string{i.Attributes.ID, i.Attributes.ARN}
-			// What Terraform's list resources return is listed by its
-			// identity's ID, which the state of a resource has from
-			// Terraform 1.12 on, whatever it was imported by.
-			if identity, ok := tftypes.IdentityValues(i.Identity); ok {
-				ids = append(ids, tftypes.IdentityID(identity))
-			}
-			for _, id := range ids {
-				if id != "" {
-					r[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey), ID: stateID}
+			name, _ := tok.(string)
+			switch {
+			case strings.EqualFold(name, "version"):
+				if err := dec.Decode(&version); err != nil {
+					return 0, err
+				}
+			case strings.EqualFold(name, "resources"):
+				clear(found)
+				if err := decodeResources(dec, found, where); err != nil {
+					return 0, err
+				}
+			default:
+				if err := skipValue(dec); err != nil {
+					return 0, err
 				}
 			}
 		}
+		if _, err := dec.Token(); err != nil { // the closing brace
+			return 0, err
+		}
+	default:
+		return 0, fmt.Errorf("a state is a JSON object, not %v", tok)
 	}
-	return nil
+	// Nothing may follow the state, as encoding/json.Unmarshal says.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("invalid character after top-level value")
+		}
+		return 0, err
+	}
+	return version, nil
+}
+
+// decodeResources reads the resources array of a state from dec, one
+// resource at a time, adding the managed ones to found.
+func decodeResources(dec *json.Decoder, found Resources, where string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch tok {
+	case nil:
+		return nil
+	case json.Delim('['):
+	default:
+		return fmt.Errorf("a state's resources are an array, not %v", tok)
+	}
+	for dec.More() {
+		var res stateResource
+		if err := dec.Decode(&res); err != nil {
+			return err
+		}
+		addResource(found, res, where)
+	}
+	_, err = dec.Token() // the closing bracket
+	return err
+}
+
+// addResource adds res, one resource of a state found at where, to found,
+// if it is managed.
+func addResource(found Resources, res stateResource, where string) {
+	if res.Mode != "managed" {
+		return
+	}
+	for _, i := range res.Instances {
+		stateID := i.Attributes.ID
+		if stateID == "" {
+			stateID = i.Attributes.ARN
+		}
+		ids := []string{i.Attributes.ID, i.Attributes.ARN}
+		// What Terraform's list resources return is listed by its
+		// identity's ID, which the state of a resource has from
+		// Terraform 1.12 on, whatever it was imported by.
+		if identity, ok := tftypes.IdentityValues(i.Identity); ok {
+			ids = append(ids, tftypes.IdentityID(identity))
+		}
+		for _, id := range ids {
+			if id != "" {
+				found[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: address(res.Module, res.Type, res.Name, i.IndexKey), ID: stateID}
+			}
+		}
+	}
+}
+
+// skipValue reads the next value from dec, whatever it is, without
+// keeping it.
+func skipValue(dec *json.Decoder) error {
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		switch tok {
+		case json.Delim('{'), json.Delim('['):
+			depth++
+		case json.Delim('}'), json.Delim(']'):
+			depth--
+		}
+		if depth == 0 {
+			return nil
+		}
+	}
+}
+
+// limitedState reads r, and fails once it has read more than
+// stateSizeLimit bytes (see ReadState).
+type limitedState struct {
+	r    io.Reader
+	read int64
+}
+
+// stateTooLarge is the error of a state larger than stateSizeLimit.
+type stateTooLarge struct{}
+
+func (*stateTooLarge) Error() string {
+	return fmt.Sprintf("state is larger than %d MiB, the most infraharvest reads", stateSizeLimit>>20)
+}
+
+func (l *limitedState) Read(p []byte) (int, error) {
+	n, err := l.r.Read(p)
+	l.read += int64(n)
+	if l.read > stateSizeLimit {
+		return n, &stateTooLarge{}
+	}
+	return n, err
 }
 
 // address returns the address state gives the instance with index, its
