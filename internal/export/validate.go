@@ -5,7 +5,11 @@ package export
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
+	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -27,45 +31,208 @@ func Schema(document string) ([]byte, error) {
 	return content, nil
 }
 
+// checker validates a document against its schema. The arrays of items
+// that the document's top level lists, such as the inventory's resources,
+// can hold a hundred thousand entries, and every entry is checked against
+// the same item schema: those are checked on their own, in parallel, and
+// the rest of the document with the array empty. That is the same check
+// as the whole document's only where the array's schema says nothing but
+// its type and the schema of its items, and the top level says nothing
+// that depends on the array's content, which newChecker makes sure of:
+// otherwise the document is checked whole.
+type checker struct {
+	whole *jsonschema.Resolved
+	// items are the schemas of the items of the arrays checked on their
+	// own, by property.
+	items map[string]*jsonschema.Resolved
+}
+
 var (
-	resolvedMu sync.Mutex
-	resolved   = map[string]*jsonschema.Resolved{}
+	checkersMu sync.Mutex
+	checkers   = map[string]*checker{}
 )
 
-// resolve returns the document's schema, ready to validate with.
-func resolve(document string) (*jsonschema.Resolved, error) {
-	resolvedMu.Lock()
-	defer resolvedMu.Unlock()
-	if rs, ok := resolved[document]; ok {
-		return rs, nil
+// checkerOf returns the document's checker.
+func checkerOf(document string) (*checker, error) {
+	checkersMu.Lock()
+	defer checkersMu.Unlock()
+	if c, ok := checkers[document]; ok {
+		return c, nil
 	}
 	content, err := Schema(document)
 	if err != nil {
 		return nil, err
 	}
-	var s jsonschema.Schema
-	if err := json.Unmarshal(content, &s); err != nil {
-		return nil, fmt.Errorf("%s schema: %w", document, err)
-	}
-	rs, err := s.Resolve(nil)
+	c, err := newChecker(content)
 	if err != nil {
 		return nil, fmt.Errorf("%s schema: %w", document, err)
 	}
-	resolved[document] = rs
-	return rs, nil
+	checkers[document] = c
+	return c, nil
+}
+
+// topLevelKeys are the keywords a document's schema may have at its top
+// level for its arrays to be checked on their own: none of them depends on
+// what an array holds.
+var topLevelKeys = map[string]bool{
+	"$schema": true, "$id": true, "title": true, "description": true, "type": true,
+	"additionalProperties": true, "required": true, "properties": true, "$defs": true,
+}
+
+func newChecker(content []byte) (*checker, error) {
+	whole, err := resolveSchema(content)
+	if err != nil {
+		return nil, err
+	}
+	c := &checker{whole: whole, items: map[string]*jsonschema.Resolved{}}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(content, &top); err != nil {
+		return nil, err
+	}
+	for key := range top {
+		if !topLevelKeys[key] {
+			return c, nil
+		}
+	}
+	var properties map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(top["properties"], &properties); err != nil {
+		return c, nil //nolint:nilerr // properties of another form: checked whole
+	}
+	for name, p := range properties {
+		var typ string
+		var items map[string]json.RawMessage
+		if len(p) != 2 || json.Unmarshal(p["type"], &typ) != nil || typ != "array" || json.Unmarshal(p["items"], &items) != nil {
+			continue
+		}
+		// The items' schema, as one with the document's definitions, which
+		// its references name.
+		item := map[string]json.RawMessage{}
+		maps.Copy(item, items)
+		for _, key := range []string{"$schema", "$id", "$defs"} {
+			if raw, ok := top[key]; ok {
+				if _, clash := item[key]; clash {
+					item = nil
+					break
+				}
+				item[key] = raw
+			}
+		}
+		if item == nil {
+			continue
+		}
+		encoded, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		if c.items[name], err = resolveSchema(encoded); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+func resolveSchema(content []byte) (*jsonschema.Resolved, error) {
+	var s jsonschema.Schema
+	if err := json.Unmarshal(content, &s); err != nil {
+		return nil, err
+	}
+	return s.Resolve(nil)
+}
+
+// array is an array of a document checked an item at a time: n items, of
+// which item returns the i-th as instanceOf would.
+type array struct {
+	n    int
+	item func(i int) (any, error)
+}
+
+// check validates rest, a document as encoding/json decodes it into an any
+// (see instanceOf), with each of arrays, by property, as the value of that
+// property in place of the empty array rest has.
+func (c *checker) check(rest any, arrays map[string]array) error {
+	if err := c.whole.Validate(rest); err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(arrays)) {
+		if err := checkItems(c.items[name], name, arrays[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkItems validates the items of a against item, in parallel. Each
+// worker stops at the first item it finds failing, and the errors of all
+// that did are returned.
+func checkItems(item *jsonschema.Resolved, name string, a array) error {
+	workers := min(runtime.GOMAXPROCS(0), max(1, a.n/1000))
+	errs := make([]error, workers)
+	var wg sync.WaitGroup
+	for w := range workers {
+		wg.Go(func() {
+			for i := w; i < a.n; i += workers {
+				instance, err := a.item(i)
+				if err == nil {
+					err = item.Validate(instance)
+				}
+				if err != nil {
+					errs[w] = fmt.Errorf("%s/%d: %w", name, i, err)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	return errors.Join(errs...)
 }
 
 // validate checks content, a JSON document, against the schema of
 // document. Schemas say additionalProperties false, so a field the schema
 // doesn't name fails it.
 func validate(document string, content []byte) error {
-	rs, err := resolve(document)
-	if err != nil {
-		return err
-	}
 	var instance any
 	if err := json.Unmarshal(content, &instance); err != nil {
 		return err
 	}
-	return rs.Validate(instance)
+	c, err := checkerOf(document)
+	if err != nil {
+		return err
+	}
+	top, ok := instance.(map[string]any)
+	if !ok {
+		return c.whole.Validate(instance)
+	}
+	rest := maps.Clone(top)
+	arrays := map[string]array{}
+	for name := range c.items {
+		if items, ok := top[name].([]any); ok {
+			rest[name] = []any{}
+			arrays[name] = array{n: len(items), item: func(i int) (any, error) { return items[i], nil }}
+		}
+	}
+	return c.check(rest, arrays)
+}
+
+// validateDocument checks doc, a document as Build builds it, against the
+// schema of document, as validate checks its encoding. It builds what the
+// validator takes of each item of the arrays checked on their own (see
+// checker) in the worker that checks it.
+func validateDocument(document string, doc any) error {
+	c, err := checkerOf(document)
+	if err != nil {
+		return err
+	}
+	names := map[string]bool{}
+	for name := range c.items {
+		names[name] = true
+	}
+	rest, split, err := splitInstance(doc, names)
+	if err != nil {
+		return fmt.Errorf("the %s document has %w, which the check doesn't know", document, err)
+	}
+	arrays := map[string]array{}
+	for name, v := range split {
+		arrays[name] = array{n: v.Len(), item: func(i int) (any, error) { return instance(v.Index(i)) }}
+	}
+	return c.check(rest, arrays)
 }
