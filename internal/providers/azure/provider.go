@@ -194,18 +194,26 @@ type signedIn struct {
 	credential azcore.TokenCredential
 }
 
-// signIns holds the signedIn of each configuration signed in with, by
-// signInKey. Every service of an import initialises a provider of its own,
-// and every subscription of a run signs in again, all with the same
-// configuration: without it each would get a credential of its own, and
-// fetch its own token from the Azure CLI, Entra or the managed identity
-// endpoint on its first request.
-var signIns sync.Map
+// signInsKey is the key of a run's sign-ins kept with the run.
+type signInsKey struct{}
+
+// signInsOf returns the signedIn of each configuration ctx's run signed in
+// with, by signInKey. Every service of an import initialises a provider of
+// its own, and every subscription of a run signs in again, all with the
+// same configuration: without it each would get a credential of its own,
+// and fetch its own token from the Azure CLI, Entra or the managed
+// identity endpoint on its first request. They are kept with the run (see
+// runstate.Kept), so that another run in the process signs in afresh,
+// such as after `az login` as someone else.
+func signInsOf(ctx context.Context) *sync.Map {
+	return runstate.Kept(runstate.FromContext(ctx), signInsKey{}, func() *sync.Map { return &sync.Map{} })
+}
 
 // signInOnce returns the signedIn kept for cfg's configuration, or signs
 // in and keeps it; a failure isn't kept.
 func signInOnce(ctx context.Context, cfg authConfig) (signedIn, error) {
 	key := signInKey(cfg)
+	signIns := signInsOf(ctx)
 	if kept, ok := signIns.Load(key); ok {
 		return kept.(signedIn), nil
 	}

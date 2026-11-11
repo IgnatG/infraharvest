@@ -179,6 +179,16 @@ func TestSignInSharesTheCredential(t *testing.T) {
 	if elsewhere == first {
 		t.Error("another tenant got the same credential")
 	}
+
+	// Another run in the process signs in afresh.
+	run := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	_, credential, _, err := signIn(run, authConfig{subscriptionID: "sub-shared-a", tenantID: "tenant-shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential == first {
+		t.Error("another run got the first run's credential")
+	}
 }
 
 // Every sign-in of a run for a subscription shares its limiter, of the

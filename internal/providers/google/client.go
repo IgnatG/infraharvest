@@ -128,28 +128,36 @@ type credentialed struct {
 	client *http.Client
 }
 
-// credentials holds the clients of the credentials the process found, by
-// the service account they impersonate ("" for none).
-var credentials sync.Map
+// credentialsKey is the key of a run's credentials kept with the run.
+type credentialsKey struct{}
+
+// credentialsOf returns the clients of the credentials ctx's run found, by
+// the service account they impersonate ("" for none). They are kept with
+// the run (see runstate.Kept), so that another run in the process looks
+// for them again: credentials that couldn't be found or used, such as
+// before `gcloud auth application-default login`, aren't kept failing for
+// the life of the process.
+func credentialsOf(ctx context.Context) *sync.Map {
+	return runstate.Kept(runstate.FromContext(ctx), credentialsKey{}, func() *sync.Map { return &sync.Map{} })
+}
 
 // credentialsClient is a client, with the credentials the Terraform
 // provider would use (see credentialOptions) for every Google Cloud API,
 // that limits nothing: each run limits it with its own limiter (see
 // limitedClient). It is nil if there are no credentials. The first call
-// finds the credentials with ctx. impersonate is the service account to
-// impersonate with them, "" for GOOGLE_IMPERSONATE_SERVICE_ACCOUNT's
-// or none.
+// of ctx's run finds the credentials with ctx. impersonate is the service
+// account to impersonate with them, "" for
+// GOOGLE_IMPERSONATE_SERVICE_ACCOUNT's or none.
 func credentialsClient(ctx context.Context, impersonate string) *http.Client {
-	kept, _ := credentials.LoadOrStore(impersonate, &credentialed{})
+	kept, _ := credentialsOf(ctx).LoadOrStore(impersonate, &credentialed{})
 	found := kept.(*credentialed)
 	found.once.Do(func() {
-		// Once for the process: it only finds the credentials, and each
+		// Once for the run: it only finds the credentials, and each
 		// request takes its listing's context. The client outlives ctx,
 		// whose listing may end first, and its token source keeps the
 		// context it was made with to refresh tokens: so it keeps ctx's
-		// values but not its cancellation or deadline, nor its run's
-		// limiter, which it would keep for the process, with all the run
-		// keeps with it.
+		// values but not its cancellation or deadline, nor its run, whose
+		// limiter it would otherwise wait on to refresh a token.
 		ctx := runstate.NewContext(context.WithoutCancel(ctx), runstate.Default())
 		opts, err := credentialOptions(ctx, impersonate)
 		if err != nil {

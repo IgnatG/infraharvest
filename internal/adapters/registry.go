@@ -14,7 +14,9 @@ import (
 // profile names (see harvest.Profile.Modules), rather than the Terraform
 // provider, so that google --beta, whose provider is google-beta, gets
 // google's. Nothing outside the package changes them: For and the
-// functions named after each adapter return copies.
+// functions named after each adapter return copies. It is the built-in
+// set, fixed when the binary is built, so every run in the process may
+// share it: a run adds modules of its own to the copies it gets.
 var byFamily = map[string][]Adapter{
 	"aws":    {awsS3Bucket, awsIAMRole, awsVPC},
 	"azure":  {azureUserAssignedIdentity},

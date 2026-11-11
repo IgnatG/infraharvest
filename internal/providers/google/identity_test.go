@@ -42,20 +42,24 @@ func TestInitTakesTheServiceAccount(t *testing.T) {
 }
 
 // Each service account impersonated has credentials, and a client, of its
-// own; the project without one shares the environment's.
+// own; the project without one shares the environment's. Another run
+// finds them again.
 func TestCredentialsPerServiceAccount(t *testing.T) {
 	clearCredentialsEnv(t)
 	t.Setenv(accessTokenEnv, "token")
-	credentials.Clear()
-	t.Cleanup(credentials.Clear)
-	plain := credentialsClient(t.Context(), "")
-	a := credentialsClient(t.Context(), "a@p.iam.gserviceaccount.com")
-	b := credentialsClient(t.Context(), "b@p.iam.gserviceaccount.com")
+	ctx := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	plain := credentialsClient(ctx, "")
+	a := credentialsClient(ctx, "a@p.iam.gserviceaccount.com")
+	b := credentialsClient(ctx, "b@p.iam.gserviceaccount.com")
 	if plain == nil || a == nil || b == nil || plain == a || a == b {
 		t.Fatalf("clients: %p, %p, %p", plain, a, b)
 	}
-	if again := credentialsClient(t.Context(), "a@p.iam.gserviceaccount.com"); again != a {
+	if again := credentialsClient(ctx, "a@p.iam.gserviceaccount.com"); again != a {
 		t.Error("a service account's credentials are found once")
+	}
+	other := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	if credentialsClient(other, "a@p.iam.gserviceaccount.com") == a {
+		t.Error("another run got the first run's credentials")
 	}
 }
 

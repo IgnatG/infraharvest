@@ -336,7 +336,10 @@ func (p Patterns) match(value string) bool {
 }
 
 // globs holds the compiled glob patterns, by pattern: rules are matched
-// against every listed resource, and a file has few patterns.
+// against every listed resource, and a file has few patterns. It is for
+// the process, not a run: what a pattern compiles to never changes, so a
+// later run, such as another tool call of a long-lived MCP server, can
+// only reuse it, and it grows only with patterns no run has seen.
 var globs sync.Map
 
 // glob returns pattern compiled, once per pattern.
