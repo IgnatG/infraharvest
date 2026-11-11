@@ -11,6 +11,8 @@ name: Links
 # week (catching links that broke since) and on demand.
 on:
   pull_request:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
     paths: ["**/*.md", ".github/workflows/links.yml"]
   schedule:
     - cron: "11 6 * * 3"

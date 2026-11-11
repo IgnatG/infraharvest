@@ -858,7 +858,9 @@ jobs:
   # generated configuration stays out of the repository, git excluding it
   # in this checkout. It runs on main and by hand, never for a pull
   # request, whose token from a fork couldn't push. It opens it with
-  # github.token, so that GitHub starts no workflow for it, which needs the
+  # github.token, so that GitHub starts no workflow for it (and the
+  # workflows a pull request starts ignore action-test/** bases, for the
+  # runs that started all the same), which needs the
   # repository's "Allow GitHub Actions to create and approve pull requests"
   # setting on: the repository variable ACTION_TEST_PULL_REQUEST, set to
   # true, says it is.

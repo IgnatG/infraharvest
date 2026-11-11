@@ -10,6 +10,8 @@ name: Tests
 # main's runs save them.
 on:
   pull_request:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
   push:
     branches: [main]
     paths: [go.mod, go.sum, .github/workflows/test.yml]
