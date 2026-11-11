@@ -44,9 +44,7 @@ func (g *EksLister) list() error {
 	}
 	svc := eks.NewFromConfig(config)
 	var parts harvest.Parts
-	clusters := eks.NewListClustersPaginator(svc, &eks.ListClustersInput{}, stopOnDuplicateToken)
-	for clusters.HasMorePages() {
-		page, err := clusters.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListClustersPaginator(svc, &eks.ListClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return parts.Fail(err)
 		}
@@ -95,9 +93,7 @@ func (g *EksLister) cluster(clusterName string, svc *eks.Client) ([]harvest.Reso
 // getNodeGroups adds to out the cluster's managed node groups, imported as
 // "<cluster>:<node group>".
 func (g *EksLister) getNodeGroups(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
-	p := eks.NewListNodegroupsPaginator(svc, &eks.ListNodegroupsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListNodegroupsPaginator(svc, &eks.ListNodegroupsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -110,9 +106,7 @@ func (g *EksLister) getNodeGroups(clusterName string, svc *eks.Client, out *[]ha
 
 // getAddons adds to out the cluster's add-ons, imported as "<cluster>:<add-on>".
 func (g *EksLister) getAddons(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
-	p := eks.NewListAddonsPaginator(svc, &eks.ListAddonsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListAddonsPaginator(svc, &eks.ListAddonsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -126,9 +120,7 @@ func (g *EksLister) getAddons(clusterName string, svc *eks.Client, out *[]harves
 // getFargateProfiles adds to out the cluster's Fargate profiles, imported as
 // "<cluster>:<profile>".
 func (g *EksLister) getFargateProfiles(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
-	p := eks.NewListFargateProfilesPaginator(svc, &eks.ListFargateProfilesInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListFargateProfilesPaginator(svc, &eks.ListFargateProfilesInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -144,9 +136,7 @@ func (g *EksLister) getFargateProfiles(clusterName string, svc *eks.Client, out 
 // account they give a role to. An association with an owner belongs to
 // that owner, such as an add-on that created it, and is left out.
 func (g *EksLister) getPodIdentityAssociations(clusterName string, svc *eks.Client, out *[]harvest.Resource) error {
-	p := eks.NewListPodIdentityAssociationsPaginator(svc, &eks.ListPodIdentityAssociationsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListPodIdentityAssociationsPaginator(svc, &eks.ListPodIdentityAssociationsInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -176,9 +166,7 @@ func (g *EksLister) getAccessEntries(clusterName string, svc *eks.Client, out *[
 	if cluster == nil || cluster.AccessConfig == nil || cluster.AccessConfig.AuthenticationMode == ekstypes.AuthenticationModeConfigMap {
 		return nil
 	}
-	p := eks.NewListAccessEntriesPaginator(svc, &eks.ListAccessEntriesInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), eks.NewListAccessEntriesPaginator(svc, &eks.ListAccessEntriesInput{ClusterName: aws.String(clusterName)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -204,8 +192,7 @@ func (g *EksLister) getAccessPolicyAssociations(clusterName, principal string, s
 		ClusterName:  aws.String(clusterName),
 		PrincipalArn: aws.String(principal),
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), p) {
 		if err != nil {
 			return err
 		}

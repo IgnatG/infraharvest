@@ -69,9 +69,7 @@ func (g *GlueLister) list() error {
 // listCrawlers adds each crawler as an aws_glue_crawler, imported by its
 // name.
 func (g *GlueLister) listCrawlers(ctx context.Context, client *glue.Client) error {
-	p := glue.NewGetCrawlersPaginator(client, &glue.GetCrawlersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, glue.NewGetCrawlersPaginator(client, &glue.GetCrawlersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -88,9 +86,7 @@ func (g *GlueLister) listCrawlers(ctx context.Context, client *glue.Client) erro
 // returns the databases' names for listing their tables.
 func (g *GlueLister) listDatabases(ctx context.Context, client *glue.Client, account string) ([]string, error) {
 	var databases []string
-	p := glue.NewGetDatabasesPaginator(client, &glue.GetDatabasesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, glue.NewGetDatabasesPaginator(client, &glue.GetDatabasesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -107,9 +103,7 @@ func (g *GlueLister) listDatabases(ctx context.Context, client *glue.Client, acc
 // imported as "<account>:<database>:<table>" and named
 // "<database>:<table>", since table names repeat across databases.
 func (g *GlueLister) listTables(ctx context.Context, client *glue.Client, account, database string) error {
-	p := glue.NewGetTablesPaginator(client, &glue.GetTablesInput{DatabaseName: aws.String(database)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, glue.NewGetTablesPaginator(client, &glue.GetTablesInput{DatabaseName: aws.String(database)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -123,9 +117,7 @@ func (g *GlueLister) listTables(ctx context.Context, client *glue.Client, accoun
 
 // listJobs adds each job as an aws_glue_job, imported by its name.
 func (g *GlueLister) listJobs(ctx context.Context, client *glue.Client) error {
-	p := glue.NewGetJobsPaginator(client, &glue.GetJobsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, glue.NewGetJobsPaginator(client, &glue.GetJobsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -140,9 +132,7 @@ func (g *GlueLister) listJobs(ctx context.Context, client *glue.Client) error {
 // listTriggers adds each trigger as an aws_glue_trigger, imported by its
 // name.
 func (g *GlueLister) listTriggers(ctx context.Context, client *glue.Client) error {
-	p := glue.NewGetTriggersPaginator(client, &glue.GetTriggersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, glue.NewGetTriggersPaginator(client, &glue.GetTriggersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

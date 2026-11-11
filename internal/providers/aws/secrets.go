@@ -35,9 +35,7 @@ func (g *SecretsManagerLister) list() error {
 	}
 	svc := secretsmanager.NewFromConfig(config)
 	input := &secretsmanager.ListSecretsInput{IncludePlannedDeletion: aws.Bool(false)}
-	p := secretsmanager.NewListSecretsPaginator(svc, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), secretsmanager.NewListSecretsPaginator(svc, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -51,9 +51,7 @@ func (g *CloudWatchLister) list() error {
 // listMetricAlarms records every metric alarm by name. Composite alarms
 // are not listed.
 func (g *CloudWatchLister) listMetricAlarms(client *cloudwatch.Client) error {
-	p := cloudwatch.NewDescribeAlarmsPaginator(client, &cloudwatch.DescribeAlarmsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudwatch.NewDescribeAlarmsPaginator(client, &cloudwatch.DescribeAlarmsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -67,9 +65,7 @@ func (g *CloudWatchLister) listMetricAlarms(client *cloudwatch.Client) error {
 
 // listDashboards records every dashboard by name.
 func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
-	p := cloudwatch.NewListDashboardsPaginator(client, &cloudwatch.ListDashboardsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudwatch.NewListDashboardsPaginator(client, &cloudwatch.ListDashboardsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

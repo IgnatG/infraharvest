@@ -53,9 +53,7 @@ func (g *ElastiCacheLister) list() error {
 // of a replication group are clusters too, but the group manages them, so
 // they are left out with the clusters being deleted.
 func (g *ElastiCacheLister) listCacheClusters(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheClustersPaginator(svc, &elasticache.DescribeCacheClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticache.NewDescribeCacheClustersPaginator(svc, &elasticache.DescribeCacheClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -74,9 +72,7 @@ func (g *ElastiCacheLister) listCacheClusters(svc *elasticache.Client) error {
 // ElastiCache provides and can't be changed, are listed too; the
 // catalogue's skip rule leaves them out.
 func (g *ElastiCacheLister) listParameterGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheParameterGroupsPaginator(svc, &elasticache.DescribeCacheParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticache.NewDescribeCacheParameterGroupsPaginator(svc, &elasticache.DescribeCacheParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -91,9 +87,7 @@ func (g *ElastiCacheLister) listParameterGroups(svc *elasticache.Client) error {
 // listReplicationGroups adds the replication groups, but those being
 // deleted.
 func (g *ElastiCacheLister) listReplicationGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeReplicationGroupsPaginator(svc, &elasticache.DescribeReplicationGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticache.NewDescribeReplicationGroupsPaginator(svc, &elasticache.DescribeReplicationGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -111,9 +105,7 @@ func (g *ElastiCacheLister) listReplicationGroups(svc *elasticache.Client) error
 // listSubnetGroups adds every subnet group. The default one is listed too;
 // the catalogue's skip rule leaves it out.
 func (g *ElastiCacheLister) listSubnetGroups(svc *elasticache.Client) error {
-	p := elasticache.NewDescribeCacheSubnetGroupsPaginator(svc, &elasticache.DescribeCacheSubnetGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticache.NewDescribeCacheSubnetGroupsPaginator(svc, &elasticache.DescribeCacheSubnetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

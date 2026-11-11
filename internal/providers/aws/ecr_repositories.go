@@ -37,9 +37,7 @@ func (g *EcrLister) list() error {
 	}
 	client := ecr.NewFromConfig(config)
 	var parts harvest.Parts
-	p := ecr.NewDescribeRepositoriesPaginator(client, &ecr.DescribeRepositoriesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ecr.NewDescribeRepositoriesPaginator(client, &ecr.DescribeRepositoriesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return parts.Fail(err)
 		}

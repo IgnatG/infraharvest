@@ -58,9 +58,7 @@ func (g *Route53Lister) list() error {
 // to parts the errors of the zones whose records failed to list, and
 // returns the error of the zone list.
 func (g *Route53Lister) listHostedZones(client *route53.Client, parts *harvest.Parts) error {
-	p := route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), route53.NewListHostedZonesPaginator(client, &route53.ListHostedZonesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return fmt.Errorf("route53: hosted zones: %w", err)
 		}
@@ -148,9 +146,7 @@ func (g *Route53Lister) addRecord(zoneID, domain string, linked *types.LinkedSer
 // checks, its domain name or IP address, and its type: "example.com
 // HTTPS", with the service that created it, if another did.
 func (g *Route53Lister) listHealthChecks(client *route53.Client) error {
-	p := route53.NewListHealthChecksPaginator(client, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), route53.NewListHealthChecksPaginator(client, &route53.ListHealthChecksInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return fmt.Errorf("route53: health checks: %w", err)
 		}

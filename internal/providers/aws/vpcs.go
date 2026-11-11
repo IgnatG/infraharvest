@@ -35,9 +35,7 @@ func (g *VpcLister) list() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 
-	pages := ec2.NewDescribeVpcsPaginator(client, &ec2.DescribeVpcsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeVpcsPaginator(client, &ec2.DescribeVpcsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

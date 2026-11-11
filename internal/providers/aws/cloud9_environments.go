@@ -44,9 +44,7 @@ func (g *Cloud9Lister) list() error {
 		return err
 	}
 	svc := cloud9.NewFromConfig(config)
-	p := cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloud9.NewListEnvironmentsPaginator(svc, &cloud9.ListEnvironmentsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

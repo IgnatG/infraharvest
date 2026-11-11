@@ -52,9 +52,7 @@ func (g *EcsLister) list() error {
 // listClusters records every cluster by ARN, named after its name (the
 // ARN's last path segment), each followed by its services.
 func (g *EcsLister) listClusters(client *ecs.Client) error {
-	p := ecs.NewListClustersPaginator(client, &ecs.ListClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ecs.NewListClustersPaginator(client, &ecs.ListClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -80,9 +78,7 @@ const ecsListServicesPageSize = 100
 // An error is gathered and ends the cluster's services: the cluster stays.
 func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName string) {
 	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
-	p := ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			g.parts.Add(awsCodes, "services of cluster "+clusterARN, err)
 			return
@@ -148,9 +144,7 @@ func (g *EcsLister) listTaskDefinitions(client *ecs.Client) error {
 	var families []string
 	latest := map[string]latestTaskDefinition{}
 	input := &ecs.ListTaskDefinitionsInput{Status: types.TaskDefinitionStatusActive}
-	p := ecs.NewListTaskDefinitionsPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ecs.NewListTaskDefinitionsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

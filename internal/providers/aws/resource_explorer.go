@@ -270,9 +270,7 @@ func accountRoot(arn string) string {
 
 func supportedTypes(ctx context.Context, client *resourceexplorer2.Client) (map[string]bool, error) {
 	supported := map[string]bool{}
-	p := resourceexplorer2.NewListSupportedResourceTypesPaginator(client, &resourceexplorer2.ListSupportedResourceTypesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, resourceexplorer2.NewListSupportedResourceTypesPaginator(client, &resourceexplorer2.ListSupportedResourceTypesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -294,8 +292,7 @@ func (x *explorerRegion) searchRegion(ctx context.Context) error {
 		ViewArn:     aws.String(x.viewARN),
 		MaxResults:  aws.Int32(explorerSearchLimit),
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, p) {
 		if err != nil {
 			return err
 		}

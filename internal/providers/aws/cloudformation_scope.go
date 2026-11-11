@@ -221,9 +221,7 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 		return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
 	}
 	var nested []*scopedStack
-	pages := cloudformation.NewListStackResourcesPaginator(client, &cloudformation.ListStackResourcesInput{StackName: aws.String(stack.id)}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, cloudformation.NewListStackResourcesPaginator(client, &cloudformation.ListStackResourcesInput{StackName: aws.String(stack.id)}, stopOnDuplicateToken)) {
 		if err != nil {
 			if unreadable(err) {
 				return nil

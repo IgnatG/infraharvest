@@ -49,9 +49,7 @@ func (g *BatchLister) list() error {
 // which is what Terraform imports it by, but those being deleted or
 // deleted, which Terraform reads as gone.
 func (g *BatchLister) listBatchComputeEnvironments(client *batch.Client) error {
-	pages := batch.NewDescribeComputeEnvironmentsPaginator(client, &batch.DescribeComputeEnvironmentsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), batch.NewDescribeComputeEnvironmentsPaginator(client, &batch.DescribeComputeEnvironmentsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -79,9 +77,7 @@ func (g *BatchLister) listBatchComputeEnvironments(client *batch.Client) error {
 // attribute too.
 func (g *BatchLister) listBatchJobDefinitions(client *batch.Client) error {
 	input := &batch.DescribeJobDefinitionsInput{Status: aws.String("ACTIVE")}
-	pages := batch.NewDescribeJobDefinitionsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), batch.NewDescribeJobDefinitionsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -103,9 +99,7 @@ func (g *BatchLister) listBatchJobDefinitions(client *batch.Client) error {
 // Terraform imports it by, named after its name, but those being deleted
 // or deleted.
 func (g *BatchLister) listBatchJobQueues(client *batch.Client) error {
-	pages := batch.NewDescribeJobQueuesPaginator(client, &batch.DescribeJobQueuesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), batch.NewDescribeJobQueuesPaginator(client, &batch.DescribeJobQueuesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

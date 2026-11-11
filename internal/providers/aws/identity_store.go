@@ -60,9 +60,7 @@ func (g *IdentityStoreLister) list() error {
 // listUsers records the users of store as <store>/<user ID>, which is how
 // Terraform imports them, named after their user name.
 func (g *IdentityStoreLister) listUsers(client *identitystore.Client, store string) error {
-	pages := identitystore.NewListUsersPaginator(client, &identitystore.ListUsersInput{IdentityStoreId: aws.String(store)}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), identitystore.NewListUsersPaginator(client, &identitystore.ListUsersInput{IdentityStoreId: aws.String(store)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -83,9 +81,7 @@ func (g *IdentityStoreLister) listUsers(client *identitystore.Client, store stri
 // listGroups records the groups of store as <store>/<group ID>, named
 // after their display name, each followed by its memberships.
 func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store string) error {
-	pages := identitystore.NewListGroupsPaginator(client, &identitystore.ListGroupsInput{IdentityStoreId: aws.String(store)}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), identitystore.NewListGroupsPaginator(client, &identitystore.ListGroupsInput{IdentityStoreId: aws.String(store)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -111,9 +107,7 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 // <store>/<membership ID>, named m-<group ID>-<member ID>.
 func (g *IdentityStoreLister) listMemberships(client *identitystore.Client, store, groupID string) error {
 	input := &identitystore.ListGroupMembershipsInput{IdentityStoreId: aws.String(store), GroupId: aws.String(groupID)}
-	pages := identitystore.NewListGroupMembershipsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), identitystore.NewListGroupMembershipsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

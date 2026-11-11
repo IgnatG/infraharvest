@@ -38,9 +38,7 @@ func (g *SecurityLister) list() error {
 	svc := ec2.NewFromConfig(config)
 
 	var groups []ec2types.SecurityGroup
-	groupPages := ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{}, stopOnDuplicateToken)
-	for groupPages.HasMorePages() {
-		page, err := groupPages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeSecurityGroupsPaginator(svc, &ec2.DescribeSecurityGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -48,9 +46,7 @@ func (g *SecurityLister) list() error {
 	}
 
 	var rules []ec2types.SecurityGroupRule
-	rulePages := ec2.NewDescribeSecurityGroupRulesPaginator(svc, &ec2.DescribeSecurityGroupRulesInput{}, stopOnDuplicateToken)
-	for rulePages.HasMorePages() {
-		page, err := rulePages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeSecurityGroupRulesPaginator(svc, &ec2.DescribeSecurityGroupRulesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

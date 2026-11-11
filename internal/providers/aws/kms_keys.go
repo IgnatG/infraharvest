@@ -84,9 +84,7 @@ type kmsLister struct {
 // keys of a page are described, and their grants listed, resourceParallel
 // at a time, and recorded in the page's order.
 func (l *kmsLister) addKeys(names map[string]string) error {
-	pages := kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(l.g.Context())
+	for page, err := range pagesOf(l.g.Context(), kms.NewListKeysPaginator(l.svc, &kms.ListKeysInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -131,9 +129,7 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 // key itself stays listed.
 func (l *kmsLister) grants(keyID, keyName string) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
-	pages := kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(l.g.Context())
+	for page, err := range pagesOf(l.g.Context(), kms.NewListGrantsPaginator(l.svc, &kms.ListGrantsInput{KeyId: aws.String(keyID)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return resources, err
 		}
@@ -157,9 +153,7 @@ func (l *kmsLister) grants(keyID, keyName string) ([]harvest.Resource, error) {
 // either.
 func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	var aliases []types.AliasListEntry
-	pages := kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(l.g.Context())
+	for page, err := range pagesOf(l.g.Context(), kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}

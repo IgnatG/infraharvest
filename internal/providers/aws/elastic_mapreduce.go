@@ -53,9 +53,7 @@ var emrLiveClusterStates = []types.ClusterState{
 // states are asked for, and checked in the answer too.
 func (g *EmrLister) listClusters(ctx context.Context, client *emr.Client) error {
 	input := &emr.ListClustersInput{ClusterStates: emrLiveClusterStates}
-	p := emr.NewListClustersPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, emr.NewListClustersPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -73,9 +71,7 @@ func (g *EmrLister) listClusters(ctx context.Context, client *emr.Client) error 
 // listSecurityConfigurations adds each security configuration as an
 // aws_emr_security_configuration, imported by its name.
 func (g *EmrLister) listSecurityConfigurations(ctx context.Context, client *emr.Client) error {
-	p := emr.NewListSecurityConfigurationsPaginator(client, &emr.ListSecurityConfigurationsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, emr.NewListSecurityConfigurationsPaginator(client, &emr.ListSecurityConfigurationsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

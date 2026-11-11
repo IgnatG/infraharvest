@@ -45,9 +45,7 @@ func (g *WorkspacesLister) list() error {
 // or not. Directories being deregistered, or deregistered, are left out:
 // Terraform reads them as gone.
 func (g *WorkspacesLister) listDirectories(ctx context.Context, client *workspaces.Client) error {
-	p := workspaces.NewDescribeWorkspaceDirectoriesPaginator(client, &workspaces.DescribeWorkspaceDirectoriesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, workspaces.NewDescribeWorkspaceDirectoriesPaginator(client, &workspaces.DescribeWorkspaceDirectoriesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -66,9 +64,7 @@ func (g *WorkspacesLister) listDirectories(ctx context.Context, client *workspac
 // listWorkspaces adds each workspace as an aws_workspaces_workspace, by
 // ID, but those terminating or terminated.
 func (g *WorkspacesLister) listWorkspaces(ctx context.Context, client *workspaces.Client) error {
-	p := workspaces.NewDescribeWorkspacesPaginator(client, &workspaces.DescribeWorkspacesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, workspaces.NewDescribeWorkspacesPaginator(client, &workspaces.DescribeWorkspacesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

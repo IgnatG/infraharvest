@@ -280,8 +280,7 @@ func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resour
 	if describeVPCs || describeParts {
 		vpcs := ec2.NewDescribeVpcsPaginator(svc, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{ec2Filter("is-default", "true")}}, stopOnDuplicateToken)
 		var described []string
-		for vpcs.HasMorePages() {
-			page, err := vpcs.NextPage(ctx)
+		for page, err := range pagesOf(ctx, vpcs) {
 			if err != nil {
 				errs = append(errs, fmt.Errorf("default VPCs: %w", err))
 				break
@@ -308,9 +307,7 @@ func (p *Provider) defaultNetwork(ctx context.Context, config aws.Config, resour
 // gateways of the default VPCs vpcs.
 func (d defaultNetwork) describeParts(ctx context.Context, svc *ec2.Client, vpcs []string) error {
 	var errs []error
-	subnets := ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)
-	for subnets.HasMorePages() {
-		page, err := subnets.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeSubnetsPaginator(svc, &ec2.DescribeSubnetsInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)) {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("default subnets: %w", err))
 			break
@@ -319,9 +316,7 @@ func (d defaultNetwork) describeParts(ctx context.Context, svc *ec2.Client, vpcs
 			d.parts[aws.ToString(s.SubnetId)] = true
 		}
 	}
-	tables := ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)
-	for tables.HasMorePages() {
-		page, err := tables.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeRouteTablesPaginator(svc, &ec2.DescribeRouteTablesInput{Filters: []ec2types.Filter{ec2Filter("vpc-id", vpcs...)}}, stopOnDuplicateToken)) {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("default route tables: %w", err))
 			break
@@ -330,9 +325,7 @@ func (d defaultNetwork) describeParts(ctx context.Context, svc *ec2.Client, vpcs
 			d.parts[aws.ToString(t.RouteTableId)] = true
 		}
 	}
-	gateways := ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", vpcs...)}}, stopOnDuplicateToken)
-	for gateways.HasMorePages() {
-		page, err := gateways.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeInternetGatewaysPaginator(svc, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{ec2Filter("attachment.vpc-id", vpcs...)}}, stopOnDuplicateToken)) {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("default internet gateways: %w", err))
 			break

@@ -58,9 +58,7 @@ func (g *AutoScalingLister) list() error {
 // the target groups it registers its instances in (see
 // targetGroupsAttribute).
 func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
-	p := autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -81,9 +79,7 @@ func (g *AutoScalingLister) listGroups(client *autoscaling.Client) error {
 // One with user data is recorded with user_data_base64 set to "=", which
 // marks that it has user data without copying the data itself.
 func (g *AutoScalingLister) listLaunchConfigurations(client *autoscaling.Client) error {
-	p := autoscaling.NewDescribeLaunchConfigurationsPaginator(client, &autoscaling.DescribeLaunchConfigurationsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), autoscaling.NewDescribeLaunchConfigurationsPaginator(client, &autoscaling.DescribeLaunchConfigurationsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -102,9 +98,7 @@ func (g *AutoScalingLister) listLaunchConfigurations(client *autoscaling.Client)
 // listLaunchTemplates records every EC2 launch template by ID, named after
 // its name, with its tags as tags.<key>, which the answer has already.
 func (g *AutoScalingLister) listLaunchTemplates(client *ec2.Client) error {
-	p := ec2.NewDescribeLaunchTemplatesPaginator(client, &ec2.DescribeLaunchTemplatesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeLaunchTemplatesPaginator(client, &ec2.DescribeLaunchTemplatesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

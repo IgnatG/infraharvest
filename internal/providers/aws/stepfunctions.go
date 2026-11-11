@@ -32,9 +32,7 @@ func (g *SfnLister) list() error {
 	}
 	client := sfn.NewFromConfig(config)
 
-	machines := sfn.NewListStateMachinesPaginator(client, &sfn.ListStateMachinesInput{}, stopOnDuplicateToken)
-	for machines.HasMorePages() {
-		page, err := machines.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), sfn.NewListStateMachinesPaginator(client, &sfn.ListStateMachinesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -47,9 +45,7 @@ func (g *SfnLister) list() error {
 		}
 	}
 
-	activities := sfn.NewListActivitiesPaginator(client, &sfn.ListActivitiesInput{}, stopOnDuplicateToken)
-	for activities.HasMorePages() {
-		page, err := activities.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), sfn.NewListActivitiesPaginator(client, &sfn.ListActivitiesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

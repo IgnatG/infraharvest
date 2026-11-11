@@ -48,9 +48,7 @@ func (g *DynamoDbLister) list() error {
 	}
 	svc := dynamodb.NewFromConfig(config)
 	var parts harvest.Parts
-	pages := dynamodb.NewListTablesPaginator(svc, &dynamodb.ListTablesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), dynamodb.NewListTablesPaginator(svc, &dynamodb.ListTablesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

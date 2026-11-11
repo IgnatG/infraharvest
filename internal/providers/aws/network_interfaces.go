@@ -52,9 +52,7 @@ func (g *NetworkInterfaceLister) list() error {
 		{Name: aws.String("requester-managed"), Values: []string{"false"}},
 		{Name: aws.String("interface-type"), Values: ownInterfaceTypes},
 	}}
-	pages := ec2.NewDescribeNetworkInterfacesPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeNetworkInterfacesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

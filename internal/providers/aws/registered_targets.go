@@ -186,9 +186,7 @@ func loadBalancerTargetGroups(loadBalancers []ecstypes.LoadBalancer) []string {
 // target groups or its traffic sources, which DescribeAutoScalingGroups
 // returns with the group, named "Auto Scaling group <name>".
 func autoScalingTargetGroups(ctx context.Context, client *autoscaling.Client, groups map[string]bool, owners map[string]string) error {
-	pages := autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, autoscaling.NewDescribeAutoScalingGroupsPaginator(client, &autoscaling.DescribeAutoScalingGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return fmt.Errorf("find the target groups of Auto Scaling groups: %w", err)
 		}
@@ -207,9 +205,7 @@ func autoScalingTargetGroups(ctx context.Context, client *autoscaling.Client, gr
 // read is reported, and the other clusters are still asked.
 func ecsTargetGroups(ctx context.Context, client *ecs.Client, groups map[string]bool, owners map[string]string) error {
 	var errs []error
-	clusters := ecs.NewListClustersPaginator(client, &ecs.ListClustersInput{}, stopOnDuplicateToken)
-	for clusters.HasMorePages() {
-		page, err := clusters.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ecs.NewListClustersPaginator(client, &ecs.ListClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			errs = append(errs, fmt.Errorf("find the target groups of ECS services: %w", err))
 			return errors.Join(errs...)
@@ -228,9 +224,7 @@ func ecsTargetGroups(ctx context.Context, client *ecs.Client, groups map[string]
 func ecsClusterTargetGroups(ctx context.Context, client *ecs.Client, clusterARN string, groups map[string]bool, owners map[string]string) error {
 	clusterName := arnName(clusterARN)
 	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
-	services := ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)
-	for services.HasMorePages() {
-		page, err := services.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -28,9 +28,7 @@ func (g *CodeBuildLister) list() error {
 		return err
 	}
 	client := codebuild.NewFromConfig(config)
-	p := codebuild.NewListProjectsPaginator(client, &codebuild.ListProjectsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), codebuild.NewListProjectsPaginator(client, &codebuild.ListProjectsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

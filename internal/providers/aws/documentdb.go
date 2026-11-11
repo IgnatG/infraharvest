@@ -57,8 +57,7 @@ func (g *DocDBLister) listClusters(ctx context.Context, client *docdb.Client) ([
 	p := docdb.NewDescribeDBClustersPaginator(client, &docdb.DescribeDBClustersInput{
 		Filters: []types.Filter{{Name: aws.String("engine"), Values: []string{docdbEngine}}},
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, p) {
 		if err != nil {
 			return nil, err
 		}
@@ -97,9 +96,7 @@ func (g *DocDBLister) addSubnetGroups(names []string) {
 // The default ones, which AWS provides and which can't be changed, are
 // named "default.<family>": the catalogue skips them, with their reason.
 func (g *DocDBLister) listClusterParameterGroups(ctx context.Context, client *docdb.Client) error {
-	p := docdb.NewDescribeDBClusterParameterGroupsPaginator(client, &docdb.DescribeDBClusterParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, docdb.NewDescribeDBClusterParameterGroupsPaginator(client, &docdb.DescribeDBClusterParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

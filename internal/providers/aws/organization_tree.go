@@ -46,9 +46,7 @@ func (g *OrganizationLister) list() error {
 		return err
 	}
 
-	roots := organizations.NewListRootsPaginator(client, &organizations.ListRootsInput{}, stopOnDuplicateToken)
-	for roots.HasMorePages() {
-		page, err := roots.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), organizations.NewListRootsPaginator(client, &organizations.ListRootsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -61,9 +59,7 @@ func (g *OrganizationLister) list() error {
 
 	var parts harvest.Parts
 	input := &organizations.ListPoliciesInput{Filter: orgtypes.PolicyTypeServiceControlPolicy}
-	policies := organizations.NewListPoliciesPaginator(client, input, stopOnDuplicateToken)
-	for policies.HasMorePages() {
-		page, err := policies.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), organizations.NewListPoliciesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return parts.Fail(err)
 		}
@@ -106,8 +102,7 @@ func (g *OrganizationLister) addOrganization(config aws.Config, client *organiza
 func (g *OrganizationLister) walk(client *organizations.Client, parent string) error {
 	accounts := organizations.NewListAccountsForParentPaginator(client,
 		&organizations.ListAccountsForParentInput{ParentId: aws.String(parent)}, stopOnDuplicateToken)
-	for accounts.HasMorePages() {
-		page, err := accounts.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), accounts) {
 		if err != nil {
 			return fmt.Errorf("accounts of %s: %w", parent, err)
 		}
@@ -120,8 +115,7 @@ func (g *OrganizationLister) walk(client *organizations.Client, parent string) e
 
 	units := organizations.NewListOrganizationalUnitsForParentPaginator(client,
 		&organizations.ListOrganizationalUnitsForParentInput{ParentId: aws.String(parent)}, stopOnDuplicateToken)
-	for units.HasMorePages() {
-		page, err := units.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), units) {
 		if err != nil {
 			return fmt.Errorf("organizational units of %s: %w", parent, err)
 		}
@@ -153,8 +147,7 @@ func (g *OrganizationLister) addPolicy(client *organizations.Client, policy orgt
 	}
 	targets := organizations.NewListTargetsForPolicyPaginator(client,
 		&organizations.ListTargetsForPolicyInput{PolicyId: policy.Id}, stopOnDuplicateToken)
-	for targets.HasMorePages() {
-		page, err := targets.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), targets) {
 		if err != nil {
 			return fmt.Errorf("targets of policy %s: %w", policyName, err)
 		}

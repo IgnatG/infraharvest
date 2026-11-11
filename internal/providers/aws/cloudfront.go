@@ -42,9 +42,7 @@ func (g *CloudFrontLister) list() error {
 // listDistributions lists the distributions. Each records retain_on_delete
 // as false, the provider's default.
 func (g *CloudFrontLister) listDistributions(svc *cloudfront.Client) error {
-	p := cloudfront.NewListDistributionsPaginator(svc, &cloudfront.ListDistributionsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudfront.NewListDistributionsPaginator(svc, &cloudfront.ListDistributionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

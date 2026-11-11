@@ -58,9 +58,7 @@ func (g *Ec2Lister) list() error {
 	// cpuOptions has, by index in g.Resources, the CPU options of each
 	// instance listed, with its type.
 	cpuOptions := map[int]*types.Instance{}
-	pages := ec2.NewDescribeInstancesPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeInstancesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -109,9 +107,7 @@ func (g *Ec2Lister) recordDefaultCPUOptions(ctx context.Context, client *ec2.Cli
 	vcpus := map[types.InstanceType]*types.VCpuInfo{}
 	// DescribeInstanceTypes takes up to 100 types a call.
 	for batch := range slices.Chunk(instanceTypes, 100) {
-		pages := ec2.NewDescribeInstanceTypesPaginator(client, &ec2.DescribeInstanceTypesInput{InstanceTypes: batch}, stopOnDuplicateToken)
-		for pages.HasMorePages() {
-			page, err := pages.NextPage(ctx)
+		for page, err := range pagesOf(ctx, ec2.NewDescribeInstanceTypesPaginator(client, &ec2.DescribeInstanceTypesInput{InstanceTypes: batch}, stopOnDuplicateToken)) {
 			if err != nil {
 				log.Printf("aws: ec2_instance: instance types: %v; the configuration keeps the instances' CPU options", err)
 				return

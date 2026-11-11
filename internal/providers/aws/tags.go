@@ -217,9 +217,7 @@ func readTagPages(ctx context.Context, client *resourcegroupstaggingapi.Client, 
 	if len(filters) > 0 {
 		input.ResourceTypeFilters = filters
 	}
-	pages := resourcegroupstaggingapi.NewGetResourcesPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, resourcegroupstaggingapi.NewGetResourcesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

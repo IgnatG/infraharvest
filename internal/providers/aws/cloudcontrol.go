@@ -107,9 +107,7 @@ func (g *CloudControlLister) listTypes() error {
 // Cloud Control can't list there, which has no list handler, is logged and
 // lists nothing.
 func (g *CloudControlLister) listType(ctx context.Context, client cloudcontrol.ListResourcesAPIClient, t cloudControlType) error {
-	p := cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, cloudcontrol.NewListResourcesPaginator(client, &cloudcontrol.ListResourcesInput{TypeName: aws.String(t.CloudFormation)}, stopOnDuplicateToken)) {
 		var notFound *cctypes.TypeNotFoundException
 		if errors.As(err, &notFound) {
 			// Not every region offers every type.

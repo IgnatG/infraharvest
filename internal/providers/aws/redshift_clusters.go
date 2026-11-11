@@ -49,9 +49,7 @@ func (g *RedshiftLister) list() error {
 
 // listClusters records every cluster by its identifier.
 func (g *RedshiftLister) listClusters(client *redshift.Client) error {
-	p := redshift.NewDescribeClustersPaginator(client, &redshift.DescribeClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClustersPaginator(client, &redshift.DescribeClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -67,9 +65,7 @@ func (g *RedshiftLister) listClusters(client *redshift.Client) error {
 // ones AWS provides ("default.redshift-1.0") included: the catalogue skips
 // them, with their reason.
 func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
-	p := redshift.NewDescribeClusterParameterGroupsPaginator(client, &redshift.DescribeClusterParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClusterParameterGroupsPaginator(client, &redshift.DescribeClusterParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -84,9 +80,7 @@ func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
 // listSubnetGroups records every subnet group by name, the one named
 // "default" included.
 func (g *RedshiftLister) listSubnetGroups(client *redshift.Client) error {
-	p := redshift.NewDescribeClusterSubnetGroupsPaginator(client, &redshift.DescribeClusterSubnetGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClusterSubnetGroupsPaginator(client, &redshift.DescribeClusterSubnetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -101,9 +95,7 @@ func (g *RedshiftLister) listSubnetGroups(client *redshift.Client) error {
 // listEventSubscriptions records every event subscription by its name
 // (CustSubscriptionId), which is what Terraform imports it by.
 func (g *RedshiftLister) listEventSubscriptions(client *redshift.Client) error {
-	p := redshift.NewDescribeEventSubscriptionsPaginator(client, &redshift.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeEventSubscriptionsPaginator(client, &redshift.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -120,9 +112,7 @@ func (g *RedshiftLister) listEventSubscriptions(client *redshift.Client) error {
 // Terraform's import ID "<cluster>/<schedule>" and named
 // "<cluster>_<schedule>".
 func (g *RedshiftLister) listSnapshotSchedules(client *redshift.Client) error {
-	p := redshift.NewDescribeSnapshotSchedulesPaginator(client, &redshift.DescribeSnapshotSchedulesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeSnapshotSchedulesPaginator(client, &redshift.DescribeSnapshotSchedulesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -39,9 +39,7 @@ func (g *ACMLister) list() error {
 		return err
 	}
 	client := acm.NewFromConfig(config)
-	p := acm.NewListCertificatesPaginator(client, &acm.ListCertificatesInput{Includes: &types.Filters{KeyTypes: types.KeyAlgorithm("").Values()}}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), acm.NewListCertificatesPaginator(client, &acm.ListCertificatesInput{Includes: &types.Filters{KeyTypes: types.KeyAlgorithm("").Values()}}, stopOnDuplicateToken)) {
 		if err != nil {
 			return fmt.Errorf("acm: certificates: %w", err)
 		}
