@@ -284,13 +284,19 @@ func (s *shared) recordStated(dir string, m engine.Managed) {
 	defer s.mu.Unlock()
 	if s.stated == nil {
 		s.stated = map[string][]engine.Managed{}
+		s.statedSeen = map[string]map[[2]string]bool{}
 	}
 	dir = filepath.Clean(dir)
-	for _, had := range s.stated[dir] {
-		if had.Type == m.Type && had.ID == m.ID {
-			return
-		}
+	key := [2]string{m.Type, m.ID}
+	seen := s.statedSeen[dir]
+	if seen == nil {
+		seen = map[[2]string]bool{}
+		s.statedSeen[dir] = seen
 	}
+	if seen[key] {
+		return
+	}
+	seen[key] = true
 	s.stated[dir] = append(s.stated[dir], m)
 }
 

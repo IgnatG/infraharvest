@@ -128,6 +128,9 @@ type shared struct {
 	// resources, as their own state, which --managed-state reads, says,
 	// by root directory (see excludeManaged and previousAddressesOf).
 	stated map[string][]engine.Managed
+	// statedSeen are the type and ID of each of stated, by directory, so
+	// that recordStated finds one already there without a scan.
+	statedSeen map[string]map[[2]string]bool
 
 	// scopes are the accounts, subscriptions or projects the command
 	// imports, where it names them (see Run.importEach); none where it imports
