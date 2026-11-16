@@ -40,7 +40,7 @@ type lambdaResourcePolicy struct {
 // without a resource policy simply has no permissions. A function whose
 // permissions or event invoke configs can't be read is still recorded,
 // with what was read of them, and the failure makes the listing partial (see
-// harvest.Parts); one deleted since it was listed has none. Any other
+// harvest.Parts); one deleted since it was listed is left out. Any other
 // error fails the service.
 func (g *LambdaLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -73,7 +73,8 @@ func (g *LambdaLister) list() error {
 // the list answers already, are added to used. The functions of a page are
 // read resourceParallel at a time, as each takes two calls of its
 // own, and recorded in the page's order; a function whose calls fail is
-// recorded with what they read before the failure, which goes to parts.
+// recorded with what they read before the failure, which goes to parts; one
+// they say is gone is left out.
 func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool, parts *harvest.Parts) error {
 	for page, err := range pagesOf(g.Context(), lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
@@ -87,6 +88,9 @@ func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool, pa
 		})
 		for i, function := range page.Functions {
 			arn, name := aws.ToString(function.FunctionArn), aws.ToString(function.FunctionName)
+			if isGone(errs[i]) {
+				continue
+			}
 			for _, layer := range function.Layers {
 				used[aws.ToString(layer.Arn)] = true
 			}

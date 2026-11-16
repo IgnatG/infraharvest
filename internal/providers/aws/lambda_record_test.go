@@ -129,3 +129,32 @@ func TestRecordLambdaReturnsErrors(t *testing.T) {
 		})
 	}
 }
+
+// A function deleted since it was listed, which its event invoke configs
+// answer ResourceNotFoundException for, is left out with its permissions
+// and no failure; the other function is listed, and the layer only the
+// deleted function used isn't, as no function uses its older version.
+// Failing to read them any other way keeps the function (see TestItemFailures).
+func TestRecordLambdaLeavesOutFunctionDeletedSinceListed(t *testing.T) {
+	t.Parallel()
+	ctx := useFakeAPI(t, recordLambdaAPI(t, map[string]string{
+		"/2019-09-25/functions/resize/event-invoke-config/list": recordJSONError("ResourceNotFoundException"),
+	}))
+	g := &LambdaLister{}
+
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
+	if err != nil {
+		t.Fatalf("a function deleted since it was listed failed the listing: %v", err)
+	}
+
+	resize := recordLambdaARN + "function:resize"
+	assertRecorded(t, resources,
+		recordedResource{"aws_lambda_function", recordLambdaARN + "function:report", "report", map[string]string{"function_name": "report"}},
+		recordedResource{"aws_lambda_event_source_mapping", "uuid-1", "uuid-1", map[string]string{
+			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-1", "function_name": resize}},
+		recordedResource{"aws_lambda_event_source_mapping", "uuid-2", "uuid-2", map[string]string{
+			"event_source_arn": "arn:aws:sqs:us-east-1:123456789012:uuid-2", "function_name": resize}},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:deps:3", "deps 3", nil},
+		recordedResource{"aws_lambda_layer_version", recordLambdaARN + "layer:tools:1", "tools 1", nil},
+	)
+}

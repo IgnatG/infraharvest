@@ -138,6 +138,7 @@ func (g *OrganizationLister) walk(client *organizations.Client, parent string) e
 func (g *OrganizationLister) addPolicy(client *organizations.Client, policy orgtypes.PolicySummary) error {
 	policyID, policyName := aws.ToString(policy.Id), aws.ToString(policy.Name)
 	awsManaged := strconv.FormatBool(policy.AwsManaged)
+	mark := len(g.Resources)
 	g.Resources = append(g.Resources, harvest.Record(policyID, policyName, "aws_organizations_policy", "aws",
 		map[string]string{"id": policyID, "arn": aws.ToString(policy.Arn), "aws_managed": awsManaged}))
 
@@ -149,6 +150,9 @@ func (g *OrganizationLister) addPolicy(client *organizations.Client, policy orgt
 		&organizations.ListTargetsForPolicyInput{PolicyId: policy.Id}, stopOnDuplicateToken)
 	for page, err := range pagesOf(g.Context(), targets) {
 		if err != nil {
+			if dropIfGone(&g.Resources, mark, err) {
+				return nil
+			}
 			return fmt.Errorf("targets of policy %s: %w", policyName, err)
 		}
 		for _, target := range page.Targets {

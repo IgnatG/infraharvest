@@ -16,7 +16,8 @@ const recordEcrRepo = "arn:aws:ecr:us-east-1:123456789012:repository/"
 // The lister lists repositories by name, across pages, each followed by
 // its repository policy and its lifecycle policy, both by the repository's
 // name, when reading them succeeds. ECR's answer that there is no such
-// policy, or no longer such a repository, means there is none; any other
+// policy means there is none, and that there is no longer such a repository
+// (RepositoryNotFoundException) leaves the repository out; any other
 // error is returned as a partial one, naming the repository, and the other
 // repositories are still listed.
 func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
@@ -73,7 +74,6 @@ func TestRecordEcrListsRepositoriesAndPolicies(t *testing.T) {
 		recordedResource{"aws_ecr_lifecycle_policy", "api", "api", nil},
 		recordedResource{"aws_ecr_repository", "tools/legacy", "tools/legacy", nil},
 		recordedResource{"aws_ecr_repository_policy", "tools/legacy", "tools/legacy", nil},
-		recordedResource{"aws_ecr_repository", "gone", "gone", nil},
 	)
 }
 

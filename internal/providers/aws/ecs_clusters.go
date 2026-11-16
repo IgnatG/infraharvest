@@ -58,8 +58,9 @@ func (g *EcsLister) listClusters(client *ecs.Client) error {
 		}
 		for _, clusterARN := range page.ClusterArns {
 			clusterName := arnName(clusterARN)
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.RecordBare(clusterARN, clusterName, "aws_ecs_cluster", "aws"))
-			g.listServices(client, clusterARN, clusterName)
+			dropIfGone(&g.Resources, mark, g.listServices(client, clusterARN, clusterName))
 		}
 	}
 	return nil
@@ -75,18 +76,23 @@ const ecsListServicesPageSize = 100
 
 // listServices records the services of the cluster clusterARN, listing
 // them ecsListServicesPageSize to a page and describing them ten at a time.
-// An error is gathered and ends the cluster's services: the cluster stays.
-func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName string) {
+// An error is gathered and ends the cluster's services: the cluster stays,
+// unless the error says it is gone, which is returned for the cluster to be
+// left out.
+func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName string) error {
 	input := &ecs.ListServicesInput{Cluster: aws.String(clusterARN), MaxResults: aws.Int32(ecsListServicesPageSize)}
 	for page, err := range pagesOf(g.Context(), ecs.NewListServicesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			g.parts.Add(awsCodes, "services of cluster "+clusterARN, err)
-			return
+			return err
 		}
 		for batch := range slices.Chunk(page.ServiceArns, ecsDescribeServicesLimit) {
-			g.addServices(client, clusterARN, clusterName, batch)
+			if err := g.addServices(client, clusterARN, clusterName, batch); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // addServices describes the services serviceARNs of the cluster clusterARN
@@ -95,15 +101,18 @@ func (g *EcsLister) listServices(client *ecs.Client, clusterARN, clusterName str
 // are recorded too, for Terraform's import ID "<cluster>/<service>". When
 // the description fails, it is gathered and the services are left out; a
 // service the answer doesn't describe, one deleted since it was listed, is
-// logged and left out.
-func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName string, serviceARNs []string) {
+// logged and left out. An error that says the cluster is gone is returned.
+func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName string, serviceARNs []string) error {
 	out, err := client.DescribeServices(g.Context(), &ecs.DescribeServicesInput{
 		Cluster:  aws.String(clusterARN),
 		Services: serviceARNs,
 	})
 	if err != nil {
 		g.parts.Add(awsCodes, "services "+strings.Join(serviceARNs, ", "), err)
-		return
+		if isGone(err) {
+			return err
+		}
+		return nil
 	}
 	described := map[string]types.Service{}
 	for _, service := range out.Services {
@@ -125,6 +134,7 @@ func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName stri
 		recordTargetGroups(attributes, ecsServiceTargetGroups(service))
 		g.Resources = append(g.Resources, harvest.Record(serviceARN, clusterName+"_"+serviceName, "aws_ecs_service", "aws", attributes))
 	}
+	return nil
 }
 
 // latestTaskDefinition is the highest revision of a task definition family
