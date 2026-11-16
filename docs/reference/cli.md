@@ -263,7 +263,7 @@ infraharvest export [output-directory] [flags]
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
-| `--schema` | `inventory` | document to write: inventory, run, gate |
+| `--schema` | `inventory` | document to write: inventory, run, gate, graph |
 | `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
 
 ## infraharvest import
