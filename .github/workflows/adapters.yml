@@ -133,11 +133,14 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Read the engine versions from the Dockerfile
+        id: versions
+        run: .github/scripts/engine-versions.sh >> "$GITHUB_OUTPUT"
       - name: Install Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_wrapper: false
-          terraform_version: 1.17.0
+          terraform_version: ${{ steps.versions.outputs.terraform }}
       - name: Count the providers' list resources
         run: go run ./internal/catalogue/cmd/listcoverage -json "$RUNNER_TEMP/list-coverage.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the counts
