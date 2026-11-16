@@ -13,6 +13,9 @@ locals {
   state_reads = concat(["s3:GetObject", "s3:GetObjectTorrent", "s3:GetObjectVersion"], var.state_kms_key_arn == null ? [] : ["kms:Decrypt"])
   # The read-only role's deny on data reads, in permissions/aws.
   data_reads = jsondecode(file("${path.module}/../aws/deny-data-reads.json")).Statement[0].Action
+  # The data reads this role may make all the same: CloudTrail's event
+  # history, with allow_change_history, for drift --last-change.
+  allowed_reads = var.allow_change_history ? ["cloudtrail:LookupEvents"] : []
 }
 
 # Trusts the principals listed, and GitHub Actions workflows whose OIDC
@@ -146,7 +149,7 @@ data "aws_iam_policy_document" "deny_data_reads" {
   statement {
     sid       = "DenyDataPlaneReads"
     effect    = "Deny"
-    actions   = [for action in local.data_reads : action if !contains(local.state_reads, action)]
+    actions   = [for action in local.data_reads : action if !contains(concat(local.state_reads, local.allowed_reads), action)]
     resources = ["*"]
   }
 

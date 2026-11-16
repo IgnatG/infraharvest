@@ -169,6 +169,25 @@ type DriftChange struct {
 	// ForcesReplacement says the next apply would replace the resource to
 	// put the code's value back.
 	ForcesReplacement bool `json:"forces_replacement,omitempty"`
+	// LastChange is, with --last-change, the newest change the cloud's
+	// audit log records of the resource: who changed it, how and when.
+	LastChange *DriftLastChange `json:"last_change,omitempty"`
+	// IDs are what the state records the resource as, which the audit log
+	// is searched for; not written.
+	IDs []string `json:"-"`
+}
+
+// DriftLastChange is a change of a resource that a cloud's audit log, such
+// as AWS CloudTrail, records.
+type DriftLastChange struct {
+	// By is who made it: the user, role session or service the log names.
+	By string `json:"by"`
+	// Call is the API call, such as AuthorizeSecurityGroupIngress.
+	Call string `json:"call"`
+	// At is when, in UTC, RFC 3339.
+	At string `json:"at"`
+	// Log is the audit log, such as CloudTrail.
+	Log string `json:"log"`
 }
 
 // DriftSource is where a root's code sets an attribute.
@@ -378,6 +397,9 @@ func driftLine(c DriftChange) string {
 	}
 	if c.Reason != "" {
 		fmt.Fprintf(&b, "; %s", mdtext.Prose(c.Reason))
+	}
+	if l := c.LastChange; l != nil {
+		fmt.Fprintf(&b, "; last changed by %s with %s at %s (%s)", mdtext.Code(l.By), mdtext.Code(l.Call), l.At, mdtext.Prose(l.Log))
 	}
 	if c.DecisionStale {
 		b.WriteString("; it changed again since its entry in the decisions file was decided, so that decision wasn't applied: decide it again")

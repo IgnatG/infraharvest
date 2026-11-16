@@ -111,7 +111,7 @@ Creates the `infraharvest-drift` role, for the S3 backend:
 
 - **Trust** and **`ReadOnlyAccess`:** as the read-only role, with the same `trusted_principal_arns`, `github_oidc_subjects` and `create_github_oidc_provider` (see [GitHub Actions](#github-actions)), but `github_oidc_subjects` refuses `pull_request` and `repo:<owner>/<repository>:*` (see above).
 - **`read-state`:** `s3:ListBucket` on the state's bucket and `s3:GetObject` on the roots' state keys, `<key_prefix>/<root path>/terraform.tfstate`, and `kms:Decrypt` on the state's key when the backend sets `kms_key_id`.
-- **`deny-data-reads`:** the read-only role's [`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json), read from `permissions/aws`, with the object reads (and `kms:Decrypt`, with a state key) denied everywhere but the state instead.
+- **`deny-data-reads`:** the read-only role's [`deny-data-reads.json`](https://github.com/IgnatG/infraharvest/blob/main/permissions/aws/deny-data-reads.json), read from `permissions/aws`, with the object reads (and `kms:Decrypt`, with a state key) denied everywhere but the state instead. `-var allow_change_history=true` lifts the deny on `cloudtrail:LookupEvents` alone, for [`drift --last-change`](drift.md#who-changed-it): CloudTrail's events hold the parameters of the calls they record, which can include data, so it stays denied unless you want drift to say who changed what.
 
 ```sh
 cd permissions/aws-drift

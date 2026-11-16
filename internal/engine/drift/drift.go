@@ -238,6 +238,11 @@ type Change struct {
 	// once. Type is then "".
 	Covers []string
 
+	// IDs are what the state records the resource as, to find it in the
+	// cloud's audit log: its id, and its arn or self_link where it has one
+	// (see stateIDs). None for a change of Covers.
+	IDs []string
+
 	// value is the cloud's value, and sensitive whether the plans mark
 	// it sensitive: for the edit that accepts it, never for a report.
 	value     any
@@ -852,7 +857,7 @@ func classifyDrift(refresh, code *tfjson.Plan, stateOnly map[string][]string, pl
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil || importing[rc.Address] {
 			continue
 		}
-		base := Change{Address: rc.Address, Type: rc.Type, ModuleAddress: rc.ModuleAddress}
+		base := Change{Address: rc.Address, Type: rc.Type, ModuleAddress: rc.ModuleAddress, IDs: stateIDs(rc.Change.Before)}
 		p := planned[rc.Address]
 		if rc.Change.Actions.Delete() {
 			c := base
@@ -1148,4 +1153,24 @@ func at(list []any, i int) any {
 		return list[i]
 	}
 	return nil
+}
+
+// idAttributes are the attributes of a resource's state that identify it
+// to its cloud's audit log, in the order stateIDs gives them.
+var idAttributes = []string{"id", "arn", "self_link"}
+
+// stateIDs returns the values of idAttributes the state value before has,
+// each once: what an audit log may name the resource by.
+func stateIDs(before any) []string {
+	values, ok := before.(map[string]any)
+	if !ok {
+		return nil
+	}
+	var ids []string
+	for _, name := range idAttributes {
+		if id, ok := values[name].(string); ok && id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

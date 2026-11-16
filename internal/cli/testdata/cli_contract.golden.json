@@ -1007,6 +1007,13 @@
         "persistent": false
       },
       {
+        "name": "last-change",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
         "name": "out",
         "shorthand": "o",
         "type": "string",
