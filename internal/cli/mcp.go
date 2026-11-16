@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -93,10 +92,13 @@ func childEnv(env []string) []string {
 const childWaitDelay = 30 * time.Second
 
 // execRunner runs binary with the tool's arguments. Its standard output
-// is the protocol's, so the tools never write to it directly.
+// is the protocol's, so the tools never write to it directly. What the
+// child prints is kept as mcpserver.ChildOutput keeps it: its standard
+// output up to a bound, and the last lines of its standard error, each
+// passed to progress as it comes.
 func execRunner(binary string) mcpserver.Runner {
-	return func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
-		var stdout, stderr bytes.Buffer
+	return func(ctx context.Context, args []string, progress func(string)) ([]byte, []byte, int, error) {
+		output := mcpserver.NewChildOutput(progress)
 		c := exec.CommandContext(ctx, binary, args...)
 		c.Env = childEnv(os.Environ())
 		// An interrupt lets the child stop as on Ctrl+C, removing the
@@ -109,16 +111,20 @@ func execRunner(binary string) mcpserver.Runner {
 			return c.Process.Signal(os.Interrupt)
 		}
 		c.WaitDelay = childWaitDelay
-		c.Stdout, c.Stderr = &stdout, &stderr
+		c.Stdout, c.Stderr = output.Stdout(), output.Stderr()
 		err := c.Run()
+		stdout, stderr, tooMuch := output.Result()
 		if ctx.Err() != nil {
 			// The child was killed: its exit code says nothing.
-			return stdout.Bytes(), stderr.Bytes(), 0, ctx.Err()
+			return stdout, stderr, 0, ctx.Err()
+		}
+		if tooMuch != nil {
+			return nil, stderr, 0, tooMuch
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return stdout.Bytes(), stderr.Bytes(), exitErr.ExitCode(), nil
+			return stdout, stderr, exitErr.ExitCode(), nil
 		}
-		return stdout.Bytes(), stderr.Bytes(), 0, err
+		return stdout, stderr, 0, err
 	}
 }

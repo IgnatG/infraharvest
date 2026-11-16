@@ -167,7 +167,7 @@ func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInp
 	}); asked != nil {
 		return asked, nil, nil
 	}
-	d, code, failed, err := t.runDrift(ctx, withRootsDigest(config.run(args), roots), "drift")
+	d, code, failed, err := t.runDrift(ctx, req, withRootsDigest(config.run(args), roots), "drift")
 	if err != nil || failed != nil {
 		return failed, nil, err
 	}
@@ -238,14 +238,14 @@ func (t *tools) driftAccept(ctx context.Context, req *mcp.CallToolRequest, in Dr
 		return asked, nil, nil
 	}
 	if in.Decisions == "" {
-		return t.finishDrift(ctx, withRootsDigest(config.run(shown), roots), in, target, nil, nil)
+		return t.finishDrift(ctx, req, withRootsDigest(config.run(shown), roots), in, target, nil, nil)
 	}
 	snapshot, err := newSnapshot(filepath.Base(in.Decisions), content)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer snapshot.remove()
-	return t.finishDrift(ctx, withRootsDigest(config.run(append(args, "--decisions="+snapshot.path, "--", in.Out)), roots), in, target, snapshot, content)
+	return t.finishDrift(ctx, req, withRootsDigest(config.run(append(args, "--decisions="+snapshot.path, "--", in.Out)), roots), in, target, snapshot, content)
 }
 
 // withRootsDigest returns args, a drift run's ending in -- and the output
@@ -375,8 +375,8 @@ func quoteAll(values []string) string {
 // private copy of the decisions file whose content the user confirmed,
 // that write_decisions writes into, the merged file is copied back to
 // in.Decisions, unless that changed meanwhile.
-func (t *tools) finishDrift(ctx context.Context, args []string, in DriftAcceptInput, target string, copied *snapshot, content []byte) (*mcp.CallToolResult, *DriftResult, error) {
-	d, code, failed, err := t.runDrift(ctx, args, "drift")
+func (t *tools) finishDrift(ctx context.Context, req *mcp.CallToolRequest, args []string, in DriftAcceptInput, target string, copied *snapshot, content []byte) (*mcp.CallToolResult, *DriftResult, error) {
+	d, code, failed, err := t.runDrift(ctx, req, args, "drift")
 	if err != nil || failed != nil {
 		return failed, nil, err
 	}
@@ -434,9 +434,10 @@ func (t *tools) copyBackDecisions(copied *snapshot, target string, content []byt
 
 // runDrift runs drift with args and reads the drift.json it prints. When
 // it printed none, as when it couldn't run, it returns an error result
-// that says what stopped it; what names the run there.
-func (t *tools) runDrift(ctx context.Context, args []string, what string) (*report.Drift, int, *mcp.CallToolResult, error) {
-	stdout, stderr, code, err := t.run(ctx, args)
+// that says what stopped it; what names the run there. The lines drift
+// logs go to the client as progress, where req asks for it.
+func (t *tools) runDrift(ctx context.Context, req *mcp.CallToolRequest, args []string, what string) (*report.Drift, int, *mcp.CallToolResult, error) {
+	stdout, stderr, code, err := t.runReporting(ctx, req, args)
 	if err != nil {
 		return nil, 0, nil, err
 	}

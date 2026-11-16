@@ -36,7 +36,7 @@ type parsingRunner struct {
 	errs []error
 }
 
-func (p *parsingRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
+func (p *parsingRunner) run(_ context.Context, args []string, _ func(string)) ([]byte, []byte, int, error) {
 	cmd, rest, err := NewCmdRoot().Find(args)
 	if err == nil && cmd.HasSubCommands() {
 		err = fmt.Errorf("%v names no command that runs", args)
@@ -368,7 +368,7 @@ func TestMCPImportChecksBeforeAsking(t *testing.T) {
 	if err := (&selection.File{Version: selection.Version}).Save(selectionFile); err != nil {
 		t.Fatal(err)
 	}
-	run := func(context.Context, []string) ([]byte, []byte, int, error) {
+	run := func(context.Context, []string, func(string)) ([]byte, []byte, int, error) {
 		t.Error("an import the checks refuse ran")
 		return nil, nil, 2, nil
 	}

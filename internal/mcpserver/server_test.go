@@ -93,7 +93,7 @@ func newTools(runner *fakeRunner, root string) *tools {
 	return &tools{run: runner.run, check: runner.check, providers: compiled, root: root}
 }
 
-func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
+func (f *fakeRunner) run(_ context.Context, args []string, _ func(string)) ([]byte, []byte, int, error) {
 	f.readConfig(args)
 	args = slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		digest, ok := strings.CutPrefix(a, "--roots-digest=")

@@ -224,7 +224,7 @@ func TestCloudFormationStackFromConfig(t *testing.T) {
 func TestMCPDiscoverCloudFormationStack(t *testing.T) {
 	requests := cfnAWS(t)
 	root := t.TempDir()
-	run := func(ctx context.Context, args []string) ([]byte, []byte, int, error) {
+	run := func(ctx context.Context, args []string, _ func(string)) ([]byte, []byte, int, error) {
 		return nil, nil, runRoot(ctx, args...), nil
 	}
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
