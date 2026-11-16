@@ -66,7 +66,7 @@ cloud_of() {
     e2e/testdata/azure/* | e2e/testdata/azure-*) echo azure ;;
     e2e/*.go)
       if [ -f "$1" ]; then
-        sed -n 's/^\/\/go:build .*(!minimal || \(aws\|google\|azure\))$/\1/p;/^package /q' "$1"
+        sed -En 's/^\/\/go:build .*\(!minimal \|\| (aws|google|azure)\)$/\1/p;/^package /q' "$1"
       fi
       ;;
   esac
