@@ -105,6 +105,9 @@ inputs:
   control-plane-optional:
     description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
     default: "false"
+  sign-evidence:
+    description: After the import, write infraharvest export's documents (inventory without tags, run, gate and, where the release has it, graph) to _reports/evidence in the out directory, with a SHA256SUMS file of them and of the report, signed keylessly with the job's identity (SHA256SUMS.sigstore.json), so that the pull request or commit carries evidence anyone can verify with cosign. Needs id-token write permission.
+    default: "false"
 
 outputs:
   exit-code:
@@ -131,6 +134,9 @@ outputs:
   control-plane-run-id:
     description: The run_id of the run document the control plane accepted (all three documents sent); empty without control-plane-url, or when the upload failed or was skipped.
     value: ${{ steps.control-plane.outputs.control-plane-run-id }}
+  evidence-dir:
+    description: The directory of the signed evidence (sign-evidence); empty when it wasn't signed.
+    value: ${{ steps.evidence.outputs.evidence-dir }}
 
 runs:
   using: composite
@@ -156,6 +162,7 @@ runs:
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
+        SIGN_EVIDENCE: ${{ inputs.sign-evidence }}
       # Only what must be checked before infraharvest is installed, or what
       # the action itself makes of its inputs: infraharvest checks the
       # provider and the import's flags (see Check the import), such as
@@ -174,7 +181,7 @@ runs:
         fi
         # Every boolean input, as name=value: one that is neither true nor
         # false would otherwise be taken as false.
-        for input in "import=$IMPORT" "incremental=$INCREMENTAL" "allow-partial=$ALLOW_PARTIAL" "pull-request=$PULL_REQUEST" "commit=$COMMIT"; do
+        for input in "import=$IMPORT" "incremental=$INCREMENTAL" "allow-partial=$ALLOW_PARTIAL" "pull-request=$PULL_REQUEST" "commit=$COMMIT" "sign-evidence=$SIGN_EVIDENCE"; do
           case "${input#*=}" in
             true | false) ;;
             *) fail "${input%%=*} must be true or false, got '${input#*=}'" ;;
@@ -186,6 +193,9 @@ runs:
         esac
         if [[ "$IMPORT" == false && "$DRIFT" == off ]]; then
           fail "nothing to do: set import to true, or drift to report or accept"
+        fi
+        if [[ "$SIGN_EVIDENCE" == true && "$IMPORT" != true ]]; then
+          fail "sign-evidence signs an import's report: set import to true"
         fi
         # Drift runs on the roots the repository has; the import then has
         # to add to them rather than fail on them.
@@ -240,7 +250,7 @@ runs:
         bash "$GITHUB_ACTION_PATH/control-plane.sh" check
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      if: inputs.binary == ''
+      if: inputs.binary == '' || inputs.sign-evidence == 'true'
     - name: Install infraharvest
       if: inputs.binary == ''
       shell: bash
@@ -472,6 +482,18 @@ runs:
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"
         fi
+    # After a successful import, before the pull request or the commit,
+    # which carry the evidence in the out directory.
+    - name: Sign the evidence
+      id: evidence
+      if: inputs.sign-evidence == 'true'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        OUT: ${{ inputs.out }}
+        STARTED_AT: ${{ steps.import.outputs.started-at }}
+        FINISHED_AT: ${{ steps.import.outputs.finished-at }}
+      run: bash "$GITHUB_ACTION_PATH/evidence.sh"
     # With commit too: the commit takes the pull request's message and
     # paths.
     - name: Pull request details

@@ -198,6 +198,23 @@ jobs:
 
 A `repository_dispatch` run always runs the workflow on the default branch and checks out that branch, so the import reads the selection as merged. The selection path reaches the action only as an input, never through a `run:` script, so a payload can't inject commands. To ignore the payload altogether, set `selection` to a fixed path. Leave out `repository_dispatch` to keep imports to the schedule and to runs started by hand.
 
+## Signed evidence
+
+Off by default. With `sign-evidence: "true"`, after a successful import, the action writes [`infraharvest export`'s documents](../docs/export.md) to `_reports/evidence/` in `out`: the inventory, without tags (the evidence is committed, and the tags of what wasn't imported aren't the repository's), the run, the gate and, from a release that has it, the graph. It writes a `SHA256SUMS` file of them and of the report (`report.json`, `report.md`), and signs it with [cosign](https://docs.sigstore.dev/), keylessly, as the job: `SHA256SUMS.sigstore.json` holds the signature, the certificate GitHub's OIDC identity got for this workflow run, and its entry in Sigstore's public transparency log. The pull request or the commit carries them with the configuration.
+
+Anyone can then check, from the repository alone, which workflow, at which commit, wrote the report and the documents, and that they are as it wrote them:
+
+```sh
+cd infrastructure/_reports/evidence
+cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/<owner>/<repository>/\.github/workflows/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+sha256sum --check SHA256SUMS
+```
+
+Narrow the identity to the workflow file and branch that import, such as `--certificate-identity https://github.com/<owner>/<repository>/.github/workflows/infraharvest.yml@refs/heads/main`. The job needs `id-token: write`; without it the step says so and fails. Each run replaces the directory, so it always holds one run's evidence. The signature is recorded in Sigstore's public log, which shows the repository's name and the workflow: don't turn it on for a repository whose name is private.
+
 ## Drift
 
 Once the roots are applied, people still change things in the cloud. With `drift` set, the action runs [`infraharvest drift`](../docs/drift.md) on the roots in `out` before importing: it refreshes each root once, with read access to its state, and reports which changes the next `terraform apply` would revert. The report, `drift.md`, goes into the job summary, and the `drift-found` output says whether drift is left.
@@ -431,6 +448,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `control-plane-hash-ids` | `false` | With `control-plane-url`, hash IDs and names in the inventory; needs `control-plane-hash-key` or `INFRAHARVEST_EXPORT_KEY` |
 | `control-plane-hash-key` | | The key `control-plane-hash-ids` hashes with, from a secret |
 | `control-plane-optional` | `false` | Warn, rather than fail, when the export or the upload fails |
+| `sign-evidence` | `false` | Write the export documents and a signed `SHA256SUMS` of them and the report to `_reports/evidence/` in `out` (see [Signed evidence](#signed-evidence)). Needs `id-token: write` and `import: "true"` |
 
 ## Outputs
 
@@ -444,3 +462,4 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `pull-request-url` | URL of the pull request, if one was opened |
 | `commit-sha` | SHA of the commit pushed with `commit`; empty when the output didn't change, or without `commit` |
 | `control-plane-run-id` | The `run_id` of the documents sent to the control plane, once all three were accepted; empty otherwise |
+| `evidence-dir` | The directory of the signed evidence, with `sign-evidence`; empty otherwise |

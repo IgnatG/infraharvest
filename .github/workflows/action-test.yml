@@ -1306,3 +1306,81 @@ jobs:
           fi
           grep -q 'detached HEAD' "$RUNNER_TEMP/detached.log"
           test "$(remote_head main)" = "$moved"
+
+  # What action/evidence.sh writes and signs, with a stub infraharvest and a
+  # stub cosign, so that it signs nothing for real: the documents, a
+  # SHA256SUMS of them and of the report that checks, the bundle, the graph
+  # left out by a release without it, and the failures without the OIDC
+  # permission and with the evidence directory a symbolic link.
+  evidence-script:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sign evidence with stubs
+        run: |
+          script="$GITHUB_WORKSPACE/action/evidence.sh"
+          stubs="$RUNNER_TEMP/stubs"
+          work="$RUNNER_TEMP/work"
+          mkdir -p "$stubs" "$work/infrastructure/_reports"
+          # export <out> --schema=<doc> --out-file=<file> [flags]: writes
+          # the document, or, with OLD=1, fails on graph as a release
+          # without it does.
+          cat > "$stubs/infraharvest" <<'EOF'
+          #!/usr/bin/env bash
+          for a in "$@"; do case "$a" in --schema=*) doc=${a#*=} ;; --out-file=*) file=${a#*=} ;; esac; done
+          printf '%s\n' "$*" >> "$LOG"
+          if [[ "$doc" == graph && "${OLD-}" == 1 ]]; then echo "unknown document \"graph\"" >&2; exit 2; fi
+          printf '{"schema":"%s"}\n' "$doc" > "$file"
+          EOF
+          # sign-blob --yes --bundle <bundle> <file>: writes the bundle.
+          cat > "$stubs/cosign" <<'EOF'
+          #!/usr/bin/env bash
+          printf '{"signed":"%s"}\n' "$5" > "$4"
+          EOF
+          chmod +x "$stubs/infraharvest" "$stubs/cosign"
+          cd "$work" || exit 1
+          printf '{"report":1}\n' > infrastructure/_reports/report.json
+          printf '# Report\n' > infrastructure/_reports/report.md
+          evidence() {
+            local name=$1
+            shift
+            : > "$RUNNER_TEMP/$name.out"
+            env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$RUNNER_TEMP/$name.out" LOG="$RUNNER_TEMP/$name.log" \
+              BINARY="$stubs/infraharvest" COSIGN="$stubs/cosign" OUT=infrastructure "$@" bash "$script"
+          }
+          dir=infrastructure/_reports/evidence
+          # The files in the evidence directory, sorted, comma-separated.
+          files() { find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort | paste -sd, -; }
+
+          # Signed: the four documents, with the inventory's tags left out
+          # and the times passed on, and a SHA256SUMS that checks.
+          evidence signed ACTIONS_ID_TOKEN_REQUEST_URL=https://token.example STARTED_AT=2026-11-09T10:00:00Z FINISHED_AT=2026-11-09T10:05:00Z
+          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,graph.json,inventory.json,run.json"
+          (cd "$dir" && sha256sum --check --quiet SHA256SUMS)
+          test "$(awk '{print $2}' "$dir/SHA256SUMS" | paste -sd, -)" = "../report.json,../report.md,inventory.json,run.json,gate.json,graph.json"
+          grep -q -- '--schema=inventory .*--drop-tags --started-at=2026-11-09T10:00:00Z' "$RUNNER_TEMP/signed.log"
+          test "$(cat "$RUNNER_TEMP/signed.out")" = "evidence-dir=$dir"
+
+          # Again, by a release without the graph: the earlier run's
+          # documents are gone, and the graph is left out.
+          evidence old ACTIONS_ID_TOKEN_REQUEST_URL=https://token.example OLD=1
+          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,inventory.json,run.json"
+          (cd "$dir" && sha256sum --check --quiet SHA256SUMS)
+
+          # Without id-token: write, and with the directory a link.
+          if evidence no-token; then
+            echo "::error::signed without the OIDC permission"
+            exit 1
+          fi
+          rm -rf "$dir"
+          ln -s "$RUNNER_TEMP" "$dir"
+          if evidence linked ACTIONS_ID_TOKEN_REQUEST_URL=https://token.example; then
+            echo "::error::signed through a link"
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/SHA256SUMS"
