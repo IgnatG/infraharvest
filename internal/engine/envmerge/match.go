@@ -86,6 +86,9 @@ type normaliser struct {
 	// token is the word var.env stands for: the token the root's values
 	// use most, as they write it (see chooseToken).
 	token string
+	// denormaliser is what denormalise replaces with, made on its first
+	// call: the fields above are set by then, and don't change after.
+	denormaliser *strings.Replacer
 }
 
 func newNormaliser(root envRoot) *normaliser {
@@ -182,7 +185,10 @@ func (n *normaliser) envValue(s string) string {
 // denormalise returns s, a value with placeholders, as n's environment
 // has it, with its chosen token for envPlaceholder.
 func (n *normaliser) denormalise(s string) string {
-	return strings.NewReplacer(envPlaceholder, n.token, accountPlaceholder, n.scope, regionPlaceholder, n.region, resourceGroupPlaceholder, n.group).Replace(s)
+	if n.denormaliser == nil {
+		n.denormaliser = strings.NewReplacer(envPlaceholder, n.token, accountPlaceholder, n.scope, regionPlaceholder, n.region, resourceGroupPlaceholder, n.group)
+	}
+	return n.denormaliser.Replace(s)
 }
 
 // label returns a block label without the words of n's tokens, scope, region

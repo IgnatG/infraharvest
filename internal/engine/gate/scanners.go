@@ -26,6 +26,19 @@ const CheckScanners = "G5 scanners"
 // scanTimeout bounds one scanner's run on one directory.
 const scanTimeout = 10 * time.Minute
 
+// scanWaitDelay is how long a scanner's output is waited for once it is
+// stopped: a process it started that keeps the output open would
+// otherwise hold the gate.
+const scanWaitDelay = 10 * time.Second
+
+// maxScanOutput bounds the report a scanner writes, which is read whole;
+// maxScanErrors bounds what is kept of what it writes to standard error,
+// its end, for the error that names it.
+const (
+	maxScanOutput = 256 << 20
+	maxScanErrors = 64 << 10
+)
+
 // maxReportedFindings bounds the findings a check lists per scanner.
 const maxReportedFindings = 20
 
@@ -138,7 +151,9 @@ func DefaultScanners(policies []string) []Scanner {
 			// every file but the local state of a root applied without a
 			// backend, which holds secret values (see tfrun.LocalStateFile). It
 			// reads the .checkov.yaml of the directory it scans whatever
-			// --config-file names, so that is left as it is.
+			// --config-file names: a root infraharvest generates has none,
+			// and the copy verify checks leaves a root's out (see
+			// VerifyCopy).
 			out, err := runTool(ctx, dir, path, "--directory", dir, "--skip-path", ".terraform", "--skip-path", `\.tfstate`, "--output", "json", "--quiet", "--compact", "--soft-fail", "--skip-download")
 			if err != nil {
 				return nil, err
@@ -233,19 +248,66 @@ const tflintConfig = `plugin "terraform" {
 func runTool(ctx context.Context, dir, path string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, scanTimeout)
 	defer cancel()
-	var stdout, stderr bytes.Buffer
+	stdout := &cappedBuffer{limit: maxScanOutput}
+	stderr := &cappedBuffer{limit: maxScanErrors, keepEnd: true}
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	cmd.Env = scannerEnv(os.Environ())
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.WaitDelay = scanWaitDelay
+	err := cmd.Run()
+	if stdout.cut {
+		return nil, fmt.Errorf("%s: its report is over %d MB", path, maxScanOutput>>20)
+	}
+	if err != nil {
 		var exitErr *exec.ExitError
 		// Scanners exit non-zero when they find something; the output says.
-		if !errors.As(err, &exitErr) || stdout.Len() == 0 {
+		if !errors.As(err, &exitErr) || stdout.buf.Len() == 0 {
 			return nil, fmt.Errorf("%s: %w: %s", path, err, strings.TrimSpace(stderr.String()))
 		}
 	}
-	return stdout.Bytes(), nil
+	return stdout.buf.Bytes(), nil
+}
+
+// cappedBuffer keeps at most limit bytes of what is written to it: the
+// first, or with keepEnd the last. Writes never fail, so that the process
+// writing is never stopped by it; cut says whether some was dropped.
+type cappedBuffer struct {
+	buf     bytes.Buffer
+	limit   int
+	keepEnd bool
+	cut     bool
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if !c.keepEnd {
+		if room := c.limit - c.buf.Len(); len(p) > room {
+			p, c.cut = p[:max(room, 0)], true
+		}
+		c.buf.Write(p)
+		return n, nil
+	}
+	if len(p) >= c.limit {
+		c.buf.Reset()
+		c.buf.Write(p[len(p)-c.limit:])
+		c.cut = c.cut || len(p) > c.limit
+		return n, nil
+	}
+	if over := c.buf.Len() + len(p) - c.limit; over > 0 {
+		c.buf.Next(over)
+		c.cut = true
+	}
+	c.buf.Write(p)
+	return n, nil
+}
+
+// String returns what was kept, after a note when the start was dropped.
+func (c *cappedBuffer) String() string {
+	if c.cut && c.keepEnd {
+		return "(earlier output left out) " + c.buf.String()
+	}
+	return c.buf.String()
 }
 
 // scannerCredentials are the prefixes of the environment variables that

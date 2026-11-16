@@ -27,7 +27,7 @@ func RootsDigest(out string) (string, error) {
 // a digest of them all, each by its path and a hash of the content read
 // had: the configuration files (.tf, .tf.json, .tofu and .tofu.json), the
 // var files, the backend settings and the dependency lock files, the
-// .terraform directories aside. A check of the roots that reads them
+// .terraform and .git directories aside, as Terraform reads neither. A check of the roots that reads them
 // through it so covers, by the digest it returns, the very bytes it
 // checked, which a second read could find changed.
 //
@@ -61,7 +61,7 @@ func ReadRoots(out string, read func(path string, content []byte) error) (string
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
 			switch d.Name() {
-			case ".terraform":
+			case ".terraform", ".git":
 				return filepath.SkipDir
 			case "terraform.d":
 				return fmt.Errorf("%s is a terraform.d directory, which Terraform installs providers from", rel)

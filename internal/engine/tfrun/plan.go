@@ -17,6 +17,8 @@ import (
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // ChangeSummary counts the changes a plan has, and its imports: an edit
@@ -147,13 +149,23 @@ func DiagnosticMessage(d tfjson.Diagnostic) string {
 // plan. The plan file holds secret values: it lives in a private temporary
 // directory, removed before ShowPlan returns.
 func ShowPlan(ctx context.Context, tf Terraform, vars []tfexec.PlanOption) (*tfjson.Plan, *ChangeSummary, []tfjson.Diagnostic, error) {
-	tmp, err := os.MkdirTemp("", "infraharvest-plan-")
+	RemoveStaleSnapshots()
+	tmp, err := os.MkdirTemp("", PlanPattern)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	defer os.RemoveAll(tmp)
+	// The mode is 0700 already; this also covers Windows, which the mode
+	// doesn't.
+	if _, err := fsutil.MakePrivate(tmp); err != nil {
+		return nil, nil, nil, err
+	}
 	return showPlanTo(ctx, tf, filepath.Join(tmp, "plan"), vars)
 }
+
+// PlanPattern names the private temporary directories of ShowPlan's plan
+// files.
+const PlanPattern = "infraharvest-plan-"
 
 // showPlanTo is ShowPlan into planFile, which it leaves for the caller to
 // remove, in a private directory of the caller's.

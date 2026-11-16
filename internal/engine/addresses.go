@@ -202,32 +202,62 @@ func AddressType(address string) string {
 // makes, where there is only one. A finding about a module call of
 // several resources, or about none the root imports, is about none.
 func ResourceAt(managed []Managed, address string) (Managed, bool) {
+	return NewManagedIndex(managed).At(address)
+}
+
+// ManagedIndex answers ResourceAt for many addresses of the same
+// resources, each in about the time of a map lookup, where ResourceAt
+// reads every resource for each.
+type ManagedIndex struct {
+	managed []Managed
+	// at is the first resource at each address; bare are the indexes of
+	// managed by their address without instance keys, and names those
+	// addresses, in the order of managed.
+	at    map[string]Managed
+	bare  map[string][]int
+	names []string
+}
+
+// NewManagedIndex indexes managed, what a root imports, for At.
+func NewManagedIndex(managed []Managed) *ManagedIndex {
+	x := &ManagedIndex{managed: managed, at: make(map[string]Managed, len(managed)), bare: make(map[string][]int, len(managed)), names: make([]string, len(managed))}
+	for i, m := range managed {
+		if _, ok := x.at[m.Address]; !ok {
+			x.at[m.Address] = m
+		}
+		name := strings.Join(hclfile.AddressNames(m.Address), ".")
+		x.names[i] = name
+		x.bare[name] = append(x.bare[name], i)
+	}
+	return x
+}
+
+// At returns what ResourceAt returns for address.
+func (x *ManagedIndex) At(address string) (Managed, bool) {
 	if address == "" {
 		return Managed{}, false
 	}
-	for _, m := range managed {
-		if m.Address == address {
-			return m, true
-		}
-	}
-	bare := strings.Join(hclfile.AddressNames(address), ".")
-	one := func(match func(string) bool) (Managed, bool) {
-		var found []Managed
-		for _, m := range managed {
-			if match(strings.Join(hclfile.AddressNames(m.Address), ".")) {
-				found = append(found, m)
-			}
-		}
-		if len(found) == 1 {
-			return found[0], true
-		}
-		return Managed{}, false
-	}
-	if m, ok := one(func(a string) bool { return a == bare }); ok {
+	if m, ok := x.at[address]; ok {
 		return m, true
 	}
-	if hclfile.NamesModuleCall(address) {
-		return one(func(a string) bool { return strings.HasPrefix(a, bare+".") })
+	bare := strings.Join(hclfile.AddressNames(address), ".")
+	if found := x.bare[bare]; len(found) == 1 {
+		return x.managed[found[0]], true
 	}
-	return Managed{}, false
+	if !hclfile.NamesModuleCall(address) {
+		return Managed{}, false
+	}
+	only := -1
+	for i, name := range x.names {
+		if strings.HasPrefix(name, bare+".") {
+			if only >= 0 {
+				return Managed{}, false
+			}
+			only = i
+		}
+	}
+	if only < 0 {
+		return Managed{}, false
+	}
+	return x.managed[only], true
 }

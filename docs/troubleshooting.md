@@ -87,11 +87,11 @@ A project without the Cloud DNS, Cloud SQL Admin or Cloud Scheduler API enabled 
 
 The import exits 2 when it has no engine to run:
 
-- `install terraform: ...`: no Terraform 1.5 or later was on `PATH` or in infraharvest's cache, and downloading the latest release from `releases.hashicorp.com` failed, as it does offline or behind a firewall that blocks it. Install Terraform yourself, or pass its path with `--terraform-path`.
+- `install terraform: ...`: no Terraform 1.5 or later was on `PATH` or in infraharvest's cache, and downloading the newest tested release from `releases.hashicorp.com` failed, as it does offline or behind a firewall that blocks it. Install Terraform yourself, or pass its path with `--terraform-path`.
 - `tofu 1.6.0 or newer not found on PATH; install it, or pass its path`: `--engine=tofu` never downloads OpenTofu. Install it, or pass `--terraform-path`.
 - A log line `terraform: not using <path>: ...` says why a binary on `PATH` was passed over, such as a version older than 1.5.
 
-The [container image](install.md#container-image) has pinned Terraform and OpenTofu binaries. A downloaded Terraform is kept in infraharvest's cache directory (below) for the next run.
+The [container image](install.md#container-image) has pinned Terraform and OpenTofu binaries. A downloaded Terraform is kept in infraharvest's cache directory (below) for the next run, and replaced if it is newer than the release infraharvest is tested with.
 
 An import also needs the registry: `look up registry.terraform.io/hashicorp/aws versions: ...` means infraharvest couldn't ask it for the provider's releases, which it pins the newest of, and Terraform downloads the provider from it too, so there is no fully offline import. Behind a proxy, set `HTTPS_PROXY` (and `NO_PROXY`), which infraharvest and Terraform both read; a proxy that re-signs TLS needs its certificate authority trusted (see [Behind a TLS-intercepting proxy](configuration.md#behind-a-tls-intercepting-proxy)). Where the registry's modules can't be reached, `--modules=local` uses generated local modules only (see [Modules](modules.md)).
 

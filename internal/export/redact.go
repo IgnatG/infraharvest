@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 )
@@ -69,10 +70,12 @@ func newRedactor(drop []string, all bool, key []byte) *redactor {
 	return r
 }
 
-// tags returns the tags that stay in the export: none with --drop-tags,
-// else all but those --drop-tag names and those the secret detectors flag,
-// by key or value.
-func (r *redactor) tags(tags map[string]string) map[string]string {
+// tags returns the tags of a resource whose ID and name are id and name
+// that stay in the export: none with --drop-tags, else all but those
+// --drop-tag names and those the secret detectors flag, by key or value.
+// With --hash-ids, a tag doesn't give away what the ID and name are hashed
+// to hide (see hidesName).
+func (r *redactor) tags(tags map[string]string, id, name string) map[string]string {
 	var kept map[string]string
 	for k, v := range tags {
 		// A key that is itself a credential is dropped without being
@@ -83,14 +86,45 @@ func (r *redactor) tags(tags map[string]string) map[string]string {
 			if listable {
 				r.dropped[k] = true
 			}
+		case r.key != nil && (namedIn(k, id) || namedIn(k, name)):
+			// The key itself names the resource, such as
+			// kubernetes.io/cluster/<name>: dropped, and not listed, as
+			// the list would show it.
 		default:
 			if kept == nil {
 				kept = map[string]string{}
+			}
+			if r.key != nil && hidesName(k, v, id, name) {
+				v = r.hash(v)
 			}
 			kept[k] = v
 		}
 	}
 	return kept
+}
+
+// minNamed is the shortest ID or name that a tag holding it as part of its
+// key or value gives away: a shorter one, such as a name of one letter,
+// would be found in tags that don't name the resource.
+const minNamed = 4
+
+// hidesName reports whether the tag k=v gives away the resource's ID or
+// name, which --hash-ids hashes: a Name tag, a value that is the ID or the
+// name, or a value that holds one of them, such as an ARN.
+func hidesName(k, v, id, name string) bool {
+	switch {
+	case strings.EqualFold(k, "name"):
+		return true
+	case v != "" && (v == id || v == name):
+		return true
+	}
+	return namedIn(v, id) || namedIn(v, name)
+}
+
+// namedIn reports whether s holds what, if what is long enough to give it
+// away (see minNamed).
+func namedIn(s, what string) bool {
+	return len(what) >= minNamed && strings.Contains(s, what)
 }
 
 // looksSecret reports whether a tag's key or value looks like a secret:

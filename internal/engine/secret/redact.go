@@ -125,25 +125,121 @@ func TextForms(values []string) []string {
 
 // RedactText replaces each of forms in s with "(sensitive value)".
 func RedactText(s string, forms []string) string {
+	return newRedactor(forms).text(s)
+}
+
+// redactor replaces a set of forms in one pass over a text, however many
+// forms there are: each run of minSecretLength bytes is looked up among
+// the forms' first bytes, as Matcher does, and only the forms that start
+// so are compared.
+type redactor struct {
+	byPrefix map[uint64][]string
+	// short are the forms shorter than minSecretLength, which TextForms
+	// never returns, looked for one by one.
+	short []string
+}
+
+func newRedactor(forms []string) *redactor {
+	r := &redactor{byPrefix: make(map[uint64][]string, len(forms))}
 	for _, f := range forms {
-		s = strings.ReplaceAll(s, f, Redacted)
+		switch {
+		case f == "":
+		case len(f) < minSecretLength:
+			r.short = append(r.short, f)
+		default:
+			key := prefixKey(f)
+			r.byPrefix[key] = append(r.byPrefix[key], f)
+		}
 	}
-	return s
+	return r
+}
+
+// longestAt returns the length of the longest form s starts with, or 0.
+func (r *redactor) longestAt(s string) int {
+	longest := 0
+	if len(s) >= minSecretLength {
+		for _, f := range r.byPrefix[prefixKey(s)] {
+			if len(f) > longest && strings.HasPrefix(s, f) {
+				longest = len(f)
+			}
+		}
+	}
+	for _, f := range r.short {
+		if len(f) > longest && strings.HasPrefix(s, f) {
+			longest = len(f)
+		}
+	}
+	return longest
+}
+
+// text returns s with every form replaced. Where forms overlap, as a value
+// and a longer one that holds it, the run they cover together is replaced
+// once, so that no part of either is left; forms that only touch are
+// replaced one by one.
+func (r *redactor) text(s string) string {
+	if len(r.byPrefix) == 0 && len(r.short) == 0 {
+		return s
+	}
+	var b strings.Builder
+	written := 0 // s[:written] is in b
+	for i := 0; i < len(s); {
+		n := r.longestAt(s[i:])
+		if n == 0 {
+			i++
+			continue
+		}
+		end := i + n
+		// Take in the forms that start inside the run.
+		for j := i + 1; j < end; j++ {
+			if m := r.longestAt(s[j:]); j+m > end {
+				end = j + m
+			}
+		}
+		if written == 0 {
+			b.Grow(len(s))
+		}
+		b.WriteString(s[written:i])
+		b.WriteString(Redacted)
+		written, i = end, end
+	}
+	if written == 0 {
+		return s
+	}
+	b.WriteString(s[written:])
+	return b.String()
+}
+
+// in reports whether s holds one of the forms.
+func (r *redactor) in(s string) bool {
+	for i := range len(s) {
+		if r.longestAt(s[i:]) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // redactUIOutput replaces forms in Terraform's machine-readable UI output:
 // in the strings of each JSON message, as decoded, so that a value the
-// message escapes is found too, and in a line that isn't JSON as it is.
+// message escapes is found too, and in a line that isn't JSON as it is. A
+// line without a backslash has no escapes, so its JSON strings decode to
+// bytes the line holds: one that holds no form as it is is kept unread.
 func redactUIOutput(out []byte, forms []string) []byte {
+	r := newRedactor(forms)
 	var b bytes.Buffer
+	b.Grow(len(out))
 	for _, line := range bytes.SplitAfter(out, []byte("\n")) {
 		text := bytes.TrimRight(line, "\r\n")
 		end := line[len(text):]
+		if bytes.IndexByte(text, '\\') < 0 && !r.in(string(text)) {
+			b.Write(line)
+			continue
+		}
 		var msg any
 		dec := json.NewDecoder(bytes.NewReader(text))
 		dec.UseNumber()
 		if len(text) > 0 && dec.Decode(&msg) == nil && !dec.More() {
-			if clean, changed := redactJSON(msg, forms); changed {
+			if clean, changed := redactJSON(msg, r); changed {
 				if encoded, err := json.Marshal(clean); err == nil {
 					b.Write(encoded)
 					b.Write(end)
@@ -153,24 +249,24 @@ func redactUIOutput(out []byte, forms []string) []byte {
 			b.Write(line)
 			continue
 		}
-		b.WriteString(RedactText(string(line), forms))
+		b.WriteString(r.text(string(line)))
 	}
 	return b.Bytes()
 }
 
-// redactJSON replaces forms in the strings of a decoded JSON value, keys
-// included, and reports whether it replaced any.
-func redactJSON(v any, forms []string) (any, bool) {
+// redactJSON replaces the forms of r in the strings of a decoded JSON
+// value, keys included, and reports whether it replaced any.
+func redactJSON(v any, r *redactor) (any, bool) {
 	switch v := v.(type) {
 	case string:
-		clean := RedactText(v, forms)
+		clean := r.text(v)
 		return clean, clean != v
 	case map[string]any:
 		out := make(map[string]any, len(v))
 		changed := false
 		for k, sub := range v {
-			cleanKey := RedactText(k, forms)
-			cleanSub, subChanged := redactJSON(sub, forms)
+			cleanKey := r.text(k)
+			cleanSub, subChanged := redactJSON(sub, r)
 			out[cleanKey] = cleanSub
 			changed = changed || subChanged || cleanKey != k
 		}
@@ -180,7 +276,7 @@ func redactJSON(v any, forms []string) (any, bool) {
 		changed := false
 		for i, sub := range v {
 			var subChanged bool
-			out[i], subChanged = redactJSON(sub, forms)
+			out[i], subChanged = redactJSON(sub, r)
 			changed = changed || subChanged
 		}
 		return out, changed

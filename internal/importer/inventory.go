@@ -27,6 +27,11 @@ import (
 // listers' resources as they are; version 2 keeps records.
 const inventoryVersion = 2
 
+// InventoryVersion is inventoryVersion, for a package that reads saved
+// inventories without the importer, such as export, to test that it reads
+// the format the importer writes.
+const InventoryVersion = inventoryVersion
+
 // inventory is what discover listed for one provider call: its resources,
 // and the services that failed, so that import --reuse-inventory can
 // import from it without listing again. The call's arguments (region,

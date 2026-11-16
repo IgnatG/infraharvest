@@ -4,6 +4,7 @@
 package tftypes
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 )
@@ -45,6 +46,7 @@ func TestIdentityID(t *testing.T) {
 	}{
 		{map[string]any{"region": "eu-west-2", "name": "/app/logs", "account_id": "123456789012"}, "account_id=123456789012,name=/app/logs,region=eu-west-2", true},
 		{map[string]any{"name": "web", "port": float64(443), "global": true, "zone": nil}, "global=true,name=web,port=443", true},
+		{map[string]any{"name": "web", "port": json.Number("443"), "weight": json.Number("1.50")}, "name=web,port=443,weight=1.5", true},
 		{map[string]any{}, "", true},
 		{map[string]any{"names": []any{"a"}}, "", false},
 	} {

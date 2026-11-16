@@ -14,8 +14,13 @@
 # It also writes permissions=true when the pull request changes the
 # permission templates (permissions/), which the permissions job checks.
 #
+# And it writes aws, google and azure: whether that cloud's e2e jobs run.
+# A core file that only one cloud's build reads (its listers, its command,
+# its catalogue data, its state store, its e2e tests and their testdata)
+# runs that cloud's e2e jobs alone; any other core file runs all three.
+#
 # Without a base and a head (a push or workflow_dispatch), or when git can't
-# tell what changed, code=true and permissions=true.
+# tell what changed, code=true, permissions=true, and every cloud is true.
 #
 # Usage: BASE=<sha> HEAD=<sha> changes.sh
 set -euo pipefail
@@ -44,18 +49,58 @@ not_code() {
   return 1
 }
 
+# cloud_of prints the cloud whose build alone reads the core file at path
+# $1: aws, google or azure; nothing when every cloud's build reads it. An
+# e2e file is that cloud's when its build constraint names that cloud
+# alone, as e2e/aws_test.go's does; a deleted one is everyone's.
+cloud_of() {
+  case $1 in
+    internal/providers/aws/* | internal/catalogue/data/aws/* | internal/managed/stores/s3/*) echo aws ;;
+    internal/providers/google/* | internal/catalogue/data/google/* | internal/managed/stores/gcs/*) echo google ;;
+    internal/providers/azure/* | internal/catalogue/data/azurerm/* | internal/catalogue/data/azapi/* | internal/managed/stores/azblob/*) echo azure ;;
+    internal/cli/providers/provider_cmd_aws.go | internal/cli/providers/aws_*_test.go) echo aws ;;
+    internal/cli/providers/provider_cmd_google.go | internal/cli/providers/google_*_test.go) echo google ;;
+    internal/cli/providers/provider_cmd_azure.go | internal/cli/providers/azure_*_test.go) echo azure ;;
+    e2e/testdata/aws/* | e2e/testdata/aws-*) echo aws ;;
+    e2e/testdata/google/* | e2e/testdata/google-*) echo google ;;
+    e2e/testdata/azure/* | e2e/testdata/azure-*) echo azure ;;
+    e2e/*.go)
+      if [ -f "$1" ]; then
+        sed -En 's/^\/\/go:build .*\(!minimal \|\| (aws|google|azure)\)$/\1/p;/^package /q' "$1"
+      fi
+      ;;
+  esac
+}
+
 code=true
 permissions=true
+aws=true
+google=true
+azure=true
 # The merge base to the head: what the pull request changes, whatever main
 # gained since. Names only, so a partial clone fetches no file contents.
 if [ -n "${BASE-}" ] && [ -n "${HEAD-}" ] && files=$(git diff --name-only --no-renames "$BASE...$HEAD"); then
   code=false
   permissions=false
+  aws=false
+  google=false
+  azure=false
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     if ! not_code "$file"; then
-      echo "changes code: $file"
+      cloud=$(cloud_of "$file")
+      echo "changes code${cloud:+ of $cloud}: $file"
       code=true
+      case $cloud in
+        aws) aws=true ;;
+        google) google=true ;;
+        azure) azure=true ;;
+        *)
+          aws=true
+          google=true
+          azure=true
+          ;;
+      esac
     fi
     case $file in
       permissions/*)
@@ -65,9 +110,10 @@ if [ -n "${BASE-}" ] && [ -n "${HEAD-}" ] && files=$(git diff --name-only --no-r
     esac
   done <<< "$files"
 fi
-echo "code=$code"
-echo "permissions=$permissions"
-{
-  echo "code=$code"
-  echo "permissions=$permissions"
-} >> "${GITHUB_OUTPUT:?}"
+outputs="code=$code
+permissions=$permissions
+aws=$aws
+google=$google
+azure=$azure"
+echo "$outputs"
+echo "$outputs" >> "${GITHUB_OUTPUT:?}"

@@ -160,7 +160,7 @@ func (t *tools) drift(ctx context.Context, req *mcp.CallToolRequest, in DriftInp
 	if asked := t.confirm(req, userConfirmation{
 		name:      driftConfirmation,
 		state:     confirmationState(args, roots, config.sum()),
-		message:   driftCheckQuestion(in) + "?" + driftRunsTerraform(config),
+		message:   driftCheckQuestion(in) + "?" + driftSettings(in) + driftRunsTerraform(config),
 		command:   args,
 		cannotAsk: "The user has to confirm running Terraform on the roots",
 		declined:  "The user didn't confirm running Terraform on the roots as they are now, so drift didn't run.",
@@ -299,6 +299,34 @@ func driftCheckQuestion(in DriftInput) string {
 	return question + " for what changed in the cloud since they were applied"
 }
 
+// driftSettings says, for a confirmation, what in sets beyond the roots it
+// checks: each parameter given that changes how the run goes, such as
+// force_unlock, which overrides another run's lock, or catalogue, which
+// changes what counts as drift. The user confirms the run as described,
+// so every parameter a confirmation doesn't otherwise name is here.
+func driftSettings(in DriftInput) string {
+	var set []string
+	if in.Engine != "" {
+		set = append(set, fmt.Sprintf("the engine %q", in.Engine))
+	}
+	if in.Catalogue != "" {
+		set = append(set, fmt.Sprintf("the catalogue files in %q, which change what counts as drift", in.Catalogue))
+	}
+	if in.EngineTimeout != "" {
+		set = append(set, fmt.Sprintf("an engine timeout of %q per command", in.EngineTimeout))
+	}
+	if in.Parallel != 0 {
+		set = append(set, fmt.Sprintf("%d roots at once", in.Parallel))
+	}
+	if in.ForceUnlock {
+		set = append(set, "force_unlock, which checks even when another run holds the output directory's lock")
+	}
+	if len(set) == 0 {
+		return ""
+	}
+	return " It runs with " + strings.Join(set, ", ") + "."
+}
+
 // driftRunsTerraform says, for a confirmation, what a drift run does,
 // and what config, the configuration file, if any, sets.
 func driftRunsTerraform(config *toolConfig) string {
@@ -331,7 +359,7 @@ func driftAcceptMessage(in DriftAcceptInput, target string, config *toolConfig, 
 	if in.WriteDecisions {
 		message += fmt.Sprintf(" The run's changes are then written into the decisions file %q.", target)
 	}
-	return message + driftRunsTerraform(config)
+	return message + driftSettings(in.DriftInput) + driftRunsTerraform(config)
 }
 
 // quoteAll quotes each of values, joined with commas.

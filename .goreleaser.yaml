@@ -82,7 +82,8 @@ docker_signs:
 release:
   prerelease: auto
   # The release workflow publishes the draft once the build provenance is
-  # attested, and deletes it if a step fails.
+  # attested. If a step fails after GoReleaser ran, the draft stays,
+  # unpublished, as a record of what was built, with the version's tag.
   draft: true
   replace_existing_draft: true
   # Below the notes, which GitHub writes from the pull requests merged

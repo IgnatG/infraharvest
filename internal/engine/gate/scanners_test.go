@@ -234,3 +234,31 @@ func TestScannerSlotsBelongToTheRun(t *testing.T) {
 		})
 	}
 }
+
+// A scanner's report is kept up to its limit and marked cut beyond it, and
+// its standard error keeps its end, which says why it failed; neither ever
+// fails a write, which would stop the scanner.
+func TestCappedBuffer(t *testing.T) {
+	t.Parallel()
+	head := &cappedBuffer{limit: 5}
+	for _, s := range []string{"abc", "def", "ghi"} {
+		if n, err := head.Write([]byte(s)); n != len(s) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", s, n, err)
+		}
+	}
+	if got := head.buf.String(); got != "abcde" || !head.cut {
+		t.Errorf("head kept %q, cut %t", got, head.cut)
+	}
+	tail := &cappedBuffer{limit: 5, keepEnd: true}
+	for _, s := range []string{"abc", "def", "ghijklm", "no"} {
+		_, _ = tail.Write([]byte(s))
+	}
+	if got := tail.String(); got != "(earlier output left out) klmno" {
+		t.Errorf("tail kept %q", got)
+	}
+	fits := &cappedBuffer{limit: 5, keepEnd: true}
+	_, _ = fits.Write([]byte("abcde"))
+	if got := fits.String(); got != "abcde" || fits.cut {
+		t.Errorf("a write that fits was cut: %q", got)
+	}
+}

@@ -4,15 +4,15 @@
 name: Tests
 
 # Every pull request, whatever its base: a pull request stacked on another
-# one gets the same signal as one against main. A merge to main doesn't
-# run them again, but for one that changes go.mod or go.sum: the caches
-# pull requests restore are keyed on those, and only main's runs save
-# them.
+# one gets the same signal as one against main. A merge to main runs them
+# again only when it changes go.mod, go.sum or this workflow: the caches
+# pull requests restore are keyed on go.sum and laid out here, and only
+# main's runs save them.
 on:
   pull_request:
   push:
     branches: [main]
-    paths: [go.mod, go.sum]
+    paths: [go.mod, go.sum, .github/workflows/test.yml]
   workflow_dispatch:
   # Nightly, the e2e jobs alone, with OpenTofu (see the changes job).
   schedule:
@@ -53,8 +53,11 @@ jobs:
     outputs:
       code: ${{ github.event_name != 'schedule' && steps.diff.outputs.code || 'false' }}
       permissions: ${{ github.event_name != 'schedule' && steps.diff.outputs.permissions || 'false' }}
-      # The e2e jobs: as code, and every night.
-      e2e: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.code }}
+      # Each cloud's e2e jobs: when the code their build reads changes
+      # (see changes.sh), and every night.
+      e2e-aws: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.aws }}
+      e2e-google: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.google }}
+      e2e-azure: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.azure }}
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,11 +86,18 @@ jobs:
         persist-credentials: false
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
+    # A cache of its own: the shared one is saved by whichever job
+    # finishes first on main, often one that builds far less than this.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: unit
     - name: Check go.mod and go.sum are tidy
       run: go mod tidy -diff
     # Ubuntu runners have ~14 GB free, too little for this module's
@@ -149,6 +159,14 @@ jobs:
         name: coverage
         path: coverage.out
         retention-days: 14
+    - name: Save the Go cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # Accounts and projects import in parallel (--parallel), and listers,
   # discovery, the engine and the managed state backends run concurrent
@@ -187,7 +205,9 @@ jobs:
         go test -race -tags minimal,aws,google
         ./internal/config/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
-        ./internal/managed/... ./internal/driftpolicy/...
+        ./internal/managed/... ./internal/driftpolicy/... ./internal/filelock/... ./internal/harvest/...
+        ./internal/export/... ./internal/catalogue/... ./internal/adapters/... ./internal/logging/...
+        ./internal/tfquery/... ./pkg/...
     - name: Race, with every provider's command
       run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
@@ -300,11 +320,18 @@ jobs:
         persist-credentials: false
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
+    # Builds the binary go test's job builds: restore its cache, which that
+    # job saves.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: unit
     # Ubuntu runners have ~14 GB free, too little for this module's
     # dependencies.
     - name: Wait for free disk space
@@ -342,16 +369,22 @@ jobs:
       run: |
         while read -r target pkg; do
           echo "::group::$target ($pkg)"
+          # go test -fuzz passes when the target matches nothing: check it
+          # is there, so that a moved target fails here.
+          if ! go test -list="^$target\$" "$pkg" | grep -qx "$target"; then
+            echo "::error::$target isn't in $pkg"; exit 1
+          fi
           # A new input is minimised for 60s by default, which would leave a
           # 30s run fuzzing almost nothing.
           go test -run='^$' -fuzz="^$target\$" -fuzztime=30s -fuzzminimizetime=1s "$pkg"
           echo "::endgroup::"
         done <<'EOF'
-        FuzzSecretsInJSONString ./internal/engine/
-        FuzzSecretsInHCL ./internal/engine/
-        FuzzLiteralSecrets ./internal/engine/
-        FuzzDriftNeverWritesSecrets ./internal/engine/
-        FuzzDriftReportsNoSecrets ./internal/engine/
+        FuzzSecretsInJSONString ./internal/engine/secret/
+        FuzzSecretsInHCL ./internal/engine/secret/
+        FuzzLiteralSecrets ./internal/engine/secret/
+        FuzzRedactTextLeavesNoValue ./internal/engine/secret/
+        FuzzDriftNeverWritesSecrets ./internal/engine/drift/
+        FuzzDriftReportsNoSecrets ./internal/engine/drift/
         FuzzParse ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
@@ -429,14 +462,16 @@ jobs:
   e2e-aws:
     name: e2e-aws (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.e2e-aws == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
         engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || github.event_name == 'schedule' && '["tofu"]' || '["terraform"]') }}
-        shard: [round-trip, selection, incremental, options-output, options-input, drift, mcp, environments, environments-drift, environments-regenerate, regenerate, others]
+        # Longest first (by their run times): jobs start in this order, and
+        # the run waits for the last to end.
+        shard: [environments-regenerate, selection, regenerate, drift, environments, mcp, options-output, others, options-input, incremental, environments-drift, round-trip]
         include:
         - shard: round-trip
           run: ^TestAWSRoundTrip$
@@ -481,11 +516,18 @@ jobs:
         persist-credentials: false
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
+    # A cache of this cloud's e2e build alone: with the shared one, the
+    # test step spent minutes compiling and downloading modules first.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: e2e-aws
     # The gate runs the scanners it finds (G5): tflint must find nothing in
     # the generated configuration; trivy only reports.
     - name: Install the engine and scanners
@@ -522,6 +564,14 @@ jobs:
       run: |
         go vet -tags e2e,sandbox,minimal,aws ./e2e/
         go test -tags e2e,sandbox,minimal,aws -run '^TestCheck' ./e2e/
+    - name: Save the Go cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # TestGoogleIncremental adds to the estate the other tests import, and
   # TestGoogleDrift and TestGoogleEnvironments change it, so each runs on a
@@ -530,7 +580,7 @@ jobs:
   e2e-google:
     name: e2e-google (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.e2e-google == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -559,11 +609,18 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    # A cache of this cloud's e2e build alone: with the shared one, the
+    # test step spent minutes compiling and downloading modules first.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: e2e-google
     - name: Install the engine and scanners
       uses: ./.github/actions/setup-engines
       with:
@@ -590,6 +647,14 @@ jobs:
     - name: Vet the sandbox test
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,google ./e2e/
+    - name: Save the Go cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # TestAzureIncremental adds to the estate the other tests import, and
   # TestAzureDrift changes it, so each runs on a runner of its own, with
@@ -599,7 +664,7 @@ jobs:
   e2e-azure:
     name: e2e-azure (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
-    if: needs.changes.outputs.e2e == 'true'
+    if: needs.changes.outputs.e2e-azure == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -628,11 +693,18 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
+    # A cache of this cloud's e2e build alone: with the shared one, the
+    # test step spent minutes compiling and downloading modules first.
     - name: Install Go
       uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: go.mod
-        cache: true
+        cache: false
+    - name: Restore the Go cache
+      id: cache
+      uses: ./.github/actions/restore-go-cache
+      with:
+        name: e2e-azure
     - name: Install the engine and scanners
       uses: ./.github/actions/setup-engines
       with:
@@ -668,6 +740,14 @@ jobs:
     - name: Vet the sandbox test
       if: matrix.engine == 'terraform' && matrix.shard == 'others'
       run: go vet -tags e2e,sandbox,minimal,azure ./e2e/
+    - name: Save the Go cache
+      if: >-
+        github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        && matrix.shard == 'round-trip' && steps.cache.outputs.hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache.outputs.paths }}
+        key: ${{ steps.cache.outputs.key }}
 
   # A required check, whatever the shards: passes when every e2e job passed,
   # or was skipped.

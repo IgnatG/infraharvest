@@ -4,6 +4,7 @@
 package tftypes
 
 import (
+	"encoding/json"
 	"slices"
 	"strconv"
 	"strings"
@@ -33,7 +34,8 @@ func IdentityID(identity map[string]string) string {
 // IdentityValues returns the attributes of an identity as Terraform's JSON
 // output has them, in a resource's state or in the results of terraform
 // query, as strings: a string as it is, a number in its shortest form
-// and a bool as true or false. Null attributes, which an identity leaves
+// (decoded as a float64, or as a json.Number, as terraform-json decodes
+// the messages of terraform query) and a bool as true or false. Null attributes, which an identity leaves
 // unset, are left out. It returns false for an identity with an
 // attribute of another kind, such as a list, which IdentityID can't
 // write.
@@ -46,6 +48,12 @@ func IdentityValues(identity map[string]any) (map[string]string, bool) {
 			values[k] = v
 		case float64:
 			values[k] = strconv.FormatFloat(v, 'f', -1, 64)
+		case json.Number:
+			f, err := v.Float64()
+			if err != nil {
+				return nil, false
+			}
+			values[k] = strconv.FormatFloat(f, 'f', -1, 64)
 		case bool:
 			values[k] = strconv.FormatBool(v)
 		default:

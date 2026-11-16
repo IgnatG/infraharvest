@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -68,13 +69,18 @@ var _ StateTerraform = (*Runner)(nil)
 
 var staleOnce sync.Once
 
-// RemoveStaleSnapshots removes the snapshot directories in the system's
-// temporary directory that a run killed before it could remove them left
-// behind, once per process. Only directories older than a run can last are
-// removed, as another run may be using a younger one.
+// RemoveStaleSnapshots removes the directories of snapshots, saved plans
+// and empty states in the system's temporary directory that a run killed
+// before it could remove them left behind, once per process: snapshots and
+// saved plans hold secret values. Only directories older than a run can
+// last are removed, as another run may be using a younger one.
 func RemoveStaleSnapshots() {
 	staleOnce.Do(func() { removeStaleSnapshots(os.TempDir(), time.Now(), staleSnapshotAge) })
 }
+
+// stalePatterns name the temporary directories RemoveStaleSnapshots
+// removes.
+var stalePatterns = []string{SnapshotPattern, PlanPattern, EmptyStatePattern}
 
 func removeStaleSnapshots(tmp string, now time.Time, maxAge time.Duration) {
 	entries, err := os.ReadDir(tmp)
@@ -82,7 +88,8 @@ func removeStaleSnapshots(tmp string, now time.Time, maxAge time.Duration) {
 		return
 	}
 	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), SnapshotPattern) {
+		name := e.Name()
+		if !e.IsDir() || !slices.ContainsFunc(stalePatterns, func(p string) bool { return strings.HasPrefix(name, p) }) {
 			continue
 		}
 		info, err := e.Info()

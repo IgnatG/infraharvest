@@ -379,19 +379,20 @@ func TestRemoveStaleSnapshots(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 	old, young, other := filepath.Join(tmp, SnapshotPattern+"old"), filepath.Join(tmp, SnapshotPattern+"young"), filepath.Join(tmp, "other-old")
-	for _, d := range []string{old, young, other} {
+	oldPlan, oldState := filepath.Join(tmp, PlanPattern+"old"), filepath.Join(tmp, EmptyStatePattern+"old")
+	for _, d := range []string{old, young, other, oldPlan, oldState} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-48 * time.Hour)
-	for _, d := range []string{old, other} {
+	for _, d := range []string{old, other, oldPlan, oldState} {
 		if err := os.Chtimes(d, past, past); err != nil {
 			t.Fatal(err)
 		}
 	}
 	removeStaleSnapshots(tmp, time.Now(), staleSnapshotAge)
-	for dir, want := range map[string]bool{old: false, young: true, other: true} {
+	for dir, want := range map[string]bool{old: false, young: true, other: true, oldPlan: false, oldState: false} {
 		if _, err := os.Stat(dir); (err == nil) != want {
 			t.Errorf("%s exists: %v, want %v", filepath.Base(dir), err == nil, want)
 		}

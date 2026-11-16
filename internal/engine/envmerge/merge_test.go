@@ -1010,3 +1010,15 @@ func TestLiteralTokens(t *testing.T) {
 		}
 	}
 }
+
+// tfvars returns the variables environment env's terraform.tfvars sets,
+// by name (see envVariable.tfvars).
+func (m *stackMerge) tfvars(env int) map[string]hclwrite.Tokens {
+	values := map[string]hclwrite.Tokens{}
+	for _, v := range m.variables {
+		if value, ok := v.tfvars(env); ok {
+			values[v.name] = value
+		}
+	}
+	return values
+}

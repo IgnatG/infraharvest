@@ -550,3 +550,53 @@ func TestPutBackKeepsLocalState(t *testing.T) {
 		}
 	}
 }
+
+// Every field of engine.Options is either in a root's fingerprint, or
+// left out of it for a reason: a new option that changes what a root is
+// generated into must be added to fingerprint, or --resume would keep a
+// root generated without it.
+func TestFingerprintCoversOptions(t *testing.T) {
+	t.Parallel()
+	fingerprinted := []string{
+		"Config", "Omit", "Defaults", "StateOnly", "KeepEmpty", "DefaultTags", "EffectiveTags",
+		"Inherited", "ModulesDir", "Adapters", "External", "DataSources", "Placeholders",
+		"Lifecycles", "IncludeOwned", "KeepOwned", "OtherRoots", "ARNs", "RefineKey", "Scope",
+	}
+	excluded := map[string]string{
+		"SchemaMetadata":  "embedded in the build, which the fingerprint's version covers",
+		"Traits":          "the provider's, compiled into the build",
+		"SplitFiles":      "always set by an import",
+		"TidyLabels":      "always set by an import",
+		"Modules":         "the run's count of module calls, not an input",
+		"ModuleProviders": "the provider's, compiled into the build",
+		"Scanners":        "run by the gate, which checks the root and writes nothing into it",
+		"ScannerSlots":    "the run's, not an input",
+		"Previous":        "what the root had, which a regeneration reads",
+		"Arrivals":        "the handovers, which have checkpoints of their own",
+		"CommandTimeout":  "how long a command may run, not what it writes",
+		"Refine":          "a function: RefineKey stands for what it carries into the root",
+		"ImportOnce":      "internal, and the output is the same with and without it",
+	}
+	seen := map[string]bool{}
+	for _, name := range fingerprinted {
+		if _, ok := excluded[name]; ok {
+			t.Errorf("%s is both in the fingerprint and left out of it", name)
+		}
+		seen[name] = true
+	}
+	for name := range excluded {
+		seen[name] = true
+	}
+	fields := map[string]bool{}
+	for f := range reflect.TypeFor[engine.Options]().Fields() {
+		fields[f.Name] = true
+		if !seen[f.Name] {
+			t.Errorf("engine.Options.%s is new: add it to fingerprint if it changes what a root is generated into, and to this test's lists either way", f.Name)
+		}
+	}
+	for name := range seen {
+		if !fields[name] {
+			t.Errorf("engine.Options has no field %s any more: take it out of this test", name)
+		}
+	}
+}

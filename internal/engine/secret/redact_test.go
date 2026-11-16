@@ -116,3 +116,52 @@ func TestRedactUIOutputKeepsOtherLines(t *testing.T) {
 		t.Errorf("diagnostic not redacted as JSON: %s", lines[2])
 	}
 }
+
+// Forms that overlap, as a value and a longer one that holds it, or two
+// that share their ends, are replaced as one run, so that no part of
+// either is left; forms that only touch are replaced one by one, and a
+// line of JSON that holds no form is kept byte for byte.
+func TestRedactTextOverlappingForms(t *testing.T) {
+	t.Parallel()
+	forms := TextForms([]string{"abcdef", "abcdefghij", "efghijklmn", "zzzzzz"})
+	cases := map[string]string{
+		"x abcdefghij y":       "x " + Redacted + " y",
+		"x abcdefghijklmn y":   "x " + Redacted + " y",
+		"x zzzzzzabcdef y":     "x " + Redacted + Redacted + " y",
+		"no secret here":       "no secret here",
+		"abcde is too short":   "abcde is too short",
+		"ends with zzzzzz":     "ends with " + Redacted,
+		"abcdef\nabcdefghij\n": Redacted + "\n" + Redacted + "\n",
+	}
+	for in, want := range cases {
+		if got := RedactText(in, forms); got != want {
+			t.Errorf("RedactText(%q) = %q, want %q", in, got, want)
+		}
+	}
+	line := `{"type":"version",  "terraform":"1.9.0"}` + "\n"
+	if got := string(redactUIOutput([]byte(line), forms)); got != line {
+		t.Errorf("a line without a form changed: %q", got)
+	}
+}
+
+// No value is left in redacted text, however the values overlap each other
+// in it. The values are made of letters "(sensitive value)" doesn't have,
+// so that a replacement can't make one.
+func FuzzRedactTextLeavesNoValue(f *testing.F) {
+	f.Add("xyz0123", "0123xyz9", "xyz0123xyz9 and 0123xyz")
+	f.Add("777777", "7777778", "77777778")
+	f.Fuzz(func(t *testing.T, a, b, text string) {
+		var values []string
+		for _, v := range []string{a, b} {
+			if len(v) >= minSecretLength && strings.Trim(v, "0123456789xyz") == "" {
+				values = append(values, v)
+			}
+		}
+		got := RedactText(text, TextForms(values))
+		for _, v := range values {
+			if strings.Contains(got, v) {
+				t.Fatalf("RedactText(%q) = %q holds %q", text, got, v)
+			}
+		}
+	})
+}

@@ -5,6 +5,7 @@ package logging
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -16,7 +17,7 @@ func TestPrintable(t *testing.T) {
 		"unicode":         {"ключ — 日本語", "ключ — 日本語"},
 		"an escape":       {"x\x1b[2J\x1b]0;title\x07", `x\x1b[2J\x1b]0;title\x07`},
 		"a carriage":      {"ok\rfail", `ok\x0dfail`},
-		"a delete":        {"a\x7fb", `a\x7fb`},
+		"a delete":        {"a\x7fb", `a\u007fb`},
 		"a C1 control":    {"a\u009bb\u0085", `a\u009bb\u0085`},
 		"an invalid byte": {"a\xffb", `a\xffb`},
 		"a lone C1 byte":  {"a\x9bb", `a\x9bb`},
@@ -54,5 +55,32 @@ func TestPrintableEscapesBidirectionalControls(t *testing.T) {
 		if got := Printable(in); got != want {
 			t.Errorf("U+%04X: got %q, want %q", r, got, want)
 		}
+	}
+}
+
+// JSON a command prints, such as the report with --format json, goes
+// through the same writer: once escaped, it is still JSON, and it decodes
+// to the same values.
+func TestSanitizeKeepsJSONValid(t *testing.T) {
+	t.Parallel()
+	in := map[string]string{"name": "a\x7fb\x1b[2J\u009b\u202ec\xff", "id": "plain"}
+	encoded, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := Sanitize(&out).Write(encoded); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("not JSON once escaped: %v\n%s", err, out.String())
+	}
+	var want map[string]string
+	if err := json.Unmarshal(encoded, &want); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

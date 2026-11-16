@@ -38,7 +38,29 @@ type Store struct {
 	// ids are the IDs of the workspaces List found, by organization and
 	// name, so that Get needn't look them up again.
 	ids sync.Map
+	// retryBase is the wait before the first retry of a request the API
+	// throttled or failed (see fetch); 0 is defaultRetryBase.
+	retryBase time.Duration
 }
+
+const (
+	// fetchAttempts is how many times fetch asks for a URL the API
+	// throttles (429) or fails (5xx).
+	fetchAttempts = 4
+	// defaultRetryBase is the wait before the first retry, doubled before
+	// each next one, unless the answer's Retry-After says otherwise.
+	defaultRetryBase = time.Second
+	// maxRetryWait caps the wait a Retry-After asks for.
+	maxRetryWait = 30 * time.Second
+	// headerTimeout is how long the API, or the host a state downloads
+	// from, has to start answering a request. The body has fetchTimeout:
+	// a state can be large, and a total timeout as short as headerTimeout
+	// would cut its download.
+	headerTimeout = time.Minute
+	// fetchTimeout is the longest one request, its body included, may
+	// take.
+	fetchTimeout = 15 * time.Minute
+)
 
 // New opens the API of host with the token Terraform uses for it:
 // TF_TOKEN_<host> (dots as _, hyphens as __), or the one terraform login
@@ -56,7 +78,9 @@ func New(_ context.Context, host string) (managed.ObjectStore, error) {
 		return nil, err
 	}
 	base := "https://" + string(hostname) + "/api/v2"
-	return &Store{client: &http.Client{Timeout: time.Minute, CheckRedirect: tokenOnlyTo(base)}, base: base, token: token}, nil
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = headerTimeout
+	return &Store{client: &http.Client{Transport: transport, CheckRedirect: tokenOnlyTo(base)}, base: base, token: token}, nil
 }
 
 // apiToken returns the API token for host, as Terraform finds it: from the
@@ -253,11 +277,43 @@ func (h *Store) download(ctx context.Context, u, what string) ([]byte, error) {
 // fetch returns the content at u, which errors name as what. Only the API's
 // host gets the token, and over https: state downloads are signed URLs,
 // which can be on another host, and which errors, logs and an MCP client
-// must never see, so no error quotes u unless what is u.
+// must never see, so no error quotes u unless what is u. A request the
+// API throttles (429) or fails (5xx) is asked again, up to fetchAttempts
+// times in all, after the wait its Retry-After asks for, or else one that
+// doubles each time.
 func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
+	wait := h.retryBase
+	if wait == 0 {
+		wait = defaultRetryBase
+	}
+	for attempt := 1; ; attempt++ {
+		body, retryAfter, err := h.fetchOnce(ctx, u, what, accept)
+		if retryAfter < 0 || attempt == fetchAttempts {
+			return body, err
+		}
+		if retryAfter > 0 {
+			wait = min(retryAfter, maxRetryWait)
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%s: %w", what, ctx.Err())
+		case <-timer.C:
+		}
+		wait *= 2
+	}
+}
+
+// fetchOnce asks for u once, as fetch does. A retryAfter of 0 or more
+// says the answer may be different later: the wait the answer's
+// Retry-After asks for, or 0 when it asks for none; it is -1 otherwise.
+func (h *Store) fetchOnce(ctx context.Context, u, what, accept string) (body []byte, retryAfter time.Duration, err error) {
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
 	if sendsToken(h.base, req.URL) {
 		req.Header.Set("Authorization", "Bearer "+h.token)
@@ -265,18 +321,36 @@ func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, erro
 	req.Header.Set("Accept", accept)
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%s: %w", what, errNotFound)
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return nil, -1, fmt.Errorf("%s: %w", what, errNotFound)
+	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+		return nil, parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()), fmt.Errorf("%s: %s", what, resp.Status)
+	case resp.StatusCode != http.StatusOK:
+		return nil, -1, fmt.Errorf("%s: %s", what, resp.Status)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", what, resp.Status)
-	}
-	body, err := managed.ReadState(resp.Body)
+	body, err = managed.ReadState(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
-	return body, nil
+	return body, -1, nil
+}
+
+// parseRetryAfter returns the wait a Retry-After header value asks for, in
+// seconds or as an HTTP date after now, or 0 for none or one it can't
+// read.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	if value == "" {
+		return 0
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return max(time.Duration(seconds)*time.Second, 0)
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		return max(at.Sub(now), 0)
+	}
+	return 0
 }

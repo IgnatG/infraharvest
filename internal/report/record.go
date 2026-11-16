@@ -188,10 +188,14 @@ func (r *Report) addFindings(path, scope string, result *engine.Result) {
 // import ID.
 func GateFindings(root, env string, managed []engine.Managed, checks gate.Gate) []Finding {
 	var findings []Finding
+	var index *engine.ManagedIndex
 	for _, c := range checks {
 		for _, f := range c.Findings {
 			finding := Finding{Root: root, Environment: env, Address: f.Resource, Scanner: f.Scanner, Rule: f.Rule, Severity: f.Severity, Location: f.Location, Message: f.Message}
-			if m, ok := engine.ResourceAt(managed, f.Resource); ok {
+			if index == nil {
+				index = engine.NewManagedIndex(managed)
+			}
+			if m, ok := index.At(f.Resource); ok {
 				finding.Address, finding.Type, finding.ID = m.Address, m.Type, m.ID
 			}
 			findings = append(findings, finding)

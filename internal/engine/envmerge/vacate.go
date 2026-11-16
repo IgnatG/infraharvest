@@ -41,7 +41,8 @@ var variableReference = regexp.MustCompile(`\bvar\.([A-Za-z_][A-Za-z0-9_-]*)`)
 // destroys nothing. It runs no Terraform: it returns the files it leaves,
 // by path in dir with forward slashes, sorted, and the moves check of them
 // (see gate.MovesCheck). It fails if removed is empty, or its moves.tf
-// still moves resources.
+// still moves resources. If it fails once it has begun to write, it puts
+// the root's files back as they were.
 func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]string, gate.Check, error) {
 	if len(removed) == 0 {
 		return nil, gate.Check{}, errors.New("no resources to hand over")
@@ -57,6 +58,37 @@ func VacateMerged(dir string, files []string, removed []rootfile.Removal) ([]str
 	if err != nil {
 		return nil, gate.Check{}, err
 	}
+	// What it may remove or write, so that a failure part way leaves the
+	// root as it was, not half vacated.
+	touched := []string{rootfile.MovesFileName, rootfile.ReadmeFileName}
+	for _, name := range files {
+		touched = append(touched, filepath.FromSlash(name))
+	}
+	configs, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil, gate.Check{}, err
+	}
+	for _, path := range configs {
+		touched = append(touched, filepath.Base(path))
+	}
+	slices.Sort(touched)
+	backup, err := fsutil.BackupFiles(dir, slices.Compact(touched)...)
+	if err != nil {
+		return nil, gate.Check{}, err
+	}
+	left, check, err := vacateMerged(dir, files, removed, envs)
+	if err != nil {
+		if rerr := backup.Restore(); rerr != nil {
+			return nil, gate.Check{}, errors.Join(err, fmt.Errorf("restore the root's files: %w", rerr))
+		}
+		return nil, gate.Check{}, fmt.Errorf("%w; the root's files were restored", err)
+	}
+	return left, check, nil
+}
+
+// vacateMerged vacates the merged root in dir of environments envs, as
+// VacateMerged does, once it has checked it can.
+func vacateMerged(dir string, files []string, removed []rootfile.Removal, envs []string) ([]string, gate.Check, error) {
 	providers, err := os.ReadFile(filepath.Join(dir, rootfile.ProvidersFileName))
 	if err != nil {
 		return nil, gate.Check{}, err

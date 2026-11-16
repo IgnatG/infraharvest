@@ -502,5 +502,5 @@ func (b *rootBackup) restore() error {
 			return err
 		}
 	}
-	return fsutil.WriteFile(b.checkpoint, b.content, 0o644)
+	return fsutil.WriteFile(b.checkpoint, b.content, 0o600)
 }

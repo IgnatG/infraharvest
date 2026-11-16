@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -201,5 +202,26 @@ func TestDecideRoot(t *testing.T) {
 		if d.restore != tc.restored {
 			t.Errorf("%s: restore %v, want %v", tc.name, d.restore, tc.restored)
 		}
+	}
+}
+
+// A checkpoint names every resource of its root: it is private, as the
+// inventories are.
+func TestCheckpointIsPrivate(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix file modes")
+	}
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "111111111111", "eu-west-2")
+	if err := rootCheckpoints.write(out, dir, checkpoint{Fingerprint: "fp"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(rootCheckpoints.path(out, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0o600 {
+		t.Errorf("the checkpoint's mode is %o, want 600", mode)
 	}
 }
