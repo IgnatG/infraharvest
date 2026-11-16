@@ -226,7 +226,7 @@ func TestExcludedByDefaultCloudFormation(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"aws_s3_bucket app-assets":                                        reasonCloudFormation("app"),
+		"aws_s3_bucket app-assets": reasonCloudFormation("app"),
 		"aws_ecs_cluster arn:aws:ecs:us-east-1:123456789012:cluster/apps": reasonCloudFormation("app"),
 	}
 	if !reflect.DeepEqual(excluded, want) {
