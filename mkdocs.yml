@@ -67,6 +67,7 @@ nav:
       - Audit: audit.md
       - Drift: drift.md
       - Export: export.md
+      - GitLab CI and Azure Pipelines: ci.md
       - Configuration: configuration.md
       - Output: output.md
       - Modules: modules.md

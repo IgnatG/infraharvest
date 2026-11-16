@@ -1,0 +1,120 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# infraharvest in GitLab CI: a scheduled import that opens a merge request
+# with the generated configuration. See docs/ci.md for the variables, the
+# credentials of each cloud, and why it runs only on the default branch.
+#
+# Include it at a release tag, extend .infraharvest-import, and set the
+# variables (an example for AWS with OIDC):
+#
+#   include:
+#     - remote: https://raw.githubusercontent.com/IgnatG/infraharvest/v0.1.0/ci/gitlab/infraharvest.gitlab-ci.yml
+#
+#   infraharvest:
+#     extends: .infraharvest-import
+#     id_tokens:
+#       INFRAHARVEST_AWS_ID_TOKEN:
+#         aud: sts.amazonaws.com
+#     variables:
+#       INFRAHARVEST_VERSION: v0.1.0
+#       INFRAHARVEST_PROVIDER: aws
+#       INFRAHARVEST_ARGS: --services=vpc,subnet,sg,s3 --regions=eu-west-2 --selection=selection.yaml
+#       AWS_ROLE_ARN: arn:aws:iam::123456789012:role/infraharvest
+
+.infraharvest:
+  # A shell, git and cosign, which the release image doesn't have: the job
+  # installs the release itself, after checking its signature and checksum
+  # as install.sh does. Terraform is downloaded by infraharvest when there
+  # is none on PATH, or set INFRAHARVEST_ARGS' --engine=tofu and install
+  # OpenTofu in before_script.
+  image: alpine:3.24
+  variables:
+    # The release to install, such as v0.1.0. Required: a pipeline should
+    # run the release it was written for, not whatever is newest.
+    INFRAHARVEST_VERSION: ""
+    # Where the roots and the report go.
+    INFRAHARVEST_OUT: infrastructure
+  before_script:
+    - apk add --no-cache curl git cosign
+    - |
+      if [ -z "$INFRAHARVEST_VERSION" ]; then
+        echo "infraharvest: set INFRAHARVEST_VERSION to a release, such as v0.1.0" >&2
+        exit 2
+      fi
+    - curl -fsSL -o /tmp/infraharvest-install.sh "https://raw.githubusercontent.com/IgnatG/infraharvest/${INFRAHARVEST_VERSION}/install.sh"
+    - INFRAHARVEST_INSTALL_DIR=/usr/local/bin INFRAHARVEST_REQUIRE_SIGNATURE=1 sh /tmp/infraharvest-install.sh
+    - infraharvest version
+    # The cloud's OIDC token, from the job's id_tokens, where the SDKs read
+    # it: AWS from the file AWS_WEB_IDENTITY_TOKEN_FILE names (with
+    # AWS_ROLE_ARN), Google from the file the workload identity
+    # federation configuration's credential_source names. Azure reads
+    # ARM_OIDC_TOKEN itself.
+    - |
+      umask 077
+      if [ -n "${INFRAHARVEST_AWS_ID_TOKEN:-}" ]; then
+        printf '%s' "$INFRAHARVEST_AWS_ID_TOKEN" > /tmp/infraharvest-aws-token
+        export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/infraharvest-aws-token
+      fi
+      if [ -n "${INFRAHARVEST_GOOGLE_ID_TOKEN:-}" ]; then
+        printf '%s' "$INFRAHARVEST_GOOGLE_ID_TOKEN" > /tmp/infraharvest-google-token
+      fi
+      umask 022
+
+.infraharvest-import:
+  extends: .infraharvest
+  # Only the default branch, on a schedule or by hand: the job runs the
+  # providers and modules the repository names with the cloud credentials,
+  # so it must never run a merge request's content (see docs/ci.md).
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && ($CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web")
+  variables:
+    # aws, azure or google.
+    INFRAHARVEST_PROVIDER: ""
+    # The import's flags, as on the command line: the services, the scope,
+    # and --selection=<file> or --all.
+    INFRAHARVEST_ARGS: ""
+    # true: a partial import (exit code 3) still opens the merge request.
+    INFRAHARVEST_ALLOW_PARTIAL: "false"
+    # The branch the merge request comes from; each run replaces it.
+    INFRAHARVEST_MR_BRANCH: infraharvest/import
+    # A project access token with write_repository (masked, protected),
+    # in INFRAHARVEST_MR_TOKEN, opens the merge request. Without one, the
+    # job only imports and keeps the result as an artifact.
+  script:
+    - |
+      set -f   # INFRAHARVEST_ARGS is split into flags, not globbed: --services=*
+      code=0
+      # shellcheck disable=SC2086
+      infraharvest import "$INFRAHARVEST_PROVIDER" --out="$INFRAHARVEST_OUT" $INFRAHARVEST_ARGS || code=$?
+      set +f
+      report="$INFRAHARVEST_OUT/_reports/report.md"
+      [ -f "$report" ] && cat "$report"
+      if [ "$code" != 0 ] && ! { [ "$code" = 3 ] && [ "$INFRAHARVEST_ALLOW_PARTIAL" = true ]; }; then
+        echo "infraharvest exited with $code; see the report above and the job's artifacts" >&2
+        exit "$code"
+      fi
+    - |
+      if [ -z "${INFRAHARVEST_MR_TOKEN:-}" ]; then
+        echo "No INFRAHARVEST_MR_TOKEN: not opening a merge request"
+        exit 0
+      fi
+      git add -- "$INFRAHARVEST_OUT"
+      if git diff --cached --quiet; then
+        echo "Nothing new to import: no merge request"
+        exit 0
+      fi
+      git -c user.name="infraharvest" -c user.email="infraharvest@${CI_SERVER_HOST}" \
+        commit -q -m "feat: import existing resources with infraharvest"
+      git push --force \
+        "${CI_SERVER_PROTOCOL}://oauth2:${INFRAHARVEST_MR_TOKEN}@${CI_SERVER_FQDN}/${CI_PROJECT_PATH}.git" \
+        "HEAD:refs/heads/${INFRAHARVEST_MR_BRANCH}" \
+        -o merge_request.create \
+        -o "merge_request.target=${CI_DEFAULT_BRANCH}" \
+        -o "merge_request.title=Import existing resources with infraharvest" \
+        -o "merge_request.description=Generated by infraharvest ${INFRAHARVEST_VERSION}. The report is ${INFRAHARVEST_OUT}/_reports/report.md." \
+        -o merge_request.remove_source_branch
+  artifacts:
+    when: always
+    paths:
+      - $INFRAHARVEST_OUT/_reports/

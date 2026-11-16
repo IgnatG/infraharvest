@@ -1,0 +1,165 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# infraharvest in Azure Pipelines: steps that run an import in the signed
+# release image and open a pull request in Azure Repos with the generated
+# configuration. See docs/ci.md for the parameters, the credentials of
+# each cloud, and why it runs only on the default branch.
+#
+# Use it from a pipeline in the repository that holds the roots, with this
+# repository as a resource pinned to a release tag (an example for Azure
+# with workload identity federation):
+#
+#   resources:
+#     repositories:
+#       - repository: infraharvest
+#         type: github
+#         name: IgnatG/infraharvest
+#         ref: refs/tags/v0.1.0
+#         endpoint: <GitHub service connection>
+#
+#   schedules:
+#     - cron: "0 5 * * 1"
+#       branches: { include: [main] }
+#       always: true
+#   trigger: none
+#   pr: none
+#
+#   pool: { vmImage: ubuntu-latest }
+#   steps:
+#     - checkout: self
+#       persistCredentials: true
+#     - template: ci/azure-pipelines/infraharvest.yml@infraharvest
+#       parameters:
+#         version: v0.1.0
+#         provider: azure
+#         args: --services=resource_graph --resource-group=web --selection=selection.yaml
+#         env:
+#           ARM_USE_OIDC: "true"
+#           ARM_TENANT_ID: <tenant ID>
+#           ARM_CLIENT_ID: <client ID of the service connection's identity>
+#           ARM_SUBSCRIPTION_ID: <subscription ID>
+#           ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID: <service connection ID>
+#           SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+
+parameters:
+  # The release to run, such as v0.1.0.
+  - name: version
+    type: string
+  # aws, azure or google.
+  - name: provider
+    type: string
+  # The import's flags, as on the command line: the services, the scope,
+  # and --selection=<file> or --all.
+  - name: args
+    type: string
+  # Where the roots and the report go, relative to the repository.
+  - name: out
+    type: string
+    default: infrastructure
+  # true: a partial import (exit code 3) still opens the pull request.
+  - name: allowPartial
+    type: boolean
+    default: false
+  # Open or update a pull request in Azure Repos. The build service needs
+  # Contribute and Create branch on the repository, and the checkout
+  # persistCredentials: true.
+  - name: pullRequest
+    type: boolean
+    default: true
+  - name: pullRequestBranch
+    type: string
+    default: infraharvest/import
+  # The cloud's credentials, as environment variables, passed into the
+  # container by name: ARM_*, AWS_* or GOOGLE_* ones, and
+  # SYSTEM_ACCESSTOKEN for Azure's OIDC in Azure Pipelines. A secret
+  # pipeline variable must be mapped here to reach the container.
+  - name: env
+    type: object
+    default: {}
+  # cosign's image, which checks the release image's signature.
+  - name: cosignImage
+    type: string
+    default: ghcr.io/sigstore/cosign/cosign:v2.4.1
+
+steps:
+  - bash: |
+      set -euo pipefail
+      image="ghcr.io/ignatg/infraharvest:${INFRAHARVEST_VERSION}"
+      docker pull -q "$image"
+      # Signed by this repository's release workflow, keylessly, as
+      # docs/install.md checks it.
+      docker run --rm "$COSIGN_IMAGE" verify "$image" \
+        --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
+        --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+      echo "##vso[task.setvariable variable=INFRAHARVEST_IMAGE]$image"
+    displayName: Verify the infraharvest image
+    env:
+      INFRAHARVEST_VERSION: ${{ parameters.version }}
+      COSIGN_IMAGE: ${{ parameters.cosignImage }}
+
+  - bash: |
+      set -euo pipefail
+      # The variables the env parameter names go into the container, and
+      # the pipeline's OIDC request URI, which Azure's OIDC reads.
+      pass=(-e SYSTEM_OIDCREQUESTURI)
+      for marker in "${!INFRAHARVEST_PASS_@}"; do pass+=(-e "${!marker}"); done
+      set -f   # INFRAHARVEST_ARGS is split into flags, not globbed: --services=*
+      # shellcheck disable=SC2206
+      args=($INFRAHARVEST_ARGS)
+      set +f
+      code=0
+      # As the agent's user, so that what the import writes in the
+      # checkout belongs to the steps after it.
+      docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+        -v "$BUILD_SOURCESDIRECTORY:/work" -w /work "${pass[@]}" \
+        "$INFRAHARVEST_IMAGE" import "$INFRAHARVEST_PROVIDER" --out="$INFRAHARVEST_OUT" "${args[@]}" || code=$?
+      report="$BUILD_SOURCESDIRECTORY/$INFRAHARVEST_OUT/_reports/report.md"
+      if [[ -f "$report" && ! -L "$report" ]]; then
+        echo "##vso[task.uploadsummary]$report"
+      fi
+      if [[ "$code" != 0 && ! ( "$code" == 3 && "${INFRAHARVEST_ALLOW_PARTIAL,,}" == true ) ]]; then
+        echo "##vso[task.logissue type=error]infraharvest exited with $code; see the report in the run's summary"
+        exit "$code"
+      fi
+    displayName: Import with infraharvest
+    env:
+      ${{ each pair in parameters.env }}:
+        ${{ pair.key }}: ${{ pair.value }}
+        # Names the variable, for the loop above to pass into the container.
+        INFRAHARVEST_PASS_${{ pair.key }}: ${{ pair.key }}
+      INFRAHARVEST_PROVIDER: ${{ parameters.provider }}
+      INFRAHARVEST_ARGS: ${{ parameters.args }}
+      INFRAHARVEST_OUT: ${{ parameters.out }}
+      INFRAHARVEST_ALLOW_PARTIAL: ${{ parameters.allowPartial }}
+
+  - ${{ if eq(parameters.pullRequest, true) }}:
+      - bash: |
+          set -euo pipefail
+          git add -- "$INFRAHARVEST_OUT"
+          if git diff --cached --quiet; then
+            echo "Nothing new to import: no pull request"
+            exit 0
+          fi
+          git -c user.name="infraharvest" -c user.email="infraharvest@dev.azure.com" \
+            commit -q -m "feat: import existing resources with infraharvest"
+          git push --force origin "HEAD:refs/heads/$BRANCH"
+          target="${BUILD_SOURCEBRANCH#refs/heads/}"
+          existing=$(az repos pr list --source-branch "$BRANCH" --target-branch "$target" --status active \
+            --org "$SYSTEM_COLLECTIONURI" --project "$SYSTEM_TEAMPROJECT" --repository "$BUILD_REPOSITORY_NAME" \
+            --query 'length(@)' -o tsv)
+          if [[ "$existing" != 0 ]]; then
+            echo "The pull request from $BRANCH is open: its branch is updated"
+            exit 0
+          fi
+          az repos pr create --source-branch "$BRANCH" --target-branch "$target" \
+            --org "$SYSTEM_COLLECTIONURI" --project "$SYSTEM_TEAMPROJECT" --repository "$BUILD_REPOSITORY_NAME" \
+            --title "Import existing resources with infraharvest" \
+            --description "Generated by infraharvest $INFRAHARVEST_VERSION. The report is $INFRAHARVEST_OUT/_reports/report.md." \
+            --delete-source-branch true --output none
+        displayName: Open the pull request
+        env:
+          AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+          INFRAHARVEST_VERSION: ${{ parameters.version }}
+          INFRAHARVEST_OUT: ${{ parameters.out }}
+          BRANCH: ${{ parameters.pullRequestBranch }}
