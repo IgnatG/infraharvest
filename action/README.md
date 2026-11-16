@@ -160,6 +160,44 @@ jobs:
 - **Imports only.** The documents describe the import of the run, so `control-plane-url` needs `import` to be `true`: a drift-only run would send an old report, if the repository has one.
 - **Output.** `control-plane-run-id` is the `run_id` of the documents, set once all three were accepted.
 
+### Imports started from the control plane
+
+A control plane whose GitHub App has `contents: write` on the repository can start an import itself, such as when someone asks for one from its selection page. It sends a `repository_dispatch` event of type `infraharvest-import`, whose payload names the selection file, `{"selection": "selection.yaml", "ref": "main"}`, and nothing else. The selection itself comes from the repository, where a pull request approved it, so the event can't change what is imported:
+
+```yaml
+name: import
+on:
+  repository_dispatch:
+    types: [infraharvest-import]
+  workflow_dispatch:
+
+permissions:
+  contents: write       # push the pull request branch
+  pull-requests: write  # open the pull request
+  id-token: write       # OIDC to AWS, and the token the control plane is sent
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@<sha>
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3,iam
+          regions: eu-west-2
+          selection: ${{ github.event.client_payload.selection || 'selection.yaml' }}
+          pull-request: "true"
+          control-plane-url: https://control-plane.example.com
+```
+
+A `repository_dispatch` run always runs the workflow on the default branch and checks out that branch, so the import reads the selection as merged. The selection path reaches the action only as an input, never through a `run:` script, so a payload can't inject commands. To ignore the payload altogether, set `selection` to a fixed path. Leave out `repository_dispatch` to keep imports to the schedule and to runs started by hand.
+
 ## Drift
 
 Once the roots are applied, people still change things in the cloud. With `drift` set, the action runs [`infraharvest drift`](../docs/drift.md) on the roots in `out` before importing: it refreshes each root once, with read access to its state, and reports which changes the next `terraform apply` would revert. The report, `drift.md`, goes into the job summary, and the `drift-found` output says whether drift is left.
