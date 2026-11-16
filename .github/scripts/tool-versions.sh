@@ -59,15 +59,15 @@ check() {
   fi
 }
 
-check GoReleaser "$(pinned .github/workflows/release.yml 's/^\s*version: (v[0-9][^ ]*)$/\1/p')" \
+check GoReleaser "$(pinned .github/workflows/release.yml 's/^[[:space:]]*version: (v[0-9][^ ]*)$/\1/p')" \
   github goreleaser/goreleaser .github/workflows/release.yml
-check conftest "$(after .github/workflows/test.yml 'name: Install conftest' 's/^\s*VERSION: ([0-9][^ ]*)$/\1/p')" \
+check conftest "$(after .github/workflows/test.yml 'name: Install conftest' 's/^[[:space:]]*VERSION: ([0-9][^ ]*)$/\1/p')" \
   github open-policy-agent/conftest .github/workflows/test.yml
-check TFLint "$(pinned .github/actions/setup-engines/action.yml 's/^\s*tflint_version: (v?[0-9][^ ]*)$/\1/p')" \
+check TFLint "$(pinned .github/actions/setup-engines/action.yml 's/^[[:space:]]*tflint_version: (v?[0-9][^ ]*)$/\1/p')" \
   github terraform-linters/tflint .github/actions/setup-engines/action.yml
-check Trivy "$(after .github/actions/setup-engines/action.yml 'aquasecurity/setup-trivy@' 's/^\s*version: (v?[0-9][^ ]*)$/\1/p')" \
+check Trivy "$(after .github/actions/setup-engines/action.yml 'aquasecurity/setup-trivy@' 's/^[[:space:]]*version: (v?[0-9][^ ]*)$/\1/p')" \
   github aquasecurity/trivy .github/actions/setup-engines/action.yml
-check golangci-lint "$(pinned .mega-linter.yml 's/^\s*golangci_lint_version=([0-9][^ ]*)$/\1/p')" \
+check golangci-lint "$(pinned .mega-linter.yml 's/^[[:space:]]*golangci_lint_version=([0-9][^ ]*)$/\1/p')" \
   github golangci/golangci-lint .mega-linter.yml
 check MegaLinter "$(pinned .github/workflows/megalinter.yml 's/^.*uses: docker:\/\/ghcr\.io\/oxsecurity\/megalinter-go@sha256:[0-9a-f]+ # (v[0-9][^ ]*)$/\1/p')" \
   github oxsecurity/megalinter .github/workflows/megalinter.yml
