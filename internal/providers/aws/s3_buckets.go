@@ -95,8 +95,9 @@ func (g *S3Lister) readBucket(svc *s3.Client, bucket s3types.Bucket, region stri
 
 // addBucket records in out the bucket name and, first, its policy when it
 // has one that can be read. A bucket without a policy answers
-// NoSuchBucketPolicy, which leaves nothing out (see awsCodes); any other
-// error, AccessDenied included, is gathered and leaves the policy out.
+// NoSuchBucketPolicy, which leaves nothing out (see awsCodes); a bucket
+// deleted since it was listed answers NoSuchBucket, and is left out; any
+// other error, AccessDenied included, is gathered and leaves the policy out.
 func (g *S3Lister) addBucket(svc *s3.Client, name string, out *s3BucketRead) {
 	attributes := map[string]string{"force_destroy": "false", "acl": "private"}
 	policy, err := svc.GetBucketPolicy(g.Context(), &s3.GetBucketPolicyInput{Bucket: aws.String(name)})
@@ -104,6 +105,9 @@ func (g *S3Lister) addBucket(svc *s3.Client, name string, out *s3BucketRead) {
 	case err == nil && policy.Policy != nil:
 		attributes["policy"] = *policy.Policy
 		out.resources = append(out.resources, harvest.RecordBare(name, name, "aws_s3_bucket_policy", "aws"))
+	case apiErrorCode(err) == "NoSuchBucket":
+		// Deleted since it was listed.
+		return
 	case err != nil:
 		out.parts.Add(awsCodes, "policy of bucket "+name, err)
 	}

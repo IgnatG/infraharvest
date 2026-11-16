@@ -219,3 +219,34 @@ func TestRecordS3ReadsBucketsInParallel(t *testing.T) {
 		recordedResource{"aws_s3_bucket", "c", "c", bucketAttrs},
 	)
 }
+
+// A bucket deleted since it was listed answers its policy with NoSuchBucket,
+// and is left out without failing the listing, unlike a bucket without a
+// policy, which answers NoSuchBucketPolicy and is listed.
+func TestRecordS3LeavesOutBucketDeletedSinceListed(t *testing.T) {
+	t.Parallel()
+	ctx := useS3API(t, "us-east-1", func(bucket string, call apiCall) string {
+		if bucket == "" {
+			return `<ListAllMyBucketsResult ` + recordS3NS + `><Buckets>` +
+				`<Bucket><Name>kept</Name><BucketRegion>us-east-1</BucketRegion></Bucket>` +
+				`<Bucket><Name>gone</Name><BucketRegion>us-east-1</BucketRegion></Bucket>` +
+				`</Buckets></ListAllMyBucketsResult>`
+		}
+		if call.Query.Has("policy") {
+			if bucket == "gone" {
+				return `<Error><Code>NoSuchBucket</Code></Error>`
+			}
+			return `<Error><Code>NoSuchBucketPolicy</Code></Error>`
+		}
+		return recordUnexpected(t, call)
+	})
+	g := &S3Lister{}
+	g.SetSettings(serviceSettings{region: "us-east-1"})
+
+	resources, err := listChecked(ctx, t, g, harvest.Settings{})
+	if err != nil {
+		t.Fatalf("a bucket deleted since it was listed failed the listing: %v", err)
+	}
+
+	assertIDs(t, resources, "aws_s3_bucket", "kept")
+}

@@ -33,7 +33,7 @@ type APIGatewayV2Lister struct {
 // HTTP API isn't asked for them. A part of an API that can't be read,
 // such as its routes, is left out, the API and its other parts are kept,
 // and the failure makes the listing partial (see harvest.Parts); an API
-// deleted since it was listed has no parts. Any other error stops the
+// deleted since it was listed is left out. Any other error stops the
 // listing and is returned.
 func (g *APIGatewayV2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -52,6 +52,7 @@ func (g *APIGatewayV2Lister) list() error {
 	}
 	var parts harvest.Parts
 	for _, api := range apis {
+		from := len(g.Resources)
 		// Each part takes a call or more per API, so those of types the
 		// import doesn't keep are skipped.
 		responses := !api.http && g.Wants("aws_apigatewayv2_route_response")
@@ -71,7 +72,11 @@ func (g *APIGatewayV2Lister) list() error {
 			if !part.wanted {
 				continue
 			}
-			parts.Add(awsCodes, "the "+part.what+" of API "+api.id, part.list(svc, api.id))
+			err := part.list(svc, api.id)
+			if dropRecorded(&g.Resources, "aws_apigatewayv2_api", api.id, from, err) {
+				break
+			}
+			parts.Add(awsCodes, "the "+part.what+" of API "+api.id, err)
 		}
 	}
 	if err := g.listVPCLinks(svc); err != nil {

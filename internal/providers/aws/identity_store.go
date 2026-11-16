@@ -87,6 +87,7 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 		}
 		for _, group := range page.Groups {
 			groupID := aws.ToString(group.GroupId)
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.Record(
 				store+"/"+groupID, aws.ToString(group.DisplayName), "aws_identitystore_group", "aws",
 				map[string]string{
@@ -97,7 +98,10 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 			if !g.Wants("aws_identitystore_group_membership") {
 				continue
 			}
-			g.parts.Add(awsCodes, "the memberships of group "+groupID, g.listMemberships(client, store, groupID))
+			err := g.listMemberships(client, store, groupID)
+			if !dropIfGone(&g.Resources, mark, err) {
+				g.parts.Add(awsCodes, "the memberships of group "+groupID, err)
+			}
 		}
 	}
 	return nil

@@ -110,6 +110,9 @@ func (l *kmsLister) addKeys(names map[string]string) error {
 		}
 		for i, id := range listable {
 			name := cmp.Or(names[id], id)
+			if isGone(grantErrs[i]) {
+				continue
+			}
 			l.g.Resources = append(l.g.Resources, harvest.Record(id, name, kmsKeyType(l.keys[id]), "aws",
 				map[string]string{"key_id": id}))
 			l.g.Resources = append(l.g.Resources, grants[i]...)

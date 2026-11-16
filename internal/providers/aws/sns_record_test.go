@@ -85,7 +85,7 @@ func TestRecordSnsReturnsListTopicsError(t *testing.T) {
 // recorded in the listed order. A topic whose subscriptions fail is still
 // recorded, without them, the other topics are recorded with theirs, and
 // the listing is partial; a topic deleted since it was listed (NotFound)
-// only has no subscriptions.
+// is left out, with no failure.
 func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct{ failing, code string }{{"", ""}, {"b", "AuthorizationError"}, {"b", "NotFound"}} {
@@ -133,7 +133,7 @@ func TestRecordSnsReadsTopicsInParallel(t *testing.T) {
 			if err != nil {
 				t.Fatalf("a topic deleted since it was listed failed the listing: %v", err)
 			}
-			assertRecorded(t, resources, topic("a"), subscription("a"), topic("b"), topic("c"), subscription("c"))
+			assertRecorded(t, resources, topic("a"), subscription("a"), topic("c"), subscription("c"))
 		default:
 			assertRecordedError(t, err, tt.code)
 			if !harvest.IsPartial(err) {

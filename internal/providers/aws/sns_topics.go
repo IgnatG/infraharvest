@@ -30,7 +30,7 @@ type SnsLister struct {
 // with what was read up to it recorded. A topic whose subscriptions can't
 // be read is still recorded, with those read before the failure, and the
 // failure makes the listing partial (see harvest.Parts); a topic deleted
-// since it was listed has none.
+// since it was listed is left out.
 func (g *SnsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -52,6 +52,9 @@ func (g *SnsLister) list() error {
 			reads[i], errs[i] = g.topic(svc, page.Topics[i].TopicArn)
 		})
 		for i, topic := range page.Topics {
+			if isGone(errs[i]) {
+				continue
+			}
 			g.Resources = append(g.Resources, reads[i]...)
 			parts.Add(awsCodes, "the subscriptions of "+aws.ToString(topic.TopicArn), errs[i])
 		}

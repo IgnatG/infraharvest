@@ -42,7 +42,7 @@ func (api restAPIRef) part(parts ...string) string {
 // usage plans and API keys. A part of a REST API that can't be read, such
 // as its stages, is left out, the API and its other parts are kept, and
 // the failure makes the listing partial (see harvest.Parts); an API
-// deleted since it was listed has no parts. Any other error stops the
+// deleted since it was listed is left out. Any other error stops the
 // listing and is returned.
 func (g *APIGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -87,6 +87,7 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client, parts *harvest.P
 			id := aws.ToString(restAPI.Id)
 			api := restAPIRef{id: id, name: cmp.Or(aws.ToString(restAPI.Name), id)}
 			g.Resources = append(g.Resources, harvest.RecordBare(api.id, api.name, "aws_api_gateway_rest_api", "aws"))
+			from := len(g.Resources)
 
 			// Each part takes a call or more per API, so those of types
 			// the import doesn't keep are skipped.
@@ -105,7 +106,11 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client, parts *harvest.P
 				if !g.WantsAny(part.types...) {
 					continue
 				}
-				parts.Add(awsCodes, "the "+part.what+" of REST API "+api.id, part.list(svc, api))
+				err := part.list(svc, api)
+				if dropRecorded(&g.Resources, "aws_api_gateway_rest_api", api.id, from, err) {
+					break
+				}
+				parts.Add(awsCodes, "the "+part.what+" of REST API "+api.id, err)
 			}
 		}
 	}

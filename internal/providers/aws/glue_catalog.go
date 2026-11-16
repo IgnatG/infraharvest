@@ -24,7 +24,7 @@ type GlueLister struct {
 // which is the account's, so the account is looked up first. A database
 // whose tables can't be read keeps those read before the failure, and the
 // failure makes the listing partial (see harvest.Parts); a database
-// deleted since it was listed has none. Any other failure, the account
+// deleted since it was listed is left out. Any other failure, the account
 // lookup included, fails the service.
 func (g *GlueLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -55,7 +55,11 @@ func (g *GlueLister) list() error {
 	}
 	var parts harvest.Parts
 	for _, database := range databases {
-		parts.Add(awsCodes, "the tables of database "+database, g.listTables(ctx, client, account, database))
+		from := len(g.Resources)
+		err := g.listTables(ctx, client, account, database)
+		if !dropRecorded(&g.Resources, "aws_glue_catalog_database", account+":"+database, from, err) {
+			parts.Add(awsCodes, "the tables of database "+database, err)
+		}
 	}
 	if err := g.listJobs(ctx, client); err != nil {
 		return parts.Fail(err)

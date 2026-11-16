@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/aws/smithy-go"
@@ -94,4 +95,40 @@ func apiErrorCode(err error) string {
 		return apiErr.ErrorCode()
 	}
 	return ""
+}
+
+// isGone reports whether err says the resource a call asked about no longer
+// exists (see awsCodes): a resource deleted since it was listed, whose
+// call for a part of it fails with its own not-found code.
+func isGone(err error) bool {
+	return awsCodes.Classify(err) == harvest.OutcomeGone
+}
+
+// dropIfGone leaves out a resource that err says is gone: it cuts
+// resources back to its first mark entries, the ones before the resource
+// was recorded, so that the resource and any parts of it read before the
+// failure go, and reports whether it did. An error that says anything else
+// leaves resources as they are.
+func dropIfGone(resources *[]harvest.Resource, mark int, err error) bool {
+	if !isGone(err) {
+		return false
+	}
+	*resources = (*resources)[:mark]
+	return true
+}
+
+// dropRecorded leaves out of resources a resource of type typ with ID id
+// that err says is gone (see dropIfGone), recorded before the calls about its
+// parts, and the parts read for it, which are all that follows index from.
+// It reports whether it did; for an error that says anything else it leaves
+// resources as they are.
+func dropRecorded(resources *[]harvest.Resource, typ, id string, from int, err error) bool {
+	if !isGone(err) {
+		return false
+	}
+	*resources = (*resources)[:from]
+	*resources = slices.DeleteFunc(*resources, func(r harvest.Resource) bool {
+		return r.Address.Type == typ && r.Observed.ID == id
+	})
+	return true
 }

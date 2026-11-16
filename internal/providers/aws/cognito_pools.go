@@ -27,7 +27,7 @@ type CognitoLister struct {
 // clients of each user pool in the order the pools were listed. A user
 // pool whose clients can't be read keeps those read before the failure,
 // and the failure makes the listing partial (see harvest.Parts); a pool
-// deleted since it was listed has none. Any other error stops the listing
+// deleted since it was listed is left out. Any other error stops the listing
 // and is returned.
 func (g *CognitoLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
@@ -52,7 +52,11 @@ func (g *CognitoLister) list() error {
 	}
 	var parts harvest.Parts
 	for _, poolID := range poolIDs {
-		parts.Add(awsCodes, "the clients of user pool "+poolID, g.listCognitoUserPoolClients(idp, poolID))
+		from := len(g.Resources)
+		err := g.listCognitoUserPoolClients(idp, poolID)
+		if !dropRecorded(&g.Resources, "aws_cognito_user_pool", poolID, from, err) {
+			parts.Add(awsCodes, "the clients of user pool "+poolID, err)
+		}
 	}
 	return parts.Err()
 }
