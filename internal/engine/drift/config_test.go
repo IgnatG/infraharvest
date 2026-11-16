@@ -4,6 +4,7 @@
 package drift
 
 import (
+	"bytes"
 	"fmt"
 	"maps"
 	"reflect"
@@ -119,4 +120,80 @@ func BenchmarkDriftApply(b *testing.B) {
 			b.Fatal(err, failed)
 		}
 	}
+}
+
+// BenchmarkDriftApplyOneFile is BenchmarkDriftApply with every resource,
+// and every change, in one file: each change edits the same large file.
+func BenchmarkDriftApplyOneFile(b *testing.B) {
+	for _, n := range []int{500, 1000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			contents, changes, e := oneFileDrift(n, 20)
+			b.ResetTimer()
+			for range b.N {
+				_, _, failed, err := e.apply(maps.Clone(contents), changes)
+				if err != nil || len(failed) > 0 {
+					b.Fatal(err, failed)
+				}
+			}
+		})
+	}
+}
+
+// TestApplyKeepsParsesAlike checks that apply, which keeps the parse an
+// edit's check made for the next change, edits the files as when each
+// change is applied on its own, from a fresh parse: byte for byte, with
+// changes that add arguments and keys as well as change values.
+func TestApplyKeepsParsesAlike(t *testing.T) {
+	contents, changes, e := oneFileDrift(60, 5)
+	for i, c := range changes {
+		after := e.resources[c.Address].after.(map[string]any)
+		switch i % 3 {
+		case 1:
+			after["tags"] = map[string]any{"Env": "prod", "Team": "data", "Owner": "ops"}
+			changes[i] = driftAt(c.Address, "tags.Owner", "ops")
+		case 2:
+			after["acl"] = "private"
+			changes[i] = driftAt(c.Address, "acl", "private")
+		}
+	}
+	together := maps.Clone(contents)
+	names, applied, failed, err := e.apply(together, changes)
+	if err != nil || len(failed) > 0 {
+		t.Fatal(err, failed)
+	}
+	if len(applied) != len(changes) || !slices.Equal(names, []string{"main.tf"}) {
+		t.Fatalf("applied %d of %d changes, edited %v", len(applied), len(changes), names)
+	}
+	alone := maps.Clone(contents)
+	for _, c := range changes {
+		if _, _, failed, err := e.apply(alone, []*Change{c}); err != nil || len(failed) > 0 {
+			t.Fatal(err, failed)
+		}
+	}
+	if !bytes.Equal(together["main.tf"], alone["main.tf"]) {
+		t.Errorf("applied together:\n%s\napplied one at a time:\n%s", together["main.tf"], alone["main.tf"])
+	}
+	for _, want := range []string{`Env  = "dev"`, `Owner = "ops"`, `acl           = "private"`} {
+		if !bytes.Contains(together["main.tf"], []byte(want)) {
+			t.Errorf("no %s in the edited file", want)
+		}
+	}
+}
+
+// oneFileDrift returns a main.tf of n buckets, and a change to the tags
+// of one in every step, with the editor that takes them.
+func oneFileDrift(n, step int) (map[string][]byte, []*Change, *driftEditor) {
+	var src []byte
+	after := map[string]map[string]any{}
+	var changes []*Change
+	for i := range n {
+		name := fmt.Sprintf("bucket_%d", i)
+		src = fmt.Appendf(src, "resource \"aws_s3_bucket\" %q {\n  bucket        = %q\n  force_destroy = false\n  tags = {\n    Env  = \"prod\"\n    Team = \"data\"\n  }\n}\n\n", name, name)
+		if i%step == 0 {
+			address := "aws_s3_bucket." + name
+			after[address] = map[string]any{"tags": map[string]any{"Env": "dev", "Team": "data"}}
+			changes = append(changes, driftAt(address, "tags.Env", "dev"))
+		}
+	}
+	return map[string][]byte{"main.tf": src}, changes, testEditor(after)
 }

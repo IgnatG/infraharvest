@@ -145,7 +145,7 @@ func (w *workspace) ConfigFiles() ([]*hclfile.File, error) {
 
 // Save keeps the edited file f, formatted, as hclfile.File.Save writes it.
 func (w *workspace) Save(f *hclfile.File) {
-	w.files[filepath.Base(f.Path)] = bytes.TrimLeft(hclwrite.Format(f.Edit().Bytes()), "\n")
+	w.files[filepath.Base(f.Path)] = bytes.TrimLeft(hclwrite.Format(f.Bytes()), "\n")
 }
 
 // Write keeps content as the file name.

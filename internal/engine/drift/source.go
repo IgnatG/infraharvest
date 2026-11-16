@@ -919,11 +919,14 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*Change) ([]st
 	applied := map[*Change]codeSource{}
 	failed := map[*Change]codeSource{}
 	var cfg *driftConfig
+	// The parse of each file as the change before checked it, so that it
+	// isn't parsed again for the next one.
+	parses := parseCache{}
 	for _, c := range changes {
 		// Only the files the change before edited are parsed again.
 		e.syncModules(contents)
 		var err error
-		if cfg, err = cfg.reparse(contents); err != nil {
+		if cfg, err = cfg.reparseWith(contents, parses); err != nil {
 			return nil, nil, nil, err
 		}
 		src := e.resolve(cfg, c)
@@ -931,7 +934,7 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*Change) ([]st
 			failed[c] = src
 			continue
 		}
-		next, reason, secret := editFiles(contents, slices.Concat([]hclfile.Edit{*src.Edit}, src.Also))
+		next, reason, secret := editFiles(contents, slices.Concat([]hclfile.Edit{*src.Edit}, src.Also), parses)
 		if reason != "" {
 			src.Edit, src.Also, src.Reason, src.Secret = nil, nil, reason, secret
 			failed[c] = src
@@ -949,8 +952,9 @@ func (e *driftEditor) apply(contents map[string][]byte, changes []*Change) ([]st
 // editFiles returns the files of contents edits change, as they edit
 // them, each laid out where an argument was added and formatted; or why
 // they can't be made, as an edited file wouldn't parse or would hold a
-// literal secret it didn't (secret).
-func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]byte, string, bool) {
+// literal secret it didn't (secret). It parses the files through
+// parses, which keeps an edited file's parse for the next change.
+func editFiles(contents map[string][]byte, edits []hclfile.Edit, parses parseCache) (map[string][]byte, string, bool) {
 	byFile := map[string][]hclfile.Edit{}
 	for _, edit := range edits {
 		byFile[edit.File] = append(byFile[edit.File], edit)
@@ -973,17 +977,19 @@ func editFiles(contents map[string][]byte, edits []hclfile.Edit) (map[string][]b
 			content = layoutResource(content, address)
 		}
 		content = hclwrite.Format(content)
-		edited, err := hclfile.Parse(name, content)
+		// The file as it was first: its parse, which the change was
+		// resolved in, is the one kept until the edited one is.
+		var had gate.Check
+		if f, err := parses.parse(name, old); err == nil {
+			had.Details = parses.literals(name, f)
+		}
+		edited, err := parses.parse(name, content)
 		if err != nil {
 			return nil, "the edit wouldn't parse: edit it by hand", false
 		}
 		// The findings, not their count: an edit may remove one secret and
 		// add another.
-		var had gate.Check
-		if f, err := hclfile.Parse(name, old); err == nil {
-			had.Details = secret.Literals(f)
-		}
-		if len(gate.AddedDetails(had, gate.Check{Details: secret.Literals(edited)})) > 0 {
+		if len(gate.AddedDetails(had, gate.Check{Details: parses.literals(name, edited)})) > 0 {
 			return nil, "a secret, which is never written into the code: move it into a sensitive variable by hand, and set that from your secret store", true
 		}
 		next[name] = content

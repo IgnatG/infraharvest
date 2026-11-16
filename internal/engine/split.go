@@ -70,14 +70,13 @@ func splitFiles(dir string, imports []rootfile.Import, calls []ModuleCall) ([]st
 	// Where every block moves, generated.tf goes whole: removing each
 	// from it would search its body for every block.
 	stays := slices.ContainsFunc(blocks, func(b *hclwrite.Block) bool { return fileOf[blockAddress(b)] == "" })
+	var moved []*hclwrite.Block
 	for _, b := range blocks {
 		name := fileOf[blockAddress(b)]
 		if name == "" {
 			continue
 		}
-		if stays {
-			generated.Edit().Body().RemoveBlock(b)
-		}
+		moved = append(moved, b)
 		out, ok := files[name]
 		if !ok {
 			out = hclwrite.NewEmptyFile()
@@ -96,6 +95,7 @@ func splitFiles(dir string, imports []rootfile.Import, calls []ModuleCall) ([]st
 	}
 	slices.Sort(names)
 	if stays {
+		generated.RemoveBlocks(moved)
 		return names, generated.Save()
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {

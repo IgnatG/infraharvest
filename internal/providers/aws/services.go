@@ -382,12 +382,12 @@ func serviceTypes(cat *catalogue.Catalogue, name string) []string {
 		}
 	}
 	for _, typ := range cat.Types() {
-		if e, _ := cat.Entry(typ); e.Service == name {
+		if e, _ := cat.View(typ); e.Service == name {
 			found[typ] = true
 		}
 	}
 	for queue := slices.Collect(maps.Keys(found)); len(queue) > 0; queue = queue[1:] {
-		e, ok := cat.Entry(queue[0])
+		e, ok := cat.View(queue[0])
 		if !ok {
 			continue
 		}

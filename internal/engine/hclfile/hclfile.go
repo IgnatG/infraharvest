@@ -40,6 +40,9 @@ type File struct {
 	Src    []byte // the file as loaded, which syntax ranges point into
 	Syntax *hclsyntax.Body
 	write  *hclwrite.File // nil until edit
+	// flat says write holds the file as tokens alone, as RemoveBlocks
+	// leaves it: Edit parses it again before anything reads its blocks.
+	flat bool
 }
 
 // ParseDiagnostics parses src, the content of the file at path, or
@@ -129,13 +132,40 @@ func (f *File) Edit() *hclwrite.File {
 		// did without errors: it can't fail.
 		f.write, _ = hclwrite.ParseConfig(f.Src, f.Path, hcl.InitialPos)
 	}
+	if f.flat {
+		// What RemoveBlocks left parses, as it is what removing each block
+		// leaves of a tree that did.
+		f.write, _ = hclwrite.ParseConfig(f.write.Bytes(), f.Path, hcl.InitialPos)
+		f.flat = false
+	}
 	return f.write
+}
+
+// Bytes returns the file as the edits so far leave it, unformatted.
+func (f *File) Bytes() []byte {
+	if f.write == nil {
+		return f.Edit().Bytes()
+	}
+	return f.write.Bytes()
+}
+
+// AppendBlocks appends blocks to the file, each after a blank line, as
+// AppendNewline and AppendBlock of its body do, without parsing again
+// what RemoveBlocks left.
+func (f *File) AppendBlocks(blocks ...*hclwrite.Block) {
+	if f.write == nil {
+		f.Edit()
+	}
+	for _, b := range blocks {
+		f.write.Body().AppendNewline()
+		f.write.Body().AppendBlock(b)
+	}
 }
 
 // Save writes the edited file back, formatted. Removing the first block
 // leaves the blank line that separated it from the next; Save drops it.
 func (f *File) Save() error {
-	return fsutil.WriteFile(f.Path, bytes.TrimLeft(hclwrite.Format(f.Edit().Bytes()), "\n"), 0o644)
+	return fsutil.WriteFile(f.Path, bytes.TrimLeft(hclwrite.Format(f.Bytes()), "\n"), 0o644)
 }
 
 // ParseExpr parses src, an expression, into the tokens of an editable
@@ -733,6 +763,68 @@ func CopyBlock(block *hclwrite.Block) (*hclwrite.Block, error) {
 	f.Body().RemoveBlock(copied)
 	return copied, nil
 }
+
+// RemoveBlocks removes blocks, top-level blocks of the file's editable
+// tree, leaving the file as removing each with the body's RemoveBlock
+// would, byte for byte. RemoveBlock searches the whole body for each
+// block, which is quadratic for many; RemoveBlocks builds what remains
+// once, as tokens alone, which Bytes, Save and AppendBlocks take as they
+// are, and Edit parses again. So blocks of the tree from before the call
+// are no longer the file's: make every other edit of them first, and read
+// them again from Edit after.
+func (f *File) RemoveBlocks(blocks []*hclwrite.Block) {
+	if len(blocks) == 0 {
+		return
+	}
+	if len(blocks) < removeOneByOne {
+		for _, b := range blocks {
+			f.Edit().Body().RemoveBlock(b)
+		}
+		return
+	}
+	// Each block's tokens are the tree's own, and lie together in the
+	// file's: what RemoveBlock leaves is the file's tokens without them.
+	// As RemoveBlock, a block that isn't one of the body's stays.
+	top := map[*hclwrite.Block]bool{}
+	for _, b := range f.Edit().Body().Blocks() {
+		top[b] = true
+	}
+	runs := make(map[*hclwrite.Token]int, len(blocks))
+	for _, b := range blocks {
+		if !top[b] {
+			continue
+		}
+		if tokens := b.BuildTokens(nil); len(tokens) > 0 {
+			runs[tokens[0]] = len(tokens)
+		}
+	}
+	// The body's, without the end of the file: blocks AppendBlocks adds go
+	// before it, as in the tree.
+	all := f.Edit().Body().BuildTokens(nil)
+	kept := make(hclwrite.Tokens, 0, len(all))
+	found := 0
+	for i := 0; i < len(all); i++ {
+		if n, ok := runs[all[i]]; ok && i+n <= len(all) {
+			found++
+			i += n - 1
+			continue
+		}
+		kept = append(kept, all[i])
+	}
+	if found == len(runs) {
+		write := hclwrite.NewEmptyFile()
+		write.Body().AppendUnstructuredTokens(kept)
+		f.write, f.flat = write, true
+		return
+	}
+	for _, b := range blocks {
+		f.Edit().Body().RemoveBlock(b)
+	}
+}
+
+// removeOneByOne is how few blocks RemoveBlocks removes one at a time,
+// where searching the body for each costs less than parsing it again.
+const removeOneByOne = 8
 
 // EvalContext evaluates the constants of generated configuration, in
 // which Terraform writes JSON strings as jsonencode(...).

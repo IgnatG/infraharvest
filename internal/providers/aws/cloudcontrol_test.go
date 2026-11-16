@@ -170,6 +170,21 @@ func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 	}
 }
 
+// BenchmarkServices is Services with the built-in catalogue, as the
+// import sets it, and Resource Explorer on: the importer asks it two or
+// three times per account and region.
+func BenchmarkServices(b *testing.B) {
+	cat, err := catalogue.Load("aws", "")
+	if err != nil {
+		b.Fatal(err)
+	}
+	p := &Provider{resourceExplorer: true}
+	p.SetCatalogue(cat)
+	for b.Loop() {
+		_ = p.Services()
+	}
+}
+
 func TestCloudControlName(t *testing.T) {
 	t.Parallel()
 	for id, want := range map[string]string{

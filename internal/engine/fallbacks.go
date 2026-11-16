@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -72,11 +73,13 @@ func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports
 	if err != nil {
 		return nil, err
 	}
+	var gone []*hclwrite.Block
 	for _, r := range generated.Resources() {
-		if slices.Contains(retried, r.Address) {
-			generated.Edit().Body().RemoveBlock(r.Write)
+		if _, ok := slices.BinarySearch(retried, r.Address); ok {
+			gone = append(gone, r.Write)
 		}
 	}
+	generated.RemoveBlocks(gone)
 	for _, imp := range importsFile.Imports() {
 		if i, ok := byAddress[imp.To]; ok && slices.Contains(retried, imp.To) {
 			imp.Write.Body().SetAttributeValue("id", cty.StringVal(imports[i].Fallback))
