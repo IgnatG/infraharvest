@@ -8,6 +8,7 @@ package azblob
 
 import (
 	"context"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -98,3 +99,17 @@ func (s *Store) Get(ctx context.Context, container, name string) ([]byte, error)
 	defer resp.Body.Close()
 	return managed.ReadState(resp.Body)
 }
+
+// Open returns a blob's content to read as it goes (see
+// managed.StreamStore). Errors in reading it may quote the blob's URL:
+// the reader passes them through managed.WithoutURL.
+func (s *Store) Open(ctx context.Context, container, name string) (io.ReadCloser, error) {
+	resp, err := s.client.DownloadStream(ctx, container, name, nil)
+	if err != nil {
+		return nil, managed.WithoutURL(err)
+	}
+	return resp.Body, nil
+}
+
+// Stores read state as it is decoded.
+var _ managed.StreamStore = (*Store)(nil)

@@ -6,7 +6,9 @@ version: 2
 # old, as malicious or yanked releases of a module, an action or an image
 # are usually caught within days: 7 days for what is built into or runs
 # with the release (Go modules, actions, the Dockerfile's images).
-# Security updates aren't held back.
+# Security updates aren't held back. Versions Dependabot can't read, in run
+# steps, scripts and with: inputs, are checked by the weekly tool versions
+# workflow (.github/workflows/tool-versions.yml), which opens an issue.
 updates:
   # Go security updates only: a limit of 0 turns off the version updates,
   # which the weekly Go modules workflow opens as one PR instead

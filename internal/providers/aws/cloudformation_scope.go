@@ -99,9 +99,9 @@ type scopedResource struct {
 // and GetTemplate once for each stack. cat tells the Terraform types of
 // their resources (see catalogue.Catalogue.CloudFormationTypes) and the
 // stacks a service manages. It changes nothing.
-func ResolveStacks(ctx context.Context, profile, roleARN, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
+func ResolveStacks(ctx context.Context, profile string, role AssumeRole, region string, refs []string, cat *catalogue.Catalogue) (*StackScope, error) {
 	service := &Service{}
-	service.SetSettings(serviceSettings{region: region, profile: profile, roleARN: roleARN})
+	service.SetSettings(serviceSettings{region: region, profile: profile, roleARN: role.ARN, externalID: role.ExternalID, sessionName: role.SessionName})
 	service.Begin(ctx, harvest.Settings{})
 	config, err := service.sdkConfig()
 	if err != nil {
@@ -221,9 +221,7 @@ func (s *StackScope) read(ctx context.Context, client *cloudformation.Client, st
 		return fmt.Errorf("CloudFormation stack %s: %w", stack.name, err)
 	}
 	var nested []*scopedStack
-	pages := cloudformation.NewListStackResourcesPaginator(client, &cloudformation.ListStackResourcesInput{StackName: aws.String(stack.id)}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, cloudformation.NewListStackResourcesPaginator(client, &cloudformation.ListStackResourcesInput{StackName: aws.String(stack.id)}, stopOnDuplicateToken)) {
 		if err != nil {
 			if unreadable(err) {
 				return nil

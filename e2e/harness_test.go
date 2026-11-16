@@ -209,7 +209,7 @@ func checkImportedIDs(ctx context.Context, t *testing.T, dir, execPath, pluginCa
 			continue
 		}
 		if !rc.Change.Actions.NoOp() {
-			changed := changedAttributes(rc.Change.Before, rc.Change.After)
+			changed := changedAttributes(rc.Change)
 			if !rc.Change.Actions.Update() || !stateOnly(rc.Type, changed) {
 				t.Errorf("%s: %s (import ID %q) is imported with changes: %v %v", dir, rc.Address, rc.Change.Importing.ID, rc.Change.Actions, changed)
 				continue
@@ -305,12 +305,22 @@ func sortedKeys(m map[string]int) []string {
 }
 
 // changedAttributes maps each top-level attribute a planned update changes
-// to "before -> after".
-func changedAttributes(before, after interface{}) map[string]string {
-	b, _ := before.(map[string]interface{})
-	a, _ := after.(map[string]interface{})
+// to "before -> after". An attribute known only after the apply (true in
+// after_unknown) is left out: the plan shows it as null in After, which
+// isn't a change the configuration makes, as the action test's jq filter
+// already reads it.
+func changedAttributes(change *tfjson.Change) map[string]string {
 	changed := map[string]string{}
+	if change == nil {
+		return changed
+	}
+	b, _ := change.Before.(map[string]interface{})
+	a, _ := change.After.(map[string]interface{})
+	unknown, _ := change.AfterUnknown.(map[string]interface{})
 	for k, v := range a {
+		if u, _ := unknown[k].(bool); u {
+			continue
+		}
 		if !reflect.DeepEqual(b[k], v) {
 			changed[k] = fmt.Sprintf("%v -> %v", b[k], v)
 		}

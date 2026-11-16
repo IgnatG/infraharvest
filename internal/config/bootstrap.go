@@ -50,6 +50,35 @@ func q(s string) string {
 	return string(hclwrite.TokensForValue(cty.StringVal(s)).Bytes())
 }
 
+// bootstrapProvider is the Terraform provider a backend's bootstrap root
+// creates its storage with.
+type bootstrapProvider struct {
+	name, source, version string
+}
+
+// bootstrapProviders are the providers of the bootstrap roots, by the
+// backend they bootstrap, in one place: each pins a major release, which
+// the resources of main.tf are written for. Raise one with the provider's
+// next major release once its bootstrap root plans with it. Native state
+// locking of S3 (use_lockfile) needs Terraform 1.10, which every root
+// requires alike.
+var bootstrapProviders = map[string]bootstrapProvider{
+	"s3":      {"aws", "hashicorp/aws", "~> 6.0"},
+	"azurerm": {"azurerm", "hashicorp/azurerm", "~> 5.0"},
+	"gcs":     {"google", "hashicorp/google", "~> 8.0"},
+}
+
+// bootstrapTerraform is the Terraform release every bootstrap root
+// requires.
+const bootstrapTerraform = ">= 1.10, < 2.0"
+
+// bootstrapVersions returns the versions.tf of the bootstrap root of the
+// backend.
+func bootstrapVersions(backend string) string {
+	p := bootstrapProviders[backend]
+	return versionsTF(bootstrapTerraform, p.name, p.source, p.version)
+}
+
 func versionsTF(requiredVersion, provider, source, version string) string {
 	return fmt.Sprintf(`terraform {
   required_version = %s
@@ -81,8 +110,7 @@ func s3Bootstrap(s *S3) map[string]string {
       kms_master_key_id = ` + q(s.KMSKeyID)
 	}
 	return map[string]string{
-		// S3 native state locking (use_lockfile) needs Terraform 1.10.
-		"versions.tf": versionsTF(">= 1.10, < 2.0", "aws", "hashicorp/aws", "~> 6.0"),
+		"versions.tf": bootstrapVersions("s3"),
 		"main.tf": fmt.Sprintf(`provider "aws" {
   region = %s
 }
@@ -160,7 +188,7 @@ resource "aws_s3_bucket_policy" "state" {
 
 func azureRMBootstrap(a *AzureRM) map[string]string {
 	return map[string]string{
-		"versions.tf": versionsTF(">= 1.10, < 2.0", "azurerm", "hashicorp/azurerm", "~> 5.0"),
+		"versions.tf": bootstrapVersions("azurerm"),
 		"variables.tf": `variable "location" {
   description = "Azure region of the state storage, such as uksouth."
   type        = string
@@ -216,7 +244,7 @@ resource "azurerm_storage_container" "state" {
 
 func gcsBootstrap(g *GCS) map[string]string {
 	return map[string]string{
-		"versions.tf": versionsTF(">= 1.10, < 2.0", "google", "hashicorp/google", "~> 8.0"),
+		"versions.tf": bootstrapVersions("gcs"),
 		"variables.tf": `variable "project" {
   description = "Google Cloud project of the state bucket."
   type        = string

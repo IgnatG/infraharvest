@@ -35,9 +35,7 @@ func (g *SubnetLister) list() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 
-	pages := ec2.NewDescribeSubnetsPaginator(client, &ec2.DescribeSubnetsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeSubnetsPaginator(client, &ec2.DescribeSubnetsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

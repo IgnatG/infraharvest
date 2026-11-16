@@ -36,7 +36,7 @@ func TestCheckpoints(t *testing.T) {
 	}
 	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
 	opts := engine.Options{Config: map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")}}
-	fp, err := fingerprint("1.16.5", imports, opts, "")
+	fp, err := fingerprint("1.16.5", imports, opts, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,11 @@ func TestCheckpoints(t *testing.T) {
 	}
 
 	// Other imports or options make another root.
-	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts, "")
+	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	newerEngine, err := fingerprint("1.17.0", imports, opts, "")
+	newerEngine, err := fingerprint("1.17.0", imports, opts, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestCheckpoints(t *testing.T) {
 func TestFingerprintIgnoresOrder(t *testing.T) {
 	a := []rootfile.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
 	b := []rootfile.Import{a[1], a[0]}
-	fa, err := fingerprint("1.16.5", a, engine.Options{}, "")
+	fa, err := fingerprint("1.16.5", a, engine.Options{}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fb, err := fingerprint("1.16.5", b, engine.Options{}, "")
+	fb, err := fingerprint("1.16.5", b, engine.Options{}, "", "")
 	if err != nil || fa != fb {
 		t.Errorf("fingerprints differ: %s, %s, %v", fa, fb, err)
 	}
@@ -637,7 +637,7 @@ func TestFingerprintCoversOptions(t *testing.T) {
 func TestFingerprintPolicies(t *testing.T) {
 	t.Parallel()
 	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
-	content, err := fingerprintContent("1.16.5", imports, engine.Options{}, "")
+	content, err := fingerprintContent("1.16.5", imports, engine.Options{}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,11 +681,11 @@ func TestFingerprintPolicies(t *testing.T) {
 		t.Error("adding a policy left the digest as it was")
 	}
 
-	without, err := fingerprint("1.16.5", imports, engine.Options{}, "")
+	without, err := fingerprint("1.16.5", imports, engine.Options{}, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	with, err := fingerprint("1.16.5", imports, engine.Options{}, first)
+	with, err := fingerprint("1.16.5", imports, engine.Options{}, "", first)
 	if err != nil {
 		t.Fatal(err)
 	}

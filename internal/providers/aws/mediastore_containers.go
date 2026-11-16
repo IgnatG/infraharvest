@@ -33,9 +33,7 @@ func (g *MediaStoreLister) list() error {
 		return err
 	}
 	svc := mediastore.NewFromConfig(config)
-	p := mediastore.NewListContainersPaginator(svc, &mediastore.ListContainersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), mediastore.NewListContainersPaginator(svc, &mediastore.ListContainersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

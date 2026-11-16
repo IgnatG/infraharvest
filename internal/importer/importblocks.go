@@ -5,6 +5,9 @@ package importer
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"log"
 	"slices"
 	"sort"
@@ -139,6 +142,11 @@ type otherRoots struct {
 	// the options of a root.
 	external  []ofRoot[engine.External]
 	resources []ofRoot[engine.RootResource]
+	// out is the output directory, and digest a hash of external and
+	// resources, each entry with its root, which a root's fingerprint
+	// takes in their place (see of).
+	out    string
+	digest string
 }
 
 // ofRoot is a value, of the root in dir.
@@ -150,7 +158,7 @@ type ofRoot[T any] struct {
 // newOtherRoots indexes the roots of byDir, under the output directory
 // out, for the options of each, which start from opts.
 func newOtherRoots(opts engine.Options, byDir map[string][]rootfile.Import, out string) otherRoots {
-	o := otherRoots{opts: opts, several: len(byDir) >= 2}
+	o := otherRoots{opts: opts, several: len(byDir) >= 2, out: out}
 	if !o.several {
 		return o
 	}
@@ -188,18 +196,47 @@ func newOtherRoots(opts engine.Options, byDir map[string][]rootfile.Import, out 
 		a, b := x.value, y.value
 		return cmp.Or(strings.Compare(a.Type, b.Type), strings.Compare(a.ID, b.ID), strings.Compare(a.Root, b.Root), strings.Compare(a.Name, b.Name))
 	})
+	o.digest = o.hash()
 	return o
+}
+
+// hash returns a digest of what every root manages, each entry with its
+// root, in the order of: what of makes of any one root follows from it
+// and that root.
+func (o otherRoots) hash() string {
+	h := sha256.New()
+	root := func(dir string) string {
+		if dir == "" {
+			return ""
+		}
+		return relativePath(o.out, dir)
+	}
+	for _, e := range o.external {
+		for _, s := range []string{"e", e.value.Type, e.value.ID, e.value.Name, root(e.dir)} {
+			fmt.Fprintf(h, "%d:%s", len(s), s)
+		}
+	}
+	for _, r := range o.resources {
+		for _, s := range []string{"r", r.value.Type, r.value.ID, r.value.Name, r.value.Root, root(r.dir)} {
+			fmt.Fprintf(h, "%d:%s", len(s), s)
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // of returns the options for the root in dir, with what the other roots
 // manage as external: references to it read it, as references between
-// roots do, or a variable says where it comes from.
-func (o otherRoots) of(dir string) engine.Options {
+// roots do, or a variable says where it comes from. It also returns what
+// the root's fingerprint takes in place of what the other roots manage
+// (see fingerprint): the digest of what every root manages and which root
+// this is; "" where there is no other root, and the options are opts.
+func (o otherRoots) of(dir string) (engine.Options, string) {
 	if !o.several {
-		return o.opts
+		return o.opts, ""
 	}
 	dirOpts := o.opts
-	dirOpts.External, dirOpts.OtherRoots = nil, nil
+	dirOpts.External = make([]engine.External, 0, len(o.external))
+	dirOpts.OtherRoots = make([]engine.RootResource, 0, len(o.resources))
 	for _, e := range o.external {
 		// Each resource once, by its first entry.
 		if (e.dir != "" && e.dir == dir) || (len(dirOpts.External) > 0 && sameResource(dirOpts.External[len(dirOpts.External)-1], e.value)) {
@@ -213,7 +250,7 @@ func (o otherRoots) of(dir string) engine.Options {
 		}
 		dirOpts.OtherRoots = append(dirOpts.OtherRoots, r.value)
 	}
-	return dirOpts
+	return dirOpts, o.digest + "\x00" + relativePath(o.out, dir)
 }
 
 // sameResource reports whether a and b are the same resource, whatever

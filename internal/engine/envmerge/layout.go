@@ -92,7 +92,7 @@ func MergedStateLocations(dir, env string) ([]string, error) {
 }
 
 // MergedRootFiles returns the files of the root environments share in
-// dir that a merge writes (see mergedRootFiles), by path in dir with
+// dir that a merge writes (see buildMergedRoot), by path in dir with
 // forward slashes, sorted: its .tf files, README.md, .gitignore, and the
 // var files and backend settings under vars/.
 func MergedRootFiles(dir string) ([]string, error) {

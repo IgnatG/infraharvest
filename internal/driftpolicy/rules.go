@@ -138,7 +138,10 @@ func (r Rule) matches(c report.DriftChange) bool {
 }
 
 // compiled holds the compiled patterns, by pattern: a drift run matches
-// every change against the rules, and there are few patterns.
+// every change against the rules, and there are few patterns. It is for
+// the process, not a run: what a pattern compiles to never changes, so a
+// later run can only reuse it, and it grows only with patterns no run has
+// seen.
 var compiled sync.Map
 
 // matchPattern reports whether value matches pattern, in which * matches

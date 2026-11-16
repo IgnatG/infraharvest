@@ -64,7 +64,7 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 
 // compiled are the providers compiled into the tests, as internal/cli passes
 // them to the server.
-var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
+var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Settings: providers.Settings(), Check: providers.Check}
 
 // builtIn reports whether the tests are built with each of names: a
 // build with -tags minimal has only some providers, and its tests leave

@@ -39,9 +39,7 @@ func (g *CodeCommitLister) list() error {
 // listRepositories adds each repository as an aws_codecommit_repository,
 // imported by its name.
 func (g *CodeCommitLister) listRepositories(ctx context.Context, client *codecommit.Client) error {
-	p := codecommit.NewListRepositoriesPaginator(client, &codecommit.ListRepositoriesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, codecommit.NewListRepositoriesPaginator(client, &codecommit.ListRepositoriesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -56,9 +54,7 @@ func (g *CodeCommitLister) listRepositories(ctx context.Context, client *codecom
 // listApprovalRuleTemplates adds each approval rule template as an
 // aws_codecommit_approval_rule_template, imported by its name.
 func (g *CodeCommitLister) listApprovalRuleTemplates(ctx context.Context, client *codecommit.Client) error {
-	p := codecommit.NewListApprovalRuleTemplatesPaginator(client, &codecommit.ListApprovalRuleTemplatesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, codecommit.NewListApprovalRuleTemplatesPaginator(client, &codecommit.ListApprovalRuleTemplatesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

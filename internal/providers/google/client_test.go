@@ -16,6 +16,7 @@ import (
 	"google.golang.org/api/compute/v1"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -76,7 +77,7 @@ func TestLimitedClientIsTheRunsOwn(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	defer server.Close()
 	base := server.Client()
-	runs := []*ratelimit.Limiter{ratelimit.New(1), ratelimit.New(1000)}
+	runs := []*runstate.Run{runstate.New(ratelimit.New(1)), runstate.New(ratelimit.New(1000))}
 	clients := make([]*http.Client, len(runs))
 	var wg sync.WaitGroup
 	for i, run := range runs {
@@ -163,7 +164,7 @@ func (answering) RoundTrip(r *http.Request) (*http.Response, error) {
 // rate. The clock is virtual (synctest).
 func TestCloudAssetHasItsOwnPace(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		client := limitedBy(ratelimit.New(ratelimit.DefaultRate), &http.Client{Transport: answering{}})
+		client := limitedBy(runstate.New(ratelimit.New(ratelimit.DefaultRate)), &http.Client{Transport: answering{}})
 		took := func(host string, n int) time.Duration {
 			start := time.Now()
 			for range n {

@@ -50,7 +50,7 @@ func scopeAnnotation(ws *workspace, s *ScopeLocals, taken Names, keep map[string
 // liftScope makes each string value of generated, the generated.tf of
 // ws, and of the literal locals of locals.tf, that holds the root's own
 // account or region of s as part of an ARN, a path, a host or an email,
-// or as all of it (see scopeWordIndex), read it
+// or as all of it (see scopeWordIndexFrom), read it
 // from its local, as a root environments share does:
 // "arn:aws:lambda:${local.aws_region}:${local.aws_account_id}:function:app",
 // and account_id = local.aws_account_id where it is the whole value. The
@@ -265,7 +265,7 @@ func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[strin
 }
 
 // liftScopeWord returns s with each occurrence of id that is an ID (see
-// scopeWordIndex) replaced by with, and whether it had one.
+// scopeWordIndexFrom) replaced by with, and whether it had one.
 func liftScopeWord(s, id, with string) (string, bool) {
 	var b strings.Builder
 	last := 0
@@ -281,9 +281,10 @@ func liftScopeWord(s, id, with string) (string, bool) {
 	return b.String(), true
 }
 
-// scopeWordIndex returns the index of the first occurrence of id in s that
-// is an ID, or -1 for none: all of s; a part of an ARN, a URL, a Google
-// Cloud projects/ path or an Azure /subscriptions/ ID, after :, /, . or @
+// scopeWordIndexFrom returns the index of the first occurrence of id in s,
+// at or after from, that is an ID, or -1 for none: all of s; a part of an
+// ARN, a URL, a Google Cloud projects/ path or an Azure /subscriptions/ ID,
+// after :, /, . or @
 // and before :, / or .; or a part of a host or an email, after . or @ and
 // before . (see scopeID). So arn:aws:iam::123456789012:role/ci,
 // projects/app-prod/topics/orders and s3.eu-west-2.amazonaws.com hold
@@ -291,11 +292,6 @@ func liftScopeWord(s, id, with string) (string, bool) {
 // group /app/eu-west-2, names that only have them in part, don't: a name
 // that happens to hold the ID would otherwise change with the account the
 // root plans in.
-func scopeWordIndex(s, id string) int {
-	return scopeWordIndexFrom(s, id, 0)
-}
-
-// scopeWordIndexFrom is scopeWordIndex from index from of s.
 func scopeWordIndexFrom(s, id string, from int) int {
 	if id == "" {
 		return -1
@@ -330,7 +326,7 @@ func scopeWordIndexFrom(s, id string, from int) int {
 }
 
 // scopeID reports whether an occurrence of an ID between the bytes before
-// and after it, 0 at an end of the string, is the ID (see scopeWordIndex),
+// and after it, 0 at an end of the string, is the ID (see scopeWordIndexFrom),
 // in a string that ids says is an ARN, a URL or a resource's path.
 func scopeID(before, after byte, ids bool) bool {
 	if (before == '.' || before == '@') && after == '.' {

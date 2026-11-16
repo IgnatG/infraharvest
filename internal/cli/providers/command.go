@@ -65,6 +65,10 @@ type definition struct {
 	// scope is read with (see harvest.Scope.Identity) in place of the
 	// command's own: its profile, role, tenant or service account.
 	identityArgs func(args []string, scope string, id config.Identity) []string
+	// settings are what infraharvest writes the provider blocks of the
+	// provider's roots with, by source address: its own and those of the
+	// providers its curated modules use (see Settings).
+	settings map[string]harvest.BlockSettings
 }
 
 // checker rejects what the options and the provider's own flags say that
@@ -136,6 +140,9 @@ func (p plan) importerPlan(options importer.Options, newProvider func() harvest.
 // define registers the provider d describes.
 func define(d definition) {
 	register(d.name, d.command, d.newProvider)
+	for source, s := range d.settings {
+		compiledSettings[source] = s
+	}
 	if d.stores != nil {
 		d.stores(&compiledStores)
 	}

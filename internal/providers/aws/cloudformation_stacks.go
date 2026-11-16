@@ -53,9 +53,7 @@ func (g *CloudFormationLister) list() error {
 // that 90 days of deleted ones aren't paged through; a deleted stack in the
 // answer is still left out.
 func (g *CloudFormationLister) listStacks(client *cloudformation.Client) error {
-	pages := cloudformation.NewListStacksPaginator(client, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudformation.NewListStacksPaginator(client, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -76,9 +74,7 @@ func (g *CloudFormationLister) listStacks(client *cloudformation.Client) error {
 // followed by its instances, recorded as <set name>,<account>,<region>.
 // Both lists are read across pages.
 func (g *CloudFormationLister) listStackSets(client *cloudformation.Client) error {
-	sets := cloudformation.NewListStackSetsPaginator(client, &cloudformation.ListStackSetsInput{}, stopOnDuplicateToken)
-	for sets.HasMorePages() {
-		page, err := sets.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudformation.NewListStackSetsPaginator(client, &cloudformation.ListStackSetsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -103,9 +99,7 @@ func (g *CloudFormationLister) listStackSets(client *cloudformation.Client) erro
 // deployed to an account.
 func (g *CloudFormationLister) listStackInstances(client *cloudformation.Client, setName string) error {
 	input := &cloudformation.ListStackInstancesInput{StackSetName: aws.String(setName)}
-	instances := cloudformation.NewListStackInstancesPaginator(client, input, stopOnDuplicateToken)
-	for instances.HasMorePages() {
-		page, err := instances.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudformation.NewListStackInstancesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

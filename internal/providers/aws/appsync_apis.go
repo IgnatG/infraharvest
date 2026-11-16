@@ -28,9 +28,7 @@ func (g *AppSyncLister) list() error {
 	if err != nil {
 		return err
 	}
-	pages := appsync.NewListGraphqlApisPaginator(appsync.NewFromConfig(config), &appsync.ListGraphqlApisInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), appsync.NewListGraphqlApisPaginator(appsync.NewFromConfig(config), &appsync.ListGraphqlApisInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

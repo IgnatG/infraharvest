@@ -42,9 +42,7 @@ func (g *SnsLister) list() error {
 	}
 	svc := sns.NewFromConfig(config)
 	var parts harvest.Parts
-	topics := sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{}, stopOnDuplicateToken)
-	for topics.HasMorePages() {
-		page, err := topics.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return parts.Fail(err)
 		}
@@ -72,9 +70,7 @@ func (g *SnsLister) topic(svc *sns.Client, topicARN *string) ([]harvest.Resource
 	if !g.Wants("aws_sns_topic_subscription") {
 		return resources, nil
 	}
-	pages := sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), sns.NewListSubscriptionsByTopicPaginator(svc, &sns.ListSubscriptionsByTopicInput{TopicArn: topicARN}, stopOnDuplicateToken)) {
 		if err != nil {
 			return resources, err
 		}

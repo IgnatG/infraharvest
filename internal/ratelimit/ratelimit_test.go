@@ -79,7 +79,7 @@ func TestTransportAndClient(t *testing.T) {
 		},
 		"client": func(l *Limiter) func(*http.Request) (*http.Response, error) { return l.Client(http.DefaultClient).Do },
 	} {
-		do := through(New(1))
+		do := through(New(1)) //nolint:bodyclose // the responses of do are closed below
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 		resp, err := do(req)
 		if err != nil {
@@ -88,7 +88,11 @@ func TestTransportAndClient(t *testing.T) {
 		resp.Body.Close()
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 		req, _ = http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
-		if _, err := do(req); err == nil {
+		resp, err = do(req)
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		if err == nil {
 			t.Errorf("%s: the second request went at once", name)
 		}
 		cancel()
@@ -203,8 +207,11 @@ func TestTransportAndClientHoldBack(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 			body := &closeRecorder{Reader: strings.NewReader("Action=ListQueues")}
 			req, _ = http.NewRequestWithContext(ctx, http.MethodPost, "https://sqs.eu-west-2.amazonaws.com/", body)
-			_, err = tc.send(l, base, req)
+			resp, err = tc.send(l, base, req)
 			cancel()
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err == nil || base.called {
 				t.Errorf("%s: the held-back request: %v, sent %t", tc.name, err, base.called)
 			}
@@ -246,42 +253,5 @@ func TestFromContext(t *testing.T) {
 	}
 	if got := FromContext(t.Context()); got != Default() {
 		t.Errorf("FromContext without one = %p, want Default %p", got, Default())
-	}
-}
-
-// Kept makes a key's value once for each Limiter, however many ask at
-// once, and another Limiter, another run's, has its own; a nil Limiter
-// keeps nothing. Run with -race.
-func TestKept(t *testing.T) {
-	type key struct{}
-	var made atomic.Int64
-	value := func() *int {
-		made.Add(1)
-		return new(int)
-	}
-	run, other := New(1), New(1)
-	got := make([]*int, 20)
-	var wg sync.WaitGroup
-	for i := range got {
-		wg.Go(func() { got[i] = Kept(run, key{}, value) })
-	}
-	wg.Wait()
-	for _, v := range got {
-		if v != got[0] {
-			t.Fatal("one Limiter kept two values of a key")
-		}
-	}
-	if made.Load() != 1 {
-		t.Errorf("made %d values, want 1", made.Load())
-	}
-	if Kept(other, key{}, value) == got[0] {
-		t.Error("two Limiters share a value")
-	}
-	if Kept(run, "another key", value) == got[0] {
-		t.Error("two keys share a value")
-	}
-	var none *Limiter
-	if first := Kept(none, key{}, value); Kept(none, key{}, value) == first {
-		t.Error("a nil Limiter kept a value")
 	}
 }

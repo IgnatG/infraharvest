@@ -217,7 +217,11 @@ func TestLookupStopsWhenInterrupted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var nonRetriable interface{ NonRetriable() }
-	if _, err := underWay.Do(req); !errors.Is(err, context.Canceled) || !errors.As(err, &nonRetriable) {
+	resp, err := underWay.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, context.Canceled) || !errors.As(err, &nonRetriable) {
 		t.Errorf("a request after the interrupt: %v, want a non-retriable context.Canceled", err)
 	}
 	if len(transport.Paths()) != 0 {

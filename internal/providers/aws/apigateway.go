@@ -72,9 +72,7 @@ func (g *APIGatewayLister) list() error {
 // listRestAPIs lists the REST APIs that pass the tag filter, and after each
 // API all of its parts. A part that can't be read goes to parts.
 func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client, parts *harvest.Parts) error {
-	p := apigateway.NewGetRestApisPaginator(svc, &apigateway.GetRestApisInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), apigateway.NewGetRestApisPaginator(svc, &apigateway.GetRestApisInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -185,8 +183,7 @@ func (g *APIGatewayLister) listResources(svc *apigateway.Client, api restAPIRef)
 		RestApiId: aws.String(api.id),
 		Embed:     []string{"methods"},
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), p) {
 		if err != nil {
 			return err
 		}
@@ -289,9 +286,7 @@ func (g *APIGatewayLister) listResourceMethods(svc *apigateway.Client, api restA
 // name. The catalogue leaves out the Empty and Error models AWS creates
 // with every REST API.
 func (g *APIGatewayLister) listModels(svc *apigateway.Client, api restAPIRef) error {
-	p := apigateway.NewGetModelsPaginator(svc, &apigateway.GetModelsInput{RestApiId: aws.String(api.id)}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), apigateway.NewGetModelsPaginator(svc, &apigateway.GetModelsInput{RestApiId: aws.String(api.id)}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -408,9 +403,7 @@ func (g *APIGatewayLister) listAuthorizers(svc *apigateway.Client, api restAPIRe
 // listVPCLinks lists the VPC links of API Gateway version 1, which private
 // integrations reach Network Load Balancers through.
 func (g *APIGatewayLister) listVPCLinks(svc *apigateway.Client) error {
-	p := apigateway.NewGetVpcLinksPaginator(svc, &apigateway.GetVpcLinksInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), apigateway.NewGetVpcLinksPaginator(svc, &apigateway.GetVpcLinksInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -425,9 +418,7 @@ func (g *APIGatewayLister) listVPCLinks(svc *apigateway.Client) error {
 // listUsagePlans lists the usage plans, which set the throttling and quotas
 // of API keys on stages.
 func (g *APIGatewayLister) listUsagePlans(svc *apigateway.Client) error {
-	p := apigateway.NewGetUsagePlansPaginator(svc, &apigateway.GetUsagePlansInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), apigateway.NewGetUsagePlansPaginator(svc, &apigateway.GetUsagePlansInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -441,9 +432,7 @@ func (g *APIGatewayLister) listUsagePlans(svc *apigateway.Client) error {
 
 // listAPIKeys lists the API keys. The keys' values are not asked for.
 func (g *APIGatewayLister) listAPIKeys(svc *apigateway.Client) error {
-	p := apigateway.NewGetApiKeysPaginator(svc, &apigateway.GetApiKeysInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), apigateway.NewGetApiKeysPaginator(svc, &apigateway.GetApiKeysInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -76,6 +76,10 @@ type Providers struct {
 	// tools run Terraform on roots that use these alone (see
 	// driftAllowed).
 	Sources map[string][]string
+	// Settings are what infraharvest writes each of the Sources' provider
+	// blocks with, by source address: the drift tools refuse a provider
+	// block that sets anything else (see checkSettings).
+	Settings map[string]harvest.BlockSettings
 	// Check rejects a name unless it names one of them, as the commands
 	// that take a provider's name do.
 	Check func(name string) error

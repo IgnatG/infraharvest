@@ -5,6 +5,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -117,7 +118,7 @@ func TestQueryFindsTerraformWithQuery(t *testing.T) {
 		return "", errStub
 	}}
 	options := Options{Services: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}, TerraformPath: "/opt/terraform", Out: t.TempDir()}
-	if _, err := r.query(callOf(options, ""), &queryProvider{}, nil)(t.Context()); err != errStub {
+	if _, err := r.query(callOf(options, ""), &queryProvider{}, nil)(t.Context()); !errors.Is(err, errStub) {
 		t.Fatalf("got %v", err)
 	}
 	if minimum != "1.14.0" || explicit != "/opt/terraform" {

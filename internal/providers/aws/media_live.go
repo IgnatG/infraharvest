@@ -50,9 +50,7 @@ func (g *MediaLiveLister) list() error {
 
 // listChannels adds each channel as an aws_medialive_channel.
 func (g *MediaLiveLister) listChannels(ctx context.Context, client *medialive.Client) error {
-	p := medialive.NewListChannelsPaginator(client, &medialive.ListChannelsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, medialive.NewListChannelsPaginator(client, &medialive.ListChannelsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -66,9 +64,7 @@ func (g *MediaLiveLister) listChannels(ctx context.Context, client *medialive.Cl
 
 // listInputs adds each input as an aws_medialive_input.
 func (g *MediaLiveLister) listInputs(ctx context.Context, client *medialive.Client) error {
-	p := medialive.NewListInputsPaginator(client, &medialive.ListInputsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, medialive.NewListInputsPaginator(client, &medialive.ListInputsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -83,9 +79,7 @@ func (g *MediaLiveLister) listInputs(ctx context.Context, client *medialive.Clie
 // listInputSecurityGroups adds each input security group as an
 // aws_medialive_input_security_group.
 func (g *MediaLiveLister) listInputSecurityGroups(ctx context.Context, client *medialive.Client) error {
-	p := medialive.NewListInputSecurityGroupsPaginator(client, &medialive.ListInputSecurityGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, medialive.NewListInputSecurityGroupsPaginator(client, &medialive.ListInputSecurityGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

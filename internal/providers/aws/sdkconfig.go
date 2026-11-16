@@ -23,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	ihlogging "github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // serviceSettings are the settings each service gets (see
@@ -36,10 +37,13 @@ type serviceSettings struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
+	// externalID and sessionName are what the role is assumed with (see
+	// AssumeRole).
+	externalID, sessionName string
 }
 
 // roleSessionName names the sessions of the roles the provider assumes, as
-// CloudTrail shows them.
+// CloudTrail shows them, unless --role-session-name names them otherwise.
 const roleSessionName = "infraharvest"
 
 // defaultMaxAttempts is how often a call is tried, unless AWS_MAX_ATTEMPTS
@@ -64,22 +68,29 @@ type Service struct {
 // region share it.
 type configKey struct {
 	region, profile, roleARN string
+	externalID, sessionName  string
 }
 
 // flightKey is the key as runConfigs.flight takes it.
 func (k configKey) flightKey() string {
-	return k.region + "\x00" + k.profile + "\x00" + k.roleARN
+	return k.region + "\x00" + k.credentials().flightKey()
+}
+
+// credentials is the key of the configuration's credentials.
+func (k configKey) credentials() credentialsKey {
+	return credentialsKey{profile: k.profile, roleARN: k.roleARN, externalID: k.externalID, sessionName: k.sessionName}
 }
 
 // credentialsKey picks the credentials of a configuration: every region of
 // one profile and role shares them.
 type credentialsKey struct {
-	profile, roleARN string
+	profile, roleARN        string
+	externalID, sessionName string
 }
 
 // flightKey is the key as credentialsFlight takes it.
 func (k credentialsKey) flightKey() string {
-	return k.profile + "\x00" + k.roleARN
+	return k.profile + "\x00" + k.roleARN + "\x00" + k.externalID + "\x00" + k.sessionName
 }
 
 // sharedCredentials are the credentials of one profile and role, resolved
@@ -171,14 +182,13 @@ type runConfigs struct {
 }
 
 // runConfigsKey is the key of the run's configurations kept with its
-// limiter.
+// state (see runstate.Kept).
 type runConfigsKey struct{}
 
-// configsOf returns the configurations of the run whose limiter is l,
-// made the first time it is asked for: they are kept with the limiter, so
-// they last as long as the run.
-func configsOf(l *ratelimit.Limiter) *runConfigs {
-	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
+// configsOf returns the configurations of the run r, made the first time
+// it is asked for: they are kept with the run, so they last as long as it.
+func configsOf(r *runstate.Run) *runConfigs {
+	return runstate.Kept(r, runConfigsKey{}, func() *runConfigs {
 		return &runConfigs{
 			configs:         map[configKey]aws.Config{},
 			s3Children:      map[configKey]*s3.Client{},
@@ -200,9 +210,9 @@ func (s *Service) cacheKey() configKey {
 }
 
 // configs returns the configurations of the service's run: those kept
-// with the limiter of its context (see ratelimit.FromContext).
+// with the run of its context (see runstate.FromContext).
 func (s *Service) configs() *runConfigs {
-	return configsOf(ratelimit.FromContext(s.Context()))
+	return configsOf(runstate.FromContext(s.Context()))
 }
 
 // sdkConfig returns the SDK configuration of the service's account
@@ -286,7 +296,7 @@ func (s *Service) buildConfig(run *runConfigs, key configKey) (aws.Config, aws.C
 	}
 	cfg.HTTPClient = ratelimit.Like(ratelimit.FromContext(ctx)).Client(base)
 
-	resolved, err := run.resolveCredentials(ctx, credentialsKey{profile: key.profile, roleARN: key.roleARN}, cfg)
+	resolved, err := run.resolveCredentials(ctx, key.credentials(), cfg)
 	if err != nil {
 		return aws.Config{}, nil, err
 	}
@@ -351,6 +361,12 @@ func newCredentials(ctx context.Context, shared credentialsKey, cfg aws.Config) 
 	if shared.roleARN != "" {
 		role := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), shared.roleARN, func(o *stscreds.AssumeRoleOptions) {
 			o.RoleSessionName = roleSessionName
+			if shared.sessionName != "" {
+				o.RoleSessionName = shared.sessionName
+			}
+			if shared.externalID != "" {
+				o.ExternalID = aws.String(shared.externalID)
+			}
 		})
 		cfg.Credentials = aws.NewCredentialsCache(role)
 		if _, err := cfg.Credentials.Retrieve(ctx); err != nil {

@@ -20,8 +20,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 	"github.com/IgnatG/infraharvest/internal/selection"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -77,9 +77,9 @@ type callRecorder struct {
 // every resource in its root (see Run.place). It returns nil, with no
 // error, for discover, which generates nothing.
 func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
-	// The provider signs in and lists with the run's limiter, not another
-	// run's (see ratelimit.FromContext).
-	ctx = ratelimit.NewContext(ctx, run.shared.rateLimiter(options.RateLimit))
+	// The provider signs in and lists with the run's limiter and state,
+	// not another run's (see runstate.FromContext).
+	ctx = runstate.NewContext(ctx, run.shared.runState(options.RateLimit))
 	c, err := run.prepareCall(ctx, provider, options, args)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var childFailures []error
 	resources.byService, resources.parents, childFailures = withChildImports(ctx, provider, listed.selected, childParallel(provider, options))
 	var here *listedHere
-	if options.Incremental {
+	if options.Roots() == RootsIncremental {
 		var why string
 		if here, why = listedInScope(provider, c, layout.pattern, listed.listed, listed.listFailures, resources.byService); here == nil {
 			log.Printf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
@@ -122,7 +122,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
 	recorder := callRecorder{run: run, scope: c.scope, here: here}
-	if options.Incremental {
+	if options.Roots() == RootsIncremental {
 		// What an earlier import put in another root stays there.
 		held, err := run.outputIndex(options.Out).heldElsewhere(placed.byDir)
 		if err != nil {

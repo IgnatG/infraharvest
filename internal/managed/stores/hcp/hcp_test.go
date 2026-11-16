@@ -177,7 +177,7 @@ func TestSendsToken(t *testing.T) {
 		"https://sub.tfe.example/api/v2/x": false,
 		"https://tfe.example:8443/x":       false,
 	} {
-		req := httptest.NewRequest(http.MethodGet, u, http.NoBody)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, u, http.NoBody)
 		if got := sendsToken(base, req.URL); got != want {
 			t.Errorf("%s: sendsToken %v, want %v", u, got, want)
 		}

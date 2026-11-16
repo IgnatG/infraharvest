@@ -31,7 +31,16 @@ const DefaultAssumeRole = "arn:aws:iam::{account}:role/infraharvest-readonly"
 
 func init() {
 	define(definition{
-		name:        "aws",
+		name: "aws",
+		settings: map[string]harvest.BlockSettings{
+			"hashicorp/aws": {
+				Arguments: []string{"alias", "allowed_account_ids", "region"},
+				Blocks: map[string]harvest.BlockSettings{
+					"assume_role":  {Arguments: []string{"external_id", "role_arn", "session_name"}},
+					"default_tags": {Arguments: []string{"tags"}},
+				},
+			},
+		},
 		newProvider: newAWSProvider,
 		stores:      func(s *managed.Stores) { s.S3 = s3store.New },
 		short:       "Generate Terraform configuration for the resources of AWS accounts",
@@ -70,6 +79,10 @@ type awsScope struct {
 	// assumeRole is the role to assume, where {account} stands for each
 	// account's ID.
 	assumeRole string
+	// externalID and sessionName are what each role is assumed with:
+	// --assume-role's, and those environments name (see
+	// awsprovider.AssumeRole).
+	externalID, sessionName string
 	// resourceExplorer skips the services Resource Explorer shows are
 	// empty in a region.
 	resourceExplorer bool
@@ -128,17 +141,23 @@ func awsFlags(flags *pflag.FlagSet, options *importer.Options) (checker, planner
 	flags.StringSliceVar(&s.accounts, "accounts", nil, "accounts to import, each through the role --assume-role names")
 	flags.BoolVar(&s.organization, "organization", false, "import every active account of the organization (needs organizations:ListAccounts), each through the role --assume-role names")
 	flags.StringVar(&s.assumeRole, "assume-role", DefaultAssumeRole, "role to assume in each account of --accounts or --organization; {account} stands for the account ID. Without them, a role ARN assumes that role")
+	flags.StringVar(&s.externalID, "external-id", "", "external ID to assume each role with, as a role's trust policy may require (sts:ExternalId); the generated roots' provider blocks assume the role with it too")
+	flags.StringVar(&s.sessionName, "role-session-name", "", "session name to assume each role with, as CloudTrail shows it (default \"infraharvest\" for the listing, and Terraform's own for the generated roots' plans)")
 	flags.BoolVar(&s.resourceExplorer, "resource-explorer", false, "don't list the services that AWS Resource Explorer's index shows have nothing in a region (needs an index and a default view; the index can miss resources created in the last hours, see "+DocsURL+"aws/#resource-explorer)")
 	flags.StringArrayVar(&s.stacks, "cfn-stack", nil, "import the resources of this CloudFormation stack, and of the stacks nested in it, and nothing else, by name or stack ID (ARN; a deleted stack's for 90 days); repeat for other stacks. The report says whether each stack can be deleted once its resources are in Terraform, and writes a copy of its template with Retain added (see "+DocsURL+"aws/#migrating-a-cloudformation-stack)")
 	flags.StringArrayVar(&s.ignore, "cfn-ignore", nil, "with --cfn-stack: acknowledge that the stacks may be deleted without this resource, which Terraform can't import, such as a custom resource, by its logical ID, or as <stack>/<logical ID> where several stacks have it; repeat for others. It still needs Retain, as the copy of the template with Retain added gives it, so that deleting the stack never calls its handler. The CDK's Custom::S3AutoDeleteObjects and the like, which destroy what the stack's resources hold, can't be acknowledged (see "+DocsURL+"aws/#custom-resources)")
 	return s.check, s.plan
 }
 
-// check rejects --cfn-ignore without --cfn-stack, --cfn-stack with
+// check rejects an --external-id or a --role-session-name STS would
+// refuse, --cfn-ignore without --cfn-stack, --cfn-stack with
 // several accounts or with a stack name in several regions, --accounts
 // with --organization, and several accounts through a role without
 // {account}, or into a layout without it.
 func (s *awsScope) check(options importer.Options) error {
+	if err := s.role("").Check(); err != nil {
+		return err
+	}
 	several := s.organization || len(s.accounts) > 0
 	if len(s.ignore) > 0 && len(s.stacks) == 0 {
 		return errors.New("--cfn-ignore acknowledges resources of the stacks --cfn-stack names: give --cfn-stack too")
@@ -215,7 +234,7 @@ func (s *awsScope) planStacks(ctx context.Context, options importer.Options) (pl
 	if err != nil {
 		return plan{}, fmt.Errorf("--catalogue: %w", err)
 	}
-	scope, err := awsprovider.ResolveStacks(ctx, s.profile, roleARN, region, s.stacks, cat)
+	scope, err := awsprovider.ResolveStacks(ctx, s.profile, s.role(roleARN), region, s.stacks, cat)
 	if err != nil {
 		return plan{}, err
 	}
@@ -357,7 +376,13 @@ func (s *awsScope) calls(options importer.Options, roleARN string) []call {
 // roleARN names, none for "". The AWS provider reads the region, the
 // profile and the role to assume.
 func (s *awsScope) call(options importer.Options, roleARN, region, where string) call {
-	return call{options: options, args: []string{region, s.profile, roleARN}, where: where}
+	return call{options: options, args: s.role(roleARN).Args(region, s.profile), where: where}
+}
+
+// role is the role roleARN names, assumed with --external-id and
+// --role-session-name.
+func (s *awsScope) role(roleARN string) awsprovider.AssumeRole {
+	return awsprovider.AssumeRole{ARN: roleARN, ExternalID: s.externalID, SessionName: s.sessionName}
 }
 
 // groupAWSServices resolves --services and --skip, and splits the

@@ -143,17 +143,13 @@ func (r *runConfigs) regionStacks(ctx context.Context, config aws.Config, region
 // nested stacks included, but for those the stack has deleted, as a stack
 // that rolled back lists them.
 func stackResources(ctx context.Context, svc *cloudformation.Client, managed map[string][]stackResource) error {
-	stacks := cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)
-	for stacks.HasMorePages() {
-		page, err := stacks.NextPage(ctx)
+	for page, err := range pagesOf(ctx, cloudformation.NewListStacksPaginator(svc, &cloudformation.ListStacksInput{StackStatusFilter: liveStackStatuses}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
 		for _, s := range page.StackSummaries {
 			name := aws.ToString(s.StackName)
-			resources := cloudformation.NewListStackResourcesPaginator(svc, &cloudformation.ListStackResourcesInput{StackName: s.StackId}, stopOnDuplicateToken)
-			for resources.HasMorePages() {
-				page, err := resources.NextPage(ctx)
+			for page, err := range pagesOf(ctx, cloudformation.NewListStackResourcesPaginator(svc, &cloudformation.ListStackResourcesInput{StackName: s.StackId}, stopOnDuplicateToken)) {
 				if err != nil {
 					return fmt.Errorf("stack %s: %w", name, err)
 				}

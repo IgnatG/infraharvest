@@ -239,5 +239,5 @@ func (s *driftSession) accept(ctx context.Context, root map[string][]byte, accep
 	if len(accepted) == 0 {
 		return nil
 	}
-	return acceptDrift(ctx, s.tf, s.dir, s.staging, root, accepted, code, s.vars, e, s.opts)
+	return acceptDrift(ctx, acceptInput{stf: s.tf, dir: s.dir, staging: s.staging, root: root, accepted: accepted, code: code, vars: s.vars, editor: e, opts: s.opts})
 }

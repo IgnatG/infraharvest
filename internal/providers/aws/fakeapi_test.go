@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/providers/providertest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // apiCall is an AWS API request as seen by a fake handler.
@@ -136,9 +137,9 @@ func fakeRun(t *testing.T, cfg aws.Config) context.Context {
 
 // fakeRunIn is fakeRun, with a context of its own made from ctx.
 func fakeRunIn(ctx context.Context, cfg aws.Config) context.Context {
-	l := ratelimit.New(0)
+	l := runstate.New(ratelimit.New(0))
 	configsOf(l).fixed = &cfg
-	return ratelimit.NewContext(ctx, l)
+	return runstate.NewContext(ctx, l)
 }
 
 // resourceIDs returns the IDs of the resources of resourceType.

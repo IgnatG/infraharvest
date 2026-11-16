@@ -38,9 +38,7 @@ func (g *BudgetsLister) list() error {
 	accountID := aws.ToString(account)
 	client := budgets.NewFromConfig(config)
 
-	pages := budgets.NewDescribeBudgetsPaginator(client, &budgets.DescribeBudgetsInput{AccountId: account}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), budgets.NewDescribeBudgetsPaginator(client, &budgets.DescribeBudgetsInput{AccountId: account}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -11,7 +11,7 @@ import (
 	"google.golang.org/api/cloudasset/v1"
 	"google.golang.org/api/sqladmin/v1"
 
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // runCaches are what the imports of one run share, kept with the run's
@@ -50,21 +50,21 @@ type runCaches struct {
 	impersonations map[string]string
 }
 
-// runCachesKey is the key of a run's caches kept with its limiter.
+// runCachesKey is the key of a run's caches kept with the run.
 type runCachesKey struct{}
 
-// cachesOf returns the caches of ctx's run: those kept with the run's
-// limiter (see ratelimit.FromContext), made the first time it is asked
-// for. A context of no run gets caches of its own, which nothing else
-// sees: kept with the limiter of the calls outside any run (see
-// ratelimit.Default), what one such call listed would last as long as
-// the process, and every other such call would see it.
+// cachesOf returns the caches of ctx's run: those kept with the run (see
+// runstate.FromContext), made the first time it is asked for. A context
+// of no run gets caches of its own, which nothing else sees: kept with the
+// run of the calls outside any run (see runstate.Default), what one such
+// call listed would last as long as the process, and every other such
+// call would see it.
 func cachesOf(ctx context.Context) *runCaches {
-	l := ratelimit.FromContext(ctx)
-	if l == ratelimit.Default() {
-		l = nil // Kept keeps nothing with a nil Limiter.
+	r := runstate.FromContext(ctx)
+	if r == runstate.Default() {
+		r = nil // Kept keeps nothing with a nil Run.
 	}
-	return ratelimit.Kept(l, runCachesKey{}, func() *runCaches {
+	return runstate.Kept(r, runCachesKey{}, func() *runCaches {
 		return &runCaches{rejectedTypes: map[string]bool{}, unlistedSQLDatabases: map[string]bool{}, impersonations: map[string]string{}}
 	})
 }

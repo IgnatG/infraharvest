@@ -52,7 +52,7 @@ func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports
 	}
 	errs, err := unresolved("terraform plan", dir, diags)
 	if err != nil {
-		return diags, nil
+		return diags, nil //nolint:nilerr // without the diagnostics read, there is nothing to retry
 	}
 	var retried []string
 	for address := range errs {

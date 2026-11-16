@@ -33,9 +33,7 @@ func (g *AccessAnalyzerLister) list() error {
 	client := accessanalyzer.NewFromConfig(config)
 
 	var resources []harvest.Resource
-	pages := accessanalyzer.NewListAnalyzersPaginator(client, &accessanalyzer.ListAnalyzersInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), accessanalyzer.NewListAnalyzersPaginator(client, &accessanalyzer.ListAnalyzersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

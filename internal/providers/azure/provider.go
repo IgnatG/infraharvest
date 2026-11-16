@@ -25,6 +25,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // The capabilities Provider has, checked when it builds: one whose method
@@ -116,7 +117,7 @@ type Provider struct {
 // tenant_id=<tenant> and client_id=<client> (see IdentityArgs), which
 // replace ARM_TENANT_ID and ARM_CLIENT_ID. A custom cloud's endpoints are read from its metadata host,
 // with ctx, and the requests are limited at the rate of the run's limiter
-// in ctx (see ratelimit.FromContext).
+// in ctx (see runstate.FromContext).
 func (p *Provider) Init(ctx context.Context, args []string) error {
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
@@ -175,7 +176,7 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
 			Telemetry: policy.TelemetryOptions{ApplicationID: telemetryApplicationID},
-			Transport: limitedClient(ratelimit.FromContext(ctx), cfg.subscriptionID, resourceManagerHTTPClient()),
+			Transport: limitedClient(runstate.FromContext(ctx), cfg.subscriptionID, resourceManagerHTTPClient()),
 		},
 		AuxiliaryTenants: cfg.auxiliaryTenants,
 		// The SDK otherwise answers a MissingSubscriptionRegistration
@@ -193,18 +194,26 @@ type signedIn struct {
 	credential azcore.TokenCredential
 }
 
-// signIns holds the signedIn of each configuration signed in with, by
-// signInKey. Every service of an import initialises a provider of its own,
-// and every subscription of a run signs in again, all with the same
-// configuration: without it each would get a credential of its own, and
-// fetch its own token from the Azure CLI, Entra or the managed identity
-// endpoint on its first request.
-var signIns sync.Map
+// signInsKey is the key of a run's sign-ins kept with the run.
+type signInsKey struct{}
+
+// signInsOf returns the signedIn of each configuration ctx's run signed in
+// with, by signInKey. Every service of an import initialises a provider of
+// its own, and every subscription of a run signs in again, all with the
+// same configuration: without it each would get a credential of its own,
+// and fetch its own token from the Azure CLI, Entra or the managed
+// identity endpoint on its first request. They are kept with the run (see
+// runstate.Kept), so that another run in the process signs in afresh,
+// such as after `az login` as someone else.
+func signInsOf(ctx context.Context) *sync.Map {
+	return runstate.Kept(runstate.FromContext(ctx), signInsKey{}, func() *sync.Map { return &sync.Map{} })
+}
 
 // signInOnce returns the signedIn kept for cfg's configuration, or signs
 // in and keeps it; a failure isn't kept.
 func signInOnce(ctx context.Context, cfg authConfig) (signedIn, error) {
 	key := signInKey(cfg)
+	signIns := signInsOf(ctx)
 	if kept, ok := signIns.Load(key); ok {
 		return kept.(signedIn), nil
 	}
@@ -234,8 +243,8 @@ func signInKey(cfg authConfig) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// runLimiters are the limiters of one run's requests, kept with the run's
-// limiter (see limitersOf), so that another run, with a rate of its own,
+// runLimiters are the limiters of one run's requests, kept with the run
+// (see limitersOf), so that another run, with a rate of its own,
 // has its own.
 type runLimiters struct {
 	// rate is the run's limiter, whose rate each subscription gets.
@@ -254,16 +263,16 @@ type runLimiters struct {
 	subscriptions map[string]*ratelimit.Limiter
 }
 
-// runLimitersKey is the key of a run's limiters kept with its limiter.
+// runLimitersKey is the key of a run's limiters kept with the run.
 type runLimitersKey struct{}
 
-// limitersOf returns the limiters of the run whose limiter is run, made
+// limitersOf returns the limiters of the run, made
 // the first time it is asked for.
-func limitersOf(run *ratelimit.Limiter) *runLimiters {
-	return ratelimit.Kept(run, runLimitersKey{}, func() *runLimiters {
+func limitersOf(run *runstate.Run) *runLimiters {
+	return runstate.Kept(run, runLimitersKey{}, func() *runLimiters {
 		return &runLimiters{
-			rate:          run,
-			graph:         ratelimit.New(min(graphRate, run.Rate())),
+			rate:          run.Limiter(),
+			graph:         ratelimit.New(min(graphRate, run.Limiter().Rate())),
 			subscriptions: map[string]*ratelimit.Limiter{},
 		}
 	})
@@ -291,9 +300,9 @@ const graphRate = 3.0
 const graphPathPrefix = "/providers/microsoft.resourcegraph/"
 
 // limitedClient sends each request through base once its limit in the
-// run whose limiter is run allows: a Resource Graph query the run's graph
+// run allows: a Resource Graph query the run's graph
 // limiter's, any other request the subscription's (see runLimiters).
-func limitedClient(run *ratelimit.Limiter, subscriptionID string, base ratelimit.Doer) ratelimit.Doer {
+func limitedClient(run *runstate.Run, subscriptionID string, base ratelimit.Doer) ratelimit.Doer {
 	limiters := limitersOf(run)
 	return &limitedDoer{
 		resourceManager: limiters.subscription(subscriptionID).Client(base),

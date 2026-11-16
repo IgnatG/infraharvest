@@ -669,10 +669,6 @@ func LiteralsToVariables(path string, taken map[string]bool) ([]Variable, []stri
 			used[v] = true
 		}
 	}
-	type edit struct {
-		start, end int
-		text       string
-	}
 	var edits []edit
 	var secrets []Variable
 	var warnings []string
@@ -750,15 +746,35 @@ func LiteralsToVariables(path string, taken map[string]bool) ([]Variable, []stri
 	if len(edits) == 0 {
 		return nil, warnings, nil
 	}
-	sort.Slice(edits, func(i, j int) bool { return edits[i].start > edits[j].start })
-	out := append([]byte(nil), src...)
-	for _, e := range edits {
-		out = append(out[:e.start:e.start], append([]byte(e.text), out[e.end:]...)...)
-	}
+	out := applyEdits(src, edits)
 	if _, diags := hclfile.ParseDiagnostics(path, out); diags.HasErrors() {
 		return nil, nil, fmt.Errorf("move secrets out of %s: %w", path, diags)
 	}
 	return secrets, warnings, fsutil.WriteFile(path, hclwrite.Format(out), 0o644)
+}
+
+// edit replaces the bytes of a file from start to end with text.
+type edit struct {
+	start, end int
+	text       string
+}
+
+// applyEdits returns src with each of edits, which don't overlap, made:
+// one pass over src, not a copy of the rest of it per edit.
+func applyEdits(src []byte, edits []edit) []byte {
+	sort.Slice(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	size := len(src)
+	for _, e := range edits {
+		size += len(e.text) - (e.end - e.start)
+	}
+	out := make([]byte, 0, size)
+	last := 0
+	for _, e := range edits {
+		out = append(out, src[last:e.start]...)
+		out = append(out, e.text...)
+		last = e.end
+	}
+	return append(out, src[last:]...)
 }
 
 // keepNewline returns text, followed by a newline if the source range ends

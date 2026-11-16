@@ -14,6 +14,8 @@ name: Docs
 # that doesn't change the site skips the build, and docs passes.
 on:
   pull_request:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
   push:
     branches: [main]
     paths: ["docs/**", "mkdocs.yml", ".github/workflows/docs.yml"]

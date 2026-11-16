@@ -36,9 +36,7 @@ func (g *LogsLister) list() error {
 	if err != nil {
 		return err
 	}
-	pages := cloudwatchlogs.NewDescribeLogGroupsPaginator(cloudwatchlogs.NewFromConfig(config), &cloudwatchlogs.DescribeLogGroupsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudwatchlogs.NewDescribeLogGroupsPaginator(cloudwatchlogs.NewFromConfig(config), &cloudwatchlogs.DescribeLogGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

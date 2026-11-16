@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/redshift"
@@ -50,9 +49,7 @@ func (g *RedshiftLister) list() error {
 
 // listClusters records every cluster by its identifier.
 func (g *RedshiftLister) listClusters(client *redshift.Client) error {
-	p := redshift.NewDescribeClustersPaginator(client, &redshift.DescribeClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClustersPaginator(client, &redshift.DescribeClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -64,21 +61,16 @@ func (g *RedshiftLister) listClusters(client *redshift.Client) error {
 	return nil
 }
 
-// listParameterGroups records every parameter group by name, but the
-// default ones AWS provides, whose names ("default.redshift-1.0") are the
-// only ones that may hold a dot.
+// listParameterGroups records every parameter group by name, the default
+// ones AWS provides ("default.redshift-1.0") included: the catalogue skips
+// them, with their reason.
 func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
-	p := redshift.NewDescribeClusterParameterGroupsPaginator(client, &redshift.DescribeClusterParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClusterParameterGroupsPaginator(client, &redshift.DescribeClusterParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
 		for _, group := range page.ParameterGroups {
 			name := aws.ToString(group.ParameterGroupName)
-			if strings.Contains(name, ".") {
-				continue
-			}
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_redshift_parameter_group", "aws"))
 		}
 	}
@@ -88,9 +80,7 @@ func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
 // listSubnetGroups records every subnet group by name, the one named
 // "default" included.
 func (g *RedshiftLister) listSubnetGroups(client *redshift.Client) error {
-	p := redshift.NewDescribeClusterSubnetGroupsPaginator(client, &redshift.DescribeClusterSubnetGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClusterSubnetGroupsPaginator(client, &redshift.DescribeClusterSubnetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -105,9 +95,7 @@ func (g *RedshiftLister) listSubnetGroups(client *redshift.Client) error {
 // listEventSubscriptions records every event subscription by its name
 // (CustSubscriptionId), which is what Terraform imports it by.
 func (g *RedshiftLister) listEventSubscriptions(client *redshift.Client) error {
-	p := redshift.NewDescribeEventSubscriptionsPaginator(client, &redshift.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeEventSubscriptionsPaginator(client, &redshift.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -124,9 +112,7 @@ func (g *RedshiftLister) listEventSubscriptions(client *redshift.Client) error {
 // Terraform's import ID "<cluster>/<schedule>" and named
 // "<cluster>_<schedule>".
 func (g *RedshiftLister) listSnapshotSchedules(client *redshift.Client) error {
-	p := redshift.NewDescribeSnapshotSchedulesPaginator(client, &redshift.DescribeSnapshotSchedulesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), redshift.NewDescribeSnapshotSchedulesPaginator(client, &redshift.DescribeSnapshotSchedulesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

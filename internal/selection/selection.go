@@ -50,12 +50,14 @@ type File struct {
 	Refresh Refresh `yaml:"-"`
 
 	// byKey indexes Resources by scope, type and ID (see key); anyScope by
-	// type and ID only, for lookups that don't know the scope. indexMu
+	// type and ID only, for lookups that don't know the scope; included
+	// holds the types of the entries that include a resource. indexMu
 	// guards building them: the accounts of one import decide in parallel.
 	// Merge is not safe for concurrent use.
 	indexMu  sync.Mutex
 	byKey    map[string]*Resource
 	anyScope map[string]*Resource
+	included map[string]bool
 }
 
 // Refresh says which kinds of reason a discover worked out again in full
@@ -196,10 +198,9 @@ func (f *File) decideIn(scope, resourceType, id, name string, tags map[string]st
 // or a rule includes resources of the type, or of any type. It looks only
 // at types, so it may say a type is included that no resource of it is.
 func (f *File) mayInclude(resourceType string) bool {
-	for _, r := range f.Resources {
-		if r.Include && r.Type == resourceType {
-			return true
-		}
+	f.index()
+	if f.included[resourceType] {
+		return true
 	}
 	for _, rule := range f.Rules {
 		if rule.Include != nil && rule.Include.Type.match(resourceType) {
@@ -336,7 +337,10 @@ func (p Patterns) match(value string) bool {
 }
 
 // globs holds the compiled glob patterns, by pattern: rules are matched
-// against every listed resource, and a file has few patterns.
+// against every listed resource, and a file has few patterns. It is for
+// the process, not a run: what a pattern compiles to never changes, so a
+// later run, such as another tool call of a long-lived MCP server, can
+// only reuse it, and it grows only with patterns no run has seen.
 var globs sync.Map
 
 // glob returns pattern compiled, once per pattern.
@@ -484,8 +488,12 @@ func (f *File) index() {
 	}
 	f.byKey = make(map[string]*Resource, len(f.Resources))
 	f.anyScope = make(map[string]*Resource, len(f.Resources))
+	f.included = map[string]bool{}
 	for i := range f.Resources {
 		r := &f.Resources[i]
+		if r.Include {
+			f.included[r.Type] = true
+		}
 		f.byKey[key(r.Scope, r.Type, r.ID)] = r
 		if _, ok := f.anyScope[r.Type+" "+r.ID]; !ok || r.Scope == "" {
 			f.anyScope[r.Type+" "+r.ID] = r
@@ -561,7 +569,7 @@ func (f *File) Merge(listed []Resource, covered func(Resource) bool) (added, dro
 		dropped++
 	}
 	f.Resources = merged
-	f.byKey, f.anyScope = nil, nil
+	f.byKey, f.anyScope, f.included = nil, nil, nil
 	return added, dropped
 }
 

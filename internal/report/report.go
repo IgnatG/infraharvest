@@ -1319,6 +1319,11 @@ func Read(outputDir string) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	return Parse(content)
+}
+
+// Parse reads content, a report.json an import wrote (see Read).
+func Parse(content []byte) (*Report, error) {
 	r := &Report{}
 	if err := json.Unmarshal(content, r); err != nil {
 		return nil, fmt.Errorf("report.json: %w", err)

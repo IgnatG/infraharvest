@@ -177,19 +177,10 @@ func newDriftEditor(refresh, code *tfjson.Plan, rules Rules) *driftEditor {
 		e.refer = rules.Referrer(rootStateValues(state))
 	}
 	seen := map[string]bool{}
-	for _, p := range []*tfjson.Plan{refresh, code} {
-		if p == nil {
-			continue
-		}
-		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
-			for _, rc := range rcs {
-				if rc.Change != nil {
-					secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-					secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
-				}
-			}
-		}
-	}
+	forEachChange([]*tfjson.Plan{refresh, code}, func(c *tfjson.Change) {
+		secret.CollectSensitive(c.Before, c.BeforeSensitive, seen)
+		secret.CollectSensitive(c.After, c.AfterSensitive, seen)
+	})
 	e.sensitive = slices.Sorted(maps.Keys(seen))
 	e.forms = secret.TextForms(e.sensitive)
 	e.secretForms = driftSecretForms(nil, refresh, code)

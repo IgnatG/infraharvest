@@ -64,8 +64,9 @@ func recordDocDBAPI(t *testing.T, failing string) func(apiCall) string {
 
 // The lister lists, across pages and in this order, the DocumentDB
 // clusters, each followed by its member instances, the subnet groups they
-// use but the default one, and the cluster parameter groups of a docdb
-// family but the default ones, all by name. The RDS API's Aurora and
+// use, and the cluster parameter groups of a docdb family, all by name,
+// the default ones included, which the catalogue skips (see
+// TestDefaultsSkippedByTheCatalogue). The RDS API's Aurora and
 // Neptune clusters and groups are left out.
 func TestRecordDocDBListsClustersSubnetAndParameterGroups(t *testing.T) {
 	t.Parallel()
@@ -84,6 +85,8 @@ func TestRecordDocDBListsClustersSubnetAndParameterGroups(t *testing.T) {
 		recordedResource{"aws_docdb_cluster", "catalog", "catalog", nil},
 		recordedResource{"aws_docdb_cluster", "archive", "archive", nil},
 		recordedResource{"aws_docdb_subnet_group", "docs", "docs", nil},
+		recordedResource{"aws_docdb_subnet_group", "default", "default", nil},
+		recordedResource{"aws_docdb_cluster_parameter_group", "default.docdb5.0", "default.docdb5.0", nil},
 		recordedResource{"aws_docdb_cluster_parameter_group", "docs-audit", "docs-audit", nil},
 		recordedResource{"aws_docdb_cluster_parameter_group", "docs-tls", "docs-tls", nil},
 	)

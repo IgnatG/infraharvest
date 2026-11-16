@@ -8,7 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchevents"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -42,7 +42,7 @@ func (g *CloudWatchLister) list() error {
 		return err
 	}
 	var parts harvest.Parts
-	if err := g.createRules(cloudwatchevents.NewFromConfig(config), &parts); err != nil {
+	if err := g.createRules(eventbridge.NewFromConfig(config), &parts); err != nil {
 		return parts.Fail(err)
 	}
 	return parts.Err()
@@ -51,9 +51,7 @@ func (g *CloudWatchLister) list() error {
 // listMetricAlarms records every metric alarm by name. Composite alarms
 // are not listed.
 func (g *CloudWatchLister) listMetricAlarms(client *cloudwatch.Client) error {
-	p := cloudwatch.NewDescribeAlarmsPaginator(client, &cloudwatch.DescribeAlarmsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudwatch.NewDescribeAlarmsPaginator(client, &cloudwatch.DescribeAlarmsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -67,9 +65,7 @@ func (g *CloudWatchLister) listMetricAlarms(client *cloudwatch.Client) error {
 
 // listDashboards records every dashboard by name.
 func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
-	p := cloudwatch.NewListDashboardsPaginator(client, &cloudwatch.ListDashboardsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudwatch.NewListDashboardsPaginator(client, &cloudwatch.ListDashboardsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -83,21 +79,23 @@ func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
 
 // createRules records the rules of the default event bus by name, each
 // followed by its targets. A rule that another AWS service manages (it has
-// ManagedBy set) is left out with its targets: that service owns it, and
-// it cannot be changed through Terraform. The API has no SDK paginator, so
+// ManagedBy set) is recorded with managed_by, which the catalogue skips,
+// with its reason, as that service owns it and it can't be changed through
+// Terraform; its targets aren't asked for. The API has no SDK paginator, so
 // pages are walked by NextToken. A rule whose targets can't be read keeps
 // those read, and the failure goes to parts.
-func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *harvest.Parts) error {
+func (g *CloudWatchLister) createRules(client *eventbridge.Client, parts *harvest.Parts) error {
 	return paginateByMarker(func(token *string) (*string, error) {
-		page, err := client.ListRules(g.Context(), &cloudwatchevents.ListRulesInput{NextToken: token})
+		page, err := client.ListRules(g.Context(), &eventbridge.ListRulesInput{NextToken: token})
 		if err != nil {
 			return nil, err
 		}
 		for _, rule := range page.Rules {
+			name := aws.ToString(rule.Name)
 			if rule.ManagedBy != nil {
+				g.Resources = append(g.Resources, harvest.Record(name, name, "aws_cloudwatch_event_rule", "aws", map[string]string{"managed_by": aws.ToString(rule.ManagedBy)}))
 				continue
 			}
-			name := aws.ToString(rule.Name)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudwatch_event_rule", "aws"))
 			// A call per rule, for targets the import may not keep.
 			if !g.Wants("aws_cloudwatch_event_target") {
@@ -112,9 +110,9 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *h
 // createTargets records the targets of the rule ruleName as
 // "<rule>/<target ID>", Terraform's import ID for the default bus. Its
 // pages are walked with the target list's own NextToken.
-func (g *CloudWatchLister) createTargets(client *cloudwatchevents.Client, ruleName string) error {
+func (g *CloudWatchLister) createTargets(client *eventbridge.Client, ruleName string) error {
 	return paginateByMarker(func(token *string) (*string, error) {
-		page, err := client.ListTargetsByRule(g.Context(), &cloudwatchevents.ListTargetsByRuleInput{
+		page, err := client.ListTargetsByRule(g.Context(), &eventbridge.ListTargetsByRuleInput{
 			Rule:      aws.String(ruleName),
 			NextToken: token,
 		})

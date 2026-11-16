@@ -86,9 +86,15 @@ types:
   aws_docdb_cluster_parameter_group:
     cloudformation_types:
       - { type: "AWS::DocDB::DBClusterParameterGroup", also: [aws_rds_cluster_parameter_group] }
+    skip:
+      - reason: a default cluster parameter group, which DocumentDB provides for a family and which can't be changed
+        id_prefixes: [default.]
   aws_docdb_subnet_group:
     cloudformation_types:
       - { type: "AWS::DocDB::DBSubnetGroup", also: [aws_db_subnet_group] }
+    skip:
+      - reason: the default subnet group, which AWS creates for the default VPC and Terraform can't manage
+        ids: [default]
   aws_ec2_transit_gateway_route_table:
     cloudformation_types: ["AWS::EC2::TransitGatewayRouteTable"]
   aws_ecrpublic_repository:
@@ -158,6 +164,10 @@ types:
     cloudformation_types: ["AWS::Redshift::EventSubscription"]
   aws_redshift_parameter_group:
     cloudformation_types: ["AWS::Redshift::ClusterParameterGroup"]
+    skip:
+      # Only the default parameter groups' names may hold a dot.
+      - reason: a default parameter group, which Redshift provides for a family and which can't be changed
+        id_prefixes: [default.]
   aws_redshift_subnet_group:
     cloudformation_types: ["AWS::Redshift::ClusterSubnetGroup"]
   aws_s3_bucket_policy:

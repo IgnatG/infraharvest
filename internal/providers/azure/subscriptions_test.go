@@ -4,6 +4,7 @@
 package azure
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -37,7 +38,7 @@ func TestSubscriptionsIn(t *testing.T) {
 
 func TestInitNeedsASubscription(t *testing.T) {
 	t.Setenv("ARM_SUBSCRIPTION_ID", "")
-	if err := (&Provider{}).Init(t.Context(), []string{""}); err != errNoSubscription {
+	if err := (&Provider{}).Init(t.Context(), []string{""}); !errors.Is(err, errNoSubscription) {
 		t.Errorf("got %v, want %v", err, errNoSubscription)
 	}
 }

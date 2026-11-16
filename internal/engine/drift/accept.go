@@ -101,12 +101,12 @@ func settleDrift(changes []*Change, failed map[*Change]codeSource) ([]*Change, b
 // var file too, the only file edited (see variableResolver.env), and a
 // change written gets its source there. Each accepted change ends
 // written, rejected by the plan or a check, a hand edit or a secret.
-func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging string, root map[string][]byte, accepted []*Change, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts Options) error {
-	a, err := newAcceptance(ctx, stf, staging, root, accepted, code, vars, editor, opts)
+func acceptDrift(ctx context.Context, in acceptInput) error {
+	a, err := newAcceptance(ctx, in)
 	if err != nil {
 		return err
 	}
-	rounds := editRounds(accepted)
+	rounds := editRounds(in.accepted)
 	passed, err := gate.Verifier[*Change, driftRejection]{
 		Edit:   a.edit,
 		Verify: a.verify,
@@ -126,7 +126,23 @@ func acceptDrift(ctx context.Context, stf tfrun.DriftTerraform, dir, staging str
 		}
 		return nil
 	}
-	return writeAccepted(dir, root, a.pending, editor, opts)
+	return writeAccepted(in.dir, in.root, a.pending, in.editor, in.opts)
+}
+
+// acceptInput is what acceptDrift accepts changes with: the root's
+// Terraform, stf, planning the staged copy in staging of the root in dir,
+// whose files are root; the accepted changes; the plan of the code as it
+// is, code; the plan options that give the copy's variables values,
+// vars; the editor; and the drift's options.
+type acceptInput struct {
+	stf          tfrun.DriftTerraform
+	dir, staging string
+	root         map[string][]byte
+	accepted     []*Change
+	code         *tfjson.Plan
+	vars         []tfexec.PlanOption
+	editor       *driftEditor
+	opts         Options
 }
 
 // An acceptance is the rounds in which acceptDrift makes the edits of the
@@ -158,7 +174,8 @@ type acceptance struct {
 // newAcceptance returns the acceptance of accepted (see acceptDrift),
 // with the schemas stf has for the editor, and the checks of the staged
 // copy as it is.
-func newAcceptance(ctx context.Context, stf tfrun.DriftTerraform, staging string, root map[string][]byte, accepted []*Change, code *tfjson.Plan, vars []tfexec.PlanOption, editor *driftEditor, opts Options) (*acceptance, error) {
+func newAcceptance(ctx context.Context, in acceptInput) (*acceptance, error) {
+	stf, staging, root, editor, opts := in.stf, in.staging, in.root, in.editor, in.opts
 	schemas, err := stf.ProvidersSchema(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("terraform providers schema: %w", err)
@@ -183,10 +200,10 @@ func newAcceptance(ctx context.Context, stf tfrun.DriftTerraform, staging string
 		return nil, err
 	}
 	return &acceptance{
-		stf: stf, staging: staging, code: code, editor: editor, opts: opts,
-		planOpts: append(slices.Clone(vars), tfexec.Refresh(false), tfexec.Lock(false)),
+		stf: stf, staging: staging, code: in.code, editor: editor, opts: opts,
+		planOpts: append(slices.Clone(in.vars), tfexec.Refresh(false), tfexec.Lock(false)),
 		staged:   staged, standards: standards, moves: moves,
-		pending: accepted, written: map[string]bool{},
+		pending: in.accepted, written: map[string]bool{},
 	}, nil
 }
 
@@ -250,7 +267,7 @@ func (a *acceptance) verify(ctx context.Context) (*gate.Verdict[*Change, driftRe
 	if rejected := judgeDrift(p, diags, a.code, a.pending, a.applied, a.opts.StateOnly, a.edited, forms); len(rejected) > 0 {
 		return planRejection(rejected), nil
 	}
-	failedCheck, files, err := driftChecks(ctx, a.stf, a.staging, a.staged, a.edited, a.names, p, a.standards, a.moves, a.editor.sensitive, a.opts)
+	failedCheck, files, err := a.checks(ctx, p)
 	if err != nil || failedCheck == "" {
 		return nil, err
 	}
@@ -645,23 +662,23 @@ func referredTo(contents map[string][]byte, addresses []string) map[string]bool 
 	return referred
 }
 
-// driftChecks runs the checks of the verification gate that judge edits
-// on the staged copy in staging, whose files original edited into edited,
-// those names: G1 format, of the edited files; G2 validate; G4 standards
-// and G8 moves, failing on what they find that they didn't before, as
-// standards and moves; and G6 secrets of the edited files, with the
-// values p and sensitive have that no file may hold. It returns the
-// check that fails, with what it found, and the edited files it fails
-// on, none where it can't tell; or "".
-func driftChecks(ctx context.Context, stf tfrun.DriftTerraform, staging string, original, edited map[string][]byte, names []string, p *tfjson.Plan, standards, moves gate.Check, sensitive []string, opts Options) (string, []string, error) {
-	policy := gate.Policy{Standards: opts.Rules.Standards, Moves: opts.Rules.Moves}
+// checks runs the checks of the verification gate that judge the round's
+// edits on the staged copy, whose files a.staged the round edited into
+// a.edited, those a.names: G1 format, of the edited files; G2 validate;
+// G4 standards and G8 moves, failing on what they find that they didn't
+// before, as a.standards and a.moves; and G6 secrets of the edited files,
+// with the values p and the editor's sensitive values have that no file
+// may hold. It returns the check that fails, with what it found, and the
+// edited files it fails on, none where it can't tell; or "".
+func (a *acceptance) checks(ctx context.Context, p *tfjson.Plan) (string, []string, error) {
+	policy := gate.Policy{Standards: a.opts.Rules.Standards, Moves: a.opts.Rules.Moves}
 	policy.Checks = []string{gate.CheckFormat, gate.CheckValidate, gate.CheckStandards, gate.CheckMoves, gate.CheckSecrets}
-	policy.Sensitive = append(secret.InPlan(p), sensitive...)
-	policy.Baseline = gate.Gate{standards, moves}
+	policy.Sensitive = append(secret.InPlan(p), a.editor.sensitive...)
+	policy.Baseline = gate.Gate{a.standards, a.moves}
 	policy.Diff = true
-	policy.Edited = names
-	policy.Before, policy.After = original, edited
-	checks, _, err := policy.Run(ctx, stf, staging)
+	policy.Edited = a.names
+	policy.Before, policy.After = a.staged, a.edited
+	checks, _, err := policy.Run(ctx, a.stf, a.staging)
 	if err != nil {
 		return "", nil, err
 	}

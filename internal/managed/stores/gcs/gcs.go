@@ -8,6 +8,7 @@ package gcs
 
 import (
 	"context"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -83,3 +84,16 @@ func (s *Store) Get(ctx context.Context, bucket, name string) ([]byte, error) {
 	defer resp.Body.Close()
 	return managed.ReadState(resp.Body)
 }
+
+// Open returns an object's content to read as it goes (see
+// managed.StreamStore).
+func (s *Store) Open(ctx context.Context, bucket, name string) (io.ReadCloser, error) {
+	resp, err := s.service.Objects.Get(bucket, name).Context(ctx).Download()
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// Stores read state as it is decoded.
+var _ managed.StreamStore = (*Store)(nil)

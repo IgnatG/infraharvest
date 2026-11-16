@@ -46,9 +46,7 @@ func (g *RouteTableLister) list() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 
-	pages := ec2.NewDescribeRouteTablesPaginator(client, &ec2.DescribeRouteTablesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeRouteTablesPaginator(client, &ec2.DescribeRouteTablesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

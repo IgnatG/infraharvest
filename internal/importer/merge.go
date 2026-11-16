@@ -100,7 +100,7 @@ func markMerging(options Options, calls []*listedCall) error {
 			byStack[p.stack] = append(byStack[p.stack], mergeMember{dir: dir, stack: p.stack, env: p.env})
 		}
 	}
-	adopted := options.Incremental || options.Resume || options.Regenerate
+	adopted := options.readsEarlierRoots()
 	for _, stack := range slices.Sorted(maps.Keys(byStack)) {
 		members := byStack[stack]
 		envs := map[string]bool{}
@@ -453,7 +453,7 @@ func removeRoot(out, dir string) error {
 			break // not empty
 		}
 	}
-	return nil
+	return nil //nolint:nilerr // a directory that is not empty stays
 }
 
 // mergeCheckpoint records what the merge phase did with a stack: what it

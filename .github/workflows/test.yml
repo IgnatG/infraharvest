@@ -10,6 +10,8 @@ name: Tests
 # main's runs save them.
 on:
   pull_request:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
   push:
     branches: [main]
     paths: [go.mod, go.sum, .github/workflows/test.yml]
@@ -110,9 +112,9 @@ jobs:
       run: go build -o infraharvest .
     # The gate's test of the OPA capabilities runs real policies through
     # conftest, and skips without it. The release is the one
-    # internal/engine/gate/conftest_capabilities.go names: bump both
-    # together, with the archive's checksum from the release's
-    # checksums.txt.
+    # internal/engine/gate/conftest_capabilities.go names: bump it, this
+    # step and the e2e-aws job's together, with the archive's checksum from
+    # the release's checksums.txt.
     - name: Install conftest
       env:
         VERSION: 0.71.1
@@ -386,6 +388,7 @@ jobs:
         FuzzDriftNeverWritesSecrets ./internal/engine/drift/
         FuzzDriftReportsNoSecrets ./internal/engine/drift/
         FuzzParse ./internal/managed/
+        FuzzParseFromIsParseWhole ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
         FuzzParseConvert ./pkg/cfn/
@@ -486,7 +489,7 @@ jobs:
           run: ^TestAWSOptions(Layout|Modules)$
           skip: ""
         - shard: options-input
-          run: ^TestAWSOptions(Report|Filters|ExitCodes)$
+          run: ^TestAWSOptions(Report|Filters|ExitCodes|Policy)$
           skip: ""
         - shard: drift
           run: ^TestAWSDrift(Backend|MCP)?$
@@ -530,6 +533,22 @@ jobs:
         name: e2e-aws
     # The gate runs the scanners it finds (G5): tflint must find nothing in
     # the generated configuration; trivy only reports.
+    # TestAWSOptionsPolicy runs --policy through conftest: the release
+    # and checksum the unit job installs.
+    - name: Install conftest
+      if: matrix.shard == 'options-input'
+      env:
+        VERSION: 0.71.1
+        SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+      run: |
+        archive="$RUNNER_TEMP/conftest.tar.gz"
+        curl -sSfL --retry 3 -o "$archive" \
+          "https://github.com/open-policy-agent/conftest/releases/download/v${VERSION}/conftest_${VERSION}_Linux_x86_64.tar.gz"
+        echo "$SHA256  $archive" | sha256sum -c -
+        mkdir -p "$RUNNER_TEMP/conftest"
+        tar -xzf "$archive" -C "$RUNNER_TEMP/conftest" conftest
+        "$RUNNER_TEMP/conftest/conftest" --version
+        echo "$RUNNER_TEMP/conftest" >> "$GITHUB_PATH"
     - name: Install the engine and scanners
       uses: ./.github/actions/setup-engines
       with:

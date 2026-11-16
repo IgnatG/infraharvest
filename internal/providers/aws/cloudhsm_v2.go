@@ -34,9 +34,7 @@ func (g *CloudHsmLister) list() error {
 		return err
 	}
 	client := cloudhsmv2.NewFromConfig(config)
-	p := cloudhsmv2.NewDescribeClustersPaginator(client, &cloudhsmv2.DescribeClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cloudhsmv2.NewDescribeClustersPaginator(client, &cloudhsmv2.DescribeClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

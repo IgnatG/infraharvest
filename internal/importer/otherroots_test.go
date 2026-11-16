@@ -35,11 +35,11 @@ func TestScopeRootsGoBothWays(t *testing.T) {
 	}
 
 	opts := engine.Options{DataSources: map[string]engine.DataSource{"aws_lambda_function": {Type: "aws_lambda_function", Argument: "function_name"}}}
-	regional := newOtherRoots(opts, scopeRoots(byDirs, 2), "out").of("out/aws/111/eu-west-2")
+	regional, _ := newOtherRoots(opts, scopeRoots(byDirs, 2), "out").of("out/aws/111/eu-west-2")
 	if want := []engine.RootResource{{Type: "aws_iam_role", ID: "app", Name: "app", Root: "aws/111/global"}}; !reflect.DeepEqual(regional.OtherRoots, want) {
 		t.Errorf("regional root: got %v, want %v", regional.OtherRoots, want)
 	}
-	global := newOtherRoots(opts, scopeRoots(byDirs, 0), "out").of("out/aws/111/global")
+	global, _ := newOtherRoots(opts, scopeRoots(byDirs, 0), "out").of("out/aws/111/global")
 	if want := []engine.RootResource{{Type: "aws_lambda_function", ID: "fn", Name: "fn", Root: "aws/111/eu-west-2"}}; !reflect.DeepEqual(global.OtherRoots, want) {
 		t.Errorf("global root: got %v, want %v", global.OtherRoots, want)
 	}
@@ -84,7 +84,7 @@ func TestOtherRootsOfEachRoot(t *testing.T) {
 	}
 	others := newOtherRoots(opts, byDir, "out")
 	for dir := range byDir {
-		got := others.of(dir)
+		got, _ := others.of(dir)
 		want := ownRootOptions(opts, byDir, dir, "out")
 		if !reflect.DeepEqual(got.External, want.External) {
 			t.Errorf("%s: external\n got %v\nwant %v", dir, got.External, want.External)
@@ -127,4 +127,59 @@ func ownRootOptions(opts engine.Options, byDir map[string][]rootfile.Import, dir
 	})
 	dirOpts.OtherRoots = slices.Compact(dirOpts.OtherRoots)
 	return dirOpts
+}
+
+// TestOtherRootsDigest checks what a root's fingerprint takes in place of
+// what the other roots manage (see otherRoots.of): the same for the same
+// roots however they come, another for another root of them, and another
+// when any field of what another root manages changes, as the options it
+// stands for change then.
+func TestOtherRootsDigest(t *testing.T) {
+	t.Parallel()
+	// hash covers every field of both.
+	if n := reflect.TypeFor[engine.External]().NumField(); n != 3 {
+		t.Errorf("engine.External has %d fields: hash them in otherRoots.hash, and change this test", n)
+	}
+	if n := reflect.TypeFor[engine.RootResource]().NumField(); n != 4 {
+		t.Errorf("engine.RootResource has %d fields: hash them in otherRoots.hash, and change this test", n)
+	}
+	opts := engine.Options{DataSources: map[string]engine.DataSource{"aws_vpc": {Type: "aws_vpc", Argument: "id"}}}
+	byDir := func() map[string][]rootfile.Import {
+		return map[string][]rootfile.Import{
+			"out/a": {{Type: "aws_vpc", ID: "vpc-1", Name: "main"}, {Type: "aws_s3_bucket", ID: "logs", Name: "logs"}},
+			"out/b": {{Type: "aws_iam_role", ID: "app", Name: "app"}},
+		}
+	}
+	digest := func(roots map[string][]rootfile.Import, dir string) string {
+		_, d := newOtherRoots(opts, roots, "out").of(dir)
+		if d == "" {
+			t.Fatal("no digest for a call of several roots")
+		}
+		return d
+	}
+	a := digest(byDir(), "out/a")
+	if again := digest(byDir(), "out/a"); again != a {
+		t.Error("the same roots gave another digest")
+	}
+	if b := digest(byDir(), "out/b"); b == a {
+		t.Error("two roots of a call have the same digest")
+	}
+	for name, change := range map[string]func(map[string][]rootfile.Import){
+		"another ID":   func(r map[string][]rootfile.Import) { r["out/b"][0].ID = "web" },
+		"another name": func(r map[string][]rootfile.Import) { r["out/b"][0].Name = "web" },
+		"another type": func(r map[string][]rootfile.Import) { r["out/b"][0].Type = "aws_iam_user" },
+		"one more": func(r map[string][]rootfile.Import) {
+			r["out/b"] = append(r["out/b"], rootfile.Import{Type: "aws_vpc", ID: "vpc-2"})
+		},
+		"moved to a new root": func(r map[string][]rootfile.Import) { r["out/c"], r["out/b"] = r["out/b"], nil },
+	} {
+		roots := byDir()
+		change(roots)
+		if digest(roots, "out/a") == a {
+			t.Errorf("%s: the digest of out/a didn't change", name)
+		}
+	}
+	if _, d := newOtherRoots(opts, map[string][]rootfile.Import{"out/a": nil}, "out").of("out/a"); d != "" {
+		t.Errorf("a call of one root has a digest: %q", d)
+	}
 }

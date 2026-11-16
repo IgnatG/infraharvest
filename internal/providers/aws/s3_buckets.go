@@ -52,9 +52,7 @@ func (g *S3Lister) list() error {
 	if region != "" {
 		input.BucketRegion = aws.String(region)
 	}
-	pages := s3.NewListBucketsPaginator(svc, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), s3.NewListBucketsPaginator(svc, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return g.parts.Fail(err)
 		}

@@ -40,11 +40,11 @@ func TestCheckSelectionOptions(t *testing.T) {
 		{Options{All: true, Regenerate: true, Resume: true}, true},
 		{Options{All: true, Regenerate: true, Incremental: true}, false},
 	} {
-		if err := checkSelectionOptions(tc.options); (err == nil) != tc.ok {
+		if err := checkModes(tc.options); (err == nil) != tc.ok {
 			t.Errorf("%+v: got %v", tc.options, err)
 		}
 	}
-	if err := checkSelectionOptions(Options{}); !errors.Is(err, selection.ErrNoSelection) {
+	if err := checkModes(Options{}); !errors.Is(err, selection.ErrNoSelection) {
 		t.Errorf("want ErrNoSelection, got %v", err)
 	}
 }

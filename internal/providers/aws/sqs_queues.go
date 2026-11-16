@@ -42,9 +42,7 @@ func (g *SqsLister) list() error {
 	if prefix, ok := sqsPrefix(); ok {
 		input.QueueNamePrefix = aws.String(prefix)
 	}
-	pages := sqs.NewListQueuesPaginator(sqs.NewFromConfig(config), input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), sqs.NewListQueuesPaginator(sqs.NewFromConfig(config), input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
