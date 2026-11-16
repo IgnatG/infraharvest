@@ -34,6 +34,7 @@
       "errorlint",
       "funlen",
       "gocritic",
+      "gocyclo",
       "nilerr",
       "noctx",
       "revive",
@@ -52,12 +53,16 @@
         {
           "path": "_test\\.go$",
           "linters": [
-            "funlen"
+            "funlen",
+            "gocyclo"
           ]
         }
       ]
     },
     "settings": {
+      "gocyclo": {
+        "min-complexity": 45
+      },
       "funlen": {
         "lines": 120,
         "statements": -1
