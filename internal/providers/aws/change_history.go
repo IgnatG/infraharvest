@@ -40,7 +40,7 @@ func (p *Provider) LastChanges(ctx context.Context, settings map[string]string, 
 	if region == "" {
 		return nil, errors.New("the root's aws provider block names no region, so CloudTrail isn't read")
 	}
-	in := &Provider{region: region, profile: p.profile, roleARN: p.roleARN, limiter: p.limiter}
+	in := &Provider{region: region, profile: p.profile, roleARN: p.roleARN, run: p.run}
 	config, err := in.config(ctx)
 	if err != nil {
 		return nil, err
