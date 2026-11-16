@@ -136,15 +136,6 @@ func newDriftConfig() *driftConfig {
 	return &driftConfig{files: map[string]*hclfile.File{}, blocks: map[string]driftBlock{}, locals: map[string]driftLocal{}, uses: map[string]int{}, varUses: map[string]int{}, variables: map[string]*hclsyntax.Block{}, calls: map[string]driftBlock{}}
 }
 
-// parseDriftFile parses the root's file name, of content, alone.
-func parseDriftFile(name string, content []byte) (*driftConfig, error) {
-	f, err := hclfile.Parse(name, content)
-	if err != nil {
-		return nil, err
-	}
-	return driftFileOf(name, f)
-}
-
 // driftFileOf is the configuration of the root's file name, parsed as f,
 // alone.
 func driftFileOf(name string, f *hclfile.File) (*driftConfig, error) {
