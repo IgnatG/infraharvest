@@ -56,14 +56,17 @@ func Build(opts Options) ([]byte, error) {
 	if !slices.Contains(Documents, opts.Document) {
 		return nil, fmt.Errorf("unknown document %q: want one of %s", opts.Document, strings.Join(Documents, ", "))
 	}
-	r, err := report.Read(opts.Out)
+	// The report is read once: its bytes name the run, and its content
+	// fills the document.
+	content, err := os.ReadFile(filepath.Join(opts.Out, report.Dir, "report.json"))
 	if err != nil {
 		return nil, err
 	}
-	runID, err := runID(opts.Out)
+	r, err := report.Parse(content)
 	if err != nil {
 		return nil, err
 	}
+	runID := runID(content)
 	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
 		return nil, fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
 	}
@@ -86,14 +89,14 @@ func Build(opts Options) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	content, err := json.MarshalIndent(doc, "", "  ")
+	encoded, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	if err := validate(opts.Document, content); err != nil {
+	if err := validateDocument(opts.Document, doc); err != nil {
 		return nil, fmt.Errorf("the %s document doesn't match its schema, so nothing is written: %w", opts.Document, err)
 	}
-	return append(content, '\n'), nil
+	return append(encoded, '\n'), nil
 }
 
 // timeLayout is the form of every timestamp in the documents: UTC, to the
@@ -112,19 +115,15 @@ func ParseTime(name, value string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// runID names the run, as a version 5 style UUID of its report.json: the
-// same report has the same ID in all three documents, and in every export
-// of it.
-func runID(out string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(out, report.Dir, "report.json"))
-	if err != nil {
-		return "", err
-	}
+// runID names the run, as a version 5 style UUID of content, its
+// report.json: the same report has the same ID in all three documents, and
+// in every export of it.
+func runID(content []byte) string {
 	sum := sha256.Sum256(content)
 	b := sum[:16]
 	b[6] = b[6]&0x0f | 0x50
 	b[8] = b[8]&0x3f | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
 
 func toCounts(c report.CoverageTotal) counts {
@@ -254,14 +253,19 @@ func buildInventory(r *report.Report, opts Options, runID string, now time.Time)
 	for _, t := range r.Types {
 		doc.Coverage.Types = append(doc.Coverage.Types, typeCounts{Type: t.Type, Counts: toCounts(t.CoverageTotal)})
 	}
+	// scopes holds doc.Scopes, so that each resource's scope is looked up
+	// in a set rather than searched for.
+	scopes := map[string]bool{}
 	for _, s := range r.Scopes {
 		if s.Scope != "" {
+			scopes[s.Scope] = true
 			doc.Scopes = append(doc.Scopes, s.Scope)
 			doc.Coverage.Scopes = append(doc.Coverage.Scopes, scopeCounts{Scope: s.Scope, Counts: toCounts(s.CoverageTotal)})
 		}
 	}
 	for _, e := range entries(r, listed) {
-		if e.scope != "" && !slices.Contains(doc.Scopes, e.scope) {
+		if e.scope != "" && !scopes[e.scope] {
+			scopes[e.scope] = true
 			doc.Scopes = append(doc.Scopes, e.scope)
 		}
 		if secret.CredentialFormat(e.id) != "" {

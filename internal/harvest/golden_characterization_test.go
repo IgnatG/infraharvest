@@ -600,8 +600,11 @@ func TestGoldenListerAccessors(t *testing.T) {
 	record("zero: Wants", zero.Wants("aws_vpc"))
 	record("zero: WantsAny", zero.WantsAny("aws_vpc", "aws_subnet"))
 	record("zero: WantsAny of nothing", zero.WantsAny())
-	record("zero: Context is Background", zero.Context() == context.Background())
-	record("zero: Context has no Done channel", zero.Context().Done() == nil)
+	record("zero: Context panics under go test", func() (panicked bool) {
+		defer func() { panicked = recover() != nil }()
+		_ = zero.Context()
+		return false
+	}())
 	record("zero: Resources is nil", zero.Resources == nil)
 	record("zero: Settings", zero.Settings())
 
@@ -631,7 +634,7 @@ func TestGoldenListerAccessors(t *testing.T) {
 		return listErr
 	})
 	record("run: returns the listed resources", goldenResourceViews(resources))
-	record("run: returns the list's error", err == listErr)
+	record("run: returns the list's error", err == listErr) //nolint:errorlint // the same error, not one wrapping it
 
 	goldenCheck(t, "lister_accessors", got)
 }

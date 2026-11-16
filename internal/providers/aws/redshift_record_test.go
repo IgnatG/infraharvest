@@ -77,6 +77,7 @@ func TestRecordRedshiftListsClustersAndTheirParts(t *testing.T) {
 	assertRecorded(t, resources,
 		recordedResource{"aws_redshift_cluster", "analytics", "analytics", nil},
 		recordedResource{"aws_redshift_cluster", "reports", "reports", nil},
+		recordedResource{"aws_redshift_parameter_group", "default.redshift-1.0", "default.redshift-1.0", nil},
 		recordedResource{"aws_redshift_parameter_group", "etl-params", "etl-params", nil},
 		recordedResource{"aws_redshift_parameter_group", "load-params", "load-params", nil},
 		recordedResource{"aws_redshift_subnet_group", "default", "default", nil},

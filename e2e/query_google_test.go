@@ -38,7 +38,7 @@ func TestGoogleQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	seed(ctx, t, "google-query", execPath, plugins)
 
 	checkQueryRoundTrip(ctx, t, queryRoundTrip{

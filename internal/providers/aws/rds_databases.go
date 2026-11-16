@@ -83,9 +83,7 @@ func (g *RDSLister) add(id, resourceType string) {
 // listDBClusters adds the Aurora and Multi-AZ DB clusters, and remembers
 // the subnet groups of the DocumentDB clusters it leaves out.
 func (g *RDSLister) listDBClusters(svc *rds.Client) error {
-	p := rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeDBClustersPaginator(svc, &rds.DescribeDBClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -108,8 +106,7 @@ func (g *RDSLister) listDBClusterSnapshots(svc *rds.Client) error {
 	p := rds.NewDescribeDBClusterSnapshotsPaginator(svc, &rds.DescribeDBClusterSnapshotsInput{
 		SnapshotType: aws.String(manualSnapshots),
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), p) {
 		if err != nil {
 			return err
 		}
@@ -125,9 +122,7 @@ func (g *RDSLister) listDBClusterSnapshots(svc *rds.Client) error {
 
 // listDBProxies adds the proxies.
 func (g *RDSLister) listDBProxies(svc *rds.Client) error {
-	p := rds.NewDescribeDBProxiesPaginator(svc, &rds.DescribeDBProxiesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeDBProxiesPaginator(svc, &rds.DescribeDBProxiesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -143,9 +138,7 @@ func (g *RDSLister) listDBProxies(svc *rds.Client) error {
 // a Multi-AZ DB cluster are the cluster's own, which manages them, so
 // they are left out.
 func (g *RDSLister) listDBInstances(svc *rds.Client) error {
-	p := rds.NewDescribeDBInstancesPaginator(svc, &rds.DescribeDBInstancesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeDBInstancesPaginator(svc, &rds.DescribeDBInstancesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -172,8 +165,7 @@ func (g *RDSLister) listDBInstanceSnapshots(svc *rds.Client) error {
 	p := rds.NewDescribeDBSnapshotsPaginator(svc, &rds.DescribeDBSnapshotsInput{
 		SnapshotType: aws.String(manualSnapshots),
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), p) {
 		if err != nil {
 			return err
 		}
@@ -189,9 +181,7 @@ func (g *RDSLister) listDBInstanceSnapshots(svc *rds.Client) error {
 // ones, which RDS provides and can't be changed, are listed too; the
 // catalogue's skip rule leaves them out.
 func (g *RDSLister) listDBParameterGroups(svc *rds.Client) error {
-	p := rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeDBParameterGroupsPaginator(svc, &rds.DescribeDBParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -209,9 +199,7 @@ func (g *RDSLister) listDBParameterGroups(svc *rds.Client) error {
 // use (see docdbSubnetGroups), so that a group isn't imported twice. The
 // default one is listed too; the catalogue's skip rule leaves it out.
 func (g *RDSLister) listDBSubnetGroups(svc *rds.Client) error {
-	p := rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeDBSubnetGroupsPaginator(svc, &rds.DescribeDBSubnetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -228,9 +216,7 @@ func (g *RDSLister) listDBSubnetGroups(svc *rds.Client) error {
 // listOptionGroups adds every option group. The default ones, which RDS
 // provides, are listed too; the catalogue's skip rule leaves them out.
 func (g *RDSLister) listOptionGroups(svc *rds.Client) error {
-	p := rds.NewDescribeOptionGroupsPaginator(svc, &rds.DescribeOptionGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeOptionGroupsPaginator(svc, &rds.DescribeOptionGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -244,9 +230,7 @@ func (g *RDSLister) listOptionGroups(svc *rds.Client) error {
 // listEventSubscriptions adds the event subscriptions, by the name given
 // them, which Terraform imports them with.
 func (g *RDSLister) listEventSubscriptions(svc *rds.Client) error {
-	p := rds.NewDescribeEventSubscriptionsPaginator(svc, &rds.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeEventSubscriptionsPaginator(svc, &rds.DescribeEventSubscriptionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -264,9 +248,7 @@ func (g *RDSLister) listEventSubscriptions(svc *rds.Client) error {
 // region, so every region that lists it adds it.
 func (g *RDSLister) listGlobalClusters(svc *rds.Client) error {
 	region := svc.Options().Region
-	p := rds.NewDescribeGlobalClustersPaginator(svc, &rds.DescribeGlobalClustersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), rds.NewDescribeGlobalClustersPaginator(svc, &rds.DescribeGlobalClustersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

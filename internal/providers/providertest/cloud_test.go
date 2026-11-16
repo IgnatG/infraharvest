@@ -63,7 +63,11 @@ func TestCloud(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cloud.Do(req); !errors.Is(err, context.Canceled) {
+	resp, err := cloud.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("a canceled request: %v, want context.Canceled", err)
 	}
 	if n := len(cloud.Requests()); n != 3 {

@@ -27,9 +27,7 @@ func OrganizationAccounts(ctx context.Context, profile string) ([]string, error)
 		return nil, err
 	}
 	var accounts []string
-	pages := organizations.NewListAccountsPaginator(organizations.NewFromConfig(config), &organizations.ListAccountsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, organizations.NewListAccountsPaginator(organizations.NewFromConfig(config), &organizations.ListAccountsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}

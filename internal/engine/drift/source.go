@@ -128,6 +128,10 @@ type driftEditor struct {
 	// modules.json (see loadDriftModules), to trace changes of their
 	// resources to the calls.
 	modules map[string]*driftModule
+	// unreadModules are why each module the root calls that
+	// loadDriftModules couldn't read can't be, by key, and by "" why
+	// none can be.
+	unreadModules map[string]string
 	// adapters are the run's (see Options.Adapters), whose Inverse
 	// traces a change of a curated module's resource to its call (see
 	// curatedAdapter).
@@ -173,19 +177,10 @@ func newDriftEditor(refresh, code *tfjson.Plan, rules Rules) *driftEditor {
 		e.refer = rules.Referrer(rootStateValues(state))
 	}
 	seen := map[string]bool{}
-	for _, p := range []*tfjson.Plan{refresh, code} {
-		if p == nil {
-			continue
-		}
-		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
-			for _, rc := range rcs {
-				if rc.Change != nil {
-					secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-					secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
-				}
-			}
-		}
-	}
+	forEachChange([]*tfjson.Plan{refresh, code}, func(c *tfjson.Change) {
+		secret.CollectSensitive(c.Before, c.BeforeSensitive, seen)
+		secret.CollectSensitive(c.After, c.AfterSensitive, seen)
+	})
 	e.sensitive = slices.Sorted(maps.Keys(seen))
 	e.forms = secret.TextForms(e.sensitive)
 	e.secretForms = driftSecretForms(nil, refresh, code)

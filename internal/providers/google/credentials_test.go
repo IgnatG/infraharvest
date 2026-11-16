@@ -4,6 +4,7 @@
 package google
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,7 +97,7 @@ func TestCredentialsType(t *testing.T) {
 // with why.
 func TestFailingTokenSource(t *testing.T) {
 	t.Parallel()
-	if _, err := (failingTokenSource{err: os.ErrNotExist}).Token(); err != os.ErrNotExist {
+	if _, err := (failingTokenSource{err: os.ErrNotExist}).Token(); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("error %v", err)
 	}
 }

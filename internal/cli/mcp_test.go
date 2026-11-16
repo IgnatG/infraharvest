@@ -6,10 +6,47 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestHelperLogs is the child process of TestExecRunnerKeepsTheLastLines:
+// it logs 50 lines and prints a report. It does nothing in a normal test
+// run.
+func TestHelperLogs(t *testing.T) {
+	if os.Getenv("INFRAHARVEST_TEST_LOGS") == "" {
+		t.Skip("a helper for TestExecRunnerKeepsTheLastLines")
+	}
+	for i := range 50 {
+		fmt.Fprintf(os.Stderr, "step %d\n", i)
+	}
+	fmt.Print(`{"done":true}`)
+	os.Exit(1)
+}
+
+// The runner returns the child's report, its exit code and only the last
+// lines it logged, and passes each line to progress as it comes.
+func TestExecRunnerKeepsTheLastLines(t *testing.T) {
+	t.Setenv("INFRAHARVEST_TEST_LOGS", "1")
+	var lines []string
+	stdout, stderr, code, err := execRunner(os.Args[0])(t.Context(), []string{"-test.run=^TestHelperLogs$"}, func(line string) { lines = append(lines, line) })
+	if err != nil || code != 1 {
+		t.Fatalf("got code %d, %v", code, err)
+	}
+	if !strings.HasPrefix(string(stdout), `{"done":true}`) {
+		t.Errorf("stdout: %q", stdout)
+	}
+	kept := strings.Split(strings.TrimSpace(string(stderr)), "\n")
+	if len(kept) != 20 || kept[0] != "step 30" || kept[19] != "step 49" {
+		t.Errorf("stderr kept: %q", kept)
+	}
+	if len(lines) != 50 || lines[0] != "step 0" {
+		t.Errorf("progress got %d lines", len(lines))
+	}
+}
 
 // TestHelperSleeps is the child process of TestExecRunnerKilled: it sleeps
 // until killed. It does nothing in a normal test run.
@@ -27,7 +64,7 @@ func TestExecRunnerKilled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
 
-	_, _, code, err := execRunner(os.Args[0])(ctx, []string{"-test.run=^TestHelperSleeps$"})
+	_, _, code, err := execRunner(os.Args[0])(ctx, []string{"-test.run=^TestHelperSleeps$"}, nil)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("got code %d, %v; want %v", code, err, context.DeadlineExceeded)

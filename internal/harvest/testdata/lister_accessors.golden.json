@@ -28,11 +28,7 @@
     "value": false
   },
   {
-    "check": "zero: Context is Background",
-    "value": true
-  },
-  {
-    "check": "zero: Context has no Done channel",
+    "check": "zero: Context panics under go test",
     "value": true
   },
   {

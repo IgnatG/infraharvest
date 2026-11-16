@@ -29,9 +29,13 @@
   "linters": {
     "default": "standard",
     "enable": [
+      "bodyclose",
       "depguard",
+      "errorlint",
       "funlen",
       "gocritic",
+      "nilerr",
+      "noctx",
       "revive",
       "unconvert",
       "unparam"
@@ -323,6 +327,21 @@
               {
                 "pkg": "github.com/IgnatG/infraharvest/internal",
                 "desc": "a leaf helper imports nothing of infraharvest's, so that anything can use it without a cycle"
+              }
+            ]
+          },
+          "runstate": {
+            "files": [
+              "**/internal/runstate/*.go"
+            ],
+            "list-mode": "lax",
+            "allow": [
+              "github.com/IgnatG/infraharvest/internal/ratelimit"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "a run's state imports only the leaf ratelimit of infraharvest's, so that every provider and the engine can use it without a cycle"
               }
             ]
           },

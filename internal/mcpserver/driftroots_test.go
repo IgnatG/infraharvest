@@ -212,7 +212,7 @@ func TestDriftAllowedOfTheProvidersPassed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed := newDriftAllowed(Providers{Profiles: []harvest.Profile{aws}, Sources: compiled.Sources, Check: compiled.Check})
+	allowed := newDriftAllowed(Providers{Profiles: []harvest.Profile{aws}, Sources: compiled.Sources, Settings: compiled.Settings, Check: compiled.Check})
 	if want := map[string]bool{"hashicorp/aws": true}; !maps.Equal(allowed.sources, want) {
 		t.Errorf("sources %v, want %v", allowed.sources, want)
 	}
@@ -420,7 +420,7 @@ provider "aws" {
 		"aws endpoints":                     {map[string]string{root + "providers.tf": "provider \"aws\" {\n  endpoints {\n    sts = \"https://example.com\"\n  }\n}\n"}, `aws/1/eu-west-2/providers.tf:2: the provider aws sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: Blocks of type "endpoints" are not expected here.`},
 		"aws custom_ca_bundle":              {map[string]string{root + "providers.tf": "provider \"aws\" {\n  custom_ca_bundle = \"ca.pem\"\n}\n"}, `"custom_ca_bundle"`},
 		"aws sts_region":                    {map[string]string{root + "providers.tf": "provider \"aws\" {\n  sts_region = \"x\"\n}\n"}, `"sts_region"`},
-		"aws assume_role's other arguments": {map[string]string{root + "providers.tf": "provider \"aws\" {\n  assume_role {\n    role_arn = \"r\"\n    source_identity = \"x\"\n  }\n}\n"}, `the provider aws's assume_role sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: An argument named "source_identity" is not expected here. It takes only role_arn`},
+		"aws assume_role's other arguments": {map[string]string{root + "providers.tf": "provider \"aws\" {\n  assume_role {\n    role_arn = \"r\"\n    source_identity = \"x\"\n  }\n}\n"}, `the provider aws's assume_role sets what infraharvest doesn't generate it with, which could have it run a program or send its requests elsewhere: An argument named "source_identity" is not expected here. It takes only external_id, role_arn, session_name`},
 		"aws assume_role_with_web_identity": {map[string]string{root + "providers.tf": "provider \"aws\" {\n  assume_role_with_web_identity {\n    web_identity_token_file = \"t\"\n  }\n}\n"}, `"assume_role_with_web_identity"`},
 		"a dynamic block":                   {map[string]string{root + "providers.tf": "provider \"aws\" {\n  dynamic \"endpoints\" {\n    for_each = [1]\n    content {}\n  }\n}\n"}, `"dynamic"`},
 		"a JSON provider":                   {map[string]string{root + "x.tf.json": `{"provider": {"aws": {"endpoints": {"sts": "https://example.com"}}}}`}, `aws/1/eu-west-2/x.tf.json:1: the provider aws sets`},
@@ -478,9 +478,9 @@ provider "aws" {
 // configures it with, and the provider blocks and backends infraharvest
 // writes pass the check.
 func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
-	sources := newDriftAllowed(compiled).sources
-	for source := range sources {
-		if providerSettings[source] == nil {
+	allowed := newDriftAllowed(compiled)
+	for source := range allowed.sources {
+		if allowed.providers[source] == nil {
 			t.Errorf("no settings for %s", source)
 		}
 	}
@@ -506,7 +506,7 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 			source = "hashicorp/" + p.Name
 		}
 		checkGenerated(t, content, "provider", []string{"name"}, func(body hcl.Body) error {
-			return checkSettings(body, providerSettings[providerAddress(source)], "the provider "+p.Name)
+			return checkSettings(body, allowed.providers[providerAddress(source)], "the provider "+p.Name)
 		})
 	}
 	// The backend of each cloud whose provider is built in.
@@ -522,7 +522,7 @@ func TestDriftSettingsOfWhatInfraharvestGenerates(t *testing.T) {
 		checkGenerated(t, b.File("aws/1/eu-west-2"), "terraform", nil, func(body hcl.Body) error {
 			content, _, diags := body.PartialContent(&hcl.BodySchema{Blocks: []hcl.BlockHeaderSchema{{Type: "backend", LabelNames: []string{"type"}}}})
 			if diags.HasErrors() || len(content.Blocks) != 1 {
-				return fmt.Errorf("no backend: %v", diags)
+				return fmt.Errorf("no backend: %w", diags)
 			}
 			s, ok := backends[content.Blocks[0].Labels[0]]
 			if !ok {

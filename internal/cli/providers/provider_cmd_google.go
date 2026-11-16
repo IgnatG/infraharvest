@@ -25,7 +25,11 @@ import (
 
 func init() {
 	define(definition{
-		name:        "google",
+		name: "google",
+		settings: map[string]harvest.BlockSettings{
+			"hashicorp/google":      {Arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
+			"hashicorp/google-beta": {Arguments: []string{"add_terraform_attribution_label", "alias", "default_labels", "project", "region"}},
+		},
 		newProvider: func() harvest.Provider { return &google.Provider{} },
 		stores:      func(s *managed.Stores) { s.GCS = gcs.New },
 		short:       "Generate Terraform configuration for the resources of Google Cloud projects",

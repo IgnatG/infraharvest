@@ -24,6 +24,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // registryTimeout bounds one registry request; registryBodyLimit bounds
@@ -44,15 +45,26 @@ const registryBackoff = time.Second
 // registryBackoff, for tests.
 type registryBackoffKey struct{}
 
-// registryAnswers remembers the registry's answers by URL: one import asks
-// once, however many accounts and regions it covers, and every root it
-// generates pins the same release.
-var registryAnswers sync.Map
+// registryAnswersKey is the key of a run's registry answers kept with the
+// run (see registryAnswers).
+type registryAnswersKey struct{}
+
+// registryAnswers returns the registry's answers by URL that ctx's run
+// remembers: one import asks once, however many accounts and regions it
+// covers, and every root it generates pins the same release. They are
+// kept with the run (see runstate.Kept), so that another run in the
+// process, such as a later import with the MCP server, asks again and gets
+// the releases published since; a context of no run shares the answers of
+// every such call in the process.
+func registryAnswers(ctx context.Context) *sync.Map {
+	return runstate.Kept(runstate.FromContext(ctx), registryAnswersKey{}, func() *sync.Map { return &sync.Map{} })
+}
 
 // getRegistry returns what the registry answers at url, what names the
 // lookup in errors, retrying a failed connection, a 429 or a 5xx answer.
 func getRegistry(ctx context.Context, client *http.Client, url, what string) ([]byte, error) {
-	if content, ok := registryAnswers.Load(url); ok {
+	answers := registryAnswers(ctx)
+	if content, ok := answers.Load(url); ok {
 		return content.([]byte), nil
 	}
 	var content []byte
@@ -77,7 +89,7 @@ func getRegistry(ctx context.Context, client *http.Client, url, what string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("look up %s: %w", what, err)
 	}
-	registryAnswers.Store(url, content)
+	answers.Store(url, content)
 	return content, nil
 }
 

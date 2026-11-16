@@ -925,20 +925,10 @@ func forcesReplacement(paths []any, path string) bool {
 // the forms text quotes them in (see secret.TextForms): no report may hold one.
 func driftSensitiveForms(plans ...*tfjson.Plan) []string {
 	seen := map[string]bool{}
-	for _, p := range plans {
-		if p == nil {
-			continue
-		}
-		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
-			for _, rc := range rcs {
-				if rc.Change == nil {
-					continue
-				}
-				secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-				secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
-			}
-		}
-	}
+	forEachChange(plans, func(c *tfjson.Change) {
+		secret.CollectSensitive(c.Before, c.BeforeSensitive, seen)
+		secret.CollectSensitive(c.After, c.AfterSensitive, seen)
+	})
 	values := make([]string, 0, len(seen))
 	for v := range seen {
 		values = append(values, v)
@@ -972,23 +962,31 @@ func driftSecretForms(state *tfjson.State, plans ...*tfjson.Plan) []string {
 			}
 		}
 	}
+	forEachChange(plans, func(c *tfjson.Change) {
+		secret.CollectSensitive(c.Before, c.BeforeSensitive, seen)
+		secret.CollectSensitive(c.After, c.AfterSensitive, seen)
+		collectDriftSecrets(c.Before, "", true, seen)
+		collectDriftSecrets(c.After, "", true, seen)
+	})
+	return secret.TextForms(slices.Sorted(maps.Keys(seen)))
+}
+
+// forEachChange calls visit with the change of each resource the plans
+// show, those of their drift and of their changes, in order; a plan that
+// is nil has none, nor has a resource change without a change.
+func forEachChange(plans []*tfjson.Plan, visit func(*tfjson.Change)) {
 	for _, p := range plans {
 		if p == nil {
 			continue
 		}
 		for _, rcs := range [][]*tfjson.ResourceChange{p.ResourceDrift, p.ResourceChanges} {
 			for _, rc := range rcs {
-				if rc.Change == nil {
-					continue
+				if rc.Change != nil {
+					visit(rc.Change)
 				}
-				secret.CollectSensitive(rc.Change.Before, rc.Change.BeforeSensitive, seen)
-				secret.CollectSensitive(rc.Change.After, rc.Change.AfterSensitive, seen)
-				collectDriftSecrets(rc.Change.Before, "", true, seen)
-				collectDriftSecrets(rc.Change.After, "", true, seen)
 			}
 		}
 	}
-	return secret.TextForms(slices.Sorted(maps.Keys(seen)))
 }
 
 // collectDriftSecrets adds to out the strings of v, which goes by key,

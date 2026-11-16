@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // A project's list that fails is kept, unless its context ended.
@@ -46,7 +47,7 @@ func testRun(t *testing.T) context.Context {
 	if ctx, ok := testRuns.Load(t); ok {
 		return ctx.(context.Context)
 	}
-	ctx, loaded := testRuns.LoadOrStore(t, ratelimit.NewContext(t.Context(), ratelimit.Like(ratelimit.Default())))
+	ctx, loaded := testRuns.LoadOrStore(t, runstate.NewContext(t.Context(), runstate.New(ratelimit.Like(ratelimit.Default()))))
 	if !loaded {
 		t.Cleanup(func() { testRuns.Delete(t) })
 	}

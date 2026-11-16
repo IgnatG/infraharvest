@@ -22,7 +22,11 @@ import (
 
 func init() {
 	define(definition{
-		name:        "azure",
+		name: "azure",
+		settings: map[string]harvest.BlockSettings{
+			"hashicorp/azurerm": {Arguments: []string{"alias", "subscription_id"}, Blocks: map[string]harvest.BlockSettings{"features": {}}},
+			"azure/azapi":       {Arguments: []string{"alias", "subscription_id"}},
+		},
 		newProvider: func() harvest.Provider { return &azure.Provider{} },
 		stores:      func(s *managed.Stores) { s.AzureBlob = azblob.New },
 		short:       "Generate Terraform configuration for the resources of Azure subscriptions",

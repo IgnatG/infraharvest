@@ -1,1 +1,1 @@
-{"resources": [{"id": "default/nightly", "name": "nightly"}]}
+{"resources": [{"id": "default/nightly", "name": "nightly"}, {"id": "StepFunctionsGetEventsForStepFunctionsExecutionRule", "name": "StepFunctionsGetEventsForStepFunctionsExecutionRule", "attributes": {"managed_by": "states.amazonaws.com"}}]}

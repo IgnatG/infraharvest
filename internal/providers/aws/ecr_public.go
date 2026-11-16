@@ -33,9 +33,7 @@ func (g *EcrPublicLister) list() error {
 	client := ecrpublic.NewFromConfig(config, func(o *ecrpublic.Options) {
 		o.Region = GlobalHomeRegion
 	})
-	p := ecrpublic.NewDescribeRepositoriesPaginator(client, &ecrpublic.DescribeRepositoriesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ecrpublic.NewDescribeRepositoriesPaginator(client, &ecrpublic.DescribeRepositoriesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

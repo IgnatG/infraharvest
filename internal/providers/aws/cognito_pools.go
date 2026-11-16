@@ -61,9 +61,7 @@ func (g *CognitoLister) list() error {
 // <name>_<ID> because pool names need not be unique.
 func (g *CognitoLister) listCognitoIdentityPools(client *cognitoidentity.Client) error {
 	input := &cognitoidentity.ListIdentityPoolsInput{MaxResults: aws.Int32(cognitoPageSize)}
-	pages := cognitoidentity.NewListIdentityPoolsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cognitoidentity.NewListIdentityPoolsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -85,9 +83,7 @@ func (g *CognitoLister) listCognitoIdentityPools(client *cognitoidentity.Client)
 func (g *CognitoLister) listCognitoUserPools(client *cognitoidentityprovider.Client) ([]string, error) {
 	var poolIDs []string
 	input := &cognitoidentityprovider.ListUserPoolsInput{MaxResults: aws.Int32(cognitoPageSize)}
-	pages := cognitoidentityprovider.NewListUserPoolsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cognitoidentityprovider.NewListUserPoolsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -113,9 +109,7 @@ func (g *CognitoLister) listCognitoUserPoolClients(client *cognitoidentityprovid
 		UserPoolId: aws.String(poolID),
 		MaxResults: aws.Int32(cognitoPageSize),
 	}
-	pages := cognitoidentityprovider.NewListUserPoolClientsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), cognitoidentityprovider.NewListUserPoolClientsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

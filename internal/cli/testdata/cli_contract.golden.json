@@ -190,6 +190,12 @@
         "persistent": true
       },
       {
+        "name": "external-id",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "force-unlock",
         "type": "bool",
         "default": "false",
@@ -341,6 +347,12 @@
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "role-session-name",
+        "type": "string",
+        "default": "",
         "persistent": true
       },
       {
@@ -1225,6 +1237,12 @@
         "persistent": true
       },
       {
+        "name": "external-id",
+        "type": "string",
+        "default": "",
+        "persistent": true
+      },
+      {
         "name": "force-unlock",
         "type": "bool",
         "default": "false",
@@ -1376,6 +1394,12 @@
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",
+        "persistent": true
+      },
+      {
+        "name": "role-session-name",
+        "type": "string",
+        "default": "",
         "persistent": true
       },
       {

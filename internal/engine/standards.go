@@ -219,7 +219,7 @@ func isNull(expr hclsyntax.Expression) bool {
 func checkVarFiles(dir string, fail func(rule, format string, args ...any)) error {
 	vars := filepath.Join(dir, hclfile.VarsDir)
 	if info, err := os.Stat(vars); err != nil || !info.IsDir() {
-		return nil
+		return nil //nolint:nilerr // no vars directory, nothing to check
 	}
 	sensitive, err := sensitiveVariables(dir)
 	if err != nil {
@@ -237,7 +237,7 @@ func checkVarFiles(dir string, fail func(rule, format string, args ...any)) erro
 		f, err := hclfile.Load(path)
 		if err != nil {
 			fail("invalid-var-file", "%s doesn't parse", name)
-			return nil
+			return nil //nolint:nilerr // reported through fail
 		}
 		if !strings.HasSuffix(name, ".tfvars") {
 			return nil

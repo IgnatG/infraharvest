@@ -100,7 +100,7 @@ func TestGoogleEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixture := seedApplied(ctx, t, "google-environments", execPath, plugins)
 	// The fixture's variables, as the test last applied them; each apply
 	// gives the listers a stand-in of their own that finds what the

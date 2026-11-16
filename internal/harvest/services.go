@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"testing"
 )
 
 // Lister lists one service of a provider, in one call. The discovery
@@ -93,10 +94,17 @@ func (l *ListerOf[S]) Begin(ctx context.Context, s Settings) {
 	l.settings = s
 }
 
-// Context returns the context for the lister's API calls: the one Run was
-// given, or context.Background before. It is never nil.
+// Context returns the context for the lister's API calls: the one Run or
+// Begin was given. It is never nil. Before either, it is
+// context.Background, whose calls no interrupt or --list-timeout can
+// stop, and which carries no run (see runstate.FromContext): a lister
+// path that calls the API before Run is a bug, so under go test it
+// panics instead, to be found there.
 func (l *ListerOf[S]) Context() context.Context {
 	if l.ctx == nil {
+		if testing.Testing() {
+			panic("harvest: a lister asked for its context before Run or Begin gave it one")
+		}
 		return context.Background()
 	}
 	return l.ctx

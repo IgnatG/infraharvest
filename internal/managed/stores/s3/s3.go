@@ -7,6 +7,7 @@ package s3
 
 import (
 	"context"
+	"io"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -62,3 +63,16 @@ func (s *Store) Get(ctx context.Context, bucket, key string) ([]byte, error) {
 	defer out.Body.Close()
 	return managed.ReadState(out.Body)
 }
+
+// Open returns an object's content to read as it goes (see
+// managed.StreamStore).
+func (s *Store) Open(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, err
+	}
+	return out.Body, nil
+}
+
+// Stores read state as it is decoded.
+var _ managed.StreamStore = (*Store)(nil)

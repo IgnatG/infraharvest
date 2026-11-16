@@ -54,7 +54,7 @@ func TestAWSParallelRegions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	seed(ctx, t, "aws-regions", execPath, plugins)
 	// The imports and plans sign in to the account of the estate, so that
 	// they see nothing the other tests create.

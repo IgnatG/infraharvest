@@ -17,7 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 const explorerViewARN = "arn:aws:resource-explorer-2:eu-west-2:123456789012:view/default/1111"
@@ -149,7 +149,7 @@ func resourceJSON(typ string) string {
 func explorerRun(t *testing.T, f *fakeExplorer) context.Context {
 	t.Helper()
 	ctx := useFakeAPI(t, f.handle)
-	configsOf(ratelimit.FromContext(ctx)).explorerNow = func() time.Time { return explorerTestNow }
+	configsOf(runstate.FromContext(ctx)).explorerNow = func() time.Time { return explorerTestNow }
 	return ctx
 }
 

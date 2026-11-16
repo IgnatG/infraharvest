@@ -151,7 +151,7 @@ func seedAzure(t *testing.T) azureEstate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	azureSeeded.Lock()
 	defer azureSeeded.Unlock()
 	if azureSeeded.state == nil {

@@ -118,7 +118,7 @@ func TestResolveStacksNestedUnderDeletedParent(t *testing.T) {
 	listed := map[string]int{}
 	ctx := useFakeAPI(t, nestedStacksAPI(t, listed))
 
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{nestedKept, nestedParent}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{nestedKept, nestedParent}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestResolveStacksUnreadableNested(t *testing.T) {
 		return recordQueryError(recordCfnNS, "AccessDenied")
 	})
 
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"app"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 		return api(call)
 	})
 
-	scope, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue())
+	scope, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"app"}, awsCatalogue())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestResolveStacksNestedTemplateRefused(t *testing.T) {
 	}
 
 	refused = scopeAppStack
-	if _, err := ResolveStacks(ctx, "default", "", "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
+	if _, err := ResolveStacks(ctx, "default", AssumeRole{}, "eu-west-2", []string{"app"}, awsCatalogue()); err == nil || !strings.Contains(err.Error(), "template") {
 		t.Errorf("the named stack's template refused: %v", err)
 	}
 }

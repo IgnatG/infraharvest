@@ -435,7 +435,7 @@ func TestParseAll(t *testing.T) {
 		return body, nil
 	}
 	r := Resources{}
-	if err := r.parseAll(context.Background(), keys, get, "s3://acme/"); err != nil {
+	if err := r.parseAll(context.Background(), keys, opener(getStore(get), "acme"), "s3://acme/"); err != nil {
 		t.Fatal(err)
 	}
 	if where, _ := r.Lookup("aws_s3_bucket", "shared"); where != "s3://acme/"+keys[len(keys)-1] {
@@ -448,10 +448,17 @@ func TestParseAll(t *testing.T) {
 		}
 		return get(ctx, key)
 	}
-	if err := (Resources{}).parseAll(context.Background(), keys, failing, "s3://acme/"); err == nil || !strings.Contains(err.Error(), "access denied") {
+	if err := (Resources{}).parseAll(context.Background(), keys, opener(getStore(failing), "acme"), "s3://acme/"); err == nil || !strings.Contains(err.Error(), "access denied") {
 		t.Errorf("want the failure, got %v", err)
 	}
 }
+
+// getStore is an ObjectStore of one bucket whose objects get returns.
+type getStore func(ctx context.Context, key string) ([]byte, error)
+
+func (g getStore) List(context.Context, string, string) ([]string, error) { return nil, nil }
+
+func (g getStore) Get(ctx context.Context, _, key string) ([]byte, error) { return g(ctx, key) }
 
 // Each resource has its address in the state: in a module call, with its
 // count or for_each key; one the state doesn't name has none.

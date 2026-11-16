@@ -33,9 +33,7 @@ func (g *SWFLister) list() error {
 	}
 	client := swf.NewFromConfig(config)
 	input := &swf.ListDomainsInput{RegistrationStatus: swftypes.RegistrationStatusRegistered}
-	pages := swf.NewListDomainsPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), swf.NewListDomainsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

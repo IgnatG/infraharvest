@@ -17,6 +17,8 @@ name: MegaLinter
 # or locally, with Docker: npx mega-linter-runner --flavor go
 on:
   pull_request:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
   workflow_dispatch:
 
 concurrency:

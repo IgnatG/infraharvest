@@ -39,9 +39,7 @@ func (g *CodePipelineLister) list() error {
 // listPipelines adds each pipeline as an aws_codepipeline, imported by its
 // name.
 func (g *CodePipelineLister) listPipelines(ctx context.Context, client *codepipeline.Client) error {
-	p := codepipeline.NewListPipelinesPaginator(client, &codepipeline.ListPipelinesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, codepipeline.NewListPipelinesPaginator(client, &codepipeline.ListPipelinesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -56,9 +54,7 @@ func (g *CodePipelineLister) listPipelines(ctx context.Context, client *codepipe
 // listWebhooks adds each webhook as an aws_codepipeline_webhook, imported
 // by its ARN, named after the webhook's name, which the ARN ends with.
 func (g *CodePipelineLister) listWebhooks(ctx context.Context, client *codepipeline.Client) error {
-	p := codepipeline.NewListWebhooksPaginator(client, &codepipeline.ListWebhooksInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, codepipeline.NewListWebhooksPaginator(client, &codepipeline.ListWebhooksInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

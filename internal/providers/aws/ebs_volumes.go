@@ -63,9 +63,7 @@ func (g *EbsLister) list() error {
 		Filters: ec2TagFilters(g.Filters(), ebsFilterServiceName),
 	}
 	var volumes []types.Volume
-	pages := ec2.NewDescribeVolumesPaginator(client, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeVolumesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -110,9 +108,7 @@ func rootDeviceNames(ctx context.Context, client *ec2.Client, instanceIDs []stri
 		input := &ec2.DescribeInstancesInput{
 			Filters: []types.Filter{{Name: aws.String("instance-id"), Values: batch}},
 		}
-		pages := ec2.NewDescribeInstancesPaginator(client, input, stopOnDuplicateToken)
-		for pages.HasMorePages() {
-			page, err := pages.NextPage(ctx)
+		for page, err := range pagesOf(ctx, ec2.NewDescribeInstancesPaginator(client, input, stopOnDuplicateToken)) {
 			if err != nil {
 				return nil, fmt.Errorf("describe instances %s: %w", strings.Join(batch, ", "), err)
 			}

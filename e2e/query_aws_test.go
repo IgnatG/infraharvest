@@ -43,7 +43,7 @@ func TestAWSQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	created := seed(ctx, t, "aws-query", execPath, plugins)
 	// Discover and the import sign in to the account of the estate, as a
 	// profile of its own (see useAWSAccount).

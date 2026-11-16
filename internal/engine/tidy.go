@@ -321,7 +321,7 @@ func (t *tidying) settleTogether(edits []*tidyEdit) (bool, error) {
 			// The edit may fail only on top of another's: let the passes
 			// one at a time tell.
 			t.ws.Restore(before)
-			return false, nil
+			return false, nil //nolint:nilerr // the passes run one at a time instead
 		}
 		changed = changed || made.any()
 	}

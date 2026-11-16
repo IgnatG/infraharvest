@@ -137,7 +137,7 @@ func seedGoogle(t *testing.T) googleEstate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	googleSeeded.Lock()
 	defer googleSeeded.Unlock()
 	if googleSeeded.state == nil {

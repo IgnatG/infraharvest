@@ -87,7 +87,7 @@ func seedAWS(t *testing.T) awsEstate {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pluginCache := filepath.Join(cache, "plugins")
+	pluginCache := pluginCacheDir(cache)
 	awsSeeded.Lock()
 	defer awsSeeded.Unlock()
 	if awsSeeded.state == nil {

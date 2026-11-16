@@ -37,9 +37,7 @@ func (g *IgwLister) list() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 
-	pages := ec2.NewDescribeInternetGatewaysPaginator(client, &ec2.DescribeInternetGatewaysInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeInternetGatewaysPaginator(client, &ec2.DescribeInternetGatewaysInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

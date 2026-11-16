@@ -66,7 +66,7 @@ func TestAWSMCPImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixture := seedApplied(ctx, t, "aws-drift-queues", execPath, plugins, tfexec.Var("account="+mcpImportAccount))
 	bucket := stateValue(t, fixture.resources(ctx, t), "aws_s3_bucket", "state", "bucket")
 	useAWSAccount(t, mcpImportAccount, mcpImportProfile)

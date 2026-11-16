@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // The capabilities the importer looks for.
@@ -178,13 +179,23 @@ func TestSignInSharesTheCredential(t *testing.T) {
 	if elsewhere == first {
 		t.Error("another tenant got the same credential")
 	}
+
+	// Another run in the process signs in afresh.
+	run := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	_, credential, _, err := signIn(run, authConfig{subscriptionID: "sub-shared-a", tenantID: "tenant-shared"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credential == first {
+		t.Error("another run got the first run's credential")
+	}
 }
 
 // Every sign-in of a run for a subscription shares its limiter, of the
 // run's rate; other subscriptions have their own.
 func TestSubscriptionLimiterIsShared(t *testing.T) {
 	t.Parallel()
-	run := limitersOf(ratelimit.New(7))
+	run := limitersOf(runstate.New(ratelimit.New(7)))
 	a := run.subscription("sub-limiter-a")
 	if a == nil || run.subscription("sub-limiter-a") != a {
 		t.Error("the same subscription got another limiter")
@@ -204,19 +215,19 @@ func TestSubscriptionLimiterIsShared(t *testing.T) {
 func TestRunsKeepTheirOwnLimits(t *testing.T) {
 	t.Parallel()
 	type run struct {
-		limiter     *ratelimit.Limiter
+		limiter     *runstate.Run
 		graph, subs float64
 		waits       bool
 		client      ratelimit.Doer
 	}
 	runs := []*run{
-		{limiter: ratelimit.New(1), graph: 1, subs: 1, waits: true},
-		{limiter: ratelimit.New(1000), graph: graphRate, subs: 1000},
+		{limiter: runstate.New(ratelimit.New(1)), graph: 1, subs: 1, waits: true},
+		{limiter: runstate.New(ratelimit.New(1000)), graph: graphRate, subs: 1000},
 	}
 	var wg sync.WaitGroup
 	for _, r := range runs {
 		wg.Go(func() {
-			ctx := ratelimit.NewContext(t.Context(), r.limiter)
+			ctx := runstate.NewContext(t.Context(), r.limiter)
 			if _, _, options, err := signIn(ctx, authConfig{subscriptionID: "sub-runs", tenantID: "tenant-runs"}); err != nil || options.Transport == nil {
 				t.Errorf("sign-in: %v", err)
 			}
@@ -240,8 +251,11 @@ func TestRunsKeepTheirOwnLimits(t *testing.T) {
 		for i := range 2 {
 			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://management.azure.com/subscriptions/sub-runs/resourceGroups", http.NoBody)
-			_, err := r.client.Do(req)
+			resp, err := r.client.Do(req)
 			cancel()
+			if resp != nil {
+				_ = resp.Body.Close()
+			}
 			if err != nil {
 				waited = i == 1
 				break
@@ -406,14 +420,14 @@ func (d *recordingDoer) Do(req *http.Request) (*http.Response, error) {
 // throttles them per user; every other request keeps its subscription's.
 func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 	t.Parallel()
-	run := ratelimit.New(ratelimit.DefaultRate)
+	run := runstate.New(ratelimit.New(ratelimit.DefaultRate))
 	a := limitedClient(run, "sub-graph-a", nil).(*limitedDoer)
 	b := limitedClient(run, "sub-graph-b", nil).(*limitedDoer)
 	limiters := limitersOf(run)
 	if graph := limiters.graph; graph == nil || limitersOf(run).graph != graph {
 		t.Fatal("Resource Graph queries got more than one limiter")
 	}
-	if got, want := limiters.graph.Rate(), min(graphRate, run.Rate()); got != want {
+	if got, want := limiters.graph.Rate(), min(graphRate, run.Limiter().Rate()); got != want {
 		t.Errorf("Resource Graph queries are limited to %v a second, want %v", got, want)
 	}
 	if limiters.graph == limiters.subscription("sub-graph-a") || limiters.subscription("sub-graph-a") == limiters.subscription("sub-graph-b") {
@@ -435,9 +449,11 @@ func TestLimitedClientSharesTheGraphLimiter(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := a.Do(req); err != nil {
+		resp, err := a.Do(req)
+		if err != nil {
 			t.Fatal(err)
 		}
+		_ = resp.Body.Close()
 	}
 	if want := []string{"/providers/Microsoft.ResourceGraph/resources", "/providers/microsoft.resourcegraph/resources"}; !slices.Equal(graph.got, want) {
 		t.Errorf("through the Resource Graph limiter: %v, want %v", graph.got, want)

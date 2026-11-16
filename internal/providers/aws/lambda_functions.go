@@ -75,9 +75,7 @@ func (g *LambdaLister) list() error {
 // own, and recorded in the page's order; a function whose calls fail is
 // recorded with what they read before the failure, which goes to parts.
 func (g *LambdaLister) addFunctions(svc *lambda.Client, used map[string]bool, parts *harvest.Parts) error {
-	pages := lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), lambda.NewListFunctionsPaginator(svc, &lambda.ListFunctionsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -156,9 +154,7 @@ func (g *LambdaLister) permissions(svc *lambda.Client, functionARN string) ([]ha
 func (g *LambdaLister) eventInvokeConfigs(svc *lambda.Client, functionARN, functionName string) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
 	input := &lambda.ListFunctionEventInvokeConfigsInput{FunctionName: aws.String(functionName)}
-	pages := lambda.NewListFunctionEventInvokeConfigsPaginator(svc, input, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), lambda.NewListFunctionEventInvokeConfigsPaginator(svc, input, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -187,9 +183,7 @@ func eventInvokeConfigID(functionARN, functionName, configARN string) string {
 // aws_lambda_event_source_mapping, imported and named by its UUID, with its
 // source's ARN and its function's ARN as attributes.
 func (g *LambdaLister) addEventSourceMappings(svc *lambda.Client) error {
-	pages := lambda.NewListEventSourceMappingsPaginator(svc, &lambda.ListEventSourceMappingsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), lambda.NewListEventSourceMappingsPaginator(svc, &lambda.ListEventSourceMappingsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -214,9 +208,7 @@ func (g *LambdaLister) addEventSourceMappings(svc *lambda.Client) error {
 // a layer's code by its latest version, so they are left out, and no layer
 // takes a call of its own.
 func (g *LambdaLister) addLayerVersions(svc *lambda.Client, used map[string]bool) error {
-	layers := lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)
-	for layers.HasMorePages() {
-		page, err := layers.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), lambda.NewListLayersPaginator(svc, &lambda.ListLayersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

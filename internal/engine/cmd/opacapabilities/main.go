@@ -428,7 +428,7 @@ func bump(oldOPA, newOPA, conftest string, newCaps []byte) error {
 		}
 	}
 	var notice bytes.Buffer
-	cmd := exec.Command("bash", noticeScript, schemametaDir)
+	cmd := exec.CommandContext(context.Background(), "bash", noticeScript, schemametaDir)
 	cmd.Stdout, cmd.Stderr = &notice, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", noticeScript, err)

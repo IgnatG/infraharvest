@@ -18,7 +18,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
 // Defaults of the flags every provider command shares.
@@ -243,7 +242,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 	if err := checkImportOptions(options); err != nil {
 		return err
 	}
-	if err := checkSelectionOptions(options); err != nil {
+	if err := checkModes(options); err != nil {
 		return err
 	}
 	// An overlay can add services, such as an AWS cloud_control entry of
@@ -341,17 +340,12 @@ func checkLayout(layout string, envTags []string) error {
 	return nil
 }
 
-// checkSources rejects the files and sources the import reads that can be
-// checked before anything is listed: a --selection file that doesn't load
-// (discover writes it instead), and a --managed-state source that doesn't
-// parse or, for a local path, doesn't exist. The state itself is read
-// once the resources are listed.
+// checkSources rejects the sources the import reads that can be checked
+// before anything is listed: a --managed-state source that doesn't parse
+// or, for a local path, doesn't exist. The state itself is read once the
+// resources are listed. The --selection file is checked as the run loads
+// it, once (see Run.Import).
 func checkSources(options Options) error {
-	if options.Selection != "" && !options.Discover {
-		if _, err := selection.Load(options.Selection); err != nil {
-			return fmt.Errorf("--selection: %w", err)
-		}
-	}
 	// The configured backend's state is resolved with the configuration
 	// file (see excludeManaged).
 	sources := make([]string, 0, len(options.ManagedState))
@@ -366,34 +360,12 @@ func checkSources(options Options) error {
 	return nil
 }
 
-// ExitError is an error that sets the process's exit code (see the Exit
-// codes of package report).
-type ExitError struct {
-	Code int
-	Err  error
-}
+// ExitError is report.ExitError, kept here for the callers that know it
+// from the importer.
+type ExitError = report.ExitError
 
-func (e *ExitError) Error() string {
-	return e.Err.Error()
-}
-
-func (e *ExitError) Unwrap() error {
-	return e.Err
-}
-
-// ExitCode returns the exit code for err: report.ExitOK for nil, the code
-// of an ExitError it wraps, and report.ExitCouldNotRun for any other
-// error.
-func ExitCode(err error) int {
-	if err == nil {
-		return report.ExitOK
-	}
-	var exitErr *ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.Code
-	}
-	return report.ExitCouldNotRun
-}
+// ExitCode is report.ExitCode.
+func ExitCode(err error) int { return report.ExitCode(err) }
 
 // checkFailures returns the error for an import in which failures, of
 // services or resources, happened: nil if none did, else an error that

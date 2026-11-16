@@ -70,18 +70,11 @@ func iamGone(err error) bool {
 	return errors.As(err, &gone)
 }
 
-// iamPages is what every IAM paginator offers, for eachIamPage.
-type iamPages[O any] interface {
-	HasMorePages() bool
-	NextPage(ctx context.Context, optFns ...func(*iam.Options)) (O, error)
-}
-
 // eachIamPage calls visit with every page of pages, in order, and stops
 // at the first error, its own or visit's. A paginator does not move on
 // after an error, so asking it again would request the same page forever.
-func eachIamPage[O any](ctx context.Context, pages iamPages[O], visit func(page O) error) error {
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+func eachIamPage[O any](ctx context.Context, pages pager[O, iam.Options], visit func(page O) error) error {
+	for page, err := range pagesOf(ctx, pages) {
 		if err != nil {
 			return err
 		}

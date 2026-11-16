@@ -19,6 +19,7 @@ import (
 	"google.golang.org/api/googleapi"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // fastRetries returns a context of a run of its own whose retries wait a
@@ -30,9 +31,9 @@ func fastRetries(t *testing.T) context.Context {
 
 // fastRetriesIn is fastRetries, with a context made from ctx.
 func fastRetriesIn(ctx context.Context) context.Context {
-	run := ratelimit.Like(ratelimit.Default())
-	ratelimit.Kept(run, retryDelayKey{}, func() time.Duration { return time.Millisecond })
-	return ratelimit.NewContext(ctx, run)
+	run := runstate.New(ratelimit.Like(ratelimit.Default()))
+	runstate.Kept(run, retryDelayKey{}, func() time.Duration { return time.Millisecond })
+	return runstate.NewContext(ctx, run)
 }
 
 // failingServer answers each request with the next of statuses, then

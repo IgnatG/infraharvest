@@ -5,13 +5,14 @@ package aws
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
-	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report/cfn"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // The capabilities Provider has, checked when it builds: one whose method
@@ -44,6 +45,9 @@ type Provider struct {
 	profile string
 	// roleARN is the role to assume before listing, "" for none.
 	roleARN string
+	// externalID and sessionName are what the role is assumed with, ""
+	// for none (see AssumeRole).
+	externalID, sessionName string
 	// account and resolvedRegion are the account the import covers and,
 	// for ProfileRegion, the region the SDK resolved, once Scope has found
 	// them; the provider block pins both.
@@ -63,18 +67,20 @@ type Provider struct {
 	// Explorer shows have none of their resources (see
 	// UseResourceExplorer).
 	resourceExplorer bool
-	// limiter is the limiter of the run Init was given (see
-	// ratelimit.FromContext), whose configurations the provider's own
-	// calls use, whatever context they are given (see service).
-	limiter *ratelimit.Limiter
+	// run is the run Init was given (see runstate.FromContext), whose
+	// limiter and configurations the provider's own calls use, whatever
+	// context they are given (see service).
+	run *runstate.Run
 }
 
 // Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]), and the run's limiter from ctx. It contacts
-// nothing, so it never fails: the credentials are resolved when the first
-// service lists.
+// a role to assume (args[2]), with the external ID (args[3]) and the
+// session name (args[4]) to assume it with (see AssumeRole.Args), and the
+// run from ctx. It contacts nothing, so it never fails: the credentials
+// are resolved when the first service lists. An external ID or a session
+// name without a role is logged as ignored.
 func (p *Provider) Init(ctx context.Context, args []string) error {
-	p.limiter = ratelimit.FromContext(ctx)
+	p.run = runstate.FromContext(ctx)
 	arg := func(i int) string {
 		if i < len(args) {
 			return args[i]
@@ -84,6 +90,13 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	p.region = arg(0)
 	p.profile = arg(1)
 	p.roleARN = arg(2)
+	p.externalID = arg(3)
+	p.sessionName = arg(4)
+	if p.roleARN == "" && (p.externalID != "" || p.sessionName != "") {
+		// Only a role is assumed with them: say so, rather than read the
+		// account the credentials reach as if they applied.
+		log.Printf("aws: --external-id and --role-session-name apply to an assumed role, and this call assumes none (region %q): they are ignored", p.region)
+	}
 	return nil
 }
 
@@ -202,7 +215,7 @@ func describeScope(flags map[string][]string) string {
 // resolved; the account the import covers, as the only one of
 // allowed_account_ids, so that a later plan with other credentials fails
 // rather than reading another account's resources; and the role to assume,
-// if any. The account and the resolved region are known once Scope has run,
+// if any, with its external ID and session name, if set. The account and the resolved region are known once Scope has run,
 // as it does before the configuration is generated; before that, they are
 // left out, and for ProfileRegion Terraform resolves the same default
 // region as the listing did.
@@ -222,7 +235,14 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 		config["allowed_account_ids"] = []string{p.account}
 	}
 	if p.roleARN != "" {
-		config["assume_role"] = map[string]interface{}{"role_arn": p.roleARN}
+		role := map[string]interface{}{"role_arn": p.roleARN}
+		if p.externalID != "" {
+			role["external_id"] = p.externalID
+		}
+		if p.sessionName != "" {
+			role["session_name"] = p.sessionName
+		}
+		config["assume_role"] = role
 	}
 	return map[string]interface{}{
 		"provider": map[string]interface{}{
@@ -289,7 +309,7 @@ func (p *Provider) Lister(name string) (harvest.Lister, error) {
 // region, the profile and the role, which pick its SDK configuration (see
 // Service.sdkConfig).
 func (p *Provider) settings() serviceSettings {
-	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN}
+	return serviceSettings{region: p.region, profile: p.profile, roleARN: p.roleARN, externalID: p.externalID, sessionName: p.sessionName}
 }
 
 // service returns a Service of the provider's settings, for the provider's
@@ -297,8 +317,8 @@ func (p *Provider) settings() serviceSettings {
 // are asked for with the context of the generation, which carries no
 // limiter, and they must come from the run's configuration all the same.
 func (p *Provider) service(ctx context.Context) *Service {
-	if p.limiter != nil {
-		ctx = ratelimit.NewContext(ctx, p.limiter)
+	if p.run != nil {
+		ctx = runstate.NewContext(ctx, p.run)
 	}
 	service := &Service{}
 	service.SetSettings(p.settings())

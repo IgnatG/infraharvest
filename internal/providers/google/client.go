@@ -17,6 +17,7 @@ import (
 	htransport "google.golang.org/api/transport/http"
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // EndpointEnv names the base URL of a Google Cloud emulator, such as
@@ -27,7 +28,7 @@ const EndpointEnv = "INFRAHARVEST_GOOGLE_ENDPOINT"
 
 // clientOptions are the options of every Google REST API client: a client
 // whose requests to each API go through the limiter of ctx's run (see
-// ratelimit.FromContext) and are sent again when throttled or failed for
+// runstate.FromContext) and are sent again when throttled or failed for
 // the time being (see limitedClient and retryTransport), or, with
 // EndpointEnv set, one that sends each googleapis.com request to the
 // emulator, keeping its path, such as /compute/v1/projects/.... ctx is the
@@ -45,8 +46,8 @@ func clientOptions(ctx context.Context, project string) []option.ClientOption {
 		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: failingTransport{err: err}})}
 	}
 	if target != nil {
-		run := ratelimit.FromContext(ctx)
-		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: run.Transport(emulatorTransport{target: target}), delay: runRetryDelay(run)}})}
+		run := runstate.FromContext(ctx)
+		return []option.ClientOption{option.WithHTTPClient(&http.Client{Transport: retryTransport{base: run.Limiter().Transport(emulatorTransport{target: target}), delay: runRetryDelay(run)}})}
 	}
 	if client := limitedClient(ctx, impersonation(ctx, project)); client != nil {
 		return []option.ClientOption{option.WithHTTPClient(client)}
@@ -54,43 +55,38 @@ func clientOptions(ctx context.Context, project string) []option.ClientOption {
 	return nil
 }
 
-// limitedClientKey is the key of a run's limitedClient kept with its
-// limiter: each service account impersonated has a client of its own.
+// limitedClientKey is the key of a run's limitedClient kept with the
+// run: each service account impersonated has a client of its own.
 type limitedClientKey struct{ impersonate string }
 
 // limitedClient is a client, with the credentials of credentialsClient,
 // that sends each API's requests through the limiter of ctx's run, and
 // sends again those Google throttles or fails for the time being (see
 // retryTransport). Every project of the run shares it, kept with the
-// run's limiter: Google charges most quotas to the credentials' quota
+// run: Google charges most quotas to the credentials' quota
 // project, not to the project a request reads, so a limit per project
 // would only multiply the rate against the same quota. It is nil if there
 // are no credentials; each API client then looks for them itself and
 // fails the same way.
 func limitedClient(ctx context.Context, impersonate string) *http.Client {
-	return limitedByKey(ratelimit.FromContext(ctx), impersonate, credentialsClient(ctx, impersonate))
+	return limitedByKey(runstate.FromContext(ctx), impersonate, credentialsClient(ctx, impersonate))
 }
 
-// limitedBy returns base limited by run, made the first time the run asks
-// (see limitedClient), or nil for no base.
-func limitedBy(run *ratelimit.Limiter, base *http.Client) *http.Client {
-	return limitedByKey(run, "", base)
-}
-
-// limitedByKey is limitedBy for the credentials of the service account
-// impersonate, "" for none.
-func limitedByKey(run *ratelimit.Limiter, impersonate string, base *http.Client) *http.Client {
+// limitedByKey returns base limited by run, made the first time the run
+// asks (see limitedClient), for the credentials of the service account
+// impersonate, "" for none; nil for no base.
+func limitedByKey(run *runstate.Run, impersonate string, base *http.Client) *http.Client {
 	if base == nil {
 		return nil
 	}
 	// Kept doesn't let a value it makes ask the run for another.
 	delay := runRetryDelay(run)
-	return ratelimit.Kept(run, limitedClientKey{impersonate}, func() *http.Client {
+	return runstate.Kept(run, limitedClientKey{impersonate}, func() *http.Client {
 		client := *base
-		cloudAsset := ratelimit.New(min(cloudAssetRate, run.Rate()))
+		cloudAsset := ratelimit.New(min(cloudAssetRate, run.Limiter().Rate()))
 		client.Transport = retryTransport{base: byHost{
 			cloudAsset: cloudAsset.Transport(base.Transport),
-			other:      run.Transport(base.Transport),
+			other:      run.Limiter().Transport(base.Transport),
 		}, delay: delay}
 		return &client
 	})
@@ -127,29 +123,37 @@ type credentialed struct {
 	client *http.Client
 }
 
-// credentials holds the clients of the credentials the process found, by
-// the service account they impersonate ("" for none).
-var credentials sync.Map
+// credentialsKey is the key of a run's credentials kept with the run.
+type credentialsKey struct{}
+
+// credentialsOf returns the clients of the credentials ctx's run found, by
+// the service account they impersonate ("" for none). They are kept with
+// the run (see runstate.Kept), so that another run in the process looks
+// for them again: credentials that couldn't be found or used, such as
+// before `gcloud auth application-default login`, aren't kept failing for
+// the life of the process.
+func credentialsOf(ctx context.Context) *sync.Map {
+	return runstate.Kept(runstate.FromContext(ctx), credentialsKey{}, func() *sync.Map { return &sync.Map{} })
+}
 
 // credentialsClient is a client, with the credentials the Terraform
 // provider would use (see credentialOptions) for every Google Cloud API,
 // that limits nothing: each run limits it with its own limiter (see
 // limitedClient). It is nil if there are no credentials. The first call
-// finds the credentials with ctx. impersonate is the service account to
-// impersonate with them, "" for GOOGLE_IMPERSONATE_SERVICE_ACCOUNT's
-// or none.
+// of ctx's run finds the credentials with ctx. impersonate is the service
+// account to impersonate with them, "" for
+// GOOGLE_IMPERSONATE_SERVICE_ACCOUNT's or none.
 func credentialsClient(ctx context.Context, impersonate string) *http.Client {
-	kept, _ := credentials.LoadOrStore(impersonate, &credentialed{})
+	kept, _ := credentialsOf(ctx).LoadOrStore(impersonate, &credentialed{})
 	found := kept.(*credentialed)
 	found.once.Do(func() {
-		// Once for the process: it only finds the credentials, and each
+		// Once for the run: it only finds the credentials, and each
 		// request takes its listing's context. The client outlives ctx,
 		// whose listing may end first, and its token source keeps the
 		// context it was made with to refresh tokens: so it keeps ctx's
-		// values but not its cancellation or deadline, nor its run's
-		// limiter, which it would keep for the process, with all the run
-		// keeps with it.
-		ctx := ratelimit.NewContext(context.WithoutCancel(ctx), ratelimit.Default())
+		// values but not its cancellation or deadline, nor its run, whose
+		// limiter it would otherwise wait on to refresh a token.
+		ctx := runstate.NewContext(context.WithoutCancel(ctx), runstate.Default())
 		opts, err := credentialOptions(ctx, impersonate)
 		if err != nil {
 			log.Printf("google: the credentials the environment names can't be used: %v", err)

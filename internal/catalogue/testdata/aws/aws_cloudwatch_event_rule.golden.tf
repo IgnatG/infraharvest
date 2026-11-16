@@ -5,6 +5,8 @@ import {
   id = "default/nightly"
 }
 
+# StepFunctionsGetEventsForStepFunctionsExecutionRule: left out by default, would import as "StepFunctionsGetEventsForStepFunctionsExecutionRule": a rule another AWS service manages, which only that service can change
+
 # Left out of generated configuration: region, tags_all, *.tags_all, is_enabled
 
 # Left out where the plan stays the same, as the default: event_bus_name=default, state=ENABLED

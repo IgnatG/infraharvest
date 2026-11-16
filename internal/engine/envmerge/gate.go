@@ -109,19 +109,9 @@ type MergedEnvironment struct {
 	Unplanned bool
 }
 
-// Passed reports whether every environment's gate passed.
-func (r *MergeResult) Passed() bool {
-	for _, e := range r.Environments {
-		if !e.Gate.Passed() {
-			return false
-		}
-	}
-	return r.Reason == ""
-}
-
 // MergeRoots merges roots, the finished roots of one stack, each of
 // another environment, into one root in dir that every environment plans
-// and applies with its own var files (see mergedRootFiles), and checks it
+// and applies with its own var files (see buildMergedRoot), and checks it
 // with the verification gate once per environment, with that
 // environment's credentials and var files: every environment's plan must
 // import what its root imported and change nothing else, as its root's
@@ -226,7 +216,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 	// The provider release the merged root pins (see newestProvider).
 	newest, err := newestProvider(envRoots)
 	if err != nil {
-		return &MergeResult{Reason: err.Error()}, nil
+		return &MergeResult{Reason: err.Error()}, nil //nolint:nilerr // a reason the stack does not merge, not a failure of the run
 	}
 	g.newest = newest
 	schemas, err := g.schemas(ctx, envRoots)
@@ -239,7 +229,7 @@ func (g *mergeGate) merge(ctx context.Context, envRoots []envRoot) (*MergeResult
 		m := mergeStackWith(g.roots[0].Provider.Name, g.opts.Profile, envRoots, schemas, controls)
 		files, w, err := buildMergedRoot(m)
 		if err != nil {
-			return &MergeResult{Reason: err.Error()}, nil
+			return &MergeResult{Reason: err.Error()}, nil //nolint:nilerr // a reason the stack does not merge, not a failure of the run
 		}
 		// The gate plans without the backend, which its init leaves out, as
 		// a root's backend.tf is written only once its gate passes.

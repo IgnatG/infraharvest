@@ -67,9 +67,7 @@ func (g *TransitGatewayLister) list() error {
 // aws_ec2_transit_gateway.
 func listTransitGateways(ctx context.Context, client *ec2.Client) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
-	pages := ec2.NewDescribeTransitGatewaysPaginator(client, &ec2.DescribeTransitGatewaysInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeTransitGatewaysPaginator(client, &ec2.DescribeTransitGatewaysInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -90,9 +88,7 @@ func listTransitGateways(ctx context.Context, client *ec2.Client) ([]harvest.Res
 // A table that does not say whether it is a default one is listed.
 func listTransitGatewayRouteTables(ctx context.Context, client *ec2.Client) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
-	pages := ec2.NewDescribeTransitGatewayRouteTablesPaginator(client, &ec2.DescribeTransitGatewayRouteTablesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeTransitGatewayRouteTablesPaginator(client, &ec2.DescribeTransitGatewayRouteTablesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}
@@ -115,9 +111,7 @@ func listTransitGatewayRouteTables(ctx context.Context, client *ec2.Client) ([]h
 // attachment as aws_ec2_transit_gateway_vpc_attachment.
 func listTransitGatewayVpcAttachments(ctx context.Context, client *ec2.Client) ([]harvest.Resource, error) {
 	var resources []harvest.Resource
-	pages := ec2.NewDescribeTransitGatewayVpcAttachmentsPaginator(client, &ec2.DescribeTransitGatewayVpcAttachmentsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(ctx)
+	for page, err := range pagesOf(ctx, ec2.NewDescribeTransitGatewayVpcAttachmentsPaginator(client, &ec2.DescribeTransitGatewayVpcAttachmentsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}

@@ -74,9 +74,7 @@ func (g *AlbLister) record(reads []albRead) {
 // name, each followed by its listeners. The load balancers of a page are
 // read resourceParallel at a time, and recorded in the page's order.
 func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) error {
-	p := elasticloadbalancingv2.NewDescribeLoadBalancersPaginator(client, &elasticloadbalancingv2.DescribeLoadBalancersInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeLoadBalancersPaginator(client, &elasticloadbalancingv2.DescribeLoadBalancersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -104,9 +102,7 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 // without the listeners not yet read.
 func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string, out *albRead) {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
-	p := elasticloadbalancingv2.NewDescribeListenersPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeListenersPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			out.parts.Add(awsCodes, "listeners of "+lbARN, err)
 			return
@@ -186,9 +182,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 		defaultARN = aws.ToString(listener.Certificates[0].CertificateArn)
 	}
 	input := &elasticloadbalancingv2.DescribeListenerCertificatesInput{ListenerArn: listener.ListenerArn}
-	p := elasticloadbalancingv2.NewDescribeListenerCertificatesPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeListenerCertificatesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			out.parts.Add(awsCodes, "certificates of listener "+listenerARN, err)
 			return
@@ -212,9 +206,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 // page are read resourceParallel at a time, and recorded in the page's
 // order.
 func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) error {
-	p := elasticloadbalancingv2.NewDescribeTargetGroupsPaginator(client, &elasticloadbalancingv2.DescribeTargetGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeTargetGroupsPaginator(client, &elasticloadbalancingv2.DescribeTargetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

@@ -64,7 +64,7 @@ func (f *fakeRunner) check(_ context.Context, args []string) error {
 
 // compiled are the providers compiled into the tests, as internal/cli passes
 // them to the server.
-var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Check: providers.Check}
+var compiled = Providers{Profiles: providers.Profiles(), Sources: providers.Sources(), Settings: providers.Settings(), Check: providers.Check}
 
 // builtIn reports whether the tests are built with each of names: a
 // build with -tags minimal has only some providers, and its tests leave
@@ -93,7 +93,7 @@ func newTools(runner *fakeRunner, root string) *tools {
 	return &tools{run: runner.run, check: runner.check, providers: compiled, root: root}
 }
 
-func (f *fakeRunner) run(_ context.Context, args []string) ([]byte, []byte, int, error) {
+func (f *fakeRunner) run(_ context.Context, args []string, _ func(string)) ([]byte, []byte, int, error) {
 	f.readConfig(args)
 	args = slices.DeleteFunc(slices.Clone(args), func(a string) bool {
 		digest, ok := strings.CutPrefix(a, "--roots-digest=")

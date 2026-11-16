@@ -41,9 +41,7 @@ func (g *NatGatewayLister) list() error {
 	}
 	client := ec2.NewFromConfig(cfg)
 
-	pages := ec2.NewDescribeNatGatewaysPaginator(client, &ec2.DescribeNatGatewaysInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ec2.NewDescribeNatGatewaysPaginator(client, &ec2.DescribeNatGatewaysInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

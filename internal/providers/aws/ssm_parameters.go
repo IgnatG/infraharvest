@@ -31,9 +31,7 @@ func (g *SsmLister) list() error {
 	if err != nil {
 		return err
 	}
-	pages := ssm.NewDescribeParametersPaginator(ssm.NewFromConfig(config), &ssm.DescribeParametersInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ssm.NewDescribeParametersPaginator(ssm.NewFromConfig(config), &ssm.DescribeParametersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

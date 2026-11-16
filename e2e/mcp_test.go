@@ -63,7 +63,7 @@ func TestAWSMCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plugins := filepath.Join(cache, "plugins")
+	plugins := pluginCacheDir(cache)
 	fixtureVars := func(env string, more ...tfexec.ApplyOption) []tfexec.ApplyOption {
 		return append([]tfexec.ApplyOption{tfexec.Var("account=" + mcpAccounts[env]), tfexec.Var("env=" + env)}, more...)
 	}

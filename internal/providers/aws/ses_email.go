@@ -59,9 +59,7 @@ func (g *SesLister) list() error {
 // listIdentities records every identity of identityType, a domain or an
 // email address, by itself, as a resource of resourceType.
 func (g *SesLister) listIdentities(client *ses.Client, identityType types.IdentityType, resourceType string) error {
-	p := ses.NewListIdentitiesPaginator(client, &ses.ListIdentitiesInput{IdentityType: identityType}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), ses.NewListIdentitiesPaginator(client, &ses.ListIdentitiesInput{IdentityType: identityType}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

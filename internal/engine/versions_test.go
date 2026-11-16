@@ -15,6 +15,8 @@ import (
 	"github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 func TestLatestProviderVersion(t *testing.T) {
@@ -123,6 +125,29 @@ func TestLatestProviderVersionRetries(t *testing.T) {
 	calls.Store(10)
 	if _, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/down"); err == nil || calls.Load() != 10+registryAttempts {
 		t.Errorf("503: %v after %d calls, want %d", err, calls.Load()-10, registryAttempts)
+	}
+}
+
+// A run asks the registry once for a URL; another run in the process asks
+// again, and so gets the releases published since.
+func TestRegistryAnswersAreTheRunsOwn(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"versions":[{"version":"6.1.0"}]}`))
+	}))
+	defer registry.Close()
+
+	first := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	second := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(0)))
+	for _, ctx := range []context.Context{first, first, second} {
+		if _, err := LatestProviderVersion(ctx, registry.Client(), registry.URL, "hashicorp/runs"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Errorf("two runs asked the registry %d times, want once each", calls.Load())
 	}
 }
 

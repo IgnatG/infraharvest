@@ -29,9 +29,7 @@ func (g *KinesisLister) list() error {
 	if err != nil {
 		return err
 	}
-	pages := kinesis.NewListStreamsPaginator(kinesis.NewFromConfig(config), &kinesis.ListStreamsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), kinesis.NewListStreamsPaginator(kinesis.NewFromConfig(config), &kinesis.ListStreamsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

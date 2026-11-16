@@ -65,9 +65,7 @@ func (g *SecurityhubLister) list() error {
 // listMembers records the member accounts by account ID, with their email
 // address when Security Hub has one.
 func (g *SecurityhubLister) listMembers(client *securityhub.Client) error {
-	pages := securityhub.NewListMembersPaginator(client, &securityhub.ListMembersInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), securityhub.NewListMembersPaginator(client, &securityhub.ListMembersInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -89,9 +87,7 @@ func (g *SecurityhubLister) listMembers(client *securityhub.Client) error {
 // named after the standard and its version (see standardName).
 func (g *SecurityhubLister) enabledStandards(client *securityhub.Client) ([]harvest.Resource, error) {
 	var subscriptions []harvest.Resource
-	pages := securityhub.NewGetEnabledStandardsPaginator(client, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), securityhub.NewGetEnabledStandardsPaginator(client, &securityhub.GetEnabledStandardsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return nil, err
 		}

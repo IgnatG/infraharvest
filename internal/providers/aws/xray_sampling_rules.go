@@ -32,9 +32,7 @@ func (g *XrayLister) list() error {
 	if err != nil {
 		return err
 	}
-	pages := xray.NewGetSamplingRulesPaginator(xray.NewFromConfig(config), &xray.GetSamplingRulesInput{}, stopOnDuplicateToken)
-	for pages.HasMorePages() {
-		page, err := pages.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), xray.NewGetSamplingRulesPaginator(xray.NewFromConfig(config), &xray.GetSamplingRulesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

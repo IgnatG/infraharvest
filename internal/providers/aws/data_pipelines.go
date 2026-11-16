@@ -33,9 +33,7 @@ func (g *DataPipelineLister) list() error {
 		return err
 	}
 	svc := datapipeline.NewFromConfig(config)
-	p := datapipeline.NewListPipelinesPaginator(svc, &datapipeline.ListPipelinesInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), datapipeline.NewListPipelinesPaginator(svc, &datapipeline.ListPipelinesInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

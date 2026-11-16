@@ -13,6 +13,7 @@ package providers
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -100,6 +101,18 @@ func Sources() map[string][]string {
 		sources[name] = append([]string{own}, slices.Compact(modules)...)
 	}
 	return sources
+}
+
+// compiledSettings are the settings of the providers compiled in, by
+// source address (see definition.settings).
+var compiledSettings = map[string]harvest.BlockSettings{}
+
+// Settings returns what infraharvest writes the provider blocks of the
+// roots of the providers compiled in with, by source address, such as
+// hashicorp/aws: the MCP server's drift tools allow nothing else in a
+// provider block (see mcpserver.Providers).
+func Settings() map[string]harvest.BlockSettings {
+	return maps.Clone(compiledSettings)
 }
 
 // Check rejects name unless it names a provider compiled in. The services

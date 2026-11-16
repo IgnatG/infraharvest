@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/runstate"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
 
@@ -181,7 +182,10 @@ func TestWithLimiterIsTheCallsLimiter(t *testing.T) {
 	if limiter == ratelimit.Default() || limiter.Rate() != 5 {
 		t.Fatalf("got a limiter of %v a second, Default's: %t", limiter.Rate(), limiter == ratelimit.Default())
 	}
-	if r.shared.rateLimiter(5) != limiter || r.child().shared.rateLimiter(5) != limiter {
-		t.Error("the Import calls get another limiter")
+	if r.shared.runState(5).Limiter() != limiter || r.child().shared.runState(5) != r.shared.runState(5) {
+		t.Error("the Import calls get another limiter or run state")
+	}
+	if runstate.FromContext(r.withLimiter(t.Context(), 5)) != r.shared.runState(5) {
+		t.Error("the calls before the Import calls get another run state")
 	}
 }

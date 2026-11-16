@@ -259,7 +259,11 @@ func lockPluginCache(ctx context.Context, dir string) (*filelock.Lock, error) {
 }
 
 // Init runs terraform init in tf's working directory, one at a
-// time (see initSlot).
+// time (see initSlot). An init that fails reaching a registry or a
+// download, such as on a timeout, runs once more after initRetryDelay: an
+// init downloads every provider and module of a root, and one slow answer
+// would otherwise fail the root. One that fails for anything else, such
+// as the configuration, doesn't.
 func Init(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
 	select {
 	case initSlot <- struct{}{}:
@@ -267,7 +271,54 @@ func Init(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
 		return ctx.Err()
 	}
 	defer func() { <-initSlot }()
+	err := tf.Init(ctx, opts...)
+	var timedOut *timeoutError
+	if err == nil || ctx.Err() != nil || errors.As(err, &timedOut) || !networkInitError(err) {
+		return err
+	}
+	log.Printf("terraform init failed reaching the network, trying once more in %s: %v", initRetryDelay, err)
+	select {
+	case <-time.After(initRetryDelay):
+	case <-ctx.Done():
+		return err
+	}
 	return tf.Init(ctx, opts...)
+}
+
+// initRetryDelay is how long Init waits before it runs an init that
+// failed reaching the network again.
+var initRetryDelay = 5 * time.Second
+
+// networkFailures are what Terraform and OpenTofu, and Go's HTTP client in
+// their errors, say when an init fails reaching a registry or a download
+// rather than for the configuration.
+var networkFailures = []string{
+	"could not connect to",
+	"failed to request discovery document",
+	"Client.Timeout exceeded",
+	"TLS handshake timeout",
+	"i/o timeout",
+	"connection reset by peer",
+	"connection refused",
+	"no such host",
+	"unexpected EOF",
+	"context deadline exceeded",
+	"502 Bad Gateway",
+	"503 Service Unavailable",
+	"504 Gateway Timeout",
+	"429 Too Many Requests",
+}
+
+// networkInitError reports whether err, of an init, says it failed
+// reaching the network.
+func networkInitError(err error) bool {
+	msg := err.Error()
+	for _, s := range networkFailures {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // timeoutError is the error of a Terraform command that ran longer than

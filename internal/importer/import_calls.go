@@ -94,6 +94,14 @@ func (r *Run) Import(ctx context.Context, cmd Command) error {
 	if err := checkOptions(cmd.Provider, options); err != nil {
 		return err
 	}
+	// A --selection file that doesn't load is rejected before anything is
+	// listed (discover writes it instead). The run keeps what it loaded,
+	// so the file is read once.
+	if options.Selection != "" && !options.Discover {
+		if _, err := r.selectionFile(options); err != nil {
+			return fmt.Errorf("--selection: %w", err)
+		}
+	}
 	if cmd.Check != nil {
 		if err := cmd.Check(options); err != nil {
 			return err

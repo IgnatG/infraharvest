@@ -41,7 +41,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.I
 		return err
 	}
 	for _, dir := range dirs {
-		dirOpts := others.of(dir)
+		dirOpts, otherDigest := others.of(dir)
 		// A root its stack's merge is to take, with its other
 		// environments', takes no stack template: each environment's stack
 		// has its own parameter values, which the merged root's
@@ -51,7 +51,7 @@ func (c *listedCall) generate(ctx context.Context, roots map[string][]rootfile.I
 		if !merged {
 			dirOpts.Refine, dirOpts.RefineKey = refine, refineKey
 		}
-		fp, err := fingerprint(c.toolchain.root.engineVersion, c.byDir[dir], dirOpts, policies)
+		fp, err := fingerprint(c.toolchain.root.engineVersion, c.byDir[dir], dirOpts, otherDigest, policies)
 		if err != nil {
 			return err
 		}

@@ -31,6 +31,8 @@ on:
   issue_comment:
     types: [created]
   pull_request_target:
+    # Not the action test's own pull requests (action-test.yml).
+    branches-ignore: ['action-test/**']
     types: [opened, reopened, synchronize]
 
 permissions: {}

@@ -31,9 +31,7 @@ func (g *DeviceFarmLister) list() error {
 		return err
 	}
 	client := devicefarm.NewFromConfig(config)
-	p := devicefarm.NewListProjectsPaginator(client, &devicefarm.ListProjectsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), devicefarm.NewListProjectsPaginator(client, &devicefarm.ListProjectsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

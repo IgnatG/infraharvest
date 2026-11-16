@@ -57,8 +57,7 @@ func (g *DocDBLister) listClusters(ctx context.Context, client *docdb.Client) ([
 	p := docdb.NewDescribeDBClustersPaginator(client, &docdb.DescribeDBClustersInput{
 		Filters: []types.Filter{{Name: aws.String("engine"), Values: []string{docdbEngine}}},
 	}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, p) {
 		if err != nil {
 			return nil, err
 		}
@@ -84,12 +83,10 @@ func (g *DocDBLister) listClusters(ctx context.Context, client *docdb.Client) ([
 // an aws_docdb_subnet_group, by name. A subnet group has no engine, so the
 // ones no DocumentDB cluster uses can't be told from those of RDS and
 // Neptune, which the rds service lists. The one named "default", which
-// AWS makes for the default VPC, is left out.
+// AWS makes for the default VPC, is recorded too: the catalogue skips it,
+// with its reason.
 func (g *DocDBLister) addSubnetGroups(names []string) {
 	for _, name := range names {
-		if name == "default" {
-			continue
-		}
 		g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_docdb_subnet_group", "aws"))
 	}
 }
@@ -97,17 +94,15 @@ func (g *DocDBLister) addSubnetGroups(names []string) {
 // listClusterParameterGroups adds each DocumentDB cluster parameter group,
 // one of a docdb family, as an aws_docdb_cluster_parameter_group, by name.
 // The default ones, which AWS provides and which can't be changed, are
-// named "default.<family>" and are left out.
+// named "default.<family>": the catalogue skips them, with their reason.
 func (g *DocDBLister) listClusterParameterGroups(ctx context.Context, client *docdb.Client) error {
-	p := docdb.NewDescribeDBClusterParameterGroupsPaginator(client, &docdb.DescribeDBClusterParameterGroupsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	for page, err := range pagesOf(ctx, docdb.NewDescribeDBClusterParameterGroupsPaginator(client, &docdb.DescribeDBClusterParameterGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
 		for _, group := range page.DBClusterParameterGroups {
 			name := aws.ToString(group.DBClusterParameterGroupName)
-			if !strings.HasPrefix(aws.ToString(group.DBParameterGroupFamily), docdbEngine) || strings.HasPrefix(name, "default.") {
+			if !strings.HasPrefix(aws.ToString(group.DBParameterGroupFamily), docdbEngine) {
 				continue
 			}
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_docdb_cluster_parameter_group", "aws"))

@@ -48,9 +48,7 @@ func (g *EfsLister) list() error {
 // listFileSystems records every file system, each followed by its mount
 // targets and its policy.
 func (g *EfsLister) listFileSystems(client *efs.Client) error {
-	p := efs.NewDescribeFileSystemsPaginator(client, &efs.DescribeFileSystemsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), efs.NewDescribeFileSystemsPaginator(client, &efs.DescribeFileSystemsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}
@@ -76,9 +74,7 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 // would most likely fail the same way.
 func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bool {
 	input := &efs.DescribeMountTargetsInput{FileSystemId: aws.String(fileSystemID)}
-	p := efs.NewDescribeMountTargetsPaginator(client, input, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), efs.NewDescribeMountTargetsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			g.parts.Add(awsCodes, "mount targets of "+fileSystemID, err)
 			return false
@@ -111,9 +107,7 @@ func (g *EfsLister) addFileSystemPolicy(client *efs.Client, fileSystemID string)
 
 // listAccessPoints records every access point of every file system.
 func (g *EfsLister) listAccessPoints(client *efs.Client) error {
-	p := efs.NewDescribeAccessPointsPaginator(client, &efs.DescribeAccessPointsInput{}, stopOnDuplicateToken)
-	for p.HasMorePages() {
-		page, err := p.NextPage(g.Context())
+	for page, err := range pagesOf(g.Context(), efs.NewDescribeAccessPointsPaginator(client, &efs.DescribeAccessPointsInput{}, stopOnDuplicateToken)) {
 		if err != nil {
 			return err
 		}

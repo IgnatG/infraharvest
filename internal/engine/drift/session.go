@@ -215,7 +215,7 @@ func (s *driftSession) contents() (map[string][]byte, error) {
 // envOnlyFlags).
 func (s *driftSession) editor(refresh, code *tfjson.Plan, root map[string][]byte) (*driftEditor, error) {
 	e := newDriftEditor(refresh, code, s.opts.Rules)
-	e.modules = loadDriftModules(s.dir, s.opts.DataDir)
+	e.modules, e.unreadModules = loadDriftModules(s.dir, s.opts.DataDir)
 	e.adapters = s.opts.Adapters
 	if err := addModuleFiles(root, s.dir, s.opts.OutDir, e.modules); err != nil {
 		return nil, err
@@ -239,5 +239,5 @@ func (s *driftSession) accept(ctx context.Context, root map[string][]byte, accep
 	if len(accepted) == 0 {
 		return nil
 	}
-	return acceptDrift(ctx, s.tf, s.dir, s.staging, root, accepted, code, s.vars, e, s.opts)
+	return acceptDrift(ctx, acceptInput{stf: s.tf, dir: s.dir, staging: s.staging, root: root, accepted: accepted, code: code, vars: s.vars, editor: e, opts: s.opts})
 }

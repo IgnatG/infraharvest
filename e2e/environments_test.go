@@ -147,7 +147,7 @@ func checkWorkspacePlan(ctx context.Context, t *testing.T, dir, execPath, plugin
 			continue
 		}
 		if !rc.Change.Actions.NoOp() {
-			changed := changedAttributes(rc.Change.Before, rc.Change.After)
+			changed := changedAttributes(rc.Change)
 			if rc.Change.Importing == nil || !rc.Change.Actions.Update() || !stateOnly(rc.Type, changed) {
 				t.Errorf("%s, as %s: %s is planned to %v: %v", dir, env, rc.Address, rc.Change.Actions, changed)
 				continue

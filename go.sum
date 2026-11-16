@@ -214,8 +214,6 @@ github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.6 h1:u46EmlpxQwbgbSkPiaMm3
 github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.6/go.mod h1:A9r/1wCJld8KCzYMZ3mJzEEXYExragwypR3fCzsGNhY=
 github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.1 h1:vECZERPnUbUpoH3xwAUwbYWzBIf10PobAG7UdYuygUw=
 github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.1/go.mod h1:KBlt8j7XCg0ZyfOfZQe9ijU4pZ0qmu00m96y07B89Qo=
-github.com/aws/aws-sdk-go-v2/service/cloudwatchevents v1.41.6 h1:qW+EHJvYwUhvqyAtOsBZNcHfDby9CNIGFwUK4YJqXdg=
-github.com/aws/aws-sdk-go-v2/service/cloudwatchevents v1.41.6/go.mod h1:5nNqY1KgaYSLYDeAEg0Z/O2i3nrtPnXy+JdwEUBweKQ=
 github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.2 h1:QffI1EfSpYRbRKRBjDrrZSmcjayVNAPctyY1tJjQj7Y=
 github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.2/go.mod h1:JNB9rtNgPAVmqs24X1w0l7kblyJVQupAf3HNOScOKyA=
 github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.6 h1:bUKqqA62yv9L6u5TWSTzpbE1GeVYqIpiybayOj/+1uE=
@@ -256,10 +254,10 @@ github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.43.5 h1:6tRfguPGqnCCOlq
 github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.43.5/go.mod h1:vNGjnKpy/yKM+jM4lhOQPGE5ulGfWF31NSwixH5Eu8c=
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.5 h1:3sAt3lnJWHsw/rPhBm5j6dQ/1GvJBMoHI/AKgwTWeuk=
 github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.5/go.mod h1:qRxENos9km3qyj6yyiP4sIUUk7rK+kMabeA4uGvi314=
-github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.51.6 h1:ijZVkxv9Gkss9TYh+3LVeCcAvT9/Dj9k0XbLUCUejmU=
-github.com/aws/aws-sdk-go-v2/service/elasticsearchservice v1.51.6/go.mod h1:tgZpc1xM2w9rHswZ3R2ju+6yzyncdrV+s2hGm7lBk7I=
 github.com/aws/aws-sdk-go-v2/service/emr v1.70.6 h1:Ag10Os7uNsyzW78txgsV5mZfyvoB4YLMJWVFIhViwFU=
 github.com/aws/aws-sdk-go-v2/service/emr v1.70.6/go.mod h1:mOisEeiJDLEja5LtfIS6Jqhc8Ebvjm/kflwl8j+ptIg=
+github.com/aws/aws-sdk-go-v2/service/eventbridge v1.55.5 h1:fPjZfSNHPyGpCvb7O5AdutYMXrzzP5X496PRzhCXzp0=
+github.com/aws/aws-sdk-go-v2/service/eventbridge v1.55.5/go.mod h1:Wegdzx+3ajWtfQrAlrhi+Cs/PuAHAb0xC8V7gs9MceU=
 github.com/aws/aws-sdk-go-v2/service/firehose v1.52.6 h1:qzgCLkXjA2Wajd4R7FP+N9tCWXkERA7oUSuAI4DDNW4=
 github.com/aws/aws-sdk-go-v2/service/firehose v1.52.6/go.mod h1:HGPH3SG362zcQHdg24LX3nbW9ULc/vhPIK+PEoAWkJM=
 github.com/aws/aws-sdk-go-v2/service/glue v1.172.0 h1:Cp4eEBHl5u3o91cSzQt7XD0ZvXQCYNK9ZNN4B8E6lT4=
@@ -288,6 +286,8 @@ github.com/aws/aws-sdk-go-v2/service/medialive v1.112.3 h1:0nMO7qRzwcQKDIoqcluat
 github.com/aws/aws-sdk-go-v2/service/medialive v1.112.3/go.mod h1:zBLQvE7GRglXG/Qv7LZxg309E1XPTn9dpYvAAlqbidY=
 github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.6 h1:DlvJSfg5An3c5GPyZnbgC2pb1Udxf2eMIDE8yB1WGjw=
 github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.6/go.mod h1:8r+glHDZ9BvUJYn6sae8do9Gh6U1P6VVP2/xDnHLXZY=
+github.com/aws/aws-sdk-go-v2/service/opensearch v1.86.1 h1:4LCvvK7Q24njciGg6HqM3ZhvIVg1G+nWHGO4DM3MPyk=
+github.com/aws/aws-sdk-go-v2/service/opensearch v1.86.1/go.mod h1:JI43wzbN4bXJUdLLVVPdhbFZGu4W3VeZvckEML5YDuA=
 github.com/aws/aws-sdk-go-v2/service/organizations v1.62.2 h1:X5tj7X0DVjs3BuFLeRXilnjMYur9KANyhsFnLFeZkD8=
 github.com/aws/aws-sdk-go-v2/service/organizations v1.62.2/go.mod h1:NeeqgmO9OuZqxYS2QhN1gP5xsuWnbQRx1nmKeHyxELA=
 github.com/aws/aws-sdk-go-v2/service/rds v1.131.1 h1:CAVL+rJiNapbZawRFDJFMHsk3Uya5Mag/GMYJVFvNho=
