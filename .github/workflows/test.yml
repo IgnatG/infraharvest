@@ -4,17 +4,17 @@
 name: Tests
 
 # Every pull request, whatever its base: a pull request stacked on another
-# one gets the same signal as one against main. A merge to main runs them
-# again only when it changes go.mod, go.sum or this workflow: the caches
-# pull requests restore are keyed on go.sum and laid out here, and only
-# main's runs save them.
+# one gets the same signal as one against main. A merge to main runs the
+# unit and race jobs every time, so that what the merge itself produced is
+# tested; the other jobs run again only when it changes go.mod, go.sum or
+# this workflow: the caches pull requests restore are keyed on go.sum and
+# laid out here, and only main's runs save them.
 on:
   pull_request:
     # Not the action test's own pull requests (action-test.yml).
     branches-ignore: ['action-test/**']
   push:
     branches: [main]
-    paths: [go.mod, go.sum, .github/workflows/test.yml]
   workflow_dispatch:
   # Nightly, the e2e jobs alone, with OpenTofu (see the changes job).
   schedule:
@@ -41,8 +41,9 @@ concurrency:
 # and build jobs, and runs the permissions job only for the templates. The
 # required checks still report: test, e2e and checks gather the jobs below
 # them and pass when each passed or was skipped, and a skipped job such as
-# test-windows counts as passed. A push to main and workflow_dispatch run
-# everything. The e2e jobs run with Terraform alone, but for
+# test-windows counts as passed. workflow_dispatch runs everything; a push to
+# main runs go test and race, and the rest when it changes go.mod, go.sum or
+# this workflow. The e2e jobs run with Terraform alone, but for
 # workflow_dispatch, which runs them with OpenTofu too: a run with each
 # engine would double the jobs every push queues for runners. So the
 # nightly run on main runs the e2e jobs alone, every shard, with OpenTofu
@@ -53,13 +54,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      code: ${{ github.event_name != 'schedule' && steps.diff.outputs.code || 'false' }}
-      permissions: ${{ github.event_name != 'schedule' && steps.diff.outputs.permissions || 'false' }}
+      code: ${{ github.event_name == 'push' && steps.push.outputs.deps || github.event_name != 'schedule' && steps.diff.outputs.code || 'false' }}
+      permissions: ${{ github.event_name == 'push' && steps.push.outputs.deps || github.event_name != 'schedule' && steps.diff.outputs.permissions || 'false' }}
       # Each cloud's e2e jobs: when the code their build reads changes
       # (see changes.sh), and every night.
-      e2e-aws: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.aws }}
-      e2e-google: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.google }}
-      e2e-azure: ${{ github.event_name == 'schedule' && 'true' || steps.diff.outputs.azure }}
+      e2e-aws: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'push' && steps.push.outputs.deps || steps.diff.outputs.aws }}
+      e2e-google: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'push' && steps.push.outputs.deps || steps.diff.outputs.google }}
+      e2e-azure: ${{ github.event_name == 'schedule' && 'true' || github.event_name == 'push' && steps.push.outputs.deps || steps.diff.outputs.azure }}
     steps:
     - name: Check out the code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,11 +75,26 @@ jobs:
         BASE: ${{ github.event.pull_request.base.sha }}
         HEAD: ${{ github.event.pull_request.head.sha }}
       run: .github/scripts/changes.sh
+    # A push to main runs the jobs below only when it changes what the
+    # caches are keyed on and laid out by; the unit and race jobs run on
+    # every push, whatever it changed.
+    - name: Changes dependencies
+      id: push
+      if: github.event_name == 'push'
+      env:
+        BEFORE: ${{ github.event.before }}
+        HEAD: ${{ github.sha }}
+      run: |
+        deps=true
+        if changed=$(git diff --name-only "$BEFORE" "$HEAD" -- go.mod go.sum .github/workflows/test.yml 2>/dev/null); then
+          if [ -z "$changed" ]; then deps=false; fi
+        fi
+        echo "deps=$deps" >> "$GITHUB_OUTPUT"
 
   unit:
     name: go test
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -179,7 +195,7 @@ jobs:
   # each command runs under it. The provider packages build on their own.
   race:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
