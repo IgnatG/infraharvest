@@ -36,6 +36,11 @@ type workspace struct {
 	files map[string][]byte
 	// disk is what dir has of them: as read, or as Flush last wrote them.
 	disk map[string][]byte
+	// parsed are the files as Load last parsed them, by name: a pass
+	// loads generated.tf many times, and it is parsed again only once its
+	// content has changed. Load hands out Unedited copies, never these,
+	// so an edit to one File never shows in another.
+	parsed map[string]*hclfile.File
 }
 
 // workspaceSnapshot is the files of a workspace at one time (see
@@ -85,13 +90,29 @@ func (w *workspace) path(name string) string {
 
 // Load parses the file name, as the edits so far left it. Like
 // hclfile.Load, it returns an error that is fs.ErrNotExist where there is
-// no such file.
+// no such file. Each call returns a File of its own, to edit and Save,
+// but the parse is shared while the content stays the same (see parsed).
+// Like the rest of the workspace, it is for one goroutine at a time.
 func (w *workspace) Load(name string) (*hclfile.File, error) {
 	content, ok := w.files[name]
 	if !ok {
 		return nil, &fs.PathError{Op: "open", Path: w.path(name), Err: fs.ErrNotExist}
 	}
-	return hclfile.Parse(w.path(name), content)
+	// The cache is checked by content, not by which method changed the
+	// file last, so Save, Write, Restore and any other change to files
+	// all count: comparing the bytes is far cheaper than parsing them.
+	if f, ok := w.parsed[name]; ok && bytes.Equal(f.Src, content) {
+		return f.Unedited(), nil
+	}
+	f, err := hclfile.Parse(w.path(name), content)
+	if err != nil {
+		return nil, err
+	}
+	if w.parsed == nil {
+		w.parsed = map[string]*hclfile.File{}
+	}
+	w.parsed[name] = f
+	return f.Unedited(), nil
 }
 
 // LoadOptional is Load, or nil where there is no file name.
@@ -124,7 +145,7 @@ func (w *workspace) ConfigFiles() ([]*hclfile.File, error) {
 
 // Save keeps the edited file f, formatted, as hclfile.File.Save writes it.
 func (w *workspace) Save(f *hclfile.File) {
-	w.files[filepath.Base(f.Path)] = bytes.TrimLeft(hclwrite.Format(f.Edit().Bytes()), "\n")
+	w.files[filepath.Base(f.Path)] = bytes.TrimLeft(hclwrite.Format(f.Bytes()), "\n")
 }
 
 // Write keeps content as the file name.

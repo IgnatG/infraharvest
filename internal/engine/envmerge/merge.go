@@ -12,6 +12,7 @@
 package envmerge
 
 import (
+	"container/heap"
 	"fmt"
 	"maps"
 	"slices"
@@ -386,27 +387,138 @@ type MergeProfile struct {
 // bodies don't merge (see mergeBody) into one resource per environment,
 // with why, until all that are left merge: one that refers to a split
 // resource then refers to different resources in each environment.
+//
+// The resources split one at a time, each time the first, in the order
+// of their addresses, whose bodies don't merge, as the labels of the
+// parts depend on which split first (see uniqueIn); the first pass is in
+// the order they were matched in, as no split has sorted them yet. A
+// body that merges merges until a resource it refers to splits, so after
+// a split only the resources that refer to it are checked again. A split
+// adds parts, which aren't checked, and leaves the addresses of the
+// other resources as they were, so the order is sorted once, and the
+// resources once at the end.
 func (m *stackMerge) splitResidue() {
-	for split := true; split; {
-		split = false
-		for _, r := range m.resources {
-			if r.coverage() < 2 {
+	merges := map[*stackResource]bool{}
+	var firstReason string
+	first := slices.IndexFunc(m.resources, func(r *stackResource) bool {
+		if r.coverage() < 2 {
+			return false
+		}
+		if _, firstReason = m.mergeBody(r); firstReason != "" {
+			return true
+		}
+		merges[r] = true
+		return false
+	})
+	if first < 0 {
+		return
+	}
+
+	// referrers are, by member, the members of other resources that
+	// refer to it.
+	referrers := map[*envResource][]*envResource{}
+	var order []*stackResource
+	for _, r := range m.resources {
+		for _, member := range r.members {
+			if member != nil {
+				for _, t := range member.refs {
+					referrers[t] = append(referrers[t], member)
+				}
+			}
+		}
+		if r.coverage() >= 2 {
+			order = append(order, r)
+		}
+	}
+	sort.Slice(order, func(i, j int) bool { return order[i].address() < order[j].address() })
+	at := make(map[*stackResource]int, len(order))
+	for i, r := range order {
+		at[r] = i
+	}
+
+	used := m.labels()
+	split := map[*stackResource]bool{}
+	var parts []*stackResource
+	next := 0                // order[next:] are yet to be checked
+	var recheck intHeap      // indexes before next to check again
+	queued := map[int]bool{} // those in recheck
+	splitOne := func(r *stackResource, reason string) {
+		split[r] = true
+		delete(used, r.resourceType+"."+r.label)
+		parts = append(parts, m.parts(r, reason, used)...)
+		for _, member := range r.members {
+			if member == nil {
 				continue
 			}
-			if _, reason := m.mergeBody(r); reason != "" {
-				m.split(r, reason)
-				split = true
-				break
+			for _, from := range referrers[member] {
+				s := from.stack
+				if s == nil || split[s] || !merges[s] {
+					continue
+				}
+				delete(merges, s)
+				if i, ok := at[s]; ok && i < next && !queued[i] {
+					queued[i] = true
+					heap.Push(&recheck, i)
+				}
 			}
+		}
+	}
+	splitOne(m.resources[first], firstReason)
+	for {
+		var r *stackResource
+		switch {
+		case recheck.Len() > 0:
+			i := heap.Pop(&recheck).(int)
+			delete(queued, i)
+			r = order[i]
+		case next < len(order):
+			r = order[next]
+			next++
+		default:
+			m.resources = slices.DeleteFunc(m.resources, func(r *stackResource) bool { return split[r] })
+			m.resources = append(m.resources, parts...)
+			sort.Slice(m.resources, func(i, j int) bool { return m.resources[i].address() < m.resources[j].address() })
+			return
+		}
+		if split[r] || merges[r] {
+			continue
+		}
+		if _, reason := m.mergeBody(r); reason != "" {
+			splitOne(r, reason)
+		} else {
+			merges[r] = true
 		}
 	}
 }
 
-// split replaces r with a resource for each environment that has it,
-// labelled with the environment's name after r's label.
+// intHeap is a min-heap of ints, for container/heap.
+type intHeap []int
+
+func (h intHeap) Len() int           { return len(h) }
+func (h intHeap) Less(i, j int) bool { return h[i] < h[j] }
+func (h intHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *intHeap) Push(x any)        { *h = append(*h, x.(int)) }
+func (h *intHeap) Pop() any {
+	old := *h
+	x := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return x
+}
+
+// split replaces r with a resource for each environment that has it (see
+// parts).
 func (m *stackMerge) split(r *stackResource, reason string) {
 	m.resources = slices.DeleteFunc(m.resources, func(s *stackResource) bool { return s == r })
-	used := m.labels()
+	m.resources = append(m.resources, m.parts(r, reason, m.labels())...)
+	sort.Slice(m.resources, func(i, j int) bool { return m.resources[i].address() < m.resources[j].address() })
+}
+
+// parts returns a resource for each environment that has r, labelled
+// with the environment's name after r's label, unique in used, which
+// records them, and makes each what r's member in its environment is
+// part of.
+func (m *stackMerge) parts(r *stackResource, reason string, used map[string]bool) []*stackResource {
+	var parts []*stackResource
 	for e, member := range r.members {
 		if member == nil {
 			continue
@@ -415,9 +527,9 @@ func (m *stackMerge) split(r *stackResource, reason string) {
 		part.members[e] = member
 		part.label = uniqueIn(used, r.resourceType, r.label+"_"+hclfile.Label(m.envs[e]))
 		member.stack = part
-		m.resources = append(m.resources, part)
+		parts = append(parts, part)
 	}
-	sort.Slice(m.resources, func(i, j int) bool { return m.resources[i].address() < m.resources[j].address() })
+	return parts
 }
 
 // labels returns the addresses of the merged root's resources and forEach

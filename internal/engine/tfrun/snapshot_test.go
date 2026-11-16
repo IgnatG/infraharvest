@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -234,7 +235,7 @@ func TestReconcile(t *testing.T) {
 			t.Parallel()
 			tf := &fakeState{}
 			s := snapshotOf(tc.ids)
-			kept, err := s.reconcile(context.Background(), tf, tc.blocks, 0)
+			kept, err := s.reconcile(context.Background(), tf, tc.blocks, 0, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -395,6 +396,223 @@ func TestRemoveStaleSnapshots(t *testing.T) {
 	for dir, want := range map[string]bool{old: false, young: true, other: true, oldPlan: false, oldState: false} {
 		if _, err := os.Stat(dir); (err == nil) != want {
 			t.Errorf("%s exists: %v, want %v", filepath.Base(dir), err == nil, want)
+		}
+	}
+}
+
+// movePlan is the plan of moves, by the address each moves to.
+func movePlan(moves map[string]string) *tfjson.Plan {
+	p := &tfjson.Plan{}
+	for _, to := range slices.Sorted(maps.Keys(moves)) {
+		p.ResourceChanges = append(p.ResourceChanges, &tfjson.ResourceChange{
+			Address: to, PreviousAddress: moves[to], Mode: tfjson.ManagedResourceMode,
+			Change: &tfjson.Change{Actions: tfjson.Actions{tfjson.ActionNoop}},
+		})
+	}
+	return p
+}
+
+func TestCheckMoveOnly(t *testing.T) {
+	t.Parallel()
+	moves := map[string]string{`module.m.aws_s3_bucket.main["a"]`: "aws_s3_bucket.a", `module.m.aws_s3_bucket.main["b"]`: "aws_s3_bucket.b"}
+	managed := func(address, previous string, action tfjson.Action) *tfjson.ResourceChange {
+		return &tfjson.ResourceChange{Address: address, PreviousAddress: previous, Mode: tfjson.ManagedResourceMode, Change: &tfjson.Change{Actions: tfjson.Actions{action}}}
+	}
+	data := func(address string, action tfjson.Action) *tfjson.ResourceChange {
+		return &tfjson.ResourceChange{Address: address, Mode: tfjson.DataResourceMode, Change: &tfjson.Change{Actions: tfjson.Actions{action}}}
+	}
+	for name, tc := range map[string]struct {
+		edit func(p *tfjson.Plan)
+		want string
+	}{
+		"only the moves": {edit: func(*tfjson.Plan) {}},
+		"a data source that reads and a resource that stays": {edit: func(p *tfjson.Plan) {
+			p.ResourceChanges = append(p.ResourceChanges, data("data.aws_region.current", tfjson.ActionRead), managed("aws_s3_bucket.c", "", tfjson.ActionNoop))
+		}},
+		"an update": {
+			edit: func(p *tfjson.Plan) { p.ResourceChanges[0].Change.Actions = tfjson.Actions{tfjson.ActionUpdate} },
+			want: "does more than move it (update)",
+		},
+		"an import": {
+			edit: func(p *tfjson.Plan) { p.ResourceChanges[1].Change.Importing = &tfjson.Importing{ID: "b"} },
+			want: "does more than move it",
+		},
+		"a create": {
+			edit: func(p *tfjson.Plan) {
+				p.ResourceChanges = append(p.ResourceChanges, managed("aws_s3_bucket.new", "", tfjson.ActionCreate))
+			},
+			want: "aws_s3_bucket.new: the plan does more than move it (create)",
+		},
+		"a move from elsewhere": {
+			edit: func(p *tfjson.Plan) { p.ResourceChanges[0].PreviousAddress = "aws_s3_bucket.z" },
+			want: `from "aws_s3_bucket.z", not from aws_s3_bucket.a`,
+		},
+		"a move no one asked for": {
+			edit: func(p *tfjson.Plan) {
+				p.ResourceChanges = append(p.ResourceChanges, managed("aws_s3_bucket.y", "aws_s3_bucket.x", tfjson.ActionNoop))
+			},
+			want: "which no move asked for",
+		},
+		"a move missing": {
+			edit: func(p *tfjson.Plan) { p.ResourceChanges = p.ResourceChanges[:1] },
+			want: "moves 1 resources, not 2",
+		},
+		"a data source that changes": {
+			edit: func(p *tfjson.Plan) {
+				p.ResourceChanges = append(p.ResourceChanges, data("data.x.y", tfjson.ActionDelete))
+			},
+			want: "does more than read it",
+		},
+		"deferred changes": {
+			edit: func(p *tfjson.Plan) { p.DeferredChanges = []*tfjson.DeferredResourceChange{{}} },
+			want: "defers changes",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			p := movePlan(moves)
+			tc.edit(p)
+			err := CheckMoveOnly(p, moves)
+			switch {
+			case tc.want == "" && err != nil:
+				t.Errorf("unexpected error: %v", err)
+			case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
+				t.Errorf("error: got %v, want %q", err, tc.want)
+			}
+		})
+	}
+	if err := CheckMoveOnly(nil, moves); err == nil {
+		t.Error("no plan passed")
+	}
+}
+
+func TestChained(t *testing.T) {
+	t.Parallel()
+	if chained([]stateStep{{"a.x", "m.a.x"}, {"b.x", "m.b.x"}}) {
+		t.Error("two separate moves are chained")
+	}
+	if !chained([]stateStep{{"a.x", "b.x"}, {"b.x", "c.x"}}) {
+		t.Error("a move to another's source is not chained")
+	}
+}
+
+// manyMoves returns a snapshot of a bucket that goes and n buckets, the
+// import blocks that move each of the n into a module, and the moves, by
+// destination.
+func manyMoves(t *testing.T, n int) (*Snapshot, []ImportBlock, map[string]string) {
+	t.Helper()
+	ids := map[string]string{"aws_s3_bucket.gone": "gone"}
+	var blocks []ImportBlock
+	moves := map[string]string{}
+	for i := range n {
+		id := fmt.Sprintf("b%03d", i)
+		from, to := "aws_s3_bucket."+id, fmt.Sprintf("module.m.aws_s3_bucket.main[%q]", id)
+		ids[from] = id
+		blocks = append(blocks, ImportBlock{To: to, ID: id})
+		moves[to] = from
+	}
+	dir := t.TempDir()
+	return &Snapshot{dir: dir, state: filepath.Join(dir, LocalStateFileName), ids: ids}, blocks, moves
+}
+
+func TestReconcileMovesAtOnce(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		n          int
+		planUpdate bool
+		failApply  error
+		copyErr    error
+		// applies are the copy's; commands are the root's state commands.
+		applies, commands int
+		wantErr           bool
+	}{
+		"many moves, one apply":                {n: moveAllFrom, applies: 1, commands: 1},
+		"few moves, one state mv each":         {n: moveAllFrom - 1, commands: moveAllFrom},
+		"a plan that does more, one at a time": {n: moveAllFrom, planUpdate: true, commands: moveAllFrom + 1},
+		"no copy, one at a time":               {n: moveAllFrom, copyErr: errors.New("no copy"), commands: moveAllFrom + 1},
+		"a failed apply drops the snapshot":    {n: moveAllFrom, failApply: errors.New("boom"), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s, blocks, moves := manyMoves(t, tc.n)
+			plan := movePlan(moves)
+			if tc.planUpdate {
+				plan.ResourceChanges[0].Change.Actions = tfjson.Actions{tfjson.ActionUpdate}
+			}
+			copied := &fakeState{plan: plan, failApply: tc.failApply}
+			copyDir := t.TempDir()
+			removed := false
+			copies := func(context.Context) (*MoveCopy, error) {
+				if tc.copyErr != nil {
+					return nil, tc.copyErr
+				}
+				return &MoveCopy{Dir: copyDir, Plan: copied, Apply: copied, Resources: []string{"aws_s3_bucket.kept"}, Remove: func() { removed = true }}, nil
+			}
+			root := &fakeState{}
+			kept, err := s.reconcile(context.Background(), root, blocks, time.Minute, copies)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("no error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if copied.applies != tc.applies || len(root.commands) != tc.commands {
+				t.Errorf("%d applies in the copy, %d state commands %v; want %d and %d", copied.applies, len(root.commands), root.commands, tc.applies, tc.commands)
+			}
+			if !slices.Contains(root.commands, "rm aws_s3_bucket.gone") {
+				t.Errorf("the bucket that goes isn't removed: %v", root.commands)
+			}
+			if len(kept) != tc.n || len(s.ids) != tc.n {
+				t.Errorf("kept %d, the snapshot has %d, want %d", len(kept), len(s.ids), tc.n)
+			}
+			for to, from := range moves {
+				if kept[to] != strings.TrimPrefix(from, "aws_s3_bucket.") {
+					t.Errorf("%s: kept %q", to, kept[to])
+				}
+			}
+			if tc.copyErr == nil && tc.n >= moveAllFrom && !removed {
+				t.Error("the copy wasn't removed")
+			}
+			if tc.applies == 0 {
+				return
+			}
+			movesFile, err := os.ReadFile(filepath.Join(copyDir, SnapshotMovesFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "moved {\n  from = aws_s3_bucket.b000\n  to   = module.m.aws_s3_bucket.main[\"b000\"]\n}\n"; !strings.Contains(string(movesFile), want) {
+				t.Errorf("moves file:\n%s\nwant it to have:\n%s", movesFile, want)
+			}
+			override, err := os.ReadFile(filepath.Join(copyDir, SnapshotOverrideFile))
+			if err != nil || !strings.Contains(string(override), `resource "aws_s3_bucket" "kept"`) {
+				t.Errorf("override: %s, %v", override, err)
+			}
+			if _, err := os.Stat(filepath.Join(s.dir, "moves.plan")); !os.IsNotExist(err) {
+				t.Errorf("the plan of the moves stays: %v", err)
+			}
+		})
+	}
+}
+
+func TestReconcileIndexesDestinations(t *testing.T) {
+	t.Parallel()
+	// Many entries and destinations of one type: each finds its own by ID.
+	s, blocks, moves := manyMoves(t, 500)
+	delete(s.ids, "aws_s3_bucket.gone")
+	root := &fakeState{}
+	kept, err := s.reconcile(context.Background(), root, blocks, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.commands) != len(moves) || len(kept) != len(moves) {
+		t.Fatalf("%d commands, %d kept, want %d", len(root.commands), len(kept), len(moves))
+	}
+	for _, c := range root.commands {
+		if f := strings.Fields(c); len(f) != 3 || moves[f[2]] != f[1] {
+			t.Errorf("wrong move: %s", c)
 		}
 	}
 }

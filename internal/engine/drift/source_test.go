@@ -718,7 +718,7 @@ func TestEditFilesRefusesASecretInPlaceOfAnother(t *testing.T) {
 	old := file(token, `"none"`)
 	edited := file(`"none"`, token)
 
-	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []hclfile.Edit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}})
+	_, reason, secret := editFiles(map[string][]byte{"main.tf": []byte(old)}, []hclfile.Edit{{File: "main.tf", Start: 0, End: len(old), Text: []byte(edited)}}, nil)
 
 	if !secret || reason == "" {
 		t.Errorf("wrote a secret in place of another: %q, secret %v", reason, secret)

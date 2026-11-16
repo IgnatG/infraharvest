@@ -15,6 +15,7 @@ import (
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
 	"golang.org/x/sync/singleflight"
@@ -105,7 +106,8 @@ const failureMemory = time.Minute
 // so another run, with a rate of its own, builds its own (see
 // configsOf).
 type runConfigs struct {
-	// mu guards configs, baseProviders and buildFailures. It isn't held
+	// mu guards configs, baseProviders, buildFailures and s3Children. It
+	// isn't held
 	// while a configuration is built, so that the configurations of
 	// different accounts and regions build at once.
 	mu sync.Mutex
@@ -115,6 +117,9 @@ type runConfigs struct {
 	flight singleflight.Group
 	// configs are the configurations built so far.
 	configs map[configKey]aws.Config
+	// s3Children are the S3 clients of S3 bucket children's probes, by
+	// configuration (see s3ChildrenClient).
+	s3Children map[configKey]*s3.Client
 	// baseProviders are the credentials of each configuration before any
 	// role is assumed, which Terraform gets (see baseCredentials).
 	baseProviders map[configKey]aws.CredentialsProvider
@@ -176,6 +181,7 @@ func configsOf(l *ratelimit.Limiter) *runConfigs {
 	return ratelimit.Kept(l, runConfigsKey{}, func() *runConfigs {
 		return &runConfigs{
 			configs:         map[configKey]aws.Config{},
+			s3Children:      map[configKey]*s3.Client{},
 			baseProviders:   map[configKey]aws.CredentialsProvider{},
 			buildFailures:   map[configKey]buildFailure{},
 			credentials:     map[credentialsKey]sharedCredentials{},

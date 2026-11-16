@@ -57,6 +57,8 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 	}
 	sort.Strings(addresses)
 	rejections := make([]Rejection, 0, len(addresses))
+	// The blocks that go, by file, removed at once at the end.
+	gone := map[*hclfile.File][]*hclwrite.Block{}
 	for _, addr := range addresses {
 		var messages []string
 		for _, d := range errs[addr] {
@@ -87,8 +89,11 @@ func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) 
 			out.WriteString("\n")
 			out.Write(bytes.TrimSpace(hclwrite.Format(moved.block.BuildTokens(nil).Bytes())))
 			out.WriteString("\n")
-			moved.file.Edit().Body().RemoveBlock(moved.block)
+			gone[moved.file] = append(gone[moved.file], moved.block)
 		}
+	}
+	for _, f := range []*hclfile.File{imports, generated} {
+		f.RemoveBlocks(gone[f])
 	}
 	if err := imports.Save(); err != nil {
 		return nil, err
@@ -108,7 +113,7 @@ func unconfigured(dir string) (map[string][]tfjson.Diagnostic, error) {
 		return nil, err
 	}
 	configured := map[string]bool{}
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		configured[r.Address] = true
 	}
 	missing := map[string][]tfjson.Diagnostic{}

@@ -119,7 +119,7 @@ func addDataSourcesSkipping(ws *workspace, external []External, sources map[stri
 		return nil, err
 	}
 	referred := map[string]bool{}
-	for _, res := range saved.Resources() {
+	for res := range saved.ResourceSyntax() {
 		for _, t := range hclfile.Traversals(res.Syntax.Body) {
 			if t.RootName() != "data" || len(t) < 3 {
 				continue

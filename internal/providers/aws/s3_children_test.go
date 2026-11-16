@@ -6,7 +6,9 @@ package aws
 import (
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -78,6 +80,44 @@ func TestChildImportsReportsErrors(t *testing.T) {
 	}
 	if len(children) != 3 {
 		t.Errorf("want the other children still listed, got %d", len(children))
+	}
+}
+
+// The buckets of a configuration share one S3 client, and no more than
+// s3ProbeParallel probes of a bucket run at once.
+func TestChildImportsShareAClientAndBoundTheProbes(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	running, most := 0, 0
+	ctx := useFakeAPI(t, func(call apiCall) string {
+		mu.Lock()
+		running++
+		most = max(most, running)
+		mu.Unlock()
+		defer func() {
+			mu.Lock()
+			running--
+			mu.Unlock()
+		}()
+		time.Sleep(5 * time.Millisecond)
+		return s3Answer(call)
+	})
+	p := &Provider{region: "us-east-1"}
+	for _, name := range []string{"a", "b"} {
+		if _, err := p.ChildImports(ctx, harvest.RecordBare(name, name, "aws_s3_bucket", "aws")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	if most > s3ProbeParallel {
+		t.Errorf("%d probes ran at once, want at most %d", most, s3ProbeParallel)
+	}
+	mu.Unlock()
+	run := p.service(ctx).configs()
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if len(run.s3Children) != 1 {
+		t.Errorf("%d S3 clients for one configuration, want 1", len(run.s3Children))
 	}
 }
 

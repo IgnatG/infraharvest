@@ -50,7 +50,7 @@ var cloudControlServices = sync.OnceValue(func() map[string][]cloudControlType {
 func cloudControlServicesOf(cat *catalogue.Catalogue) map[string][]cloudControlType {
 	services := map[string][]cloudControlType{}
 	for _, typ := range cat.Types() {
-		e, _ := cat.Entry(typ)
+		e, _ := cat.View(typ)
 		if e.CloudControl == nil {
 			continue
 		}
@@ -66,12 +66,13 @@ func cloudControlServicesOf(cat *catalogue.Catalogue) map[string][]cloudControlT
 // cloudControl returns the services the catalogue of the import lists
 // through Cloud Control (see SetCatalogue): with a --catalogue overlay,
 // its cloud_control entries add types, and services, to the built-in
-// ones.
+// ones. They are worked out once per catalogue; callers must not modify
+// the answer.
 func (p *Provider) cloudControl() map[string][]cloudControlType {
 	if p.cat == nil {
 		return cloudControlServices()
 	}
-	return cloudControlServicesOf(p.cat)
+	return p.catCloudControl
 }
 
 // CloudControlLister lists a service of cloudControlServices.

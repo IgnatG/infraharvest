@@ -215,7 +215,7 @@ func addRootAlias(staging string, ws *workspace, dt DefaultTags) (bool, error) {
 	}
 	alias := aliasFor(dt)
 	used := false
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		if p, ok := r.Syntax.Body.Attributes["provider"]; ok {
 			traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
 			if !diags.HasErrors() && len(traversal) == 2 && traversal.RootName() == dt.Provider {
@@ -259,7 +259,7 @@ type taggedResource struct {
 // false if a resource's tags aren't a literal map of strings.
 func taggedResources(f *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSchemas) ([]taggedResource, bool) {
 	var list []taggedResource
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		if p, ok := r.Syntax.Body.Attributes["provider"]; ok {
 			traversal, diags := hcl.AbsTraversalForExpr(p.Expr)
 			if diags.HasErrors() || len(traversal) != 1 || traversal.RootName() != dt.Provider {

@@ -21,6 +21,11 @@ func awsCatalogue() *catalogue.Catalogue {
 // of each service it lists.
 func (p *Provider) SetCatalogue(c *catalogue.Catalogue) {
 	p.cat = c
+	p.catCloudControl = nil
+	if c != nil {
+		// Once, rather than for each service Services and Lister ask about.
+		p.catCloudControl = cloudControlServicesOf(c)
+	}
 }
 
 // catalogue returns the catalogue of the import (see SetCatalogue), or the

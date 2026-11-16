@@ -487,7 +487,7 @@ func externalReferencesFollowable(f *hclfile.File, moved map[string]string, grou
 			}
 		}
 	}
-	for _, r := range f.Resources() {
+	for r := range f.ResourceSyntax() {
 		_, isMoved := moved[r.Address]
 		for _, t := range hclfile.Traversals(r.Syntax.Body) {
 			target := hclfile.ResourceAddress(t)
@@ -617,7 +617,6 @@ func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, 
 	if err != nil {
 		return err
 	}
-	body := generated.Edit().Body()
 	resources := generated.Resources()
 	movedBlocks := map[*hclwrite.Block]bool{}
 	importTo := map[string][]string{}
@@ -671,17 +670,19 @@ func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, 
 		}
 	}
 	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
+	var gone []*hclwrite.Block
 	for _, r := range resources {
 		if movedBlocks[r.Write] {
-			body.RemoveBlock(r.Write)
+			gone = append(gone, r.Write)
 			continue
 		}
 		renameAll(r.Write.Body(), renames, byStart)
 	}
+	// The last edit of the blocks there are (see RemoveBlocks).
+	generated.RemoveBlocks(gone)
 	for _, callBlock := range calls {
 		renameAll(callBlock.Body(), renames, byStart)
-		body.AppendNewline()
-		body.AppendBlock(callBlock)
+		generated.AppendBlocks(callBlock)
 	}
 	ws.Save(generated)
 	imports, err := ws.Load(rootfile.ImportsFileName)

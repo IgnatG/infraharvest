@@ -244,7 +244,7 @@ func dataReaders(generated *hclfile.File, address string) []string {
 		return nil
 	}
 	var readers []string
-	for _, r := range generated.Resources() {
+	for r := range generated.ResourceSyntax() {
 		for _, t := range hclfile.Traversals(r.Syntax.Body) {
 			if len(t) < 3 || t.RootName() != "data" {
 				continue

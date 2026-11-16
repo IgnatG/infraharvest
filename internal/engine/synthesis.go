@@ -659,7 +659,6 @@ func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootf
 	if err != nil {
 		return err
 	}
-	body := generated.Edit().Body()
 	moved := map[string]bool{}
 	importTo := map[string]string{}
 	var renames []referenceRename
@@ -681,13 +680,16 @@ func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootf
 		}
 	}
 	byStart := indexRenames(len(renames), func(i int) []string { return renames[i].search })
+	var gone []*hclwrite.Block
 	for _, r := range generated.Resources() {
 		if moved[r.Address] {
-			body.RemoveBlock(r.Write)
+			gone = append(gone, r.Write)
 			continue
 		}
 		replaceAllReferences(r.Write.Body(), renames, byStart)
 	}
+	// The last edit of the blocks there are (see RemoveBlocks).
+	generated.RemoveBlocks(gone)
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
 		source, err := hclfile.CallSource(ws.dir, t.adapter.Source)
@@ -713,8 +715,7 @@ func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootf
 			block.Body().SetAttributeRaw(arg.Name, arg.Value)
 		}
 		replaceAllReferences(block.Body(), renames, byStart)
-		body.AppendNewline()
-		body.AppendBlock(block)
+		generated.AppendBlocks(block)
 	}
 	ws.Save(generated)
 	if err := writeModuleProviders(ws, trials, moduleProviders, tags); err != nil {
