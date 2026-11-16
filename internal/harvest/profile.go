@@ -214,6 +214,9 @@ type OwnerTag struct {
 	Tool string
 	// Stack says the tag's value is the stack the tool manages it in.
 	Stack bool
+	// KeyPrefix says Key starts the tag's key rather than being all of
+	// it, as kubernetes.io/cluster/ starts kubernetes.io/cluster/<name>.
+	KeyPrefix bool
 }
 
 // EffectiveTags describes a provider whose resources' tag attribute holds

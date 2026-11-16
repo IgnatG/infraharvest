@@ -7,7 +7,7 @@ infraharvest generates Terraform configuration for infrastructure that already e
 - **Clean code, not a dump:** references between resources instead of IDs, shared tags as locals, secrets as variables, and clusters of resources as calls of curated modules.
 - **Checked, not hoped:** a change to the generated code is kept only if the plan still shows no changes, every root goes through a verification gate (format, validate, a plan with no changes, scanners, secrets, determinism), and the report says what was imported, what was left out and why.
 - **Read-only:** it never applies anything and writes no state; least-privilege [permission templates](docs/permissions.md) for each cloud.
-- **AWS, Azure and Google Cloud**, with Terraform or OpenTofu, from the command line, a [GitHub Action](action/README.md) or an [AI agent over MCP](docs/mcp.md).
+- **AWS, Azure and Google Cloud**, with Terraform or OpenTofu, from the command line, a [GitHub Action](action/README.md), [GitLab CI or Azure Pipelines](docs/ci.md), or an [AI agent over MCP](docs/mcp.md).
 
 Terraform's own [`terraform query`](https://developer.hashicorp.com/terraform/cli/commands/query) and HCP Terraform's Search & Import suit a handful of resources; infraharvest is for whole accounts, subscriptions and projects (see [infraharvest and Terraform's own import](docs/index.md#infraharvest-and-terraforms-own-import)).
 
@@ -25,6 +25,7 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 - [Permissions](docs/permissions.md): read-only access for AWS, Azure and Google Cloud.
 - [Troubleshooting](docs/troubleshooting.md): what an error message or exit code means, and what to do.
 - [GitHub Action](action/README.md): scheduled imports that open a pull request.
+- [GitLab CI and Azure Pipelines](docs/ci.md): templates for scheduled imports that open a merge request or pull request.
 - [AI agents (MCP)](docs/mcp.md) · [Catalogue](docs/catalogue.md) · [Command-line reference](docs/reference/cli.md)
 
 ## Install

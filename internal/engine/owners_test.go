@@ -26,10 +26,15 @@ func TestOwnedBy(t *testing.T) {
 		{map[string]string{"aws:cloudformation:stack-name": "app"}, Owner{Tool: "CloudFormation", Stack: "app", Tag: "aws:cloudformation:stack-name=app"}, true},
 		{map[string]string{"goog-terraform-provisioned": "true"}, Owner{Tool: "Terraform", Tag: "goog-terraform-provisioned=true"}, true},
 		{map[string]string{"Terraform": "true"}, Owner{Tool: "Terraform", Tag: "Terraform=true"}, true},
+		// A key that starts with a prefix the traits name.
+		{map[string]string{"kubernetes.io/cluster/prod": "Owned"}, Owner{Tool: "Kubernetes", Tag: "kubernetes.io/cluster/prod=Owned"}, true},
 		// Not markers of an owner.
 		{map[string]string{"ManagedBy": "platform-team"}, Owner{}, false},
 		{map[string]string{"Terraform": "false"}, Owner{}, false},
 		{map[string]string{"Name": "terraform-state"}, Owner{}, false},
+		{map[string]string{"kubernetes.io/cluster/prod": "shared"}, Owner{}, false},
+		{map[string]string{"kubernetes.io/cluster/": "owned"}, Owner{}, false},
+		{map[string]string{"goog-terraform-provisioned-x": "true"}, Owner{}, false},
 		{nil, Owner{}, false},
 	} {
 		owner, owned := testTraits.OwnerTags.OwnedBy(tc.tags)
