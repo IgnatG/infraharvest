@@ -40,6 +40,39 @@ func TestChangedAttributes(t *testing.T) {
 			want: map[string]string{"name": "a -> b"},
 		},
 		{
+			name: "a removed attribute is a change",
+			change: &tfjson.Change{
+				Before: map[string]any{"name": "a", "description": "managed by hand"},
+				After:  map[string]any{"name": "a"},
+			},
+			want: map[string]string{"description": "managed by hand -> <nil>"},
+		},
+		{
+			name: "a value set to null is a change",
+			change: &tfjson.Change{
+				Before: map[string]any{"description": "managed by hand"},
+				After:  map[string]any{"description": nil},
+			},
+			want: map[string]string{"description": "managed by hand -> <nil>"},
+		},
+		{
+			name: "null against absent is no change",
+			change: &tfjson.Change{
+				Before: map[string]any{"name": "a", "description": nil},
+				After:  map[string]any{"name": "a"},
+			},
+			want: map[string]string{},
+		},
+		{
+			name: "removed and unknown after the apply is skipped",
+			change: &tfjson.Change{
+				Before:       map[string]any{"arn": "arn:aws:sqs:us-east-1:1:q"},
+				After:        map[string]any{},
+				AfterUnknown: map[string]any{"arn": true},
+			},
+			want: map[string]string{},
+		},
+		{
 			name: "partly unknown is still compared",
 			change: &tfjson.Change{
 				Before:       map[string]any{"tags_all": map[string]any{"team": "web"}},
