@@ -36,7 +36,7 @@ func TestCheckpoints(t *testing.T) {
 	}
 	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
 	opts := engine.Options{Config: map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n")}}
-	fp, err := fingerprint("1.16.5", imports, opts)
+	fp, err := fingerprint("1.16.5", imports, opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +64,11 @@ func TestCheckpoints(t *testing.T) {
 	}
 
 	// Other imports or options make another root.
-	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts)
+	other, err := fingerprint("1.16.5", append(imports, rootfile.Import{Type: "aws_subnet", Name: "a", ID: "subnet-1"}), opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	newerEngine, err := fingerprint("1.17.0", imports, opts)
+	newerEngine, err := fingerprint("1.17.0", imports, opts, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestCheckpoints(t *testing.T) {
 func TestFingerprintIgnoresOrder(t *testing.T) {
 	a := []rootfile.Import{{Type: "aws_vpc", Name: "a", ID: "vpc-1"}, {Type: "aws_subnet", Name: "b", ID: "subnet-1"}}
 	b := []rootfile.Import{a[1], a[0]}
-	fa, err := fingerprint("1.16.5", a, engine.Options{})
+	fa, err := fingerprint("1.16.5", a, engine.Options{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fb, err := fingerprint("1.16.5", b, engine.Options{})
+	fb, err := fingerprint("1.16.5", b, engine.Options{}, "")
 	if err != nil || fa != fb {
 		t.Errorf("fingerprints differ: %s, %s, %v", fa, fb, err)
 	}
@@ -349,7 +349,7 @@ func TestRefuseReaddressed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := claimed.refuseReaddressed(dir, &engine.Result{Addresses: addresses}, nil, nil); err != nil {
+	if err := claimed.refuseReaddressed(dir, &engine.Result{Addresses: addresses}, nil, nil, nil); err != nil {
 		t.Errorf("the same addresses: %v", err)
 	}
 
@@ -358,7 +358,7 @@ func TestRefuseReaddressed(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeRoot(t, dir, rootfile.ImportsFileName, rootfile.ReadmeFileName)
-	err = claimed.refuseReaddressed(dir, &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}, nil, nil)
+	err = claimed.refuseReaddressed(dir, &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "aws_subnet.a is now aws_subnet.private") || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("want an error naming the root and the new address, got %v", err)
 	}
@@ -389,7 +389,7 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}}
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2"}
 
-	err := claimed.refuseReaddressed("root", result, imports, elsewhere)
+	err := claimed.refuseReaddressed("root", result, imports, elsewhere, nil)
 	if err == nil {
 		t.Fatal("want the root refused")
 	}
@@ -400,6 +400,36 @@ func TestRefuseReaddressedCountsWhatLeavesTheRoot(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "aws_subnet.gone") {
 		t.Errorf("%v names what the run doesn't import", err)
+	}
+}
+
+// A resource the root had that the import still lists, but the selection
+// now leaves out, is refused: it is still in the cloud, and a plan on the
+// root's state would destroy it. One deleted in the cloud since isn't.
+func TestRefuseReaddressedCountsWhatTheSelectionLeavesOut(t *testing.T) {
+	claimed := &claim{previous: []engine.Managed{
+		{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"},
+		{Type: "aws_subnet", ID: "subnet-2", Address: "aws_subnet.b"},
+		{Type: "aws_subnet", ID: "gone", Address: "aws_subnet.gone"},
+	}}
+	imports := []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}
+	result := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}}
+	listed := []engine.External{{Type: "aws_subnet", ID: "subnet-2", Name: "b"}}
+
+	if err := claimed.refuseReaddressed("root", result, imports, nil, nil); err != nil {
+		t.Errorf("without knowing it is still listed, b is taken as gone: %v", err)
+	}
+	err := claimed.refuseReaddressed("root", result, imports, nil, listed)
+	if err == nil {
+		t.Fatal("want the root refused")
+	}
+	for _, want := range []string{"1 of its resources that the import still lists but no longer selects", "aws_subnet.b", "terraform state rm"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v misses %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "aws_subnet.gone") {
+		t.Errorf("%v names what the cloud no longer has", err)
 	}
 }
 
@@ -494,11 +524,11 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 	}
 	// An aws_alb another root imports as an aws_lb is in that root now.
 	elsewhere := map[engine.External]string{{Type: "aws_subnet", ID: "subnet-2"}: "envs/prod/aws/111/eu-west-2", {Type: "aws_lb", ID: "arn:edge"}: "envs/prod/aws/111/eu-west-2"}
-	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:2], Moves: result.Moves, Retyped: result.Retyped}, nil, nil); err != nil {
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:2], Moves: result.Moves, Retyped: result.Retyped}, nil, nil, nil); err != nil {
 		t.Errorf("only what moved and removed blocks follow: %v", err)
 	}
 
-	err := claimed.refuseReaddressed("root", result, nil, elsewhere)
+	err := claimed.refuseReaddressed("root", result, nil, elsewhere, nil)
 	if err == nil {
 		t.Fatal("want the root refused")
 	}
@@ -512,7 +542,7 @@ func TestRefuseReaddressedWithMoves(t *testing.T) {
 	}
 
 	result.Unmoved = []string{"the moves from aws_subnet.x come back to aws_subnet.x"}
-	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
+	if err := claimed.refuseReaddressed("root", &engine.Result{Addresses: result.Addresses[:1], Moves: result.Moves, Unmoved: result.Unmoved}, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "come back") {
 		t.Errorf("with moves the engine couldn't write: %v", err)
 	}
 }
@@ -569,7 +599,7 @@ func TestFingerprintCoversOptions(t *testing.T) {
 		"TidyLabels":      "always set by an import",
 		"Modules":         "the run's count of module calls, not an input",
 		"ModuleProviders": "the provider's, compiled into the build",
-		"Scanners":        "run by the gate, which checks the root and writes nothing into it",
+		"Scanners":        "the gate's, which writes nothing into the root; the --policy directories it checks with are fingerprinted from their files (see policyDigest)",
 		"ScannerSlots":    "the run's, not an input",
 		"Previous":        "what the root had, which a regeneration reads",
 		"Arrivals":        "the handovers, which have checkpoints of their own",
@@ -598,5 +628,68 @@ func TestFingerprintCoversOptions(t *testing.T) {
 		if !fields[name] {
 			t.Errorf("engine.Options has no field %s any more: take it out of this test", name)
 		}
+	}
+}
+
+// A policy that changes changes the fingerprint of the roots it checks,
+// so --resume generates them again; a root without --policy keeps the
+// fingerprint it had before policies were part of it.
+func TestFingerprintPolicies(t *testing.T) {
+	t.Parallel()
+	imports := []rootfile.Import{{Type: "aws_vpc", Name: "main", ID: "vpc-0abc1234"}}
+	content, err := fingerprintContent("1.16.5", imports, engine.Options{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), `"Policies"`) {
+		t.Errorf("a root without --policy has Policies in its fingerprint: %s", content)
+	}
+
+	dir := t.TempDir()
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := func() string {
+		t.Helper()
+		d, err := policyDigest([]string{dir})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d, err := policyDigest(nil); err != nil || d != "" {
+		t.Errorf("no policies: %q, %v", d, err)
+	}
+	write("s3.rego", "package main\n")
+	first := digest()
+	if first == "" || digest() != first {
+		t.Fatalf("the digest of the same policies should be the same and set: %q", first)
+	}
+	write("s3.rego", "package main\n\ndeny contains msg if { false }\n")
+	edited := digest()
+	if edited == first {
+		t.Error("editing a policy left the digest as it was")
+	}
+	write("lib/tags.rego", "package lib\n")
+	if digest() == edited {
+		t.Error("adding a policy left the digest as it was")
+	}
+
+	without, err := fingerprint("1.16.5", imports, engine.Options{}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	with, err := fingerprint("1.16.5", imports, engine.Options{}, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if with == without {
+		t.Error("policies left the fingerprint as it was")
 	}
 }

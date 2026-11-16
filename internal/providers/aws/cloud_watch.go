@@ -21,7 +21,10 @@ type CloudWatchLister struct {
 }
 
 // List lists, in this order, metric alarms, dashboards, and event
-// rules with their targets. Any error fails the service.
+// rules with their targets. A rule whose targets can't be read is still
+// recorded, with the targets read before the failure, and the failure
+// makes the listing partial (see harvest.Parts); a rule deleted since it
+// was listed has none. Any other error fails the service.
 func (g *CloudWatchLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -38,7 +41,11 @@ func (g *CloudWatchLister) list() error {
 	if err := g.listDashboards(client); err != nil {
 		return err
 	}
-	return g.createRules(cloudwatchevents.NewFromConfig(config))
+	var parts harvest.Parts
+	if err := g.createRules(cloudwatchevents.NewFromConfig(config), &parts); err != nil {
+		return parts.Fail(err)
+	}
+	return parts.Err()
 }
 
 // listMetricAlarms records every metric alarm by name. Composite alarms
@@ -78,8 +85,9 @@ func (g *CloudWatchLister) listDashboards(client *cloudwatch.Client) error {
 // followed by its targets. A rule that another AWS service manages (it has
 // ManagedBy set) is left out with its targets: that service owns it, and
 // it cannot be changed through Terraform. The API has no SDK paginator, so
-// pages are walked by NextToken.
-func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client) error {
+// pages are walked by NextToken. A rule whose targets can't be read keeps
+// those read, and the failure goes to parts.
+func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client, parts *harvest.Parts) error {
 	return paginateByMarker(func(token *string) (*string, error) {
 		page, err := client.ListRules(g.Context(), &cloudwatchevents.ListRulesInput{NextToken: token})
 		if err != nil {
@@ -95,9 +103,7 @@ func (g *CloudWatchLister) createRules(client *cloudwatchevents.Client) error {
 			if !g.Wants("aws_cloudwatch_event_target") {
 				continue
 			}
-			if err := g.createTargets(client, name); err != nil {
-				return nil, err
-			}
+			parts.Add(awsCodes, "the targets of rule "+name, g.createTargets(client, name))
 		}
 		return page.NextToken, nil
 	})

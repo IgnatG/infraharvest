@@ -21,8 +21,11 @@ type GlueLister struct {
 // List lists, in this order, the crawlers, the catalog databases,
 // the tables of each database, the jobs and the triggers. Terraform imports
 // catalog databases and tables by an ID that starts with the catalog ID,
-// which is the account's, so the account is looked up first. Any failure,
-// the account lookup included, fails the service.
+// which is the account's, so the account is looked up first. A database
+// whose tables can't be read keeps those read before the failure, and the
+// failure makes the listing partial (see harvest.Parts); a database
+// deleted since it was listed has none. Any other failure, the account
+// lookup included, fails the service.
 func (g *GlueLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -50,15 +53,17 @@ func (g *GlueLister) list() error {
 	if !g.Wants("aws_glue_catalog_table") {
 		databases = nil
 	}
+	var parts harvest.Parts
 	for _, database := range databases {
-		if err := g.listTables(ctx, client, account, database); err != nil {
-			return err
-		}
+		parts.Add(awsCodes, "the tables of database "+database, g.listTables(ctx, client, account, database))
 	}
 	if err := g.listJobs(ctx, client); err != nil {
-		return err
+		return parts.Fail(err)
 	}
-	return g.listTriggers(ctx, client)
+	if err := g.listTriggers(ctx, client); err != nil {
+		return parts.Fail(err)
+	}
+	return parts.Err()
 }
 
 // listCrawlers adds each crawler as an aws_glue_crawler, imported by its

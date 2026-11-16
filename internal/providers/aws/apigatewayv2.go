@@ -30,8 +30,11 @@ type APIGatewayV2Lister struct {
 
 // List lists every API first, then each API's parts, then the VPC
 // links. Models and route responses exist only for WebSocket APIs, so an
-// HTTP API isn't asked for them. Any error stops the listing and is
-// returned.
+// HTTP API isn't asked for them. A part of an API that can't be read,
+// such as its routes, is left out, the API and its other parts are kept,
+// and the failure makes the listing partial (see harvest.Parts); an API
+// deleted since it was listed has no parts. Any other error stops the
+// listing and is returned.
 func (g *APIGatewayV2Lister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -47,31 +50,34 @@ func (g *APIGatewayV2Lister) list() error {
 	if err != nil {
 		return err
 	}
+	var parts harvest.Parts
 	for _, api := range apis {
 		// Each part takes a call or more per API, so those of types the
 		// import doesn't keep are skipped.
 		responses := !api.http && g.Wants("aws_apigatewayv2_route_response")
 		for _, part := range []struct {
+			what   string
 			list   func(*apigatewayv2.Client, string) error
 			wanted bool
 		}{
-			{g.listStages, g.Wants("aws_apigatewayv2_stage")},
-			{g.listModels, !api.http && g.Wants("aws_apigatewayv2_model")},
-			{g.listIntegrations, g.Wants("aws_apigatewayv2_integration")},
-			{func(svc *apigatewayv2.Client, apiID string) error {
+			{"stages", g.listStages, g.Wants("aws_apigatewayv2_stage")},
+			{"models", g.listModels, !api.http && g.Wants("aws_apigatewayv2_model")},
+			{"integrations", g.listIntegrations, g.Wants("aws_apigatewayv2_integration")},
+			{"routes", func(svc *apigatewayv2.Client, apiID string) error {
 				return g.listRoutes(svc, apiID, responses)
 			}, responses || g.Wants("aws_apigatewayv2_route")},
-			{g.listAuthorizers, g.Wants("aws_apigatewayv2_authorizer")},
+			{"authorizers", g.listAuthorizers, g.Wants("aws_apigatewayv2_authorizer")},
 		} {
 			if !part.wanted {
 				continue
 			}
-			if err := part.list(svc, api.id); err != nil {
-				return err
-			}
+			parts.Add(awsCodes, "the "+part.what+" of API "+api.id, part.list(svc, api.id))
 		}
 	}
-	return g.listVPCLinks(svc)
+	if err := g.listVPCLinks(svc); err != nil {
+		return parts.Fail(err)
+	}
+	return parts.Err()
 }
 
 // apiV2Ref is a listed API: its ID, and whether it is an HTTP API, which

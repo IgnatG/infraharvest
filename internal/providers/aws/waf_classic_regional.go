@@ -26,8 +26,9 @@ type WafRegionalLister struct {
 // List lists, in turn, the web ACLs, byte match sets, geo match
 // sets, IP sets, rate-based rules, regex match sets, regex pattern sets,
 // rules, rule groups, size constraint sets, SQL injection match sets and
-// XSS match sets, then the associations of each web ACL, and returns the
-// first error.
+// XSS match sets, then the associations of each web ACL. A web ACL whose
+// associations can't be read is kept without them, and the failure makes
+// the listing partial (see harvest.Parts). Any other error is returned.
 func (g *WafRegionalLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -43,6 +44,7 @@ func (g *WafRegionalLister) list() error {
 		return err
 	}
 	var associations []harvest.Resource
+	var parts harvest.Parts
 	for _, acl := range resources {
 		// A call per web ACL and resource type, for associations the
 		// import may not keep.
@@ -50,13 +52,11 @@ func (g *WafRegionalLister) list() error {
 			continue
 		}
 		protected, err := g.webACLAssociations(svc, acl.Observed.ID, acl.RawName)
-		if err != nil {
-			return err
-		}
+		parts.Add(awsCodes, "the associations of web ACL "+acl.Observed.ID, err)
 		associations = append(associations, protected...)
 	}
 	g.Resources = slices.Concat(resources, associations)
-	return nil
+	return parts.Err()
 }
 
 // webACLAssociations lists the resources the web ACL with this ID and

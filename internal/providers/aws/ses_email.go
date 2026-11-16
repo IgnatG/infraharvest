@@ -18,11 +18,16 @@ import (
 // rule sets with their rules.
 type SesLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts harvest.Parts
 }
 
 // List lists, in this order, domain identities, email identities,
 // templates, configuration sets, and receipt rule sets each followed by its
-// rules. Any error fails the service.
+// rules. A rule set whose rules can't be read keeps those read before the
+// failure, and the failure makes the listing partial (see harvest.Parts);
+// a rule set deleted since it was listed has none. Any other error fails
+// the service.
 func (g *SesLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -45,7 +50,10 @@ func (g *SesLister) list() error {
 	if err := g.listConfigurationSets(client); err != nil {
 		return err
 	}
-	return g.listReceiptRuleSets(client)
+	if err := g.listReceiptRuleSets(client); err != nil {
+		return g.parts.Fail(err)
+	}
+	return g.parts.Err()
 }
 
 // listIdentities records every identity of identityType, a domain or an
@@ -111,9 +119,7 @@ func (g *SesLister) listReceiptRuleSets(client *ses.Client) error {
 			if !g.Wants("aws_ses_receipt_rule") {
 				continue
 			}
-			if err := g.listReceiptRules(client, name); err != nil {
-				return nil, err
-			}
+			g.parts.Add(awsCodes, "the rules of receipt rule set "+name, g.listReceiptRules(client, name))
 		}
 		return out.NextToken, nil
 	})

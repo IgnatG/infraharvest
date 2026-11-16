@@ -39,7 +39,11 @@ func (api restAPIRef) part(parts ...string) string {
 }
 
 // List lists the REST APIs with their parts, then the VPC links,
-// usage plans and API keys. Any error stops the listing and is returned.
+// usage plans and API keys. A part of a REST API that can't be read, such
+// as its stages, is left out, the API and its other parts are kept, and
+// the failure makes the listing partial (see harvest.Parts); an API
+// deleted since it was listed has no parts. Any other error stops the
+// listing and is returned.
 func (g *APIGatewayLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -51,21 +55,23 @@ func (g *APIGatewayLister) list() error {
 	}
 	svc := apigateway.NewFromConfig(config)
 
-	if err := g.listRestAPIs(svc); err != nil {
-		return err
+	var parts harvest.Parts
+	for _, list := range []func() error{
+		func() error { return g.listRestAPIs(svc, &parts) },
+		func() error { return g.listVPCLinks(svc) },
+		func() error { return g.listUsagePlans(svc) },
+		func() error { return g.listAPIKeys(svc) },
+	} {
+		if err := list(); err != nil {
+			return parts.Fail(err)
+		}
 	}
-	if err := g.listVPCLinks(svc); err != nil {
-		return err
-	}
-	if err := g.listUsagePlans(svc); err != nil {
-		return err
-	}
-	return g.listAPIKeys(svc)
+	return parts.Err()
 }
 
 // listRestAPIs lists the REST APIs that pass the tag filter, and after each
-// API all of its parts.
-func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client) error {
+// API all of its parts. A part that can't be read goes to parts.
+func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client, parts *harvest.Parts) error {
 	p := apigateway.NewGetRestApisPaginator(svc, &apigateway.GetRestApisInput{}, stopOnDuplicateToken)
 	for p.HasMorePages() {
 		page, err := p.NextPage(g.Context())
@@ -87,22 +93,21 @@ func (g *APIGatewayLister) listRestAPIs(svc *apigateway.Client) error {
 			// Each part takes a call or more per API, so those of types
 			// the import doesn't keep are skipped.
 			for _, part := range []struct {
+				what  string
 				list  func(*apigateway.Client, restAPIRef) error
 				types []string
 			}{
-				{g.listStages, []string{"aws_api_gateway_stage", "aws_api_gateway_deployment"}},
-				{g.listResources, []string{"aws_api_gateway_resource", "aws_api_gateway_method", "aws_api_gateway_integration", "aws_api_gateway_integration_response", "aws_api_gateway_method_response"}},
-				{g.listModels, []string{"aws_api_gateway_model"}},
-				{g.listResponses, []string{"aws_api_gateway_gateway_response"}},
-				{g.listDocumentationParts, []string{"aws_api_gateway_documentation_part"}},
-				{g.listAuthorizers, []string{"aws_api_gateway_authorizer"}},
+				{"stages", g.listStages, []string{"aws_api_gateway_stage", "aws_api_gateway_deployment"}},
+				{"resources", g.listResources, []string{"aws_api_gateway_resource", "aws_api_gateway_method", "aws_api_gateway_integration", "aws_api_gateway_integration_response", "aws_api_gateway_method_response"}},
+				{"models", g.listModels, []string{"aws_api_gateway_model"}},
+				{"gateway responses", g.listResponses, []string{"aws_api_gateway_gateway_response"}},
+				{"documentation parts", g.listDocumentationParts, []string{"aws_api_gateway_documentation_part"}},
+				{"authorizers", g.listAuthorizers, []string{"aws_api_gateway_authorizer"}},
 			} {
 				if !g.WantsAny(part.types...) {
 					continue
 				}
-				if err := part.list(svc, api); err != nil {
-					return err
-				}
+				parts.Add(awsCodes, "the "+part.what+" of REST API "+api.id, part.list(svc, api))
 			}
 		}
 	}

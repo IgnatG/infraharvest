@@ -25,11 +25,14 @@ type EksLister struct {
 	Service
 }
 
-// List lists every cluster, each after its parts. Any error stops
-// the listing and is returned: a cluster without some of its parts would
-// make a configuration that plans to delete them. The clusters of a page
-// are read resourceParallel at a time, as each takes several calls, and
-// recorded in the page's order.
+// List lists every cluster, each after its parts. A cluster whose parts
+// can't all be read is left out with all of them, as a cluster without
+// some of its parts would make a configuration that plans to delete them;
+// the other clusters are kept, and the failure makes the listing partial
+// (see harvest.Parts). A cluster deleted since it was listed is left out
+// as well, without a failure. Failing to list the clusters fails the
+// service. The clusters of a page are read resourceParallel at a time, as
+// each takes several calls, and recorded in the page's order.
 func (g *EksLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -40,25 +43,27 @@ func (g *EksLister) list() error {
 		return err
 	}
 	svc := eks.NewFromConfig(config)
+	var parts harvest.Parts
 	clusters := eks.NewListClustersPaginator(svc, &eks.ListClustersInput{}, stopOnDuplicateToken)
 	for clusters.HasMorePages() {
 		page, err := clusters.NextPage(g.Context())
 		if err != nil {
-			return err
+			return parts.Fail(err)
 		}
 		resources := make([][]harvest.Resource, len(page.Clusters))
 		errs := make([]error, len(page.Clusters))
 		inParallel(len(page.Clusters), resourceParallel, func(i int) {
 			resources[i], errs[i] = g.cluster(page.Clusters[i], svc)
 		})
-		for i := range page.Clusters {
+		for i, name := range page.Clusters {
 			if errs[i] != nil {
-				return errs[i]
+				parts.Add(awsCodes, "cluster "+name, errs[i])
+				continue
 			}
 			g.Resources = append(g.Resources, resources[i]...)
 		}
 	}
-	return nil
+	return parts.Err()
 }
 
 // cluster returns the parts of the cluster clusterName, then the cluster.

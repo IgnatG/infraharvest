@@ -18,10 +18,15 @@ import (
 // stack set instances of a region (service cloudformation).
 type CloudFormationLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts harvest.Parts
 }
 
 // List lists the stacks, then each stack set followed by its
-// instances. Every error ends the listing.
+// instances. A stack set whose instances can't be read is still recorded,
+// with those read before the failure, and the failure makes the listing
+// partial (see harvest.Parts); a set deleted since it was listed has none.
+// Every other error ends the listing.
 func (g *CloudFormationLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -33,9 +38,12 @@ func (g *CloudFormationLister) list() error {
 	}
 	client := cloudformation.NewFromConfig(config)
 	if err := g.listStacks(client); err != nil {
-		return err
+		return g.parts.Fail(err)
 	}
-	return g.listStackSets(client)
+	if err := g.listStackSets(client); err != nil {
+		return g.parts.Fail(err)
+	}
+	return g.parts.Err()
 }
 
 // listStacks records every stack but the deleted ones, nested stacks
@@ -84,9 +92,7 @@ func (g *CloudFormationLister) listStackSets(client *cloudformation.Client) erro
 			if !g.Wants("aws_cloudformation_stack_set_instance") {
 				continue
 			}
-			if err := g.listStackInstances(client, name); err != nil {
-				return err
-			}
+			g.parts.Add(awsCodes, "the instances of stack set "+name, g.listStackInstances(client, name))
 		}
 	}
 	return nil

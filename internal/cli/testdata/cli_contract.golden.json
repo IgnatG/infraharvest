@@ -995,6 +995,13 @@
         "persistent": false
       },
       {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infrastructure",
+        "persistent": false
+      },
+      {
         "name": "parallel",
         "type": "int",
         "default": "1",
@@ -1080,6 +1087,13 @@
         "name": "hash-key-file",
         "type": "string",
         "default": "",
+        "persistent": false
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infrastructure",
         "persistent": false
       },
       {
@@ -1986,6 +2000,13 @@
         "type": "string",
         "default": "text",
         "persistent": false
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infrastructure",
+        "persistent": false
       }
     ]
   },
@@ -2009,6 +2030,12 @@
     "flags": [
       {
         "name": "catalogue",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "config",
         "type": "string",
         "default": "",
         "persistent": false
@@ -2042,6 +2069,19 @@
         "name": "format",
         "type": "string",
         "default": "text",
+        "persistent": false
+      },
+      {
+        "name": "out",
+        "shorthand": "o",
+        "type": "string",
+        "default": "infrastructure",
+        "persistent": false
+      },
+      {
+        "name": "parallel",
+        "type": "int",
+        "default": "1",
         "persistent": false
       },
       {

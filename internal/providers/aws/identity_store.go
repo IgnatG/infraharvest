@@ -18,12 +18,16 @@ import (
 // the identity store behind IAM Identity Center (service identitystore).
 type IdentityStoreLister struct {
 	Service
+	// parts gathers the parts of the listing that failed.
+	parts harvest.Parts
 }
 
 // List finds the identity store of the first IAM Identity Center
 // instance, then lists its users, then its groups, each followed by its
-// memberships. Without an instance there is nothing to list. Every error
-// is returned.
+// memberships. Without an instance there is nothing to list. A group
+// whose memberships can't be read keeps those read before the failure,
+// and the failure makes the listing partial (see harvest.Parts); a group
+// deleted since it was listed has none. Every other error is returned.
 func (g *IdentityStoreLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -45,9 +49,12 @@ func (g *IdentityStoreLister) list() error {
 	client := identitystore.NewFromConfig(config)
 
 	if err := g.listUsers(client, store); err != nil {
-		return err
+		return g.parts.Fail(err)
 	}
-	return g.listGroups(client, store)
+	if err := g.listGroups(client, store); err != nil {
+		return g.parts.Fail(err)
+	}
+	return g.parts.Err()
 }
 
 // listUsers records the users of store as <store>/<user ID>, which is how
@@ -94,9 +101,7 @@ func (g *IdentityStoreLister) listGroups(client *identitystore.Client, store str
 			if !g.Wants("aws_identitystore_group_membership") {
 				continue
 			}
-			if err := g.listMemberships(client, store, groupID); err != nil {
-				return err
-			}
+			g.parts.Add(awsCodes, "the memberships of group "+groupID, g.listMemberships(client, store, groupID))
 		}
 	}
 	return nil

@@ -1,0 +1,44 @@
+changes array of object
+changes[].address string
+changes[].after any omitempty
+changes[].attribute string omitempty
+changes[].before any omitempty
+changes[].covers array of string omitempty
+changes[].decision string
+changes[].decision_source string omitempty
+changes[].decision_stale boolean omitempty
+changes[].environment string omitempty
+changes[].forces_replacement boolean omitempty
+changes[].kind string
+changes[].module_call string omitempty
+changes[].outcome string
+changes[].reason string omitempty
+changes[].root string
+changes[].source object omitempty
+changes[].source.expression string omitempty
+changes[].source.file string
+changes[].source.line number omitempty
+changes[].source.module_path string omitempty
+changes[].type string
+drift_found boolean
+roots array of object
+roots[].backend string omitempty
+roots[].environment string omitempty
+roots[].error string omitempty
+roots[].not_applied array of string omitempty
+roots[].path string
+roots[].placeholders array of string omitempty
+roots[].resources number
+schema_version number
+totals object
+totals.absorbed number
+totals.changes number
+totals.failed number
+totals.kept number
+totals.manual number
+totals.not_assessable number
+totals.rejected_by_check number
+totals.rejected_by_plan number
+totals.roots number
+totals.secret number
+totals.written number

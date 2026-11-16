@@ -6,6 +6,7 @@ package importer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,6 +57,86 @@ func TestVerifyOutputWithoutRoots(t *testing.T) {
 	err := Verify(context.Background(), VerifyOptions{Out: t.TempDir(), Engine: EngineTerraform, Format: FormatText}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no generated roots") {
 		t.Errorf("want an error, got %v", err)
+	}
+}
+
+// A root that can't be checked is reported with why, the others are still
+// checked, in order whatever the parallelism, and the exit code says a root
+// couldn't be checked.
+func TestVerifyTargetsGoOnPastARootThatCantBeChecked(t *testing.T) {
+	targets := []verifyTarget{
+		{dir: "/out/aws/1/eu-west-2", path: "aws/1/eu-west-2"},
+		{dir: "/out/aws/1/global", path: "aws/1/global"},
+		{dir: "/out/aws/1/us-east-1", path: "aws/1/us-east-1", err: errors.New("vars/ can't be read")},
+		{dir: "/out/aws/2/eu-west-2", path: "aws/2/eu-west-2"},
+	}
+	check := func(_ context.Context, target verifyTarget) verifiedRoot {
+		root := verifiedRoot{Path: target.path}
+		switch {
+		case target.err != nil:
+			root.Error = target.err.Error()
+		case target.path == "aws/1/global":
+			root.Error = "terraform init: registry unreachable"
+		default:
+			root.Checks = []report.Check{{Name: gate.CheckFormat, Passed: true}}
+		}
+		return root
+	}
+	for _, parallel := range []int{1, 3} {
+		results := verifyTargets(context.Background(), parallel, targets, check)
+		var got []string
+		for _, r := range results {
+			got = append(got, r.Path+"|"+r.Error)
+		}
+		want := []string{"aws/1/eu-west-2|", "aws/1/global|terraform init: registry unreachable", "aws/1/us-east-1|vars/ can't be read", "aws/2/eu-west-2|"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("parallel %d: got %v, want %v", parallel, got, want)
+		}
+		var exit *ExitError
+		if err := verifyExit(results); !errors.As(err, &exit) || exit.Code != report.ExitCouldNotRun || !strings.Contains(err.Error(), "2 roots couldn't be checked") {
+			t.Errorf("parallel %d: exit %v, want ExitCouldNotRun for 2 roots", parallel, err)
+		}
+	}
+
+	var b bytes.Buffer
+	if err := writeVerified(&b, []verifiedRoot{{Path: "aws/1/global", Environment: "dev", Error: "terraform init: registry unreachable"}}, FormatText); err != nil {
+		t.Fatal(err)
+	}
+	if want := "aws/1/global (dev): couldn't be checked: terraform init: registry unreachable\n"; b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
+
+// A panic in one root's check stops those not started, which say why.
+func TestVerifyTargetsPanic(t *testing.T) {
+	targets := []verifyTarget{{path: "a"}, {path: "b"}, {path: "c"}}
+	results := verifyTargets(context.Background(), 1, targets, func(_ context.Context, target verifyTarget) verifiedRoot {
+		if target.path == "a" {
+			panic("boom")
+		}
+		return verifiedRoot{Path: target.path}
+	})
+	if results[0].Error == "" || !strings.Contains(results[1].Error, "a panicked") || !strings.Contains(results[2].Error, "a panicked") {
+		t.Errorf("results: %+v", results)
+	}
+}
+
+// Only check failures exit 1; nothing failed exits 0.
+func TestVerifyExitChecks(t *testing.T) {
+	if err := verifyExit([]verifiedRoot{{Path: "a", Checks: []report.Check{{Name: gate.CheckFormat, Passed: true}}}}); err != nil {
+		t.Errorf("all passed: %v", err)
+	}
+	var exit *ExitError
+	err := verifyExit([]verifiedRoot{{Path: "a", Checks: []report.Check{{Name: gate.CheckPlan, Details: []string{"x: update"}}}}})
+	if !errors.As(err, &exit) || exit.Code != report.ExitIncomplete {
+		t.Errorf("a check failed: %v, want ExitIncomplete", err)
+	}
+}
+
+func TestVerifyRejectsNegativeParallel(t *testing.T) {
+	err := Verify(context.Background(), VerifyOptions{Out: t.TempDir(), Engine: EngineTerraform, Format: FormatText, Parallel: -1}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "--parallel") {
+		t.Errorf("want a --parallel error, got %v", err)
 	}
 }
 

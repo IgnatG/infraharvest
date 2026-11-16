@@ -26,8 +26,11 @@ type SnsLister struct {
 // topics are read resourceParallel topics at a time, and recorded in the
 // page's order. They are asked for by topic, not account-wide with
 // ListSubscriptions, which leaves out what other accounts subscribed to
-// the account's topics. Any listing error, a topic's subscriptions
-// included, fails the service, with what was read up to it recorded.
+// the account's topics. A failure to list the topics fails the service,
+// with what was read up to it recorded. A topic whose subscriptions can't
+// be read is still recorded, with those read before the failure, and the
+// failure makes the listing partial (see harvest.Parts); a topic deleted
+// since it was listed has none.
 func (g *SnsLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -38,25 +41,24 @@ func (g *SnsLister) list() error {
 		return err
 	}
 	svc := sns.NewFromConfig(config)
+	var parts harvest.Parts
 	topics := sns.NewListTopicsPaginator(svc, &sns.ListTopicsInput{}, stopOnDuplicateToken)
 	for topics.HasMorePages() {
 		page, err := topics.NextPage(g.Context())
 		if err != nil {
-			return err
+			return parts.Fail(err)
 		}
 		reads := make([][]harvest.Resource, len(page.Topics))
 		errs := make([]error, len(page.Topics))
 		inParallel(len(page.Topics), resourceParallel, func(i int) {
 			reads[i], errs[i] = g.topic(svc, page.Topics[i].TopicArn)
 		})
-		for i := range page.Topics {
+		for i, topic := range page.Topics {
 			g.Resources = append(g.Resources, reads[i]...)
-			if errs[i] != nil {
-				return errs[i]
-			}
+			parts.Add(awsCodes, "the subscriptions of "+aws.ToString(topic.TopicArn), errs[i])
 		}
 	}
-	return nil
+	return parts.Err()
 }
 
 // topic returns the topic topicARN, followed by its subscriptions that

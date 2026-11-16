@@ -116,19 +116,28 @@ func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
 }
 
 // A global cluster is listed in its primary cluster's region only, and
-// the queues by SQS_PREFIX when it is set: absent from one region's
+// the queues by INFRAHARVEST_SQS_PREFIX when it is set: absent from one region's
 // listing, they may still be there.
 func TestPartialTypes(t *testing.T) {
 	// Restored when the test ends.
-	t.Setenv("SQS_PREFIX", "")
-	if err := os.Unsetenv("SQS_PREFIX"); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{sqsPrefixEnv, sqsPrefixOldEnv} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if got, want := (Provider{}).PartialTypes(), []string{"aws_rds_global_cluster"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
-	t.Setenv("SQS_PREFIX", "app-")
-	if got, want := (Provider{}).PartialTypes(), []string{"aws_rds_global_cluster", "aws_sqs_queue"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("with SQS_PREFIX: got %v, want %v", got, want)
+	for _, name := range []string{sqsPrefixEnv, sqsPrefixOldEnv} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "app-")
+			if got, want := (Provider{}).PartialTypes(), []string{"aws_rds_global_cluster", "aws_sqs_queue"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("with %s: got %v, want %v", name, got, want)
+			}
+			if prefix, ok := sqsPrefix(); !ok || prefix != "app-" {
+				t.Errorf("with %s: prefix %q, %v; want app-, true", name, prefix, ok)
+			}
+		})
 	}
 }

@@ -79,15 +79,16 @@ func newDriftCmd() *cobra.Command {
 				}
 				options.Modules = f.Modules
 			}
-			options.Out = report.DefaultOut
-			if len(args) == 1 {
-				options.Out = args[0]
+			var err error
+			if options.Out, err = outDir(cmd, args, options.Out); err != nil {
+				return err
 			}
 			ctx, stop := interruptContext(cmd.Context())
 			defer stop()
 			return importer.Interrupted(ctx, importer.Drift(ctx, options, cmd.OutOrStdout()))
 		},
 	}
+	addOutFlag(cmd, &options.Out)
 	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners")
 	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
 		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,

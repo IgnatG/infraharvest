@@ -11,7 +11,7 @@ import (
 )
 
 func newReportCmd() *cobra.Command {
-	var format string
+	var format, out string
 	cmd := &cobra.Command{
 		Use:   "report [output-directory]",
 		Short: "Print the report of an import (default directory: " + report.DefaultOut + ")",
@@ -21,13 +21,14 @@ func newReportCmd() *cobra.Command {
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out := report.DefaultOut
-			if len(args) == 1 {
-				out = args[0]
+			dir, err := outDir(cmd, args, out)
+			if err != nil {
+				return err
 			}
-			return importer.PrintReport(out, format, cmd.OutOrStdout())
+			return importer.PrintReport(dir, format, cmd.OutOrStdout())
 		},
 	}
+	addOutFlag(cmd, &out)
 	cmd.Flags().StringVar(&format, "format", importer.FormatText, "text prints the report as Markdown; json as JSON")
 	return cmd
 }

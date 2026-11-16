@@ -1,0 +1,228 @@
+cloudformation_stacks array of object omitempty
+cloudformation_stacks[].blockers array of string omitempty
+cloudformation_stacks[].deleted boolean omitempty
+cloudformation_stacks[].id string
+cloudformation_stacks[].name string
+cloudformation_stacks[].nested_as string omitempty
+cloudformation_stacks[].parent string omitempty
+cloudformation_stacks[].region string
+cloudformation_stacks[].resources array of object
+cloudformation_stacks[].resources[].acknowledged boolean omitempty
+cloudformation_stacks[].resources[].logical_id string
+cloudformation_stacks[].resources[].matches array of object omitempty
+cloudformation_stacks[].resources[].matches[].address string omitempty
+cloudformation_stacks[].resources[].matches[].id string
+cloudformation_stacks[].resources[].matches[].path string omitempty
+cloudformation_stacks[].resources[].matches[].scope string omitempty
+cloudformation_stacks[].resources[].matches[].type string
+cloudformation_stacks[].resources[].must_remove boolean omitempty
+cloudformation_stacks[].resources[].not_importable string omitempty
+cloudformation_stacks[].resources[].outcome string
+cloudformation_stacks[].resources[].physical_id string omitempty
+cloudformation_stacks[].resources[].reason string omitempty
+cloudformation_stacks[].resources[].retain array of string omitempty
+cloudformation_stacks[].resources[].status string
+cloudformation_stacks[].resources[].type string
+cloudformation_stacks[].retain_template string omitempty
+cloudformation_stacks[].retain_template_bytes number omitempty
+cloudformation_stacks[].root string omitempty
+cloudformation_stacks[].safe_to_delete boolean
+cloudformation_stacks[].status string
+cloudformation_stacks[].template string omitempty
+cloudformation_stacks[].template_url string omitempty
+cloudformation_stacks[].unreadable string omitempty
+cloudformation_stacks[].warnings array of string omitempty
+departed array of object omitempty
+departed[].from string
+departed[].from_root string
+departed[].id string
+departed[].to string omitempty
+departed[].to_root string
+departed[].type string
+directories array of object
+directories[].checks array of object omitempty
+directories[].checks[].details array of string omitempty
+directories[].checks[].name string
+directories[].checks[].passed boolean
+directories[].checks[].skipped boolean omitempty
+directories[].error string omitempty
+directories[].imported array of object
+directories[].imported[].address string
+directories[].imported[].id string
+directories[].left_out array of object omitempty
+directories[].left_out[].address string
+directories[].left_out[].errors array of string
+directories[].left_out[].id string
+directories[].merged_into string omitempty
+directories[].modules array of object omitempty
+directories[].modules[].declined string omitempty
+directories[].modules[].name string omitempty
+directories[].modules[].resources array of string
+directories[].modules[].source string
+directories[].modules[].version string omitempty
+directories[].path string
+directories[].plans array of object omitempty
+directories[].plans[].plans number
+directories[].plans[].shows number
+directories[].plans[].step string
+directories[].scope string omitempty
+directories[].secrets array of object omitempty
+directories[].secrets[].address string
+directories[].secrets[].attribute string
+directories[].secrets[].variable string
+directories[].warnings array of string omitempty
+engine object
+engine.name string
+engine.version string
+excluded array of object omitempty
+excluded[].id string
+excluded[].owner string omitempty
+excluded[].reason string
+excluded[].scope string omitempty
+excluded[].type string
+exit_code number
+failures array of string omitempty
+findings array of object omitempty
+findings[].address string omitempty
+findings[].environment string omitempty
+findings[].id string omitempty
+findings[].location string omitempty
+findings[].message string omitempty
+findings[].root string
+findings[].rule string
+findings[].scanner string
+findings[].scope string omitempty
+findings[].service string omitempty
+findings[].severity string omitempty
+findings[].type string omitempty
+incomplete_handovers array of object omitempty
+incomplete_handovers[].failed_root string
+incomplete_handovers[].from string
+incomplete_handovers[].from_root string
+incomplete_handovers[].id string
+incomplete_handovers[].to string omitempty
+incomplete_handovers[].to_root string
+incomplete_handovers[].type string
+incomplete_handovers[].warning string
+kept_roots array of object omitempty
+kept_roots[].environments array of string
+kept_roots[].path string
+kept_roots[].scope string omitempty
+merges array of object omitempty
+merges[].apart array of object omitempty
+merges[].apart[].env string
+merges[].apart[].path string
+merges[].apart_reason string omitempty
+merges[].checks array of object omitempty
+merges[].checks[].details array of string omitempty
+merges[].checks[].name string
+merges[].checks[].passed boolean
+merges[].checks[].skipped boolean omitempty
+merges[].environments array of string
+merges[].findings array of object omitempty
+merges[].findings[].address string omitempty
+merges[].findings[].environment string omitempty
+merges[].findings[].id string omitempty
+merges[].findings[].location string omitempty
+merges[].findings[].message string omitempty
+merges[].findings[].root string
+merges[].findings[].rule string
+merges[].findings[].scanner string
+merges[].findings[].scope string omitempty
+merges[].findings[].service string omitempty
+merges[].findings[].severity string omitempty
+merges[].findings[].type string omitempty
+merges[].merged boolean
+merges[].path string
+merges[].reason string omitempty
+merges[].residue array of object omitempty
+merges[].residue[].address string
+merges[].residue[].env string
+merges[].residue[].merged_address string
+merges[].residue[].reason string
+merges[].roots array of object
+merges[].roots[].env string
+merges[].roots[].path string
+merges[].shared number omitempty
+merges[].unchanged boolean omitempty
+merges[].unplanned array of string omitempty
+merges[].variables array of string omitempty
+modules array of object omitempty
+modules[].latest string
+modules[].source string
+modules[].version string
+moved array of object omitempty
+moved[].from string
+moved[].from_root string
+moved[].id string
+moved[].to string omitempty
+moved[].to_root string
+moved[].type string
+not_in_cloud array of object omitempty
+not_in_cloud[].address string
+not_in_cloud[].environment string omitempty
+not_in_cloud[].id string
+not_in_cloud[].path string
+not_in_cloud[].scope string omitempty
+provider object
+provider.constraint string
+provider.held_back string omitempty
+provider.source string
+provider.version string omitempty
+schema_version number
+scopes array of object omitempty
+scopes[].cloud number omitempty
+scopes[].discovered number
+scopes[].excluded number
+scopes[].failed number
+scopes[].imported number
+scopes[].left_out number
+scopes[].managed number omitempty
+scopes[].other_tool number omitempty
+scopes[].scope string
+scopes[].skipped number
+skipped array of object omitempty
+skipped[].count number
+skipped[].reason string
+skipped[].type string
+tags array of object omitempty
+tags[].cloud number omitempty
+tags[].discovered number
+tags[].excluded number
+tags[].failed number
+tags[].imported number
+tags[].key string
+tags[].left_out number
+tags[].managed number omitempty
+tags[].other_tool number omitempty
+tags[].skipped number
+tags[].value string
+tool object
+tool.name string
+tool.version string
+totals object
+totals.cloud number omitempty
+totals.discovered number
+totals.excluded number
+totals.failed number
+totals.imported number
+totals.left_out number
+totals.managed number omitempty
+totals.other_tool number omitempty
+totals.skipped number
+types array of object
+types[].cloud number omitempty
+types[].discovered number
+types[].excluded number
+types[].failed number
+types[].imported number
+types[].left_out number
+types[].managed number omitempty
+types[].other_tool number omitempty
+types[].skipped number
+types[].type string
+unused_modules array of object omitempty
+unused_modules[].accepts string
+unused_modules[].source string
+unused_modules[].version string
+warnings array of string omitempty

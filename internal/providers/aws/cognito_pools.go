@@ -24,8 +24,11 @@ type CognitoLister struct {
 }
 
 // List records the identity pools, then the user pools, then the
-// clients of each user pool in the order the pools were listed. The first
-// error stops the listing and is returned.
+// clients of each user pool in the order the pools were listed. A user
+// pool whose clients can't be read keeps those read before the failure,
+// and the failure makes the listing partial (see harvest.Parts); a pool
+// deleted since it was listed has none. Any other error stops the listing
+// and is returned.
 func (g *CognitoLister) List(ctx context.Context, s harvest.Settings) ([]harvest.Resource, error) {
 	return g.Run(ctx, s, g.list)
 }
@@ -47,12 +50,11 @@ func (g *CognitoLister) list() error {
 	if !g.Wants("aws_cognito_user_pool_client") {
 		return nil
 	}
+	var parts harvest.Parts
 	for _, poolID := range poolIDs {
-		if err := g.listCognitoUserPoolClients(idp, poolID); err != nil {
-			return err
-		}
+		parts.Add(awsCodes, "the clients of user pool "+poolID, g.listCognitoUserPoolClients(idp, poolID))
 	}
-	return nil
+	return parts.Err()
 }
 
 // listCognitoIdentityPools records each identity pool by ID, named
