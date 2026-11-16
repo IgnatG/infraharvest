@@ -14,16 +14,18 @@ const (
 	DocInventory = "inventory"
 	DocRun       = "run"
 	DocGate      = "gate"
+	DocGraph     = "graph"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph}
 
 // The value of each document's schema field.
 const (
 	schemaInventory = "infraharvest/inventory/v1"
 	schemaRun       = "infraharvest/run/v1"
 	schemaGate      = "infraharvest/gate/v1"
+	schemaGraph     = "infraharvest/graph/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.

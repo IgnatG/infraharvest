@@ -70,14 +70,9 @@ func Build(opts Options) ([]byte, error) {
 	var doc any
 	switch opts.Document {
 	case DocInventory:
-		generated := opts.FinishedAt
-		if generated.IsZero() {
-			generated = time.Now()
-			if opts.Now != nil {
-				generated = opts.Now()
-			}
-		}
-		doc, err = buildInventory(r, opts, runID, generated)
+		doc, err = buildInventory(r, opts, runID, generatedAt(opts))
+	case DocGraph:
+		doc, err = buildGraph(r, opts, runID, generatedAt(opts))
 	case DocRun:
 		doc = buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
 	case DocGate:
@@ -94,6 +89,19 @@ func Build(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("the %s document doesn't match its schema, so nothing is written: %w", opts.Document, err)
 	}
 	return append(content, '\n'), nil
+}
+
+// generatedAt is the time a document's generated_at says: when the import
+// finished, if the caller knows, so that exporting the same run again says
+// the same time, else now.
+func generatedAt(opts Options) time.Time {
+	if !opts.FinishedAt.IsZero() {
+		return opts.FinishedAt
+	}
+	if opts.Now != nil {
+		return opts.Now()
+	}
+	return time.Now()
 }
 
 // timeLayout is the form of every timestamp in the documents: UTC, to the
