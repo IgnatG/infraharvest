@@ -38,8 +38,9 @@ warn contains msg if {
 
 // TestAWSOptionsPolicy checks --policy on import and verify, with
 // conftest (the e2e-aws job installs it): every queue of
-// testdata/aws-options gets the policy's deny, at failure, and its warn, at
-// warning, about the queue's address, type and import ID, in report.json
+// testdata/aws-options that an import takes in (not the one tagged
+// ManagedBy=Terraform, which it leaves out without --include-owned) gets
+// the policy's deny, at failure, and its warn, at warning, about the queue's address, type and import ID, in report.json
 // and report.md, and the import still succeeds, as policy findings never
 // fail the gate. verify --policy lists the same findings.
 func TestAWSOptionsPolicy(t *testing.T) {
@@ -55,7 +56,7 @@ func TestAWSOptionsPolicy(t *testing.T) {
 
 	queues := map[string]bool{}
 	for _, r := range e.state {
-		if r.Type == "aws_sqs_queue" {
+		if r.Type == "aws_sqs_queue" && r.Name != "owned" {
 			id, _ := r.AttributeValues["id"].(string)
 			queues[id] = true
 		}
