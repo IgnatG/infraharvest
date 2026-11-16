@@ -70,6 +70,9 @@ type OwnerTag struct {
 	Tool string
 	// Stack says the tag's value is the stack the tool manages it in.
 	Stack bool
+	// KeyPrefix says Key starts the tag's key rather than being all of
+	// it, as kubernetes.io/cluster/ starts kubernetes.io/cluster/<name>.
+	KeyPrefix bool
 }
 
 // OwnerTags are the tags a provider's cloud gives what tools create.
@@ -79,7 +82,11 @@ type OwnerTags []OwnerTag
 // it is one of o.
 func (o OwnerTags) owner(key, value string) (Owner, bool) {
 	for _, t := range o {
-		if t.Key != key || (t.Value != "" && !strings.EqualFold(t.Value, value)) {
+		matches := key == t.Key
+		if t.KeyPrefix {
+			matches = len(key) > len(t.Key) && strings.HasPrefix(key, t.Key)
+		}
+		if !matches || (t.Value != "" && !strings.EqualFold(t.Value, value)) {
 			continue
 		}
 		owner := Owner{Tool: t.Tool, Tag: key + "=" + value}

@@ -28,6 +28,7 @@ var testTraits = Traits{
 	OwnerTags: OwnerTags{
 		{Key: "aws:cloudformation:stack-name", Tool: "CloudFormation", Stack: true},
 		{Key: "goog-terraform-provisioned", Value: "true", Tool: "Terraform"},
+		{Key: "kubernetes.io/cluster/", Value: "owned", Tool: "Kubernetes", KeyPrefix: true},
 	},
 	TagAttributes:       []string{"tags", "labels", "terraform_labels", "effective_labels"},
 	MergedTagAttributes: []string{"tags_all", "default_tags"},
