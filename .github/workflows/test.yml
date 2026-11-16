@@ -629,7 +629,10 @@ jobs:
   # TestGoogleIncremental adds to the estate the other tests import, and
   # TestGoogleDrift and TestGoogleEnvironments change it, so each runs on a
   # runner of its own, with its own floci-gcp, as does the round trip; the
-  # other tests share a fifth.
+  # other tests share a fifth. A sixth repeats the round trip with
+  # INFRAHARVEST_IMPORT_ONCE (import-once state, off by default): the
+  # generated files and the plans must be the same, so this cloud's
+  # emulator, the cheapest, covers it.
   e2e-google:
     name: e2e-google (${{ matrix.engine }}, ${{ matrix.shard }})
     needs: changes
@@ -640,11 +643,15 @@ jobs:
       fail-fast: false
       matrix:
         engine: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["terraform", "tofu"]' || github.event_name == 'schedule' && '["tofu"]' || '["terraform"]') }}
-        shard: [round-trip, incremental, drift, environments, others]
+        shard: [round-trip, incremental, drift, environments, others, round-trip-once]
         include:
         - shard: round-trip
           run: ^TestGoogleRoundTrip$
           skip: ""
+        - shard: round-trip-once
+          run: ^TestGoogleRoundTrip$
+          skip: ""
+          once: "1"
         - shard: incremental
           run: ^TestGoogleIncremental$
           skip: ""
@@ -698,6 +705,7 @@ jobs:
         INFRAHARVEST_E2E_REQUIRED: "1"
         INFRAHARVEST_E2E_PLUGIN_CACHE: ${{ runner.temp }}/terraform-plugins
         INFRAHARVEST_GOOGLE_ENDPOINT: http://localhost:4588
+        INFRAHARVEST_IMPORT_ONCE: ${{ matrix.once }}
         E2E_ENGINE: ${{ matrix.engine }}
         RUN: ${{ matrix.run }}
         SKIP: ${{ matrix.skip }}
