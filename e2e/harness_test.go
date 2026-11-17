@@ -306,9 +306,9 @@ func sortedKeys(m map[string]int) []string {
 
 // changedAttributes maps each top-level attribute a planned update changes
 // to "before -> after". An attribute known only after the apply (true in
-// after_unknown) is left out: the plan shows it as null in After, which
-// isn't a change the configuration makes, as the action test's jq filter
-// already reads it.
+// after_unknown) reads as null in After, so it is compared by after_unknown:
+// a value known before that becomes unknown is a change, as a removed value
+// is, and one that was null stays no change.
 func changedAttributes(change *tfjson.Change) map[string]string {
 	changed := map[string]string{}
 	if change == nil {
@@ -319,6 +319,9 @@ func changedAttributes(change *tfjson.Change) map[string]string {
 	unknown, _ := change.AfterUnknown.(map[string]interface{})
 	compare := func(k string) {
 		if u, _ := unknown[k].(bool); u {
+			if b[k] != nil {
+				changed[k] = fmt.Sprintf("%v -> (known after apply)", b[k])
+			}
 			return
 		}
 		// An attribute absent from one side reads as nil, so null against
