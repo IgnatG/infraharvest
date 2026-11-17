@@ -4,6 +4,7 @@
 package importer
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -394,6 +395,50 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(alpha, rootfile.MovesFileName)); err != nil {
 		t.Errorf("alpha's %s: %v", rootfile.MovesFileName, err)
+	}
+}
+
+// A root that hands every resource over keeps the providers.tf it had: the
+// call that vacates it may configure another region.
+func TestListCallRegenerateVacatedRootKeepsItsProviders(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
+	alpha := filepath.Join(out, "fake", "alpha")
+	own := "provider \"fake\" {\n  region = \"eu-west-2\"\n}\n"
+	if err := os.WriteFile(filepath.Join(alpha, rootfile.ProvidersFileName), []byte(own), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := &fakeEngine{}
+	options := pathOptions(out, f, "alpha", "beta")
+	options.Layout = "{out}/{provider}/all/"
+	options.Regenerate = true
+	run := options.run()
+	defer run.unlockOut()
+	rootConfig := run.tools.rootConfig
+	run.tools.rootConfig = func(ctx context.Context, registry, execPath string, p rootfile.Provider, c []moduleConstraint) (*rootFiles, error) {
+		files, err := rootConfig(ctx, registry, execPath, p, c)
+		if err == nil {
+			files.files = map[string][]byte{rootfile.VersionsFileName: []byte("terraform {}\n"), rootfile.ProvidersFileName: []byte("provider \"fake\" {\n  region = \"us-east-1\"\n}\n")}
+		}
+		return files, err
+	}
+	calls := []Call{{Provider: &rootsProvider{}, Options: options.Options}}
+	if err := run.importScope(t.Context(), options.Options, "", calls, engineSteps); err != nil {
+		t.Fatal(err)
+	}
+	if len(run.failures) != 0 {
+		t.Fatalf("failures %v", run.failures)
+	}
+	if got := readFileIn(t, alpha, rootfile.ProvidersFileName); got != own {
+		t.Errorf("alpha's %s is the owning call's:\n%s", rootfile.ProvidersFileName, got)
+	}
+	if _, err := os.Stat(filepath.Join(alpha, rootfile.MovesFileName)); err != nil {
+		t.Errorf("alpha isn't vacated: %v", err)
+	}
+	// A vacated root that had none gets the call's.
+	if got := readFileIn(t, filepath.Join(out, "fake", "beta"), rootfile.ProvidersFileName); !strings.Contains(got, "us-east-1") {
+		t.Errorf("beta's %s:\n%s", rootfile.ProvidersFileName, got)
 	}
 }
 
