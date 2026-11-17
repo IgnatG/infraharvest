@@ -287,13 +287,13 @@ func (r *Run) recordFailure(options Options, err error) {
 // into another run's output.
 func (r *Run) finish(err error) error {
 	defer r.unlockOut()
-	if !r.used && (err == nil || r.options.Out == "" || r.options.Discover) {
+	if !r.used && (err == nil || r.options.Out == "" || r.options.discovers()) {
 		return err
 	}
 	if lockErr := r.lockOut(r.options); lockErr != nil {
 		return couldNotRun(err, lockErr)
 	}
-	if r.options.Discover {
+	if r.options.discovers() {
 		// After a failure, what didn't list may be only what failed.
 		if writeErr := r.writeSelection(err != nil || len(r.failures) > 0); writeErr != nil {
 			return couldNotRun(err, writeErr)

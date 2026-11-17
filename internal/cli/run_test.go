@@ -19,9 +19,14 @@ import (
 func fakeProviderCommand(run func(importer.Options) error) *cobra.Command {
 	options := importer.Options{}
 	cmd := &cobra.Command{Use: "fake", SilenceUsage: true, SilenceErrors: true}
-	cmd.RunE = withEngineRun(func(*cobra.Command, []string, *importer.Run) error { return run(options) })
 	cmd.Flags().String("config", "", "")
-	providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
+	modes := providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
+	cmd.RunE = withEngineRun(func(*cobra.Command, []string, *importer.Run) error {
+		if err := modes.Apply(&options); err != nil {
+			return err
+		}
+		return run(options)
+	})
 	return cmd
 }
 
@@ -105,8 +110,8 @@ func TestRegenerate(t *testing.T) {
 			if err := cmd.Execute(); err != nil {
 				t.Fatal(err)
 			}
-			if got.Regenerate != tc.regenerate || got.Resume != tc.resume {
-				t.Errorf("regenerate=%v resume=%v, want %v and %v", got.Regenerate, got.Resume, tc.regenerate, tc.resume)
+			if (got.Roots == importer.RootsRegenerate) != tc.regenerate || got.Resume != tc.resume {
+				t.Errorf("regenerate=%v resume=%v, want %v and %v", got.Roots == importer.RootsRegenerate, got.Resume, tc.regenerate, tc.resume)
 			}
 		})
 	}
@@ -153,5 +158,57 @@ func TestPickSelection(t *testing.T) {
 				t.Errorf("err: %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+// The flags that exclude one another set one value each, and say so where
+// they are read.
+func TestModeFlags(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args  []string
+		mode  importer.Mode
+		roots importer.RootsMode
+		err   string
+	}{
+		"selection":        {[]string{"--services", "vpc"}, importer.ModeSelection, importer.RootsFresh, ""},
+		"all":              {[]string{"--services", "vpc", "--all"}, importer.ModeAll, importer.RootsFresh, ""},
+		"all, incremental": {[]string{"--all", "--incremental"}, importer.ModeAll, importer.RootsIncremental, ""},
+		"all, regenerate":  {[]string{"--all", "--regenerate"}, importer.ModeAll, importer.RootsRegenerate, ""},
+		"regenerate, both": {[]string{"--all", "--regenerate", "--incremental"}, 0, 0, "use either --regenerate or --incremental"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got importer.Options
+			cmd := fakeProviderCommand(func(o importer.Options) error { got = o; return nil })
+			cmd.SetArgs(tc.args)
+			err := cmd.Execute()
+			if tc.err != "" {
+				if err == nil || err.Error() != tc.err {
+					t.Fatalf("got %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Mode != tc.mode || got.Roots != tc.roots {
+				t.Errorf("mode %v, roots %v, want %v and %v", got.Mode, got.Roots, tc.mode, tc.roots)
+			}
+		})
+	}
+}
+
+func TestDiscoverRejectsAll(t *testing.T) {
+	cmd := &cobra.Command{Use: "fake", SilenceUsage: true, SilenceErrors: true}
+	options := importer.Options{Mode: importer.ModeDiscover}
+	flags := providers.BaseFlags(cmd.PersistentFlags(), &options, "", "")
+	if err := cmd.PersistentFlags().Set("all", "true"); err != nil {
+		t.Fatal(err)
+	}
+	err := flags.Apply(&options)
+	if err == nil || err.Error() != "discover lists everything; --all is for import" {
+		t.Errorf("got %v", err)
+	}
+	if options.Mode != importer.ModeDiscover {
+		t.Errorf("mode %v, want discover", options.Mode)
 	}
 }

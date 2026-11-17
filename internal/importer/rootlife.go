@@ -94,13 +94,13 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	if err != nil {
 		return rootDecision{}, err
 	}
-	d := rootDecision{premerged: set, restore: set && options.Incremental}
+	d := rootDecision{premerged: set, restore: set && options.Roots == RootsIncremental}
 	// Where the root's files are until the import brings it back.
 	files := dir
 	if d.restore {
 		files = premergeDir(out, dir)
 	}
-	if options.Incremental {
+	if options.Roots == RootsIncremental {
 		has, err := engine.HasConfiguration(files)
 		if err != nil {
 			return rootDecision{}, err
@@ -137,10 +137,10 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 	if err := c.handovers.refuseUnreceived(dir); err != nil {
 		return d.refused(err), nil
 	}
-	if set && !options.Regenerate && !options.Resume {
+	if set && options.Roots != RootsRegenerate && !options.Resume {
 		return d.refused(fmt.Errorf("%s was merged into the root its stack's environments share, which may be in use: pass --regenerate to generate both again, or --incremental to add what is new", dir)), nil
 	}
-	return d.generated(out, dir, files, options.Resume, options.Roots() != RootsFresh), nil
+	return d.generated(out, dir, files, options.Resume, options.Roots != RootsFresh), nil
 }
 
 // generated returns d, deciding how the root in dir, under out, whose

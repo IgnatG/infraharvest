@@ -108,7 +108,7 @@ func TestEngineRunCouldNotWriteReport(t *testing.T) {
 	partial := checkFailures([]error{errors.New("service sqs: access denied")}, true)
 	for name, options := range map[string]Options{
 		"import":   {Out: out, AllowPartial: true},
-		"discover": {Discover: true, Selection: filepath.Join(out, "selection.yaml"), AllowPartial: true},
+		"discover": {Mode: ModeDiscover, Selection: filepath.Join(out, "selection.yaml"), AllowPartial: true},
 	} {
 		run := NewRun()
 		run.used = true

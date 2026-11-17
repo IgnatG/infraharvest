@@ -28,7 +28,7 @@ func TestImportDiscoversThroughTheListers(t *testing.T) {
 		t.Fatal(err)
 	}
 	options := Options{
-		Discover:     true,
+		Mode:         ModeDiscover,
 		Out:          filepath.Join(dir, "out"),
 		Selection:    filepath.Join(dir, "selection.yaml"),
 		Services:     []string{"good", "partial", "skipped"},

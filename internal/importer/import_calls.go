@@ -84,7 +84,7 @@ func (r *Run) Import(ctx context.Context, cmd Command) error {
 	}
 	// Discover runs no gate, and takes --policy only as the configuration
 	// file it shares with import may set it.
-	if !options.Discover {
+	if !options.discovers() {
 		policies, err := resolvePolicies(options.Policies)
 		if err != nil {
 			return err
@@ -97,7 +97,7 @@ func (r *Run) Import(ctx context.Context, cmd Command) error {
 	// A --selection file that doesn't load is rejected before anything is
 	// listed (discover writes it instead). The run keeps what it loaded,
 	// so the file is read once.
-	if options.Selection != "" && !options.Discover {
+	if options.Selection != "" && !options.discovers() {
 		if _, err := r.selectionFile(options); err != nil {
 			return fmt.Errorf("--selection: %w", err)
 		}
@@ -204,7 +204,7 @@ func (r *Run) importScope(ctx context.Context, options Options, scope string, ca
 		// its report (see Run.finish).
 		r.options = options
 	}
-	if !options.Discover {
+	if !options.discovers() {
 		// Loaded before the calls share it.
 		if _, err := r.selectionFile(options); err != nil {
 			return err
@@ -256,7 +256,7 @@ func (r *Run) importScope(ctx context.Context, options Options, scope string, ca
 		}
 		return err
 	})
-	if err != nil || options.Discover {
+	if err != nil || options.discovers() {
 		return err
 	}
 	// Before any root is generated: what goes from one to another is

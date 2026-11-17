@@ -316,44 +316,44 @@ func TestCheckOptions(t *testing.T) {
 		options Options
 		want    string
 	}{
-		{Options{All: true, Services: []string{"vpc", "*"}}, ""},
-		{Options{Discover: true, Services: []string{"vpc"}, Skip: []string{"s3"}}, ""},
-		{Options{All: true, Services: []string{"vpc", "vcp"}}, "--services: fake has no service vcp"},
-		{Options{All: true, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
-		{Options{Services: []string{"vpc"}, All: true, Engine: "pulumi"}, `unknown --engine "pulumi"`},
-		{Options{All: true}, "--services is required"},
+		{Options{Mode: ModeAll, Services: []string{"vpc", "*"}}, ""},
+		{Options{Mode: ModeDiscover, Services: []string{"vpc"}, Skip: []string{"s3"}}, ""},
+		{Options{Mode: ModeAll, Services: []string{"vpc", "vcp"}}, "--services: fake has no service vcp"},
+		{Options{Mode: ModeAll, Services: []string{"*"}, Skip: []string{"s4"}}, "--skip: fake has no service s4"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Engine: "pulumi"}, `unknown --engine "pulumi"`},
+		{Options{Mode: ModeAll}, "--services is required"},
 		{Options{ProviderScope: fakeScope{stacks: true}}, ""},
 		{Options{Services: []string{"vpc"}}, "selection"},
 		{Options{Services: []string{"vpc"}, Selection: goodSelection}, ""},
 		{Options{Services: []string{"vpc"}, Selection: badSelection}, "--selection: " + badSelection + ": version 99"},
 		{Options{Services: []string{"vpc"}, Selection: missing}, "--selection"},
-		{Options{Services: []string{"vpc"}, Discover: true, Selection: missing}, ""},
-		{Options{Services: []string{"vpc"}, All: true, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
-		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
-		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
-		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
-		{Options{Services: []string{"vpc"}, All: true, ManagedState: []string{missing}}, "--managed-state: state " + missing},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
-		{Options{Services: []string{"vpc"}, All: true, Layout: `{out}\{provider}\`}, ""},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}"}, ""},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{provider}/{account}/"}, "must start with {out}/"},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}-{provider}/"}, "must start with {out}/"},
-		{Options{Services: []string{"vpc"}, All: true, Layout: "{out}/../{provider}/"}, "leads out of --out"},
-		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
-		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
-		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
-		{Options{Services: []string{"vpc"}, All: true, EnvTags: []string{"Environment"}, DefaultEnv: "dev"}, ""},
-		{Options{Services: []string{"vpc"}, All: true, DefaultEnv: "dev", Layout: "{out}/{env}/{provider}/"}, ""},
-		{Options{Services: []string{"vpc"}, All: true, DefaultEnv: "dev", Layout: DefaultLayout}, "use it with --env-tags"},
-		{Options{Services: []string{"vpc"}, All: true, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
-		{Options{Services: []string{"vpc"}, All: true, RateLimit: -1}, "--rate-limit can't be negative"},
-		{Options{Services: []string{"vpc"}, All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
-		{Options{Services: []string{"vpc"}, All: true, ListParallel: -1}, "--list-parallel can't be negative"},
-		{Options{Services: []string{"vpc"}, All: true, Parallel: -2}, "--parallel can't be negative"},
-		{Options{Services: []string{"vpc"}, All: true, EngineParallelism: -1}, "--engine-parallelism can't be negative"},
-		{Options{Services: []string{"vpc"}, All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeDiscover, Selection: missing}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Catalogue: filepath.Join(dir, "catalogue")}, "--catalogue"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ManagedState: []string{state, filepath.Dir(state), "backend", "s3://bucket/prefix", "tfc://org/app-*"}}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ManagedState: []string{"s3:///prefix"}}, "--managed-state: state s3:///prefix: name a bucket"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ManagedState: []string{"tfc://org"}}, "name an organization and a workspace"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ManagedState: []string{missing}}, "--managed-state: state " + missing},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{out}/{provider}/{account}/{region}/{service}/{env}/"}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: `{out}\{provider}\`}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{out}"}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{out}/{project}/"}, "unknown placeholder {project}"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{provider}/{account}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "/srv/roots/{provider}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{out}-{provider}/"}, "must start with {out}/"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Layout: "{out}/../{provider}/"}, "leads out of --out"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EnvTags: []string{"Environment"}, Layout: DefaultLayout}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EnvTags: []string{"Environment"}, Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EnvTags: []string{"Environment"}, Layout: "{out}/{provider}/"}, "has no {env}"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EnvTags: []string{"Environment"}, DefaultEnv: "dev"}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, DefaultEnv: "dev", Layout: "{out}/{env}/{provider}/"}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, DefaultEnv: "dev", Layout: DefaultLayout}, "use it with --env-tags"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, RateLimit: 0, ListTimeout: 0, ListParallel: 0, Parallel: 0}, ""},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, RateLimit: -1}, "--rate-limit can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, ListParallel: -1}, "--list-parallel can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, Parallel: -2}, "--parallel can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EngineParallelism: -1}, "--engine-parallelism can't be negative"},
+		{Options{Services: []string{"vpc"}, Mode: ModeAll, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
 	} {
 		err := checkOnly(p, tc.options)
 		switch {
@@ -446,10 +446,10 @@ func TestCheckOptionsKnowsTheServicesOfTheOverlay(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "aws.yaml"), []byte(overlay), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkOnly(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}, Catalogue: dir}); err != nil {
+	if err := checkOnly(&catalogueProvider{}, Options{Mode: ModeAll, Services: []string{"ivs"}, Catalogue: dir}); err != nil {
 		t.Errorf("with the overlay: %v", err)
 	}
-	if err := checkOnly(&catalogueProvider{}, Options{All: true, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
+	if err := checkOnly(&catalogueProvider{}, Options{Mode: ModeAll, Services: []string{"ivs"}}); err == nil || !strings.Contains(err.Error(), "has no service ivs") {
 		t.Errorf("without the overlay: got %v, want the service unknown", err)
 	}
 }

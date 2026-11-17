@@ -60,7 +60,7 @@ func (f *fakeSteps) steps() callSteps {
 			run.options = c.Options
 			run.discovered["aws_vpc"]++
 			run.report.AddDiscovered("aws/111/"+name, 1)
-			if c.Options.Discover {
+			if c.Options.discovers() {
 				return nil, nil
 			}
 			byDir := map[string][]rootfile.Import{filepath.Join("out", name): {{Type: "aws_vpc", ID: name, Name: name}}}
@@ -126,7 +126,7 @@ func importCalls(ctx context.Context, t *testing.T, run *Run, options Options, c
 func TestImportListsAllThenGenerates(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
-	options := Options{Out: t.TempDir(), All: true}
+	options := Options{Out: t.TempDir(), Mode: ModeAll}
 	if err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "us-east-1", "eu-west-1"), f.steps()); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestImportLogsSteps(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			logged := captureLog(t)
-			options := Options{Out: t.TempDir(), All: true}
+			options := Options{Out: t.TempDir(), Mode: ModeAll}
 			names := []string{"global", "eu-west-1"}[:len(tc.calls)]
 			calls := fakeCalls(options, names...)
 			for i, where := range tc.calls {
@@ -226,7 +226,7 @@ func TestImportStopsAtTheFirstFailure(t *testing.T) {
 		}
 		return nil
 	}
-	options := Options{Out: t.TempDir(), All: true}
+	options := Options{Out: t.TempDir(), Mode: ModeAll}
 	err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1", "eu-west-2"), f.steps())
 	if err == nil || !strings.Contains(err.Error(), "call 2: AccessDenied") {
 		t.Fatalf("want the listing's error, got %v", err)
@@ -243,7 +243,7 @@ func TestImportStopsAtTheFirstFailure(t *testing.T) {
 func TestImportDiscovers(t *testing.T) {
 	run := NewRun()
 	f := newFakeSteps()
-	options := Options{Out: t.TempDir(), Discover: true}
+	options := Options{Out: t.TempDir(), Mode: ModeDiscover}
 	if err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1"), f.steps()); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestImportScopeCallsInParallel(t *testing.T) {
 		}
 		return nil
 	}
-	options := Options{Out: t.TempDir(), All: true, Parallel: 3}
+	options := Options{Out: t.TempDir(), Mode: ModeAll, Parallel: 3}
 	calls := fakeCalls(options, "global", "us-east-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1")
 	calls[0].First, calls[1].First = true, true
 	if err := importCalls(t.Context(), t, run, options, calls, f.steps()); err != nil {
@@ -353,7 +353,7 @@ func TestImportCancelsOnTheFirstFailure(t *testing.T) {
 		}
 		return nil
 	}
-	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
+	options := Options{Out: t.TempDir(), Mode: ModeAll, Parallel: 2}
 	err := importCalls(t.Context(), t, run, options, fakeCalls(options, "global", "eu-west-1", "eu-west-2", "eu-west-3"), f.steps())
 	if err == nil || !strings.Contains(err.Error(), "call 2: AccessDenied") || errors.Is(err, context.Canceled) {
 		t.Fatalf("want the failure of the second call, got %v", err)
@@ -395,7 +395,7 @@ func TestImportSharesParallelWithAccounts(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		return nil
 	}
-	options := Options{Out: t.TempDir(), All: true, Parallel: 2}
+	options := Options{Out: t.TempDir(), Mode: ModeAll, Parallel: 2}
 	// After TempDir, so that the lock is let go before the directory goes.
 	t.Cleanup(run.unlockOut)
 	plan := Plan{Kind: "account", Scopes: []string{"111", "222", "333"}, Calls: func(account string) []Call {
@@ -426,7 +426,7 @@ func TestImportOneCallAsOneOfSeveral(t *testing.T) {
 			}
 			return nil
 		}
-		options := Options{Out: t.TempDir(), All: true}
+		options := Options{Out: t.TempDir(), Mode: ModeAll}
 		err := importCalls(t.Context(), t, run, options, fakeCalls(options, names...), f.steps())
 		return run, options, err
 	}
@@ -470,12 +470,12 @@ func TestImportChecksTheOptionsOnce(t *testing.T) {
 		check   func(Options) error
 		want    string
 	}{
-		"an unknown engine":   {options: Options{All: true, Engine: "tofu-ish"}, want: `unknown --engine "tofu-ish"`},
+		"an unknown engine":   {options: Options{Mode: ModeAll, Engine: "tofu-ish"}, want: `unknown --engine "tofu-ish"`},
 		"no selection":        {options: Options{}, want: "selection"},
-		"the provider's own":  {options: Options{All: true}, check: func(Options) error { return errors.New("--accounts and --organization") }, want: "--accounts and --organization"},
-		"merge, nothing to":   {options: Options{All: true, MergeEnvironments: true, MergeEnvironmentsChosen: true}, want: "--merge-environments merges"},
-		"merge, by default":   {options: Options{All: true, MergeEnvironments: true}},
-		"a negative parallel": {options: Options{All: true, Parallel: -1}, want: "--parallel can't be negative"},
+		"the provider's own":  {options: Options{Mode: ModeAll}, check: func(Options) error { return errors.New("--accounts and --organization") }, want: "--accounts and --organization"},
+		"merge, nothing to":   {options: Options{Mode: ModeAll, MergeEnvironments: true, MergeEnvironmentsChosen: true}, want: "--merge-environments merges"},
+		"merge, by default":   {options: Options{Mode: ModeAll, MergeEnvironments: true}},
+		"a negative parallel": {options: Options{Mode: ModeAll, Parallel: -1}, want: "--parallel can't be negative"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var planned, listed atomic.Int32
@@ -510,7 +510,7 @@ func TestImportChecksTheOptionsOnce(t *testing.T) {
 	}
 
 	// --check: nothing is planned.
-	cmd := fakeCommand(Options{Out: t.TempDir(), All: true}, Plan{}, newFakeSteps().steps())
+	cmd := fakeCommand(Options{Out: t.TempDir(), Mode: ModeAll}, Plan{}, newFakeSteps().steps())
 	cmd.CheckOnly = true
 	cmd.Plan = func(context.Context, Options) (Plan, error) {
 		t.Error("planned with --check")
@@ -550,7 +550,7 @@ func TestImportRecoversAPanicOfOneCall(t *testing.T) {
 			logged := captureLog(t)
 			f := newFakeSteps()
 			f.list = func(context.Context, string) error { panic("unexpected response") }
-			options := Options{Out: t.TempDir(), All: true}
+			options := Options{Out: t.TempDir(), Mode: ModeAll}
 			plan := Plan{Kind: "subscription", Scopes: tc.scopes, Calls: func(string) []Call { return fakeCalls(options, "default") }}
 			run := NewRun()
 			t.Cleanup(run.unlockOut)

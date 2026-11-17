@@ -33,7 +33,7 @@ func TestInventory(t *testing.T) {
 	args := []string{"eu-west-2", "default"}
 
 	// discover lists and saves what it listed, with what failed.
-	listed, failures, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Discover: true, Out: out, Services: []string{"good", "bad"}}, "fake/1/eu-west-2"), args)
+	listed, failures, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good", "bad"}}, "fake/1/eu-west-2"), args)
 	if err != nil || len(listed.resources["good"]) != 1 || len(failures) != 1 {
 		t.Fatalf("discover: %v, %v, %v", listed, failures, err)
 	}
@@ -90,7 +90,7 @@ func TestInventory(t *testing.T) {
 func TestInventoryKeepsTheFilter(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"eu-west-2", "default"}
-	options := Options{Discover: true, Out: out, Services: []string{"good"}, TagFilters: []string{"env=prod"}, WhereFilters: []string{"cidr_block=10.0.0.0/16"}}
+	options := Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}, TagFilters: []string{"env=prod"}, WhereFilters: []string{"cidr_block=10.0.0.0/16"}}
 	filter := options.filterArgs()
 	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(options, ""), args); err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func (p *taggingProvider) Tags(_ context.Context, resources []harvest.Resource) 
 func TestInventoryKeepsTags(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"eu-west-2", "default"}
-	options := Options{Discover: true, Out: out, Services: []string{"good"}}
+	options := Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}
 	listed, _, err := listResources(t.Context(), &taggingProvider{}, callOf(options, "fake/1/eu-west-2"), args)
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func (p *countingProvider) Lister(name string) (harvest.Lister, error) {
 func TestInventoryOfAnotherScope(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"", "default"}
-	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Discover: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-1"), args); err != nil {
+	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}, "fake/1/eu-west-1"), args); err != nil {
 		t.Fatal(err)
 	}
 	counting := &countingProvider{}
@@ -227,7 +227,7 @@ func (p *failingTagsProvider) Tags(context.Context, []harvest.Resource) (map[str
 func TestTagsThatFailToRead(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"eu-west-2", "default"}
-	listed, failures, err := listResources(t.Context(), &failingTagsProvider{}, callOf(Options{Discover: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args)
+	listed, failures, err := listResources(t.Context(), &failingTagsProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args)
 	if err != nil {
 		t.Fatal(err)
 	}

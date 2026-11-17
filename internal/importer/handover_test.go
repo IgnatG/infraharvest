@@ -48,7 +48,7 @@ func thingImport(id string) rootfile.Import {
 // regenerating returns a listed call of an import with --regenerate into
 // out, of byDir.
 func regenerating(out string, byDir map[string][]rootfile.Import) *listedCall {
-	return &listedCall{callRecorder: callRecorder{run: NewRun(), scope: "scope"}, options: Options{Out: out, Regenerate: true}, byDir: byDir}
+	return &listedCall{callRecorder: callRecorder{run: NewRun(), scope: "scope"}, options: Options{Out: out, Roots: RootsRegenerate}, byDir: byDir}
 }
 
 // excludedIDs are the IDs run excludes as held by another root, with the
@@ -319,7 +319,7 @@ func TestPlanHandoversOnlyWithRegenerate(t *testing.T) {
 	old, next := filepath.Join(out, "fake", "old"), filepath.Join(out, "fake", "next")
 	m.earlier(old, thing("a", "fake_thing.a"))
 	c := regenerating(out, map[string][]rootfile.Import{next: {thingImport("a")}})
-	c.options.Regenerate = false
+	c.options.Roots = RootsFresh
 	if err := planHandovers(m.index(), []*listedCall{c, nil}); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestListCallRegenerateHandsResourcesOver(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "beta")
 	options.Layout = "{out}/{provider}/all/"
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 
 	if len(run.failures) != 0 {
@@ -407,7 +407,7 @@ func TestListCallRegenerateLeavesARootOutOfTheRunAsItIs(t *testing.T) {
 
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "gamma")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 
 	if !slices.Equal(f.generated, []string{"gamma"}) {
@@ -548,7 +548,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenWhereItsResourceGoesFails(t *te
 
 	f := &fakeEngine{fail: "zeta"}
 	options := pathOptions(out, f, "zeta", "all")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 
 	if !slices.Equal(f.generated, []string{"zeta"}) {
@@ -583,7 +583,7 @@ func TestListCallRegenerateWarnsWhenTheRootAResourceLeavesFails(t *testing.T) {
 
 	f := &fakeEngine{fail: "all"}
 	options := pathOptions(out, f, "zeta", "all")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 
 	if !slices.Equal(f.generated, []string{"zeta", "all"}) {
