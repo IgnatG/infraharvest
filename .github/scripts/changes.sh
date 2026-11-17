@@ -19,8 +19,14 @@
 # its catalogue data, its state store, its e2e tests and their testdata)
 # runs that cloud's e2e jobs alone; any other core file runs all three.
 #
+# And go_lint: whether the pull request changes what golangci-lint reads (Go
+# files, go.mod, go.sum, .golangci.json) or how MegaLinter runs it
+# (.mega-linter.yml and its workflow). The megalinter workflow skips the Go
+# linters when it is false; the other linters always run.
+#
 # Without a base and a head (a push or workflow_dispatch), or when git can't
-# tell what changed, code=true, permissions=true, and every cloud is true.
+# tell what changed, code=true, permissions=true, go_lint=true, and every
+# cloud is true.
 #
 # Usage: BASE=<sha> HEAD=<sha> changes.sh
 set -euo pipefail
@@ -45,6 +51,16 @@ not_code() {
     .goreleaser.yaml | Dockerfile | install.sh) return 0 ;;
     # Checked by the permissions job (see permissions below).
     permissions/*) return 0 ;;
+  esac
+  return 1
+}
+
+# go_lint reports whether the file at path $1 is one the Go linters read, or
+# the one that sets how they run.
+go_lint() {
+  case $1 in
+    *.go | go.mod | go.sum | .golangci.json) return 0 ;;
+    .mega-linter.yml | .github/workflows/megalinter.yml) return 0 ;;
   esac
   return 1
 }
@@ -77,6 +93,7 @@ permissions=true
 aws=true
 google=true
 azure=true
+golint=true
 # The merge base to the head: what the pull request changes, whatever main
 # gained since. Names only, so a partial clone fetches no file contents.
 if [ -n "${BASE-}" ] && [ -n "${HEAD-}" ] && files=$(git diff --name-only --no-renames "$BASE...$HEAD"); then
@@ -85,6 +102,7 @@ if [ -n "${BASE-}" ] && [ -n "${HEAD-}" ] && files=$(git diff --name-only --no-r
   aws=false
   google=false
   azure=false
+  golint=false
   while IFS= read -r file; do
     [ -n "$file" ] || continue
     if ! not_code "$file"; then
@@ -102,6 +120,10 @@ if [ -n "${BASE-}" ] && [ -n "${HEAD-}" ] && files=$(git diff --name-only --no-r
           ;;
       esac
     fi
+    if go_lint "$file"; then
+      echo "changes the Go linters' input: $file"
+      golint=true
+    fi
     case $file in
       permissions/*)
         echo "changes the permissions: $file"
@@ -114,6 +136,7 @@ outputs="code=$code
 permissions=$permissions
 aws=$aws
 google=$google
-azure=$azure"
+azure=$azure
+go_lint=$golint"
 echo "$outputs"
 echo "$outputs" >> "${GITHUB_OUTPUT:?}"

@@ -92,9 +92,19 @@ SHOW_ELAPSED_TIME: true
 # module that needs Go 1.27; install the release the Makefile's lint target
 # reads, built with Go 1.27, over it. The workflow sets GOTOOLCHAIN=auto so
 # that the image's go switches to the toolchain go.mod names.
+# The workflow also disables this linter (DISABLE_LINTERS, which wins over
+# ENABLE_LINTERS there) when a pull request changes no Go file, go.mod, go.sum
+# or .golangci.json, and points GOCACHE, GOMODCACHE and GOLANGCI_LINT_CACHE at
+# caches it restores.
 PRE_COMMANDS:
   - command: |
       set -eu
+      case ",${DISABLE_LINTERS-}," in
+        *,GO_GOLANGCI_LINT,*)
+          echo "golangci-lint is disabled: nothing to install"
+          exit 0
+          ;;
+      esac
       golangci_lint_version=2.14.0
       golangci_lint_sha256=ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
       archive=/tmp/golangci-lint.tar.gz
@@ -109,7 +119,7 @@ PRE_COMMANDS:
 
 GO_GOLANGCI_LINT_CONFIG_FILE: .golangci.json
 # A cold run compiles the whole module: several minutes, past MegaLinter's
-# five-minute default.
+# five-minute default; the workflow's caches make most runs warm.
 GO_GOLANGCI_LINT_TIMEOUT_SECONDS: 1200
 ACTION_ACTIONLINT_CONFIG_FILE: .github/actionlint.yaml
 MARKDOWN_MARKDOWNLINT_CONFIG_FILE: .markdownlint.yaml

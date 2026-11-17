@@ -15,7 +15,8 @@ const changesScript = ".github/scripts/changes.sh"
 // TestChangesClouds checks which jobs of the tests workflow a pull request
 // runs: core code that one cloud's build alone reads runs that cloud's e2e
 // jobs alone, other core code runs every cloud's, and documentation runs
-// none.
+// none. The Go linters run only when Go files or their configuration
+// change.
 func TestChangesClouds(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -25,7 +26,7 @@ func TestChangesClouds(t *testing.T) {
 		{
 			name:    "an AWS lister",
 			changed: map[string]string{"internal/providers/aws/sqs_queues.go": "package aws\n"},
-			want:    "code=true\npermissions=false\naws=true\ngoogle=false\nazure=false\n",
+			want:    "code=true\npermissions=false\naws=true\ngoogle=false\nazure=false\ngo_lint=true\n",
 		},
 		{
 			name: "Azure's catalogue data and command",
@@ -33,7 +34,7 @@ func TestChangesClouds(t *testing.T) {
 				"internal/catalogue/data/azurerm/network.yaml": "x: 1\n",
 				"internal/cli/providers/provider_cmd_azure.go": "package providers\n",
 			},
-			want: "code=true\npermissions=false\naws=false\ngoogle=false\nazure=true\n",
+			want: "code=true\npermissions=false\naws=false\ngoogle=false\nazure=true\ngo_lint=true\n",
 		},
 		{
 			name: "a Google e2e test and a store",
@@ -41,14 +42,14 @@ func TestChangesClouds(t *testing.T) {
 				"e2e/drift_google_test.go":           "//go:build e2e && (!minimal || google)\n\npackage e2e\n",
 				"internal/managed/stores/gcs/gcs.go": "package gcs\n",
 			},
-			want: "code=true\npermissions=false\naws=false\ngoogle=true\nazure=false\n",
+			want: "code=true\npermissions=false\naws=false\ngoogle=true\nazure=false\ngo_lint=true\n",
 		},
 		{
 			name: "an e2e helper every cloud builds",
 			changed: map[string]string{
 				"e2e/harness_test.go": "//go:build e2e\n\npackage e2e\n",
 			},
-			want: "code=true\npermissions=false\naws=true\ngoogle=true\nazure=true\n",
+			want: "code=true\npermissions=false\naws=true\ngoogle=true\nazure=true\ngo_lint=true\n",
 		},
 		{
 			name: "the engine with an AWS lister",
@@ -56,12 +57,22 @@ func TestChangesClouds(t *testing.T) {
 				"internal/engine/engine.go":            "package engine\n",
 				"internal/providers/aws/sqs_queues.go": "package aws\n",
 			},
-			want: "code=true\npermissions=false\naws=true\ngoogle=true\nazure=true\n",
+			want: "code=true\npermissions=false\naws=true\ngoogle=true\nazure=true\ngo_lint=true\n",
+		},
+		{
+			name:    "the linter configuration and its workflow",
+			changed: map[string]string{".golangci.json": "{}\n", ".github/workflows/megalinter.yml": "name: MegaLinter\n"},
+			want:    "code=false\npermissions=false\naws=false\ngoogle=false\nazure=false\ngo_lint=true\n",
+		},
+		{
+			name:    "another workflow",
+			changed: map[string]string{".github/workflows/links.yml": "name: Links\n"},
+			want:    "code=false\npermissions=false\naws=false\ngoogle=false\nazure=false\ngo_lint=false\n",
 		},
 		{
 			name:    "documentation",
 			changed: map[string]string{"docs/usage.md": "# Usage\n"},
-			want:    "code=false\npermissions=false\naws=false\ngoogle=false\nazure=false\n",
+			want:    "code=false\npermissions=false\naws=false\ngoogle=false\nazure=false\ngo_lint=false\n",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

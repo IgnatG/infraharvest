@@ -5,11 +5,25 @@ name: MegaLinter
 
 # Every linter CI runs, in one place: MegaLinter (https://megalinter.io),
 # Go flavour, over the whole repository on every pull request. A merge to
-# main doesn't run it again: the pull request ran it on the same code.
-# .mega-linter.yml lists the linters, with their configuration, and says why
-# the others are off. MegaLinter reports in one comment on the pull request,
-# which it updates on each run, and in the run's summary; the report folder
-# is uploaded as an artifact.
+# main doesn't run it again: the pull request ran it on the same code. The
+# exception is a merge that changes what the Go caches below are keyed on,
+# which runs it to save them. .mega-linter.yml lists the linters, with their
+# configuration, and says why the others are off. MegaLinter reports in one
+# comment on the pull request, which it updates on each run, and in the
+# run's summary; the report folder is uploaded as an artifact.
+#
+# Go linting is most of a run: the image has no module, build or
+# golangci-lint cache, so a cold run compiles the whole module. The caches
+# live in a directory under the runner's temp directory, which the runner
+# mounts into the container as /github/runner_temp, and MegaLinter's linters
+# are pointed at them with GOCACHE, GOMODCACHE and GOLANGCI_LINT_CACHE. They
+# are saved by runs on main only, as the tests workflow's are, so that pull
+# requests share main's instead of each saving a copy of their own.
+#
+# A pull request that changes no Go file, go.mod, go.sum, .golangci.json or
+# the linters' own setup (.github/scripts/changes.sh says which) skips the Go
+# linters (golangci-lint, with its gofmt and goimports formatters), and
+# their caches; every other linter runs.
 #
 # Run it on a branch before opening a pull request, so a laptop never has
 # to compile the module (make ci-lint does the same):
@@ -19,6 +33,16 @@ on:
   pull_request:
     # Not the action test's own pull requests (action-test.yml).
     branches-ignore: ['action-test/**']
+  push:
+    # Seeds the caches for the pull requests when what they are keyed on
+    # changes.
+    branches: [main]
+    paths:
+      - go.mod
+      - go.sum
+      - .golangci.json
+      - .mega-linter.yml
+      - .github/workflows/megalinter.yml
   workflow_dispatch:
 
 concurrency:
@@ -30,8 +54,31 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go_lint: ${{ steps.diff.outputs.go_lint }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The history for the merge base, without file contents.
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      # A push or workflow_dispatch has no base and head: every linter runs.
+      - name: Changes the Go linters read
+        id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/changes.sh
+
   megalinter:
     name: MegaLinter
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -42,6 +89,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # go.mod names the toolchain, go.sum every module; a new key restores
+      # the newest older cache to start from. The linter configuration is in
+      # the key because it changes what golangci-lint caches.
+      - name: Restore the Go caches
+        id: cache
+        if: needs.changes.outputs.go_lint == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/megalinter-go
+          key: megalinter-go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum', '.golangci.json', '.mega-linter.yml') }}
+          restore-keys: megalinter-go-${{ runner.os }}-
       # The image oxsecurity/megalinter/flavors/go@v10.1.0 runs, by digest:
       # the action names it only by its tag, which can move. To bump it, take
       # the image tag from the new release's flavors/go/action.yml and its
@@ -57,10 +115,33 @@ jobs:
           GITHUB_COMMENT_REPORTER: ${{ github.event_name == 'pull_request' }}
           # The image's Go is older than go.mod asks for; let it switch to
           # the toolchain go.mod names, as setup-go would install, for
-          # golangci-lint and osv-scanner's govulncheck.
+          # golangci-lint and osv-scanner's govulncheck. The toolchain
+          # downloads into the module cache below.
           GOTOOLCHAIN: auto
           # Fetch a module the proxy drops from its repository instead.
           GOPROXY: https://proxy.golang.org|direct
+          # The caches restored above, at the paths the container sees them
+          # at: the runner mounts its temp directory as /github/runner_temp.
+          GOCACHE: /github/runner_temp/megalinter-go/go-build
+          GOMODCACHE: /github/runner_temp/megalinter-go/go-mod
+          GOLANGCI_LINT_CACHE: /github/runner_temp/megalinter-go/golangci-lint
+          # Without Go changes, no Go linter. MegaLinter lets ENABLE_LINTERS
+          # (in .mega-linter.yml) win over DISABLE_LINTERS unless told
+          # otherwise. An empty list disables nothing.
+          DISABLE_LINTERS: ${{ needs.changes.outputs.go_lint != 'true' && 'GO_GOLANGCI_LINT' || '' }}
+          ENABLE_DISABLE_LINTERS_PRIORITY: DISABLE
+      # Saved even when a linter found something, as the caches are valid
+      # whatever the findings; not for a cancelled run, whose caches may be
+      # cut short.
+      - name: Save the Go caches
+        if: >-
+          ${{ !cancelled() && github.ref == 'refs/heads/main'
+          && needs.changes.outputs.go_lint == 'true'
+          && steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/megalinter-go
+          key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Upload the MegaLinter report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
