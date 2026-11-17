@@ -8,7 +8,8 @@
 # Dependabot's grouped Go update did before it outgrew a job's time limit.
 # It keeps to a module's major version (the path names it), and leaves
 # alone modules at a pseudo-version or a +incompatible release, and
-# pre-releases. It prints a Markdown table of what it updated, and exits 3
+# pre-releases, but for aztft and azlist, which it moves to the head of
+# their main branch (they have no releases to follow). It prints a Markdown table of what it updated, and exits 3
 # if it updated nothing.
 set -euo pipefail
 
@@ -58,6 +59,22 @@ while read -r module current; do
     fi
   done
 done < <(go list -m -f '{{if not (or .Main .Indirect)}}{{.Path}} {{.Version}}{{end}}' all)
+
+# aztft and azlist, which map and list Azure resources, have no release
+# that follows their main branch (azlist has no tags, aztft's last is from
+# 2022), so go.mod pins them at pseudo-versions of main, which the loop
+# above leaves alone. Move each to main's head once its commit is at least
+# COOLDOWN_DAYS old.
+for module in github.com/magodo/aztft github.com/magodo/azlist; do
+  current=$(go list -m -f '{{.Version}}' "$module")
+  info=$(curl -sSf --retry 3 "$proxy/$(escape "$module")/@v/main.info")
+  head=$(jq -r .Version <<<"$info")
+  at=$(date -u -d "$(jq -r .Time <<<"$info")" +%s)
+  if [ "$head" != "$current" ] && [ "$at" -le "$cutoff" ]; then
+    updated+=("| \`$module\` | $current | $head |")
+    go get "$module@$head" >/dev/null
+  fi
+done
 
 if [ ${#updated[@]} -eq 0 ]; then
   echo "Every direct module is at its newest release at least $cooldown days old." >&2

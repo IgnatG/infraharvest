@@ -4,6 +4,21 @@ go 1.27.0
 
 toolchain go1.27.4
 
+// Azure SDK pins, left as they are on purpose:
+//
+// - armnetwork v6 and v11, and armresources v2 and v4, are both required.
+//   The v11 and v4 modules are infraharvest's own; the v6 and v2 ones come
+//   with github.com/magodo/aztft (which maps an Azure resource ID to its
+//   Terraform type) and github.com/magodo/azlist (which lists a scope's
+//   resources). Each major is a module of its own, so they sit side by side
+//   until aztft and azlist move up, and neither can be dropped before.
+// - github.com/magodo/aztft, azlist and armid are at pseudo-versions of
+//   their main branch. azlist and armid have no tags at all, and aztft's
+//   last tag, v0.3.0, is from 2022, years behind the commits the Azure
+//   resource coverage comes from. go get <module>@main moves one; the
+//   weekly Go modules workflow does it for aztft and azlist
+//   (.github/scripts/go-modules-refresh.sh), as Dependabot doesn't follow a branch.
+
 require (
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
