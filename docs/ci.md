@@ -5,7 +5,7 @@ infraharvest has a [GitHub Action](https://github.com/IgnatG/infraharvest/blob/m
 | | GitLab CI | Azure Pipelines |
 | --- | --- | --- |
 | Template | [`ci/gitlab/infraharvest.gitlab-ci.yml`](https://github.com/IgnatG/infraharvest/blob/main/ci/gitlab/infraharvest.gitlab-ci.yml) | [`ci/azure-pipelines/infraharvest.yml`](https://github.com/IgnatG/infraharvest/blob/main/ci/azure-pipelines/infraharvest.yml) |
-| How infraharvest is installed | the release, by [`install.sh`](install.md#with-the-install-script) in `alpine`, which checks its cosign signature and checksum | the release image, `ghcr.io/ignatg/infraharvest`, after `cosign verify` |
+| How infraharvest is installed | the release, by [`install.sh`](install.md#with-the-install-script) in `alpine`, which checks its cosign signature and checksum | the release image of the provider's cloud, `ghcr.io/ignatg/infraharvest:<release>-<cloud>`, after `cosign verify` |
 | The report | printed in the job log, and kept as an artifact | the run's summary |
 | The change | a merge request from `infraharvest/import`, opened with a push option | a pull request in Azure Repos from `infraharvest/import`, opened with `az repos` |
 
