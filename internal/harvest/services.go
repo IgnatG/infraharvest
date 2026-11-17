@@ -75,7 +75,7 @@ type ListerOf[S any] struct {
 	settings Settings
 
 	// ctx is the context Run was given, nil until then.
-	ctx context.Context
+	ctx context.Context //nolint:containedctx // run-scoped: Begin sets it for the run's API calls, which Context hands to the lister's methods that take none
 }
 
 // Run is the List of a lister whose listing is list: it makes ctx and s

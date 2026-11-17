@@ -30,6 +30,7 @@
     "default": "standard",
     "enable": [
       "bodyclose",
+      "containedctx",
       "contextcheck",
       "depguard",
       "errorlint",
@@ -55,6 +56,7 @@
         {
           "path": "_test\\.go$",
           "linters": [
+            "containedctx",
             "contextcheck",
             "funlen",
             "gocyclo",
