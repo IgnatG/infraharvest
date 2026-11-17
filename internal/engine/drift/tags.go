@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -78,6 +79,8 @@ type tagShare struct {
 	source  *sharedSource
 	key     string
 	members []*Change
+	// added says the cloud added the key: the source has none.
+	added bool
 	// dropped says why the edit of the shared tags was left out, once it
 	// is: its members are then accepted, and reported, on their own.
 	dropped string
@@ -318,16 +321,34 @@ func (s *sharedSource) covers(k string, before map[string]map[string]any, instan
 		for address, values := range before {
 			merged, _ := values[s.merged].(map[string]any)
 			own, _ := values[s.attribute].(map[string]any)
-			if v, ok := merged[k].(string); !ok || v != s.values[k] {
-				continue
-			}
-			if _, ok := own[k]; ok {
+			if !s.gets(k, merged, own) {
 				continue
 			}
 			covered[address] = true
 		}
 	}
 	return slices.Sorted(maps.Keys(covered)), true
+}
+
+// gets reports whether a resource whose tags are own, and merged with the
+// provider's, gets the key k from the provider's tags s: the key is one of
+// s's, and the resource has its value of it and not one of its own; or it
+// isn't, and the resource gets at least one of s's keys, so that the
+// provider applies s to it.
+func (s *sharedSource) gets(k string, merged, own map[string]any) bool {
+	if _, ok := s.values[k]; !ok {
+		for j := range s.values {
+			if s.gets(j, merged, own) {
+				return true
+			}
+		}
+		return false
+	}
+	if v, ok := merged[k].(string); !ok || v != s.values[k] {
+		return false
+	}
+	_, owned := own[k]
+	return !owned
 }
 
 // priorValues returns each managed resource's values as the state had
@@ -388,9 +409,21 @@ func shareTags(changes []Change, contents map[string][]byte, refresh, code *tfjs
 	used := map[int]bool{}
 	var folded []Change
 	for _, s := range shared {
-		for _, k := range slices.Sorted(maps.Keys(s.values)) {
+		// The keys are its own, and those the cloud added to the
+		// resources, which it has none of.
+		keys := map[string]bool{}
+		for k := range s.values {
+			keys[k] = true
+		}
+		for _, c := range changes {
+			if k, ok := addedKey(c, s.attribute); ok {
+				keys[k] = true
+			}
+		}
+		for _, k := range slices.Sorted(maps.Keys(keys)) {
 			attribute := s.attribute + "." + k
-			if s.provider != "" {
+			_, ours := s.values[k]
+			if s.provider != "" && ours {
 				for address, values := range before {
 					merged, _ := values[s.merged].(map[string]any)
 					own, _ := values[s.attribute].(map[string]any)
@@ -412,7 +445,7 @@ func shareTags(changes []Change, contents map[string][]byte, refresh, code *tfjs
 					break
 				}
 				c := changes[i]
-				if c.Kind != Changed || c.Outcome != Reverts || c.sensitive || (len(members) > 0 && !reflect.DeepEqual(c.value, changes[members[0]].value)) {
+				if c.Kind != Changed || c.Outcome != Reverts || c.sensitive || (!ours && c.Before != nil) || (len(members) > 0 && !reflect.DeepEqual(c.value, changes[members[0]].value)) {
 					members = nil
 					break
 				}
@@ -424,9 +457,12 @@ func shareTags(changes []Change, contents map[string][]byte, refresh, code *tfjs
 			first := changes[members[0]]
 			c := Change{
 				Address: s.address, Attribute: attribute, Kind: Changed, Outcome: Reverts,
-				Before: redactDriftValue(s.values[k], k, false, editor.forms), After: first.After,
+				Before: first.Before, After: first.After,
 				Covers: covered, value: first.value,
-				shared: &tagShare{source: s, key: k},
+				shared: &tagShare{source: s, key: k, added: !ours},
+			}
+			if ours {
+				c.Before = redactDriftValue(s.values[k], k, false, editor.forms)
 			}
 			for _, i := range members {
 				used[i] = true
@@ -483,6 +519,11 @@ func (e *driftEditor) locateShared(cfg *driftConfig, c *Change) codeSource {
 			return w.unwritable(sourceSharedTags, src.Range)
 		}
 		src.Edit = &hclfile.Edit{File: file, Start: rng.Start.Byte, End: rng.End.Byte, Text: text}
+		return src
+	}
+	if c.shared.added {
+		src := w.insertKey(obj, c.shared.key, nil, 0)
+		src.Kind = sourceSharedTags
 		return src
 	}
 	return w.manual(sourceSharedTags, obj.Range(), s.address+" no longer has the key: edit it by hand")
@@ -576,4 +617,15 @@ func moduleTagTargets(m *driftModule, variable string) (string, []string, bool) 
 		return "", nil, false
 	}
 	return attribute, targets, true
+}
+
+// addedKey returns the key of the tags or labels, attribute, that c is
+// the cloud's addition of to a resource: it changed from none to a
+// value.
+func addedKey(c Change, attribute string) (string, bool) {
+	k, ok := strings.CutPrefix(c.Attribute, attribute+".")
+	if !ok || k == "" || strings.ContainsAny(k, ".[") || c.Kind != Changed || c.Before != nil || c.After == nil || c.sensitive {
+		return "", false
+	}
+	return k, true
 }

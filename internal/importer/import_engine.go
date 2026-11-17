@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -179,6 +180,13 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		claimed.removed = append(claimed.removed, c.handovers.removalsOf(dir)...)
 		return claimed, nil
 	}
+	// Before the claim removes it: a root that hands everything over
+	// keeps the providers.tf it had, as the call that vacates it may
+	// configure another region than the root's own.
+	vacatedProviders := map[string][]byte(nil)
+	if len(imports) == 0 {
+		vacatedProviders = ownProviders(dir)
+	}
 	claimed, err := newClaim()
 	if err != nil {
 		return nil, err, nil
@@ -206,6 +214,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	}
 	dirOpts.Arrivals = c.handovers.arrivalsOf(dir)
 	if len(imports) == 0 {
+		dirOpts.Config = withFiles(dirOpts.Config, vacatedProviders)
 		result, err = run.tools.vacate(dir, dirOpts)
 	} else {
 		dirOpts.ImportOnce = importOnceFor(tr)
@@ -256,6 +265,28 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		}
 	}
 	return result, err, nil
+}
+
+// ownProviders returns the providers.tf the root in dir has, by name; none
+// if it has none, or it can't be read, and the call's own is written then.
+func ownProviders(dir string) map[string][]byte {
+	content, err := os.ReadFile(filepath.Join(dir, rootfile.ProvidersFileName))
+	if err != nil {
+		return nil
+	}
+	return map[string][]byte{rootfile.ProvidersFileName: content}
+}
+
+// withFiles returns config with files over it, as a copy: config is the
+// call's, shared by every root it generates.
+func withFiles(config, files map[string][]byte) map[string][]byte {
+	if len(files) == 0 {
+		return config
+	}
+	merged := make(map[string][]byte, len(config)+len(files))
+	maps.Copy(merged, config)
+	maps.Copy(merged, files)
+	return merged
 }
 
 // addDirectory records into the call's run what Generate did in dir, or err

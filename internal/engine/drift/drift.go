@@ -776,7 +776,7 @@ var foldedAttributes = map[string]string{"tags_all": "tags", "effective_labels":
 // tags and labels, each path once.
 func driftLeaves(typ string, leaves []valueLeaf, stateOnly map[string][]string) []valueLeaf {
 	skip := gate.StateOnlyOf(stateOnly, typ)
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	var kept []valueLeaf
 	for _, l := range leaves {
 		top := tfrun.TopOf(l.path)
@@ -786,10 +786,16 @@ func driftLeaves(typ string, leaves []valueLeaf, stateOnly map[string][]string) 
 		if to, ok := foldedAttributes[top]; ok {
 			l.path = to + l.path[len(top):]
 		}
-		if seen[l.path] {
+		if i, ok := seen[l.path]; ok {
+			// The resource's own tags had no such key: the value it had
+			// was the provider's, which the folded attribute shows.
+			if kept[i].before == nil && l.before != nil {
+				kept[i].before, kept[i].key = l.before, l.key
+				kept[i].sensitive = kept[i].sensitive || l.sensitive
+			}
 			continue
 		}
-		seen[l.path] = true
+		seen[l.path] = len(kept)
 		kept = append(kept, l)
 	}
 	return kept

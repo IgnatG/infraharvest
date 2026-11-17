@@ -608,6 +608,29 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	}
 }
 
+// --incremental has the new root refer to what the roots an earlier
+// import generated hold, as it leaves it out of the new root.
+func TestListCallIncrementalReferToWhatOtherRootsHold(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	importPath(t, pathOptions(out, &fakeEngine{}, "alpha", "beta"))
+
+	f := &fakeEngine{}
+	options := pathOptions(out, f, "alpha", "beta", "gamma")
+	options.Layout = "{out}/{provider}/all/"
+	options.Roots = RootsIncremental
+	importPath(t, options)
+
+	want := []engine.RootResource{
+		{Type: "fake_thing", ID: "id-alpha", Name: "alpha", Root: "fake/alpha"},
+		{Type: "fake_thing", ID: "id-beta", Name: "beta", Root: "fake/beta"},
+	}
+	got := f.opts["all"].OtherRoots
+	slices.SortFunc(got, func(a, b engine.RootResource) int { return strings.Compare(a.ID, b.ID) })
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("the new root's other roots:\n got %+v\nwant %+v", got, want)
+	}
+}
+
 // With --regenerate, a root whose resources get other addresses is
 // generated again with moved blocks for them, from where the engine is
 // told they were, rather than refused.

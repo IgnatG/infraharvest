@@ -153,7 +153,15 @@ type claim struct {
 	kept map[string]savedFile
 	// modules counts the users of the generated modules the root takes
 	// up, which putting it back releases; nil counts none.
-	modules *engine.ModuleRefs
+	modules moduleUsers
+}
+
+// moduleUsers counts the users of the generated modules the roots of an
+// import take up (see engine.ModuleRefs).
+type moduleUsers interface {
+	// Release ends the use the root in dir makes of them, removing each
+	// that no other root calls now.
+	Release(dir string) error
 }
 
 // previousRoot returns what the earlier import generated in the root, for

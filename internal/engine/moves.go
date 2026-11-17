@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
@@ -71,7 +72,8 @@ type Previous struct {
 	Addresses []Managed
 	// Labels are the labels it gave them, by type and import ID, such as
 	// those of resources it then moved into module calls. A resource
-	// without one has the label of its address, if that is in the root.
+	// without one has the label of its address, in the root or in a module
+	// call.
 	Labels map[External]string
 	// Moved are the moved blocks of the root's moves.tf, which a plan may
 	// not have applied yet: Generate keeps them, and its own moves follow
@@ -91,6 +93,13 @@ func (p *Previous) labels() map[External]string {
 	}
 	labels := map[External]string{}
 	for _, m := range p.Addresses {
+		// A resource in a module call has its label there too, which
+		// stays if it still fits the resource (see keepsLabel): a run that
+		// stopped before it had recorded its labels (see Labels) knows no
+		// other.
+		if label, ok := callLabel(m.Address); ok {
+			labels[ResourceKey(m.Type, m.ID)] = label
+		}
 		if label, ok := rootLabel(m.Address); ok {
 			labels[ResourceKey(m.Type, m.ID)] = label
 		}
@@ -149,6 +158,22 @@ func rootResource(address string) (string, string, bool) {
 		label = label[:i]
 	}
 	return typ, label, ok && label != ""
+}
+
+// callLabel returns the label of address, if it is a resource in a module
+// call, such as this for module.logs.aws_s3_bucket.this[0].
+func callLabel(address string) (string, bool) {
+	if !strings.HasPrefix(address, "module.") {
+		return "", false
+	}
+	names := hclfile.AddressNames(address)
+	for len(names) >= 2 && names[0] == "module" {
+		names = names[2:]
+	}
+	if len(names) != 2 || names[1] == "" {
+		return "", false
+	}
+	return names[1], true
 }
 
 // rootLabel returns the label of address, if it is a resource of the root.
