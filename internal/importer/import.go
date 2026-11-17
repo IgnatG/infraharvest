@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"regexp"
 	"slices"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -390,7 +390,7 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 	services := options.Services
 	if slices.Contains(services, "*") {
 		all := Services(provider)
-		log.Printf("%s: --services=* stands for all %d services", provider.Name(), len(all))
+		logging.Infof("%s: --services=* stands for all %d services", provider.Name(), len(all))
 		for _, service := range services {
 			if service != "*" && !slices.Contains(all, service) {
 				all = append(all, service)
@@ -401,7 +401,7 @@ func ResolveServices(provider harvest.Provider, options Options) []string {
 	kept := make([]string, 0, len(services))
 	for _, service := range services {
 		if slices.Contains(options.Skip, service) {
-			log.Printf("%s: leaving out %s, which --skip names", provider.Name(), service)
+			logging.Infof("%s: leaving out %s, which --skip names", provider.Name(), service)
 			continue
 		}
 		kept = append(kept, service)
@@ -427,6 +427,10 @@ func listServices(ctx context.Context, provider harvest.Provider, c *callContext
 	filters, err := options.filters()
 	if err != nil {
 		return nil, nil, err
+	}
+	if options.Verbose {
+		// A configuration file can set it, after the flags were read.
+		logging.SetVerbose(true)
 	}
 	settings := harvest.Settings{Verbose: options.Verbose, Filters: filters, Unwanted: c.unwanted}
 	discoverers := make([]discovery.Discoverer, 0, len(c.services))
@@ -491,7 +495,7 @@ func listServices(ctx context.Context, provider harvest.Provider, c *callContext
 		if cause != nil && !harvest.IsPartial(cause) {
 			continue
 		}
-		log.Printf("%s: %d resources listed", result.Name, len(result.Resources))
+		logging.Infof("%s: %d resources listed", result.Name, len(result.Resources))
 		byService[result.Name] = append([]harvest.Resource{}, result.Resources...)
 	}
 	return byService, failures, nil
