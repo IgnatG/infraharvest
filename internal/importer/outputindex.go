@@ -33,6 +33,12 @@ type outputSource interface {
 	// importBlocks returns where the import blocks of dir's root import
 	// its resources, none once they are deleted.
 	importBlocks(dir string) ([]engine.Managed, error)
+	// observed returns what the root in dir says of its resources, to
+	// verify addresses inferred from an older checkpoint (see
+	// verifyAddresses), and saveAddresses rewrites the checkpoint of dir,
+	// c, with them.
+	observed(dir string) (observedRoot, error)
+	saveAddresses(dir string, c checkpoint) error
 	// moves and removed return the moved and removed blocks of dir's
 	// moves.tf.
 	moves(dir string) ([]rootfile.Move, error)
@@ -191,7 +197,9 @@ func (r *indexedRoot) configured() (bool, error) {
 // stopped while generating the root again kept (see checkpoint.Pending);
 // else the addresses the checkpoint's result records; else, for a result
 // from an older release, where the root's import blocks import; else,
-// once they are deleted, what the result says it imported, unverified
+// once they are deleted, what the result says it imported, verified against
+// the root's configuration and local state where they say (see
+// verifyAddresses), else unverified
 // (see engine.InferredAddresses). A root whose import didn't finish has
 // none, nor a root with no checkpoint. It makes no cloud call.
 func (r *indexedRoot) previous() ([]engine.Managed, error) {
@@ -212,8 +220,34 @@ func (r *indexedRoot) previous() ([]engine.Managed, error) {
 		if err != nil || len(imported) > 0 {
 			return imported, err
 		}
-		return engine.InferredAddresses(c.Result), nil
+		return r.verifiedInference(c), nil
 	})
+}
+
+// verifiedInference returns what c, a checkpoint of the root without
+// addresses, says it imported (see engine.InferredAddresses), with those
+// the root's own files confirm taken as verified (see verifyAddresses). If
+// they all are, they are kept in the root's checkpoint, so that the next
+// run doesn't infer them again. What can't be observed or kept is no
+// failure: the addresses stay as inferred.
+func (r *indexedRoot) verifiedInference(c *checkpoint) []engine.Managed {
+	inferred := engine.InferredAddresses(c.Result)
+	obs, err := r.x.src.observed(r.dir)
+	if err != nil {
+		logging.Warnf("%s: %v; where the root has its resources stays inferred", relativePath(r.x.out, r.dir), err)
+		return inferred
+	}
+	verified := verifyAddresses(inferred, obs)
+	if allVerified(verified) {
+		kept := *c
+		result := *c.Result
+		result.Addresses = verified
+		kept.Result = &result
+		if err := r.x.src.saveAddresses(r.dir, kept); err != nil {
+			logging.Warnf("%s: addresses verified, but not kept in its checkpoint: %v", relativePath(r.x.out, r.dir), err)
+		}
+	}
+	return verified
 }
 
 // movesTF returns the moved blocks of the root's moves.tf.
