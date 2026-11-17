@@ -234,6 +234,7 @@ func (g *generation) snapshotOf(ctx context.Context, vars []tfexec.PlanOption) (
 		Imports:   imports,
 		Vars:      vars,
 		Prepare:   func(ctx context.Context, tf tfrun.Terraform) error { return fillWithheld(ctx, tf, copied) },
+		Blame:     func(diags []tfjson.Diagnostic) []string { return blamed(copied, diags) },
 		Timeout:   g.opts.CommandTimeout,
 	})
 }
