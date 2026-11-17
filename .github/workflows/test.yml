@@ -461,7 +461,8 @@ jobs:
   # test (TestAWSDrift), which applies and changes its estate many times
   # over, runs on another, with the shorter drift tests of an S3 backend
   # (TestAWSDriftBackend) and of the MCP server's drift tools
-  # (TestAWSDriftMCP), as do the tests of the MCP server's other tools
+  # (TestAWSDriftMCP) and the test of --untrusted-roots
+  # (TestAWSDriftUntrustedRoots), as do the tests of the MCP server's other tools
   # and of its drift tool with environments (TestAWSMCP), of its import
   # tool into an output again and with a configuration file
   # (TestAWSMCPImport), and of drift_accept's ordered rules and decisions
@@ -508,7 +509,7 @@ jobs:
           run: ^TestAWSOptions(Report|Filters|ExitCodes|Policy)$
           skip: ""
         - shard: drift
-          run: ^TestAWSDrift(Backend|MCP)?$
+          run: ^TestAWSDrift(Backend|MCP|UntrustedRoots)?$
           skip: ""
         - shard: mcp
           run: ^TestAWS(MCP(Import)?|DriftMCPRules)$
