@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/stackintent"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 func testSchemas() *tfjson.ProviderSchemas {

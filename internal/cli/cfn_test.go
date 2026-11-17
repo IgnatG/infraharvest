@@ -14,9 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	cfn "github.com/IgnatG/cfn2tf"
+
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 func TestCfnConvert(t *testing.T) {

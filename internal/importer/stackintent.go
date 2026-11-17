@@ -11,13 +11,13 @@ import (
 	"sort"
 	"strings"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // mergedRootNoTemplate is the warning of a root merged with its stack's

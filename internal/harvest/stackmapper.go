@@ -4,9 +4,8 @@
 package harvest
 
 import (
+	cfn "github.com/IgnatG/cfn2tf"
 	tfjson "github.com/hashicorp/terraform-json"
-
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // ProviderWithStackMapper is a provider that names the Terraform side of

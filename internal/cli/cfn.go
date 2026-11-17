@@ -13,11 +13,11 @@ import (
 	"os"
 	"path/filepath"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	"github.com/spf13/cobra"
 
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // cfn translates CloudFormation templates, so only a build with AWS has it.

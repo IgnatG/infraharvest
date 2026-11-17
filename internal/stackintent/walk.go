@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/IgnatG/infraharvest/pkg/cfn"
+	cfn "github.com/IgnatG/cfn2tf"
 )
 
 // directRef returns the parameter a value is Ref to, when it is just that.
