@@ -54,14 +54,22 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 		}
 		for _, fileSystem := range page.FileSystems {
 			id := aws.ToString(fileSystem.FileSystemId)
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_efs_file_system", "aws"))
 			// A call each per file system, for mount targets and policies
 			// the import may not keep.
-			if g.Wants("aws_efs_mount_target") && !g.listMountTargets(client, id) {
-				continue
+			if g.Wants("aws_efs_mount_target") {
+				err := g.listMountTargets(client, id)
+				if dropIfGone(&g.Resources, mark, err) {
+					continue
+				}
+				if err != nil {
+					g.parts.Add(awsCodes, "mount targets of "+id, err)
+					continue
+				}
 			}
 			if g.Wants("aws_efs_file_system_policy") {
-				g.addFileSystemPolicy(client, id)
+				dropIfGone(&g.Resources, mark, g.addFileSystemPolicy(client, id))
 			}
 		}
 	}
@@ -69,40 +77,46 @@ func (g *EfsLister) listFileSystems(client *efs.Client) error {
 }
 
 // listMountTargets records the mount targets of the file system
-// fileSystemID. It gathers an error and reports false when they cannot be
-// read; the file system's policy is then not asked for either, as it
-// would most likely fail the same way.
-func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) bool {
+// fileSystemID. It returns an error when they cannot be read, which the
+// caller gathers (see List) unless it says the file system is gone; the
+// file system's policy is then not asked for either, as it would most
+// likely fail the same way.
+func (g *EfsLister) listMountTargets(client *efs.Client, fileSystemID string) error {
 	input := &efs.DescribeMountTargetsInput{FileSystemId: aws.String(fileSystemID)}
 	for page, err := range pagesOf(g.Context(), efs.NewDescribeMountTargetsPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
-			g.parts.Add(awsCodes, "mount targets of "+fileSystemID, err)
-			return false
+			return err
 		}
 		for _, target := range page.MountTargets {
 			id := aws.ToString(target.MountTargetId)
 			g.Resources = append(g.Resources, harvest.RecordBare(id, id, "aws_efs_mount_target", "aws"))
 		}
 	}
-	return true
+	return nil
 }
 
 // addFileSystemPolicy records the policy of the file system fileSystemID
 // by the file system's ID, with the policy document. A file system without
-// a policy has none recorded; any other error is gathered.
-func (g *EfsLister) addFileSystemPolicy(client *efs.Client, fileSystemID string) {
+// a policy has none recorded; an error that says the file system is gone is
+// returned, and any other error is gathered.
+func (g *EfsLister) addFileSystemPolicy(client *efs.Client, fileSystemID string) error {
 	out, err := client.DescribeFileSystemPolicy(g.Context(), &efs.DescribeFileSystemPolicyInput{FileSystemId: aws.String(fileSystemID)})
 	if err != nil {
 		var none *types.PolicyNotFound
-		if !errors.As(err, &none) {
-			g.parts.Add(awsCodes, "policy of "+fileSystemID, err)
+		if errors.As(err, &none) {
+			return nil
 		}
-		return
+		if isGone(err) {
+			return err
+		}
+		g.parts.Add(awsCodes, "policy of "+fileSystemID, err)
+		return nil
 	}
 	g.Resources = append(g.Resources, harvest.Record(fileSystemID, fileSystemID, "aws_efs_file_system_policy", "aws", map[string]string{
 		"file_system_id": fileSystemID,
 		"policy":         aws.ToString(out.Policy),
 	}))
+	return nil
 }
 
 // listAccessPoints records every access point of every file system.

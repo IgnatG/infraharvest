@@ -86,7 +86,7 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 			// A call or more per load balancer, for listeners and their
 			// parts the import may not keep.
 			if g.WantsAny("aws_lb_listener", "aws_lb_listener_rule", "aws_lb_listener_certificate") {
-				g.listListeners(client, arn, out)
+				dropIfGone(&out.resources, 0, g.listListeners(client, arn, out))
 			}
 		})
 		g.record(reads)
@@ -99,25 +99,30 @@ func (g *AlbLister) listLoadBalancers(client *elasticloadbalancingv2.Client) err
 // its rules and its extra certificates, asked for only where the listener's
 // protocol can have them (see listenerHasRules and
 // listenerHasCertificates). An error is gathered; the load balancer stays,
-// without the listeners not yet read.
-func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string, out *albRead) {
+// without the listeners not yet read, unless the error says it is gone, which
+// is returned for the load balancer to be left out.
+func (g *AlbLister) listListeners(client *elasticloadbalancingv2.Client, lbARN string, out *albRead) error {
 	input := &elasticloadbalancingv2.DescribeListenersInput{LoadBalancerArn: aws.String(lbARN)}
 	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeListenersPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			out.parts.Add(awsCodes, "listeners of "+lbARN, err)
-			return
+			return err
 		}
 		for _, listener := range page.Listeners {
 			arn, name := aws.ToString(listener.ListenerArn), listenerName(listener)
+			mark := len(out.resources)
 			out.resources = append(out.resources, harvest.RecordBare(arn, name, "aws_lb_listener", "aws"))
 			if listenerHasRules(listener) && g.Wants("aws_lb_listener_rule") {
-				g.listListenerRules(client, arn, name, out)
+				if dropIfGone(&out.resources, mark, g.listListenerRules(client, arn, name, out)) {
+					continue
+				}
 			}
 			if listenerHasCertificates(listener) && g.Wants("aws_lb_listener_certificate") {
-				g.listListenerCertificates(client, listener, name, out)
+				dropIfGone(&out.resources, mark, g.listListenerCertificates(client, listener, name, out))
 			}
 		}
 	}
+	return nil
 }
 
 // layer4Protocols are the protocols of the listeners of network and
@@ -145,8 +150,8 @@ func listenerHasCertificates(listener types.Listener) bool {
 // default rule, which Terraform manages as part of the listener.
 // DescribeRules has a marker but pages are walked by hand, with the
 // largest page size. An error is gathered; the listener stays, with its
-// certificates.
-func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string, out *albRead) {
+// certificates, unless the error says it is gone, which is returned.
+func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, listenerARN, name string, out *albRead) error {
 	err := paginateByMarker(func(marker *string) (*string, error) {
 		page, err := client.DescribeRules(g.Context(), &elasticloadbalancingv2.DescribeRulesInput{
 			ListenerArn: aws.String(listenerARN),
@@ -166,6 +171,7 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 		return page.NextMarker, nil
 	})
 	out.parts.Add(awsCodes, "rules of listener "+listenerARN, err)
+	return err
 }
 
 // listListenerCertificates records in out, across pages, the certificates of
@@ -174,8 +180,8 @@ func (g *AlbLister) listListenerRules(client *elasticloadbalancingv2.Client, lis
 // certificate the listener reports. Each is recorded as
 // "<listener ARN>_<certificate ARN>", Terraform's import ID, and named
 // after the listener's name. An error is gathered and ends the listener's
-// certificates there.
-func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string, out *albRead) {
+// certificates there; an error that says the listener is gone is returned.
+func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Client, listener types.Listener, name string, out *albRead) error {
 	listenerARN := aws.ToString(listener.ListenerArn)
 	defaultARN := ""
 	if len(listener.Certificates) > 0 {
@@ -185,7 +191,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 	for page, err := range pagesOf(g.Context(), elasticloadbalancingv2.NewDescribeListenerCertificatesPaginator(client, input, stopOnDuplicateToken)) {
 		if err != nil {
 			out.parts.Add(awsCodes, "certificates of listener "+listenerARN, err)
-			return
+			return err
 		}
 		for _, certificate := range page.Certificates {
 			certificateARN := aws.ToString(certificate.CertificateArn)
@@ -199,6 +205,7 @@ func (g *AlbLister) listListenerCertificates(client *elasticloadbalancingv2.Clie
 			}))
 		}
 	}
+	return nil
 }
 
 // listTargetGroups records every target group by ARN, named after its
@@ -218,7 +225,7 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 			// A call per target group, for targets the import may not
 			// keep.
 			if g.Wants("aws_lb_target_group_attachment") {
-				g.listTargetGroupAttachments(client, arn, name, out)
+				dropIfGone(&out.resources, 0, g.listTargetGroupAttachments(client, arn, name, out))
 			}
 		})
 		g.record(reads)
@@ -237,14 +244,15 @@ func (g *AlbLister) listTargetGroups(client *elasticloadbalancingv2.Client) erro
 // instance, an IP address, or the name of a Lambda function. The default
 // selection leaves out the targets Auto Scaling groups and ECS services
 // register (see excludeRegisteredTargets), which it finds by the
-// target_group_arn attribute.
-func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string, out *albRead) {
+// target_group_arn attribute. An error that says the group is gone is
+// returned.
+func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Client, groupARN, groupName string, out *albRead) error {
 	health, err := client.DescribeTargetHealth(g.Context(), &elasticloadbalancingv2.DescribeTargetHealthInput{
 		TargetGroupArn: aws.String(groupARN),
 	})
 	if err != nil {
 		out.parts.Add(awsCodes, "targets of target group "+groupARN, err)
-		return
+		return err
 	}
 	for _, description := range health.TargetHealthDescriptions {
 		target := description.Target
@@ -273,6 +281,7 @@ func (g *AlbLister) listTargetGroupAttachments(client *elasticloadbalancingv2.Cl
 		id := strings.Join(parts, ",")
 		out.resources = append(out.resources, harvest.Record(id, groupName+" "+cloudControlName(targetID), "aws_lb_target_group_attachment", "aws", attributes))
 	}
+	return nil
 }
 
 // listenerName names a listener after its protocol and port, HTTPS 443,

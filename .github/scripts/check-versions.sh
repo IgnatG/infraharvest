@@ -5,9 +5,10 @@
 # Checks that the workflows test with the engines the release image ships
 # and agree on the scanners they install. The Dockerfile's
 # hashicorp/terraform and opentofu/opentofu tags, which Dependabot bumps,
-# are the source: the shared setup action (.github/actions/setup-engines)
-# and any workflow that still sets a Terraform or OpenTofu version of its
-# own must match them, and every setup-tflint tflint_version and
+# are the source, read by engine-versions.sh: the shared setup action
+# (.github/actions/setup-engines) and the adapters workflow must use it,
+# any workflow that still sets a literal Terraform or OpenTofu version of
+# its own must match the Dockerfile's, and every setup-tflint tflint_version and
 # setup-trivy version must match the others.
 #
 # Usage: check-versions.sh (from the repository's root)
@@ -48,10 +49,12 @@ found() {
   grep -nE "^\s*$1: " "${files[@]}" | sed -E "s/:\s*$1: */:/" | grep -v ':[$]{{' || true
 }
 
-# The setup action must name both engines, or the checks below pass on
-# nothing.
-grep -qE '^\s*terraform_version: [0-9]' "$action" || fail "$action: no terraform_version found"
-grep -qE '^\s*tofu_version: [0-9]' "$action" || fail "$action: no tofu_version found"
+# The setup action must take both engines' versions from the Dockerfile, as
+# must the workflow that installs Terraform on its own, or a literal version
+# could drift unseen.
+grep -qE '^\s*terraform_version: [$]{{ steps.versions.outputs.terraform }}' "$action" || fail "$action: terraform_version isn't read from the Dockerfile"
+grep -qE '^\s*tofu_version: [$]{{ steps.versions.outputs.tofu }}' "$action" || fail "$action: tofu_version isn't read from the Dockerfile"
+grep -q 'engine-versions.sh' .github/workflows/adapters.yml || fail ".github/workflows/adapters.yml: Terraform isn't read from the Dockerfile"
 
 mapfile -t entries < <(found TERRAFORM_VERSION; found terraform_version)
 same "the Terraform version" "$terraform" "${entries[@]}"

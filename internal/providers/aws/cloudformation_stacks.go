@@ -83,12 +83,16 @@ func (g *CloudFormationLister) listStackSets(client *cloudformation.Client) erro
 				continue
 			}
 			name := aws.ToString(set.StackSetName)
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudformation_stack_set", "aws"))
 			// A call per stack set, for instances the import may not keep.
 			if !g.Wants("aws_cloudformation_stack_set_instance") {
 				continue
 			}
-			g.parts.Add(awsCodes, "the instances of stack set "+name, g.listStackInstances(client, name))
+			err := g.listStackInstances(client, name)
+			if !dropIfGone(&g.Resources, mark, err) {
+				g.parts.Add(awsCodes, "the instances of stack set "+name, err)
+			}
 		}
 	}
 	return nil

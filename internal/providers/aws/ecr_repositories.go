@@ -59,7 +59,8 @@ func (g *EcrLister) list() error {
 // Terraform imports them. The policies are read from the repository's own
 // registry, a call each, unless the import doesn't keep their type. An
 // answer that leaves nothing out (see awsCodes), as ECR's that there is no
-// such policy, or no longer such a repository, means there is none; any
+// such policy, means there is none; one that says the repository is gone,
+// RepositoryNotFoundException, leaves it out, and nothing is returned; any
 // other failure is added to parts, and what was read is returned.
 func (g *EcrLister) repository(client *ecr.Client, repository types.Repository, parts *harvest.Parts) []harvest.Resource {
 	name := aws.ToString(repository.RepositoryName)
@@ -73,6 +74,9 @@ func (g *EcrLister) repository(client *ecr.Client, repository types.Repository, 
 		if err == nil {
 			resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_repository_policy", "aws"))
 		}
+		if ecrRepositoryGone(err) {
+			return nil
+		}
 		parts.Add(awsCodes, "the repository policy of "+name, err)
 	}
 	if g.Wants("aws_ecr_lifecycle_policy") {
@@ -83,7 +87,17 @@ func (g *EcrLister) repository(client *ecr.Client, repository types.Repository, 
 		if err == nil {
 			resources = append(resources, harvest.RecordBare(name, name, "aws_ecr_lifecycle_policy", "aws"))
 		}
+		if ecrRepositoryGone(err) {
+			return nil
+		}
 		parts.Add(awsCodes, "the lifecycle policy of "+name, err)
 	}
 	return resources
+}
+
+// ecrRepositoryGone reports whether err says the repository a call asked
+// about no longer exists. Of the not-found codes of ECR, which awsCodes
+// reads as gone, those of a repository's policies only say it has none.
+func ecrRepositoryGone(err error) bool {
+	return apiErrorCode(err) == "RepositoryNotFoundException"
 }

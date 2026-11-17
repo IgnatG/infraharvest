@@ -867,3 +867,37 @@ func TestStateIDs(t *testing.T) {
 		}
 	}
 }
+
+// collectDriftSecrets gathers the strings redactNamed replaces as secrets:
+// a value its own key says is one, one in a JSON document or below a list,
+// and a map key in a credential format; not a value of a key that doesn't
+// say so, nor, below an IAM policy's Condition, whose keys are AWS's
+// condition keys, any key's say.
+func TestCollectDriftSecrets(t *testing.T) {
+	t.Parallel()
+	const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	for _, tc := range []struct {
+		name string
+		v    any
+		want []string
+	}{
+		{"a secret by its key", map[string]any{"password": "hunter2-hunter2", "name": "db-prod"}, []string{"hunter2-hunter2"}},
+		{"nothing secret", map[string]any{"name": "db-prod", "port": float64(5432)}, nil},
+		{"a credential", map[string]any{"note": token}, []string{token}},
+		{"a map key in a credential format", map[string]any{"tags": map[string]any{token: "x"}}, []string{token}},
+		{"in a list", map[string]any{"rules": []any{map[string]any{"password": "hunter2-hunter2"}}}, []string{"hunter2-hunter2"}},
+		{"in a JSON document", map[string]any{"policy": `{"password":"hunter2-hunter2","name":"db-prod"}`}, []string{"hunter2-hunter2"}},
+		{"a name/value pair", map[string]any{"environment": []any{map[string]any{"name": "DB_PASSWORD", "value": "hunter2-hunter2"}}}, []string{"hunter2-hunter2"}},
+		{"below a Condition, keys say nothing", map[string]any{"Condition": map[string]any{"password": "hunter2-hunter2"}}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			seen := map[string]bool{}
+			collectDriftSecrets(tc.v, "", true, seen)
+			got := slices.Sorted(maps.Keys(seen))
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("collected %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

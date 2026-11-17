@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/aws/smithy-go"
@@ -69,5 +70,48 @@ func TestAWSParts(t *testing.T) {
 	err := parts.Err()
 	if !harvest.IsPartial(err) || err.Error() != "rules of listener l-1: api error AccessDenied: denied" {
 		t.Errorf("want a partial error for the rules alone, got %v", err)
+	}
+}
+
+// An error that says the resource is gone leaves it out, with what was read
+// for it; any other error leaves what was recorded as it is.
+func TestDropGone(t *testing.T) {
+	t.Parallel()
+	gone := &smithy.GenericAPIError{Code: "TopicNotFound"}
+	denied := &smithy.GenericAPIError{Code: "AccessDenied"}
+	recorded := func() []harvest.Resource {
+		return []harvest.Resource{
+			harvest.RecordBare("p0", "p0", "aws_pool", "aws"),
+			harvest.RecordBare("p1", "p1", "aws_pool", "aws"),
+			harvest.RecordBare("c1", "c1", "aws_client", "aws"),
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		drop func(*[]harvest.Resource, error) bool
+		err  error
+		want []string
+	}{
+		{"mark, gone", func(r *[]harvest.Resource, err error) bool { return dropIfGone(r, 1, err) }, gone, []string{"p0"}},
+		{"mark, denied", func(r *[]harvest.Resource, err error) bool { return dropIfGone(r, 1, err) }, denied, []string{"p0", "p1", "c1"}},
+		{"mark, no error", func(r *[]harvest.Resource, err error) bool { return dropIfGone(r, 1, err) }, nil, []string{"p0", "p1", "c1"}},
+		{"recorded, gone", func(r *[]harvest.Resource, err error) bool { return dropRecorded(r, "aws_pool", "p1", 2, err) }, gone, []string{"p0"}},
+		{"recorded, denied", func(r *[]harvest.Resource, err error) bool { return dropRecorded(r, "aws_pool", "p1", 2, err) }, denied, []string{"p0", "p1", "c1"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			resources := recorded()
+			dropped := tc.drop(&resources, tc.err)
+			var got []string
+			for _, r := range resources {
+				got = append(got, r.Observed.ID)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("left %v, want %v", got, tc.want)
+			}
+			if want := len(tc.want) < 3; dropped != want {
+				t.Errorf("reported %v, want %v", dropped, want)
+			}
+		})
 	}
 }

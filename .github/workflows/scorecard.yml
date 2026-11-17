@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      contents: read # check out the code
+      actions: read # read the workflow runs, as Scorecard's checks need
       security-events: write # upload the findings to code scanning
       id-token: write # publish the results, for the badge
     steps:
@@ -45,6 +47,6 @@ jobs:
           retention-days: 5
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: results.sarif
