@@ -25,7 +25,7 @@ const cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 // principal.
 const (
 	// accessTokenEnv is an OAuth 2.0 access token, which comes first.
-	accessTokenEnv = "GOOGLE_OAUTH_ACCESS_TOKEN"
+	accessTokenEnv = "GOOGLE_OAUTH_ACCESS_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 	// impersonateEnv is a service account to impersonate, with whichever
 	// credentials were found.
 	impersonateEnv = "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"

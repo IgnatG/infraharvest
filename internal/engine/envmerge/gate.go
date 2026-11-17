@@ -41,7 +41,7 @@ const maxMergeRounds = 3
 // root's provider the role an environment's root assumed, for the
 // gate's plan of that environment only: the merged root sets no role of
 // its own, as each environment runs with its own credentials.
-const credentialsOverrideFileName = "infraharvest_credentials_override.tf"
+const credentialsOverrideFileName = "infraharvest_credentials_override.tf" //nolint:gosec // G101: a file name, not a credential
 
 // MergeOptions configure MergeRoots: what the merged root's gate checks,
 // as engine.Generate's does (see engine.Options).

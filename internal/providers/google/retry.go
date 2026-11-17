@@ -176,7 +176,7 @@ func rateLimited(resp *http.Response) bool {
 func retryWait(attempt int, resp *http.Response, delay time.Duration) (time.Duration, bool) {
 	wait := min(delay<<(attempt-1), retryMaxDelay)
 	if half := wait / 2; half > 0 {
-		wait = half + rand.N(half)
+		wait = half + rand.N(half) //nolint:gosec // G404: retry jitter, not a secret
 	}
 	if resp == nil {
 		return wait, true

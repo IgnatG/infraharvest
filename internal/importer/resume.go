@@ -111,7 +111,7 @@ func policyDigest(dirs []string) (string, error) {
 			if err != nil || !d.Type().IsRegular() {
 				return err
 			}
-			content, err := os.ReadFile(path)
+			content, err := os.ReadFile(path) //nolint:gosec // G122: walks the user's own directory and reads regular files; no untrusted concurrent writer
 			if err != nil {
 				return err
 			}

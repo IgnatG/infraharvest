@@ -51,7 +51,7 @@ type Variable struct {
 }
 
 // secretStoreAdvice ends the description of every secret variable.
-const secretStoreAdvice = "set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_%s, and keep the value out of version control"
+const secretStoreAdvice = "set this variable from your secret store, such as AWS Secrets Manager, Azure Key Vault or Google Secret Manager, or with TF_VAR_%s, and keep the value out of version control" //nolint:gosec // G101: advice text, not a credential
 
 // Sensitive is an attribute Terraform generated as
 // "null # sensitive": it has a value Terraform won't show.

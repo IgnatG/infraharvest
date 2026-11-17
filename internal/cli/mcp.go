@@ -99,7 +99,7 @@ const childWaitDelay = 30 * time.Second
 func execRunner(binary string) mcpserver.Runner {
 	return func(ctx context.Context, args []string, progress func(string)) ([]byte, []byte, int, error) {
 		output := mcpserver.NewChildOutput(progress)
-		c := exec.CommandContext(ctx, binary, args...)
+		c := exec.CommandContext(ctx, binary, args...) //nolint:gosec // G702: binary is this program's own path and args are the MCP tool's, validated by the tool
 		c.Env = childEnv(os.Environ())
 		// An interrupt lets the child stop as on Ctrl+C, removing the
 		// secrets it holds outside the output; Windows can't send one, so

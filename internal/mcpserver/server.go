@@ -417,7 +417,7 @@ func (t *tools) writeWithin(path string, data []byte, perm fs.FileMode) (err err
 		return err
 	}
 	defer r.Close()
-	temp := filepath.Join(filepath.Dir(rel), fmt.Sprintf(".%s.%d.tmp", filepath.Base(rel), rand.Uint64()))
+	temp := filepath.Join(filepath.Dir(rel), fmt.Sprintf(".%s.%d.tmp", filepath.Base(rel), rand.Uint64())) //nolint:gosec // G404: a collision-avoiding temp name, not a secret
 	f, err := r.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err

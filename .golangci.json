@@ -35,6 +35,7 @@
       "funlen",
       "gocritic",
       "gocyclo",
+      "gosec",
       "nilerr",
       "noctx",
       "revive",
@@ -54,8 +55,15 @@
           "path": "_test\\.go$",
           "linters": [
             "funlen",
-            "gocyclo"
+            "gocyclo",
+            "gosec"
           ]
+        },
+        {
+          "linters": [
+            "gosec"
+          ],
+          "text": "G306|G703"
         }
       ]
     },

@@ -77,7 +77,7 @@ const (
 	passLookups        = "lookups"
 	passTagLift        = "tag lift"
 	passLiterals       = "literals"
-	passCuratedModules = "curated modules"
+	passCuratedModules = "curated modules" //nolint:gosec // G101: the name of a pass, not a credential
 	passOutputLists    = "output lists"
 	passProjects       = "project references"
 	passInherited      = "inherited arguments"

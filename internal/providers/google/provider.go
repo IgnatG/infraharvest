@@ -115,7 +115,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	switch {
 	case err == nil:
 	case googleCodes.Classify(err) == harvest.OutcomeNothingToList && regionName.MatchString(region):
-		log.Printf("google: region %s of project %s can't be checked, as the project hasn't enabled the Compute Engine API; importing it as given", region, project)
+		log.Printf("google: region %s of project %s can't be checked, as the project hasn't enabled the Compute Engine API; importing it as given", region, project) //nolint:gosec // G706: region is checked against regionName above
 		name = region
 	default:
 		return fmt.Errorf("google: region %s of project %s: %w", region, project, err)
