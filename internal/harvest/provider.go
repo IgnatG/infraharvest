@@ -11,11 +11,11 @@ import "context"
 // extras are the ProviderWith* interfaces, which callers detect with a
 // type assertion.
 type Provider interface {
-	// Init takes the provider's positional settings, such as the region or
-	// the project, and prepares the provider. Any call it makes, such as one
-	// that checks the region, takes ctx, so an interrupt stops it. An error
-	// aborts the import.
-	Init(ctx context.Context, args []string) error
+	// Init takes the provider's settings, such as the region or the
+	// project (see ProviderSettings), and prepares the provider. Any call
+	// it makes, such as one that checks the region, takes ctx, so an
+	// interrupt stops it. An error aborts the import.
+	Init(ctx context.Context, settings ProviderSettings) error
 	// Lister returns a new lister for the service called serviceName,
 	// given the provider's settings (see ListerOf). A lister keeps what it
 	// lists while it does, so services that list at the same time each

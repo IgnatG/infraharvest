@@ -19,10 +19,28 @@ type AssumeRole struct {
 	ARN, ExternalID, SessionName string
 }
 
-// Args returns the Init args of an AWS call in region with profile,
-// through the role: the external ID and the session name follow the role
-// only where set, so that a call without them has the args, and so the
-// inventory (see importer.inventoryPath), it had before they existed.
+// Settings are what an AWS call is initialised with (see Provider.Init):
+// where it lists and as whom.
+type Settings struct {
+	// Region is the region to list: a region's name, GlobalPseudoRegion or
+	// ProfileRegion.
+	Region string
+	// Profile is the shared-config profile, "" or "default" for none.
+	Profile string
+	// Role is the role to assume before listing, none for an ARN of "".
+	Role AssumeRole
+}
+
+// InventoryKey returns the region, the profile and the role, with the
+// external ID and the session name only where set (see AssumeRole.Args).
+func (s Settings) InventoryKey() []string {
+	return s.Role.Args(s.Region, s.Profile)
+}
+
+// Args returns the key of an AWS call in region with profile, through the
+// role: the external ID and the session name follow the role only where
+// set, so that a call without them has the key, and so the inventory (see
+// importer.inventoryPath), it had before they existed.
 func (r AssumeRole) Args(region, profile string) []string {
 	args := []string{region, profile, r.ARN}
 	switch {

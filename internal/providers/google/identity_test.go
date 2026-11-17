@@ -12,14 +12,14 @@ import (
 )
 
 // Init takes the service account an environment reads its project as
-// from args[3], remembers it for the project's clients, and hands it to
+// from the settings, remembers it for the project's clients, and hands it to
 // Terraform; a project without one forgets an earlier call's.
 func TestInitTakesTheServiceAccount(t *testing.T) {
 	t.Setenv(projectEnv, "")
 	ctx := testRun(t)
 	const account = "reader@shop-dev.iam.gserviceaccount.com"
 	p := &Provider{}
-	if err := p.Init(ctx, []string{"global", "shop-dev", "", IdentityArg(account)}); err != nil {
+	if err := p.Init(ctx, Settings{Region: "global", Project: "shop-dev", ServiceAccount: account}); err != nil {
 		t.Fatal(err)
 	}
 	if impersonation(ctx, "shop-dev") != account || impersonation(ctx, "shop-prod") != "" {
@@ -30,13 +30,13 @@ func TestInitTakesTheServiceAccount(t *testing.T) {
 		t.Errorf("Terraform's environment: %v, %v", env, err)
 	}
 	other := &Provider{}
-	if err := other.Init(ctx, []string{"global", "shop-prod", ""}); err != nil {
+	if err := other.Init(ctx, Settings{Region: "global", Project: "shop-prod"}); err != nil {
 		t.Fatal(err)
 	}
 	if env, _ := other.TerraformEnv(ctx); len(env) != 0 {
 		t.Errorf("a project read as the environment: %v", env)
 	}
-	if err := other.Init(ctx, []string{"global", "shop-dev", ""}); err != nil || impersonation(ctx, "shop-dev") != "" {
+	if err := other.Init(ctx, Settings{Region: "global", Project: "shop-dev"}); err != nil || impersonation(ctx, "shop-dev") != "" {
 		t.Errorf("forgotten: %q, %v", impersonation(ctx, "shop-dev"), err)
 	}
 }
@@ -76,7 +76,7 @@ func TestRunsKeepTheirOwnServiceAccount(t *testing.T) {
 		t.Run(account, func(t *testing.T) {
 			t.Parallel()
 			p := &Provider{}
-			if err := p.Init(runs[i], []string{"global", "shop", "", IdentityArg(account)}); err != nil {
+			if err := p.Init(runs[i], Settings{Region: "global", Project: "shop", ServiceAccount: account}); err != nil {
 				t.Fatal(err)
 			}
 			if got := impersonation(runs[i], "shop"); got != account {

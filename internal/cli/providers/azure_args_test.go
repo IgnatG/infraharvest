@@ -68,7 +68,7 @@ func TestAzureArgs(t *testing.T) {
 			var got [][]string
 			for _, scope := range scopes {
 				for _, c := range p.calls(importer.Options{}, scope) {
-					got = append(got, c.args)
+					got = append(got, c.args())
 				}
 			}
 			if !reflect.DeepEqual(got, tc.want) {

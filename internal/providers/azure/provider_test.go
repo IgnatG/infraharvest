@@ -76,35 +76,34 @@ func clearARMEnvironment(t *testing.T) {
 	}
 }
 
-// Init takes the resource group from args[0] and the subscription from
-// args[1], else from ARM_SUBSCRIPTION_ID.
+// Init takes the resource group and the subscription from its settings,
+// the subscription else from ARM_SUBSCRIPTION_ID.
 func TestInitTakesTheScope(t *testing.T) {
 	clearARMEnvironment(t)
 	t.Setenv("ARM_SUBSCRIPTION_ID", "env-sub")
 	for _, tc := range []struct {
-		args                        []string
+		args                        Settings
 		subscription, resourceGroup string
 		azapi                       bool
 	}{
-		{[]string{""}, "env-sub", "", false},
-		{[]string{"rg1"}, "env-sub", "rg1", false},
-		{[]string{"rg1", ""}, "env-sub", "rg1", false},
-		{[]string{"", "sub-2"}, "sub-2", "", false},
-		{[]string{"", "", "azapi"}, "env-sub", "", true},
-		{[]string{"rg1", "sub-2", ""}, "sub-2", "rg1", false},
+		{Settings{}, "env-sub", "", false},
+		{Settings{ResourceGroup: "rg1"}, "env-sub", "rg1", false},
+		{Settings{Subscription: "sub-2"}, "sub-2", "", false},
+		{Settings{AzAPI: true}, "env-sub", "", true},
+		{Settings{ResourceGroup: "rg1", Subscription: "sub-2"}, "sub-2", "rg1", false},
 	} {
 		p := &Provider{}
 		if err := p.Init(t.Context(), tc.args); err != nil {
-			t.Fatalf("%q: %v", tc.args, err)
+			t.Fatalf("%+v: %v", tc.args, err)
 		}
 		if p.subscriptionID != tc.subscription || p.resourceGroup != tc.resourceGroup || p.azapi != tc.azapi {
-			t.Errorf("%q: subscription %q, resource group %q, azapi %v", tc.args, p.subscriptionID, p.resourceGroup, p.azapi)
+			t.Errorf("%+v: subscription %q, resource group %q, azapi %v", tc.args, p.subscriptionID, p.resourceGroup, p.azapi)
 		}
 		if p.credential == nil || p.clientOptions == nil {
-			t.Errorf("%q: credential %v, client options %v", tc.args, p.credential, p.clientOptions)
+			t.Errorf("%+v: credential %v, client options %v", tc.args, p.credential, p.clientOptions)
 		}
 		if p.customCloud != nil {
-			t.Errorf("%q: a custom cloud for Azure's own: %+v", tc.args, p.customCloud)
+			t.Errorf("%+v: a custom cloud for Azure's own: %+v", tc.args, p.customCloud)
 		}
 	}
 }

@@ -76,15 +76,15 @@ type callRecorder struct {
 // Run.toolchain), adds the selected resources' children, and places
 // every resource in its root (see Run.place). It returns nil, with no
 // error, for discover, which generates nothing.
-func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, args []string) (*listedCall, error) {
+func listCall(ctx context.Context, run *Run, provider harvest.Provider, options Options, settings harvest.ProviderSettings) (*listedCall, error) {
 	// The provider signs in and lists with the run's limiter and state,
 	// not another run's (see runstate.FromContext).
 	ctx = runstate.NewContext(ctx, run.shared.runState(options.RateLimit))
-	c, err := run.prepareCall(ctx, provider, options, args)
+	c, err := run.prepareCall(ctx, provider, options, settings)
 	if err != nil {
 		return nil, err
 	}
-	listed, err := run.listAndSelect(ctx, provider, c, args)
+	listed, err := run.listAndSelect(ctx, provider, c, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -171,11 +171,11 @@ type callContext struct {
 	}
 }
 
-// prepareCall initialises provider with args, and works out what the
+// prepareCall initialises provider with settings, and works out what the
 // call with options lists: the catalogue, which the provider is given, the
 // types the selection file leaves out, the services, and the scope.
-func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, args []string) (*callContext, error) {
-	if err := provider.Init(ctx, args); err != nil {
+func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, options Options, settings harvest.ProviderSettings) (*callContext, error) {
+	if err := provider.Init(ctx, settings); err != nil {
 		return nil, err
 	}
 	// The catalogue comes before the services: an overlay can add some,
@@ -224,12 +224,12 @@ type callListing struct {
 	leftOut  []engine.External
 }
 
-// listAndSelect lists the resources of the call c, with args, leaves out
+// listAndSelect lists the resources of the call c, with settings, leaves out
 // those Terraform already manages (see excludeManaged) and those outside
 // the import's scope (see Run.applyImportScope), and, but for discover,
 // selects what to import of the rest (see Run.selectResources).
-func (r *Run) listAndSelect(ctx context.Context, provider harvest.Provider, c *callContext, args []string) (*callListing, error) {
-	listed, failures, err := listResources(ctx, provider, c, args)
+func (r *Run) listAndSelect(ctx context.Context, provider harvest.Provider, c *callContext, settings harvest.ProviderSettings) (*callListing, error) {
+	listed, failures, err := listResources(ctx, provider, c, settings)
 	if err != nil {
 		return nil, err
 	}

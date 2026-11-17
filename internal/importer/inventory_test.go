@@ -30,7 +30,7 @@ func (p *listingProvider) Lister(name string) (harvest.Lister, error) {
 
 func TestInventory(t *testing.T) {
 	out := t.TempDir()
-	args := []string{"eu-west-2", "default"}
+	args := testSettings{"eu-west-2", "default"}
 
 	// discover lists and saves what it listed, with what failed.
 	listed, failures, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good", "bad"}}, "fake/1/eu-west-2"), args)
@@ -51,11 +51,11 @@ func TestInventory(t *testing.T) {
 	// filter, are listed.
 	for _, tc := range []struct {
 		services []string
-		args     []string
+		args     testSettings
 		tags     []string
 	}{
 		{[]string{"good", "other"}, args, nil},
-		{[]string{"good"}, []string{"us-east-1", "default"}, nil},
+		{[]string{"good"}, testSettings{"us-east-1", "default"}, nil},
 		{[]string{"good"}, args, []string{"env=prod"}},
 	} {
 		listed, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{ReuseInventory: true, Out: out, Services: tc.services, TagFilters: tc.tags}, ""), tc.args)
@@ -89,7 +89,7 @@ func TestInventory(t *testing.T) {
 // another, must not reuse it.
 func TestInventoryKeepsTheFilter(t *testing.T) {
 	out := t.TempDir()
-	args := []string{"eu-west-2", "default"}
+	args := testSettings{"eu-west-2", "default"}
 	options := Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}, TagFilters: []string{"env=prod"}, WhereFilters: []string{"cidr_block=10.0.0.0/16"}}
 	filter := options.filterArgs()
 	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(options, ""), args); err != nil {
@@ -123,7 +123,7 @@ func (p *taggingProvider) Tags(_ context.Context, resources []harvest.Resource) 
 
 func TestInventoryKeepsTags(t *testing.T) {
 	out := t.TempDir()
-	args := []string{"eu-west-2", "default"}
+	args := testSettings{"eu-west-2", "default"}
 	options := Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}
 	listed, _, err := listResources(t.Context(), &taggingProvider{}, callOf(options, "fake/1/eu-west-2"), args)
 	if err != nil {
@@ -200,7 +200,7 @@ func (p *countingProvider) Lister(name string) (harvest.Lister, error) {
 // the environment: it is listed again.
 func TestInventoryOfAnotherScope(t *testing.T) {
 	out := t.TempDir()
-	args := []string{"", "default"}
+	args := testSettings{"", "default"}
 	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}, "fake/1/eu-west-1"), args); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func (p *failingTagsProvider) Tags(context.Context, []harvest.Resource) (map[str
 // and an import that reuses the inventory fails the same way.
 func TestTagsThatFailToRead(t *testing.T) {
 	out := t.TempDir()
-	args := []string{"eu-west-2", "default"}
+	args := testSettings{"eu-west-2", "default"}
 	listed, failures, err := listResources(t.Context(), &failingTagsProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args)
 	if err != nil {
 		t.Fatal(err)

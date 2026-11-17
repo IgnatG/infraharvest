@@ -174,8 +174,8 @@ func TestGooglePlan(t *testing.T) {
 					t.Fatalf("%s: %d calls, want %d", project, len(calls), len(wants))
 				}
 				for i, w := range wants {
-					if c := calls[i]; !slices.Equal(c.args, w.args) || c.options.Layout != w.layout || c.where != w.where {
-						t.Errorf("%s: call %d: args %q, layout %q, where %q; want %+v", project, i, c.args, c.options.Layout, c.where, w)
+					if c := calls[i]; !slices.Equal(c.args(), w.args) || c.options.Layout != w.layout || c.where != w.where {
+						t.Errorf("%s: call %d: args %q, layout %q, where %q; want %+v", project, i, c.args(), c.options.Layout, c.where, w)
 					}
 				}
 			}

@@ -116,7 +116,7 @@ func TestTerraformEnv(t *testing.T) {
 
 	// Without --regions, the region the profile resolves to.
 	defaultRegion := &Provider{}
-	if err := defaultRegion.Init(ctx, []string{ProfileRegion, "prod"}); err != nil {
+	if err := defaultRegion.Init(ctx, Settings{Region: ProfileRegion, Profile: "prod"}); err != nil {
 		t.Fatal(err)
 	}
 	env, err = defaultRegion.TerraformEnv(ctx)
@@ -352,7 +352,7 @@ func TestProviderCallsUseTheRunsConfig(t *testing.T) {
 	useEnvironmentCredentials(t, "test")
 	ctx := runstate.NewContext(t.Context(), runstate.New(ratelimit.New(5)))
 	p := &Provider{}
-	if err := p.Init(ctx, []string{"eu-west-1", ""}); err != nil {
+	if err := p.Init(ctx, Settings{Region: "eu-west-1"}); err != nil {
 		t.Fatal(err)
 	}
 	listed, err := serviceWithContext(ctx, p).sdkConfig()

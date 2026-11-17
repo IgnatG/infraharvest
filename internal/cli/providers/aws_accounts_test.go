@@ -64,7 +64,7 @@ func TestAWSPlanOfAccounts(t *testing.T) {
 				t.Errorf("%s: a call without a provider of its own", account)
 			}
 			providers[c.Provider] = true
-			roles = append(roles, c.Args[2])
+			roles = append(roles, c.Settings.InventoryKey()[2])
 		}
 	}
 	want := []string{"arn:aws:iam::111122223333:role/infraharvest-readonly", "arn:aws:iam::444455556666:role/infraharvest-readonly"}
@@ -114,8 +114,8 @@ func TestAWSCalls(t *testing.T) {
 		}
 		for i, w := range wants {
 			c := calls[i]
-			if !slices.Equal(c.args, w.args) || !slices.Equal(c.options.Services, w.resources) || !slices.Equal(c.options.Regions, w.regions) || c.options.Layout != w.layout {
-				t.Errorf("%s: call %d: args %q, resources %v, regions %v, layout %q; want %+v", name, i, c.args, c.options.Services, c.options.Regions, c.options.Layout, w)
+			if !slices.Equal(c.args(), w.args) || !slices.Equal(c.options.Services, w.resources) || !slices.Equal(c.options.Regions, w.regions) || c.options.Layout != w.layout {
+				t.Errorf("%s: call %d: args %q, resources %v, regions %v, layout %q; want %+v", name, i, c.args(), c.options.Services, c.options.Regions, c.options.Layout, w)
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func TestAWSSingleAccountRole(t *testing.T) {
 			t.Errorf("%s: scopes %v, want none", role, p.scopes)
 		}
 		calls := p.calls(importer.Options{}, "")
-		if len(calls) != 1 || calls[0].args[2] != want {
+		if len(calls) != 1 || calls[0].args()[2] != want {
 			t.Errorf("%s: calls %+v, want one with role %q", role, calls, want)
 		}
 	}
@@ -328,7 +328,7 @@ func TestAWSRoleSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args := p.calls(importer.Options{}, "111122223333")[0].args
+	args := p.calls(importer.Options{}, "111122223333")[0].args()
 	if want := []string{"profile", "", "arn:aws:iam::111122223333:role/infraharvest-readonly", "ext-1", "ci-42"}; !slices.Equal(args[2:], want[2:]) {
 		t.Errorf("args %q, want the role with %q", args, want[2:])
 	}

@@ -41,7 +41,7 @@ func TestImportDiscoversThroughTheListers(t *testing.T) {
 		Options:  options,
 		Provider: &knownProvider{services: options.Services},
 		Plan: func(context.Context, Options) (Plan, error) {
-			return oneScope([]Call{{Provider: &fakeProvider{}, Options: options, Args: []string{"eu-west-2"}}}), nil
+			return oneScope([]Call{{Provider: &fakeProvider{}, Options: options, Settings: testSettings{"eu-west-2"}}}), nil
 		},
 	}
 	err := run.finish(run.Import(t.Context(), cmd))
@@ -70,7 +70,7 @@ func TestImportDiscoversThroughTheListers(t *testing.T) {
 			t.Errorf("unexpected entry %+v", r)
 		}
 	}
-	if _, err := os.Stat(inventoryPath(options.Out, "fake", []string{"eu-west-2"})); err != nil {
+	if _, err := os.Stat(inventoryPath(options.Out, "fake", testSettings{"eu-west-2"})); err != nil {
 		t.Errorf("no inventory saved: %v", err)
 	}
 	if !run.covered[coverKey("", "good")] || run.covered[coverKey("", "skipped")] {

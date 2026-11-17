@@ -40,7 +40,7 @@ const providerName = "aws"
 // services of serviceTable and the catalogue's Cloud Control services.
 type Provider struct {
 	// region is the region to list: a region's name, GlobalPseudoRegion or
-	// ProfileRegion.
+	// ProfileRegion (see Settings).
 	region string
 	// profile is the shared-config profile, "" or "default" for none.
 	profile string
@@ -74,25 +74,22 @@ type Provider struct {
 	run *runstate.Run
 }
 
-// Init takes the region (args[0]), the profile (args[1]) and, optionally,
-// a role to assume (args[2]), with the external ID (args[3]) and the
-// session name (args[4]) to assume it with (see AssumeRole.Args), and the
-// run from ctx. It contacts nothing, so it never fails: the credentials
-// are resolved when the first service lists. An external ID or a session
-// name without a role is logged as ignored.
-func (p *Provider) Init(ctx context.Context, args []string) error {
-	p.run = runstate.FromContext(ctx)
-	arg := func(i int) string {
-		if i < len(args) {
-			return args[i]
-		}
-		return ""
+// Init takes the region, the profile and, optionally, a role to assume
+// with its external ID and session name (see Settings), and the run from
+// ctx. It contacts nothing, so it fails only for settings that are not
+// Settings: the credentials are resolved when the first service lists. An
+// external ID or a session name without a role is logged as ignored.
+func (p *Provider) Init(ctx context.Context, settings harvest.ProviderSettings) error {
+	s, err := harvest.SettingsOf[Settings](providerName, settings)
+	if err != nil {
+		return err
 	}
-	p.region = arg(0)
-	p.profile = arg(1)
-	p.roleARN = arg(2)
-	p.externalID = arg(3)
-	p.sessionName = arg(4)
+	p.run = runstate.FromContext(ctx)
+	p.region = s.Region
+	p.profile = s.Profile
+	p.roleARN = s.Role.ARN
+	p.externalID = s.Role.ExternalID
+	p.sessionName = s.Role.SessionName
 	if p.roleARN == "" && (p.externalID != "" || p.sessionName != "") {
 		// Only a role is assumed with them: say so, rather than read the
 		// account the credentials reach as if they applied.
@@ -270,7 +267,7 @@ func (p *Provider) ServiceNames() []string {
 }
 
 // newServiceLister returns a new lister for the service called name, as
-// Services has it, or nil when there is no such service: a Cloud Control
+// ServiceNames has it, or nil when there is no such service: a Cloud Control
 // service takes the place of a lister of the same name.
 func (p *Provider) newServiceLister(name string) harvest.Lister {
 	if name == harvest.QueryService {

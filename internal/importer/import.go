@@ -158,7 +158,7 @@ type Options struct {
 	// ProviderScope is what the provider command's own flags say of where
 	// to list and what to import, such as AWS's --profile, --accounts and
 	// --cfn-stack, or Azure's --resource-group. The command builds it and
-	// reads it, with its provider, through each call's args; the importer
+	// reads it, with its provider, through each call's settings; the importer
 	// asks of it only the capabilities harvest declares for a scope (see
 	// harvest.StackScoped), and does without those it lacks.
 	ProviderScope any

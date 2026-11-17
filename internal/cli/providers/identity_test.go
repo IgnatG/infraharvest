@@ -15,6 +15,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	"github.com/IgnatG/infraharvest/internal/providers/azure"
+	"github.com/IgnatG/infraharvest/internal/providers/google"
 )
 
 const identitySample = `version: 1
@@ -56,25 +59,25 @@ func loadIdentity(t *testing.T) *config.File {
 }
 
 // Each environment's scopes are read with the identity of its own: the
-// call's args are the command's own for a scope no environment gives one,
+// call's settings are the command's own for a scope no environment gives one,
 // and the environment's for one it does.
-func TestIdentityArgsPerEnvironment(t *testing.T) {
+func TestIdentitySettingsPerEnvironment(t *testing.T) {
 	f := loadIdentity(t)
 	for _, tc := range []struct {
 		name, command, scope string
-		args                 []string
-		apply                func([]string, string, config.Identity) []string
+		settings             harvest.ProviderSettings
+		apply                func(harvest.ProviderSettings, string, config.Identity) harvest.ProviderSettings
 		want                 []string
 	}{
-		{"aws dev: profile and role name", "aws", "111111111111", []string{"eu-west-2", "base", "arn:aws:iam::111111111111:role/infraharvest-readonly"}, awsIdentityArgs,
+		{"aws dev: profile and role name", "aws", "111111111111", awsprovider.Settings{Region: "eu-west-2", Profile: "base", Role: awsprovider.AssumeRole{ARN: "arn:aws:iam::111111111111:role/infraharvest-readonly"}}, identifying(awsIdentity),
 			[]string{"eu-west-2", "dev-sso", "arn:aws:iam::111111111111:role/infraharvest-readonly"}},
-		{"aws prod: ARN with {account}, the run's profile", "aws", "222222222222", []string{"eu-west-2", "base", "x"}, awsIdentityArgs,
+		{"aws prod: ARN with {account}, the run's profile", "aws", "222222222222", awsprovider.Settings{Region: "eu-west-2", Profile: "base", Role: awsprovider.AssumeRole{ARN: "x"}}, identifying(awsIdentity),
 			[]string{"eu-west-2", "base", "arn:aws:iam::222222222222:role/audit/readonly"}},
-		{"azure dev: tenant", "azure", "00000000-0000-0000-0000-000000000001", []string{"rg", "00000000-0000-0000-0000-000000000001"}, azureIdentityArgs,
+		{"azure dev: tenant", "azure", "00000000-0000-0000-0000-000000000001", azure.Settings{ResourceGroup: "rg", Subscription: "00000000-0000-0000-0000-000000000001"}, identifying(azureIdentity),
 			[]string{"rg", "00000000-0000-0000-0000-000000000001", "", "tenant_id=11111111-1111-1111-1111-111111111111"}},
-		{"azure prod: client, with azapi kept", "azure", "00000000-0000-0000-0000-000000000002", []string{"rg", "00000000-0000-0000-0000-000000000002", "azapi"}, azureIdentityArgs,
+		{"azure prod: client, with azapi kept", "azure", "00000000-0000-0000-0000-000000000002", azure.Settings{ResourceGroup: "rg", Subscription: "00000000-0000-0000-0000-000000000002", AzAPI: true}, identifying(azureIdentity),
 			[]string{"rg", "00000000-0000-0000-0000-000000000002", "azapi", "client_id=22222222-2222-2222-2222-222222222222"}},
-		{"google dev: service account", "google", "shop-dev", []string{"global", "shop-dev", ""}, googleIdentityArgs,
+		{"google dev: service account", "google", "shop-dev", google.Settings{Region: "global", Project: "shop-dev"}, identifying(googleIdentity),
 			[]string{"global", "shop-dev", "", "impersonate_service_account=reader@shop-dev.iam.gserviceaccount.com"}},
 	} {
 		id := identityFor(t, f, tc.command, tc.scope)
@@ -82,7 +85,7 @@ func TestIdentityArgsPerEnvironment(t *testing.T) {
 			t.Errorf("%s: no identity", tc.name)
 			continue
 		}
-		if got := tc.apply(slices.Clone(tc.args), tc.scope, id); !slices.Equal(got, tc.want) {
+		if got := tc.apply(tc.settings, tc.scope, id).InventoryKey(); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}
@@ -105,17 +108,18 @@ func TestPlanAppliesIdentityPerScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile := (&awsProfileOnly{}).profile()
-	p.identify = func(args []string, scope string) []string {
+	identify := identifying(awsIdentity)
+	p.identify = func(settings harvest.ProviderSettings, scope string) harvest.ProviderSettings {
 		if id := f.Environments.IdentityFor(profile, scope); len(id) > 0 {
-			return awsIdentityArgs(slices.Clone(args), scope, id)
+			return identify(settings, scope, id)
 		}
-		return args
+		return settings
 	}
 	plan := p.importerPlan(importer.Options{}, newAWSProvider)
 	got := map[string][]string{}
 	for _, account := range plan.Scopes {
 		for _, c := range plan.Calls(account) {
-			got[account] = c.Args[1:]
+			got[account] = c.Settings.InventoryKey()[1:]
 		}
 	}
 	want := map[string][]string{

@@ -228,9 +228,15 @@ type fakeProvider struct {
 	harvest.Provider
 }
 
-func (p *fakeProvider) Init(context.Context, []string) error { return nil }
-func (p *fakeProvider) Name() string                         { return "fake" }
-func (p *fakeProvider) Profile() harvest.Profile             { return harvest.Profile{} }
+// testSettings are the settings of a fake provider: the strings that name
+// the call's inventory.
+type testSettings []string
+
+func (s testSettings) InventoryKey() []string { return s }
+
+func (p *fakeProvider) Init(context.Context, harvest.ProviderSettings) error { return nil }
+func (p *fakeProvider) Name() string                                         { return "fake" }
+func (p *fakeProvider) Profile() harvest.Profile                             { return harvest.Profile{} }
 func (p *fakeProvider) Lister(string) (harvest.Lister, error) {
 	return fakeService{}, nil
 }

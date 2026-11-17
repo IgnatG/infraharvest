@@ -13,7 +13,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// azapiProviderType is the provider type (Init's args[2]) of --azapi,
+// azapiProviderType is the provider type of --azapi (see Settings.InventoryKey),
 // with which resource_graph imports what azurerm has no type for through
 // the Azure/azapi provider (see azapiCandidates).
 const azapiProviderType = "azapi"

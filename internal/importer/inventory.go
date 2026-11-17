@@ -144,9 +144,17 @@ func listingOf(records []record, services []string) listing {
 }
 
 // inventoryPath is where the inventory of one provider call (its region,
-// profile and role, in args) goes, in the output directory's checkpoints.
-func inventoryPath(out, provider string, args []string) string {
-	sum := sha256.Sum256([]byte(strings.Join(args, "\x00")))
+// profile and role, in settings) goes, in the output directory's
+// checkpoints. The path is that of the settings' key (see
+// harvest.ProviderSettings.InventoryKey), as it was of the positional
+// strings the settings replace, so that an inventory an earlier release
+// saved is found.
+func inventoryPath(out, provider string, settings harvest.ProviderSettings) string {
+	var key []string
+	if settings != nil {
+		key = settings.InventoryKey()
+	}
+	sum := sha256.Sum256([]byte(strings.Join(key, "\x00")))
 	return filepath.Join(out, CheckpointDir, "inventory", provider+"-"+hex.EncodeToString(sum[:])[:16]+".json")
 }
 
@@ -202,9 +210,9 @@ func sameFilter(a, b []string) bool {
 // --reuse-inventory it takes them from the inventory discover saved for
 // the same call, if that covers them; discover saves it, with the call's
 // scope (see discoveryScope).
-func listResources(ctx context.Context, provider harvest.Provider, c *callContext, args []string) (listing, []error, error) {
+func listResources(ctx context.Context, provider harvest.Provider, c *callContext, settings harvest.ProviderSettings) (listing, []error, error) {
 	options, scope := c.options, c.scope
-	path := inventoryPath(options.Out, provider.Name(), args)
+	path := inventoryPath(options.Out, provider.Name(), settings)
 	if options.ReuseInventory && !options.discovers() {
 		inv, err := loadInventory(path, c.services, options.filterArgs())
 		if err != nil {
