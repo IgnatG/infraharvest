@@ -336,7 +336,7 @@ func TestSnapshotOfRootWithWithheldSecret(t *testing.T) {
 	}}}
 	g := &generation{dir: dir, opts: opts, r: generating(opts), counting: &tfrun.Counting{}}
 
-	snapshot, err := g.snapshotOf(context.Background())
+	snapshot, err := g.snapshotOf(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

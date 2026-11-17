@@ -5,11 +5,15 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
@@ -103,6 +107,56 @@ func resourceAddresses(dir string) ([]string, error) {
 	return addresses, nil
 }
 
+// providerConfig returns a fingerprint of the provider blocks of the root in
+// dir: the configuration a snapshot is read with. A tidy pass that changes
+// it, such as one that moves the tags every resource shares into the
+// provider's default_tags, changes how the provider reads the same resource
+// (AWS leaves the default tags out of a resource's tags), so that a plan
+// against a snapshot read before it shows differences a plan that imports
+// does not (see tfrun.Cached). Where a block is in a file, its formatting
+// and the order of the blocks don't matter.
+func providerConfig(dir string) (string, error) {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		return "", err
+	}
+	var blocks []string
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type == "provider" {
+				blocks = append(blocks, strings.Join(strings.Fields(string(b.Range().SliceBytes(f.Src))), " "))
+			}
+		}
+	}
+	slices.Sort(blocks)
+	sum := sha256.Sum256([]byte(strings.Join(blocks, "\n")))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// followProviders has the plans against the snapshot follow the provider
+// configuration of the root (see tfrun.Cached.Providers).
+func (g *generation) followProviders() {
+	if g.cache == nil {
+		return
+	}
+	g.cache.Providers(func() (string, error) { return providerConfig(g.dir) }, g.rebuildSnapshot)
+}
+
+// rebuildSnapshot builds the snapshot of the root as a tidy pass left it,
+// for the plans that follow a change of its provider configuration. The
+// secrets are variables by then: those without a value get placeholders, as
+// the plans of the steps after the secrets do. It costs the plan that reads
+// the cloud, which the plan it takes the place of would have cost.
+func (g *generation) rebuildSnapshot(ctx context.Context) (*tfrun.Snapshot, error) {
+	snapshot, err := g.snapshotOf(ctx, append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...))
+	if err != nil {
+		return nil, err
+	}
+	g.counting.Add(1, 1)
+	logging.Infof("%s: import-once: imported %d resources again, for the provider configuration the tidy steps changed", g.dir, snapshot.Len())
+	return snapshot, nil
+}
+
 // cachedRunner returns plain, which plans against a snapshot once there is
 // one, if opts.ImportOnce is set and raw, the runner of the root without
 // the empty state of tfrun.WithoutLocalState, can run a snapshot's
@@ -128,7 +182,7 @@ func (g *generation) buildSnapshot(ctx context.Context) error {
 		return nil
 	}
 	g.counting.Step(stepSnapshot)
-	snapshot, err := g.snapshotOf(ctx)
+	snapshot, err := g.snapshotOf(ctx, g.r.secrets.Options())
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -143,7 +197,8 @@ func (g *generation) buildSnapshot(ctx context.Context) error {
 	return nil
 }
 
-func (g *generation) snapshotOf(ctx context.Context) (*tfrun.Snapshot, error) {
+// snapshotOf builds the snapshot of the root, whose copy is planned with vars.
+func (g *generation) snapshotOf(ctx context.Context, vars []tfexec.PlanOption) (*tfrun.Snapshot, error) {
 	imports, err := importBlocks(g.dir)
 	if err != nil {
 		return nil, err
@@ -174,7 +229,7 @@ func (g *generation) snapshotOf(ctx context.Context) (*tfrun.Snapshot, error) {
 		Dir:       copied,
 		Resources: resources,
 		Imports:   imports,
-		Vars:      g.r.secrets.Options(),
+		Vars:      vars,
 		Prepare:   func(ctx context.Context, tf tfrun.Terraform) error { return fillWithheld(ctx, tf, copied) },
 		Timeout:   g.opts.CommandTimeout,
 	})

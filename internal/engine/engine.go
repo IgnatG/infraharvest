@@ -382,6 +382,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	}
 	if cache != nil {
 		cache.MoveIn(g.moveCopy)
+		g.followProviders()
 	}
 	restoreAccess, err := g.write(ctx)
 	if err != nil {
