@@ -34,6 +34,7 @@ func TestAWSCodes(t *testing.T) {
 		{"NotFound", apiError("LoadBalancerNotFound", ""), harvest.OutcomeGone},
 		{"NotFoundException", apiError("RepositoryNotFoundException", ""), harvest.OutcomeGone},
 		{"NoSuch", apiError("NoSuchBucket", ""), harvest.OutcomeGone},
+		{"RuleSetDoesNotExist", apiError("RuleSetDoesNotExist", ""), harvest.OutcomeGone},
 		{"NotImplemented", apiError("NotImplemented", ""), harvest.OutcomeNothingToList},
 		{"UnknownOperationException", apiError("UnknownOperationException", ""), harvest.OutcomeNothingToList},
 		{"UnsupportedOperation", apiError("UnsupportedOperation", ""), harvest.OutcomeNothingToList},

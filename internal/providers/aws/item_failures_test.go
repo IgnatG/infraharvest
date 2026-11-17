@@ -233,11 +233,11 @@ func itemFailureCases() []itemFailureCase {
 			},
 		},
 		{
-			// SES says a rule set is gone with RuleSetDoesNotExist, which
-			// awsCodes doesn't read as gone: only the failure is checked.
+			// SES says a rule set deleted since it was listed is gone with
+			// RuleSetDoesNotExist.
 			name: "ses", lister: func() harvest.Lister { return &SesLister{} },
 			typ: "aws_ses_receipt_rule_set", keepsFailed: true,
-			denied: "AccessDenied",
+			denied: "AccessDenied", gone: "RuleSetDoesNotExist",
 			handle: func(call apiCall, fail func(string) string) string {
 				if call.Op == "ListReceiptRuleSets" {
 					return recordQuery(call.Op, sesNS, `<RuleSets>
