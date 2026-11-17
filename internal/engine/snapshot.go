@@ -6,7 +6,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"log"
 	"slices"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // ImportOnce has Generate import the resources of a root once, into a
@@ -130,13 +130,13 @@ func (g *generation) buildSnapshot(ctx context.Context) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		log.Printf("%s: import-once: no snapshot, planning as before: %s", g.dir, secret.RedactText(err.Error(), secret.TextForms(secret.KnownValues(g.literal))))
+		logging.Warnf("%s: import-once: no snapshot, planning as before: %s", g.dir, secret.RedactText(err.Error(), secret.TextForms(secret.KnownValues(g.literal))))
 		return nil
 	}
 	// The plan of the copy imports the root once.
 	g.counting.Add(1, 1)
 	g.cache.Use(snapshot)
-	log.Printf("%s: import-once: imported %d resources into a private snapshot the later plans read", g.dir, snapshot.Len())
+	logging.Infof("%s: import-once: imported %d resources into a private snapshot the later plans read", g.dir, snapshot.Len())
 	return nil
 }
 

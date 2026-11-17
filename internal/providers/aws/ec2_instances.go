@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"log"
 	"slices"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // Ec2Lister lists the EC2 instances of a region as aws_instance, each by
@@ -109,7 +109,7 @@ func (g *Ec2Lister) recordDefaultCPUOptions(ctx context.Context, client *ec2.Cli
 	for batch := range slices.Chunk(instanceTypes, 100) {
 		for page, err := range pagesOf(ctx, ec2.NewDescribeInstanceTypesPaginator(client, &ec2.DescribeInstanceTypesInput{InstanceTypes: batch}, stopOnDuplicateToken)) {
 			if err != nil {
-				log.Printf("aws: ec2_instance: instance types: %v; the configuration keeps the instances' CPU options", err)
+				logging.Warnf("aws: ec2_instance: instance types: %v; the configuration keeps the instances' CPU options", err)
 				return
 			}
 			for _, info := range page.InstanceTypes {

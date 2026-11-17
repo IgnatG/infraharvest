@@ -6,7 +6,6 @@ package azure
 import (
 	"context"
 	"fmt"
-	"log"
 	"regexp"
 	"slices"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // resourceGraphService lists through Resource Graph. It is what * lists,
@@ -168,14 +168,14 @@ func (g *ResourceGraphLister) list() error {
 		return err
 	}
 	if g.Verbose() {
-		log.Printf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
+		logging.Debugf("azurerm: resource_graph: mapping %d listed resources to azurerm types took %d requests to Resource Manager", len(found), sent.Load())
 	}
 	if n := countType(g.Resources, azapiType); n > 0 {
 		withAPIVersions(g.Context(), apiVersions, credential, &clientOptions, subscriptionID, g.Resources)
 		if err := g.Context().Err(); err != nil {
 			return err
 		}
-		log.Printf("azurerm: resource_graph: %d resources azurerm has no type for come through the azapi provider, as %s (--azapi)", n, azapiType)
+		logging.Infof("azurerm: resource_graph: %d resources azurerm has no type for come through the azapi provider, as %s (--azapi)", n, azapiType)
 	}
 	return parts.Err()
 }
@@ -226,7 +226,7 @@ func graphResourceGroups(ctx context.Context, credential azcore.TokenCredential,
 		}
 		rid, err := armid.ParseResourceId(id)
 		if err != nil {
-			log.Printf("azurerm: resource_graph: resource group %s: %v", id, err)
+			logging.Warnf("azurerm: resource_graph: resource group %s: %v", id, err)
 			continue
 		}
 		groups = append(groups, azlist.AzureResource{Id: rid, Properties: properties})
@@ -326,7 +326,7 @@ func byID(resources []azlist.AzureResource) []azlist.AzureResource {
 func addChildListFailures(parts *harvest.Parts, errs []azlist.ListError) {
 	for _, e := range errs {
 		if !parts.Add(azureCodes, "azurerm: resource_graph", e) {
-			log.Printf("azurerm: resource_graph: %v", e)
+			logging.Warnf("azurerm: resource_graph: %v", e)
 		}
 	}
 }
@@ -363,7 +363,7 @@ func graphResources(listed []azlist.AzureResource, cat *catalogue.Catalogue, que
 			mapped[i] = []harvest.Resource{harvest.Record(id, lastSegment(id), types[0], "azurerm", attributes[i])}
 			continue
 		default:
-			log.Printf("azurerm: resource_graph: %s could be %s, says the catalogue; left out", id, strings.Join(types, " or "))
+			logging.Warnf("azurerm: resource_graph: %s could be %s, says the catalogue; left out", id, strings.Join(types, " or "))
 			continue
 		}
 		if m, ok := fromListing(res, attributes[i]); ok {

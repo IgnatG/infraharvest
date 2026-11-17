@@ -6,7 +6,6 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -21,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // schemaHints is what a provider's code says about its arguments (see
@@ -90,7 +90,7 @@ func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 	}
 	key := file.Provider + " " + file.Version + " " + used
 	if _, logged := hintsLogged.LoadOrStore(key, true); !logged {
-		log.Printf("%s: the built-in schema metadata is of %s, and the root uses %s: %s", file.Provider, file.Version, used, how)
+		logging.Warnf("%s: the built-in schema metadata is of %s, and the root uses %s: %s", file.Provider, file.Version, used, how)
 	}
 	return h
 }

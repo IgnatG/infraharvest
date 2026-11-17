@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // inventoryVersion is the format of saved inventories. Version 1 kept the
@@ -214,11 +214,11 @@ func listResources(ctx context.Context, provider harvest.Provider, c *callContex
 		// another region from the environment, or other credentials, is
 		// another account or region.
 		if inv != nil && inv.Scope != scope {
-			log.Printf("%s: the saved inventory (%s) is of %s, not %s: listing again", provider.Name(), path, inv.Scope, scope)
+			logging.Infof("%s: the saved inventory (%s) is of %s, not %s: listing again", provider.Name(), path, inv.Scope, scope)
 			inv = nil
 		}
 		if inv != nil {
-			log.Printf("%s: using the resources discover listed (%s)", provider.Name(), path)
+			logging.Infof("%s: using the resources discover listed (%s)", provider.Name(), path)
 			var failures []error
 			for _, f := range inv.Failures {
 				// Tags it missed are missing from the records too.
@@ -236,7 +236,7 @@ func listResources(ctx context.Context, provider harvest.Provider, c *callContex
 			listed.saved = true
 			return listed, failures, nil
 		}
-		log.Printf("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(c.services, ","))
+		logging.Infof("%s: no saved inventory lists %s with the same filters: listing them", provider.Name(), strings.Join(c.services, ","))
 	}
 	// Services list at the same time only where the provider says they can.
 	parallel := options.ListParallel

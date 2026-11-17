@@ -5,7 +5,6 @@ package importer
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -67,7 +67,7 @@ func addLastChanges(ctx context.Context, options DriftOptions, targets []driftTa
 		name := relativePath(options.Out, target.dir)
 		found, err := history.LastChanges(ctx, providerSettings(target.dir, catalogueName(provider.Name())), ids)
 		if err != nil {
-			log.Printf("drift: %s: who last changed the resources that drifted: %v", name, err)
+			logging.Warnf("drift: %s: who last changed the resources that drifted: %v", name, err)
 		}
 		for j := range changes[i] {
 			c := &changes[i][j]
@@ -80,7 +80,7 @@ func addLastChanges(ctx context.Context, options DriftOptions, targets []driftTa
 		}
 	}
 	if skipped > 0 {
-		log.Printf("drift: looked up who last changed %d resources, the most a run looks up; %d more drifted, without it", lastChangeLimit, skipped)
+		logging.Infof("drift: looked up who last changed %d resources, the most a run looks up; %d more drifted, without it", lastChangeLimit, skipped)
 	}
 }
 

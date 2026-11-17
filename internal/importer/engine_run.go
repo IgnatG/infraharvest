@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -24,6 +23,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -326,7 +326,7 @@ func (r *Run) finish(err error) error {
 	if writeErr := r.report.WriteFiles(r.options.Out); writeErr != nil {
 		return couldNotRun(err, writeErr)
 	}
-	log.Printf("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
+	logging.Infof("imported %d of %d resources; report in %s", r.report.Totals.Imported, r.report.Totals.Discovered, filepath.Join(r.options.Out, report.Dir, "report.md"))
 	r.report.CloudFormationStacks.Log()
 	if r.options.Format == FormatJSON {
 		if writeErr := r.report.WriteJSON(r.stdout()); writeErr != nil {

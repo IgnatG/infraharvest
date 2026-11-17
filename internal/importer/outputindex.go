@@ -5,12 +5,12 @@ package importer
 
 import (
 	"fmt"
-	"log"
 	"path/filepath"
 	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // outputSource is where an outputIndex reads what earlier imports left in
@@ -286,7 +286,7 @@ func (x *outputIndex) heldElsewhere(byDir map[string][]rootfile.Import) (map[eng
 		}
 		c, err := r.checkpoint()
 		if err != nil {
-			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(x.out, r.dir), err)
+			logging.Warnf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(x.out, r.dir), err)
 			continue
 		}
 		if c == nil || c.Result == nil {
@@ -308,7 +308,7 @@ func (x *outputIndex) heldElsewhere(byDir map[string][]rootfile.Import) (map[eng
 	for _, s := range stacks {
 		c, err := s.mergeCheckpoint()
 		if err != nil {
-			log.Printf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(x.out, s.dir), err)
+			logging.Warnf("%s: %v; what that root imports isn't left out of the others (--incremental)", relativePath(x.out, s.dir), err)
 			continue
 		}
 		if c == nil || !c.Merge.Merged {

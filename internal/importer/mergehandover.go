@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -70,7 +70,7 @@ func planMergedHandovers(x *outputIndex, h *handovers, callOf map[string]*listed
 		stack := merged.dir
 		c, err := merged.mergeCheckpoint()
 		if err != nil {
-			log.Printf("%s: %v; what that merged root has isn't handed over to other roots (--regenerate)", relativePath(out, stack), err)
+			logging.Warnf("%s: %v; what that merged root has isn't handed over to other roots (--regenerate)", relativePath(out, stack), err)
 			continue
 		}
 		if c == nil || !c.Merge.Merged {
@@ -121,19 +121,19 @@ func planMergedHandovers(x *outputIndex, h *handovers, callOf map[string]*listed
 			}
 			goes := vacatable && len(apart) > 0 && len(apart) == len(ids) && !slices.ContainsFunc(apart, func(l mergedLeaving) bool { return l.to == filepath.Clean(stack) })
 			if goes && len(moved) > 0 {
-				log.Printf("%s: every resource of %s goes to other roots, but %s still moves resources: plan and apply every environment, and delete %s, before generating it again (--regenerate)", path, env, rootfile.MovesFileName, rootfile.MovesFileName)
+				logging.Infof("%s: every resource of %s goes to other roots, but %s still moves resources: plan and apply every environment, and delete %s, before generating it again (--regenerate)", path, env, rootfile.MovesFileName, rootfile.MovesFileName)
 				goes = false
 			}
 			if goes {
 				h.vacating[filepath.Clean(stack)] = append(h.vacating[filepath.Clean(stack)], apart...)
 				for _, l := range apart {
-					log.Printf("%s: %s of %s goes to %s, as does every resource of %s there, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
+					logging.Infof("%s: %s of %s goes to %s, as does every resource of %s there, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
 					h.arrivals[l.to] = append(h.arrivals[l.to], l.arrival(path))
 				}
 				continue
 			}
 			for _, l := range apart {
-				log.Printf("%s: %s of %s goes to %s, but the run doesn't generate %s's root of the stack again, so it stays (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
+				logging.Warnf("%s: %s of %s goes to %s, but the run doesn't generate %s's root of the stack again, so it stays (--regenerate)", path, l.had.Address, env, relativePath(out, l.to), env)
 				stays[l.now] = path
 			}
 		}
@@ -160,7 +160,7 @@ func planMergedHandovers(x *outputIndex, h *handovers, callOf map[string]*listed
 		}
 		h.merged[filepath.Clean(stack)] = removals
 		for _, l := range leaving {
-			log.Printf("%s: %s of %s goes to %s, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, l.env, relativePath(out, l.to))
+			logging.Infof("%s: %s of %s goes to %s, and a removed block of the merged root hands it over (--regenerate)", path, l.had.Address, l.env, relativePath(out, l.to))
 			h.arrivals[l.to] = append(h.arrivals[l.to], l.arrival(path))
 		}
 	}
@@ -494,11 +494,11 @@ func (p *mergePhase) vacateMerged(stack string, leaving []plannedLeaving, mergin
 			recordIncomplete(p.report, i)
 		}
 		err := fmt.Errorf("%s: every resource it has goes to other roots, but it can't hand them over, so it stays as it was: %s", path, why)
-		log.Print(err)
+		logging.Errorf("%v", err)
 		p.fail(err)
 		return nil
 	}
-	log.Printf("%s: every resource it has goes to other roots, so it keeps only the removed blocks that hand them over: apply it as each environment before the roots they go to (--regenerate)", path)
+	logging.Infof("%s: every resource it has goes to other roots, so it keeps only the removed blocks that hand them over: apply it as each environment before the roots they go to (--regenerate)", path)
 	p.report.AddMergedMoves(path, nil, nil, removals)
 	return nil
 }

@@ -5,7 +5,6 @@ package importer
 
 import (
 	"fmt"
-	"log"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
@@ -372,7 +372,7 @@ func planHandovers(x *outputIndex, calls []*listedCall) error {
 	for _, dir := range sortedDirs(h.removals) {
 		root := relativePath(out, dir)
 		for _, d := range gone[dir] {
-			log.Printf("%s: %s goes to %s, and a removed block hands it over (--regenerate)", root, d.had.Address, relativePath(out, d.to))
+			logging.Infof("%s: %s goes to %s, and a removed block hands it over (--regenerate)", root, d.had.Address, relativePath(out, d.to))
 			arrival := rootfile.Arrival{Type: d.now.Type, ID: d.had.ID, Root: root, From: d.had.Address}
 			if d.now.Type != d.had.Type {
 				arrival.FromType = d.had.Type
@@ -417,7 +417,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, 
 			continue
 		}
 		if len(kept) == 0 {
-			log.Printf("%s: each of its resources stays in another root of the output (--regenerate)", dir)
+			logging.Infof("%s: each of its resources stays in another root of the output (--regenerate)", dir)
 			delete(byDir, dir)
 			continue
 		}
@@ -453,7 +453,7 @@ func departures(x *outputIndex, assigned map[engine.External]string, s *shared) 
 		}
 		c, err := r.checkpoint()
 		if err != nil {
-			log.Printf("%s: %v; what that root has isn't handed over to the others (--regenerate)", relativePath(x.out, dir), err)
+			logging.Warnf("%s: %v; what that root has isn't handed over to the others (--regenerate)", relativePath(x.out, dir), err)
 			continue
 		}
 		if c == nil || (c.Result == nil && len(c.Pending) == 0) {
@@ -588,6 +588,6 @@ func sortedDirs[V any](m map[string]V) []string {
 // recordIncomplete warns of i, a handover one of its roots didn't
 // finish, and records it in rep.
 func recordIncomplete(rep *report.Report, i report.IncompleteHandover) {
-	log.Printf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
+	logging.Warnf("warning: the handover of %s (%s) from %s to %s isn't finished: %s", i.From, i.ID, i.FromRoot, i.ToRoot, i.Warning)
 	rep.AddIncompleteHandover(i)
 }

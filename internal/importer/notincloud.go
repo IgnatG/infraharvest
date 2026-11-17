@@ -4,7 +4,6 @@
 package importer
 
 import (
-	"log"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -13,6 +12,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -171,5 +171,5 @@ func (c *callRecorder) recordNotInCloud(dir string, gone []rootfile.Import) {
 	}
 	out := c.run.options.Out
 	c.run.report.AddNotInCloud(relativePath(out, dir), c.scope, gone)
-	log.Printf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(out, report.Dir, "report.md"))
+	logging.Warnf("%s: no longer in the cloud: %d of the root's resources; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", dir, len(gone), filepath.Join(out, report.Dir, "report.md"))
 }

@@ -16,6 +16,7 @@ infraharvest bootstrap [flags]
 |---|---|---|
 | `--config` |  | configuration file with the backend (required) |
 | `-o`, `--out` | `infrastructure` | directory to write the bootstrap root under |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest cfn
 
@@ -24,6 +25,10 @@ Translate CloudFormation templates into Terraform
 ```
 infraharvest cfn
 ```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest cfn convert
 
@@ -39,6 +44,7 @@ infraharvest cfn convert <template> [flags]
 | `-o`, `--out` | `cfn-terraform` | directory to write the Terraform files into; files of the same names must not exist |
 | `--prevent-destroy` |  | add lifecycle prevent_destroy to resources whose DeletionPolicy is Retain |
 | `--stack-name` |  | default of the stack_name variable that stands in for AWS::StackName |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest discover
 
@@ -52,6 +58,7 @@ infraharvest discover
 |---|---|---|
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--pick` | `true` | open the picker on the selection file once it is written, when run in a terminal (see infraharvest pick) |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest discover aws
 
@@ -244,6 +251,7 @@ infraharvest drift [output-directory] [flags]
 | `--rules` |  | accept and keep rules from this file, one a line: accept or keep, then a rule as --accept takes it, such as keep type=aws_security_group; a rule alone is accepted, and blank lines and lines starting with # are skipped (repeatable; the rules join those of --accept and --keep in the order given) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
 | `--untrusted-roots` |  | Terraform ignores the roots' .terraform directories and any filesystem mirror, such as a terraform.d directory, and installs providers from their registries alone, as the MCP server runs drift; the roots' providers and modules still run, so check what they use first |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 | `--write-decisions` |  | write this run's changes into the decisions file, --write-decisions=<file>, else --decisions, else drift.yaml in the output directory, which isn't applied unless --decisions names it: entries whose change is unchanged keep their decisions, new changes and those that changed again are undecided, and changes no longer found are dropped |
 
 ## infraharvest export
@@ -266,6 +274,7 @@ infraharvest export [output-directory] [flags]
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
 | `--schema` | `inventory` | document to write: inventory, run, gate, graph |
 | `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest import
 
@@ -278,6 +287,7 @@ infraharvest import
 | Flag | Default | Description |
 |---|---|---|
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest import aws
 
@@ -450,6 +460,7 @@ infraharvest mcp [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--root` |  | directory the tools may read and write files in: selection files, output directories, reports and drift decisions files (default: the current directory, unless that is the root of a filesystem or the home directory) |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest pick
 
@@ -462,6 +473,7 @@ infraharvest pick [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--selection` | `selection.yaml` | selection file to edit, from infraharvest discover |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest report
 
@@ -475,6 +487,7 @@ infraharvest report [output-directory] [flags]
 |---|---|---|
 | `--format` | `text` | text prints the report as Markdown; json as JSON |
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest services
 
@@ -483,6 +496,10 @@ List the services of a provider that --services takes
 ```
 infraharvest services <provider>
 ```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest verify
 
@@ -505,6 +522,7 @@ infraharvest verify [output-directory] [flags]
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--policy` |  | directory of your own OPA policies (Rego) that conftest checks the generated roots against in the verification gate (G5): findings are listed, never fail the check, as the roots mirror the cloud; repeat or comma-separate for several. Needs conftest on PATH (see https://ignatg.github.io/infraharvest/output/#your-own-policies) |
 | `--terraform-path` |  | Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6) |
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |
 
 ## infraharvest version
 
@@ -513,3 +531,7 @@ Print which version of infraharvest this is
 ```
 infraharvest version
 ```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--verbose` |  | log more, such as the requests to the cloud's APIs |

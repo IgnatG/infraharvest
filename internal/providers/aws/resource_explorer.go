@@ -6,7 +6,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // explorerTypes returns the Resource Explorer types that cover everything
@@ -118,14 +118,14 @@ func explorerFor(svc *Service) *explorerRegion {
 			where = "the default region"
 		}
 		if x.unusable != "" {
-			log.Printf("aws: Resource Explorer can't rule out services in %s: %s; listing every service", where, x.unusable)
+			logging.Warnf("aws: Resource Explorer can't rule out services in %s: %s; listing every service", where, x.unusable)
 			return
 		}
 		shows := fmt.Sprintf("%d resources of %d types", x.found, len(x.present))
 		if !x.complete {
 			shows = fmt.Sprintf("more than %d resources, so services with none among them are searched for one by one", explorerSearchLimit)
 		}
-		log.Printf("aws: Resource Explorer: the default view %s shows %s in %s; services it has none of there aren't listed", x.viewARN, shows, where)
+		logging.Warnf("aws: Resource Explorer: the default view %s shows %s in %s; services it has none of there aren't listed", x.viewARN, shows, where)
 	})
 	return x
 }
@@ -318,7 +318,7 @@ func (x *explorerRegion) skip(ctx context.Context, service string, types []strin
 	}
 	for _, t := range types {
 		if !x.supported[t] {
-			log.Printf("aws: %s: Resource Explorer doesn't index %s; listing it", service, t)
+			logging.Warnf("aws: %s: Resource Explorer doesn't index %s; listing it", service, t)
 			return ""
 		}
 		if x.present[t] {
@@ -334,7 +334,7 @@ func (x *explorerRegion) skip(ctx context.Context, service string, types []strin
 		}
 		found, err := x.hasAny(ctx, types)
 		if err != nil {
-			log.Printf("aws: %s: Resource Explorer can't rule it out in %s: %s; listing it", service, x.region, explorerError("Search", err))
+			logging.Warnf("aws: %s: Resource Explorer can't rule it out in %s: %s; listing it", service, x.region, explorerError("Search", err))
 			return ""
 		}
 		if found {
@@ -363,7 +363,7 @@ func (x *explorerRegion) typeSearchWorks(ctx context.Context) bool {
 	}
 	found, err := x.hasAny(ctx, []string{other, known})
 	if err != nil || !found {
-		log.Printf("aws: Resource Explorer: a search in %s for %s or %s doesn't find the %s it has; listing every service not among its first %d resources", x.region, other, known, known, explorerSearchLimit)
+		logging.Warnf("aws: Resource Explorer: a search in %s for %s or %s doesn't find the %s it has; listing every service not among its first %d resources", x.region, other, known, known, explorerSearchLimit)
 		return false
 	}
 	return true

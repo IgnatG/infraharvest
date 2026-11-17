@@ -6,7 +6,6 @@ package aws
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"slices"
 	"strings"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // arnResource is where the ARNs of a Terraform type's resources name them:
@@ -178,7 +178,7 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 		}
 	}
 	if tagFilterRefused(readErr) {
-		log.Printf("aws: tags in %s: the service filters were refused, so every tagged resource is read: %v", config.Region, readErr)
+		logging.Warnf("aws: tags in %s: the service filters were refused, so every tagged resource is read: %v", config.Region, readErr)
 		index = newTagIndex(cat)
 		readErr = readTagPages(ctx, client, nil, index)
 	}
@@ -192,7 +192,7 @@ func (p *Provider) Tags(ctx context.Context, resources []harvest.Resource) (map[
 			found[r.Address.Type+" "+r.Observed.ID] = tags
 		}
 	}
-	log.Printf("aws: tags in %s: the Tagging API lists %d tagged resources, %d of the %d listed matched", config.Region, len(index.byARN), len(found), len(resources))
+	logging.Infof("aws: tags in %s: the Tagging API lists %d tagged resources, %d of the %d listed matched", config.Region, len(index.byARN), len(found), len(resources))
 	return found, nil
 }
 

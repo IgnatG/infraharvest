@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,6 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // generate generates the call's roots into its run, each referring to the
@@ -85,7 +85,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 	case rootRefused:
 		err = d.reason
 	case rootResumed:
-		log.Printf("%s: %s is unchanged since it was generated (--resume)", c.provider.Name(), dir)
+		logging.Infof("%s: %s is unchanged since it was generated (--resume)", c.provider.Name(), dir)
 		if run.lock == nil {
 			run.lock, _ = os.ReadFile(filepath.Join(rootSource(out, dir), tfrun.LockFileName))
 		}
@@ -184,9 +184,9 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		return nil, err, nil
 	}
 	if len(imports) == 0 {
-		log.Printf("%s: %s hands every resource it had over to other roots", c.provider.Name(), dir)
+		logging.Infof("%s: %s hands every resource it had over to other roots", c.provider.Name(), dir)
 	} else {
-		log.Printf("%s: generating configuration for %d resources in %s", c.provider.Name(), len(imports), dir)
+		logging.Infof("%s: generating configuration for %d resources in %s", c.provider.Name(), len(imports), dir)
 	}
 	// A root of another call may pin another provider release line
 	// (see rootConfig): its lock file seeds this root only if it
@@ -214,7 +214,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 			// What the snapshot cached went wrong, or the root's real plan
 			// differs from the cached ones: generate it once more as before,
 			// so that a snapshot costs time, never a wrong root.
-			log.Printf("%s: %s: generating the root again without its import-once snapshot", c.provider.Name(), dir)
+			logging.Infof("%s: %s: generating the root again without its import-once snapshot", c.provider.Name(), dir)
 			dirOpts.ImportOnce = nil
 			if undoErr := claimed.discard(options.Out, dir); undoErr != nil {
 				return nil, undoErr, nil
@@ -279,7 +279,7 @@ func (c *callRecorder) addDirectory(dir string, imports []rootfile.Import, resul
 		r.report.Exclude(c.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
 	}
 	for _, w := range result.Warnings {
-		log.Printf("%s: %s", dir, w)
+		logging.Warnf("%s: %s", dir, w)
 	}
 	for _, check := range result.Gate {
 		if !check.Passed {
@@ -287,19 +287,19 @@ func (c *callRecorder) addDirectory(dir string, imports []rootfile.Import, resul
 		}
 	}
 	if len(result.Secrets) > 0 {
-		log.Printf("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), hclfile.VariablesFileName)
+		logging.Infof("%s: set %d secret variables before planning (see %s)", dir, len(result.Secrets), hclfile.VariablesFileName)
 	}
 	if len(result.Moves) > 0 {
-		log.Printf("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), rootfile.MovesFileName)
+		logging.Infof("%s: %d moved blocks move resources to their new addresses (see %s)", dir, len(result.Moves), rootfile.MovesFileName)
 	}
 	if len(result.Removed) > 0 {
-		log.Printf("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), rootfile.MovesFileName)
+		logging.Infof("%s: %d removed blocks hand resources over to other roots: apply this root before them (see %s)", dir, len(result.Removed), rootfile.MovesFileName)
 	}
 	if len(result.Retyped) > 0 {
-		log.Printf("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), rootfile.MovesFileName)
+		logging.Infof("%s: %d resources are of another name of their type now: removed blocks forget them where they were, and import blocks import them again (see %s)", dir, len(result.Retyped), rootfile.MovesFileName)
 	}
 	if len(result.Arrived) > 0 {
-		log.Printf("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
+		logging.Infof("%s: imports %d resources other roots hand over: apply those roots first (see its README)", dir, len(result.Arrived))
 	}
 }
 

@@ -6,7 +6,6 @@ package aws
 import (
 	"context"
 	"errors"
-	"log"
 	"strings"
 	"sync"
 
@@ -16,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // cloudControlType is a resource type listed through the Cloud Control
@@ -115,7 +115,7 @@ func (g *CloudControlLister) listType(ctx context.Context, client cloudcontrol.L
 		}
 		var unsupported *cctypes.UnsupportedActionException
 		if errors.As(err, &unsupported) {
-			log.Printf("aws: cloud control can't list %s here; not listing it: %v", t.CloudFormation, err)
+			logging.Warnf("aws: cloud control can't list %s here; not listing it: %v", t.CloudFormation, err)
 			return nil
 		}
 		if err != nil {

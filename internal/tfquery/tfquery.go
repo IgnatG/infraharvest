@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -32,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
@@ -139,7 +139,7 @@ func (r runner) list(ctx context.Context, req Request) ([]harvest.Resource, erro
 	}
 	defer func() {
 		if err := os.RemoveAll(dir); err != nil {
-			log.Printf("%s: query: removing %s: %v", req.ProviderName, dir, err)
+			logging.Warnf("%s: query: removing %s: %v", req.ProviderName, dir, err)
 		}
 	}()
 	providers, err := rootfile.ProvidersFile(req.Provider)
@@ -311,7 +311,7 @@ func collect(messages iter.Seq[tfexec.NextMessage], req Request) ([]harvest.Reso
 			found := msg.ListResourceFound
 			identity, ok := tftypes.IdentityValues(found.Identity)
 			if !ok || len(identity) == 0 {
-				log.Printf("%s: query: leaving out %s %s: its identity %v can't be written as an import block's", req.ProviderName, found.ResourceType, found.DisplayName, found.Identity)
+				logging.Warnf("%s: query: leaving out %s %s: its identity %v can't be written as an import block's", req.ProviderName, found.ResourceType, found.DisplayName, found.Identity)
 				continue
 			}
 			if req.InScope != nil && !req.InScope(identity) {
@@ -335,7 +335,7 @@ func collect(messages iter.Seq[tfexec.NextMessage], req Request) ([]harvest.Reso
 		}
 	}
 	if outOfScope > 0 {
-		log.Printf("%s: query: %d resources Terraform listed are outside this scope, which another one imports", req.ProviderName, outOfScope)
+		logging.Infof("%s: query: %d resources Terraform listed are outside this scope, which another one imports", req.ProviderName, outOfScope)
 	}
 	var partial []error
 	for _, typ := range req.Types {
@@ -343,7 +343,7 @@ func collect(messages iter.Seq[tfexec.NextMessage], req Request) ([]harvest.Reso
 			partial = append(partial, fmt.Errorf("%s: %s", typ, strings.Join(slices.Compact(msgs), "; ")))
 		}
 		if totals[typ] >= Limit {
-			log.Printf("%s: query: %s: the list stopped at its limit of %d results, so there may be more than it found", req.ProviderName, typ, Limit)
+			logging.Warnf("%s: query: %s: the list stopped at its limit of %d results, so there may be more than it found", req.ProviderName, typ, Limit)
 			partial = append(partial, fmt.Errorf("%s: the list stopped at its limit of %d results, so there may be more", typ, Limit))
 		}
 	}

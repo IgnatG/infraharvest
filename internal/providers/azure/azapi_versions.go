@@ -5,7 +5,6 @@ package azure
 
 import (
 	"context"
-	"log"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,6 +16,7 @@ import (
 	"github.com/magodo/armid"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // apiVersionAttribute is the attribute an azapi_resource records its API
@@ -122,7 +122,7 @@ func withAPIVersions(ctx context.Context, cache *versionCache, credential azcore
 	logOnce := func(key, format string, args ...any) {
 		if !logged[key] {
 			logged[key] = true
-			log.Printf(format, args...)
+			logging.Warnf(format, args...)
 		}
 	}
 	for _, r := range resources {

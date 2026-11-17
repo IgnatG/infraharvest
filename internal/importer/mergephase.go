@@ -6,13 +6,13 @@ package importer
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"slices"
 	"sort"
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -108,7 +108,7 @@ func (p *mergePhase) run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			log.Printf("%s: %v", stack, err)
+			logging.Errorf("%s: %v", stack, err)
 			p.fail(fmt.Errorf("merging %s: %w", relativePath(p.out, stack), err))
 		}
 	}
@@ -117,7 +117,7 @@ func (p *mergePhase) run(ctx context.Context) error {
 	}
 	// The merged roots all of whose resources go to other roots now.
 	if err := p.vacateMergedRoots(byStack); err != nil {
-		log.Print(err)
+		logging.Errorf("%v", err)
 		p.fail(fmt.Errorf("handing over what merged roots have: %w", err))
 	}
 	return nil

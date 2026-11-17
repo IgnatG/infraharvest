@@ -5,7 +5,6 @@ package importer
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // rootFiles are the files every output directory starts with, and the
@@ -59,7 +59,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	}
 	constraints, refused := newestMajor(ctx, client, registryURL, source, latest, constraints)
 	for _, c := range refused {
-		log.Printf("%s %s: not called: it accepts %s %s, and the newest release is %s; its resources stay in the root", c.module, c.version, p.Source, c.constraint, latest)
+		logging.Warnf("%s %s: not called: it accepts %s %s, and the newest release is %s; its resources stay in the root", c.module, c.version, p.Source, c.constraint, latest)
 	}
 	chosen, held := latest, ""
 	if len(constraints) > 0 {
@@ -71,10 +71,10 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		switch {
 		case err != nil:
 			// The modules' calls then fail their plans and are declined.
-			log.Printf("%s: %v; pinning the newest release, %s", p.Source, err, latest)
+			logging.Warnf("%s: %v; pinning the newest release, %s", p.Source, err, latest)
 		case v.LessThan(latest):
 			chosen, held = v, heldBack(latest, constraints)
-			log.Printf("%s: pinning %s: %s", p.Source, v, held)
+			logging.Infof("%s: pinning %s: %s", p.Source, v, held)
 		}
 	}
 	p.Version = rootfile.ProviderConstraint(chosen)

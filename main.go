@@ -7,7 +7,6 @@
 package main
 
 import (
-	"log"
 	"os"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
@@ -26,9 +25,9 @@ func main() {
 	}
 	// Logs go to stderr: stdout carries only results, such as the list of
 	// services or the JSON report, and the MCP server reads it as data.
-	log.SetOutput(logging.Filter(os.Stderr))
+	logging.Setup(os.Stderr)
 	if err := cli.Execute(); err != nil {
-		log.Print(err)
+		logging.Errorf("%v", err)
 		os.Exit(importer.ExitCode(err))
 	}
 }

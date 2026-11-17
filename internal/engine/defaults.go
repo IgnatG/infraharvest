@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // maxDefaultRounds bounds how often the defaults pass plans, and
@@ -130,7 +130,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *workspace, rules
 					return tidyDecision{}, err
 				}
 				if len(unassigned) > 0 || len(assigned) == 0 {
-					log.Printf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(r.diags))
+					logging.Warnf("%s: keeping the arguments that may be defaults, as the plan without them failed: %v", dir, tfrun.DiagnosticsError(r.diags))
 					return tidyDecision{outcome: tidyFallBack}, nil
 				}
 				keepWhatErrorsName(removed, assigned, failed, a.round, keep)
@@ -141,7 +141,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *workspace, rules
 				return tidyDecision{outcome: tidyAccept}, nil
 			}
 			if !differs {
-				log.Printf("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, r.plan.summary, r.baseline.summary)
+				logging.Infof("%s: keeping the arguments that may be defaults, as the plan without them changes %+v, not %+v, and no resource tells why", dir, r.plan.summary, r.baseline.summary)
 				return tidyDecision{outcome: tidyFallBack}, nil
 			}
 			return defaultsRetry(dir, a), nil
@@ -156,7 +156,7 @@ func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *workspace, rules
 // for another: it edits again, or falls back after the last round.
 func defaultsRetry(dir string, a *tidyAttempt) tidyDecision {
 	if a.last() {
-		log.Printf("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, a.rounds)
+		logging.Infof("%s: keeping the arguments that may be defaults, as the plan without them still changed after %d plans", dir, a.rounds)
 		return tidyDecision{outcome: tidyFallBack}
 	}
 	return tidyDecision{outcome: tidyRetry}

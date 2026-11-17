@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // sqlDatabaseType is the Terraform type of a database in a Cloud SQL
@@ -93,7 +93,7 @@ func (g *CloudSQLLister) list() error {
 	instances, err := sqlPrimaries(ctx, svc, project, region.Name)
 	if err != nil {
 		if googleCodes.Classify(err) == harvest.OutcomeNothingToList {
-			log.Printf("%s: cloudsql: no Cloud SQL instances listed in project %s: %v", g.Provider(), project, err)
+			logging.Warnf("%s: cloudsql: no Cloud SQL instances listed in project %s: %v", g.Provider(), project, err)
 			return nil
 		}
 		return err
@@ -119,11 +119,11 @@ func (g *CloudSQLLister) list() error {
 				return ctx.Err()
 			}
 			if googleCodes.Classify(err) == harvest.OutcomeGone {
-				log.Printf("%s: cloudsql: instance %s in project %s was deleted since it was listed, so it has no databases to list: %v", g.Provider(), instance.Name, project, err)
+				logging.Warnf("%s: cloudsql: instance %s in project %s was deleted since it was listed, so it has no databases to list: %v", g.Provider(), instance.Name, project, err)
 				continue
 			}
 			if sqlInstanceNotServing(err) {
-				log.Printf("%s: cloudsql: the databases of instance %s in project %s can't be listed, so they are left out, and not taken for deleted: %v", g.Provider(), instance.Name, project, err)
+				logging.Warnf("%s: cloudsql: the databases of instance %s in project %s can't be listed, so they are left out, and not taken for deleted: %v", g.Provider(), instance.Name, project, err)
 				caches.setSQLDatabasesUnlisted(project, region.Name, true)
 				continue
 			}

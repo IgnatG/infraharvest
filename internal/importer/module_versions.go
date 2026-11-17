@@ -6,7 +6,6 @@ package importer
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -41,14 +41,14 @@ func resolveAdapters(ctx context.Context, releasesOf func(ctx context.Context, s
 	for _, a := range list {
 		releases, err := releasesOf(ctx, a.Source)
 		if err != nil {
-			log.Printf("%s: %v; calling the tested version %s", a.Source, err, a.Version)
+			logging.Warnf("%s: %v; calling the tested version %s", a.Source, err, a.Version)
 			used = append(used, a)
 			continue
 		}
 		latest := releases[0]
 		if tested, err := goversion.NewVersion(a.Version); err == nil && latest.Version.GreaterThan(tested) {
 			if untested {
-				log.Printf("%s: calling %s, newer than the tested %s (--modules %s)", a.Source, latest.Version.Original(), a.Version, ModulesLatestUntested)
+				logging.Infof("%s: calling %s, newer than the tested %s (--modules %s)", a.Source, latest.Version.Original(), a.Version, ModulesLatestUntested)
 				a.Version = latest.Version.Original()
 			} else {
 				newer = append(newer, report.ModuleVersion{Source: a.Source, Version: a.Version, Latest: latest.Version.Original()})

@@ -5,7 +5,8 @@ package discovery
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"runtime/pprof"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -44,10 +45,10 @@ func (s *service) Discover(ctx context.Context) (resources []harvest.Resource, e
 }
 
 func (s *service) discover(ctx context.Context) ([]harvest.Resource, error) {
-	log.Printf("%s: listing %s", s.provider.Name(), s.name)
+	slog.Info(fmt.Sprintf("%s: listing %s", s.provider.Name(), s.name))
 	lister, err := s.provider.Lister(s.name)
 	if err != nil {
-		log.Printf("%s: can't list %s: %v", s.provider.Name(), s.name, err)
+		slog.Warn(fmt.Sprintf("%s: can't list %s: %v", s.provider.Name(), s.name, err))
 		return nil, err
 	}
 	listed, err := lister.List(ctx, s.settings)
@@ -57,15 +58,15 @@ func (s *service) discover(ctx context.Context) ([]harvest.Resource, error) {
 		err = harvest.Partial(err)
 	}
 	if err != nil && !harvest.IsPartial(err) {
-		log.Printf("%s: listing %s failed: %v", s.provider.Name(), s.name, err)
+		slog.Warn(fmt.Sprintf("%s: listing %s failed: %v", s.provider.Name(), s.name, err))
 		return nil, err
 	}
 	resources := harvest.Prune(listed, s.settings.Filters)
 	if err != nil {
 		// What it listed is kept, and err still fails the import.
-		log.Printf("%s: listed %s in part: %v", s.provider.Name(), s.name, err)
+		slog.Warn(fmt.Sprintf("%s: listed %s in part: %v", s.provider.Name(), s.name, err))
 		return resources, err
 	}
-	log.Printf("%s: listed %s", s.provider.Name(), s.name)
+	slog.Info(fmt.Sprintf("%s: listed %s", s.provider.Name(), s.name))
 	return resources, nil
 }

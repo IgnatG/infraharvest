@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -23,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -203,7 +203,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 	}
 	set, err := premerged(c.options.Out, dir)
 	if err != nil {
-		log.Printf("%s: %v; its stack isn't merged", dir, err)
+		logging.Warnf("%s: %v; its stack isn't merged", dir, err)
 		return
 	}
 	region := c.region

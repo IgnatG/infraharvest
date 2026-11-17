@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"slices"
 	"sort"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // inOtherRoots returns, by type and import ID, the root of roots other
@@ -79,7 +79,7 @@ func importsByDir(blocks importBlocks, resourcesByService map[string][]harvest.R
 	}
 	sort.Strings(types)
 	for _, typ := range types {
-		log.Printf("%s: skipping %d %s: Terraform can't import this resource type", blocks.provider, skipped[typ], typ)
+		logging.Warnf("%s: skipping %d %s: Terraform can't import this resource type", blocks.provider, skipped[typ], typ)
 	}
 	return byDir, skipped
 }

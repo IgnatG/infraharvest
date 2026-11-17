@@ -5,12 +5,12 @@ package aws
 
 import (
 	"context"
-	"log"
 	"regexp"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report/cfn"
 	"github.com/IgnatG/infraharvest/internal/runstate"
 )
@@ -95,7 +95,7 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 	if p.roleARN == "" && (p.externalID != "" || p.sessionName != "") {
 		// Only a role is assumed with them: say so, rather than read the
 		// account the credentials reach as if they applied.
-		log.Printf("aws: --external-id and --role-session-name apply to an assumed role, and this call assumes none (region %q): they are ignored", p.region)
+		logging.Warnf("aws: --external-id and --role-session-name apply to an assumed role, and this call assumes none (region %q): they are ignored", p.region)
 	}
 	return nil
 }

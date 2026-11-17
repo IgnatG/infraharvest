@@ -7,7 +7,16 @@
     "args": "unset",
     "silence_usage": true,
     "silence_errors": true,
-    "version_flag": true
+    "version_flag": true,
+    "flags": [
+      {
+        "name": "verbose",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": true
+      }
+    ]
   },
   {
     "path": "infraharvest bootstrap",

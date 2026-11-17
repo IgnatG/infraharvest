@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"slices"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	s3store "github.com/IgnatG/infraharvest/internal/managed/stores/s3"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
@@ -209,7 +209,7 @@ func (s *awsScope) plan(ctx context.Context, options importer.Options) (plan, er
 		}, newProvider: s.newProvider}, nil
 	}
 	return plan{kind: "account", scopes: accounts, calls: func(accountOptions importer.Options, account string) []call {
-		log.Printf("aws: importing account %s", account)
+		logging.Infof("aws: importing account %s", account)
 		return s.calls(accountOptions, strings.ReplaceAll(s.assumeRole, "{account}", account))
 	}, newProvider: s.newProvider}, nil
 }
@@ -242,12 +242,12 @@ func (s *awsScope) planStacks(ctx context.Context, options importer.Options) (pl
 		return plan{}, err
 	}
 	for _, line := range scope.Summary() {
-		log.Printf("aws: %s", line)
+		logging.Infof("aws: %s", line)
 	}
 	options.Regions = scope.Regions()
 	if len(options.Services) == 0 {
 		options.Services = scope.Services(cat)
-		log.Printf("aws: listing the services of the stacks' resources: %s", strings.Join(options.Services, ", "))
+		logging.Infof("aws: listing the services of the stacks' resources: %s", strings.Join(options.Services, ", "))
 	}
 	return plan{
 		calls: func(callOptions importer.Options, _ string) []call {
@@ -257,7 +257,7 @@ func (s *awsScope) planStacks(ctx context.Context, options importer.Options) (pl
 				// resource: one call, in the stacks' first region, still
 				// reports the stacks, with what keeps each from being safe
 				// to delete.
-				log.Printf("aws: no service lists a resource of the stacks: importing nothing, to report on the stacks")
+				logging.Infof("aws: no service lists a resource of the stacks: importing nothing, to report on the stacks")
 				callOptions.Regions = callOptions.Regions[:1]
 				return []call{s.call(callOptions, roleARN, callOptions.Regions[0], "region "+callOptions.Regions[0])}
 			}

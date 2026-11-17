@@ -6,11 +6,11 @@ package importer
 import (
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/filelock"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // outputLockPath is the file in the output directory out whose lock a run
@@ -60,7 +60,7 @@ func lockOutput(out string, force bool) (*filelock.Lock, error) {
 	lock, err := filelock.TryLock(path)
 	if err == nil {
 		if err := lock.Record(); err != nil {
-			log.Printf("%s: couldn't record this run as the lock's holder: %v", path, err)
+			logging.Warnf("%s: couldn't record this run as the lock's holder: %v", path, err)
 		}
 		return lock, nil
 	}
@@ -70,13 +70,13 @@ func lockOutput(out string, force bool) (*filelock.Lock, error) {
 	}
 	if errors.Is(err, filelock.ErrLocked) {
 		if force {
-			log.Printf("warning: --force-unlock: writing to %s although %s is writing there too", out, holder)
+			logging.Warnf("warning: --force-unlock: writing to %s although %s is writing there too", out, holder)
 			return nil, nil
 		}
 		return nil, fmt.Errorf("%s is in use by %s: wait for it to finish, or pass --force-unlock if it is stuck", out, holder)
 	}
 	if force {
-		log.Printf("warning: --force-unlock: writing to %s without its lock: %v", out, err)
+		logging.Warnf("warning: --force-unlock: writing to %s without its lock: %v", out, err)
 		return nil, nil
 	}
 	return nil, fmt.Errorf("lock %s: %w (--force-unlock writes there without the lock)", out, err)
@@ -111,7 +111,7 @@ func (r *Run) unlockOut() {
 	defer s.outMu.Unlock()
 	if s.outLock != nil {
 		if err := s.outLock.Unlock(); err != nil {
-			log.Printf("couldn't release the lock of the output directory: %v", err)
+			logging.Warnf("couldn't release the lock of the output directory: %v", err)
 		}
 	}
 	s.outLock, s.outLocked = nil, false

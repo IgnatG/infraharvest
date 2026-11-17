@@ -6,7 +6,6 @@
 package cli
 
 import (
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -14,6 +13,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
+
+// verboseFlag is the name of the flag that makes the logs more detailed.
+const verboseFlag = "verbose"
 
 // awsCommands make the root's commands only a build with AWS has, such
 // as cfn: each file that makes one carries the build constraint
@@ -36,7 +38,16 @@ func NewCmdRoot() *cobra.Command {
 		// cobra prints neither the error nor the usage.
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// --verbose is the flag of every command: it logs at Debug. The
+		// provider commands have a flag of that name of their own too
+		// (-v), which a configuration file can set (see
+		// providers.BaseFlags), and which wins on them.
+		PersistentPreRun: func(c *cobra.Command, _ []string) {
+			verbose, _ := c.Flags().GetBool(verboseFlag)
+			logging.SetVerbose(verbose)
+		},
 	}
+	cmd.PersistentFlags().Bool(verboseFlag, false, "log more, such as the requests to the cloud's APIs")
 	cmd.AddCommand(
 		newImportCmd(),
 		newDiscoverCmd(),
@@ -75,7 +86,7 @@ func Execute() error {
 			return stopErr
 		}
 		// The command's error matters more; the profile's is only logged.
-		log.Printf("writing the profiles: %v", stopErr)
+		logging.Warnf("writing the profiles: %v", stopErr)
 	}
 	return err
 }

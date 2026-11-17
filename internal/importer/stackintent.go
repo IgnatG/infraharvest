@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 	"sort"
 	"strings"
 
@@ -16,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/stackintent"
 	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
@@ -72,7 +72,7 @@ func (c *listedCall) stackIntent() (stackRefine, string) {
 	}
 	key, err := stackIntentKey(inputs)
 	if err != nil {
-		log.Printf("%s: the CloudFormation stacks' templates aren't carried into the roots, as they can't be told apart for --resume (%v)", c.provider.Name(), err)
+		logging.Warnf("%s: the CloudFormation stacks' templates aren't carried into the roots, as they can't be told apart for --resume (%v)", c.provider.Name(), err)
 		return nil, ""
 	}
 	withMapper, _ := c.provider.(harvest.ProviderWithStackMapper)

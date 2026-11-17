@@ -5,7 +5,6 @@ package azure
 
 import (
 	"context"
-	"log"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor"
@@ -14,6 +13,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // diagnosticSettingService lists diagnostic settings. It is opt-in: *
@@ -98,7 +98,7 @@ func (az *DiagnosticSettingLister) list() error {
 		targets = append([]diagnosticTarget{{id: "/subscriptions/" + s.subscriptionID, label: "subscription"}}, targets...)
 	}
 	if len(s.listed) == 0 {
-		log.Printf("azurerm: %s: no other service listed resources, so only the subscription's diagnostic settings are listed; name resource_graph with it for those of the resources", diagnosticSettingService)
+		logging.Infof("azurerm: %s: no other service listed resources, so only the subscription's diagnostic settings are listed; name resource_graph with it for those of the resources", diagnosticSettingService)
 	}
 	ctx := az.Context()
 	found := make([][]harvest.Resource, len(targets))
@@ -119,11 +119,11 @@ func (az *DiagnosticSettingLister) list() error {
 	for i, target := range targets {
 		az.Resources = append(az.Resources, found[i]...)
 		if failed[i] != nil && !parts.Add(azureCodes, "azurerm: "+diagnosticSettingService+": listing the diagnostic settings of "+target.id, failed[i]) {
-			log.Printf("azurerm: %s: %s has no diagnostic settings to list: %v", diagnosticSettingService, target.id, failed[i])
+			logging.Warnf("azurerm: %s: %s has no diagnostic settings to list: %v", diagnosticSettingService, target.id, failed[i])
 		}
 	}
 	if az.Verbose() {
-		log.Printf("azurerm: %s: asked %d resources of the %d listed for their diagnostic settings", diagnosticSettingService, len(targets), len(s.listed))
+		logging.Debugf("azurerm: %s: asked %d resources of the %d listed for their diagnostic settings", diagnosticSettingService, len(targets), len(s.listed))
 	}
 	return parts.Err()
 }

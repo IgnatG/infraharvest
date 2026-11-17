@@ -6,7 +6,6 @@ package drift
 import (
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"math/big"
 	"path"
@@ -26,6 +25,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // driftModule is a module a root calls, as Terraform installed it, read
@@ -56,7 +56,7 @@ func loadDriftModules(dir, dataDir string) (map[string]*driftModule, map[string]
 	unread := map[string]string{}
 	installed, err := tfrun.InstalledModules(dir, dataDir)
 	if err != nil {
-		log.Printf("%s: drift: can't read the modules the root calls, so changes inside them can't be traced: %v", dir, err)
+		logging.Warnf("%s: drift: can't read the modules the root calls, so changes inside them can't be traced: %v", dir, err)
 		unread[""] = "the modules the root calls can't be read: " + err.Error()
 		return nil, unread
 	}
@@ -68,7 +68,7 @@ func loadDriftModules(dir, dataDir string) (map[string]*driftModule, map[string]
 	for _, m := range installed {
 		contents, err := tfContents(m.Dir)
 		if err != nil {
-			log.Printf("%s: drift: can't read module %s, so changes inside it can't be traced: %v", dir, m.Key, err)
+			logging.Warnf("%s: drift: can't read module %s, so changes inside it can't be traced: %v", dir, m.Key, err)
 			unread[m.Key] = "the module's files can't be read: " + err.Error()
 			continue
 		}
@@ -77,7 +77,7 @@ func loadDriftModules(dir, dataDir string) (map[string]*driftModule, map[string]
 		}
 		cfg, err := parseDriftConfig(contents)
 		if err != nil {
-			log.Printf("%s: drift: module %s doesn't parse, so changes inside it can't be traced: %v", dir, m.Key, err)
+			logging.Warnf("%s: drift: module %s doesn't parse, so changes inside it can't be traced: %v", dir, m.Key, err)
 			unread[m.Key] = "the module doesn't parse: " + firstDiagnostic(err)
 			continue
 		}

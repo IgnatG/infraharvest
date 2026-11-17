@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/config"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // catalogueAdapters returns the adapters of own, the organisation's
@@ -75,13 +75,13 @@ func fetchAdapters(ctx context.Context, tools *callTools, execPath, cacheDir, pr
 			defer func() { <-slots }()
 			dir, cleanup, err := fetchModule(ctx, tools, execPath, cacheDir, m)
 			if err != nil {
-				log.Printf("module %s: %v; not used", m.Source, err)
+				logging.Warnf("module %s: %v; not used", m.Source, err)
 				return
 			}
 			a, err := adapters.Generic(m.Source, m.Version, dir)
 			cleanup()
 			if err != nil {
-				log.Printf("module %s isn't used: imported resources can't be matched to it, as %v", m.Source, err)
+				logging.Warnf("module %s isn't used: imported resources can't be matched to it, as %v", m.Source, err)
 				return
 			}
 			fetched[i] = &a

@@ -5,13 +5,13 @@ package cli
 
 import (
 	"errors"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/picker"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -52,9 +52,9 @@ func pick(path string) error {
 		return err
 	}
 	if saved {
-		log.Printf("saved %s", path)
+		logging.Infof("saved %s", path)
 	} else {
-		log.Printf("left %s as it was", path)
+		logging.Infof("left %s as it was", path)
 	}
 	return nil
 }

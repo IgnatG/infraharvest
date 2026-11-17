@@ -73,6 +73,12 @@
             "contextcheck"
           ],
           "text": "configs"
+        },
+        {
+          "linters": [
+            "contextcheck"
+          ],
+          "text": "->(logf|emit)->record"
         }
       ]
     },
