@@ -43,7 +43,8 @@
         exit 2
       fi
     - curl -fsSL -o /tmp/infraharvest-install.sh "https://raw.githubusercontent.com/IgnatG/infraharvest/${INFRAHARVEST_VERSION}/install.sh"
-    - INFRAHARVEST_INSTALL_DIR=/usr/local/bin INFRAHARVEST_REQUIRE_SIGNATURE=1 sh /tmp/infraharvest-install.sh
+    # The release has one build per cloud: the provider's.
+    - INFRAHARVEST_CLOUD="$INFRAHARVEST_PROVIDER" INFRAHARVEST_INSTALL_DIR=/usr/local/bin INFRAHARVEST_REQUIRE_SIGNATURE=1 sh /tmp/infraharvest-install.sh
     - infraharvest version
     # The cloud's OIDC token, from the job's id_tokens, where the SDKs read
     # it: AWS from the file AWS_WEB_IDENTITY_TOKEN_FILE names (with

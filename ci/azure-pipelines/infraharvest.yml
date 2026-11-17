@@ -85,7 +85,8 @@ parameters:
 steps:
   - bash: |
       set -euo pipefail
-      image="ghcr.io/ignatg/infraharvest:${INFRAHARVEST_VERSION}"
+      # One image per cloud: <release>-<cloud>.
+      image="ghcr.io/ignatg/infraharvest:${INFRAHARVEST_VERSION}-${INFRAHARVEST_PROVIDER}"
       docker pull -q "$image"
       # Signed by this repository's release workflow, keylessly, as
       # docs/install.md checks it.
@@ -96,6 +97,7 @@ steps:
     displayName: Verify the infraharvest image
     env:
       INFRAHARVEST_VERSION: ${{ parameters.version }}
+      INFRAHARVEST_PROVIDER: ${{ parameters.provider }}
       COSIGN_IMAGE: ${{ parameters.cosignImage }}
 
   - bash: |

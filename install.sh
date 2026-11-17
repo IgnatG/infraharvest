@@ -4,13 +4,18 @@
 
 # Installs infraharvest from a GitHub release, for example in a cloud shell:
 #
-#   curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_CLOUD=aws sh
+#
+# A release has one build per cloud, each with only that cloud's SDK, so the
+# script needs to be told which one to install. The command is infraharvest
+# in all of them.
 #
 # It checks that this repository's release workflow signed the release's
 # checksum file, with cosign, and the archive against that file. It needs
 # cosign (https://docs.sigstore.dev/cosign/system_config/installation/)
 # unless told to skip the signature. Settings, from the environment:
 #
+#   INFRAHARVEST_CLOUD        the cloud to install: aws, azure or google (required)
 #   INFRAHARVEST_VERSION      release to install, such as v0.1.0 (default: latest)
 #   INFRAHARVEST_INSTALL_DIR  where to put the binary (default: ~/.local/bin)
 #   INFRAHARVEST_SKIP_SIGNATURE=1  don't verify the signature: check only the
@@ -61,6 +66,13 @@ fetch() {
 }
 
 main() {
+  cloud="${INFRAHARVEST_CLOUD:-}"
+  case "$cloud" in
+    aws | azure | google) ;;
+    "") fail "set INFRAHARVEST_CLOUD to the cloud to install: aws, azure or google (a release has one build per cloud), for example: curl -fsSL https://raw.githubusercontent.com/$repo/main/install.sh | INFRAHARVEST_CLOUD=aws sh" ;;
+    *) fail "INFRAHARVEST_CLOUD is '$cloud'; it must be aws, azure or google" ;;
+  esac
+
   case "$(uname -s)" in
     Linux) os=linux ;;
     Darwin) os=darwin ;;
@@ -91,10 +103,10 @@ main() {
   esac
   number="${version#v}"
   base="${INFRAHARVEST_BASE_URL:-https://github.com/$repo/releases/download/$version}"
-  archive="infraharvest_${number}_${os}_${arch}.tar.gz"
+  archive="infraharvest_${number}_${cloud}_${os}_${arch}.tar.gz"
   sums="infraharvest_${number}_SHA256SUMS"
 
-  echo "Installing infraharvest $version ($os/$arch) into $install_dir"
+  echo "Installing infraharvest $version for $cloud ($os/$arch) into $install_dir"
   fetch "$base/$archive" "$tmp/$archive"
   fetch "$base/$sums" "$tmp/$sums"
 

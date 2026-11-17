@@ -2,16 +2,50 @@
 # Copyright 2026 Gabriel Ignat
 # SPDX-License-Identifier: AGPL-3.0-only
 
-# Release build (see .github/workflows/release.yml): binaries for Linux,
-# macOS and Windows on amd64 and arm64, a checksum file signed with cosign
-# (keyless, from GitHub Actions), SBOMs, and a container image.
+# Release build (see .github/workflows/release.yml): one build per cloud,
+# each compiling only that cloud's SDK (`-tags minimal,<cloud>`, which is
+# 31 to 58 MB where all three together are 225 MB), for Linux, macOS and
+# Windows on amd64 and arm64. Each cloud has its own archives and container
+# image; inside them the command is still `infraharvest`. One checksum file
+# for all the archives, signed with cosign (keyless, from GitHub Actions),
+# SBOMs, and the images. There is no build with every cloud: `make
+# build-all` makes one for development.
 version: 2
 project_name: infraharvest
 
 builds:
-  - id: infraharvest
+  - id: infraharvest-aws
     main: .
     binary: infraharvest
+    tags: [minimal, aws]
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/IgnatG/infraharvest/internal/version.Version=v{{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # Reproducible: the same commit gives the same binaries.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: infraharvest-azure
+    main: .
+    binary: infraharvest
+    tags: [minimal, azure]
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/IgnatG/infraharvest/internal/version.Version=v{{ .Version }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    # Reproducible: the same commit gives the same binaries.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: infraharvest-google
+    main: .
+    binary: infraharvest
+    tags: [minimal, google]
     env:
       - CGO_ENABLED=0
     flags:
@@ -23,17 +57,45 @@ builds:
     # Reproducible: the same commit gives the same binaries.
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+# The licences and the NOTICE go in every archive: the binary embeds MPL-2.0
+# data read out of the Terraform providers (internal/catalogue/schemameta),
+# whose licence and source MPL-2.0 section 3.2 asks it to name, and OPA's
+# Apache-2.0 capabilities file (internal/engine), whose licence and NOTICE
+# Apache-2.0 section 4 asks it to carry.
 archives:
-  - formats: [tar.gz]
+  - id: aws
+    ids: [infraharvest-aws]
+    formats: [tar.gz]
     format_overrides:
       - goos: windows
         formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    # The licences and the NOTICE: the binary embeds MPL-2.0 data read out
-    # of the Terraform providers (internal/catalogue/schemameta), whose
-    # licence and source MPL-2.0 section 3.2 asks it to name, and OPA's
-    # Apache-2.0 capabilities file (internal/engine), whose licence and
-    # NOTICE Apache-2.0 section 4 asks it to carry.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_aws_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
+      - README.md
+  - id: azure
+    ids: [infraharvest-azure]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_azure_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
+      - README.md
+  - id: google
+    ids: [infraharvest-google]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_google_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
       - NOTICE
@@ -54,15 +116,71 @@ signs:
     args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
     artifacts: checksum
 
+# One image per cloud, in one repository: <version>-<cloud> and, for a
+# release that isn't a prerelease, latest-<cloud>. Each is built from the
+# binaries of its own cloud (ids), and the Dockerfile only labels it with
+# the cloud (CLOUD).
 dockers_v2:
-  - images:
+  - id: aws
+    ids: [infraharvest-aws]
+    images:
       - ghcr.io/ignatg/infraharvest
     tags:
-      - "v{{ .Version }}"
-      - "{{ if not .Prerelease }}latest{{ end }}"
+      - "v{{ .Version }}-aws"
+      - "{{ if not .Prerelease }}latest-aws{{ end }}"
     platforms: [linux/amd64, linux/arm64]
+    build_args:
+      CLOUD: aws
     labels:
-      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.title: "{{ .ProjectName }} (aws)"
+      org.opencontainers.image.description: Turns existing cloud resources into Terraform configuration that plans with no changes
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.licenses: AGPL-3.0-only AND MPL-2.0 AND Apache-2.0
+    # The licences and the NOTICE, as the archives have them (see above),
+    # copied into the image by the Dockerfile.
+    extra_files:
+      - LICENSE
+      - NOTICE
+      - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
+  - id: azure
+    ids: [infraharvest-azure]
+    images:
+      - ghcr.io/ignatg/infraharvest
+    tags:
+      - "v{{ .Version }}-azure"
+      - "{{ if not .Prerelease }}latest-azure{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    build_args:
+      CLOUD: azure
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }} (azure)"
+      org.opencontainers.image.description: Turns existing cloud resources into Terraform configuration that plans with no changes
+      org.opencontainers.image.source: "{{ .GitURL }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.licenses: AGPL-3.0-only AND MPL-2.0 AND Apache-2.0
+    # The licences and the NOTICE, as the archives have them (see above),
+    # copied into the image by the Dockerfile.
+    extra_files:
+      - LICENSE
+      - NOTICE
+      - LICENSES/MPL-2.0.txt
+      - LICENSES/Apache-2.0.txt
+  - id: google
+    ids: [infraharvest-google]
+    images:
+      - ghcr.io/ignatg/infraharvest
+    tags:
+      - "v{{ .Version }}-google"
+      - "{{ if not .Prerelease }}latest-google{{ end }}"
+    platforms: [linux/amd64, linux/arm64]
+    build_args:
+      CLOUD: google
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }} (google)"
       org.opencontainers.image.description: Turns existing cloud resources into Terraform configuration that plans with no changes
       org.opencontainers.image.source: "{{ .GitURL }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
@@ -92,17 +210,19 @@ release:
   footer: |
     ## Install
 
+    Each cloud has its own archives and image: `aws`, `azure` or `google`. The command inside is `infraharvest` in all of them.
+
     ```sh
-    curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_VERSION={{ .Tag }} sh
-    docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}
-    go install github.com/IgnatG/infraharvest@{{ .Tag }}
+    curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_CLOUD=aws INFRAHARVEST_VERSION={{ .Tag }} sh
+    docker pull ghcr.io/ignatg/infraharvest:{{ .Tag }}-aws
+    go install -tags minimal,aws github.com/IgnatG/infraharvest@{{ .Tag }}
     ```
 
     The install script verifies the release's signature with cosign, which cloud shells don't include: see [Install](https://ignatg.github.io/infraharvest/install/) for how to add it there, and for the other ways to install.
 
     ## Verify
 
-    The checksum file and the container image are signed with cosign, keyless, by the release workflow on `main`:
+    The checksum file and the container images are signed with cosign, keyless, by the release workflow on `main`:
 
     ```sh
     cosign verify-blob \
@@ -111,7 +231,7 @@ release:
       --bundle infraharvest_{{ .Version }}_SHA256SUMS.sigstore.json infraharvest_{{ .Version }}_SHA256SUMS
     sha256sum --check --ignore-missing infraharvest_{{ .Version }}_SHA256SUMS
 
-    cosign verify ghcr.io/ignatg/infraharvest:{{ .Tag }} \
+    cosign verify ghcr.io/ignatg/infraharvest:{{ .Tag }}-aws \
       --certificate-identity "https://github.com/IgnatG/infraharvest/.github/workflows/release.yml@refs/heads/main" \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
     ```

@@ -6,7 +6,10 @@
 # The release image: infraharvest, pinned Terraform and OpenTofu binaries,
 # and git, which Terraform needs to fetch registry modules hosted on GitHub.
 # GoReleaser builds infraharvest and puts it in the build context under
-# $TARGETPLATFORM/ (see .goreleaser.yaml); nothing is compiled here.
+# $TARGETPLATFORM/ (see .goreleaser.yaml); nothing is compiled here. There
+# is one image per cloud, and the binary in the context is that cloud's
+# build (-tags minimal,<cloud>): CLOUD, passed by .goreleaser.yaml, names it
+# in a label.
 #
 # Terraform and OpenTofu come from their official images, pinned by tag and
 # digest, so Dependabot proposes their new releases like any other image.
@@ -24,6 +27,9 @@ RUN mkdir /work
 # first: the engines, then infraharvest itself.
 FROM cgr.dev/chainguard/git:latest@sha256:443a587bba03570c192c7c17053756f94d28c5745f6501148efd5b24de94433f
 ARG TARGETPLATFORM
+# aws, azure or google.
+ARG CLOUD
+LABEL io.github.ignatg.infraharvest.cloud=$CLOUD
 COPY --link --from=terraform /bin/terraform /usr/local/bin/terraform
 COPY --link --from=terraform /usr/share/doc/terraform/LICENSE.txt /usr/share/doc/terraform/LICENSE.txt
 COPY --link --from=tofu /usr/local/bin/tofu /usr/local/bin/tofu

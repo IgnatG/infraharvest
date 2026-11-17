@@ -2,7 +2,7 @@
 
 Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch).
 
-The action installs a release and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Then, when importing, it checks the import as `infraharvest import <provider> --check` does, with the flags its inputs make and those the configuration file sets, so that an unknown provider or service, or a flag the import would refuse, fails the step before drift or the import reads anything. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
+The action installs the release's build for the `provider`'s cloud and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Then, when importing, it checks the import as `infraharvest import <provider> --check` does, with the flags its inputs make and those the configuration file sets, so that an unknown provider or service, or a flag the import would refuse, fails the step before drift or the import reads anything. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
 ## Example: a scheduled import that opens a pull request
 
@@ -229,7 +229,7 @@ Once the roots are applied, people still change things in the cloud. With `drift
 
 Drift runs Terraform's init and plan on the roots in `out`, which install and run the providers and modules they name with the job's cloud credentials: a provider is a program, and the `external` data source runs any program the configuration names. Run drift only on code you trust, such as the default branch on a schedule (see [Run it on code you trust](#run-it-on-code-you-trust)). Running it on a pull request's content, from a fork or from anyone who can open one, runs that content's providers and modules with your credentials; the action, unlike the [MCP server](../docs/mcp.md), doesn't check which providers the roots use, and `--untrusted-roots`, which makes Terraform ignore their `.terraform` directories and filesystem mirrors, still runs the providers they name.
 
-The drift check runs first, on the code the repository has, so that what the import adds isn't taken for drift; then the import adds the new resources (`incremental` must be `true`). One pull request carries both. A run with `import: "false"` only checks drift, and needs no `provider` or `services`. On a first run, before `out` exists, there is nothing to check, and the check is skipped.
+The drift check runs first, on the code the repository has, so that what the import adds isn't taken for drift; then the import adds the new resources (`incremental` must be `true`). One pull request carries both. A run with `import: "false"` only checks drift, and needs no `services`; it still needs `provider`, which chooses the build of the release to install (a release has one build per cloud). On a first run, before `out` exists, there is nothing to check, and the check is skipped.
 
 `infraharvest drift` exits 4 when drift is left: that doesn't fail the step, and `drift-found` is `true`. Exit code 1 (an accepted change failed verification, so it wasn't written) and 2 (a root couldn't be checked, such as one without access to its state) fail the step, after adding the report to the job summary, and the import doesn't run. To fail the job on drift, as a check would, add a step after the action:
 
@@ -422,7 +422,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `binary` | | An infraharvest binary to run instead of installing a release |
 | `token` | `github.token` | Token to download the release with |
 | `import` | `true` | Import resources; `false` only checks [drift](#drift) |
-| `provider` | | The provider command, such as `aws` (required when importing) |
+| `provider` | | The provider command: `aws`, `azure` or `google`. Required when importing, and with no `binary`, to choose the build of the release to install |
 | `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
 | `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |

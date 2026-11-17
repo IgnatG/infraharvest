@@ -33,14 +33,14 @@ Licensed under [AGPL-3.0-only](LICENSE). The documentation is also published at 
 On Linux and macOS, including AWS CloudShell, Azure Cloud Shell and Google Cloud Shell once cosign is there ([Install](docs/install.md#in-a-cloud-shell) shows how):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/IgnatG/infraharvest/main/install.sh | INFRAHARVEST_CLOUD=aws sh
 ```
 
-The script installs the latest release into `~/.local/bin`, after checking its [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) signature and its checksum. The other ways are in [Install](docs/install.md):
+There is one build for each cloud, `aws`, `azure` or `google`; the command is `infraharvest` in all of them. The script installs the latest release of the cloud you name into `~/.local/bin`, after checking its [cosign](https://docs.sigstore.dev/cosign/system_config/installation/) signature and its checksum. The other ways are in [Install](docs/install.md):
 
-- a [release](https://github.com/IgnatG/infraharvest/releases) archive for Linux, macOS or Windows, on amd64 or arm64: on Windows, use the zip;
-- the container image `ghcr.io/ignatg/infraharvest`, with Terraform and OpenTofu included;
-- `go install github.com/IgnatG/infraharvest@latest`, with Go 1.27 or later;
+- a [release](https://github.com/IgnatG/infraharvest/releases) archive of your cloud for Linux, macOS or Windows, on amd64 or arm64: on Windows, use the zip;
+- the container image `ghcr.io/ignatg/infraharvest:latest-aws` (or `-azure`, `-google`), with Terraform and OpenTofu included;
+- `go install -tags minimal,aws github.com/IgnatG/infraharvest@latest` (`azure` or `google` likewise), with Go 1.27 or later;
 - the [GitHub Action](action/README.md), in a workflow.
 
 infraharvest needs Terraform 1.5 or later, which it downloads if there is none on `PATH`, or OpenTofu 1.6 or later with `--engine=tofu`. It also needs credentials that can read the resources: the [permission templates](docs/permissions.md) grant read-only access on each cloud. `infraharvest version` checks the install.

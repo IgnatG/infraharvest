@@ -28,7 +28,7 @@ inputs:
     description: Import resources (true), or only check drift (false, with drift set).
     default: "true"
   provider:
-    description: The provider command, such as aws. Required when importing.
+    description: The provider command, aws, azure or google. Required when importing, and when installing a release (no binary), which has one build per cloud, to choose the build to install, also for a drift-only run.
     required: false
   services:
     description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing, unless the config file sets them or --cfn-stack in args leaves them to the stacks.
@@ -256,8 +256,14 @@ runs:
       shell: bash
       env:
         VERSION: ${{ inputs.version }}
+        PROVIDER: ${{ inputs.provider }}
         GH_TOKEN: ${{ inputs.token }}
       run: |
+        # A release has one build per cloud, with only that cloud's SDK.
+        case "$PROVIDER" in
+          aws | azure | google) ;;
+          *) echo "::error::provider must be aws, azure or google to choose the build to install, got '$PROVIDER'"; exit 1 ;;
+        esac
         case "$RUNNER_OS" in
           Linux) os=linux ext=tar.gz ;;
           macOS) os=darwin ext=tar.gz ;;
@@ -270,7 +276,7 @@ runs:
         esac
         number="${VERSION#v}"
         sums="infraharvest_${number}_SHA256SUMS"
-        archive="infraharvest_${number}_${os}_${arch}.${ext}"
+        archive="infraharvest_${number}_${PROVIDER}_${os}_${arch}.${ext}"
         dir="$RUNNER_TEMP/infraharvest"
         mkdir -p "$dir"
         gh release download "$VERSION" -R IgnatG/infraharvest -D "$dir" -p "$archive" -p "$sums" -p "$sums.sigstore.json"
