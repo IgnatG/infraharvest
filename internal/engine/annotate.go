@@ -59,6 +59,10 @@ func annotate(ws *workspace, annotations []annotation) ([]string, error) {
 // secrets into variables (see planUntilValid).
 const replanSecrets = "secrets moved into variables"
 
+// replanGone is why the root plans again once leaveGone left resources
+// out, whose errors lines it changed.
+const replanGone = "resources no longer in the cloud left out"
+
 // generatedAnnotations are the annotations of generated.tf that come
 // before anything reads it. Terraform writes resources in the order its
 // graph walk reaches them, which differs between runs: they are sorted,

@@ -175,3 +175,33 @@ func TestRunMergesChildState(t *testing.T) {
 		t.Errorf("merge state: %+v", parent.mergeState)
 	}
 }
+
+// A resource gone since it was listed is excluded, not left out, and no
+// failure: the import is complete without it.
+func TestEngineRunExcludesResourcesGoneSinceListed(t *testing.T) {
+	out := t.TempDir()
+	run := NewRun()
+	err := run.Do(func() error {
+		run.used = true
+		run.options = Options{Out: out}
+		run.discovered["azurerm_postgresql_flexible_server"] = 2
+		run.discovered["azurerm_resource_group"] = 1
+		result := &engine.Result{
+			Imported: []rootfile.Import{{Type: "azurerm_resource_group", Name: "rg", ID: "rg"}, {Type: "azurerm_postgresql_flexible_server", Name: "db", ID: "db"}},
+			Gone:     []engine.Gone{{Address: "azurerm_postgresql_flexible_server.failed", ID: "failed"}},
+		}
+		(&callRecorder{run: run, scope: "azure/sub"}).addDirectory(filepath.Join(out, "azure"), nil, result, nil)
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("want a complete import, got %v", err)
+	}
+	if len(run.report.Excluded) != 1 || run.report.Excluded[0].Type != "azurerm_postgresql_flexible_server" || run.report.Excluded[0].ID != "failed" ||
+		run.report.Excluded[0].Reason != whyText(report.Gone()) || run.report.Excluded[0].Scope != "azure/sub" {
+		t.Errorf("excluded: got %+v", run.report.Excluded)
+	}
+	if len(run.report.Directories) != 1 || len(run.report.Directories[0].LeftOut) != 0 {
+		t.Errorf("directories: got %+v, want nothing left out", run.report.Directories)
+	}
+}

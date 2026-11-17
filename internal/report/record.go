@@ -27,6 +27,10 @@ const (
 	reasonInOtherRoot = "already in another root of the output"
 )
 
+// reasonGone is why an import leaves out a resource its listing had, whose
+// import found no object (see Gone).
+const reasonGone = "no longer in the cloud: its import found no such object"
+
 // skippedReason is why resources of a type are skipped (see AddSkipped).
 const skippedReason = "Terraform can't import this resource type"
 
@@ -46,6 +50,13 @@ func InRoot() Why {
 // root of the output, has already, as an earlier import put it there.
 func InOtherRoot(root string) Why {
 	return Why{reason: reasonInOtherRoot + ", " + root, owner: OwnerTerraformRoot}
+}
+
+// Gone is why an import leaves out a resource its listing had, whose import
+// then found no object: it has been deleted since, or never finished being
+// created.
+func Gone() Why {
+	return Why{reason: reasonGone, owner: OwnerCloud}
 }
 
 // Decided is why the selection left out a resource, as its decision says:

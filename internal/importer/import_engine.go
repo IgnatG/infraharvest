@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // generate generates the call's roots into its run, each referring to the
@@ -305,6 +306,10 @@ func (c *callRecorder) addDirectory(dir string, imports []rootfile.Import, resul
 	r.report.AddDirectory(path, c.scope, result)
 	for _, rej := range result.Rejected {
 		r.failures = append(r.failures, fmt.Errorf("%s: %s left out (see %s): %s", dir, rej.Address, rootfile.RejectedFileName, strings.Join(rej.Errors, "; ")))
+	}
+	for _, g := range result.Gone {
+		r.report.Exclude(c.scope, engine.AddressType(g.Address), g.ID, report.Gone())
+		logging.Warnf("%s: %s is no longer in the cloud: its import found no such object, so it is not in the root", dir, g.Address)
 	}
 	for _, o := range result.Owned {
 		r.report.Exclude(c.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -533,7 +534,17 @@ func importErrorAt(line int, summary string) tfjson.Diagnostic {
 	}
 }
 
-func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
+// goneError is what Terraform says of an import ID whose object doesn't
+// exist: an error without a range, whose detail names the address.
+func goneError(address string) tfjson.Diagnostic {
+	return tfjson.Diagnostic{
+		Severity: tfjson.DiagnosticSeverityError,
+		Summary:  "Cannot import non-existent remote object",
+		Detail:   `While attempting to import an existing object to "` + address + `", the provider detected that no object exists with the given id. Only pre-existing objects can be imported; check that the id is correct and that it is associated with the provider's configured region or endpoint, or use "terraform apply" to create a new remote object for this resource.`,
+	}
+}
+
+func TestGenerateLeavesOutResourcesGoneSinceListed(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	tf := &fakeTerraform{
@@ -555,30 +566,94 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []Rejection{{Address: "aws_sqs_queue.a", ID: "gone", Errors: []string{"Cannot import non-existent remote object", "Configuration for import target does not exist"}}}
-	if !reflect.DeepEqual(result.Rejected, want) {
-		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
+	if want := []Gone{{Address: "aws_sqs_queue.a", ID: "gone"}}; !reflect.DeepEqual(result.Gone, want) {
+		t.Errorf("gone: got %+v, want %+v", result.Gone, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan show schema fmt validate plan show]", tf.calls)
+	if len(result.Rejected) != 0 {
+		t.Errorf("a resource gone since it was listed isn't left out: got %+v", result.Rejected)
 	}
 	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
 	}
+	if _, err := os.Stat(filepath.Join(dir, rootfile.RejectedFileName)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("rejected.hcl: want none, got %v", err)
+	}
 	if want := []Managed{{Type: "aws_sqs_queue", ID: "b", Address: "aws_sqs_queue.b"}}; !reflect.DeepEqual(result.Addresses, want) {
 		t.Errorf("addresses: got %+v, want those of what is imported, %+v", result.Addresses, want)
 	}
-	wantRejected := `# aws_sqs_queue.a was left out:
-#   Cannot import non-existent remote object
-#   Configuration for import target does not exist
-
-import {
-  to = aws_sqs_queue.a
-  id = "gone"
+	if want := []rootfile.Import{{Type: "aws_sqs_queue", Name: "b", ID: "b"}}; !reflect.DeepEqual(result.Imported, want) {
+		t.Errorf("imported: got %+v, want %+v", result.Imported, want)
+	}
+	readme := readFile(t, dir, rootfile.ReadmeFileName)
+	if !strings.Contains(readme, "## Gone since listed") || !strings.Contains(readme, "- `aws_sqs_queue.a` (`gone`)") || strings.Contains(readme, "## Left out") {
+		t.Errorf("README should list the resource as gone, not left out:\n%s", readme)
+	}
 }
-`
-	if got := readFile(t, dir, rootfile.RejectedFileName); got != wantRejected {
-		t.Errorf("rejected.hcl: got:\n%s\nwant:\n%s", got, wantRejected)
+
+// Terraform's error for the missing object may come with another resource's
+// that repair then edits: the later plan, without -generate-config-out,
+// only says the missing one has no configuration, which isn't why it goes.
+func TestGenerateKeepsWhyAResourceIsGoneWhenOthersAreRepaired(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rejected := errorAt(3, "Invalid combination of arguments", `"multivalue_answer_routing_policy": all of `+"`multivalue_answer_routing_policy,set_identifier`"+` must be specified`)
+	tf := &fakeTerraform{
+		dir:         dir,
+		generated:   invalidGenerated,
+		plans:       []fakePlan{{diags: []tfjson.Diagnostic{goneError("aws_sqs_queue.a"), rejected}}, {diags: []tfjson.Diagnostic{rejected}}},
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
+	}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "gone"}, {Type: "aws_route53_record", Name: "a", ID: "Z1_example.internal_A"}}
+
+	result, err := Generate(context.Background(), tf, dir, imports, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []Gone{{Address: "aws_sqs_queue.a", ID: "gone"}}; !reflect.DeepEqual(result.Gone, want) {
+		t.Errorf("gone: got %+v, want %+v", result.Gone, want)
+	}
+	if len(result.Rejected) != 0 {
+		t.Errorf("want nothing left out, got %+v", result.Rejected)
+	}
+	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "aws_sqs_queue") || !strings.Contains(got, "aws_route53_record.a") {
+		t.Errorf("imports.tf should only import the record:\n%s", got)
+	}
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, "multivalue") {
+		t.Errorf("the other resource wasn't repaired:\n%s", got)
+	}
+}
+
+// A resource whose configuration Terraform generated, but whose object a
+// later plan finds gone, goes the same way, and the plan's other errors
+// stay for the rounds that leave out what is invalid.
+func TestGenerateLeavesOutResourcesFoundGoneByLaterPlans(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_sqs_queue" "b" {
+  name = "b"
+}
+
+resource "aws_sqs_queue" "a" {
+  name = "a"
+}
+`,
+		plans: []fakePlan{{}, {diags: []tfjson.Diagnostic{goneError("aws_sqs_queue.a")}}},
+	}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}}
+
+	result, err := Generate(context.Background(), tf, dir, imports, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if want := []Gone{{Address: "aws_sqs_queue.a", ID: "a"}}; !reflect.DeepEqual(result.Gone, want) || len(result.Rejected) != 0 {
+		t.Errorf("gone: got %+v, left out %+v, want only %+v gone", result.Gone, result.Rejected, want)
+	}
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, `"a"`) || !strings.Contains(got, `"b"`) {
+		t.Errorf("generated.tf should only have aws_sqs_queue.b:\n%s", got)
 	}
 }
 

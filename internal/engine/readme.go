@@ -110,6 +110,9 @@ func readmeFile(result *Result) []byte {
 			fmt.Fprintf(&b, "- `%s`\n", r.Address)
 		}
 	}
+	if len(result.Gone) > 0 {
+		b.WriteString(goneSection(result.Gone))
+	}
 	b.WriteString(movesSection(result))
 	if len(result.NotInCloud) > 0 {
 		b.WriteString(notInCloudSection(result.NotInCloud))
@@ -294,4 +297,15 @@ func checkReadme(dir string, result *Result, values []string) error {
 		}
 	}
 	return WriteReadme(dir, result)
+}
+
+// goneSection lists the resources the listing had that their import then
+// found no object for, with what to do about them.
+func goneSection(gone []Gone) string {
+	var b strings.Builder
+	b.WriteString("\n## Gone since listed\n\nThe listing had these resources, but their import found no object: they have been deleted since, or never finished being created. They are not in this root, and nothing else is left of them. If one should exist, create it again, then import it.\n\n")
+	for _, g := range gone {
+		fmt.Fprintf(&b, "- `%s` (`%s`)\n", g.Address, g.ID)
+	}
+	return b.String()
 }
