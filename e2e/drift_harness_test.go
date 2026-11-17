@@ -232,7 +232,8 @@ func applyGenerated(ctx context.Context, t *testing.T, out, execPath, plugins st
 	dirs := generatedDirs(t, out)
 	for _, dir := range dirs {
 		applyRoot(ctx, t, dir, execPath, plugins, nil)
-		checkPlanClean(t, dir+": after the apply", planRoot(ctx, t, dir, execPath, plugins))
+		// Initialised by the apply, and the apply doesn't change the code.
+		checkPlanClean(t, dir+": after the apply", planRootInit(ctx, t, false, dir, execPath, plugins))
 	}
 	return dirs
 }
@@ -244,8 +245,10 @@ func checkAccepted(ctx context.Context, t *testing.T, dirs []string, execPath, p
 	t.Helper()
 	for _, dir := range dirs {
 		checkPlanClean(t, dir+": the accepted code", planRoot(ctx, t, dir, execPath, plugins))
-		applyRoot(ctx, t, dir, execPath, plugins, nil, tfexec.RefreshOnly(true))
-		checkPlanClean(t, dir+": the accepted code, -refresh=false", planRoot(ctx, t, dir, execPath, plugins, tfexec.Refresh(false)))
+		// The first plan initialised the root, and neither step changes the
+		// code.
+		applyRootInit(ctx, t, false, dir, execPath, plugins, nil, tfexec.RefreshOnly(true))
+		checkPlanClean(t, dir+": the accepted code, -refresh=false", planRootInit(ctx, t, false, dir, execPath, plugins, tfexec.Refresh(false)))
 	}
 }
 
