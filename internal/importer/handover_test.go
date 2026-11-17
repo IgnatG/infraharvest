@@ -442,6 +442,26 @@ func TestListCallRegenerateVacatedRootKeepsItsProviders(t *testing.T) {
 	}
 }
 
+// What a root the run doesn't generate keeps is left out of the roots it
+// goes to, and they refer to it as to the resources of the roots the run
+// generates: through the other roots' variables, with the root that has it.
+func TestListCallRegenerateReferToWhatARootOutOfTheRunKeeps(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	first := pathOptions(out, &fakeEngine{}, "alpha", "beta")
+	first.Layout = "{out}/{provider}/all/"
+	importPath(t, first)
+
+	f := &fakeEngine{}
+	options := pathOptions(out, f, "alpha", "gamma")
+	options.Regenerate = true
+	importPath(t, options)
+
+	want := []engine.RootResource{{Type: "fake_thing", ID: "id-alpha", Name: "alpha", Root: "fake/all"}}
+	if got := f.opts["gamma"].OtherRoots; !reflect.DeepEqual(got, want) {
+		t.Errorf("gamma's other roots:\n got %+v\nwant %+v", got, want)
+	}
+}
+
 // With --regenerate, a root the run doesn't generate keeps what it has,
 // and a root that would take it imports the rest.
 func TestListCallRegenerateLeavesARootOutOfTheRunAsItIs(t *testing.T) {
