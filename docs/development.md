@@ -154,9 +154,9 @@ The code is read more than written, so comments carry the reasoning. Write them 
 ## Logging and output
 
 - **Standard output carries results only**: the service list, `--format=json`'s report (`report.WriteJSON(os.Stdout)` in `internal/importer/engine_run.go`). The MCP server runs the binary and parses its standard output as data (`internal/mcpserver`), so a stray line there breaks it.
-- **Everything else is a log line**, through the standard `log` package. `main` sends it to standard error, through a writer that drops the `[TRACE]` and `[DEBUG]` lines of client libraries, which can contain whole HTTP requests (`internal/logging`). Never `fmt.Print` progress.
+- **Everything else is a log line**, through `log/slog`: `logging.Infof` for progress, `Warnf` for what was left out or didn't work, `Errorf` for what stopped a command, `Debugf` for what only `--verbose` shows (`internal/logging`). `main` sends them to standard error, in the text the standard logger wrote: the time, then the message, and no level; a library's use of the standard `log` package reaches the same writer, minus the `[TRACE]` and `[DEBUG]` lines of client libraries, which can contain whole HTTP requests. Never `fmt.Print` progress.
 - Start a provider's messages with its name and say what happened and what infraharvest does about it: `aws: sqs isn't available in this region; skipping it (...)`.
-- Detail that helps only when debugging goes behind the lister's `Verbose()` (`--verbose`).
+- Detail that helps only when debugging is logged at Debug (`--verbose`, a flag of every command); work to build it goes behind the lister's `Verbose()`.
 - Never log credentials, secret values or whole API responses.
 
 ## Listing resources

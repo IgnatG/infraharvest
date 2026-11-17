@@ -412,7 +412,7 @@ func (s *Service) configOptions(key configKey) []func(*config.LoadOptions) error
 		// request's signature and session token, so those are redacted.
 		options = append(options,
 			config.WithClientLogMode(aws.LogRequest|aws.LogResponse|aws.LogRetries),
-			config.WithLogger(redactingLogger{logger: logging.NewStandardLogger(os.Stderr)}),
+			config.WithLogger(redactingLogger{}),
 		)
 	}
 	return options
@@ -468,16 +468,20 @@ func (s *Service) baseCredentials() (aws.Credentials, error) {
 	return provider.Retrieve(s.Context())
 }
 
-// redactingLogger is the SDK's logger with --verbose: it logs what logger
-// would, with the credentials in the requests and responses the SDK logs
-// redacted (see logging.RedactHTTP).
-type redactingLogger struct {
-	logger logging.Logger
-}
+// redactingLogger is the SDK's logger with --verbose: it logs what the SDK
+// logs, at Debug, or at Warn what the SDK classifies as a warning, with the
+// credentials in the requests and responses redacted (see
+// logging.RedactHTTP).
+type redactingLogger struct{}
 
 // Logf logs the formatted entry, redacted.
-func (l redactingLogger) Logf(classification logging.Classification, format string, v ...any) {
-	l.logger.Logf(classification, "%s", ihlogging.RedactHTTP(fmt.Sprintf(format, v...)))
+func (redactingLogger) Logf(classification logging.Classification, format string, v ...any) {
+	message := ihlogging.RedactHTTP(fmt.Sprintf(format, v...))
+	if classification == logging.Warn {
+		ihlogging.Warnf("SDK %s", message)
+		return
+	}
+	ihlogging.Debugf("SDK %s", message)
 }
 
 // flightRetries is how many times a caller that waited for another's
