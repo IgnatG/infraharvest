@@ -150,7 +150,8 @@ func (g *generation) followProviders() {
 func (g *generation) rebuildSnapshot(ctx context.Context) (*tfrun.Snapshot, error) {
 	snapshot, err := g.snapshotOf(ctx, append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...))
 	if err != nil {
-		return nil, err
+		// The caller logs it: errors can quote the values they reject.
+		return nil, errors.New(secret.RedactText(err.Error(), secret.TextForms(secret.KnownValues(g.literal))))
 	}
 	g.counting.Add(1, 1)
 	logging.Infof("%s: import-once: imported %d resources again, for the provider configuration the tidy steps changed", g.dir, snapshot.Len())
