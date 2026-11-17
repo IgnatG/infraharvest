@@ -16,12 +16,24 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli/providers"
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
+
+// curatedVersion is the version the aws adapter of the module at source
+// pins, as a generated root calls it.
+func curatedVersion(source string) string {
+	for _, a := range adapters.For("aws") {
+		if a.Source == source {
+			return a.Version
+		}
+	}
+	panic("no aws adapter for " + source)
+}
 
 // generatedRoot is a root as an import generates it: the aws provider,
 // declared and configured, a resource, a curated module, and a module the
@@ -37,7 +49,7 @@ var generatedRoot = map[string]string{
 	"aws/1/eu-west-2/s3.tf":        "resource \"aws_s3_bucket\" \"logs\" {\n  bucket = \"logs\"\n}\n",
 	"aws/1/eu-west-2/vpc.tf": `module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "6.0.0"
+  version = "` + curatedVersion("terraform-aws-modules/vpc/aws") + `"
 }
 
 module "queues" {
@@ -77,10 +89,18 @@ func TestCheckDriftRoots(t *testing.T) {
 		"a generated root": {nil, ""},
 		"the public registry's host": {map[string]string{
 			root + "versions.tf": "terraform {\n  required_providers {\n    aws = { source = \"registry.terraform.io/HashiCorp/aws\" }\n  }\n}\n",
-			root + "vpc.tf":      "module \"vpc\" {\n  source = \"registry.terraform.io/terraform-aws-modules/vpc/aws\"\n}\n",
+			root + "vpc.tf":      "module \"vpc\" {\n  source  = \"registry.terraform.io/terraform-aws-modules/vpc/aws\"\n  version = \"" + curatedVersion("terraform-aws-modules/vpc/aws") + "\"\n}\n",
 		}, ""},
-		"a curated module's submodule": {map[string]string{root + "vpc.tf": "module \"role\" {\n  source = \"terraform-aws-modules/iam/aws//modules/iam-role\"\n}\n"}, ""},
-		"the external data source":     {map[string]string{root + "x.tf": "data \"external\" \"x\" {\n  program = [\"sh\", \"-c\", \"id\"]\n}\n"}, "aws/1/eu-west-2/x.tf:1: uses the provider hashicorp/external"},
+		"a curated module's submodule":                   {map[string]string{root + "vpc.tf": "module \"role\" {\n  source  = \"terraform-aws-modules/iam/aws//modules/iam-role\"\n  version = \"" + curatedVersion("terraform-aws-modules/iam/aws//modules/iam-role") + "\"\n}\n"}, ""},
+		"a curated module's version as a constraint":     {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \"= " + curatedVersion("terraform-aws-modules/vpc/aws") + "\"\n}\n"}, ""},
+		"a curated module of another version":            {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \"0.0.1\"\n}\n"}, "is terraform-aws-modules/vpc/aws at version \"0.0.1\", which isn't a version infraharvest calls the curated module terraform-aws-modules/vpc/aws at"},
+		"a curated module in a range":                    {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = \">= " + curatedVersion("terraform-aws-modules/vpc/aws") + "\"\n}\n"}, "isn't a version infraharvest calls"},
+		"a curated module without a version":             {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source = \"terraform-aws-modules/vpc/aws\"\n}\n"}, "isn't a version infraharvest calls"},
+		"a curated module's other submodule":             {map[string]string{root + "vpc.tf": "module \"role\" {\n  source  = \"terraform-aws-modules/iam/aws//modules/iam-user\"\n  version = \"" + curatedVersion("terraform-aws-modules/iam/aws//modules/iam-role") + "\"\n}\n"}, "isn't a submodule of the curated module terraform-aws-modules/iam/aws that infraharvest calls"},
+		"a curated module's root for a submodule":        {map[string]string{root + "vpc.tf": "module \"role\" {\n  source  = \"terraform-aws-modules/iam/aws\"\n  version = \"" + curatedVersion("terraform-aws-modules/iam/aws//modules/iam-role") + "\"\n}\n"}, "isn't a submodule of the curated module"},
+		"a curated module's submodule of the root":       {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source  = \"terraform-aws-modules/vpc/aws//modules/vpc-endpoints\"\n  version = \"" + curatedVersion("terraform-aws-modules/vpc/aws") + "\"\n}\n"}, "isn't a submodule of the curated module terraform-aws-modules/vpc/aws that infraharvest calls"},
+		"a curated module's version that isn't a string": {map[string]string{root + "vpc.tf": "module \"vpc\" {\n  source  = \"terraform-aws-modules/vpc/aws\"\n  version = 6\n}\n"}, "has a version that isn't a string"},
+		"the external data source":                       {map[string]string{root + "x.tf": "data \"external\" \"x\" {\n  program = [\"sh\", \"-c\", \"id\"]\n}\n"}, "aws/1/eu-west-2/x.tf:1: uses the provider hashicorp/external"},
 		"external declared": {map[string]string{
 			root + "x.tf": "terraform {\n  required_providers {\n    external = { source = \"hashicorp/external\" }\n  }\n}\n",
 		}, "declares the provider external as hashicorp/external"},
@@ -199,7 +219,7 @@ func TestDriftAllowed(t *testing.T) {
 		t.Errorf("%s is allowed", refusedProvider)
 	}
 	// aws's curated modules, where it is built in.
-	if builtIn("aws") && (!modules["terraform-aws-modules/vpc/aws"] || modules["terraform-aws-modules/iam/aws//modules/iam-role"]) {
+	if builtIn("aws") && (!modules["terraform-aws-modules/vpc/aws"][curatedVersion("terraform-aws-modules/vpc/aws")] || !modules["terraform-aws-modules/iam/aws//modules/iam-role"][curatedVersion("terraform-aws-modules/iam/aws//modules/iam-role")] || modules["terraform-aws-modules/iam/aws"] != nil) {
 		t.Errorf("modules: %v, want each curated module by its address", modules)
 	}
 }

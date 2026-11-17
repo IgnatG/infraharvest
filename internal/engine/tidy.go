@@ -35,7 +35,8 @@ type tidyPass struct {
 	after []string
 	// alone says the pass plans on its own. Without it, the edits of the
 	// passes next to each other are checked together by one plan, and only
-	// if that plan differs, each against the plan before it. A pass that
+	// if that plan differs, in halves, each against the plan before it, down
+	// to the pass that is to blame (see settleBatch). A pass that
 	// judges its plan any way but Exact, or rebases, must be alone.
 	alone bool
 	// policy is how closely the plan of its edit must match the baseline.
@@ -195,29 +196,11 @@ func (t *tidying) run(passes []tidyPass) error {
 	if err != nil {
 		return err
 	}
-	type queued struct {
-		pass tidyPass
-		edit *tidyEdit
-	}
-	var batch []queued
+	var batch []queuedPass
 	flush := func() error {
 		defer func() { batch = nil }()
-		if len(batch) > 1 {
-			edits := make([]*tidyEdit, len(batch))
-			for i, q := range batch {
-				edits[i] = q.edit
-			}
-			settled, err := t.settleTogether(edits)
-			if err != nil || settled {
-				return err
-			}
-		}
-		for _, q := range batch {
-			if _, err := t.settle(q.pass, q.edit); err != nil {
-				return err
-			}
-		}
-		return nil
+		_, err := t.settleBatch(batch, nil)
+		return err
 	}
 	for _, p := range ordered {
 		if p.alone {
@@ -236,7 +219,7 @@ func (t *tidying) run(passes []tidyPass) error {
 				return err
 			}
 		default:
-			batch = append(batch, queued{p, e})
+			batch = append(batch, queuedPass{p, e})
 		}
 	}
 	return flush()
@@ -299,15 +282,91 @@ func (t *tidying) plan() (shownPlan, []tfjson.Diagnostic, error) {
 	return shownPlan{p, summary}, diags, err
 }
 
+// queuedPass is a pass whose edit waits to be checked with those next to it.
+type queuedPass struct {
+	pass tidyPass
+	edit *tidyEdit
+}
+
+// rejection is what is known of a group of edits that were made together on
+// the files as they are: a plan rejected them, which is plan, or one of them
+// failed, where plan is nil. Making them again, on the same files, would end
+// the same way.
+type rejection struct {
+	plan *rejectedPlan
+}
+
+// rejectedPlan is the plan that rejected a group of edits.
+type rejectedPlan struct {
+	shown shownPlan
+	diags []tfjson.Diagnostic
+}
+
+// settleBatch settles the passes of batch, which plan with the passes next to
+// them. It makes the edits of all of them and checks them with one plan; only
+// if that rejects them does it settle the first half and then the second, each
+// again the same way, down to one pass, which settles on its own (see
+// settle). So the passes that keep the plan as it was cost one plan between
+// them, and the pass a plan rejects, among n, a number of plans in the order
+// of log n, not one for each pass. rejected, if set, says the passes
+// together are known to be rejected, as they are made on the files as they are,
+// which saves making them and planning again. It reports whether every edit
+// was kept as the pass made it first, which the files then show.
+func (t *tidying) settleBatch(batch []queuedPass, rejected *rejection) (bool, error) {
+	switch len(batch) {
+	case 0:
+		return true, nil
+	case 1:
+		var first *rejectedPlan
+		if rejected != nil {
+			first = rejected.plan
+		}
+		_, whole, err := t.settleFrom(batch[0].pass, batch[0].edit, first)
+		return whole, err
+	}
+	if rejected == nil {
+		edits := make([]*tidyEdit, len(batch))
+		for i, q := range batch {
+			edits[i] = q.edit
+		}
+		together, err := t.settleTogether(edits)
+		if err != nil || together.settled {
+			return together.settled, err
+		}
+		rejected = &rejection{plan: together.rejected}
+	}
+	half := len(batch) / 2
+	first, err := t.settleBatch(batch[:half], nil)
+	if err != nil {
+		return false, err
+	}
+	// With the first half kept as made, the second is made on the files the
+	// rejected edits were, so the rejection is its own.
+	var again *rejection
+	if first {
+		again = rejected
+	}
+	second, err := t.settleBatch(batch[half:], again)
+	return first && second, err
+}
+
+// together is what settleTogether made of the edits of passes.
+type together struct {
+	// settled says the edits are kept, or none of them changed anything.
+	settled bool
+	// rejected is the plan that rejected the edits, if one did.
+	rejected *rejectedPlan
+}
+
 // settleTogether makes the edit of every pass, in order, each on the files as
 // the ones before it left them, and keeps them all if the configuration then
 // plans Exact to the baseline. Every plan with import blocks reads every
 // imported resource again, so the passes that change nothing the plan shows
 // need one plan between them. It reports whether that settled them: it kept
 // them, or none of them changed anything. Otherwise, as when one edit fails,
-// it leaves the files as they were, for the passes to be settled one at a
-// time.
-func (t *tidying) settleTogether(edits []*tidyEdit) (bool, error) {
+// it leaves the files as they were, for the passes to be settled in smaller
+// groups (see settleBatch), and returns the plan that rejected them.
+func (t *tidying) settleTogether(edits []*tidyEdit) (together, error) {
 	before := t.ws.Snapshot()
 	restore := func() error {
 		t.ws.Restore(before)
@@ -319,26 +378,26 @@ func (t *tidying) settleTogether(edits []*tidyEdit) (bool, error) {
 		made, err := e.edit(a)
 		if err != nil {
 			// The edit may fail only on top of another's: let the passes
-			// one at a time tell.
+			// in smaller groups tell.
 			t.ws.Restore(before)
-			return false, nil //nolint:nilerr // the passes run one at a time instead
+			return together{}, nil //nolint:nilerr // the passes run in smaller groups instead
 		}
 		changed = changed || made.any()
 	}
 	if !changed {
 		t.ws.Restore(before)
-		return true, nil
+		return together{settled: true}, nil
 	}
 	shown, diags, err := t.plan()
 	if err != nil {
 		t.ws.Restore(before)
-		return false, err
+		return together{}, err
 	}
 	if t.baseline.Judge(shown, diags, Exact).Accepted() {
-		return true, nil
+		return together{settled: true}, nil
 	}
 	t.ws.Restore(before)
-	return false, nil
+	return together{rejected: &rejectedPlan{shown, diags}}, nil
 }
 
 // settle makes the edit of pass p and keeps it only if its plan is as the
@@ -347,26 +406,36 @@ func (t *tidying) settleTogether(edits []*tidyEdit) (bool, error) {
 // what it doesn't keep, and a pass that rebases hands the baseline the plan it
 // settled on. It reports whether it kept an edit.
 func (t *tidying) settle(p tidyPass, e *tidyEdit) (bool, error) {
-	kept, plan, err := t.attempts(p, e)
+	kept, _, err := t.settleFrom(p, e, nil)
+	return kept, err
+}
+
+// settleFrom is settle, from first, if set: the plan of the pass's first
+// edit, made on the files as they are, which it takes instead of planning
+// them again. It also reports whether the edit it kept is the first one, as
+// made on the files as they were and checked by a plan.
+func (t *tidying) settleFrom(p tidyPass, e *tidyEdit, first *rejectedPlan) (kept, whole bool, err error) {
+	kept, plan, whole, err := t.attempts(p, e, first)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if e.finish != nil {
 		if err := e.finish(kept); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
 	if kept && p.rebases {
 		if err := t.rebase(plan, p.stopped); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
-	return kept, nil
+	return kept, whole, nil
 }
 
-// attempts makes the rounds of settle, and returns the plan of the edit it
-// kept, or nil if it kept one no plan checked.
-func (t *tidying) attempts(p tidyPass, e *tidyEdit) (bool, *shownPlan, error) {
+// attempts makes the rounds of settle, from first (see settleFrom), and returns
+// the plan of the edit it kept, or nil if it kept one no plan checked, and
+// whether it kept the first round's edit as made.
+func (t *tidying) attempts(p tidyPass, e *tidyEdit, first *rejectedPlan) (bool, *shownPlan, bool, error) {
 	before := t.ws.Snapshot()
 	undo := func() error {
 		t.ws.Restore(before)
@@ -383,32 +452,37 @@ rounds:
 	for a.round = 0; a.round < a.rounds; a.round++ {
 		if a.round > 0 {
 			if err := undo(); err != nil {
-				return false, nil, err
+				return false, nil, false, err
 			}
 		}
 		made, err := e.edit(a)
 		if err != nil {
-			return false, nil, errors.Join(err, undo())
+			return false, nil, false, errors.Join(err, undo())
 		}
 		if !made.any() {
 			// It leaves the files as they were, as the round's start did.
 			end, unchanged = tidyReject, true
 			break
 		}
-		shown, diags, err := t.plan()
-		if err != nil {
-			return false, nil, errors.Join(err, undo())
+		var shown shownPlan
+		var diags []tfjson.Diagnostic
+		if a.round == 0 && first != nil {
+			// The edit, made on the files as they are, is the one that plan
+			// is of.
+			shown, diags = first.shown, first.diags
+		} else if shown, diags, err = t.plan(); err != nil {
+			return false, nil, false, errors.Join(err, undo())
 		}
 		d, err := t.review(a, e, tidyReview{plan: shown, diags: diags, verdict: t.baseline.Judge(shown, diags, p.policy), baseline: t.baseline, made: made})
 		if err != nil {
-			return false, nil, errors.Join(err, undo())
+			return false, nil, false, errors.Join(err, undo())
 		}
 		switch d.outcome {
 		case tidyAccept:
 			if d.plan == nil {
 				d.plan = &shown
 			}
-			return true, d.plan, nil
+			return true, d.plan, a.round == 0, nil
 		case tidyRetry:
 			end = tidyRetry
 		default:
@@ -418,22 +492,23 @@ rounds:
 	}
 	if !unchanged {
 		if err := undo(); err != nil {
-			return false, nil, err
+			return false, nil, false, err
 		}
 	}
 	if e.unplanned != nil && (end == tidyFallBack || end == tidyRetry) {
 		changed, err := e.unplanned(a)
 		if err != nil {
-			return false, nil, errors.Join(err, undo())
+			return false, nil, false, errors.Join(err, undo())
 		}
-		return changed, nil, nil
+		return changed, nil, false, nil
 	}
 	if e.otherwise != nil {
 		once := p
 		once.rounds = 1
-		return t.attempts(once, &tidyEdit{edit: plainEdit(e.otherwise)})
+		kept, plan, _, err := t.attempts(once, &tidyEdit{edit: plainEdit(e.otherwise)}, nil)
+		return kept, plan, false, err
 	}
-	return false, nil, nil
+	return false, nil, false, nil
 }
 
 // review decides what to make of a plan of an edit, by the pass's review or,

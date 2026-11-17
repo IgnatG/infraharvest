@@ -28,7 +28,7 @@ import (
 // addRootVariables) and to what the cloud or the provider defines (see
 // addLookups), shared tags (see applyTagLift) and repeated identifiers
 // (see liftLiterals). The passes between two that plan on their own are
-// checked together by one plan, and only if it changes, each against the
+// checked together by one plan, and only if it changes, in halves, each against the
 // plan before it, undone if the plan changes, the references by resource
 // (see tidying.run). Secret variables get their
 // values in these plans where Generate found them, and placeholder values
