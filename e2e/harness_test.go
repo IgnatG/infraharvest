@@ -467,11 +467,10 @@ func planRootInit(ctx context.Context, t *testing.T, init bool, dir, execPath, p
 }
 
 // applyRoot initialises and applies the root in dir, with env on top of
-// the process's environment and opts, such as tfexec.RefreshOnly(true),
-// into the local state it has.
-func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
+// the process's environment, into the local state it has.
+func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string) {
 	t.Helper()
-	applyRootInit(ctx, t, true, dir, execPath, plugins, env, opts...)
+	applyRootInit(ctx, t, true, dir, execPath, plugins, env)
 }
 
 // applyRootInit applies the root in dir as applyRoot does, initialising it
