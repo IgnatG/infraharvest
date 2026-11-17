@@ -45,8 +45,11 @@
 # associations, security group rules, the WAF association, listeners,
 # Route 53 records, API stages, metric filters) goes with what holds it.
 # Deletes take a while, and the Tagging API lists some deleted resources
-# for a while too (KMS keys until they are gone), so what it warns about
-# at the end may already be going. It prints names and ARNs only.
+# for a while too (KMS keys until they are gone): what it lists is read
+# again from its own service, and what is deleted or being deleted is left
+# out, before the deletes and of the warning at the end; a delete that
+# finds its resource gone is done, and says nothing. It prints names and
+# ARNs only.
 #
 # With SWEEP_TAG_KEY=infraharvest-sandbox and RUN_ID=<engine>, it sweeps by
 # the estate tag instead, every engine's: what an estate applied with no
@@ -116,24 +119,143 @@ tagged() {
     --query 'ResourceTagMappingList[].ResourceARN' --output text | tr '\t' '\n' | sed '/^$/d'
 }
 
+sweep_err=$(mktemp)
+trap 'rm -f "$sweep_err"' EXIT
+
+# absent matches what the AWS CLI says of a call on something that no
+# longer exists, in any service's words.
+absent='not ?found|does not exist|NoSuch|NonExistent|DoesNotExist'
+
+# missing tells whether $1, the error output of a call, says the resource
+# doesn't exist: a delete of it has nothing to do, and counts as done.
+missing() {
+  grep -qiE "$absent" <<< "$1"
+}
+
 # try runs a delete, and says so rather than stopping when it fails, as it
-# does on a resource already being deleted.
+# does on a resource already being deleted. A resource that is already gone
+# is no failure, and says nothing.
 try() {
-  if ! "$@" > /dev/null; then
+  local err
+  if ! err=$("$@" 2>&1 > /dev/null); then
+    if missing "$err"; then
+      return 0
+    fi
+    if [ -n "$err" ]; then
+      printf '%s\n' "$err" >&2
+    fi
     echo "failed: $*"
   fi
 }
 
 # again runs a delete up to 30 times, 10 seconds apart, for one that waits
-# on another to finish going, and says so if it never succeeds.
+# on another to finish going, and says so if it never succeeds. A resource
+# that is already gone ends it at once, without a failure.
 again() {
+  local err
   for _ in $(seq 30); do
-    if "$@" > /dev/null 2>&1; then
+    if err=$("$@" 2>&1 > /dev/null) || missing "$err"; then
       return 0
     fi
     sleep 10
   done
   echo "failed: $*"
+}
+
+# gone tells whether ARN $1, in region $2, is deleted or being deleted,
+# from its own service's state, for the kinds the Tagging API goes on
+# listing after they are gone, and a KMS key scheduled for deletion, the
+# usual remains of a run. With a third argument it also looks the kinds
+# that are listed without a state up, which costs a call each, and counts
+# those it doesn't find: a call that fails any other way leaves the
+# resource counted.
+gone() {
+  local arn=$1 region=$2 deep=${3-} service resource state
+  IFS=: read -r _ _ service _ _ resource <<< "$arn"
+  case "$service:$resource" in
+    kms:key/*)
+      state=$(aws kms describe-key --region "$region" --key-id "$arn" \
+        --query 'KeyMetadata.KeyState' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = PendingDeletion ] || [ "$state" = PendingReplicaDeletion ]
+      return
+      ;;
+    ec2:instance/*)
+      state=$(aws ec2 describe-instances --region "$region" --instance-ids "${resource#instance/}" \
+        --query 'Reservations[].Instances[].State.Name' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = terminated ] || [ "$state" = shutting-down ] || [ -z "$state" ]
+      return
+      ;;
+    ec2:natgateway/*)
+      state=$(aws ec2 describe-nat-gateways --region "$region" --nat-gateway-ids "${resource#natgateway/}" \
+        --query 'NatGateways[].State' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = deleted ] || [ "$state" = deleting ] || [ "$state" = failed ] || [ -z "$state" ]
+      return
+      ;;
+    ec2:vpc-endpoint/*)
+      state=$(aws ec2 describe-vpc-endpoints --region "$region" --vpc-endpoint-ids "${resource#vpc-endpoint/}" \
+        --query 'VpcEndpoints[].State' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = deleted ] || [ "$state" = deleting ] || [ -z "$state" ]
+      return
+      ;;
+    cloudformation:stack/*)
+      state=$(aws cloudformation describe-stacks --region "$region" --stack-name "$arn" \
+        --query 'Stacks[].StackStatus' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = DELETE_COMPLETE ] || [ "$state" = DELETE_IN_PROGRESS ]
+      return
+      ;;
+    ecs:task-definition/*)
+      state=$(aws ecs describe-task-definition --region "$region" --task-definition "$arn" \
+        --query 'taskDefinition.status' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = DELETE_IN_PROGRESS ]
+      return
+      ;;
+    secretsmanager:secret:*)
+      state=$(aws secretsmanager describe-secret --region "$region" --secret-id "$arn" \
+        --query 'DeletedDate' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" != None ]
+      return
+      ;;
+    dynamodb:table/*/*) return 1 ;; # an index or a stream of a table
+    dynamodb:table/*)
+      state=$(aws dynamodb describe-table --region "$region" --table-name "${resource#table/}" \
+        --query 'Table.TableStatus' --output text 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
+      [ "$state" = DELETING ]
+      return
+      ;;
+  esac
+  if [ -z "$deep" ]; then
+    return 1
+  fi
+  case "$service:$resource" in
+    sqs:*)
+      aws sqs get-queue-url --region "$region" --queue-name "$resource" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    sns:*:*) return 1 ;; # a subscription, which goes with its topic
+    sns:*)
+      aws sns get-topic-attributes --region "$region" --topic-arn "$arn" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    lambda:function:*)
+      state=${resource#function:}
+      aws lambda get-function --region "$region" --function-name "${state%%:*}" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    s3:*)
+      aws s3api head-bucket --region "$region" --bucket "$resource" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    kinesis:stream/*)
+      aws kinesis describe-stream-summary --region "$region" --stream-name "${resource#stream/}" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    ec2:vpc/*)
+      aws ec2 describe-vpcs --region "$region" --vpc-ids "${resource#vpc/}" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    ec2:subnet/*)
+      aws ec2 describe-subnets --region "$region" --subnet-ids "${resource#subnet/}" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    ec2:security-group/*)
+      aws ec2 describe-security-groups --region "$region" --group-ids "${resource#security-group/}" > /dev/null 2> "$sweep_err" && return 1
+      ;;
+    *) return 1 ;;
+  esac
+  missing "$(< "$sweep_err")"
 }
 
 # words prints the words of $1, one per line: the AWS CLI's text output
@@ -152,13 +274,13 @@ ec2_ids() {
 }
 
 # empty_bucket deletes every object version and delete marker in bucket $1,
-# in region $2, a thousand at a time.
+# in region $2, a thousand at a time. A bucket that is gone is empty.
 empty_bucket() {
   local batch
   for _ in $(seq 1000); do
     batch=$(aws s3api list-object-versions --region "$2" --bucket "$1" --max-items 1000 \
       --query '{Objects: [Versions[], DeleteMarkers[]][].{Key: Key, VersionId: VersionId}}' \
-      --output json) || return 1
+      --output json 2> "$sweep_err") || { missing "$(< "$sweep_err")"; return; }
     if [ "$(jq '.Objects | length' <<< "$batch")" -eq 0 ]; then
       return 0
     fi
@@ -210,11 +332,15 @@ delete_distribution() {
 # gone, up to ten minutes for each.
 delete_table() {
   local table=$1 region=$2 replicas replica
-  if aws dynamodb delete-table --region "$region" --table-name "$table" > /dev/null 2>&1; then
+  if aws dynamodb delete-table --region "$region" --table-name "$table" > /dev/null 2> "$sweep_err" ||
+    missing "$(< "$sweep_err")"; then
     return 0
   fi
   replicas=$(aws dynamodb describe-table --region "$region" --table-name "$table" \
-    --query "Table.Replicas[?RegionName != '$region'].RegionName" --output text) || { echo "failed: deleting DynamoDB table $table in $region"; return 1; }
+    --query "Table.Replicas[?RegionName != '$region'].RegionName" --output text 2> "$sweep_err") || {
+    missing "$(< "$sweep_err")" || echo "failed: deleting DynamoDB table $table in $region"
+    return
+  }
   for replica in $(words "$replicas"); do
     echo "removing its replica in $replica"
     again aws dynamodb update-table --region "$region" --table-name "$table" \
@@ -294,7 +420,15 @@ for region in "${regions[@]}"; do
     target_groups=()
     web_acls=()
     ip_sets=()
-    mapfile -t arns < <(tagged "$region" "$run")
+    # What the Tagging API still lists but is gone or going is left out:
+    # nothing of it needs deleting.
+    mapfile -t listed < <(tagged "$region" "$run")
+    arns=()
+    for arn in "${listed[@]}"; do
+      if ! gone "$arn" "$region"; then
+        arns+=("$arn")
+      fi
+    done
     for arn in "${arns[@]}"; do
       # arn:partition:service:region:account:resource, where the resource
       # may hold more colons.
@@ -373,8 +507,12 @@ for region in "${regions[@]}"; do
           ;;
         sqs:*)
           echo "deleting SQS queue $resource"
-          url=$(aws sqs get-queue-url --region "$region" --queue-name "$resource" --query QueueUrl --output text) &&
+          if url=$(aws sqs get-queue-url --region "$region" --queue-name "$resource" --query QueueUrl --output text 2> "$sweep_err"); then
             try aws sqs delete-queue --region "$region" --queue-url "$url"
+          elif ! missing "$(< "$sweep_err")"; then
+            cat "$sweep_err" >&2
+            echo "failed: finding SQS queue $resource"
+          fi
           ;;
         sns:*)
           echo "deleting SNS topic $resource"
@@ -667,7 +805,12 @@ done
 for region in "${regions[@]}"; do
   mapfile -t swept < <({ echo "$own"; runs "$region"; } | sed '/^$/d' | sort -u)
   for run in "${swept[@]}"; do
-    left=$(tagged "$region" "$run" | tr '\n' ' ')
+    left=""
+    while read -r arn; do
+      if [ -n "$arn" ] && ! gone "$arn" "$region" deep; then
+        left+="$arn "
+      fi
+    done < <(tagged "$region" "$run")
     if [ -n "$left" ]; then
       echo "::warning::Still tagged $key=$run in $region after the sweep (deletes may still be running, and the Tagging API lists deleted resources for a while): $left"
     fi
