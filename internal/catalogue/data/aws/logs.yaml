@@ -19,3 +19,18 @@ types:
       - reason: a function's log group as Lambda creates it when the function first logs, without retention or encryption; select it to import it
         id_prefixes: [/aws/lambda/]
         attributes: { as_created: "true" }
+      # API Gateway names and creates the group of a stage's execution
+      # logs, which can't be chosen.
+      - reason: a stage's execution log group as API Gateway creates it when execution logging is turned on, without retention or encryption; select it to import it
+        id_prefixes: [API-Gateway-Execution-Logs_]
+        attributes: { as_created: "true" }
+      # RDS streams each exported log type to /aws/rds/instance/<name>/<type>
+      # (or /aws/rds/cluster/...), a group users often create for retention.
+      - reason: a database's log export group as RDS creates it when a log type is exported, without retention or encryption; select it to import it
+        id_prefixes: [/aws/rds/]
+        attributes: { as_created: "true" }
+      # EKS sends control plane logs to /aws/eks/<cluster>/cluster, a group
+      # users often create in Terraform with a retention first.
+      - reason: a cluster's control plane log group as EKS creates it when control plane logging is turned on, without retention or encryption; select it to import it
+        id_prefixes: [/aws/eks/]
+        attributes: { as_created: "true" }
