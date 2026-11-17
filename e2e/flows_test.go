@@ -66,7 +66,9 @@ func coverageOf(t *testing.T, out string) report.Report {
 
 // checkCoverage fails the test for each resource the import what reports
 // left out or failed, for each check of a root that failed, and for each
-// failure but those emulatorFailure, if not nil, accepts.
+// failure but those emulatorFailure, if not nil, accepts. It fails it too
+// for each root that ran more Terraform plans than its budget (see
+// planBudget).
 func checkCoverage(t *testing.T, what string, coverage report.Report, emulatorFailure func(string) bool) {
 	t.Helper()
 	failures := coverage.Failures
@@ -86,6 +88,7 @@ func checkCoverage(t *testing.T, what string, coverage report.Report, emulatorFa
 			}
 		}
 	}
+	checkPlanBudget(t, what, coverage)
 }
 
 // inventoryRecord is a resource in an inventory discover saved, as far as
