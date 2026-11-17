@@ -614,3 +614,26 @@ func TestWriteWithinReplacesTheFile(t *testing.T) {
 		t.Errorf("left %v (%v), want the file alone", entries, err)
 	}
 }
+
+// engine_parallelism sets --engine-parallelism, for drift_accept too.
+func TestDriftEngineParallelism(t *testing.T) {
+	runner := &fakeRunner{}
+	dir := t.TempDir()
+	var asked []string
+	session := connect(t, runner, dir, accepting(&asked))
+	out := generatedOut(t, dir)
+
+	if res, text := call(t, session, "drift", map[string]any{"out": out, "engine_parallelism": 32}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	if res, text := call(t, session, "drift_accept", map[string]any{"out": out, "engine_parallelism": 4, "rules": []string{"keep all"}}); res.IsError {
+		t.Fatalf("result: %s", text)
+	}
+	want := [][]string{
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-parallelism=32", "--", out},
+		{"drift", "--format=json", "--detailed-exitcode", "--untrusted-roots", "--engine-parallelism=4", "--keep=all", "--", out},
+	}
+	if !slices.EqualFunc(runner.runs, want, slices.Equal) {
+		t.Errorf("runs: %v, want %v", runner.runs, want)
+	}
+}

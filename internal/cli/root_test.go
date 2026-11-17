@@ -103,7 +103,7 @@ func TestEngineFlagsAlike(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
-		for _, name := range []string{"engine", "terraform-path", "engine-timeout", "force-unlock"} {
+		for _, name := range []string{"engine", "terraform-path", "engine-timeout", "engine-parallelism", "force-unlock"} {
 			f := cmd.Flag(name)
 			if f == nil {
 				t.Errorf("%v has no --%s", args, name)

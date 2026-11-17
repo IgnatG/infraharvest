@@ -19,6 +19,7 @@ import (
 type EngineFlags struct {
 	Engine, TerraformPath *string
 	EngineTimeout         *time.Duration
+	EngineParallelism     *int
 	Format, Catalogue     *string
 	ForceUnlock           *bool
 	// Environments is nil for a command without --environment.
@@ -40,6 +41,7 @@ func AddEngineFlags(flags *pflag.FlagSet, f EngineFlags) {
 	flags.StringVar(f.Engine, "engine", importer.EngineTerraform, "terraform or tofu: run Terraform or OpenTofu on the roots")
 	flags.StringVar(f.TerraformPath, "terraform-path", "", "Terraform or OpenTofu binary (default: on PATH; Terraform >= 1.5 or else the latest release, downloaded and verified; OpenTofu >= 1.6)")
 	flags.DurationVar(f.EngineTimeout, "engine-timeout", importer.DefaultEngineTimeout, "longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit)")
+	flags.IntVar(f.EngineParallelism, "engine-parallelism", 0, "how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits")
 	flags.StringVar(f.Format, "format", importer.FormatText, f.FormatHelp)
 	flags.StringVar(f.Catalogue, "catalogue", "", "directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types"+f.CatalogueHelp+" (see "+DocsURL+"catalogue/)")
 	flags.BoolVar(f.ForceUnlock, "force-unlock", false, "run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself")

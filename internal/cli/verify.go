@@ -17,7 +17,7 @@ import (
 // verifySettings are the settings of the import's configuration file
 // that verify applies: how it runs the engine, the catalogue and the
 // policies the import used. It leaves the import's others to the import.
-var verifySettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue", "policy"}
+var verifySettings = []string{"engine", "terraform-path", "engine-timeout", "engine-parallelism", "catalogue", "policy"}
 
 func newVerifyCmd() *cobra.Command {
 	options := importer.VerifyOptions{Provider: providers.New, Names: providers.Names()}
@@ -33,7 +33,7 @@ func newVerifyCmd() *cobra.Command {
 			"per environment, with its var files (--environment names which). A root that\n" +
 			"can't be checked is reported as such, and the others are still checked.\n" +
 			"--config takes the import's configuration file: its settings verify has,\n" +
-			"engine, terraform-path, engine-timeout, catalogue and policy, apply where the\n" +
+			"engine, terraform-path, engine-timeout, engine-parallelism, catalogue and policy, apply where the\n" +
 			"command line doesn't give them.\n" +
 			"Exit code 0 means every check passed, 1 that one failed, 2 that a root\n" +
 			"couldn't be checked.",
@@ -59,9 +59,9 @@ func newVerifyCmd() *cobra.Command {
 		},
 	}
 	addOutFlag(cmd, &options.Out)
-	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, catalogue and policy, apply where not given on the command line")
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, engine-parallelism, catalogue and policy, apply where not given on the command line")
 	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
-		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
+		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout, EngineParallelism: &options.EngineParallelism,
 		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments, Policies: &options.Policies,
 		FormatHelp:      "text prints a summary; json prints each root's checks as JSON",
 		CatalogueHelp:   ": those the import used",

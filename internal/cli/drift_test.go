@@ -19,21 +19,22 @@ func TestDriftFlags(t *testing.T) {
 	t.Parallel()
 	cmd := newDriftCmd()
 	for name, def := range map[string]string{
-		"config":            "",
-		"engine":            "terraform",
-		"terraform-path":    "",
-		"engine-timeout":    "1h0m0s",
-		"format":            "text",
-		"catalogue":         "",
-		"parallel":          "1",
-		"root":              "[]",
-		"detailed-exitcode": "false",
-		"force-unlock":      "false",
-		"accept":            "",
-		"keep":              "",
-		"rules":             "",
-		"decisions":         "",
-		"write-decisions":   "false",
+		"config":             "",
+		"engine":             "terraform",
+		"terraform-path":     "",
+		"engine-timeout":     "1h0m0s",
+		"engine-parallelism": "0",
+		"format":             "text",
+		"catalogue":          "",
+		"parallel":           "1",
+		"root":               "[]",
+		"detailed-exitcode":  "false",
+		"force-unlock":       "false",
+		"accept":             "",
+		"keep":               "",
+		"rules":              "",
+		"decisions":          "",
+		"write-decisions":    "false",
 	} {
 		f := cmd.Flags().Lookup(name)
 		if f == nil {

@@ -28,6 +28,9 @@ type terraformRun struct {
 	schemas                  *tfrun.SchemaCache
 	env                      map[string]string
 	freshEnv                 func(context.Context) (map[string]string, error)
+	// parallelism is the -parallelism of each plan and apply; 0 leaves
+	// Terraform's default (see tfrun.Parallelism).
+	parallelism int
 }
 
 // in returns the Terraform runner of dir: one that asks freshEnv for its
@@ -35,9 +38,9 @@ type terraformRun struct {
 // tfrun.NewFreshEnv).
 func (t terraformRun) in(dir string) (tfrun.Terraform, error) {
 	if t.freshEnv != nil {
-		return tfrun.NewFreshEnv(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas, t.freshEnv)
+		return tfrun.NewFreshEnv(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas, t.freshEnv, tfrun.Parallelism(t.parallelism))
 	}
-	tf, err := tfrun.New(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas)
+	tf, err := tfrun.New(dir, t.execPath, t.pluginCacheDir, t.env, t.schemas, tfrun.Parallelism(t.parallelism))
 	if err != nil {
 		return nil, err
 	}

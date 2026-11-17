@@ -24,7 +24,7 @@ import (
 // those the import takes, as they mean the same for it: how Terraform runs,
 // and the catalogue the import used. It leaves the import's others, such
 // as the services and the selection, to the import.
-var driftSettings = []string{"engine", "terraform-path", "engine-timeout", "catalogue"}
+var driftSettings = []string{"engine", "terraform-path", "engine-timeout", "engine-parallelism", "catalogue"}
 
 func newDriftCmd() *cobra.Command {
 	options := importer.DriftOptions{Provider: providers.New, Names: providers.Names(), Backends: providers.Backends()}
@@ -52,7 +52,7 @@ func newDriftCmd() *cobra.Command {
 			"resource taking them and nothing else changing; the others are kept, and the\n" +
 			"next apply puts them back. Secrets are never written.\n\n" +
 			"--config takes the import's configuration file: its settings drift has, engine,\n" +
-			"terraform-path, engine-timeout and catalogue, apply where the command line\n" +
+			"terraform-path, engine-timeout, engine-parallelism and catalogue, apply where the command line\n" +
 			"doesn't give them, and the rest are left to the import. Its own modules in\n" +
 			"directories are left to their owners by the checks of the edited code, as by\n" +
 			"the import's.\n\n" +
@@ -89,9 +89,9 @@ func newDriftCmd() *cobra.Command {
 		},
 	}
 	addOutFlag(cmd, &options.Out)
-	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners")
+	cmd.Flags().StringVar(&configFile, "config", "", "the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout, engine-parallelism and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners")
 	providers.AddEngineFlags(cmd.Flags(), providers.EngineFlags{
-		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
+		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout, EngineParallelism: &options.EngineParallelism,
 		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Environments: &options.Environments,
 		FormatHelp:      "text prints a line per root; json prints drift.json",
 		CatalogueHelp:   ": those the import used, whose arguments kept only in state aren't drift",

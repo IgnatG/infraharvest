@@ -68,6 +68,9 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if options.EngineTimeout < 0 {
 		return errors.New("--engine-timeout can't be negative")
 	}
+	if options.EngineParallelism < 0 {
+		return errors.New("--engine-parallelism can't be negative")
+	}
 	// Left unset, as by a caller from before the flag, one at a time.
 	if options.Parallel == 0 {
 		options.Parallel = 1
@@ -124,7 +127,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
 		newTF := func(d string) (tfrun.Terraform, error) {
-			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil, schemas)
+			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil, schemas, tfrun.Parallelism(options.EngineParallelism))
 		}
 		checks, managed, err := verifyRoot(ctx, newTF, t, opts)
 		if err != nil {
@@ -343,15 +346,16 @@ func generatedRoots(out string) ([]string, error) {
 
 // VerifyOptions say what Verify checks and how.
 type VerifyOptions struct {
-	Out           string        // the output directory of the import
-	Engine        string        // EngineTerraform or EngineTofu
-	TerraformPath string        // the binary, or "" to find or install one
-	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
-	Format        string        // FormatText or FormatJSON
-	Catalogue     string        // directory of catalogue files the import used, if any
-	Policies      []string      // directories of OPA policies conftest checks the roots against, if any
-	ForceUnlock   bool          // verify even when another run holds the output directory's lock
-	Parallel      int           // how many roots to check at once; at least 1
+	Out               string        // the output directory of the import
+	Engine            string        // EngineTerraform or EngineTofu
+	TerraformPath     string        // the binary, or "" to find or install one
+	EngineTimeout     time.Duration // how long each engine command may run; 0 means no limit
+	EngineParallelism int           // -parallelism of each plan and apply; 0 means Terraform's default
+	Format            string        // FormatText or FormatJSON
+	Catalogue         string        // directory of catalogue files the import used, if any
+	Policies          []string      // directories of OPA policies conftest checks the roots against, if any
+	ForceUnlock       bool          // verify even when another run holds the output directory's lock
+	Parallel          int           // how many roots to check at once; at least 1
 	// Provider returns a new provider of the given name, or nil when it
 	// isn't compiled in: each root's catalogue comes from its provider.
 	Provider func(name string) harvest.Provider

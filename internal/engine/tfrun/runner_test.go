@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
 )
 
 func TestMergeEnv(t *testing.T) {
@@ -125,5 +127,55 @@ func TestNewTerraformCreatesDirs(t *testing.T) {
 		if info, err := os.Stat(d); err != nil || !info.IsDir() {
 			t.Errorf("%s not created: %v", d, err)
 		}
+	}
+}
+
+// A runner given Parallelism plans and applies with -parallelism; one
+// without it leaves Terraform's default, 10.
+func TestRunnerParallelism(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Terraform is a shell script")
+	}
+	for name, test := range map[string]struct {
+		options []Option
+		want    string // the -parallelism Terraform gets; tfexec passes its default, 10, when none is set
+	}{
+		"set":      {[]Option{Parallelism(32)}, "-parallelism=32"},
+		"unset":    {nil, "-parallelism=10"},
+		"zero":     {[]Option{Parallelism(0)}, "-parallelism=10"},
+		"negative": {[]Option{Parallelism(-1)}, "-parallelism=10"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			dump := filepath.Join(dir, "args")
+			fake := filepath.Join(dir, "terraform")
+			script := "#!/bin/sh\nif [ \"$1\" = version ]; then echo '{\"terraform_version\":\"1.9.0\"}'; exit 0; fi\necho \"$@\" >> " + dump + "\n"
+			if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			tf, err := New(filepath.Join(dir, "root"), fake, filepath.Join(dir, "plugins"), nil, nil, test.options...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tf.PlanJSON(t.Context(), io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			if err := tf.Apply(t.Context(), tfexec.DirOrPlan("plan.tfplan")); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(dump)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+			if len(lines) != 2 || !strings.HasPrefix(lines[0], "plan ") || !strings.HasPrefix(lines[1], "apply ") {
+				t.Fatalf("Terraform ran %q, want a plan and an apply", lines)
+			}
+			for _, line := range lines {
+				if !slices.Contains(strings.Fields(line), test.want) {
+					t.Errorf("%q: want %q", line, test.want)
+				}
+			}
+		})
 	}
 }

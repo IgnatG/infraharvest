@@ -17,9 +17,10 @@ import (
 func TestDriftConfirmationsNameEveryParameter(t *testing.T) {
 	t.Parallel()
 	shown := map[string]string{
-		"ForceUnlock":    "another run holds the output directory's lock",
-		"Parallel":       "7 roots at once",
-		"WriteDecisions": "written into the decisions file",
+		"ForceUnlock":       "another run holds the output directory's lock",
+		"Parallel":          "7 roots at once",
+		"EngineParallelism": "an engine parallelism of 7",
+		"WriteDecisions":    "written into the decisions file",
 	}
 	var in DriftAcceptInput
 	var walk func(v reflect.Value, expect func(name, want string))

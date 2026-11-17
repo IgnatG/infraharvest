@@ -238,7 +238,7 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 	flags.StringSliceVar(&options.ReportTags, "report-tags", nil, "tag keys, such as owner,team, to count what was discovered, imported and managed by in the report, one table per key (discover: in its log and JSON summary)")
 	flags.StringVar(&options.Modules, "modules", importer.ModulesRegistry, "registry moves clusters of resources into curated public modules"+moduleFamilies()+", at the release each adapter is tested with, where the plan stays the same, else into generated local modules; latest-untested calls each module's newest release instead; local uses generated local modules only; none keeps every resource in the root")
 	AddEngineFlags(flags, EngineFlags{
-		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout,
+		Engine: &options.Engine, TerraformPath: &options.TerraformPath, EngineTimeout: &options.EngineTimeout, EngineParallelism: &options.EngineParallelism,
 		Format: &options.Format, Catalogue: &options.Catalogue, ForceUnlock: &options.ForceUnlock, Policies: &options.Policies,
 		FormatHelp:    "text, or json to also print the import report as JSON on stdout (discover: a summary of what it listed, by what manages it)",
 		CatalogueHelp: ": import IDs, arguments to leave out, default skips, data sources",

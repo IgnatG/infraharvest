@@ -81,6 +81,7 @@ infraharvest discover aws
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--external-id` |  | external ID to assume each role with, as a role's trust policy may require (sts:ExternalId); the generated roots' provider blocks assume the role with it too |
@@ -136,6 +137,7 @@ infraharvest discover azure
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
@@ -188,6 +190,7 @@ infraharvest discover google
 | `--config` |  | configuration file, which sets flags not given on the command line |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
@@ -235,10 +238,11 @@ infraharvest drift [output-directory] [flags]
 |---|---|---|
 | `--accept` |  | write the cloud's values of the changes this rule matches into the code: all, or attribute=, type=, address= or root= with a pattern, such as attribute=tags.* (repeatable; with --keep and --rules, the last rule that matches a change decides) |
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: those the import used, whose arguments kept only in state aren't drift (see https://ignatg.github.io/infraharvest/catalogue/) |
-| `--config` |  | the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners |
+| `--config` |  | the import's configuration file, whose settings drift has, engine, terraform-path, engine-timeout, engine-parallelism and catalogue, apply where not given on the command line, and whose own modules the checks of the edited code leave to their owners |
 | `--decisions` |  | decide the changes by this decisions file, which --write-decisions writes: each change's entry, else its rules and defaults; --accept and --keep decide after it |
 | `--detailed-exitcode` |  | exit with 4 when a change is left that the next apply reverts or that can't be assessed, 1 when an accepted change failed verification, 0 when none |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--environment` |  | for a root environments share, the environments to check it as, each with its backend settings and var files, with the credentials drift runs with, or all for every one under its vars/, if they reach every one; roots of more than one environment need it |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
@@ -310,6 +314,7 @@ infraharvest import aws
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--external-id` |  | external ID to assume each role with, as a role's trust policy may require (sts:ExternalId); the generated roots' provider blocks assume the role with it too |
@@ -364,6 +369,7 @@ infraharvest import azure
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
@@ -415,6 +421,7 @@ infraharvest import google
 | `--config` |  | configuration file, which sets flags not given on the command line and the state backend of the generated roots |
 | `--default-env` |  | environment, such as dev, of the resources no --env-tags tag places, which otherwise go to {out}/envs/shared/ |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--env-tags` |  | tag or label keys, such as Environment, whose value names a resource's environment: roots per environment, under {out}/envs/{env}/, for {env} in --layout (default for {env}: Environment, environment, Env, env) |
 | `--folders` |  | import every active project of these folder IDs, in their subfolders too |
@@ -512,8 +519,9 @@ infraharvest verify [output-directory] [flags]
 | Flag | Default | Description |
 |---|---|---|
 | `--catalogue` |  | directory of catalogue files (YAML) that add to or override what the built-in catalogue says about resource types: those the import used (see https://ignatg.github.io/infraharvest/catalogue/) |
-| `--config` |  | the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, catalogue and policy, apply where not given on the command line |
+| `--config` |  | the import's configuration file, whose settings verify has, engine, terraform-path, engine-timeout, engine-parallelism, catalogue and policy, apply where not given on the command line |
 | `--engine` | `terraform` | terraform or tofu: run Terraform or OpenTofu on the roots |
+| `--engine-parallelism` | `0` | how many resources Terraform or OpenTofu plans and applies at once, as its -parallelism (default 0: its own default of 10); raise it for a very large root whose provider API allows more calls, lower it to ease rate limits |
 | `--engine-timeout` | `1h0m0s` | longest time one Terraform or OpenTofu command, such as the plan of one root, may run; a root whose command takes longer fails (0: no limit) |
 | `--environment` |  | for a root environments share, the environments to plan it as, each with its var files, with the credentials verify runs with (default: every environment under its vars/) |
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
