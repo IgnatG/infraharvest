@@ -65,9 +65,10 @@ func run(write bool, notesFile string) error {
 	defer cancel()
 	client := &moduleinterface.Client{HTTP: &http.Client{Timeout: time.Minute}, Registry: moduleinterface.RegistryURL}
 
+	reg := adapters.Builtin()
 	var failed []string
-	for _, family := range adapters.Providers() {
-		for _, a := range adapters.For(family) {
+	for _, family := range reg.Providers() {
+		for _, a := range reg.For(family) {
 			var err error
 			if write {
 				err = writeSnapshot(ctx, client, a)

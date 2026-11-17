@@ -116,7 +116,7 @@ func TestEveryProfileDescribesItsScope(t *testing.T) {
 	for _, p := range Profiles() {
 		families = append(families, p.Modules)
 	}
-	for _, family := range adapters.Providers() {
+	for _, family := range adapters.Builtin().Providers() {
 		if !slices.Contains(families, family) {
 			t.Errorf("curated modules of family %q, which no provider's profile names", family)
 		}
@@ -126,7 +126,7 @@ func TestEveryProfileDescribesItsScope(t *testing.T) {
 		if p.Command != name || p.Scope.Noun == "" || p.Scope.Describe == nil {
 			t.Errorf("%s: command %q, noun %q: name the command, and what a scope is and how to describe it", name, p.Command, p.Scope.Noun)
 		}
-		if p.Modules != "" && len(adapters.For(p.Modules)) == 0 {
+		if p.Modules != "" && len(adapters.Builtin().For(p.Modules)) == 0 {
 			t.Errorf("%s: no curated modules of family %q", name, p.Modules)
 		}
 		if (p.Modules == "") != (p.ModulesName == "") {

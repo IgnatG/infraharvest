@@ -23,8 +23,8 @@ import (
 
 // Run lets people edit f, read from path, in the terminal, and saves it to
 // path if they ask to. It reports whether it saved.
-func Run(path string, f *selection.File) (bool, error) {
-	final, err := tea.NewProgram(New(path, f)).Run()
+func Run(path string, f *selection.File, reg *adapters.Registry) (bool, error) {
+	final, err := tea.NewProgram(New(path, f, reg)).Run()
 	if err != nil {
 		return false, err
 	}
@@ -65,11 +65,15 @@ type Model struct {
 	err         error
 }
 
-// New returns a picker of f, which it saves to path.
-func New(path string, f *selection.File) *Model {
+// New returns a picker of f, which it saves to path, with the calls of the
+// curated modules of reg (the built-in ones for nil) to show.
+func New(path string, f *selection.File, reg *adapters.Registry) *Model {
+	if reg == nil {
+		reg = adapters.Builtin()
+	}
 	m := &Model{path: path, file: f, calls: map[string]string{}, expanded: map[string]bool{}, height: 20}
-	for _, provider := range adapters.Providers() {
-		for _, a := range adapters.For(provider) {
+	for _, provider := range reg.Providers() {
+		for _, a := range reg.For(provider) {
 			if _, ok := m.calls[a.Anchor]; !ok {
 				m.calls[a.Anchor] = a.Source
 			}

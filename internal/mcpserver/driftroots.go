@@ -54,6 +54,10 @@ type driftAllowed struct {
 // the providers compiled.
 func newDriftAllowed(compiled Providers) driftAllowed {
 	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}, backends: map[string]*settings{}, providers: map[string]*settings{}}
+	modules := compiled.Modules
+	if modules == nil {
+		modules = adapters.Builtin()
+	}
 	for source, b := range compiled.Settings {
 		a.providers[providerAddress(source)] = settingsOf(b)
 	}
@@ -64,7 +68,7 @@ func newDriftAllowed(compiled Providers) driftAllowed {
 		for _, source := range compiled.Sources[profile.Command] {
 			a.sources[providerAddress(source)] = true
 		}
-		for _, m := range adapters.For(profile.Modules) {
+		for _, m := range modules.For(profile.Modules) {
 			a.modules[moduleAddress(m.Source)] = true
 		}
 	}

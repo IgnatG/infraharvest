@@ -579,7 +579,7 @@ func TestDriftPassesTheRootsModules(t *testing.T) {
 	if err := Drift(t.Context(), options, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	curated := adapters.For("aws")
+	curated := adapters.Builtin().For("aws")
 	if len(got) != 1 || len(got[0]) != 1+len(curated) || got[0][0].Source != bucket {
 		t.Fatalf("adapters %+v, want the bucket module's, then the curated ones", got)
 	}
@@ -822,5 +822,36 @@ func TestCheckDriftRootsPanic(t *testing.T) {
 	}
 	if !strings.Contains(logged.String(), "aws/1/b panicked: boom") {
 		t.Errorf("logged %q, want the panic of aws/1/b", logged.String())
+	}
+}
+
+// Drift traces changes into the calls of the registry it is given, not
+// the built-in one: a registry of its own replaces the curated modules.
+func TestDriftUsesTheRegistryItIsGiven(t *testing.T) {
+	t.Parallel()
+	out := driftOutput(t, "aws/1/eu-west-2")
+	reg := adapters.Builtin()
+	own := adapters.Adapter{Source: "example.com/own/module", Version: "1.0.0", Anchor: "aws_sqs_queue"}
+	reg.Replace("aws", own)
+	var got []adapters.Adapter
+	check := func(_ context.Context, _, _ string, opts drift.Options) (*drift.Result, error) {
+		got = opts.Adapters
+		return &drift.Result{Backend: "s3", Resources: 1}, nil
+	}
+	options := DriftOptions{
+		Out: out, Engine: EngineTerraform, Format: FormatText, Parallel: 1, Registry: reg, check: check,
+		Provider: func(name string) harvest.Provider {
+			if name == "aws" {
+				return &curatedProvider{}
+			}
+			return nil
+		},
+		Names: []string{"aws"},
+	}
+	if err := Drift(t.Context(), options, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Source != own.Source {
+		t.Errorf("adapters %+v, want the registry's alone", got)
 	}
 }
