@@ -128,7 +128,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		if err != nil {
 			return nil, err
 		}
-		recorder.leaveOutHeld(placed.byDir, held)
+		referToKept(&opts, recorder.leaveOutHeld(placed.byDir, held))
 	}
 	return &listedCall{callRecorder: recorder, provider: provider, options: options, byDir: placed.byDir, places: placed.places, region: scopeRegion(c.scope), opts: opts, toolchain: *tools}, nil
 }

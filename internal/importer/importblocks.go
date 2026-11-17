@@ -36,6 +36,32 @@ func inOtherRoots(out string, roots map[string][]rootfile.Import, dir string) ma
 	return other
 }
 
+// keptElsewhere is a resource an import leaves out of the roots it
+// generates because a root it doesn't generate keeps it: the import, and
+// that root relative to the output directory.
+type keptElsewhere struct {
+	imp  rootfile.Import
+	root string
+}
+
+// referToKept makes the roots opts configures refer to the resources left
+// in roots the run doesn't generate, as they refer to those of the roots
+// it does (see newOtherRoots): through a data source where the type has
+// one, or a variable that says where it comes from.
+func referToKept(opts *engine.Options, kept []keptElsewhere) {
+	if len(kept) == 0 {
+		return
+	}
+	external, others := slices.Clip(opts.External), slices.Clip(opts.OtherRoots)
+	for _, k := range kept {
+		if _, ok := opts.DataSources[k.imp.Type]; ok {
+			external = append(external, engine.External{Type: k.imp.Type, ID: k.imp.ID, Name: k.imp.Name})
+		}
+		others = append(others, engine.RootResource{Type: k.imp.Type, ID: k.imp.ID, Name: hclfile.Label(k.imp.Name), Root: k.root})
+	}
+	opts.External, opts.OtherRoots = external, others
+}
+
 // importBlocks says how importsByDir writes the import block of a
 // resource.
 type importBlocks struct {

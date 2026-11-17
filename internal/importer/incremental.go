@@ -150,11 +150,13 @@ func stagingDir(out, dir string) string {
 
 // leaveOutHeld removes from byDir the imports of what another root holds
 // (see outputIndex.heldElsewhere), recording each as excluded, with the root, and
-// drops the roots it leaves with nothing to import.
-func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) {
+// drops the roots it leaves with nothing to import. It returns what it
+// left out, for the roots that remain to refer to (see referToKept).
+func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map[engine.External]string) []keptElsewhere {
 	if len(held) == 0 {
-		return
+		return nil
 	}
+	var left []keptElsewhere
 	dirs := make([]string, 0, len(byDir))
 	for dir := range byDir {
 		dirs = append(dirs, dir)
@@ -165,6 +167,7 @@ func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map
 		for _, imp := range byDir[dir] {
 			if root, ok := held[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				c.run.report.Exclude(c.scope, imp.Type, imp.ID, report.InOtherRoot(root))
+				left = append(left, keptElsewhere{imp: imp, root: root})
 				continue
 			}
 			kept = append(kept, imp)
@@ -176,4 +179,5 @@ func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map
 		}
 		byDir[dir] = kept
 	}
+	return left
 }

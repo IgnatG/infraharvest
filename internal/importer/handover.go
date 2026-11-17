@@ -385,7 +385,7 @@ func planHandovers(x *outputIndex, calls []*listedCall) error {
 	}
 	for _, c := range live {
 		c.handovers = h
-		c.run.leaveOutStaying(c.scope, c.byDir, stays, h.removals)
+		referToKept(&c.opts, c.run.leaveOutStaying(c.scope, c.byDir, stays, h.removals))
 	}
 	return nil
 }
@@ -394,11 +394,13 @@ func planHandovers(x *outputIndex, calls []*listedCall) error {
 // root an earlier import put it in (see planHandovers), recording each
 // as excluded in scope, with the root, and drops the roots it leaves with
 // nothing to import, but for those with removals, which are generated
-// with their removed blocks alone.
-func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, stays map[engine.External]string, removals map[string][]rootfile.Removal) {
+// with their removed blocks alone. It returns what it left out, for the
+// roots that remain to refer to (see referToKept).
+func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, stays map[engine.External]string, removals map[string][]rootfile.Removal) []keptElsewhere {
 	if len(stays) == 0 {
-		return
+		return nil
 	}
+	var left []keptElsewhere
 	for _, dir := range sortedDirs(byDir) {
 		imports := byDir[dir]
 		if len(imports) == 0 {
@@ -408,6 +410,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, 
 		for _, imp := range imports {
 			if root, ok := stays[engine.ResourceKey(imp.Type, imp.ID)]; ok {
 				r.report.Exclude(scope, imp.Type, imp.ID, report.InOtherRoot(root))
+				left = append(left, keptElsewhere{imp: imp, root: root})
 				continue
 			}
 			kept = append(kept, imp)
@@ -423,6 +426,7 @@ func (r *Run) leaveOutStaying(scope string, byDir map[string][]rootfile.Import, 
 		}
 		byDir[dir] = kept
 	}
+	return left
 }
 
 // departures returns, by the directory of each root the checkpoints x
