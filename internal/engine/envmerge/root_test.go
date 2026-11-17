@@ -727,3 +727,31 @@ func TestDataFileNamesTheRootsProvider(t *testing.T) {
 		}
 	}
 }
+
+// A variable a root's secret resource reads is declared in the merged
+// root from that root's variables.tf, with the sensitive flag, and never
+// set in a var file; where no root declares it, the merged root can't be
+// written, and says which variable it lacks.
+func TestMergedRootDeclaresTheSecretVariablesRootsHave(t *testing.T) {
+	t.Parallel()
+	files, err := mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], threeEnvRoots(t), rootSchemas))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := flatText(string(files[hclfile.VariablesFileName])); !strings.Contains(got, flatText("variable \"shop_prd_api_key\" {\n  description = \"The value of aws_ssm_parameter.api_key.\"\n  type        = string\n  sensitive   = true\n  default     = null\n}")) {
+		t.Errorf("variables.tf doesn't declare the secret:\n%s", got)
+	}
+	for name, content := range files {
+		if strings.HasPrefix(name, hclfile.VarsDir+"/") && strings.Contains(string(content), "shop_prd_api_key") {
+			t.Errorf("%s sets the secret:\n%s", name, content)
+		}
+	}
+	roots := threeEnvRoots(t)
+	for i := range roots {
+		roots[i].variables = nil
+	}
+	_, err = mergedRootFiles(mergeStack("aws", mergeProfiles["aws"], roots, rootSchemas))
+	if err == nil || !strings.Contains(err.Error(), "shop_prd_api_key") || !strings.Contains(err.Error(), "doesn't declare") {
+		t.Errorf("no root declares the secret's variable: got %v", err)
+	}
+}
