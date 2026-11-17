@@ -232,8 +232,14 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 	for _, f := range coverage.Failures {
 		t.Errorf("failure: %+v", f)
 	}
+	leftOut := false
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {
+			if goneBeforeImport(l, created) {
+				t.Logf("%s: %s (%s) left out, gone before the import: %v", d.Path, l.Address, l.ID, l.Errors)
+				continue
+			}
+			leftOut = true
 			t.Errorf("%s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
 		}
 		for _, c := range d.Checks {
@@ -253,7 +259,7 @@ func (s *azureSandbox) checkAzureImport(ctx context.Context, t *testing.T, cover
 	if !strings.EqualFold(filepath.Base(root), s.resourceGroup) || !strings.EqualFold(filepath.Base(filepath.Dir(root)), s.subscriptionID) {
 		t.Errorf("root %s, want one named after the subscription %s and the resource group %s", root, s.subscriptionID, s.resourceGroup)
 	}
-	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil {
+	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil && leftOut {
 		t.Errorf("%s: resources left out:\n%s", root, rejected)
 	}
 	imported := checkNoChanges(ctx, t, root, s.execPath, s.plugins, nil)
@@ -523,8 +529,13 @@ func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, create
 		t.Errorf("--azapi: failure: %+v", f)
 	}
 	var importedAs, importID string
+	leftOut := false
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {
+			if goneBeforeImport(l, created) {
+				continue
+			}
+			leftOut = true
 			t.Errorf("--azapi: %s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
 		}
 		for _, c := range d.Checks {
@@ -550,7 +561,7 @@ func (s *azureSandbox) checkAzureAzapi(ctx context.Context, t *testing.T, create
 		t.Fatalf("--azapi: roots %v, want one, for the resource group %s", dirs, s.resourceGroup)
 	}
 	root := filepath.Clean(dirs[0])
-	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil {
+	if rejected, err := os.ReadFile(filepath.Join(root, rootfile.RejectedFileName)); err == nil && leftOut {
 		t.Errorf("--azapi: %s: resources left out:\n%s", root, rejected)
 	}
 	if generated := strings.ToLower(configuration(t, root)); !strings.Contains(generated, strings.ToLower("Microsoft.Resources/templateSpecs@"+version)) {
@@ -645,4 +656,26 @@ func TestGraphIndexed(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
+}
+
+// goneBeforeImport reports whether l is a resource the estate didn't create
+// that the import found gone. Resource Graph can go on listing a resource
+// for a long time after it is deleted, or after its create failed, and the
+// import rightly leaves such a resource out, with Terraform's reason: it
+// isn't the estate's, and doesn't fail the test.
+func goneBeforeImport(l report.LeftOut, created []*tfjson.StateResource) bool {
+	for _, r := range created {
+		if id, _ := r.AttributeValues["id"].(string); strings.EqualFold(id, l.ID) {
+			return false
+		}
+	}
+	if len(l.Errors) == 0 {
+		return false
+	}
+	for _, e := range l.Errors {
+		if !strings.HasPrefix(e, "Cannot import non-existent remote object") {
+			return false
+		}
+	}
+	return true
 }
