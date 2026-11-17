@@ -85,7 +85,7 @@ The services each provider lists, as `--services` and `--skip` name them, and th
 | `route53` | `aws_route53_health_check`, `aws_route53_record`, `aws_route53_zone` |
 | `route53resolver` | `aws_route53_resolver_endpoint`, `aws_route53_resolver_rule` |
 | `route_table` | `aws_main_route_table_association`, `aws_route_table`, `aws_route_table_association` |
-| `s3` | `aws_s3_bucket`, `aws_s3_bucket_accelerate_configuration`, `aws_s3_bucket_cors_configuration`, `aws_s3_bucket_lifecycle_configuration`, `aws_s3_bucket_logging`, `aws_s3_bucket_object_lock_configuration`, `aws_s3_bucket_ownership_controls`, `aws_s3_bucket_policy`, `aws_s3_bucket_public_access_block`, `aws_s3_bucket_replication_configuration`, `aws_s3_bucket_request_payment_configuration`, `aws_s3_bucket_server_side_encryption_configuration`, `aws_s3_bucket_versioning`, `aws_s3_bucket_website_configuration` |
+| `s3` | `aws_s3_bucket`, `aws_s3_bucket_accelerate_configuration`, `aws_s3_bucket_cors_configuration`, `aws_s3_bucket_intelligent_tiering_configuration`, `aws_s3_bucket_inventory`, `aws_s3_bucket_lifecycle_configuration`, `aws_s3_bucket_logging`, `aws_s3_bucket_metric`, `aws_s3_bucket_notification`, `aws_s3_bucket_object_lock_configuration`, `aws_s3_bucket_ownership_controls`, `aws_s3_bucket_policy`, `aws_s3_bucket_public_access_block`, `aws_s3_bucket_replication_configuration`, `aws_s3_bucket_request_payment_configuration`, `aws_s3_bucket_server_side_encryption_configuration`, `aws_s3_bucket_versioning`, `aws_s3_bucket_website_configuration` |
 | `scheduler` | `aws_scheduler_schedule_group` |
 | `secretsmanager` | `aws_secretsmanager_secret` |
 | `securityhub` | `aws_securityhub_account`, `aws_securityhub_member`, `aws_securityhub_standards_subscription` |
