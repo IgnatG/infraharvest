@@ -6,11 +6,14 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/logging"
@@ -172,8 +175,52 @@ func (g *generation) snapshotOf(ctx context.Context) (*tfrun.Snapshot, error) {
 		Resources: resources,
 		Imports:   imports,
 		Vars:      g.r.secrets.Options(),
+		Prepare:   func(ctx context.Context, tf tfrun.Terraform) error { return fillWithheld(ctx, tf, copied) },
 		Timeout:   g.opts.CommandTimeout,
 	})
+}
+
+// fillWithheld gives the arguments of the private copy in dir, which tf runs,
+// that the provider requires, or requires one of, and Terraform withheld
+// from generated.tf as "null # sensitive", a placeholder (see
+// secret.FillMissing), such as an SSM parameter's value, which only the
+// secrets step reads from a variable. The copy only validates and imports:
+// every resource ignores all changes, so the placeholder is never planned,
+// stored or applied, and the import reads the real value into the
+// snapshot, as it does for any resource. It asks Terraform to validate the
+// copy only if the file has such an attribute, and fills only the ones
+// that validation says are missing: a placeholder for another could fail a
+// provider's rules for it where null passes.
+func fillWithheld(ctx context.Context, tf tfrun.Terraform, dir string) error {
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	if err != nil {
+		return err
+	}
+	found := secret.FindSensitive(generated)
+	if len(found) == 0 {
+		return nil
+	}
+	validation, err := tf.Validate(ctx)
+	if err != nil {
+		return fmt.Errorf("terraform validate: %w", err)
+	}
+	if validation.Valid {
+		return nil
+	}
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
+	if err != nil {
+		return err
+	}
+	errs, _ := byResource(tfrun.ErrorDiagnostics(validation.Diagnostics), generated, imports)
+	schemas, err := tf.ProvidersSchema(ctx)
+	if err != nil {
+		return fmt.Errorf("terraform providers schema: %w", err)
+	}
+	// Write-only attributes (value_wo) are never stored: they stay null.
+	if secret.FillMissing(secret.WithoutWriteOnly(found, schemas), errs, schemas) == 0 {
+		return nil
+	}
+	return generated.Save()
 }
 
 // moveCopy makes the private copy of the root that the snapshot's moves
@@ -213,7 +260,10 @@ func (g *generation) moveCopyIn(copied string) (*tfrun.MoveCopy, error) {
 	// The copy's plans show nothing of the secrets either.
 	plan := &secret.RedactingTerraform{Terraform: tfrun.WithTimeout(tf, g.opts.CommandTimeout)}
 	plan.Hide(g.literal)
-	return &tfrun.MoveCopy{Dir: copied, Plan: plan, Apply: apply, Resources: resources, Vars: g.r.secrets.Options()}, nil
+	// The secrets read from variables by now: those without a value get
+	// placeholders, as the plans of the steps after the secrets do.
+	vars := append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...)
+	return &tfrun.MoveCopy{Dir: copied, Plan: plan, Apply: apply, Resources: resources, Vars: vars}, nil
 }
 
 // dropBlocks removes the top-level blocks of the types types from the

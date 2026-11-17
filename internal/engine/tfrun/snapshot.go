@@ -144,6 +144,11 @@ type SnapshotBuild struct {
 	Imports []ImportBlock
 	// Vars are the plan options that give the copy's variables values.
 	Vars []tfexec.PlanOption
+	// Prepare, if set, edits the copy once it is initialised and before it
+	// is planned, with the runner that plans it: the copy only has to
+	// validate and import, so it can take what the root's own files lack,
+	// such as a value the root keeps out of its files.
+	Prepare func(ctx context.Context, tf Terraform) error
 	// Timeout bounds the apply.
 	Timeout time.Duration
 }
@@ -185,6 +190,11 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 	// the plan is applied to is of the release the root's plans use.
 	if err := Init(ctx, b.Plan, tfexec.Backend(false)); err != nil {
 		return fmt.Errorf("terraform init: %w", err)
+	}
+	if b.Prepare != nil {
+		if err := b.Prepare(ctx, b.Plan); err != nil {
+			return fmt.Errorf("prepare the copy: %w", err)
+		}
 	}
 	planFile := filepath.Join(s.dir, "plan")
 	p, _, diags, err := showPlanTo(ctx, b.Plan, planFile, b.Vars)

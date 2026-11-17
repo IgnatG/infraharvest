@@ -334,6 +334,54 @@ func WithoutWriteOnly(secrets map[string][]Sensitive, schemas *tfjson.ProviderSc
 	return kept
 }
 
+// FillMissing gives the secret attributes of found that diags say are
+// missing a placeholder of their type (see PlaceholderValue), in the
+// tree of the file they were found in, and returns how many it gave one.
+// diags are the errors of a plan or a validation by resource address, as
+// found is: an attribute is filled for an error of its own resource that
+// is About it. It is for a private copy of the configuration that only
+// has to validate, such as the one a state snapshot is imported in, where
+// an argument the provider requires, or requires one of, is null for the
+// value Terraform withholds: the placeholder is never in the output. The
+// caller saves the file.
+func FillMissing(found map[string][]Sensitive, diags map[string][]tfjson.Diagnostic, schemas *tfjson.ProviderSchemas) int {
+	filled := 0
+	for addr, attrs := range found {
+		resourceType := strings.SplitN(addr, ".", 2)[0]
+		for _, s := range attrs {
+			if !slices.ContainsFunc(diags[addr], func(d tfjson.Diagnostic) bool { return About(d, []Sensitive{s}) }) {
+				continue
+			}
+			s.body.SetAttributeValue(s.name(), placeholderValue(tfrun.AttributeType(schemas, resourceType, s.schemaPath)))
+			filled++
+		}
+	}
+	return filled
+}
+
+// placeholderValue returns the value of type ty that Placeholders gives a
+// secret variable without a known value: PlaceholderValue for a string, or
+// a type the schema doesn't give.
+func placeholderValue(ty cty.Type) cty.Value {
+	switch {
+	case ty.Equals(cty.Number):
+		return cty.NumberIntVal(0)
+	case ty.Equals(cty.Bool):
+		return cty.False
+	case ty.IsListType():
+		return cty.ListValEmpty(ty.ElementType())
+	case ty.IsSetType():
+		return cty.SetValEmpty(ty.ElementType())
+	case ty.IsTupleType():
+		return cty.EmptyTupleVal
+	case ty.IsMapType():
+		return cty.MapValEmpty(ty.ElementType())
+	case ty.IsObjectType():
+		return cty.EmptyObjectVal
+	}
+	return cty.StringVal(PlaceholderValue)
+}
+
 // typeTokens renders ty as a type constraint expression.
 func typeTokens(ty cty.Type) (hclwrite.Tokens, error) {
 	f, diags := hclwrite.ParseConfig([]byte("type = "+typeexpr.TypeString(ty)+"\n"), "type", hcl.InitialPos)

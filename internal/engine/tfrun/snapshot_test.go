@@ -376,6 +376,67 @@ func TestBuildSnapshot(t *testing.T) {
 	}
 }
 
+// Prepare edits the copy once it is initialised, and before it is planned;
+// if it fails, nothing is planned or applied.
+func TestBuildSnapshotPreparesTheCopy(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var order []string
+	tf := &orderedState{fakeState: fakeState{imports: 1, plan: importPlan("aws_s3_bucket.a")}, order: &order}
+	build := SnapshotBuild{
+		Plan: tf, Apply: tf, Dir: t.TempDir(),
+		Imports: []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}},
+		Prepare: func(_ context.Context, got Terraform) error {
+			if got != tf {
+				t.Errorf("prepared with another runner: %v", got)
+			}
+			order = append(order, "prepare")
+			return nil
+		},
+	}
+	s, err := BuildSnapshot(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Remove()
+	if want := "init,prepare,plan,apply"; strings.Join(order, ",") != want {
+		t.Errorf("order: got %v, want %s", order, want)
+	}
+
+	order = nil
+	build.Prepare = func(context.Context, Terraform) error { return errors.New("boom") }
+	if _, err := BuildSnapshot(context.Background(), build); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("a failed prepare: %v", err)
+	}
+	if want := "init"; strings.Join(order, ",") != want || tf.applies != 1 {
+		t.Errorf("after a failed prepare: commands %v, applies %d", order, tf.applies)
+	}
+	left, _ := filepath.Glob(filepath.Join(os.TempDir(), SnapshotPattern+"*"))
+	if len(left) != 0 {
+		t.Errorf("snapshots left behind: %v", left)
+	}
+}
+
+// orderedState records the order of the commands that build a snapshot.
+type orderedState struct {
+	fakeState
+	order *[]string
+}
+
+func (o *orderedState) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	*o.order = append(*o.order, "init")
+	return o.fakeState.Init(ctx, opts...)
+}
+
+func (o *orderedState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	*o.order = append(*o.order, "plan")
+	return o.fakeState.PlanJSON(ctx, w, opts...)
+}
+
+func (o *orderedState) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
+	*o.order = append(*o.order, "apply")
+	return o.fakeState.Apply(ctx, opts...)
+}
+
 func TestRemoveStaleSnapshots(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
