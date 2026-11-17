@@ -61,7 +61,7 @@ const replanSecrets = "secrets moved into variables"
 
 // replanGone is why the root plans again once leaveGone left resources
 // out, whose errors lines it changed.
-const replanGone = "resources no longer in the cloud left out"
+const replanGone = "resources whose import found no object left out"
 
 // generatedAnnotations are the annotations of generated.tf that come
 // before anything reads it. Terraform writes resources in the order its

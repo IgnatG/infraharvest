@@ -153,26 +153,17 @@ func variablesIn(block *hclwrite.Block) []string {
 	return names
 }
 
-// Gone is a resource Generate left out because its import found no object:
-// the listing had it, and it has been deleted since, or never finished
-// being created.
-type Gone struct {
-	Address string
-	ID      string // the import ID
-}
-
 // missingObject is what Terraform and OpenTofu both say of an import ID
 // whose object doesn't exist.
 const missingObject = "Cannot import non-existent remote object"
 
-// dropGone moves out of imports.tf and generated.tf the resources diags
-// say don't exist, as their import found no object, and returns them with
-// the diagnostics left: those about other resources, and those that name
-// none, which stay as they are. Nothing is kept of the resources: there
-// is nothing to fix. Terraform generates nothing for them, so their other
-// errors, such as the missing configuration of their import blocks, go
-// too.
-func dropGone(dir string, diags []tfjson.Diagnostic) ([]Gone, []tfjson.Diagnostic, error) {
+// dropGone moves out of imports.tf and generated.tf, into out, the
+// resources diags say don't exist, as their import found no object, and
+// returns their rejections with the diagnostics left: those about other
+// resources, and those that name none, which stay as they are. Terraform
+// generates nothing for them, so their other errors, such as the missing
+// configuration of their import blocks, go too.
+func dropGone(dir string, diags []tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, []tfjson.Diagnostic, error) {
 	if !slices.ContainsFunc(diags, isMissingObject) {
 		return nil, diags, nil
 	}
@@ -197,16 +188,11 @@ func dropGone(dir string, diags []tfjson.Diagnostic) ([]Gone, []tfjson.Diagnosti
 	if len(errs) == 0 {
 		return nil, diags, nil
 	}
-	var discard bytes.Buffer
-	rejections, err := reject(dir, errs, &discard)
+	rejections, err := reject(dir, errs, out)
 	if err != nil {
 		return nil, nil, err
 	}
-	gone := make([]Gone, 0, len(rejections))
-	for _, r := range rejections {
-		gone = append(gone, Gone{Address: r.Address, ID: r.ID})
-	}
-	return gone, rest, nil
+	return rejections, rest, nil
 }
 
 // isMissingObject reports whether d says an import found no object.

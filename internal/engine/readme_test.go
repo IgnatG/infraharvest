@@ -58,26 +58,6 @@ func TestReadmeFileExpectsStateOnlyUpdates(t *testing.T) {
 
 // What an incremental import found gone is listed by address and import
 // ID, with what to do about it, and only when there is any.
-func TestReadmeFileListsWhatIsGoneSinceListed(t *testing.T) {
-	t.Parallel()
-	result := &Result{
-		Imported: []rootfile.Import{{Type: "aws_sqs_queue", Name: "jobs", ID: "q1"}},
-		Gone:     []Gone{{Address: "aws_sqs_queue.orders", ID: "q2"}},
-	}
-
-	got := string(readmeFile(result))
-
-	if want := "\n## Gone since listed\n\n"; !strings.Contains(got, want) {
-		t.Errorf("missing %q in:\n%s", want, got)
-	}
-	if want := "- `aws_sqs_queue.orders` (`q2`)\n"; !strings.Contains(got, want) {
-		t.Errorf("missing %q in:\n%s", want, got)
-	}
-	if strings.Contains(got, "## Left out") {
-		t.Errorf("a gone resource isn't left out:\n%s", got)
-	}
-}
-
 func TestReadmeFileListsWhatIsNoLongerInTheCloud(t *testing.T) {
 	t.Parallel()
 	result := &Result{

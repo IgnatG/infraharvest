@@ -47,9 +47,6 @@ type Result struct {
 	Secrets []secret.Variable
 	// Rejected are the resources left out of the configuration.
 	Rejected []Rejection
-	// Gone are the resources left out because their import found no
-	// object (see Gone).
-	Gone []Gone `json:",omitempty"`
 	// Owned are the resources left out because their tags say another
 	// tool manages them (see OwnedBy).
 	Owned []OwnedResource `json:",omitempty"`
@@ -575,20 +572,19 @@ func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 }
 
 // leaveGone leaves out of the root the resources whose import found no
-// object, as the errors of the last plan say, and reports whether it did.
-// Terraform generates nothing for them, so the root's next plan would
-// fail on their import blocks instead, for want of configuration, and say
-// nothing of why.
+// object, as the errors of the last plan say, with that error, and reports
+// whether it did. Terraform generates nothing for them, so the root's next
+// plan would fail on their import blocks instead, for want of
+// configuration, and say nothing of why. Such a resource may have been
+// deleted since it was listed, or its import ID may be wrong: the import
+// can't tell, so it is left out like any other.
 func (g *generation) leaveGone() (bool, error) {
-	gone, rest, err := dropGone(g.dir, g.diags)
-	if err != nil || len(gone) == 0 {
+	rejections, rest, err := dropGone(g.dir, g.diags, &g.rejected)
+	if err != nil || len(rejections) == 0 {
 		return false, err
 	}
 	g.diags = rest
-	g.result.Gone = append(g.result.Gone, gone...)
-	for _, o := range gone {
-		g.leftOut[o.Address] = true
-	}
+	g.result.Rejected = append(g.result.Rejected, rejections...)
 	return true, nil
 }
 
