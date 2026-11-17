@@ -44,10 +44,14 @@ GOLDEN_PKG := $(if $(filter command line environment,$(origin PKG)),$(PKG),./int
 # The golangci-lint version CI runs, read from the MegaLinter configuration.
 GOLANGCI_LINT_VERSION := v$(shell sed -n 's/^ *golangci_lint_version=//p' .mega-linter.yml)
 
+# The cloud `make build` compiles in: aws, azure or google. A release has one
+# build per cloud; `make build-all` is the development build with all three.
+CLOUD ?=
+
 GO_TAGS := $(if $(TAGS),-tags $(TAGS))
 LINT_TAGS := $(if $(TAGS),--build-tags $(TAGS))
 
-.PHONY: help hooks tools fast staged fmt lint vet test golden \
+.PHONY: help hooks tools fast staged fmt lint vet test golden build build-all \
   ci-check ci-golden ci-tidy ci-bench ci-schema-metadata ci-lint ci-watch ci-download
 
 ##@ Fast checks (no build)
@@ -56,7 +60,7 @@ help: ## List the targets
 	@awk 'BEGIN { FS = ":.*## " } \
 	    /^##@/ { printf "\n%s\n", substr($$0, 5); next } \
 	    /^[a-z%-]+:.*## / { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@printf '\nVariables: PKG=%s TAGS=%s REF=%s RUNNER=%s RUN=%s NAME=%s\n' '$(PKG)' '$(TAGS)' '$(REF)' '$(RUNNER)' '$(RUN)' '$(NAME)'
+	@printf '\nVariables: PKG=%s TAGS=%s CLOUD=%s REF=%s RUNNER=%s RUN=%s NAME=%s\n' '$(PKG)' '$(TAGS)' '$(CLOUD)' '$(REF)' '$(RUNNER)' '$(RUN)' '$(NAME)'
 
 hooks: ## Run the fast checks before each commit, and check commit messages
 	git config core.hooksPath scripts/hooks
@@ -109,6 +113,17 @@ test: ## go test PKG with TAGS, such as make test PKG=./internal/engine/...
 
 golden: ## Rewrite the golden files of PKG (default ./internal/catalogue); review the diff
 	go test $(GOLDEN_PKG) -run Golden -update
+
+##@ Build (compiles the module: several GB of RAM)
+
+build: ## Build ./infraharvest with one cloud, as a release does: make build CLOUD=aws (or azure, google)
+	@case "$(CLOUD)" in aws|azure|google) ;; \
+	  *) echo "set CLOUD=aws, azure or google: a release has one build per cloud (make build-all builds every cloud, for development)" >&2; exit 2 ;; \
+	esac
+	go build -tags minimal,$(CLOUD) -o infraharvest .
+
+build-all: ## Build ./infraharvest with every cloud, for development and the e2e tests; never released
+	go build -o infraharvest .
 
 ##@ On GitHub (push REF first; needs gh)
 
