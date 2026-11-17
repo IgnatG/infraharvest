@@ -111,6 +111,10 @@ type Options struct {
 	// EngineTimeout bounds each command of the engine, such as one plan of
 	// a root; 0 means no limit.
 	EngineTimeout time.Duration
+	// EngineParallelism is the -parallelism of each plan and apply of the
+	// engine, how many resources Terraform handles at once; 0 leaves its
+	// default of 10.
+	EngineParallelism int
 
 	// Which resources to import, and how to treat earlier runs.
 
@@ -291,6 +295,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 		{"--list-parallel", options.ListParallel < 0},
 		{"--parallel", options.Parallel < 0},
 		{"--engine-timeout", options.EngineTimeout < 0},
+		{"--engine-parallelism", options.EngineParallelism < 0},
 	} {
 		if f.negative {
 			return fmt.Errorf("%s can't be negative", f.flag)

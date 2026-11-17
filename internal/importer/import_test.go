@@ -352,6 +352,7 @@ func TestCheckOptions(t *testing.T) {
 		{Options{Services: []string{"vpc"}, All: true, ListTimeout: -time.Second}, "--list-timeout can't be negative"},
 		{Options{Services: []string{"vpc"}, All: true, ListParallel: -1}, "--list-parallel can't be negative"},
 		{Options{Services: []string{"vpc"}, All: true, Parallel: -2}, "--parallel can't be negative"},
+		{Options{Services: []string{"vpc"}, All: true, EngineParallelism: -1}, "--engine-parallelism can't be negative"},
 		{Options{Services: []string{"vpc"}, All: true, EngineTimeout: -time.Second}, "--engine-timeout can't be negative"},
 	} {
 		err := checkOnly(p, tc.options)

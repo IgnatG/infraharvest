@@ -42,6 +42,8 @@ type DriftInput struct {
 	Catalogue string `json:"catalogue,omitempty" jsonschema:"the directory of catalogue files the import used, which add to or override the built-in catalogue: the arguments it says are kept only in state aren't drift"`
 	// EngineTimeout is --engine-timeout, "" for its default.
 	EngineTimeout string `json:"engine_timeout,omitempty" flag:"engine-timeout" jsonschema:"the longest time one Terraform or OpenTofu command, such as the refresh of one root, may run, as a duration such as 30m or 2h (default 1h; 0 for no limit)"`
+	// EngineParallelism is --engine-parallelism, 0 for its default.
+	EngineParallelism int `json:"engine_parallelism,omitempty" flag:"engine-parallelism" jsonschema:"how many resources Terraform or OpenTofu handles at once in each plan, as its -parallelism (default 0: Terraform's own default of 10)"`
 	// ForceUnlock is --force-unlock.
 	ForceUnlock bool `json:"force_unlock,omitempty" flag:"force-unlock" jsonschema:"check even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock"`
 }
@@ -314,6 +316,9 @@ func driftSettings(in DriftInput) string {
 	}
 	if in.EngineTimeout != "" {
 		set = append(set, fmt.Sprintf("an engine timeout of %q per command", in.EngineTimeout))
+	}
+	if in.EngineParallelism != 0 {
+		set = append(set, fmt.Sprintf("an engine parallelism of %d resources per plan", in.EngineParallelism))
 	}
 	if in.Parallel != 0 {
 		set = append(set, fmt.Sprintf("%d roots at once", in.Parallel))

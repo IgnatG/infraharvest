@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -35,8 +36,9 @@ type Terraform interface {
 // environment, such as the credentials the provider resolved, that keeps
 // the providers' schemas in schemas, the cache of the run it is part of,
 // if set (see Runner.ProvidersSchema). It creates both directories. Its
-// init holds the plugin cache's lock (see Runner.Init).
-func New(dir, execPath, pluginCacheDir string, env map[string]string, schemas *SchemaCache) (*Runner, error) {
+// init holds the plugin cache's lock (see Runner.Init). options adjust how
+// it runs Terraform (see Parallelism).
+func New(dir, execPath, pluginCacheDir string, env map[string]string, schemas *SchemaCache, options ...Option) (*Runner, error) {
 	for _, d := range []string{dir, pluginCacheDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
@@ -49,16 +51,50 @@ func New(dir, execPath, pluginCacheDir string, env map[string]string, schemas *S
 	if err := tf.SetEnv(terraformEnviron(pluginCacheDir, env)); err != nil {
 		return nil, err
 	}
-	return &Runner{Terraform: tf, pluginCacheDir: pluginCacheDir, schemas: schemas}, nil
+	r := &Runner{Terraform: tf, pluginCacheDir: pluginCacheDir, schemas: schemas}
+	for _, option := range options {
+		option(r)
+	}
+	return r, nil
 }
 
 // Runner is the Terraform runner New returns: tfexec's, whose
-// init holds the lock of the plugin cache it shares, and which reads the
-// providers' schemas through its run's cache, if any.
+// init holds the lock of the plugin cache it shares, which reads the
+// providers' schemas through its run's cache, if any, and whose plans and
+// applies take the -parallelism it is given, if any.
 type Runner struct {
 	*tfexec.Terraform
 	pluginCacheDir string
 	schemas        *SchemaCache
+	parallelism    int
+}
+
+// Option adjusts a Runner (see New).
+type Option func(*Runner)
+
+// Parallelism makes each plan and apply of the runner take
+// -parallelism=n, how many resources Terraform handles at once, rather
+// than its default of 10. An n below 1 leaves Terraform's default. Setting
+// it through TF_CLI_ARGS isn't possible: the runner's environment leaves
+// that variable out (see terraformEnviron).
+func Parallelism(n int) Option {
+	return func(r *Runner) { r.parallelism = n }
+}
+
+// PlanJSON plans with the runner's -parallelism, if it has one.
+func (r *Runner) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	if r.parallelism > 0 {
+		opts = append(slices.Clone(opts), tfexec.Parallelism(r.parallelism))
+	}
+	return r.Terraform.PlanJSON(ctx, w, opts...)
+}
+
+// Apply applies with the runner's -parallelism, if it has one.
+func (r *Runner) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
+	if r.parallelism > 0 {
+		opts = append(slices.Clone(opts), tfexec.Parallelism(r.parallelism))
+	}
+	return r.Terraform.Apply(ctx, opts...)
 }
 
 // Init runs terraform init holding the plugin cache's lock (see
@@ -90,8 +126,8 @@ func terraformEnviron(pluginCacheDir string, env map[string]string) map[string]s
 // plan for longer than temporary credentials last, such as an SSO
 // session's, so each plan runs with credentials as fresh as the first.
 // An error of fresh fails that plan.
-func NewFreshEnv(dir, execPath, pluginCacheDir string, env map[string]string, schemas *SchemaCache, fresh func(context.Context) (map[string]string, error)) (Terraform, error) {
-	tf, err := New(dir, execPath, pluginCacheDir, env, schemas)
+func NewFreshEnv(dir, execPath, pluginCacheDir string, env map[string]string, schemas *SchemaCache, fresh func(context.Context) (map[string]string, error), options ...Option) (Terraform, error) {
+	tf, err := New(dir, execPath, pluginCacheDir, env, schemas, options...)
 	if err != nil {
 		return nil, err
 	}

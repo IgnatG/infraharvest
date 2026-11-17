@@ -303,6 +303,8 @@ type toolchain struct {
 	binary             tfrun.Binary
 	execPath, cacheDir string
 	root               *rootFiles
+	// parallelism is the call's --engine-parallelism.
+	parallelism int
 	// adapters are those of the modules the roots may call, and modulesDir
 	// where generated local modules go, by the call's --modules mode (see
 	// moduleOptions).
@@ -323,7 +325,7 @@ type toolchain struct {
 // listing with them already (see Run.callRoot).
 func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callContext, selected map[string][]harvest.Resource) (*toolchain, error) {
 	options := c.options
-	t := &toolchain{binary: engineBinaryOf(options)}
+	t := &toolchain{binary: engineBinaryOf(options), parallelism: options.EngineParallelism}
 	var err error
 	if t.cacheDir, err = infraharvestCacheDir(); err != nil {
 		return nil, err

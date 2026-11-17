@@ -164,6 +164,7 @@ type mergeMember struct {
 	// takes what it checks with.
 	opts               engine.Options
 	execPath, cacheDir string
+	parallelism        int
 	// premerged says its files are set aside (see premergeDir), as its
 	// stack merged before, and isolated are the addresses of what an
 	// incremental import added to it since (see
@@ -230,6 +231,7 @@ func (c *listedCall) recordMemberWith(dir, fp string, result *engine.Result, opt
 		opts:           opts,
 		execPath:       c.toolchain.execPath,
 		cacheDir:       c.toolchain.cacheDir,
+		parallelism:    c.toolchain.parallelism,
 		premerged:      set,
 		isolated:       isolated,
 		handovers:      c.handovers,

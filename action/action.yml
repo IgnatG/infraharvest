@@ -46,7 +46,7 @@ inputs:
     description: Directory to write the configuration and the report to.
     default: infrastructure
   config:
-    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout and catalogue.
+    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout, engine-parallelism and catalogue.
     required: false
   incremental:
     description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.

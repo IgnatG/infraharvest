@@ -194,6 +194,7 @@ func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) 
 // with the provider releases root runs.
 func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts Options, existing map[External]string) (*Result, error) {
 	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
+	warnLargeRoot(root, len(imports)+len(existing))
 	lock, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err

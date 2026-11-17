@@ -116,7 +116,7 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 // terraformRun returns how the call runs the engine binary, with the
 // provider's credentials.
 func (c *listedCall) terraformRun(ctx context.Context) (terraformRun, error) {
-	tr := terraformRun{execPath: c.toolchain.execPath, pluginCacheDir: filepath.Join(c.toolchain.cacheDir, "plugins"), schemas: &c.run.shared.schemas}
+	tr := terraformRun{execPath: c.toolchain.execPath, pluginCacheDir: filepath.Join(c.toolchain.cacheDir, "plugins"), schemas: &c.run.shared.schemas, parallelism: c.toolchain.parallelism}
 	var err error
 	if tr.env, err = terraformEnv(ctx, c.provider); err != nil {
 		return tr, err

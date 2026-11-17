@@ -380,7 +380,7 @@ func (s *stackMerge) mergeRoot(ctx context.Context, m mergeMember) (envmerge.Mer
 	}
 	var runner func(string) (tfrun.Terraform, error)
 	if !m.restored {
-		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins"), schemas: s.phase.schemas}
+		tr := terraformRun{execPath: m.execPath, pluginCacheDir: filepath.Join(m.cacheDir, "plugins"), schemas: s.phase.schemas, parallelism: m.parallelism}
 		var err error
 		if runner, err = s.phase.tools.runner(ctx, tr, m.provider); err != nil {
 			return envmerge.MergeRoot{}, err

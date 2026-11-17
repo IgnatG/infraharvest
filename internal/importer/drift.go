@@ -32,12 +32,13 @@ import (
 
 // DriftOptions say which roots Drift checks and how.
 type DriftOptions struct {
-	Out           string        // the output directory of the import
-	Engine        string        // EngineTerraform or EngineTofu
-	TerraformPath string        // the binary, or "" to find or install one
-	EngineTimeout time.Duration // how long each engine command may run; 0 means no limit
-	Format        string        // FormatText or FormatJSON
-	Parallel      int           // how many roots to check at once
+	Out               string        // the output directory of the import
+	Engine            string        // EngineTerraform or EngineTofu
+	TerraformPath     string        // the binary, or "" to find or install one
+	EngineTimeout     time.Duration // how long each engine command may run; 0 means no limit
+	EngineParallelism int           // -parallelism of each plan and apply; 0 means Terraform's default
+	Format            string        // FormatText or FormatJSON
+	Parallel          int           // how many roots to check at once
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue, as the import's --catalogue: their state-only
 	// arguments, defaults and arguments left out apply to the checks.
@@ -330,6 +331,9 @@ func checkDriftOptions(options DriftOptions) error {
 	if options.EngineTimeout < 0 {
 		return errors.New("--engine-timeout can't be negative")
 	}
+	if options.EngineParallelism < 0 {
+		return errors.New("--engine-parallelism can't be negative")
+	}
 	if options.Parallel < 1 {
 		return errors.New("--parallel must be at least 1")
 	}
@@ -442,13 +446,13 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 			rootEnv["TF_DATA_DIR"] = opts.DataDir
 		}
 		newTF := func(dir string) (tfrun.DriftTerraform, error) {
-			tf, err := tfrun.New(dir, execPath, plugins, env, schemas)
+			tf, err := tfrun.New(dir, execPath, plugins, env, schemas, tfrun.Parallelism(options.EngineParallelism))
 			if err != nil {
 				return nil, err
 			}
 			return tf, nil
 		}
-		tf, err := tfrun.New(dir, execPath, plugins, rootEnv, schemas)
+		tf, err := tfrun.New(dir, execPath, plugins, rootEnv, schemas, tfrun.Parallelism(options.EngineParallelism))
 		if err != nil {
 			return nil, err
 		}
