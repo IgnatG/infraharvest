@@ -10,6 +10,11 @@ import {
   id = "projects/acme-prod/zones/us-central1-a/instances/batch-runner"
 }
 
+import {
+  to = google_compute_instance.gke_bastion
+  id = "projects/acme-prod/zones/us-central1-a/instances/gke-bastion"
+}
+
 # projects/acme-prod/zones/us-central1-a/instances/gke-prod-default-pool-1a2b3c4d-x9z8: left out by default, would import as "projects/acme-prod/zones/us-central1-a/instances/gke-prod-default-pool-1a2b3c4d-x9z8": GKE creates it for a cluster's nodes and deletes it with them
 # projects/acme-prod/zones/us-central1-a/instances/web-x1b2: left out by default, would import as "projects/acme-prod/zones/us-central1-a/instances/web-x1b2": a managed instance group creates it, and deletes and recreates it as it scales and updates; select it to import it
 # projects/acme-prod/zones/us-central1-a/instances/etl-m: left out by default, would import as "projects/acme-prod/zones/us-central1-a/instances/etl-m": Dataproc creates it for a cluster's nodes and deletes it with the cluster
