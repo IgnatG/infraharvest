@@ -5,6 +5,7 @@ package harvest
 
 import (
 	"context"
+	"time"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
@@ -119,4 +120,28 @@ type ProviderWithImportScope interface {
 type ImportScope struct {
 	Inside  map[string]bool
 	Outside map[string]string
+}
+
+// ProviderWithChangeHistory is a provider whose cloud keeps an audit log
+// of the calls that changed its resources, such as AWS CloudTrail, so
+// that drift can say who last changed a resource that drifted, when, and
+// with what call. LastChanges is asked once a root's drift is known; it
+// returns, by each of ids, the
+// newest change the log records of the resource, leaving out what it
+// finds none of. ids are what the state records of each resource that
+// changed: its id, and its ARN or self link where it has one, which the
+// log may name it by instead. settings are the arguments the root's
+// provider block sets to a string, such as its region, which say where
+// the log is. An error means the log couldn't be read; what was found
+// before it is returned with it.
+type ProviderWithChangeHistory interface {
+	LastChanges(ctx context.Context, settings map[string]string, ids []string) (map[string]ChangeRecord, error)
+}
+
+// ChangeRecord is a change an audit log records: who made it (the user,
+// role session or service), the call (such as AuthorizeSecurityGroupIngress),
+// when, and the log it is from, such as CloudTrail.
+type ChangeRecord struct {
+	By, Call, Log string
+	At            time.Time
 }

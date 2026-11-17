@@ -237,6 +237,7 @@ infraharvest drift [output-directory] [flags]
 | `--force-unlock` |  | run even when another run holds the output directory's lock, as when that run is stuck, or when the file system can't lock; a run that is killed releases the lock by itself |
 | `--format` | `text` | text prints a line per root; json prints drift.json |
 | `--keep` |  | keep the code's values of the changes this rule matches, which the next apply puts back, as it does for changes no rule matches: all, or a rule as --accept takes it (repeatable) |
+| `--last-change` |  | look up who last changed each resource that drifted, with what call and when, in the cloud's audit log (AWS CloudTrail's 90-day event history, with cloudtrail:LookupEvents), for up to 50 resources a run, and add it to the report |
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--parallel` | `1` | how many roots to check at once; each runs its own Terraform, so memory use grows with it |
 | `--root` |  | check only the roots whose path in the output directory, or a directory it is in, matches this pattern, such as aws/*/eu-west-2 (repeatable) |

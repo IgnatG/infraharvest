@@ -101,6 +101,11 @@ type DriftOptions struct {
 	// back once every root is checked.
 	RootsDigest string
 
+	// LastChange looks up, in the audit log of each root's cloud, who
+	// last changed each resource that drifted, how and when (see
+	// addLastChanges).
+	LastChange bool
+
 	// check checks one root, in place of the engine, for tests.
 	check driftCheck
 }
@@ -174,6 +179,9 @@ func Drift(ctx context.Context, options DriftOptions, w io.Writer) error {
 	own := driftAdapters(ctx, options.Modules)
 
 	results, changes := checkDriftRoots(ctx, run, decider, check, own, targets)
+	if options.LastChange && ctx.Err() == nil {
+		addLastChanges(ctx, run, targets, changes)
+	}
 	if confirmed != nil {
 		if err := confirmed.writeBack(); err != nil {
 			return err
@@ -618,7 +626,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 func reportDriftChange(rel, env string, c drift.Change) report.DriftChange {
 	return report.DriftChange{
 		Root: rel, Environment: env, Address: c.Address, Type: c.Type, ModuleCall: c.ModuleAddress, Attribute: c.Attribute,
-		Before: c.Before, After: c.After, Kind: c.Kind, Covers: c.Covers,
+		Before: c.Before, After: c.After, Kind: c.Kind, Covers: c.Covers, IDs: c.IDs,
 	}
 }
 

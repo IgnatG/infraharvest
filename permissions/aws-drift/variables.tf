@@ -100,3 +100,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "allow_change_history" {
+  description = "Allow cloudtrail:LookupEvents, which the read-only role denies as a data read, so that infraharvest drift --last-change can say who last changed each resource that drifted. CloudTrail's events hold the requests' parameters, which can include data."
+  type        = bool
+  default     = false
+}

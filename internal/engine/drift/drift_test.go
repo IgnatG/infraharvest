@@ -848,6 +848,26 @@ func TestClassifyDriftRedactsSecretsByName(t *testing.T) {
 	}
 }
 
+// A resource's IDs for its cloud's audit log: its id, then its arn or
+// self_link, each once, strings alone.
+func TestStateIDs(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		before any
+		want   []string
+	}{
+		{map[string]any{"id": "logs", "arn": "arn:aws:s3:::logs", "bucket": "logs"}, []string{"logs", "arn:aws:s3:::logs"}},
+		{map[string]any{"id": "arn:aws:iam::1:policy/p", "arn": "arn:aws:iam::1:policy/p"}, []string{"arn:aws:iam::1:policy/p"}},
+		{map[string]any{"id": "projects/p/global/networks/n", "self_link": "https://compute.googleapis.com/compute/v1/projects/p/global/networks/n"}, []string{"projects/p/global/networks/n", "https://compute.googleapis.com/compute/v1/projects/p/global/networks/n"}},
+		{map[string]any{"id": "", "arn": nil, "self_link": 3.0}, nil},
+		{nil, nil},
+	} {
+		if got := stateIDs(tc.before); !slices.Equal(got, tc.want) {
+			t.Errorf("stateIDs(%v) = %v, want %v", tc.before, got, tc.want)
+		}
+	}
+}
+
 // collectDriftSecrets gathers the strings redactNamed replaces as secrets:
 // a value its own key says is one, one in a JSON document or below a list,
 // and a map key in a credential format; not a value of a key that doesn't

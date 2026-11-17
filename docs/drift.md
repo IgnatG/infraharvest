@@ -212,6 +212,15 @@ A decision holds only for the values it was made for. When a change's fingerprin
 
 With `--decisions`, it writes into that file after applying it. The changes are sorted by root, address and attribute. The file is written again from what it holds, so comments other than its header aren't kept: use `note`.
 
+### Who changed it
+
+`--last-change` looks up, for each resource that drifted, the newest change its cloud's audit log records: who made it, with which API call, and when. On AWS that is CloudTrail's event history, 90 days of management events in each region, which every account has without a trail: drift asks `cloudtrail:LookupEvents` in the region of the root's provider block (`us-east-1` for the global services, such as IAM), for the resource's `id` and, where it has one, its ARN, and takes the newest event that isn't read-only. The report adds it to the change as `last_change` (`by`, `call`, `at`, `log`), and `drift.md` as "last changed by `alice` with `AuthorizeSecurityGroupIngress` at 2026-11-08T14:03:00Z (CloudTrail)". `by` is the user or role session the event names, or, for an AWS service's own call, the service, such as `autoscaling.amazonaws.com`.
+
+- **Off by default.** CloudTrail answers two lookups a second in an account and region, so drift looks up at most 50 resources a run and says how many more drifted. A change of tags several resources share (see [Tags several resources share](#tags-several-resources-share)) has no last change of its own.
+- **Permission.** `ReadOnlyAccess` grants `cloudtrail:LookupEvents`, but the read-only templates deny it as a data read, since an event holds the parameters of the call. The drift template lifts that deny alone with `-var allow_change_history=true` (see [Permissions](permissions.md#aws-permissionsaws-drift)). Without the permission, the run goes on and logs why it has no last changes.
+- **What it can tell.** The event is the newest one that changed the resource, which is usually, but not always, the one that made this change; a change older than 90 days, or made through a service that records it under another resource's name, has none. Azure and Google Cloud aren't looked up yet.
+- **Where it goes.** Names of people and roles go into `drift.json` and `drift.md`, and with the [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md), into the pull request.
+
 ## Credentials
 
 Drift needs what your own `terraform plan` needs:

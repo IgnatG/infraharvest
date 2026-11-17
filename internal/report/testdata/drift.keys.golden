@@ -10,6 +10,11 @@ changes[].decision_stale boolean omitempty
 changes[].environment string omitempty
 changes[].forces_replacement boolean omitempty
 changes[].kind string
+changes[].last_change object omitempty
+changes[].last_change.at string
+changes[].last_change.by string
+changes[].last_change.call string
+changes[].last_change.log string
 changes[].module_call string omitempty
 changes[].outcome string
 changes[].reason string omitempty

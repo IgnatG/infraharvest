@@ -37,3 +37,35 @@ run "data_reads_denied_but_the_state" {
     error_message = "The state's object reads aren't denied everywhere but the state."
   }
 }
+
+# CloudTrail's event history is denied unless allow_change_history, which
+# lifts that deny alone.
+run "change_history_denied_by_default" {
+  command = plan
+
+  assert {
+    condition     = contains(one([for s in data.aws_iam_policy_document.deny_data_reads.statement : s.actions if s.sid == "DenyDataPlaneReads"]), "cloudtrail:LookupEvents")
+    error_message = "cloudtrail:LookupEvents isn't denied without allow_change_history."
+  }
+}
+
+run "change_history_allowed" {
+  command = plan
+
+  variables {
+    allow_change_history = true
+  }
+
+  assert {
+    condition     = !contains(one([for s in data.aws_iam_policy_document.deny_data_reads.statement : s.actions if s.sid == "DenyDataPlaneReads"]), "cloudtrail:LookupEvents")
+    error_message = "allow_change_history doesn't allow cloudtrail:LookupEvents."
+  }
+
+  assert {
+    condition = length(setsubtract(
+      [for action in jsondecode(file("../aws/deny-data-reads.json")).Statement[0].Action : action if !contains(["s3:GetObject", "s3:GetObjectTorrent", "s3:GetObjectVersion", "cloudtrail:LookupEvents"], action)],
+      one([for s in data.aws_iam_policy_document.deny_data_reads.statement : s.actions if s.sid == "DenyDataPlaneReads"]),
+    )) == 0
+    error_message = "allow_change_history allows more than cloudtrail:LookupEvents."
+  }
+}
