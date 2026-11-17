@@ -6,6 +6,8 @@ package engine
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -692,5 +694,170 @@ func TestRebaseKeepsTheRootsValues(t *testing.T) {
 	}
 	if got := d.baseline.Planned("module.logs.aws_s3_bucket.this"); got == "" {
 		t.Error("the baseline has no change for the moved resource")
+	}
+}
+
+// badComment is the comment of an edit that the plans of rejectingPlans
+// reject.
+const badComment = "bad"
+
+// rejectingPlans makes the plans of tf differ for as long as generated.tf in
+// dir has the comment badComment, as the plan of a configuration with a bad
+// edit does, and be clean otherwise.
+func rejectingPlans(tf *fakeTerraform, dir string) {
+	tf.onPlan = func() {
+		content, err := os.ReadFile(filepath.Join(dir, rootfile.GeneratedFileName))
+		if err != nil {
+			return
+		}
+		tf.plans = nil
+		if strings.Contains(string(content), "# "+badComment+"\n") {
+			tf.plans = []fakePlan{{summary: tfrun.ChangeSummary{Change: 1}}}
+		}
+	}
+}
+
+// commentPasses are passes that each append a comment to generated.tf, the
+// first of them the baseline's, and record the order their edits were made in.
+func commentPasses(ws *workspace, made *[]string, comments ...string) []tidyPass {
+	var passes []tidyPass
+	for _, c := range comments {
+		passes = append(passes, tidyPass{name: c, start: func() (*tidyEdit, error) {
+			return &tidyEdit{edit: plainEdit(func() (bool, error) {
+				*made = append(*made, c)
+				return appendComment(ws, c)
+			})}, nil
+		}})
+	}
+	return passes
+}
+
+func plansOf(tf *fakeTerraform) int {
+	return strings.Count(strings.Join(tf.calls, ","), "plan")
+}
+
+// The edits of the passes next to each other are checked by one plan where it
+// keeps the plan as it was, however many there are.
+func TestRunPlansOnceForPassesThatAllKeepThePlan(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
+	tf := &fakeTerraform{dir: dir}
+	rejectingPlans(tf, dir)
+	var made []string
+
+	if err := tidier(tf, ws, Baseline{}).run(commentPasses(ws, &made, "a", "b", "c", "d", "e", "f")); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := plansOf(tf); got != 1 {
+		t.Errorf("plans: got %d, want 1", got)
+	}
+	if want := networkGenerated + "# a\n# b\n# c\n# d\n# e\n# f\n"; wsFile(t, ws, rootfile.GeneratedFileName) != want {
+		t.Errorf("generated.tf:\n%s", wsFile(t, ws, rootfile.GeneratedFileName))
+	}
+}
+
+// Where the plan of the edits together differs, the pass whose edit is bad is
+// found by halving them, and only it is undone, with fewer plans than one for
+// each pass after the first.
+func TestRunIsolatesTheBadEditOfAGroupOfPasses(t *testing.T) {
+	t.Parallel()
+	all := []string{"a", "b", "c", "d", "e", "f"}
+	for name, tt := range map[string]struct {
+		bad   string
+		plans int
+	}{
+		"first":  {"a", 5},
+		"middle": {"d", 4},
+		"last":   {"f", 4},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+			ws := rootWorkspace(t, dir)
+			tf := &fakeTerraform{dir: dir}
+			rejectingPlans(tf, dir)
+			var comments []string
+			for _, c := range all {
+				if c == tt.bad {
+					c = badComment
+				}
+				comments = append(comments, c)
+			}
+			var made []string
+
+			if err := tidier(tf, ws, Baseline{}).run(commentPasses(ws, &made, comments...)); err != nil {
+				t.Fatal(err)
+			}
+
+			want := networkGenerated
+			for _, c := range all {
+				if c != tt.bad {
+					want += "# " + c + "\n"
+				}
+			}
+			if got := wsFile(t, ws, rootfile.GeneratedFileName); got != want {
+				t.Errorf("generated.tf: got:\n%s\nwant:\n%s", got, want)
+			}
+			if got := plansOf(tf); got != tt.plans {
+				t.Errorf("plans: got %d, want %d (one for each pass would be %d)", got, tt.plans, len(all)+1)
+			}
+		})
+	}
+}
+
+// The edits are made in the order the passes say they run in, together and
+// again when the plan rejects them, each on what the ones before left, and a
+// pass whose edit is rejected leaves the passes after it theirs.
+func TestRunBatchesPassesInTheirOrder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
+	tf := &fakeTerraform{dir: dir}
+	rejectingPlans(tf, dir)
+	var made []string
+	// Declared the other way round: the last runs first.
+	passes := commentPasses(ws, &made, "c", badComment, "a")
+	passes[0].after = []string{badComment}
+	passes[1].after = []string{"a"}
+
+	if err := tidier(tf, ws, Baseline{}).run(passes); err != nil {
+		t.Fatal(err)
+	}
+
+	// Together, then the first half, then the second, each in the order.
+	if want := []string{"a", badComment, "c", "a", badComment, "c"}; !slices.Equal(made, want) {
+		t.Errorf("edits: got %v, want %v", made, want)
+	}
+	if want := networkGenerated + "# a\n# c\n"; wsFile(t, ws, rootfile.GeneratedFileName) != want {
+		t.Errorf("generated.tf:\n%s", wsFile(t, ws, rootfile.GeneratedFileName))
+	}
+}
+
+// The plan that rejected the edits of a group is the plan of the last one's
+// edit once the ones before it are kept: it isn't planned again.
+func TestRunTakesTheRejectingPlanForTheLastPass(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.GeneratedFileName, networkGenerated)
+	ws := rootWorkspace(t, dir)
+	tf := &fakeTerraform{dir: dir}
+	rejectingPlans(tf, dir)
+	var made []string
+
+	if err := tidier(tf, ws, Baseline{}).run(commentPasses(ws, &made, "a", badComment)); err != nil {
+		t.Fatal(err)
+	}
+
+	// One plan of both, and one of a, whose clean plan tells the plan of both
+	// is that of the other.
+	if got := plansOf(tf); got != 2 {
+		t.Errorf("plans: got %d, want 2", got)
+	}
+	if want := networkGenerated + "# a\n"; wsFile(t, ws, rootfile.GeneratedFileName) != want {
+		t.Errorf("generated.tf:\n%s", wsFile(t, ws, rootfile.GeneratedFileName))
 	}
 }
