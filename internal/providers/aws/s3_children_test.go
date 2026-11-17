@@ -16,18 +16,22 @@ import (
 // s3Answers are fake S3 answers by query parameter (?versioning, ...):
 // configured, not configured, or failing.
 var s3Answers = map[string]string{
-	"versioning":        `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`,
-	"encryption":        `<ServerSideEncryptionConfiguration><Rule><ApplyServerSideEncryptionByDefault><SSEAlgorithm>AES256</SSEAlgorithm></ApplyServerSideEncryptionByDefault></Rule></ServerSideEncryptionConfiguration>`,
-	"lifecycle":         `<Error><Code>NoSuchLifecycleConfiguration</Code></Error>`,
-	"cors":              `<Error><Code>NoSuchCORSConfiguration</Code></Error>`,
-	"website":           `<Error><Code>NoSuchWebsiteConfiguration</Code></Error>`,
-	"logging":           `<BucketLoggingStatus></BucketLoggingStatus>`,
-	"publicAccessBlock": `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`,
-	"ownershipControls": `<OwnershipControls><Rule><ObjectOwnership>BucketOwnerEnforced</ObjectOwnership></Rule></OwnershipControls>`,
-	"accelerate":        `<AccelerateConfiguration></AccelerateConfiguration>`,
-	"requestPayment":    `<RequestPaymentConfiguration><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`,
-	"object-lock":       `<Error><Code>NotImplemented</Code></Error>`,
-	"replication":       `<Error><Code>ReplicationConfigurationNotFoundError</Code></Error>`,
+	"versioning":          `<VersioningConfiguration><Status>Enabled</Status></VersioningConfiguration>`,
+	"encryption":          `<ServerSideEncryptionConfiguration><Rule><ApplyServerSideEncryptionByDefault><SSEAlgorithm>AES256</SSEAlgorithm></ApplyServerSideEncryptionByDefault></Rule></ServerSideEncryptionConfiguration>`,
+	"lifecycle":           `<Error><Code>NoSuchLifecycleConfiguration</Code></Error>`,
+	"cors":                `<Error><Code>NoSuchCORSConfiguration</Code></Error>`,
+	"website":             `<Error><Code>NoSuchWebsiteConfiguration</Code></Error>`,
+	"logging":             `<BucketLoggingStatus></BucketLoggingStatus>`,
+	"publicAccessBlock":   `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls></PublicAccessBlockConfiguration>`,
+	"ownershipControls":   `<OwnershipControls><Rule><ObjectOwnership>BucketOwnerEnforced</ObjectOwnership></Rule></OwnershipControls>`,
+	"accelerate":          `<AccelerateConfiguration></AccelerateConfiguration>`,
+	"requestPayment":      `<RequestPaymentConfiguration><Payer>BucketOwner</Payer></RequestPaymentConfiguration>`,
+	"object-lock":         `<Error><Code>NotImplemented</Code></Error>`,
+	"replication":         `<Error><Code>ReplicationConfigurationNotFoundError</Code></Error>`,
+	"notification":        `<NotificationConfiguration></NotificationConfiguration>`,
+	"inventory":           `<ListInventoryConfigurationsResult><InventoryConfiguration><Id>daily</Id></InventoryConfiguration><InventoryConfiguration><Id>weekly</Id></InventoryConfiguration><IsTruncated>false</IsTruncated></ListInventoryConfigurationsResult>`,
+	"metrics":             `<ListMetricsConfigurationsResult><MetricsConfiguration><Id>EntireBucket</Id></MetricsConfiguration><IsTruncated>false</IsTruncated></ListMetricsConfigurationsResult>`,
+	"intelligent-tiering": `<ListBucketIntelligentTieringConfigurationsOutput><IsTruncated>false</IsTruncated></ListBucketIntelligentTieringConfigurationsOutput>`,
 }
 
 func s3Answer(call apiCall) string {
@@ -52,12 +56,16 @@ func TestChildImports(t *testing.T) {
 
 	var got []string
 	for _, c := range children {
-		if c.Observed.ID != "artifacts" {
+		if _, listed := s3ListProbes[c.Address.Type]; !listed && c.Observed.ID != "artifacts" {
 			t.Errorf("%s imports %q, want the bucket name", c.Address.Type, c.Observed.ID)
 		}
-		got = append(got, c.Address.Type)
+		got = append(got, c.Address.Type+" "+c.Observed.ID)
 	}
-	want := []string{"aws_s3_bucket_versioning", "aws_s3_bucket_server_side_encryption_configuration", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls"}
+	want := []string{
+		"aws_s3_bucket_versioning artifacts", "aws_s3_bucket_server_side_encryption_configuration artifacts",
+		"aws_s3_bucket_public_access_block artifacts", "aws_s3_bucket_ownership_controls artifacts",
+		"aws_s3_bucket_inventory artifacts:daily", "aws_s3_bucket_inventory artifacts:weekly", "aws_s3_bucket_metric artifacts:EntireBucket",
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %v, want %v", got, want)
 	}
@@ -78,7 +86,7 @@ func TestChildImportsReportsErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "aws_s3_bucket_versioning") {
 		t.Errorf("want the versioning error, got %v", err)
 	}
-	if len(children) != 3 {
+	if len(children) != 6 {
 		t.Errorf("want the other children still listed, got %d", len(children))
 	}
 }
@@ -140,8 +148,15 @@ func TestS3ProbesAreTheCataloguedChildren(t *testing.T) {
 		t.Fatal("aws_s3_bucket isn't in the catalogue")
 	}
 	for _, child := range entry.Children {
-		if _, ok := s3Probes[child]; !ok {
+		_, isProbe := s3Probes[child]
+		_, isList := s3ListProbes[child]
+		if !isProbe && !isList {
 			t.Errorf("%s has no probe", child)
+		}
+	}
+	for child := range s3ListProbes {
+		if !slices.Contains(entry.Children, child) {
+			t.Errorf("%s isn't a catalogued child of aws_s3_bucket", child)
 		}
 	}
 	for child := range s3Probes {
@@ -153,5 +168,41 @@ func TestS3ProbesAreTheCataloguedChildren(t *testing.T) {
 		if !slices.Contains(entry.Omit, name) {
 			t.Errorf("%s not omitted from aws_s3_bucket", name)
 		}
+	}
+}
+
+// A bucket with more configurations of a kind than one answer holds has
+// them all listed, and one with a notification configuration, or deleted
+// since it was listed, is told so.
+func TestChildImportsListEveryPageAndHandleGoneBuckets(t *testing.T) {
+	t.Parallel()
+	ctx := useFakeAPI(t, func(call apiCall) string {
+		switch {
+		case call.Query.Has("metrics") && call.Query.Get("continuation-token") == "":
+			return `<ListMetricsConfigurationsResult><MetricsConfiguration><Id>a</Id></MetricsConfiguration><IsTruncated>true</IsTruncated><NextContinuationToken>page2</NextContinuationToken></ListMetricsConfigurationsResult>`
+		case call.Query.Has("metrics"):
+			return `<ListMetricsConfigurationsResult><MetricsConfiguration><Id>b</Id></MetricsConfiguration><IsTruncated>false</IsTruncated></ListMetricsConfigurationsResult>`
+		case call.Query.Has("notification"):
+			return `<NotificationConfiguration><EventBridgeConfiguration></EventBridgeConfiguration></NotificationConfiguration>`
+		case call.Query.Has("inventory"):
+			return `<Error><Code>NoSuchBucket</Code></Error>`
+		}
+		return s3Answer(call)
+	})
+	p := &Provider{region: "us-east-1"}
+
+	children, err := p.ChildImports(ctx, harvest.RecordBare("artifacts", "artifacts", "aws_s3_bucket", "aws"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range children {
+		if c.Address.Type == "aws_s3_bucket_metric" || c.Address.Type == "aws_s3_bucket_notification" || c.Address.Type == "aws_s3_bucket_inventory" {
+			got = append(got, c.Address.Type+" "+c.Observed.ID)
+		}
+	}
+	want := []string{"aws_s3_bucket_notification artifacts", "aws_s3_bucket_metric artifacts:a", "aws_s3_bucket_metric artifacts:b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

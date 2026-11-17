@@ -390,7 +390,22 @@
               }
             ]
           },
-          "cfn": {
+          "managed": {
+      "files": [
+        "**/internal/managed/*.go"
+      ],
+      "list-mode": "lax",
+      "allow": [
+        "github.com/IgnatG/infraharvest/internal/tftypes"
+      ],
+      "deny": [
+        {
+          "pkg": "github.com/IgnatG/infraharvest/internal",
+          "desc": "the managed-resource reader imports only the leaf tftypes of infraharvest's, so that the importer and the engine can use it without a cycle"
+        }
+      ]
+    },
+    "cfn": {
             "files": [
               "**/pkg/cfn/**"
             ],

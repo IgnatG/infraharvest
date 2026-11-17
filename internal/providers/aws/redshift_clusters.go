@@ -78,7 +78,7 @@ func (g *RedshiftLister) listParameterGroups(client *redshift.Client) error {
 }
 
 // listSubnetGroups records every subnet group by name, the one named
-// "default" included.
+// "default" included: the catalogue skips it, with its reason.
 func (g *RedshiftLister) listSubnetGroups(client *redshift.Client) error {
 	for page, err := range pagesOf(g.Context(), redshift.NewDescribeClusterSubnetGroupsPaginator(client, &redshift.DescribeClusterSubnetGroupsInput{}, stopOnDuplicateToken)) {
 		if err != nil {

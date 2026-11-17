@@ -2,5 +2,10 @@
   {"id": "/aws/lambda/orders", "name": "lambda_orders", "attributes": {"as_created": "true"}},
   {"id": "/aws/lambda/payments", "name": "lambda_payments", "attributes": {"retention_in_days": "14"}},
   {"id": "/aws/lambda/invoices", "name": "lambda_invoices", "attributes": {"kms_key_id": "arn:aws:kms:eu-west-2:123456789012:key/0123abcd-4567-89ef-0123-456789abcdef"}},
+  {"id": "API-Gateway-Execution-Logs_a1b2c3d4e5/prod", "name": "api_gateway_execution_logs_a1b2c3d4e5_prod", "attributes": {"as_created": "true"}},
+  {"id": "/aws/rds/instance/orders/error", "name": "rds_orders_error", "attributes": {"as_created": "true"}},
+  {"id": "/aws/rds/instance/billing/error", "name": "rds_billing_error", "attributes": {"retention_in_days": "30"}},
+  {"id": "/aws/eks/main/cluster", "name": "eks_main_cluster", "attributes": {"as_created": "true"}},
+  {"id": "/aws/eks/staging/cluster", "name": "eks_staging_cluster", "attributes": {"retention_in_days": "90"}},
   {"id": "/app/web", "name": "app_web", "attributes": {"as_created": "true"}}
 ]}

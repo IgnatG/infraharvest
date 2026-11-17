@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -29,6 +30,8 @@ var s3NotConfigured = map[string]bool{
 	"ObjectLockConfigurationNotFoundError":           true,
 	"ReplicationConfigurationNotFoundError":          true,
 	"NotImplemented":                                 true,
+	// A bucket deleted since it was listed has nothing left to import.
+	"NoSuchBucket": true,
 }
 
 // s3Probe reports whether a bucket has a part of its configuration that
@@ -87,6 +90,73 @@ var s3Probes = map[string]s3Probe{
 		out, err := svc.GetBucketReplication(ctx, &s3.GetBucketReplicationInput{Bucket: bucket})
 		return err == nil && out.ReplicationConfiguration != nil && len(out.ReplicationConfiguration.Rules) > 0, err
 	},
+	"aws_s3_bucket_notification": func(ctx context.Context, svc *s3.Client, bucket *string) (bool, error) {
+		out, err := svc.GetBucketNotificationConfiguration(ctx, &s3.GetBucketNotificationConfigurationInput{Bucket: bucket})
+		return err == nil && (out.EventBridgeConfiguration != nil || len(out.LambdaFunctionConfigurations) > 0 ||
+			len(out.QueueConfigurations) > 0 || len(out.TopicConfigurations) > 0), err
+	},
+}
+
+// s3ListProbe lists the names of the configurations of one kind a bucket
+// has, of which a bucket may have many: each is a resource of its own,
+// imported as "bucket:name".
+type s3ListProbe func(ctx context.Context, svc *s3.Client, bucket *string) ([]string, error)
+
+// s3ListProbes are the probes of the children the catalogue names for
+// aws_s3_bucket that a bucket has any number of, by type. Each is listed
+// by the continuation token S3 answers truncated listings with.
+var s3ListProbes = map[string]s3ListProbe{
+	"aws_s3_bucket_inventory": func(ctx context.Context, svc *s3.Client, bucket *string) ([]string, error) {
+		var names []string
+		in := &s3.ListBucketInventoryConfigurationsInput{Bucket: bucket}
+		for {
+			out, err := svc.ListBucketInventoryConfigurations(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range out.InventoryConfigurationList {
+				names = append(names, aws.ToString(c.Id))
+			}
+			if !aws.ToBool(out.IsTruncated) || aws.ToString(out.NextContinuationToken) == "" {
+				return names, nil
+			}
+			in.ContinuationToken = out.NextContinuationToken
+		}
+	},
+	"aws_s3_bucket_metric": func(ctx context.Context, svc *s3.Client, bucket *string) ([]string, error) {
+		var names []string
+		in := &s3.ListBucketMetricsConfigurationsInput{Bucket: bucket}
+		for {
+			out, err := svc.ListBucketMetricsConfigurations(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range out.MetricsConfigurationList {
+				names = append(names, aws.ToString(c.Id))
+			}
+			if !aws.ToBool(out.IsTruncated) || aws.ToString(out.NextContinuationToken) == "" {
+				return names, nil
+			}
+			in.ContinuationToken = out.NextContinuationToken
+		}
+	},
+	"aws_s3_bucket_intelligent_tiering_configuration": func(ctx context.Context, svc *s3.Client, bucket *string) ([]string, error) {
+		var names []string
+		in := &s3.ListBucketIntelligentTieringConfigurationsInput{Bucket: bucket}
+		for {
+			out, err := svc.ListBucketIntelligentTieringConfigurations(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range out.IntelligentTieringConfigurationList {
+				names = append(names, aws.ToString(c.Id))
+			}
+			if !aws.ToBool(out.IsTruncated) || aws.ToString(out.NextContinuationToken) == "" {
+				return names, nil
+			}
+			in.ContinuationToken = out.NextContinuationToken
+		}
+	},
 }
 
 // s3ProbeParallel is how many probes of one bucket run at once.
@@ -132,18 +202,26 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 	// their answers are read in the catalogue's order, which the output
 	// keeps.
 	configured := make([]bool, len(entry.Children))
+	named := make([][]string, len(entry.Children))
 	probeErrs := make([]error, len(entry.Children))
 	wg := workers.New(s3ProbeParallel)
 	for i, child := range entry.Children {
-		probe, ok := s3Probes[child]
-		if !ok {
+		probe, isProbe := s3Probes[child]
+		list, isList := s3ListProbes[child]
+		switch {
+		case isProbe:
+			wg.Go(func() {
+				name := bucket
+				configured[i], probeErrs[i] = probe(ctx, svc, &name)
+			})
+		case isList:
+			wg.Go(func() {
+				name := bucket
+				named[i], probeErrs[i] = list(ctx, svc, &name)
+			})
+		default:
 			probeErrs[i] = errors.New("no way to tell whether a bucket has one")
-			continue
 		}
-		wg.Go(func() {
-			name := bucket
-			configured[i], probeErrs[i] = probe(ctx, svc, &name)
-		})
 	}
 	wg.Wait()
 	var children []harvest.Resource
@@ -156,6 +234,10 @@ func (p *Provider) ChildImports(ctx context.Context, r harvest.Resource) ([]harv
 			errs = append(errs, fmt.Errorf("%s: %w", child, err))
 		case configured[i]:
 			children = append(children, harvest.RecordBare(bucket, bucket, child, "aws"))
+		default:
+			for _, name := range named[i] {
+				children = append(children, harvest.RecordBare(bucket+":"+name, bucket+"_"+name, child, "aws"))
+			}
 		}
 	}
 	return children, errors.Join(errs...)
