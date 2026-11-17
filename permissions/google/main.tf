@@ -42,6 +42,9 @@ locals {
   # infraharvest lists through Cloud Asset Inventory and the services'
   # configuration APIs, and the generated roots import no data, so none of
   # them needs these. permissions/google-drift reads the same list.
+  # Deny policies don't support Cloud Source Repositories, so
+  # source.repos.get (cloning a repository), which roles/viewer grants,
+  # can't be denied here.
   denied_data_reads = jsondecode(file("${path.module}/deny-data-reads.json"))
 }
 
