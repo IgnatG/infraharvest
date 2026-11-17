@@ -39,6 +39,9 @@ type DriftOptions struct {
 	EngineParallelism int           // -parallelism of each plan and apply; 0 means Terraform's default
 	Format            string        // FormatText or FormatJSON
 	Parallel          int           // how many roots to check at once
+	// Registry has the curated modules whose adapters trace changes into
+	// their calls; nil is adapters.Builtin.
+	Registry *adapters.Registry
 	// Catalogue is a directory of catalogue files that extend the
 	// built-in catalogue, as the import's --catalogue: their state-only
 	// arguments, defaults and arguments left out apply to the checks.
@@ -577,7 +580,7 @@ func checkDriftRoot(ctx context.Context, options DriftOptions, decider driftpoli
 		// As the import passes its provider's modules alone, its own
 		// first, then the curated ones of its family (see Run.toolchain),
 		// whose adapters trace changes into their calls.
-		own = slices.Concat(catalogueAdapters(own, provider.Name()), adapters.For(provider.Profile().Modules))
+		own = slices.Concat(catalogueAdapters(own, provider.Name()), curatedRegistry(options.Registry).For(provider.Profile().Modules))
 	} else {
 		// A root no provider owns may hold any of their values.
 		engineOpts.Traits = engineTraits(unionTraits(options.Provider, options.Names))
@@ -687,4 +690,12 @@ func writeDriftSummary(w io.Writer, d *report.Drift, options DriftOptions) error
 	}
 	_, err := fmt.Fprintf(w, "report: %s\n", filepath.Join(options.Out, report.Dir, report.DriftMarkdownFile))
 	return err
+}
+
+// curatedRegistry returns reg, or the built-in registry without one.
+func curatedRegistry(reg *adapters.Registry) *adapters.Registry {
+	if reg == nil {
+		return adapters.Builtin()
+	}
+	return reg
 }

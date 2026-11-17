@@ -36,8 +36,8 @@ func TestAdaptersMatchModuleInterfaces(t *testing.T) {
 		}
 		pinned[iface.Source+" "+iface.Version] = &iface
 	}
-	for _, provider := range adapters.Providers() {
-		for _, a := range adapters.For(provider) {
+	for _, provider := range adapters.Builtin().Providers() {
+		for _, a := range adapters.Builtin().For(provider) {
 			iface, ok := pinned[a.Source+" "+a.Version]
 			if !ok {
 				t.Errorf("%s %s: no interface in testdata/interfaces", a.Source, a.Version)

@@ -45,6 +45,12 @@ func (d diskOutput) importBlocks(dir string) ([]engine.Managed, error) {
 	return engine.ImportedAddresses(dir)
 }
 
+func (d diskOutput) observed(dir string) (observedRoot, error) { return observeRoot(dir) }
+
+func (d diskOutput) saveAddresses(dir string, c checkpoint) error {
+	return rootCheckpoints.write(d.out, dir, c)
+}
+
 func (d diskOutput) moves(dir string) ([]rootfile.Move, error) { return rootfile.ReadMoves(dir) }
 
 func (d diskOutput) removed(dir string) ([]rootfile.Removal, error) {

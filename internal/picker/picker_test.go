@@ -48,7 +48,7 @@ func press(m *Model, keys ...string) {
 }
 
 func TestRows(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	// Scopes start open, types closed.
 	want := []string{euWest, " aws_s3_bucket", " aws_vpc", global, " aws_iam_role"}
 	if got := labels(m); strings.Join(got, "|") != strings.Join(want, "|") {
@@ -68,7 +68,7 @@ func TestRows(t *testing.T) {
 
 func TestToggleGroup(t *testing.T) {
 	f := testFile()
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	press(m, "down") // aws_s3_bucket, all included
 	press(m, "space")
 	if f.Resources[0].Include || f.Resources[1].Include || !m.changed {
@@ -88,7 +88,7 @@ func TestToggleGroup(t *testing.T) {
 
 func TestDecidingReviews(t *testing.T) {
 	f := testFile()
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	press(m, "u") // new only: the IAM role
 	if got := labels(m); len(got) != 2 || got[1] != " aws_iam_role" {
 		t.Fatalf("new only: %q", got)
@@ -101,7 +101,7 @@ func TestDecidingReviews(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	f := testFile()
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	press(m, "/", "l", "o", "g", "enter")
 	if m.searching || m.search != "log" {
 		t.Fatalf("searching %v for %q", m.searching, m.search)
@@ -122,7 +122,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSummary(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	got := m.summary()
 	for _, want := range []string{"3 of 4 resources selected", "2 roots", "up to 2 calls of terraform-aws-modules/s3-bucket/aws", "1 new to review"} {
 		if !strings.Contains(got, want) {
@@ -137,7 +137,7 @@ func TestSummary(t *testing.T) {
 func TestSaveAndQuit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	f := testFile()
-	m := New(path, f)
+	m := New(path, f, nil)
 	press(m, "down", "space") // exclude the buckets
 	// Quitting with changes asks first.
 	if quit := m.key("q", "q"); quit || !m.confirmQuit || !strings.Contains(m.render(), "Unsaved changes") {
@@ -154,7 +154,7 @@ func TestSaveAndQuit(t *testing.T) {
 		t.Error("the saved file still includes the bucket")
 	}
 
-	unchanged := New(path, testFile())
+	unchanged := New(path, testFile(), nil)
 	if quit := unchanged.key("q", "q"); !quit || unchanged.saved {
 		t.Errorf("q without changes: quit %v, saved %v", quit, unchanged.saved)
 	}
@@ -165,7 +165,7 @@ func TestScroll(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d", "e", "f"} {
 		f.Resources = append(f.Resources, selection.Resource{Type: "aws_sqs_queue", ID: id, Include: true})
 	}
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	m.height = 3
 	press(m, "right", "end")
 	if m.cursor != 6 || m.offset != 4 {
@@ -181,7 +181,7 @@ func TestTagFilter(t *testing.T) {
 	f := testFile()
 	f.Resources[0].Tags = map[string]string{"Team": "Data", "env": "prod"}
 	f.Resources[1].Tags = map[string]string{"team": "web"}
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	for search, want := range map[string][]string{
 		"team=data":          {"logs"},
 		"team=":              {"vpc-default", "ci"},
@@ -212,7 +212,7 @@ func TestTagFilter(t *testing.T) {
 // Backspace removes the last character of the search, however many bytes
 // it takes.
 func TestBackspaceRemovesACharacter(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	m.key("/", "/")
 	m.key("é", "é")
 	m.key("ü", "ü")
@@ -230,7 +230,7 @@ func TestBackspaceRemovesACharacter(t *testing.T) {
 // Moving the cursor reuses the tree; what changes the tree lays it out
 // again.
 func TestRowsAreCached(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	first := m.rows()
 	press(m, "down", "down")
 	if again := m.rows(); &again[0] != &first[0] {
@@ -248,7 +248,7 @@ func TestRowsShowEscapesInNames(t *testing.T) {
 	f := &selection.File{Version: selection.Version, Defaults: selection.Defaults{Include: true}, Resources: []selection.Resource{
 		{Type: "aws_s3_bucket", ID: "logs\x1b[2J", Name: "\x1b]0;owned\x07", Scope: euWest, Include: true},
 	}}
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	press(m, "down", "right")
 	for _, label := range labels(m) {
 		if strings.ContainsAny(label, "\x1b\x07") {
@@ -269,7 +269,7 @@ func TestScopeRowOrder(t *testing.T) {
 		f.Resources[i].ID = strings.Repeat("x", i+1)
 	}
 	f.Resources = append(f.Resources, selection.Resource{Type: "aws_vpc", ID: "v", Scope: global, Include: true})
-	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f)
+	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f, nil)
 	for range 20 {
 		m.invalidate()
 		for _, r := range m.rows() {
@@ -292,7 +292,7 @@ func TestToggleAfterSave(t *testing.T) {
 		{Type: "aws_vpc", ID: "vpc-b", Scope: euWest, Include: true},
 		{Type: "aws_iam_role", ID: "app", Scope: euWest, Include: true},
 	}}
-	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f)
+	m := New(filepath.Join(t.TempDir(), "selection.yaml"), f, nil)
 	m.rows()
 	if err := f.Save(m.path); err != nil {
 		t.Fatal(err)
@@ -400,7 +400,7 @@ func TestKeyMessagesMatchTheNamesTheModelHandles(t *testing.T) {
 }
 
 func TestWindowSizeSetsHowManyRowsShow(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	if m.height != 22 {
 		t.Errorf("height %d, want 22: the header, summary and help take 8 lines", m.height)
@@ -415,7 +415,7 @@ func TestWindowSizeSetsHowManyRowsShow(t *testing.T) {
 	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
 		f.Resources = append(f.Resources, selection.Resource{Type: "aws_sqs_queue", ID: id, Include: true})
 	}
-	m = New("selection.yaml", f)
+	m = New("selection.yaml", f, nil)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	drive(t, m, "right")
 	drive(t, m, "down", "down", "down", "down", "down", "down", "down", "down")
@@ -426,7 +426,7 @@ func TestWindowSizeSetsHowManyRowsShow(t *testing.T) {
 }
 
 func TestViewIsTheRenderedPickerOnTheAltScreen(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	v := m.View()
 	if !v.AltScreen {
 		t.Error("the picker should use the alternate screen")
@@ -442,7 +442,7 @@ func TestToggleOneResource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(path, f)
+	m := New(path, f, nil)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	// Open the buckets and exclude "assets", the first of them.
@@ -490,7 +490,7 @@ func indexOf(t *testing.T, f *selection.File, id string) int {
 
 func TestEnterOnAResourceTogglesAndOnAGroupOpensIt(t *testing.T) {
 	f := testFile()
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	drive(t, m, "down", "enter") // the bucket group opens
 	if got := len(m.rows()); got != 7 {
 		t.Fatalf("enter on a group: %d rows, want 7: %q", got, labels(m))
@@ -511,7 +511,7 @@ func TestSelectAllAndNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(path, f)
+	m := New(path, f, nil)
 
 	drive(t, m, "n")
 	for _, r := range f.Resources {
@@ -546,7 +546,7 @@ func TestSearchThenDecideThroughUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(path, f)
+	m := New(path, f, nil)
 
 	// While typing, letters go to the search, not to the commands (n, a, q).
 	drive(t, m, "/", "a", "n", "q")
@@ -577,7 +577,7 @@ func TestSearchThenDecideThroughUpdate(t *testing.T) {
 }
 
 func TestSearchEscapeAndNoMatch(t *testing.T) {
-	m := New("selection.yaml", testFile())
+	m := New("selection.yaml", testFile(), nil)
 	drive(t, m, "/", "z", "z", "enter")
 	if got := m.rows(); len(got) != 0 {
 		t.Errorf("rows %q, want none", labels(m))
@@ -599,7 +599,7 @@ func TestConfirmWritesTheSelectionFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(path, f)
+	m := New(path, f, nil)
 	drive(t, m, "down", "space") // exclude both buckets
 	if !drive(t, m, "s") {
 		t.Fatal("s should quit")
@@ -621,7 +621,7 @@ func TestConfirmReportsAFailedSave(t *testing.T) {
 	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m := New(filepath.Join(blocker, "selection.yaml"), testFile())
+	m := New(filepath.Join(blocker, "selection.yaml"), testFile(), nil)
 	if !drive(t, m, "s") {
 		t.Fatal("s should quit even when the save fails")
 	}
@@ -647,7 +647,7 @@ func TestCancelLeavesTheSelectionFileAsItWas(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			m := New(path, f)
+			m := New(path, f, nil)
 			drive(t, m, "n") // decide everything out
 			if !m.changed {
 				t.Fatal("n should change the selection")
@@ -675,12 +675,12 @@ func TestQuitAsksOnlyAboutUnsavedChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := New(path, f)
+	m := New(path, f, nil)
 	if !drive(t, m, "q") || m.saved {
 		t.Error("q without changes should quit without saving")
 	}
 
-	m = New(path, f)
+	m = New(path, f, nil)
 	drive(t, m, "n")
 	if drive(t, m, "q") || !m.confirmQuit {
 		t.Fatal("q with changes should ask first")
@@ -703,7 +703,7 @@ func TestQuitAsksOnlyAboutUnsavedChanges(t *testing.T) {
 
 func TestOnlyNewFilterThroughUpdate(t *testing.T) {
 	f := testFile()
-	m := New("selection.yaml", f)
+	m := New("selection.yaml", f, nil)
 	drive(t, m, "u")
 	if got := labels(m); len(got) != 2 || got[1] != " aws_iam_role" {
 		t.Fatalf("new only: %q", got)

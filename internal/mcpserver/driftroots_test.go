@@ -27,7 +27,7 @@ import (
 // curatedVersion is the version the aws adapter of the module at source
 // pins, as a generated root calls it.
 func curatedVersion(source string) string {
-	for _, a := range adapters.For("aws") {
+	for _, a := range adapters.Builtin().For("aws") {
 		if a.Source == source {
 			return a.Version
 		}

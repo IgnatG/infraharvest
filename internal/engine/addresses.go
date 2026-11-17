@@ -261,3 +261,11 @@ func (x *ManagedIndex) At(address string) (Managed, bool) {
 	}
 	return x.managed[only], true
 }
+
+// ConfiguredResources returns the resources the configuration of the root
+// in dir declares, as "<type>.<name>", sorted; none if it has none.
+func ConfiguredResources(dir string) ([]string, error) {
+	addresses, err := resourceAddresses(dir)
+	sort.Strings(addresses)
+	return addresses, err
+}

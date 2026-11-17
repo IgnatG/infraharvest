@@ -43,8 +43,8 @@ func TestIsDefault(t *testing.T) {
 // Every default is of an input the adapter sets.
 func TestDefaultsAreInputs(t *testing.T) {
 	t.Parallel()
-	for _, provider := range Providers() {
-		for _, a := range For(provider) {
+	for _, provider := range Builtin().Providers() {
+		for _, a := range Builtin().For(provider) {
 			for input := range a.Defaults {
 				if !slices.Contains(a.Inputs, input) {
 					t.Errorf("%s: default for %s, which isn't one of its inputs", a.Source, input)

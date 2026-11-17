@@ -38,8 +38,12 @@ type memoryRoot struct {
 	// import blocks import.
 	configured bool
 	imports    []engine.Managed
-	moves      []rootfile.Move
-	removed    []rootfile.Removal
+	// seen is what the root's files say of its resources (see
+	// observedRoot), and saved the checkpoint the index rewrote.
+	seen    observedRoot
+	saved   *checkpoint
+	moves   []rootfile.Move
+	removed []rootfile.Removal
 	// merge is the merge checkpoint of a merged root, mergeErr why it
 	// can't be read.
 	merge    *mergeCheckpoint
@@ -131,6 +135,16 @@ func (m *memoryOutput) configured(dir string) (bool, error) {
 func (m *memoryOutput) importBlocks(dir string) ([]engine.Managed, error) {
 	m.reads["importBlocks"]++
 	return m.root(dir).imports, nil
+}
+
+func (m *memoryOutput) observed(dir string) (observedRoot, error) {
+	m.reads["observed"]++
+	return m.root(dir).seen, nil
+}
+
+func (m *memoryOutput) saveAddresses(dir string, c checkpoint) error {
+	m.root(dir).saved = &c
+	return nil
 }
 
 func (m *memoryOutput) moves(dir string) ([]rootfile.Move, error) {
