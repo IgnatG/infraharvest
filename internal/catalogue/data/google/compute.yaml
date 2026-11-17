@@ -6,6 +6,11 @@
 # ForwardingRule, ...): the name patterns tell them apart. Self-managed
 # and Google-managed SSL certificates share one asset type and name
 # pattern, so they aren't mapped.
+# GKE's own labels tell the instances and disks it creates from the user's
+# whatever their names. What has no labels (firewall rules, routes,
+# instance groups and templates, load balancer parts) is told by the
+# names GKE gives it, which a user's resource can share: select it to
+# import it.
 provider: google
 types:
   google_compute_address:
@@ -51,10 +56,16 @@ types:
     # confidential compute.
     defaults: [enable_confidential_compute=false, provisioned_iops=0, provisioned_throughput=0]
     skip:
+      # GKE labels the disks attached to a node goog-gke-volume, and
+      # describes a disk it provisions for a persistent volume claim, which
+      # is unlabelled until a node attaches it, with a JSON object of the
+      # claim, whose first key is the volume's (a cluster's, with the
+      # in-tree provisioner). A name the user gave a disk, gke-* or pvc-*,
+      # tells nothing.
       - reason: GKE creates it for a cluster's nodes and deletes it with them
-        attribute_prefixes: { asset.name: [gke-] }
+        attributes_present: [labels.goog-gke-volume]
       - reason: GKE creates it for a persistent volume claim and deletes it with the claim
-        attribute_prefixes: { asset.name: [pvc-] }
+        attribute_prefixes: { asset.description: ['{"kubernetes.io/created-for/pv/name":', '{"kubernetes.io/cluster/'] }
       # The cloud_asset service records asset.boot_disk=true on the boot
       # disk of an instance it lists, which the instance manages in its
       # boot_disk block, and unknown when the instances' disks couldn't
@@ -69,11 +80,11 @@ types:
       type: compute.googleapis.com/Disk
       name: //compute.googleapis.com/projects/*/regions/*/disks/*
     skip:
+      # See google_compute_disk: a name tells nothing.
       - reason: GKE creates it for a cluster's nodes and deletes it with them
-        attribute_prefixes: { asset.name: [gke-] }
+        attributes_present: [labels.goog-gke-volume]
       - reason: GKE creates it for a persistent volume claim and deletes it with the claim
-        attribute_prefixes: { asset.name: [pvc-] }
-      # See google_compute_disk.
+        attribute_prefixes: { asset.description: ['{"kubernetes.io/created-for/pv/name":', '{"kubernetes.io/cluster/'] }
       - reason: the boot disk of an instance, which manages it in its boot_disk block; select it to import it
         attributes: { asset.boot_disk: "true" }
       - reason: it may be the boot disk of an instance, as the project's instances couldn't be listed; select it to import it
@@ -155,10 +166,11 @@ types:
     # The cloud_asset service records asset.created_by_group=true on an
     # instance that has the created-by metadata key, which a managed
     # instance group sets on each instance it creates.
-    # Dataproc labels the VMs of a cluster with goog-dataproc-cluster-name.
+    # Dataproc labels the VMs of a cluster with goog-dataproc-cluster-name,
+    # and GKE those of its nodes with goog-gke-node.
     skip:
       - reason: GKE creates it for a cluster's nodes and deletes it with them
-        attribute_prefixes: { asset.name: [gke-] }
+        attributes_present: [labels.goog-gke-node]
       - reason: a managed instance group creates it, and deletes and recreates it as it scales and updates; select it to import it
         attributes: { asset.created_by_group: "true" }
       - reason: Dataproc creates it for a cluster's nodes and deletes it with the cluster

@@ -467,6 +467,36 @@ func TestCloudAssetRecordsTheDescription(t *testing.T) {
 	}
 }
 
+// GKE's labels, and the description of a disk it provisions, tell what it
+// creates from a resource of the user's that is named the same.
+func TestCloudAssetLeavesOutWhatGKEMakesByItsLabels(t *testing.T) {
+	t.Parallel()
+	const pvDescription = `{"kubernetes.io/created-for/pv/name":"pvc-0beb8bd0","kubernetes.io/created-for/pvc/name":"data-0","storage.gke.io/created-by":"pd.csi.storage.gke.io"}`
+	disk := func(name string, labels map[string]string, description string) *cloudasset.ResourceSearchResult {
+		return &cloudasset.ResourceSearchResult{AssetType: "compute.googleapis.com/Disk", Name: "//compute.googleapis.com/projects/acme-prod/zones/us-central1-a/disks/" + name, Location: "us-central1-a", Labels: labels, Description: description}
+	}
+	instance := func(name string, labels map[string]string) *cloudasset.ResourceSearchResult {
+		return &cloudasset.ResourceSearchResult{AssetType: "compute.googleapis.com/Instance", Name: "//compute.googleapis.com/projects/acme-prod/zones/us-central1-a/instances/" + name, Location: "us-central1-a", Labels: labels}
+	}
+	results := []*cloudasset.ResourceSearchResult{
+		instance("gke-prod-pool-1-abcd", map[string]string{"goog-gke-node": "", "goog-k8s-cluster-name": "prod"}),
+		instance("gke-bastion", nil),
+		disk("gke-prod-pool-1-abcd", map[string]string{"goog-gke-volume": "", "goog-k8s-cluster-name": "prod"}, ""),
+		disk("gke-backup", nil, ""),
+		disk("pvc-0beb8bd0", nil, pvDescription),
+		disk("pvc-archive", nil, "an archive"),
+		{AssetType: "artifactregistry.googleapis.com/Repository", Name: "//artifactregistry.googleapis.com/projects/acme-prod/locations/us-central1/repositories/gcf-artifacts", Location: "us-central1", Labels: map[string]string{"goog-managed-by": "cloudfunctions"}},
+	}
+	left := map[string]bool{"gke-prod-pool-1-abcd": true, "pvc-0beb8bd0": true, "gcf-artifacts": true}
+	cat := catalogue.MustBuiltin("google")
+	for _, r := range assetResources(results, cat, "google", "acme-prod", "") {
+		name := lastSegment(r.Observed.ID)
+		if skipped := cat.Skipped(r.Address.Type, r.Observed.ID, r.Observed.Attributes) != ""; skipped != left[name] {
+			t.Errorf("%s %s: left out %v, want %v", r.Address.Type, name, skipped, left[name])
+		}
+	}
+}
+
 func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 	t.Parallel()
 	results := []*cloudasset.ResourceSearchResult{
