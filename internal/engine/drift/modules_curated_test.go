@@ -26,7 +26,7 @@ func TestDriftCuratedInputFeedingSeveralResources(t *testing.T) {
 	setup := func(t *testing.T) (dir, staging string) {
 		return driftModuleRoot(t, map[string]string{"main.tf": iamRoleCall}, map[string]map[string]string{"role_0a1b2c3d": module}, map[string]string{"deploy": "role_0a1b2c3d"})
 	}
-	opts := Options{Adapters: adapters.For("aws")}
+	opts := Options{Adapters: adapters.Builtin().For("aws")}
 	t.Run("only the role changed", func(t *testing.T) {
 		t.Parallel()
 		dir, staging := setup(t)
@@ -117,7 +117,7 @@ func TestDriftCuratedRemovedKeyOfSharedInput(t *testing.T) {
 	full := map[string]any{"tags": tagMap("Env", "prod", "Team", "net")}
 	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{driftResource(vpc, "aws_vpc", upd, tags(true), tags(false))}}
 	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{driftResource(vpc, "aws_vpc", upd, tags(false), tags(true)), driftResource(igw, "aws_internet_gateway", noop, full, full)}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{Adapters: adapters.For("aws")})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{Adapters: adapters.Builtin().For("aws")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestDriftProjectIAMGrantIsAHandEdit(t *testing.T) {
 	v := func(role string) map[string]any { return map[string]any{"role": role, "project": "p"} }
 	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{driftResource(addr, "google_project_iam_member", upd, v("roles/viewer"), v("roles/editor"))}}
 	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{driftResource(addr, "google_project_iam_member", upd, v("roles/editor"), v("roles/viewer"))}}
-	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{Adapters: adapters.For("google")})
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{Adapters: adapters.Builtin().For("google")})
 	if err != nil {
 		t.Fatal(err)
 	}

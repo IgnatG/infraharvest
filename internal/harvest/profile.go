@@ -20,7 +20,7 @@ type Profile struct {
 	// names it by.
 	Scope Scope
 	// Modules names the family of curated public modules the provider's
-	// resources can move into (see adapters.For), such as google, whose
+	// resources can move into (see adapters.Registry.For), such as google, whose
 	// modules google-beta's resources move into too; none without.
 	Modules string
 	// ModulesName is what people call that family, such as

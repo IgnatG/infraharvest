@@ -45,6 +45,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -83,6 +84,9 @@ type Providers struct {
 	// Check rejects a name unless it names one of them, as the commands
 	// that take a provider's name do.
 	Check func(name string) error
+	// Modules has the curated modules the drift tools allow in the roots
+	// they check; nil is adapters.Builtin.
+	Modules *adapters.Registry
 }
 
 // names returns the names of the providers' commands, sorted.

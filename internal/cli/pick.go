@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/picker"
@@ -47,7 +48,7 @@ func pick(path string) error {
 	if err != nil {
 		return err
 	}
-	saved, err := picker.Run(path, f)
+	saved, err := picker.Run(path, f, adapters.Builtin())
 	if err != nil {
 		return err
 	}

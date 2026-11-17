@@ -367,7 +367,7 @@ func (r *Run) registryModules(ctx context.Context, provider harvest.Provider, mo
 	if !modulesFromRegistry(mode) {
 		return nil, nil, nil
 	}
-	return resolveAdapters(ctx, r.moduleReleases, applicableAdapters(adapters.For(provider.Profile().Modules), byService), engineProvider(provider).Source, mode == ModulesLatestUntested)
+	return resolveAdapters(ctx, r.moduleReleases, applicableAdapters(r.curated().For(provider.Profile().Modules), byService), engineProvider(provider).Source, mode == ModulesLatestUntested)
 }
 
 // moduleReleases returns the releases of the registry module at source,

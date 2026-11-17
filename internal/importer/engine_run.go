@@ -71,6 +71,9 @@ type Run struct {
 	// scope starts (see Run.openOutput) or, without, on first use.
 	index *outputIndex
 	used  bool
+	// registry has the curated modules the run may call (see
+	// Run.WithRegistry); nil is adapters.Builtin.
+	registry *adapters.Registry
 }
 
 // discoverState is what discover lists into the selection file it writes
@@ -262,7 +265,22 @@ func (s *shared) managedState(ctx context.Context, sources []string, stores mana
 }
 
 func NewRun() *Run {
-	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, discoverState: discoverState{covered: map[string]bool{}}, shared: &shared{}}
+	return &Run{discovered: map[string]int{}, failed: map[string]int{}, skipped: map[string]int{}, discoverState: discoverState{covered: map[string]bool{}}, shared: &shared{}, registry: adapters.Builtin()}
+}
+
+// WithRegistry makes the run call the curated modules of reg, instead of
+// the built-in ones, and returns it. Every Import call of the run, and only
+// the run, uses them: another run, with its own registry or the built-in
+// one, never sees what reg has.
+func (r *Run) WithRegistry(reg *adapters.Registry) *Run {
+	r.registry = reg
+	return r
+}
+
+// curated returns the registry of the curated modules the run calls. It
+// only reads the run, which its Import calls share.
+func (r *Run) curated() *adapters.Registry {
+	return curatedRegistry(r.registry)
 }
 
 // recordFailure records that part of the command couldn't run, such as one

@@ -566,7 +566,7 @@ module "teams" {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			e := testEditor(map[string]map[string]any{tc.change.Address: tc.after})
-			e.modules, e.adapters = modules(t), adapters.For("aws")
+			e.modules, e.adapters = modules(t), adapters.Builtin().For("aws")
 			if tc.env != "" {
 				e.env, e.envVars = tc.env, hclfile.EnvVarsPath(tc.env)
 			}

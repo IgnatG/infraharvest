@@ -183,7 +183,7 @@ func (*moduleQueryProvider) Profile() harvest.Profile {
 func TestModuleReleasesLookedUpOncePerCommand(t *testing.T) {
 	t.Parallel()
 	tested := map[string]string{}
-	for _, a := range adapters.For("aws") {
+	for _, a := range adapters.Builtin().For("aws") {
 		module, _, _ := strings.Cut(a.Source, "//")
 		tested["/v1/modules/"+module+"/versions"] = a.Version
 	}
@@ -220,7 +220,7 @@ func TestModuleReleasesLookedUpOncePerCommand(t *testing.T) {
 		harvest.RecordBare("logs", "logs", "aws_s3_bucket", "aws"),
 	}
 	selected := map[string][]harvest.Resource{"vpc": listed}
-	_, wantNewer, wantConstraints := resolveAdapters(t.Context(), lookUpIn(reference), applicableAdapters(adapters.For("aws"), selected), "hashicorp/aws", false)
+	_, wantNewer, wantConstraints := resolveAdapters(t.Context(), lookUpIn(reference), applicableAdapters(adapters.Builtin().For("aws"), selected), "hashicorp/aws", false)
 	if len(wantConstraints) != 1 || len(wantNewer) != 1 {
 		t.Fatalf("looking up without the memo: %+v, %+v", wantNewer, wantConstraints)
 	}
