@@ -712,3 +712,18 @@ func TestFirstParseError(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// The data sources a merged root of google-beta reads its scope from name
+// google-beta, which requires no google; a root of google leaves them to
+// their type.
+func TestDataFileNamesTheRootsProvider(t *testing.T) {
+	for provider, want := range map[string]string{
+		"google-beta": "data \"google_client_config\" \"current\" {\n  provider = google-beta\n}\n",
+		"google":      "data \"google_client_config\" \"current\" {}\n",
+	} {
+		w := &rootWriter{m: &stackMerge{provider: provider, data: []string{"google_client_config.current"}}}
+		if got := string(w.dataFile()); !strings.Contains(got, want) {
+			t.Errorf("%s: data.tf doesn't have %q:\n%s", provider, want, got)
+		}
+	}
+}

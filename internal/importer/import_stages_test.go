@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -380,5 +381,34 @@ func TestPrepareCallFailsWhenTheScopeIsUnknown(t *testing.T) {
 	_, err := NewRun().prepareCall(t.Context(), &failingScope{}, Options{All: true}, nil)
 	if err == nil || !strings.Contains(err.Error(), "throttled") {
 		t.Fatalf("prepareCall: got %v, want the scope's error", err)
+	}
+}
+
+// A root of google --beta requires google-beta alone, so every block the
+// engine writes into it besides the provider's own import, the data source
+// of its project and those of the resources it refers to, names
+// google-beta, as its import blocks do; a root of google leaves them to
+// their types.
+func TestDataSourcesNameTheRootsProvider(t *testing.T) {
+	t.Parallel()
+	merge := (&googleprovider.Provider{}).Profile().Merge
+	sources := map[string]engine.DataSource{
+		"google_compute_network":    {Type: "google_compute_network", Argument: "name"},
+		"google_compute_subnetwork": {Type: "google_compute_subnetwork", Argument: "name"},
+	}
+	for provider, want := range map[string]string{"google-beta": "google-beta", "google": ""} {
+		opts := engine.Options{Scope: scopeLocals(merge, "google/acme-prod/global", nil), DataSources: maps.Clone(sources)}
+		nameDataProviders(&opts, provider)
+		if opts.Scope == nil || opts.Scope.Account.Provider != want || opts.Scope.Region.Provider != "" {
+			t.Errorf("%s: scope %+v, want the project's data source of %q alone", provider, opts.Scope, want)
+		}
+		for typ, d := range opts.DataSources {
+			if d.Provider != want {
+				t.Errorf("%s: the data source of %s is of %q, want %q", provider, typ, d.Provider, want)
+			}
+		}
+	}
+	if got := sources["google_compute_network"].Provider; got != "" {
+		t.Errorf("the catalogue's data sources changed: %q", got)
 	}
 }

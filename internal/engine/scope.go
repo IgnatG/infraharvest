@@ -32,6 +32,11 @@ type ScopeLocals struct {
 // data.aws_caller_identity.current.account_id.
 type ScopeValue struct {
 	ID, Data, Local, Expr string
+	// Provider is the local name of the provider that reads Data, when it
+	// isn't the one its type implies: google-beta for the
+	// google_client_config of a root of google-beta, which requires no
+	// google. "" otherwise.
+	Provider string `json:",omitempty"`
 }
 
 // set reports whether v has an ID and says how to read it.
@@ -123,7 +128,9 @@ func liftScope(ws *workspace, generated *hclfile.File, s *ScopeLocals, taken Nam
 	for _, v := range values {
 		if used[v.Local] && !declaresData(data, v.Data) {
 			typ, name, _ := strings.Cut(v.Data, ".")
-			add = append(add, hclwrite.NewBlock("data", []string{typ, name}))
+			block := hclwrite.NewBlock("data", []string{typ, name})
+			nameProvider(block.Body(), v.Provider)
+			add = append(add, block)
 		}
 	}
 	if err := appendBlocks(ws, rootfile.DataFileName, rootfile.DataFileHeader, add); err != nil {
@@ -333,4 +340,14 @@ func scopeID(before, after byte, ids bool) bool {
 		return true
 	}
 	return ids && before != 0 && strings.IndexByte(":/.@", before) >= 0 && (after == 0 || strings.IndexByte(":/.", after) >= 0)
+}
+
+// nameProvider makes the block of body name its provider, as the import
+// block of a resource of another provider than its type implies does
+// (see rootfile.Import.Provider): provider = google-beta. It sets
+// nothing for "".
+func nameProvider(body *hclwrite.Body, provider string) {
+	if provider != "" {
+		body.SetAttributeTraversal("provider", hcl.Traversal{hcl.TraverseRoot{Name: provider}})
+	}
 }

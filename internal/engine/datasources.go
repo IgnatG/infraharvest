@@ -48,6 +48,10 @@ func dataLabel(e External) string {
 // argument that takes the resource's ID.
 type DataSource struct {
 	Type, Argument string
+	// Provider is the local name of the provider that reads it, when it
+	// isn't the one Type implies: google-beta for a root of google-beta,
+	// which requires no google. "" otherwise.
+	Provider string `json:",omitempty"`
 }
 
 // addDataSourcesSkipping replaces literals in generated.tf that are the
@@ -145,6 +149,7 @@ func addDataSourcesSkipping(ws *workspace, external []External, sources map[stri
 		typ, name, _ := strings.Cut(address, ".")
 		f.Body().AppendNewline()
 		block := f.Body().AppendNewBlock("data", []string{typ, name})
+		nameProvider(block.Body(), sources[e.Type].Provider)
 		block.Body().SetAttributeValue(sources[e.Type].Argument, cty.StringVal(e.ID))
 	}
 	ws.Write(rootfile.DataFileName, hclwrite.Format(f.Bytes()))

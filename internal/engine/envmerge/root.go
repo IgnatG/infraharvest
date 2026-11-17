@@ -556,6 +556,12 @@ func (w *rootWriter) dataFile() []byte {
 			continue
 		}
 		typ, name, _ := strings.Cut(d, ".")
+		// A root of google-beta reads its data sources through it too, as it
+		// requires no google.
+		if implied, _, _ := strings.Cut(typ, "_"); implied != w.m.provider {
+			fmt.Fprintf(&b, "\ndata %q %q {\n  provider = %s\n}\n", typ, name, w.m.provider)
+			continue
+		}
 		fmt.Fprintf(&b, "\ndata %q %q {}\n", typ, name)
 	}
 	return formatHCL(b.String())

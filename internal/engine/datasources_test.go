@@ -232,3 +232,25 @@ func TestAddDataSourcesReferToARNs(t *testing.T) {
 		t.Errorf("data.tf misses the data source:\n%s", got)
 	}
 }
+
+// The data sources of a root of google-beta, which requires no google,
+// name google-beta.
+func TestAddDataSourcesNameTheRootsProvider(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeConfig(t, dir, rootfile.GeneratedFileName, `resource "google_compute_instance" "web" {
+  network = "projects/acme-prod/global/networks/shop"
+}
+`)
+	sources := map[string]DataSource{"google_compute_network": {Type: "google_compute_network", Argument: "name", Provider: "google-beta"}}
+	external := []External{{Type: "google_compute_network", ID: "projects/acme-prod/global/networks/shop", Name: "shop"}}
+
+	changed, err := addDataSources(dir, external, sources, nil)
+	if err != nil || !changed {
+		t.Fatalf("want data sources, got %v, %v", changed, err)
+	}
+	data := squashed(readFile(t, dir, rootfile.DataFileName))
+	if want := "provider = google-beta"; !strings.Contains(data, want) {
+		t.Errorf("data.tf misses %q:\n%s", want, data)
+	}
+}
