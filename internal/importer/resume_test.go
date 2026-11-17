@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -578,6 +579,59 @@ func TestPutBackKeepsLocalState(t *testing.T) {
 		if got, err := os.ReadFile(filepath.Join(dir, name)); err != nil || string(got) != want {
 			t.Errorf("%s: %q, %v, want %q", name, got, err, want)
 		}
+	}
+}
+
+// releases records the roots whose use of the generated modules is ended.
+type releases []string
+
+func (r *releases) Release(dir string) error {
+	*r = append(*r, dir)
+	return nil
+}
+
+// A root put back as it was, or discarded after it failed, ends its use of
+// the generated local modules it took up, so that those no other root calls
+// are removed; one that generated well keeps them.
+func TestPuttingARootBackReleasesItsGeneratedModules(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, "aws", "777", "eu-west-2")
+	writeRootFiles(t, dir, map[string]string{"network.tf": "# as applied\n"})
+	addresses := []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.a"}}
+	done := &engine.Result{Imported: []rootfile.Import{{Type: "aws_subnet", Name: "a", ID: "subnet-1"}}, Files: []string{"network.tf"}, Addresses: addresses}
+	if err := saveCheckpoint(out, dir, "earlier", done); err != nil {
+		t.Fatal(err)
+	}
+	claimed := func() (*claim, *releases) {
+		c, err := claimFor(out, dir, false, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var used releases
+		c.modules = &used
+		return c, &used
+	}
+
+	c, used := claimed()
+	if err := c.refuseReaddressed(dir, &engine.Result{Addresses: addresses}, nil, nil, nil); err != nil || len(*used) != 0 {
+		t.Errorf("a root generated well: %v, released %v", err, *used)
+	}
+
+	c, used = claimed()
+	moved := &engine.Result{Addresses: []engine.Managed{{Type: "aws_subnet", ID: "subnet-1", Address: "aws_subnet.private"}}}
+	if err := c.refuseReaddressed(dir, moved, nil, nil, nil); err == nil {
+		t.Error("a root that moves what no moved block follows isn't refused")
+	}
+	if !slices.Equal(*used, []string{dir}) {
+		t.Errorf("a root refused released %v, want %s", *used, dir)
+	}
+
+	c, used = claimed()
+	if err := c.discard(out, dir); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(*used, []string{dir}) {
+		t.Errorf("a root discarded released %v, want %s", *used, dir)
 	}
 }
 
