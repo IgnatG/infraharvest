@@ -30,8 +30,8 @@ type queryProvider struct {
 	fakeProvider
 }
 
-func (*queryProvider) Services() map[string]harvest.Lister {
-	return map[string]harvest.Lister{"vpc": nil, harvest.QueryService: &harvest.QueryLister{}}
+func (*queryProvider) ServiceNames() []string {
+	return []string{harvest.QueryService, "vpc"}
 }
 
 func (*queryProvider) Profile() harvest.Profile {

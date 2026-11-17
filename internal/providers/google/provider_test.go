@@ -24,11 +24,7 @@ import (
 // every type the catalogue maps from it.
 func TestServices(t *testing.T) {
 	t.Parallel()
-	var names []string
-	for name := range (&Provider{}).Services() {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := (&Provider{}).ServiceNames()
 	if want := []string{"cloud_asset", "cloudsql", "dns", "iam", "query", "schedulerJobs"}; !slices.Equal(names, want) {
 		t.Errorf("services: %v, want %v", names, want)
 	}

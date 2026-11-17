@@ -6,6 +6,7 @@ package aws
 import (
 	"context"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
@@ -251,13 +252,12 @@ func (p Provider) ProviderBlock() map[string]interface{} {
 	}
 }
 
-// Services returns a new lister, as Lister makes it, for every service:
-// those of serviceTable, and one Cloud Control lister per service of the
-// cloud_control entries of the catalogue of the import (see
-// SetCatalogue), which takes the place of a lister of the same name; and
-// the query service's, which lists through Terraform and asks AWS nothing
-// itself.
-func (p *Provider) Services() map[string]harvest.Lister {
+// ServiceNames returns the names of every service, sorted: those of
+// serviceTable, and one per service of the cloud_control entries of the
+// catalogue of the import (see SetCatalogue), which takes the place of a
+// service of the same name; and the query service's, which lists through
+// Terraform and asks AWS nothing itself.
+func (p *Provider) ServiceNames() []string {
 	names := []string{harvest.QueryService}
 	for _, s := range serviceTable {
 		names = append(names, s.name)
@@ -265,11 +265,8 @@ func (p *Provider) Services() map[string]harvest.Lister {
 	for name := range p.cloudControl() {
 		names = append(names, name)
 	}
-	supported := make(map[string]harvest.Lister, len(names))
-	for _, name := range names {
-		supported[name], _ = p.Lister(name)
-	}
-	return supported
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 // newServiceLister returns a new lister for the service called name, as

@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -187,16 +189,12 @@ var services = map[string]func() harvest.Lister{
 	harvest.QueryService: func() harvest.Lister { return &harvest.QueryLister{} },
 }
 
-// Services returns a new lister, as Lister makes it, for every service:
+// ServiceNames returns the names of every service, sorted:
 // cloud_asset, and those that list through an API of their own what Cloud
 // Asset Inventory doesn't find, and the query service's, which lists
 // through Terraform.
-func (p *Provider) Services() map[string]harvest.Lister {
-	supported := make(map[string]harvest.Lister, len(services))
-	for name := range services {
-		supported[name], _ = p.Lister(name)
-	}
-	return supported
+func (*Provider) ServiceNames() []string {
+	return slices.Sorted(maps.Keys(services))
 }
 
 // Lister returns a new lister for the service called name, with the

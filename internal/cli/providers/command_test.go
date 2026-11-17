@@ -27,10 +27,8 @@ func (*stubProvider) Init(context.Context, []string) error  { return nil }
 func (*stubProvider) Lister(string) (harvest.Lister, error) { return nil, nil }
 func (*stubProvider) Name() string                          { return "stub" }
 func (*stubProvider) Profile() harvest.Profile              { return harvest.Profile{} }
-func (*stubProvider) Services() map[string]harvest.Lister {
-	return map[string]harvest.Lister{"queues": nil}
-}
-func (*stubProvider) ProviderBlock() map[string]any { return nil }
+func (*stubProvider) ServiceNames() []string                { return []string{"queues"} }
+func (*stubProvider) ProviderBlock() map[string]any         { return nil }
 
 // stubCommand is what a definition of stubProvider's command saw run.
 type stubCommand struct {

@@ -259,7 +259,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 			p.SetCatalogue(cat)
 		}
 	}
-	known := provider.Services()
+	known := provider.ServiceNames()
 	for _, f := range []struct {
 		flag  string
 		names []string
@@ -267,7 +267,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 		flag, names := f.flag, f.names
 		var unknown []string
 		for _, name := range names {
-			if _, ok := known[name]; !ok && name != "*" {
+			if !slices.Contains(known, name) && name != "*" {
 				unknown = append(unknown, name)
 			}
 		}
@@ -509,13 +509,13 @@ func listServices(ctx context.Context, provider harvest.Provider, c *callContext
 // only when named, never as part of "*".
 func Services(provider harvest.Provider) []string {
 	optIn := provider.Profile().OptInServices
-	services := make([]string, 0, len(provider.Services()))
-	for name := range provider.Services() {
+	names := provider.ServiceNames()
+	services := make([]string, 0, len(names))
+	for _, name := range names {
 		if !slices.Contains(optIn, name) {
 			services = append(services, name)
 		}
 	}
-	slices.Sort(services)
 	return services
 }
 

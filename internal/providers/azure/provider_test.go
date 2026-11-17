@@ -326,16 +326,18 @@ func TestProviderBlock(t *testing.T) {
 func TestServicesAreFresh(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
-	first, second := p.Services(), p.Services()
-	if len(first) != 14 {
-		t.Errorf("%d services: %v", len(first), slices.Sorted(maps.Keys(first)))
+	names := p.ServiceNames()
+	if len(names) != 14 {
+		t.Errorf("%d services: %v", len(names), names)
 	}
-	for name, g := range first {
+	for _, name := range names {
 		if name == harvest.QueryService {
 			// It keeps nothing, so a lister of its own is the same as another.
 			continue
 		}
-		if second[name] == g {
+		first, _ := p.Lister(name)
+		second, _ := p.Lister(name)
+		if first == second {
 			t.Errorf("%s: the same lister twice", name)
 		}
 	}

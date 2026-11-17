@@ -107,7 +107,7 @@ func (*goldenProvider) Init(context.Context, []string) error  { return nil }
 func (*goldenProvider) Lister(string) (Lister, error)         { return nil, nil }
 func (*goldenProvider) Name() string                          { return "golden" }
 func (*goldenProvider) Profile() Profile                      { return Profile{} }
-func (*goldenProvider) Services() map[string]Lister           { return nil }
+func (*goldenProvider) ServiceNames() []string                { return nil }
 func (*goldenProvider) ProviderBlock() map[string]interface{} { return nil }
 
 type goldenOptional struct{}

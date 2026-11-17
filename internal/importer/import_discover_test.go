@@ -7,10 +7,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -85,10 +85,6 @@ type knownProvider struct {
 	services []string
 }
 
-func (p *knownProvider) Services() map[string]harvest.Lister {
-	known := map[string]harvest.Lister{}
-	for _, name := range p.services {
-		known[name] = fakeService{}
-	}
-	return known
+func (p *knownProvider) ServiceNames() []string {
+	return slices.Sorted(slices.Values(p.services))
 }

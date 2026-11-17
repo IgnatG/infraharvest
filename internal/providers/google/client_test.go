@@ -122,13 +122,15 @@ func TestLimitedClientIsTheRunsOwn(t *testing.T) {
 // into the next.
 func TestSupportedServicesAreNew(t *testing.T) {
 	t.Parallel()
-	a, b := (&Provider{}).Services(), (&Provider{}).Services()
-	for name, g := range a {
+	a, b := &Provider{}, &Provider{}
+	for _, name := range a.ServiceNames() {
 		if name == harvest.QueryService {
 			// It keeps nothing, so a lister of its own is the same as another.
 			continue
 		}
-		if g == b[name] {
+		ga, _ := a.Lister(name)
+		gb, _ := b.Lister(name)
+		if ga == gb {
 			t.Errorf("%s: both providers share a lister", name)
 		}
 	}

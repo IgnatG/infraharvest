@@ -428,7 +428,7 @@ func TestExplorerTypesAreOfRegionalServices(t *testing.T) {
 	t.Parallel()
 	cat := awsCatalogue()
 	covered := map[string]bool{}
-	for name := range (&Provider{}).Services() {
+	for _, name := range (&Provider{}).ServiceNames() {
 		types := explorerTypes(cat, name)
 		if slices.Contains(GlobalServices, name) || slices.Contains(EastOnlyServices, name) {
 			if len(types) > 0 {

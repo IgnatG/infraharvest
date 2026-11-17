@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -365,13 +366,9 @@ func (p *Provider) ProviderBlock() map[string]interface{} {
 	}
 }
 
-// Services returns a new lister, as Lister makes it, for every service.
-func (p *Provider) Services() map[string]harvest.Lister {
-	supported := make(map[string]harvest.Lister, len(services))
-	for name := range services {
-		supported[name], _ = p.Lister(name)
-	}
-	return supported
+// ServiceNames returns the names of every service, sorted.
+func (*Provider) ServiceNames() []string {
+	return slices.Sorted(maps.Keys(services))
 }
 
 // Lister returns a new lister for the service called name, with the

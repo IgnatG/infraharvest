@@ -28,9 +28,9 @@ type Provider interface {
 	// Profile returns the facts that set the provider apart from the
 	// others (see Profile).
 	Profile() Profile
-	// Services maps the name of every service the provider can list to a
-	// new lister for it, as Lister returns it.
-	Services() map[string]Lister
+	// ServiceNames returns the name of every service the provider can
+	// list, sorted. It makes no lister: Lister makes the one of a name.
+	ServiceNames() []string
 	// ProviderBlock returns the arguments of the Terraform provider block
 	// that the generated configuration declares.
 	ProviderBlock() map[string]interface{}
