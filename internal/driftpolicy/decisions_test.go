@@ -219,3 +219,35 @@ func fingerprint(c report.DriftChange) string {
 	f.Merge([]report.DriftChange{c}, nil)
 	return f.Changes[0].Fingerprint
 }
+
+// A change of shared tags whose edit was left out is accepted at each
+// resource it covered instead: the run reports those, written, in place of
+// the shared change. The shared change's entry, whose change is accepted
+// into the code, is dropped, and each resource's change is added,
+// undecided, as any written change is; the next run, which doesn't find
+// them, drops those. A limit: the file doesn't say they were the shared
+// change's.
+func TestDecisionsMergeShareSplitIntoResources(t *testing.T) {
+	t.Parallel()
+	shared := report.DriftChange{Root: "r1", Address: "local.tags", Attribute: "tags.Env", Kind: drift.Changed, Before: "prod", After: "dev", Covers: []string{"a.one", "a.two"}, Outcome: report.DriftKept}
+	f := &driftpolicy.Decisions{Version: 1, Changes: []driftpolicy.Entry{
+		{Root: "r1", Address: "local.tags", Attribute: "tags.Env", Fingerprint: fingerprint(shared), Decision: report.DriftAccept, Note: "mine"},
+	}}
+	var members []report.DriftChange
+	for _, address := range shared.Covers {
+		members = append(members, report.DriftChange{Root: "r1", Address: address, Attribute: "tags.Env", Kind: drift.Changed, Before: "prod", After: "dev", Outcome: report.DriftWritten})
+	}
+	added, undecided, dropped := f.Merge(members, func(string) bool { return true })
+	if added != 2 || undecided != 0 || dropped != 1 || len(f.Changes) != 2 {
+		t.Errorf("added %d, undecided %d, dropped %d, entries %+v, want 2, 0, 1 and the resources'", added, undecided, dropped, f.Changes)
+	}
+	for _, e := range f.Changes {
+		if e.Address == "local.tags" || e.Decision != driftpolicy.Undecided {
+			t.Errorf("entry %+v", e)
+		}
+	}
+	// The next run finds no change of theirs, as the code has the values.
+	if _, _, dropped := f.Merge(nil, func(string) bool { return true }); dropped != 2 || len(f.Changes) != 0 {
+		t.Errorf("dropped %d, entries %+v, want the two dropped", dropped, f.Changes)
+	}
+}

@@ -209,6 +209,7 @@ A decision holds only for the values it was made for. When a change's fingerprin
 - An entry of a change found again keeps its decision and note if its fingerprint is the change's; else it becomes `undecided`.
 - A change without an entry is added as `undecided`, so the rules and defaults decide it until you do.
 - An entry of a root it checked whose change it didn't find again is dropped: the change was accepted into the code, or put back by an apply. Entries of roots it didn't check, as `--root` left them out or they couldn't be checked, stay as they are.
+- A change of shared tags whose edit the plan rejected is accepted at each resource it covers instead, and the run reports those changes, not the shared one: its entry is dropped, and each resource's change gets an entry, undecided, as any change written in the run does. The file doesn't say they came from the shared change. The next run, which doesn't find them as the code has their values, drops them; if you don't merge the edits, it reports the shared change again, with no entry, so decide it again.
 
 With `--decisions`, it writes into that file after applying it. The changes are sorted by root, address and attribute. The file is written again from what it holds, so comments other than its header aren't kept: use `note`.
 
