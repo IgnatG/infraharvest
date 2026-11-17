@@ -34,7 +34,8 @@ const (
 //
 //   - The resource is gone: an error code ending in NotFound or
 //     NotFoundException, such as LoadBalancerNotFound, or starting with
-//     NoSuch, such as NoSuchBucket.
+//     NoSuch, such as NoSuchBucket; or SES's RuleSetDoesNotExist, which
+//     fits neither.
 //   - Nothing to list: the endpoint doesn't implement the operation, as an
 //     emulator may not, as for S3's NotImplemented.
 //   - The region doesn't offer the service: it has no endpoint there, the
@@ -50,6 +51,7 @@ var awsCodes = &harvest.Codes{
 		"UnknownOperationException": harvest.OutcomeNothingToList,
 		"UnsupportedOperation":      harvest.OutcomeNothingToList,
 		"InvalidAction":             harvest.OutcomeNothingToList,
+		"RuleSetDoesNotExist":       harvest.OutcomeGone,
 		codeUnavailableOperation:    harvest.OutcomeSkipRegion,
 		codeNoSuchHost:              harvest.OutcomeSkipRegion,
 		codeHostnameMismatch:        harvest.OutcomeSkipRegion,
