@@ -199,3 +199,38 @@ func TestDriftKeepsAnAddedTagPerResource(t *testing.T) {
 		t.Errorf("locals.tf changed:\n%s", got)
 	}
 }
+
+// A key of the local's tags removed from only some of the resources that
+// get it takes a hand edit: merge() can't take a key out, and a resource
+// can't leave out one of the provider's default tags (see
+// TestDriftDefaultTagsRemoved). The reason says why.
+func TestDriftRemovedLocalTagFromSomeIsAHandEdit(t *testing.T) {
+	t.Parallel()
+	app := func(env bool) map[string]any {
+		if env {
+			return map[string]any{"tags": tagMap("Env", "prod")}
+		}
+		return map[string]any{"tags": nil}
+	}
+	logs := map[string]any{"tags": tagMap("Env", "prod", "Name", "logs")}
+	dir, staging := acceptRoot(t, map[string]string{"main.tf": azureTwoMain, "locals.tf": azureLocals})
+	refresh := &tfjson.Plan{ResourceDrift: []*tfjson.ResourceChange{tagUpdate("azurerm_resource_group.app", app(true), app(false))}}
+	code := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		tagUpdate("azurerm_resource_group.app", app(false), app(true)),
+		tagNoop("azurerm_storage_account.logs", logs),
+	}}
+	result, _, _, err := acceptAll(t, dir, staging, []*tfjson.Plan{refresh, code}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := outcomes(result)["azurerm_resource_group.app tags.Env"]
+	if c.Outcome != Manual || !strings.Contains(c.Reason, "local.tags") || !strings.Contains(c.Reason, "by hand") {
+		t.Errorf("app: %s: %s", c.Outcome, c.Reason)
+	}
+	if got := readFile(t, dir, "locals.tf"); got != azureLocals {
+		t.Errorf("locals.tf changed:\n%s", got)
+	}
+	if got := readFile(t, dir, "main.tf"); got != azureTwoMain {
+		t.Errorf("main.tf changed:\n%s", got)
+	}
+}
