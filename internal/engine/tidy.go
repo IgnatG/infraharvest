@@ -171,7 +171,7 @@ type tidyDecision struct {
 // before them left it, and what the curated modules leave for the passes
 // after them.
 type tidying struct {
-	ctx  context.Context
+	ctx  context.Context //nolint:containedctx // the run's context: tidying lives for one postProcess and its plan calls are spread over many passes
 	tf   tfrun.Terraform
 	ws   *workspace
 	r    *run

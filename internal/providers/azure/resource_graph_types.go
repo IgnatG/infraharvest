@@ -264,7 +264,7 @@ func newLookup(ctx context.Context, credential azcore.TokenCredential, options a
 // resource as its GET does, and azlist lists child resources with
 // Resource Manager's list APIs, which return the same.
 type listingTransport struct {
-	ctx context.Context
+	ctx context.Context //nolint:containedctx // one listing's context: the SDK's Transporter.Do has none of its own to stop on
 	// listed are the listed resources, by upper-case ID.
 	listed map[string]map[string]interface{}
 	next   policy.Transporter
