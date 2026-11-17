@@ -705,6 +705,9 @@ func (e *driftEditor) locateInModule(cfg *driftConfig, c *Change) codeSource {
 	src.Module = strings.Join(via, "; ")
 	if src.Edit == nil && src.Reason != "" {
 		src.Reason = "the module call " + c.ModuleAddress + " sets it from its argument " + pathText(slices.Concat([]pathStep{{name: t.variable}}, t.sub)) + ": " + src.Reason
+		if other := otherArgumentWithKey(blocks[0].b, t.variable, steps, c); adapter != nil && other != "" && strings.Contains(src.Reason, "doesn't have the key") {
+			src.Reason += "; the call's argument " + other + " has the key, which the module may give this resource from there and others too: remove it from there if no resource should have it, else edit it by hand"
+		}
 	}
 	return src
 }
@@ -1022,4 +1025,26 @@ func descendType(ty cty.Type, steps []pathStep) cty.Type {
 		}
 	}
 	return ty
+}
+
+// otherArgumentWithKey returns the name of an argument of the call block,
+// but for skip, that is an object literal with the key c's attribute ends
+// in, where c is a key removed in the cloud; "" if there is none.
+func otherArgumentWithKey(block *hclsyntax.Block, skip string, steps []pathStep, c *Change) string {
+	if c.value != nil || c.Kind != Changed || len(steps) < 2 || steps[len(steps)-1].isIndex {
+		return ""
+	}
+	key := steps[len(steps)-1].name
+	for _, name := range slices.Sorted(maps.Keys(block.Body.Attributes)) {
+		obj, ok := block.Body.Attributes[name].Expr.(*hclsyntax.ObjectConsExpr)
+		if !ok || name == skip {
+			continue
+		}
+		for _, item := range obj.Items {
+			if hclfile.KeyName(item.KeyExpr) == key {
+				return name
+			}
+		}
+	}
+	return ""
 }
