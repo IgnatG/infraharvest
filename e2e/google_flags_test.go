@@ -104,7 +104,12 @@ func putGCSObject(t *testing.T, endpoint, bucket, name, content string) {
 		// name is the bucket to create.
 		target, body = endpoint+"/storage/v1/b?project="+googleProject, `{"name":"`+name+`"}`
 	}
-	resp, err := http.Post(target, contentType, bytes.NewReader([]byte(body)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, bytes.NewReader([]byte(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
