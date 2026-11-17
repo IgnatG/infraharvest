@@ -155,7 +155,9 @@ jobs:
         run: |
           want="infraharvest v$(jq -r .version dist/metadata.json)"
           for cloud in aws azure google; do
-            images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}' | grep -- "-${cloud}\$" || true)
+            # A snapshot tags each platform's image with its architecture
+            # after the cloud (v<version>-<cloud>-amd64).
+            images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}' | grep -E -- "-${cloud}(-(amd64|arm64))?\$" || true)
             image=$(printf '%s\n' "$images" | grep amd64 | head -n 1 || true)
             [ -n "$image" ] || image=$(printf '%s\n' "$images" | head -n 1)
             test -n "$image"
