@@ -4,10 +4,13 @@
 package picker
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/IgnatG/infraharvest/internal/selection"
 )
@@ -299,5 +302,419 @@ func TestToggleAfterSave(t *testing.T) {
 		if r.Include {
 			t.Errorf("%s %s is still included", r.Type, r.ID)
 		}
+	}
+}
+
+// These tests drive the bubbletea model the way the program does: key and
+// window-size messages through Update, and the tea.Quit command it answers
+// with, so what the picker returns is checked without a terminal.
+
+// keyMsg is the message the terminal sends for a key, by name.
+func keyMsg(name string) tea.Msg {
+	switch name {
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "left":
+		return tea.KeyPressMsg{Code: tea.KeyLeft}
+	case "right":
+		return tea.KeyPressMsg{Code: tea.KeyRight}
+	case "home":
+		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "end":
+		return tea.KeyPressMsg{Code: tea.KeyEnd}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "ctrl+c":
+		return tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+	}
+	r := []rune(name)
+	if len(r) != 1 {
+		panic("keyMsg: unknown key " + name)
+	}
+	return tea.KeyPressMsg{Code: r[0], Text: name}
+}
+
+// drive sends the keys through m.Update, as the program would, and reports
+// whether the picker asked to quit.
+func drive(t *testing.T, m *Model, keys ...string) (quit bool) {
+	t.Helper()
+	for _, k := range keys {
+		if quit {
+			t.Fatalf("key %q after the picker quit", k)
+		}
+		next, cmd := m.Update(keyMsg(k))
+		if next != tea.Model(m) {
+			t.Fatalf("Update returned a different model: %T", next)
+		}
+		if cmd != nil {
+			if _, ok := cmd().(tea.QuitMsg); !ok {
+				t.Fatalf("key %q: unexpected command", k)
+			}
+			quit = true
+		}
+	}
+	return quit
+}
+
+// savedFile writes testFile to a new selection file and returns its path.
+func savedFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "selection.yaml")
+	if err := testFile().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// onDisk loads the selection file at path as Include per "type id".
+func onDisk(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range f.Resources {
+		got[r.Type+" "+r.ID] = r.Include
+	}
+	return got
+}
+
+func TestKeyMessagesMatchTheNamesTheModelHandles(t *testing.T) {
+	for name, want := range map[string]string{
+		"space": "space", "enter": "enter", "esc": "esc", "up": "up", "down": "down",
+		"left": "left", "right": "right", "backspace": "backspace", "ctrl+c": "ctrl+c", "q": "q", "/": "/",
+	} {
+		if got := keyMsg(name).(tea.KeyPressMsg).String(); got != want {
+			t.Errorf("key %q reads as %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestWindowSizeSetsHowManyRowsShow(t *testing.T) {
+	m := New("selection.yaml", testFile())
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if m.height != 22 {
+		t.Errorf("height %d, want 22: the header, summary and help take 8 lines", m.height)
+	}
+	// A tiny terminal still shows a few rows.
+	m.Update(tea.WindowSizeMsg{Width: 20, Height: 4})
+	if m.height != 3 {
+		t.Errorf("height %d, want at least 3", m.height)
+	}
+	// Shrinking keeps the cursor in view.
+	f := &selection.File{Version: selection.Version}
+	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
+		f.Resources = append(f.Resources, selection.Resource{Type: "aws_sqs_queue", ID: id, Include: true})
+	}
+	m = New("selection.yaml", f)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	drive(t, m, "right")
+	drive(t, m, "down", "down", "down", "down", "down", "down", "down", "down")
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 11})
+	if m.cursor != 8 || m.cursor < m.offset || m.cursor >= m.offset+m.height {
+		t.Errorf("cursor %d outside the %d rows from %d", m.cursor, m.height, m.offset)
+	}
+}
+
+func TestViewIsTheRenderedPickerOnTheAltScreen(t *testing.T) {
+	m := New("selection.yaml", testFile())
+	v := m.View()
+	if !v.AltScreen {
+		t.Error("the picker should use the alternate screen")
+	}
+	if want := m.render(); v.Content != want || want == "" {
+		t.Errorf("view %q, want the rendered picker", v.Content)
+	}
+}
+
+func TestToggleOneResource(t *testing.T) {
+	path := savedFile(t)
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(path, f)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Open the buckets and exclude "assets", the first of them.
+	drive(t, m, "down", "right", "down")
+	if got := labels(m); got[2] != "  assets" || m.cursor != 2 {
+		t.Fatalf("cursor %d on rows %q", m.cursor, got)
+	}
+	drive(t, m, "space")
+	if m.included([]int{indexOf(t, f, "assets")}) != 0 || m.included([]int{indexOf(t, f, "logs")}) != 1 {
+		t.Fatalf("space on one bucket: %+v", f.Resources)
+	}
+	if !m.changed {
+		t.Error("a decision should mark the picker changed")
+	}
+	// Its group is now partly included, and space includes it whole.
+	drive(t, m, "up")
+	if m.state(m.rows()[m.cursor].resources) != stateSome {
+		t.Error("the bucket group should be partly included")
+	}
+	drive(t, m, "space")
+	if got := onDiskAfterSave(t, m, path); !got["aws_s3_bucket assets"] || !got["aws_s3_bucket logs"] {
+		t.Errorf("saved %v, want both buckets included", got)
+	}
+}
+
+// onDiskAfterSave presses s and reads the file back.
+func onDiskAfterSave(t *testing.T, m *Model, path string) map[string]bool {
+	t.Helper()
+	if !drive(t, m, "s") || !m.saved || m.err != nil {
+		t.Fatalf("s: saved %v, err %v", m.saved, m.err)
+	}
+	return onDisk(t, path)
+}
+
+func indexOf(t *testing.T, f *selection.File, id string) int {
+	t.Helper()
+	for i, r := range f.Resources {
+		if r.ID == id {
+			return i
+		}
+	}
+	t.Fatalf("no resource %q", id)
+	return -1
+}
+
+func TestEnterOnAResourceTogglesAndOnAGroupOpensIt(t *testing.T) {
+	f := testFile()
+	m := New("selection.yaml", f)
+	drive(t, m, "down", "enter") // the bucket group opens
+	if got := len(m.rows()); got != 7 {
+		t.Fatalf("enter on a group: %d rows, want 7: %q", got, labels(m))
+	}
+	drive(t, m, "down", "enter") // assets: excluded
+	if f.Resources[indexOf(t, f, "assets")].Include {
+		t.Error("enter on a resource should exclude it")
+	}
+	drive(t, m, "enter")
+	if !f.Resources[indexOf(t, f, "assets")].Include {
+		t.Error("enter again should include it")
+	}
+}
+
+func TestSelectAllAndNone(t *testing.T) {
+	path := savedFile(t)
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(path, f)
+
+	drive(t, m, "n")
+	for _, r := range f.Resources {
+		if r.Include {
+			t.Errorf("n left %s %s included", r.Type, r.ID)
+		}
+	}
+	if got := m.summary(); got == "" || !m.changed {
+		t.Errorf("summary %q, changed %v", got, m.changed)
+	}
+	drive(t, m, "a")
+	for _, r := range f.Resources {
+		if !r.Include || r.New {
+			t.Errorf("a: %s %s include %v new %v, want included and reviewed", r.Type, r.ID, r.Include, r.New)
+		}
+	}
+	// Even the default VPC, which the file left out, is included now.
+	got := onDiskAfterSave(t, m, path)
+	for key, include := range got {
+		if !include {
+			t.Errorf("saved %s as excluded", key)
+		}
+	}
+	if len(got) != 4 {
+		t.Errorf("saved %d resources, want 4", len(got))
+	}
+}
+
+func TestSearchThenDecideThroughUpdate(t *testing.T) {
+	path := savedFile(t)
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(path, f)
+
+	// While typing, letters go to the search, not to the commands (n, a, q).
+	drive(t, m, "/", "a", "n", "q")
+	if m.search != "anq" || !m.searching || m.changed {
+		t.Fatalf("typing: search %q, searching %v, changed %v", m.search, m.searching, m.changed)
+	}
+	drive(t, m, "backspace", "backspace", "backspace", "s", "s", "e", "t", "s", "enter")
+	if m.search != "ssets" || m.searching {
+		t.Fatalf("search %q, searching %v", m.search, m.searching)
+	}
+	if got := labels(m); len(got) != 3 || got[2] != "  assets" {
+		t.Fatalf("rows %q, want the assets bucket only", got)
+	}
+	// n excludes what the search shows, and nothing else.
+	drive(t, m, "n")
+	got := onDiskAfterSave(t, m, path)
+	want := map[string]bool{
+		"aws_s3_bucket assets": false,
+		"aws_s3_bucket logs":   true,
+		"aws_vpc vpc-default":  false,
+		"aws_iam_role ci":      true,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("saved %s include %v, want %v", k, got[k], v)
+		}
+	}
+}
+
+func TestSearchEscapeAndNoMatch(t *testing.T) {
+	m := New("selection.yaml", testFile())
+	drive(t, m, "/", "z", "z", "enter")
+	if got := m.rows(); len(got) != 0 {
+		t.Errorf("rows %q, want none", labels(m))
+	}
+	// Nothing shown: the commands that act on rows do nothing.
+	drive(t, m, "space", "a", "n", "down", "end")
+	if m.changed {
+		t.Error("deciding with nothing shown changed something")
+	}
+	drive(t, m, "esc")
+	if len(m.rows()) != 5 {
+		t.Errorf("esc: rows %q", labels(m))
+	}
+}
+
+func TestConfirmWritesTheSelectionFile(t *testing.T) {
+	path := savedFile(t)
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(path, f)
+	drive(t, m, "down", "space") // exclude both buckets
+	if !drive(t, m, "s") {
+		t.Fatal("s should quit")
+	}
+	if !m.saved || m.err != nil {
+		t.Fatalf("saved %v, err %v", m.saved, m.err)
+	}
+	got := onDisk(t, path)
+	if got["aws_s3_bucket logs"] || got["aws_s3_bucket assets"] {
+		t.Errorf("the buckets are still included on disk: %v", got)
+	}
+	if !got["aws_iam_role ci"] {
+		t.Errorf("the role should still be included: %v", got)
+	}
+}
+
+func TestConfirmReportsAFailedSave(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := New(filepath.Join(blocker, "selection.yaml"), testFile())
+	if !drive(t, m, "s") {
+		t.Fatal("s should quit even when the save fails")
+	}
+	if m.saved || m.err == nil {
+		t.Errorf("saved %v, err %v: want the error kept", m.saved, m.err)
+	}
+}
+
+func TestCancelLeavesTheSelectionFileAsItWas(t *testing.T) {
+	cancels := map[string][]string{
+		"q twice":            {"q", "q"},
+		"ctrl+c":             {"ctrl+c"},
+		"ctrl+c in a search": {"/", "l", "ctrl+c"},
+	}
+	for name, keys := range cancels {
+		t.Run(name, func(t *testing.T) {
+			path := savedFile(t)
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, err := selection.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := New(path, f)
+			drive(t, m, "n") // decide everything out
+			if !m.changed {
+				t.Fatal("n should change the selection")
+			}
+			if !drive(t, m, keys...) {
+				t.Fatalf("%v should quit", keys)
+			}
+			if m.saved || m.err != nil {
+				t.Errorf("saved %v, err %v", m.saved, m.err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Errorf("the file changed:\n%s", after)
+			}
+		})
+	}
+}
+
+func TestQuitAsksOnlyAboutUnsavedChanges(t *testing.T) {
+	path := savedFile(t)
+	f, err := selection.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(path, f)
+	if !drive(t, m, "q") || m.saved {
+		t.Error("q without changes should quit without saving")
+	}
+
+	m = New(path, f)
+	drive(t, m, "n")
+	if drive(t, m, "q") || !m.confirmQuit {
+		t.Fatal("q with changes should ask first")
+	}
+	// Any other key takes the question back.
+	if drive(t, m, "down") || m.confirmQuit {
+		t.Error("a key after the question should cancel it")
+	}
+	if drive(t, m, "q") || !m.confirmQuit {
+		t.Error("q should ask again")
+	}
+	// s on the question saves.
+	if !drive(t, m, "s") || !m.saved {
+		t.Error("s on the question should save and quit")
+	}
+	if got := onDisk(t, path); got["aws_s3_bucket logs"] {
+		t.Errorf("saved %v, want everything excluded", got)
+	}
+}
+
+func TestOnlyNewFilterThroughUpdate(t *testing.T) {
+	f := testFile()
+	m := New("selection.yaml", f)
+	drive(t, m, "u")
+	if got := labels(m); len(got) != 2 || got[1] != " aws_iam_role" {
+		t.Fatalf("new only: %q", got)
+	}
+	// Deciding reviews the resource, so it leaves the filter.
+	drive(t, m, "a")
+	if got := m.rows(); len(got) != 0 {
+		t.Errorf("rows %q after reviewing the only new resource", labels(m))
+	}
+	drive(t, m, "u")
+	if len(m.rows()) != 5 {
+		t.Errorf("u again: rows %q", labels(m))
 	}
 }
