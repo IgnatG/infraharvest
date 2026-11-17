@@ -6,6 +6,7 @@ package mcpserver
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -29,11 +30,14 @@ import (
 // providerAddress has it, such as hashicorp/aws, each provider's own and
 // those its curated modules use (see Providers.Sources); and the curated
 // modules a root may call, by registry address as moduleAddress has it,
-// such as terraform-aws-modules/vpc/aws. They are those of the providers
-// the server is passed, the binary's, as the binary the tools run
-// generates no others.
+// submodule included, such as
+// terraform-aws-modules/iam/aws//modules/iam-role, each with the versions
+// an adapter pins it at, which are the ones it was tested against. They
+// are those of the providers the server is passed, the binary's, as the
+// binary the tools run generates no others.
 type driftAllowed struct {
-	sources, modules map[string]bool
+	sources map[string]bool
+	modules map[string]map[string]bool
 	// backends are what infraharvest configures the backends of the
 	// providers' clouds with (see harvest.Profile.Backend), in their
 	// blocks and in an environment's backend settings, by type.
@@ -53,7 +57,7 @@ type driftAllowed struct {
 // newDriftAllowed returns what the drift tools run Terraform with, of
 // the providers compiled.
 func newDriftAllowed(compiled Providers) driftAllowed {
-	a := driftAllowed{sources: map[string]bool{}, modules: map[string]bool{}, backends: map[string]*settings{}, providers: map[string]*settings{}}
+	a := driftAllowed{sources: map[string]bool{}, modules: map[string]map[string]bool{}, backends: map[string]*settings{}, providers: map[string]*settings{}}
 	for source, b := range compiled.Settings {
 		a.providers[providerAddress(source)] = settingsOf(b)
 	}
@@ -65,7 +69,11 @@ func newDriftAllowed(compiled Providers) driftAllowed {
 			a.sources[providerAddress(source)] = true
 		}
 		for _, m := range adapters.For(profile.Modules) {
-			a.modules[moduleAddress(m.Source)] = true
+			address := providerAddress(m.Source)
+			if a.modules[address] == nil {
+				a.modules[address] = map[string]bool{}
+			}
+			a.modules[address][pinnedVersion(m.Version)] = true
 		}
 	}
 	return a
@@ -88,6 +96,13 @@ func providerAddress(source string) string {
 		s = strings.TrimPrefix(s, host)
 	}
 	return s
+}
+
+// pinnedVersion returns a module version without the "=" a constraint may
+// start with, and its spaces: an adapter's exact version, as a root's
+// version argument has it.
+func pinnedVersion(version string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(version), "="))
 }
 
 // moduleAddress returns a registry module's source as driftAllowed has
@@ -639,7 +654,7 @@ func (u *moduleUses) readProviderArgument(body hcl.Body) error {
 // readModule checks the source of a module call (see driftAllowed.moduleSource) and
 // reads the providers its providers argument passes it.
 func (u *moduleUses) readModule(out, dir string, b *hcl.Block, allowed driftAllowed) error {
-	content, _, diags := b.Body.PartialContent(&hcl.BodySchema{Attributes: []hcl.AttributeSchema{{Name: "source"}, {Name: "providers"}}})
+	content, _, diags := b.Body.PartialContent(&hcl.BodySchema{Attributes: []hcl.AttributeSchema{{Name: "source"}, {Name: "version"}, {Name: "providers"}}})
 	if diags.HasErrors() {
 		return diags
 	}
@@ -651,10 +666,18 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block, allowed driftAllo
 	if diags.HasErrors() {
 		return diags
 	}
+	var err error
 	if v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
 		return fmt.Errorf("%s: the module %s has a source that isn't a string", where(attr.Range), b.Labels[0])
 	}
-	local, err := allowed.moduleSource(out, dir, v.AsString())
+	// A local module has no version: Terraform refuses one.
+	var version string
+	if source := v.AsString(); !strings.HasPrefix(source, "./") && !strings.HasPrefix(source, "../") {
+		if version, err = moduleVersion(content.Attributes["version"]); err != nil {
+			return fmt.Errorf("%s: the module %s has a version %w", where(content.Attributes["version"].Range), b.Labels[0], err)
+		}
+	}
+	local, err := allowed.moduleSource(out, dir, v.AsString(), version)
 	if err != nil {
 		return fmt.Errorf("%s: the module %s's source %w", where(attr.Range), b.Labels[0], err)
 	}
@@ -679,14 +702,33 @@ func (u *moduleUses) readModule(out, dir string, b *hcl.Block, allowed driftAllo
 	return nil
 }
 
+// moduleVersion returns the version argument of a module call, "" if it
+// has none.
+func moduleVersion(attr *hcl.Attribute) (string, error) {
+	if attr == nil {
+		return "", nil
+	}
+	v, diags := attr.Expr.Value(nil)
+	if diags.HasErrors() {
+		return "", diags
+	}
+	if v.IsNull() || !v.IsKnown() || v.Type() != cty.String {
+		return "", errors.New("that isn't a string")
+	}
+	return v.AsString(), nil
+}
+
 // moduleSource checks the source of a module the module in dir calls,
 // and returns its directory for a local one: a path to a directory under
 // out, but in a .terraform or terraform.d directory, which checkDriftRoots
 // checks in turn; or a curated module of a, from the public registry, whose
-// providers are infraharvest's. Any other source, such as git or a URL,
-// could bring providers of its own, which can't be checked before init
-// downloads it.
-func (a driftAllowed) moduleSource(out, dir, source string) (string, error) {
+// providers are infraharvest's: the module, the submodule and the version
+// an adapter calls, as infraharvest generates the call. Any other source,
+// such as git or a URL, could bring providers of its own, which can't be
+// checked before init downloads it; so could another submodule of a
+// curated module, or another version of it, which Terraform would
+// download as it is.
+func (a driftAllowed) moduleSource(out, dir, source, version string) (string, error) {
 	if strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
 		local := filepath.Join(dir, filepath.FromSlash(source))
 		if checkWithin("module", out, local) != nil {
@@ -699,8 +741,17 @@ func (a driftAllowed) moduleSource(out, dir, source string) (string, error) {
 		}
 		return local, nil
 	}
-	if a.modules[moduleAddress(source)] {
-		return "", nil
+	address := providerAddress(source)
+	if versions, ok := a.modules[address]; ok {
+		if versions[pinnedVersion(version)] && version != "" {
+			return "", nil
+		}
+		return "", fmt.Errorf("is %s at version %q, which isn't a version infraharvest calls the curated module %s at (%s), and could bring providers of its own", source, version, address, strings.Join(slices.Sorted(maps.Keys(versions)), ", "))
+	}
+	for curated := range a.modules {
+		if moduleAddress(curated) == moduleAddress(source) {
+			return "", fmt.Errorf("is %s, which isn't a submodule of the curated module %s that infraharvest calls, and could bring providers of its own", source, moduleAddress(source))
+		}
 	}
 	return "", fmt.Errorf("is %s, which is neither under the output directory nor a curated module infraharvest calls, and could bring providers of its own", source)
 }
