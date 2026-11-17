@@ -9,20 +9,18 @@ import (
 	"testing"
 )
 
-func TestImportOnceIsOffByDefault(t *testing.T) {
-	t.Setenv(importOnceEnv, "")
-	if importOnceFor(terraformRun{}) != nil {
-		t.Error("import-once state is on without the variable")
-	}
-	for _, on := range []string{"1", "true", "TRUE", " yes ", "on"} {
+func TestImportOnceIsOnByDefault(t *testing.T) {
+	for _, on := range []string{"", "1", "true", " yes ", "anything"} {
 		t.Setenv(importOnceEnv, on)
 		if importOnceFor(terraformRun{}) == nil {
-			t.Errorf("%q didn't switch import-once state on", on)
+			t.Errorf("%q switched import-once state off", on)
 		}
 	}
-	t.Setenv(importOnceEnv, "0")
-	if importOnceFor(terraformRun{}) != nil {
-		t.Error("0 switched import-once state on")
+	for _, off := range []string{"0", "false", "FALSE", " no ", "off"} {
+		t.Setenv(importOnceEnv, off)
+		if importOnceFor(terraformRun{}) != nil {
+			t.Errorf("%q didn't switch import-once state off", off)
+		}
 	}
 }
 

@@ -231,8 +231,8 @@ type Options struct {
 	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
 	// ImportOnce, if set, has Generate import the root's resources once
 	// into a private state snapshot, which its later plans read (see
-	// ImportOnce). It is internal and off by default: the output is the
-	// same with and without it.
+	// ImportOnce). The importer sets it unless INFRAHARVEST_IMPORT_ONCE
+	// switches it off: the output is the same with and without it.
 	ImportOnce *ImportOnce `json:"-"`
 	// RefineKey identifies what Refine carries into the root, such as the
 	// templates and parameter values of its stacks, for the fingerprint
@@ -382,6 +382,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	}
 	if cache != nil {
 		cache.MoveIn(g.moveCopy)
+		g.followProviders()
 	}
 	restoreAccess, err := g.write(ctx)
 	if err != nil {

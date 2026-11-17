@@ -198,3 +198,95 @@ func TestPlaceholders(t *testing.T) {
 		t.Errorf("want a value per secret, got %d", len(vars))
 	}
 }
+
+func TestFillMissing(t *testing.T) {
+	t.Parallel()
+	f := writeGenerated(t, t.TempDir(), `resource "aws_ssm_parameter" "a" {
+  name  = "a"
+  value = null # sensitive
+  type  = "SecureString"
+}
+
+resource "aws_ssm_parameter" "b" {
+  name  = "b"
+  value = null # sensitive
+}
+
+resource "aws_db_instance" "db" {
+  password = null # sensitive
+  tags     = null # sensitive
+  limit    = null # sensitive
+  enabled  = null # sensitive
+}
+`)
+	schemas := &tfjson.ProviderSchemas{Schemas: map[string]*tfjson.ProviderSchema{"registry.terraform.io/hashicorp/aws": {ResourceSchemas: map[string]*tfjson.Schema{
+		"aws_ssm_parameter": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"value": {AttributeType: cty.String, Optional: true, Sensitive: true},
+		}}},
+		"aws_db_instance": {Block: &tfjson.SchemaBlock{Attributes: map[string]*tfjson.SchemaAttribute{
+			"password": {AttributeType: cty.String, Optional: true, Sensitive: true},
+			"tags":     {AttributeType: cty.Map(cty.String), Optional: true, Sensitive: true},
+			"limit":    {AttributeType: cty.Number, Optional: true, Sensitive: true},
+			"enabled":  {AttributeType: cty.Bool, Optional: true, Sensitive: true},
+		}}},
+	}}}}
+	missing := errorAt(1, "Invalid combination of arguments", `"value": one of insecure_value,value,value_wo must be specified`)
+	// Errors by resource: only the first parameter and the database's
+	// attributes, by name, are missing a value.
+	diags := map[string][]tfjson.Diagnostic{
+		"aws_ssm_parameter.a": {missing},
+		"aws_db_instance.db": {
+			{Severity: tfjson.DiagnosticSeverityError, Summary: "Missing required argument", Detail: `The argument "tags" is required, but no definition was found.`},
+			{Severity: tfjson.DiagnosticSeverityError, Summary: "Missing required argument", Detail: `The argument "limit" is required, but no definition was found.`},
+			{Severity: tfjson.DiagnosticSeverityError, Summary: "Missing required argument", Detail: `The argument "enabled" is required, but no definition was found.`},
+		},
+	}
+
+	if got := FillMissing(FindSensitive(f), diags, schemas); got != 4 {
+		t.Errorf("filled %d attributes, want 4", got)
+	}
+	if err := f.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got := readGenerated(t, filepath.Dir(f.Path))
+	for _, want := range []string{
+		`value = "` + PlaceholderValue + `"`,
+		"tags     = {}",
+		"limit    = 0",
+		"enabled  = false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	// What no error is about stays withheld.
+	if n := strings.Count(got, "= null"); n != 2 {
+		t.Errorf("%d attributes are still null, want the second parameter's value and the database's password:\n%s", n, got)
+	}
+	if strings.Count(got, PlaceholderValue) != 1 {
+		t.Errorf("the placeholder is somewhere it shouldn't be:\n%s", got)
+	}
+}
+
+func TestPlaceholderValueByType(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		ty   cty.Type
+		want cty.Value
+	}{
+		{cty.NilType, cty.StringVal(PlaceholderValue)},
+		{cty.String, cty.StringVal(PlaceholderValue)},
+		{cty.DynamicPseudoType, cty.StringVal(PlaceholderValue)},
+		{cty.Number, cty.NumberIntVal(0)},
+		{cty.Bool, cty.False},
+		{cty.List(cty.String), cty.ListValEmpty(cty.String)},
+		{cty.Set(cty.String), cty.SetValEmpty(cty.String)},
+		{cty.Map(cty.String), cty.MapValEmpty(cty.String)},
+		{cty.EmptyTuple, cty.EmptyTupleVal},
+		{cty.EmptyObject, cty.EmptyObjectVal},
+	} {
+		if got := placeholderValue(c.ty); !got.RawEquals(c.want) {
+			t.Errorf("%#v: got %#v, want %#v", c.ty, got, c.want)
+		}
+	}
+}

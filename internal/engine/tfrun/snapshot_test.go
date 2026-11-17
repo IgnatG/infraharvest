@@ -376,6 +376,67 @@ func TestBuildSnapshot(t *testing.T) {
 	}
 }
 
+// Prepare edits the copy once it is initialised, and before it is planned;
+// if it fails, nothing is planned or applied.
+func TestBuildSnapshotPreparesTheCopy(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	var order []string
+	tf := &orderedState{fakeState: fakeState{imports: 1, plan: importPlan("aws_s3_bucket.a")}, order: &order}
+	build := SnapshotBuild{
+		Plan: tf, Apply: tf, Dir: t.TempDir(),
+		Imports: []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}},
+		Prepare: func(_ context.Context, got Terraform) error {
+			if got != tf {
+				t.Errorf("prepared with another runner: %v", got)
+			}
+			order = append(order, "prepare")
+			return nil
+		},
+	}
+	s, err := BuildSnapshot(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Remove()
+	if want := "init,prepare,plan,apply"; strings.Join(order, ",") != want {
+		t.Errorf("order: got %v, want %s", order, want)
+	}
+
+	order = nil
+	build.Prepare = func(context.Context, Terraform) error { return errors.New("boom") }
+	if _, err := BuildSnapshot(context.Background(), build); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("a failed prepare: %v", err)
+	}
+	if want := "init"; strings.Join(order, ",") != want || tf.applies != 1 {
+		t.Errorf("after a failed prepare: commands %v, applies %d", order, tf.applies)
+	}
+	left, _ := filepath.Glob(filepath.Join(os.TempDir(), SnapshotPattern+"*"))
+	if len(left) != 0 {
+		t.Errorf("snapshots left behind: %v", left)
+	}
+}
+
+// orderedState records the order of the commands that build a snapshot.
+type orderedState struct {
+	fakeState
+	order *[]string
+}
+
+func (o *orderedState) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	*o.order = append(*o.order, "init")
+	return o.fakeState.Init(ctx, opts...)
+}
+
+func (o *orderedState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	*o.order = append(*o.order, "plan")
+	return o.fakeState.PlanJSON(ctx, w, opts...)
+}
+
+func (o *orderedState) Apply(ctx context.Context, opts ...tfexec.ApplyOption) error {
+	*o.order = append(*o.order, "apply")
+	return o.fakeState.Apply(ctx, opts...)
+}
+
 func TestRemoveStaleSnapshots(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -614,5 +675,118 @@ func TestReconcileIndexesDestinations(t *testing.T) {
 		if f := strings.Fields(c); len(f) != 3 || moves[f[2]] != f[1] {
 			t.Errorf("wrong move: %s", c)
 		}
+	}
+}
+
+// Plans follow the provider configuration of the root: one a snapshot wasn't
+// built for runs plain, the second plan of a configuration builds a snapshot
+// for it, and one kept from before an edit that was undone is used again.
+func TestCachedFollowsProviders(t *testing.T) {
+	t.Parallel()
+	newSnapshot := func() *Snapshot {
+		dir := t.TempDir()
+		return &Snapshot{dir: dir, state: filepath.Join(dir, LocalStateFileName), ids: map[string]string{"aws_s3_bucket.a": "a"}}
+	}
+	plain := &fakeState{imports: 1}
+	raw := &fakeState{imports: 1, plan: importPlan("aws_s3_bucket.a")}
+	c := NewCached(plain, raw, time.Minute, func() ([]ImportBlock, error) {
+		return []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}}, nil
+	})
+	config, built, buildErr := "one", 0, error(nil)
+	var snapshots []*Snapshot
+	c.Providers(func() (string, error) { return config, nil }, func(context.Context) (*Snapshot, error) {
+		built++
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		s := newSnapshot()
+		snapshots = append(snapshots, s)
+		return s, nil
+	})
+	first := newSnapshot()
+	c.Use(first)
+	plan := func() {
+		t.Helper()
+		if _, err := c.PlanJSON(context.Background(), io.Discard, tfexec.Out("p")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	step := func(want string, cached, builds int) {
+		t.Helper()
+		if c.CachedPlans() != cached || built != builds {
+			t.Fatalf("%s: %d cached plans, %d builds; want %d and %d", want, c.CachedPlans(), built, cached, builds)
+		}
+	}
+	plan()
+	step("the configuration the snapshot was built for", 1, 0)
+
+	config = "two"
+	plan()
+	step("the first plan of another configuration", 1, 0)
+	plan()
+	step("the second", 2, 1)
+	plan()
+	step("the third", 3, 1)
+
+	// Back to the first, whose snapshot is kept: nothing is built.
+	config = "one"
+	plan()
+	step("the first configuration again", 4, 1)
+	config = "two"
+	plan()
+	step("the second configuration again", 5, 1)
+
+	// A configuration planned once and undone costs one plain plan.
+	config = "three"
+	plan()
+	config = "two"
+	plan()
+	step("an edit that was undone", 6, 1)
+
+	// Where a snapshot can't be built, the plans run plain and no more
+	// builds are tried for the configuration.
+	config, buildErr = "four", errors.New("boom")
+	plan()
+	plan()
+	plan()
+	step("a snapshot that can't be built", 6, 2)
+	if !c.Active() {
+		t.Error("the snapshots were dropped")
+	}
+
+	// At most maxSnapshots are kept.
+	buildErr = nil
+	for _, name := range []string{"five", "six"} {
+		config = name
+		plan()
+		plan()
+	}
+	if got := 1 + len(c.parked); got > maxSnapshots {
+		t.Errorf("%d snapshots are kept, at most %d", got, maxSnapshots)
+	}
+
+	c.Release()
+	for _, s := range append(snapshots, first) {
+		if _, err := os.Stat(s.dir); !os.IsNotExist(err) {
+			t.Errorf("a snapshot's directory stays: %v", err)
+		}
+	}
+}
+
+// A configuration the root's provider blocks can't be read for drops the
+// snapshots and plans as plain does.
+func TestCachedDropsSnapshotsWhenProvidersCantBeRead(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	snap := &Snapshot{dir: dir, state: filepath.Join(dir, LocalStateFileName), ids: map[string]string{}}
+	plain, raw := &fakeState{}, &fakeState{}
+	c := NewCached(plain, raw, time.Minute, func() ([]ImportBlock, error) { return nil, nil })
+	c.Providers(func() (string, error) { return "", errors.New("unreadable") }, nil)
+	c.Use(snap)
+	if c.Active() {
+		t.Error("a snapshot is used for a configuration that can't be read")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the snapshot directory stays: %v", err)
 	}
 }
