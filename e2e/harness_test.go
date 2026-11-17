@@ -437,12 +437,23 @@ func addedConfiguration(t *testing.T, before, after map[string]string) map[strin
 // has and opts, such as tfexec.Refresh(false), and returns the plan.
 func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, opts ...tfexec.PlanOption) *tfjson.Plan {
 	t.Helper()
+	return planRootInit(ctx, t, true, dir, execPath, plugins, opts...)
+}
+
+// planRootInit plans the root in dir as planRoot does, initialising it
+// first only if init: a root the step before applied or planned is
+// initialised as it is, and needn't download its modules and link its
+// providers again.
+func planRootInit(ctx context.Context, t *testing.T, init bool, dir, execPath, plugins string, opts ...tfexec.PlanOption) *tfjson.Plan {
+	t.Helper()
 	tf, err := tfrun.New(dir, execPath, plugins, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
-		t.Fatalf("%s: terraform init: %v", dir, err)
+	if init {
+		if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+			t.Fatalf("%s: terraform init: %v", dir, err)
+		}
 	}
 	planFile := filepath.Join(t.TempDir(), "root.tfplan")
 	if _, err := tf.Plan(ctx, append([]tfexec.PlanOption{tfexec.Out(planFile), tfexec.Lock(false)}, opts...)...); err != nil {
@@ -460,12 +471,21 @@ func planRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, 
 // into the local state it has.
 func applyRoot(ctx context.Context, t *testing.T, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
 	t.Helper()
+	applyRootInit(ctx, t, true, dir, execPath, plugins, env, opts...)
+}
+
+// applyRootInit applies the root in dir as applyRoot does, initialising it
+// first only if init (see planRootInit).
+func applyRootInit(ctx context.Context, t *testing.T, init bool, dir, execPath, plugins string, env map[string]string, opts ...tfexec.ApplyOption) {
+	t.Helper()
 	tf, err := tfrun.New(dir, execPath, plugins, env, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
-		t.Fatalf("%s: terraform init: %v", dir, err)
+	if init {
+		if err := tf.Init(ctx, tfexec.Reconfigure(true)); err != nil {
+			t.Fatalf("%s: terraform init: %v", dir, err)
+		}
 	}
 	if err := tf.Apply(ctx, append([]tfexec.ApplyOption{tfexec.Lock(false)}, opts...)...); err != nil {
 		t.Fatalf("%s: terraform apply: %v", dir, err)
