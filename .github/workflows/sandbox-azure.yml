@@ -43,7 +43,7 @@ on:
       import-once:
         description: Import each root once into a state snapshot its later plans read (INFRAHARVEST_IMPORT_ONCE)
         type: boolean
-        default: false
+        default: true
 
 permissions: {}
 
@@ -58,7 +58,7 @@ concurrency:
 
 jobs:
   round-trip:
-    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }}${{ inputs.import-once && ', import once' || '' }})
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }}${{ !inputs.import-once && ', without import once' || '' }})
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
@@ -68,7 +68,7 @@ jobs:
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       E2E_ENGINE: ${{ inputs.engine }}
-      INFRAHARVEST_IMPORT_ONCE: ${{ inputs.import-once && '1' || '' }}
+      INFRAHARVEST_IMPORT_ONCE: ${{ inputs.import-once && '1' || '0' }}
       # Terraform, OpenTofu and infraharvest sign in with the job's GitHub
       # ID token, as the identity ARM_CLIENT_ID names: the test sets it to
       # the fixture's to create the estate and to the read-only one's to
