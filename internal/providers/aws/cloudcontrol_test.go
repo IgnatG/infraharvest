@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,10 +108,11 @@ func TestCloudControlListerListsTheOtherTypes(t *testing.T) {
 // once.
 func TestCloudControlServices(t *testing.T) {
 	t.Parallel()
-	supported := (&Provider{}).Services()
+	p := &Provider{}
 	types := map[string]string{}
 	for name, ts := range cloudControlServices() {
-		guard, ok := supported[name].(*guardedLister)
+		lister, _ := p.Lister(name)
+		guard, ok := lister.(*guardedLister)
 		if !ok {
 			t.Errorf("%s isn't a supported service", name)
 			continue
@@ -131,7 +133,7 @@ func TestCloudControlServices(t *testing.T) {
 }
 
 // A --catalogue overlay's cloud_control entry adds its type, and its
-// service, once SetCatalogue gives the provider the overlay: Services has
+// service, once SetCatalogue gives the provider the overlay: ServiceNames has
 // the service, and Select makes its Cloud Control lister.
 func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 	t.Parallel()
@@ -145,12 +147,12 @@ func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := &Provider{}
-	if _, ok := p.Services()["ivs"]; ok {
+	if slices.Contains(p.ServiceNames(), "ivs") {
 		t.Fatal("before SetCatalogue, want only the built-in services")
 	}
 	p.SetCatalogue(cat)
 
-	if _, ok := p.Services()["ivs"]; !ok {
+	if !slices.Contains(p.ServiceNames(), "ivs") {
 		t.Error("the overlay's service isn't among the services")
 	}
 	lister, err := p.Lister("ivs")
@@ -170,7 +172,7 @@ func TestCloudControlServicesOfTheOverlay(t *testing.T) {
 	}
 }
 
-// BenchmarkServices is Services with the built-in catalogue, as the
+// BenchmarkServices is ServiceNames with the built-in catalogue, as the
 // import sets it, and Resource Explorer on: the importer asks it two or
 // three times per account and region.
 func BenchmarkServices(b *testing.B) {
@@ -181,7 +183,7 @@ func BenchmarkServices(b *testing.B) {
 	p := &Provider{resourceExplorer: true}
 	p.SetCatalogue(cat)
 	for b.Loop() {
-		_ = p.Services()
+		_ = p.ServiceNames()
 	}
 }
 

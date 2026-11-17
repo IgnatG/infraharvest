@@ -23,14 +23,12 @@ import (
 // enough for a command to check its flags against.
 type stubProvider struct{}
 
-func (*stubProvider) Init(context.Context, []string) error  { return nil }
-func (*stubProvider) Lister(string) (harvest.Lister, error) { return nil, nil }
-func (*stubProvider) Name() string                          { return "stub" }
-func (*stubProvider) Profile() harvest.Profile              { return harvest.Profile{} }
-func (*stubProvider) Services() map[string]harvest.Lister {
-	return map[string]harvest.Lister{"queues": nil}
-}
-func (*stubProvider) ProviderBlock() map[string]any { return nil }
+func (*stubProvider) Init(context.Context, harvest.ProviderSettings) error { return nil }
+func (*stubProvider) Lister(string) (harvest.Lister, error)                { return nil, nil }
+func (*stubProvider) Name() string                                         { return "stub" }
+func (*stubProvider) Profile() harvest.Profile                             { return harvest.Profile{} }
+func (*stubProvider) ServiceNames() []string                               { return []string{"queues"} }
+func (*stubProvider) ProviderBlock() map[string]any                        { return nil }
 
 // stubCommand is what a definition of stubProvider's command saw run.
 type stubCommand struct {
@@ -209,3 +207,7 @@ func TestAppendMissing(t *testing.T) {
 		}
 	}
 }
+
+// args returns the call's settings as the key that names its inventory,
+// which is what the tests of the planners compare.
+func (c call) args() []string { return c.settings.InventoryKey() }

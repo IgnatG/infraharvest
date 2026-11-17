@@ -24,11 +24,7 @@ import (
 // every type the catalogue maps from it.
 func TestServices(t *testing.T) {
 	t.Parallel()
-	var names []string
-	for name := range (&Provider{}).Services() {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := (&Provider{}).ServiceNames()
 	if want := []string{"cloud_asset", "cloudsql", "dns", "iam", "query", "schedulerJobs"}; !slices.Equal(names, want) {
 		t.Errorf("services: %v, want %v", names, want)
 	}
@@ -78,24 +74,24 @@ func TestInit(t *testing.T) {
 	t.Setenv(projectEnv, "")
 
 	p := &Provider{}
-	if err := p.Init(t.Context(), []string{"global", "", ""}); err == nil || !strings.Contains(err.Error(), projectEnv) {
+	if err := p.Init(t.Context(), Settings{Region: "global"}); err == nil || !strings.Contains(err.Error(), projectEnv) {
 		t.Errorf("without a project: %v", err)
 	}
 	t.Setenv(projectEnv, "acme")
-	if err := p.Init(t.Context(), []string{"global", "", ""}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
+	if err := p.Init(t.Context(), Settings{Region: "global"}); err != nil || p.projectName != "acme" || p.region.Name != "" || len(paths) != 0 {
 		t.Errorf("global: %v, %+v, calls %v", err, p, paths)
 	}
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", "beta"}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Profile().Command != "google" {
+	if err := p.Init(t.Context(), Settings{Region: "europe-west1", Project: "acme", Beta: true}); err != nil || p.region.Name != "europe-west1" || p.Name() != "google-beta" || p.Profile().Command != "google" {
 		t.Errorf("europe-west1: %v, %+v, directory %q", err, p, p.Profile().Command)
 	}
 	// Another service of the same call asks again: the region is known.
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err != nil || p.region.Name != "europe-west1" {
+	if err := p.Init(t.Context(), Settings{Region: "europe-west1", Project: "acme"}); err != nil || p.region.Name != "europe-west1" {
 		t.Errorf("europe-west1 again: %v, %+v", err, p)
 	}
 	if !slices.Equal(paths, []string{"/compute/v1/projects/acme/regions/europe-west1?name"}) {
 		t.Errorf("calls %v", paths)
 	}
-	err := p.Init(t.Context(), []string{"europe-west9", "acme", ""})
+	err := p.Init(t.Context(), Settings{Region: "europe-west9", Project: "acme"})
 	if err == nil || !strings.Contains(err.Error(), "europe-west9") || !strings.Contains(err.Error(), "acme") {
 		t.Errorf("unknown region: %v", err)
 	}
@@ -119,14 +115,14 @@ func TestInitWithoutComputeEngine(t *testing.T) {
 	serve(disabled)
 
 	p := &Provider{}
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err != nil || p.region.Name != "europe-west1" {
+	if err := p.Init(t.Context(), Settings{Region: "europe-west1", Project: "acme"}); err != nil || p.region.Name != "europe-west1" {
 		t.Errorf("Compute Engine disabled: %v, region %q", err, p.region.Name)
 	}
-	if err := p.Init(t.Context(), []string{"europe-west1-b", "acme", ""}); err == nil {
+	if err := p.Init(t.Context(), Settings{Region: "europe-west1-b", Project: "acme"}); err == nil {
 		t.Error("a zone for a region: want an error")
 	}
 	serve(denied)
-	if err := p.Init(t.Context(), []string{"europe-west1", "acme", ""}); err == nil || !strings.Contains(err.Error(), "compute.regions.get") {
+	if err := p.Init(t.Context(), Settings{Region: "europe-west1", Project: "acme"}); err == nil || !strings.Contains(err.Error(), "compute.regions.get") {
 		t.Errorf("denied: %v", err)
 	}
 }
@@ -146,7 +142,7 @@ func TestInitStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := (&Provider{}).Init(ctx, []string{"europe-west1", "acme", ""})
+	err := (&Provider{}).Init(ctx, Settings{Region: "europe-west1", Project: "acme"})
 	if !errors.Is(err, context.Canceled) || calls != 0 {
 		t.Errorf("got %v after %d calls, want %v before any", err, calls, context.Canceled)
 	}

@@ -55,7 +55,7 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 	t.Setenv("AWS_REGION", "")
 	t.Setenv("AWS_PROFILE", "")
 	p := &Provider{}
-	if err := p.Init(t.Context(), []string{"eu-west-2", "default", "arn:aws:iam::111122223333:role/infraharvest-readonly"}); err != nil {
+	if err := p.Init(t.Context(), Settings{Region: "eu-west-2", Profile: "default", Role: AssumeRole{ARN: "arn:aws:iam::111122223333:role/infraharvest-readonly"}}); err != nil {
 		t.Fatal(err)
 	}
 	config := p.ProviderBlock()["provider"].(map[string]interface{})["aws"].(map[string]interface{})
@@ -68,7 +68,7 @@ func TestProviderBlockAssumesTheRole(t *testing.T) {
 	}
 
 	single := &Provider{}
-	if err := single.Init(t.Context(), []string{"eu-west-2", "default"}); err != nil {
+	if err := single.Init(t.Context(), Settings{Region: "eu-west-2", Profile: "default"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := single.ProviderBlock()["provider"].(map[string]interface{})["aws"].(map[string]interface{})["assume_role"]; ok {
@@ -91,7 +91,7 @@ func TestProviderBlockPinsTheAccountAndRegion(t *testing.T) {
 	cfg.Region = "eu-west-2"
 	ctx := fakeRun(t, cfg)
 	p := &Provider{}
-	if err := p.Init(ctx, []string{ProfileRegion, "default"}); err != nil {
+	if err := p.Init(ctx, Settings{Region: ProfileRegion, Profile: "default"}); err != nil {
 		t.Fatal(err)
 	}
 	config := func() map[string]interface{} {

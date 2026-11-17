@@ -49,7 +49,7 @@ func (f *fakeSteps) record(event string) {
 func (f *fakeSteps) steps() callSteps {
 	return callSteps{
 		list: func(ctx context.Context, run *Run, c Call) (*listedCall, error) {
-			name := c.Args[0]
+			name := c.Settings.InventoryKey()[0]
 			f.record("list " + name)
 			if f.list != nil {
 				if err := f.list(ctx, name); err != nil {
@@ -86,7 +86,7 @@ func (f *fakeSteps) steps() callSteps {
 func fakeCalls(options Options, names ...string) []Call {
 	calls := make([]Call, len(names))
 	for i, name := range names {
-		calls[i] = Call{Options: options, Args: []string{name}}
+		calls[i] = Call{Options: options, Settings: testSettings{name}}
 	}
 	return calls
 }

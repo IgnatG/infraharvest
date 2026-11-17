@@ -158,7 +158,7 @@ type Options struct {
 	// ProviderScope is what the provider command's own flags say of where
 	// to list and what to import, such as AWS's --profile, --accounts and
 	// --cfn-stack, or Azure's --resource-group. The command builds it and
-	// reads it, with its provider, through each call's args; the importer
+	// reads it, with its provider, through each call's settings; the importer
 	// asks of it only the capabilities harvest declares for a scope (see
 	// harvest.StackScoped), and does without those it lacks.
 	ProviderScope any
@@ -259,7 +259,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 			p.SetCatalogue(cat)
 		}
 	}
-	known := provider.Services()
+	known := provider.ServiceNames()
 	for _, f := range []struct {
 		flag  string
 		names []string
@@ -267,7 +267,7 @@ func checkOptions(provider harvest.Provider, options Options) error {
 		flag, names := f.flag, f.names
 		var unknown []string
 		for _, name := range names {
-			if _, ok := known[name]; !ok && name != "*" {
+			if !slices.Contains(known, name) && name != "*" {
 				unknown = append(unknown, name)
 			}
 		}
@@ -509,13 +509,13 @@ func listServices(ctx context.Context, provider harvest.Provider, c *callContext
 // only when named, never as part of "*".
 func Services(provider harvest.Provider) []string {
 	optIn := provider.Profile().OptInServices
-	services := make([]string, 0, len(provider.Services()))
-	for name := range provider.Services() {
+	names := provider.ServiceNames()
+	services := make([]string, 0, len(names))
+	for _, name := range names {
 		if !slices.Contains(optIn, name) {
 			services = append(services, name)
 		}
 	}
-	slices.Sort(services)
 	return services
 }
 

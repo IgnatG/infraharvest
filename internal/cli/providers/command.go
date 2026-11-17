@@ -61,11 +61,12 @@ type definition struct {
 	// with (see managedStores). The store links the cloud's SDK, as the
 	// provider does, so only a build with the provider has it.
 	stores func(stores *managed.Stores)
-	// identityArgs returns args, the Init args of a call that covers
-	// scope, with the identity the configuration file's environment says
-	// scope is read with (see harvest.Scope.Identity) in place of the
-	// command's own: its profile, role, tenant or service account.
-	identityArgs func(args []string, scope string, id config.Identity) []string
+	// identitySettings returns settings, the Init settings of a call that
+	// covers scope, with the identity the configuration file's
+	// environment says scope is read with (see harvest.Scope.Identity) in
+	// place of the command's own: its profile, role, tenant or service
+	// account (see identifying).
+	identitySettings func(settings harvest.ProviderSettings, scope string, id config.Identity) harvest.ProviderSettings
 	// settings are what infraharvest writes the provider blocks of the
 	// provider's roots with, by source address: its own and those of the
 	// providers its curated modules use (see Settings).
@@ -97,19 +98,19 @@ type plan struct {
 	// place of the definition's, such as an AWS provider scoped to
 	// CloudFormation stacks.
 	newProvider func() harvest.Provider
-	// identify, if set, returns args, the Init args of a call that covers
-	// scope, with the identity the environments of the configuration
-	// file read scope with.
-	identify func(args []string, scope string) []string
+	// identify, if set, returns settings, the Init settings of a call that
+	// covers scope, with the identity the environments of the
+	// configuration file read scope with.
+	identify func(settings harvest.ProviderSettings, scope string) harvest.ProviderSettings
 }
 
 // call is one Import call (see importer.Call).
 type call struct {
 	options importer.Options
-	// args are what the provider's Init reads. They also name the call's
-	// inventory (see --reuse-inventory), so a call must have the same args
-	// under discover and import.
-	args []string
+	// settings are what the provider's Init reads. They also name the
+	// call's inventory (see --reuse-inventory), so a call must have the
+	// same settings under discover and import.
+	settings harvest.ProviderSettings
 	// where says what the call covers, such as "region eu-west-1", for the
 	// log; empty logs nothing.
 	where string
@@ -130,12 +131,25 @@ func (p plan) importerPlan(options importer.Options, newProvider func() harvest.
 		calls := make([]importer.Call, len(planned))
 		for i, c := range planned {
 			if p.identify != nil {
-				c.args = p.identify(c.args, scope)
+				c.settings = p.identify(c.settings, scope)
 			}
-			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Args: c.args, Where: c.where, First: c.first}
+			calls[i] = importer.Call{Provider: newProvider(), Options: c.options, Settings: c.settings, Where: c.where, First: c.first}
 		}
 		return calls
 	}}
+}
+
+// identifying returns f, which sets the identity of one provider's
+// settings, as a definition's identitySettings: for settings of another
+// type it changes nothing.
+func identifying[S harvest.ProviderSettings](f func(settings S, scope string, id config.Identity) S) func(harvest.ProviderSettings, string, config.Identity) harvest.ProviderSettings {
+	return func(settings harvest.ProviderSettings, scope string, id config.Identity) harvest.ProviderSettings {
+		typed, ok := settings.(S)
+		if !ok {
+			return settings
+		}
+		return f(typed, scope, id)
+	}
 }
 
 // define registers the provider d describes.
@@ -196,13 +210,13 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 				if err != nil {
 					return importer.Plan{}, err
 				}
-				if d.identityArgs != nil {
+				if d.identitySettings != nil {
 					scopeIdentity := run.ScopeIdentity(d.newProvider().Profile())
-					p.identify = func(args []string, scope string) []string {
+					p.identify = func(settings harvest.ProviderSettings, scope string) harvest.ProviderSettings {
 						if id := scopeIdentity(scope); len(id) > 0 {
-							return d.identityArgs(slices.Clone(args), scope, id)
+							return d.identitySettings(settings, scope, id)
 						}
-						return args
+						return settings
 					}
 				}
 				return p.importerPlan(options, d.newProvider), nil

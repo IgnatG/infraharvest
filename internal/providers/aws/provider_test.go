@@ -19,10 +19,10 @@ var _ harvest.ProviderWithCatalogue = (*Provider)(nil)
 func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
-	services := p.Services()
+	services := p.ServiceNames()
 	wildcard := importer.Services(p)
 	for _, name := range p.Profile().OptInServices {
-		if _, ok := services[name]; !ok {
+		if !slices.Contains(services, name) {
 			t.Errorf("opt-in service %s isn't a service", name)
 		}
 		if slices.Contains(wildcard, name) {
@@ -34,13 +34,13 @@ func TestEndOfSupportServicesAreOptIn(t *testing.T) {
 	}
 }
 
-// Lister makes only the lister of the service it names, the one Services
+// Lister makes only the lister of the service it names, the one serviceTable
 // has for it, and refuses a name that isn't a service. The query
 // service's lister, which asks AWS nothing itself, isn't wrapped.
 func TestListerMakesTheServicesLister(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
-	for name, want := range p.Services() {
+	for _, name := range p.ServiceNames() {
 		lister, err := p.Lister(name)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -51,9 +51,10 @@ func TestListerMakesTheServicesLister(t *testing.T) {
 			}
 			continue
 		}
+		want := p.newServiceLister(name)
 		got, ok := lister.(*guardedLister)
-		if !ok || reflect.TypeOf(got.lister) != reflect.TypeOf(want.(*guardedLister).lister) {
-			t.Errorf("%s: made %T, want %T", name, lister, want)
+		if !ok || reflect.TypeOf(got.lister) != reflect.TypeOf(want) {
+			t.Errorf("%s: made %T, want a guardedLister of %T", name, lister, want)
 		}
 	}
 	if _, err := p.Lister("no-such-service"); err == nil {

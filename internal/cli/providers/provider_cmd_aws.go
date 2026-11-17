@@ -51,11 +51,11 @@ func init() {
 			"iam and route53, once on their own.\n\n" +
 			"--accounts or --organization imports several accounts in one run, each through\n" +
 			"the role --assume-role names. Nothing is applied and no state is written.",
-		sampleServices: "vpc,s3",
-		sampleIDs:      "vpc=vpc-0a1b2c3d",
-		parallelScopes: "accounts of --accounts or --organization and regions of --regions",
-		flags:          awsFlags,
-		identityArgs:   awsIdentityArgs,
+		sampleServices:   "vpc,s3",
+		sampleIDs:        "vpc=vpc-0a1b2c3d",
+		parallelScopes:   "accounts of --accounts or --organization and regions of --regions",
+		flags:            awsFlags,
+		identitySettings: identifying(awsIdentity),
 	})
 }
 
@@ -67,7 +67,7 @@ func newAWSProvider() harvest.Provider {
 // awsScope is what the AWS command's own flags say of where to list and
 // what to import, besides --regions: the command's harvest scope (see
 // importer.Options.ProviderScope), which the command reads, and hands the
-// provider through each call's args.
+// provider through each call's settings.
 type awsScope struct {
 	// profile is the AWS profile; the managed state in S3 is read with it
 	// too.
@@ -376,7 +376,7 @@ func (s *awsScope) calls(options importer.Options, roleARN string) []call {
 // roleARN names, none for "". The AWS provider reads the region, the
 // profile and the role to assume.
 func (s *awsScope) call(options importer.Options, roleARN, region, where string) call {
-	return call{options: options, args: s.role(roleARN).Args(region, s.profile), where: where}
+	return call{options: options, settings: awsprovider.Settings{Region: region, Profile: s.profile, Role: s.role(roleARN)}, where: where}
 }
 
 // role is the role roleARN names, assumed with --external-id and
@@ -402,20 +402,17 @@ func groupAWSServices(options importer.Options) (global, eastOnly, regional []st
 	return global, eastOnly, regional
 }
 
-// awsIdentityArgs returns args, the Init args of an AWS call for account,
-// with the profile and the role the environment that names the account
-// says to read it with (see awsprovider.IdentityKeys): the profile
+// awsIdentity returns settings, the Init settings of an AWS call for
+// account, with the profile and the role the environment that names the
+// account says to read it with (see awsprovider.IdentityKeys): the profile
 // replaces --profile, and the role --assume-role's, as a role ARN or a
 // role name, in the account.
-func awsIdentityArgs(args []string, account string, id config.Identity) []string {
-	for len(args) < 3 {
-		args = append(args, "")
-	}
+func awsIdentity(settings awsprovider.Settings, account string, id config.Identity) awsprovider.Settings {
 	if profile := id["profile"]; profile != "" {
-		args[1] = profile
+		settings.Profile = profile
 	}
 	if role := id["assume_role"]; role != "" {
-		args[2] = awsprovider.RoleARN(role, account)
+		settings.Role.ARN = awsprovider.RoleARN(role, account)
 	}
-	return args
+	return settings
 }

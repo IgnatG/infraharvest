@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"slices"
@@ -99,7 +100,7 @@ type Provider struct {
 	// listed is what the import's other services listed (see
 	// SetListedByOthers), for the services that list from it.
 	listed []harvest.Resource
-	// azapi is --azapi (Init's args[2]): resource_graph imports what
+	// azapi is --azapi (Settings.AzAPI): resource_graph imports what
 	// azurerm has no type for as azapi_resource (see azapiCandidates).
 	azapi bool
 	// tenantID and clientID are the identity the environment that names
@@ -108,32 +109,75 @@ type Provider struct {
 	tenantID, clientID string
 }
 
-// Init takes the resource group (args[0], "" for the whole subscription),
-// optionally the subscription (args[1]), which otherwise comes from
-// ARM_SUBSCRIPTION_ID, and the provider type (args[2]): azapi for
-// --azapi, else "". It reads the ARM_* environment and builds the
+// Settings are what an Azure call is initialised with (see Provider.Init).
+type Settings struct {
+	// ResourceGroup is the resource group to list, "" for the whole
+	// subscription.
+	ResourceGroup string
+	// Subscription is the subscription to list, "" for ARM_SUBSCRIPTION_ID's.
+	Subscription string
+	// AzAPI is --azapi: resource_graph imports what azurerm has no type
+	// for as azapi_resource.
+	AzAPI bool
+	// TenantID and ClientID are the identity of the environment that names
+	// the subscription (see IdentityKeys), which replace ARM_TENANT_ID and
+	// ARM_CLIENT_ID; "" for those.
+	TenantID, ClientID string
+}
+
+// InventoryKey returns the resource group, the subscription and, with
+// --azapi only, the provider type, each from the first that is set, so
+// that the key, which names the call's inventory, is as it was without
+// them; the identity, tenant_id=<tenant> and client_id=<client> where
+// set, follows them, which it pads.
+func (s Settings) InventoryKey() []string {
+	key := []string{s.ResourceGroup}
+	if s.Subscription != "" || s.AzAPI {
+		key = append(key, s.Subscription)
+	}
+	if s.AzAPI {
+		key = append(key, azapiProviderType)
+	}
+	if s.TenantID == "" && s.ClientID == "" {
+		return key
+	}
+	for len(key) < 3 {
+		key = append(key, "")
+	}
+	if s.TenantID != "" {
+		key = append(key, tenantIDKey+"="+s.TenantID)
+	}
+	if s.ClientID != "" {
+		key = append(key, clientIDKey+"="+s.ClientID)
+	}
+	return key
+}
+
+// Init takes the resource group, the subscription, which otherwise comes
+// from ARM_SUBSCRIPTION_ID, the provider type and the environment's
+// identity (see Settings). It reads the ARM_* environment and builds the
 // credential; with no subscription it fails with errNoSubscription before
-// any request. The args after the third are an environment's identity,
-// tenant_id=<tenant> and client_id=<client> (see IdentityArgs), which
-// replace ARM_TENANT_ID and ARM_CLIENT_ID. A custom cloud's endpoints are read from its metadata host,
+// any request. A custom cloud's endpoints are read from its metadata host,
 // with ctx, and the requests are limited at the rate of the run's limiter
 // in ctx (see runstate.FromContext).
-func (p *Provider) Init(ctx context.Context, args []string) error {
+func (p *Provider) Init(ctx context.Context, settings harvest.ProviderSettings) error {
+	s, err := harvest.SettingsOf[Settings](commandName, settings)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadAuthConfig(os.Getenv)
 	if err != nil {
 		return err
 	}
-	if len(args) > 1 && args[1] != "" {
-		cfg.subscriptionID = args[1]
+	if s.Subscription != "" {
+		cfg.subscriptionID = s.Subscription
 	}
 	p.tenantID, p.clientID = "", ""
-	for _, arg := range args[min(len(args), 3):] {
-		switch key, value, _ := strings.Cut(arg, "="); key {
-		case tenantIDKey:
-			p.tenantID, cfg.tenantID = value, value
-		case clientIDKey:
-			p.clientID, cfg.clientID = value, value
-		}
+	if s.TenantID != "" {
+		p.tenantID, cfg.tenantID = s.TenantID, s.TenantID
+	}
+	if s.ClientID != "" {
+		p.clientID, cfg.clientID = s.ClientID, s.ClientID
 	}
 	if cfg.subscriptionID == "" {
 		return errNoSubscription
@@ -150,11 +194,8 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 		described := cfg.cloud
 		p.customCloud = &described
 	}
-	p.resourceGroup = ""
-	if len(args) > 0 {
-		p.resourceGroup = args[0]
-	}
-	p.azapi = len(args) > 2 && args[2] == azapiProviderType
+	p.resourceGroup = s.ResourceGroup
+	p.azapi = s.AzAPI
 	return nil
 }
 
@@ -365,13 +406,9 @@ func (p *Provider) ProviderBlock() map[string]interface{} {
 	}
 }
 
-// Services returns a new lister, as Lister makes it, for every service.
-func (p *Provider) Services() map[string]harvest.Lister {
-	supported := make(map[string]harvest.Lister, len(services))
-	for name := range services {
-		supported[name], _ = p.Lister(name)
-	}
-	return supported
+// ServiceNames returns the names of every service, sorted.
+func (*Provider) ServiceNames() []string {
+	return slices.Sorted(maps.Keys(services))
 }
 
 // Lister returns a new lister for the service called name, with the

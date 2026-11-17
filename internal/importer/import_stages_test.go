@@ -37,7 +37,7 @@ type limiterProvider struct {
 	limiter *ratelimit.Limiter
 }
 
-func (p *limiterProvider) Init(ctx context.Context, _ []string) error {
+func (p *limiterProvider) Init(ctx context.Context, _ harvest.ProviderSettings) error {
 	p.limiter = ratelimit.FromContext(ctx)
 	return nil
 }

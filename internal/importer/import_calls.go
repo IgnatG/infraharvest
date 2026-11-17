@@ -53,12 +53,15 @@ type Plan struct {
 }
 
 // Call is one of the Import calls that cover a scope (see
-// Run.importScope): the provider, options and args of one, with what the
+// Run.importScope): the provider, options and settings of one, with what the
 // log says about it.
 type Call struct {
 	Provider harvest.Provider
 	Options  Options
-	Args     []string
+	// Settings are what the provider is initialised with. They also name
+	// the call's inventory (see --reuse-inventory), so a call has the same
+	// settings under discover and import.
+	Settings harvest.ProviderSettings
 	// Where says what the call covers, such as "region eu-west-1", for the
 	// log; empty logs nothing.
 	Where string
@@ -163,7 +166,7 @@ type callSteps struct {
 // engine (see listedCall.generate).
 var engineSteps = callSteps{
 	list: func(ctx context.Context, run *Run, c Call) (*listedCall, error) {
-		return listCall(ctx, run, c.Provider, c.Options, c.Args)
+		return listCall(ctx, run, c.Provider, c.Options, c.Settings)
 	},
 	generate: func(ctx context.Context, c *listedCall, roots map[string][]rootfile.Import) error {
 		return c.generate(ctx, roots)

@@ -13,19 +13,22 @@ const (
 	testClient = "22222222-2222-2222-2222-222222222222"
 )
 
-func TestIdentityArgs(t *testing.T) {
+// The key of settings, which names the inventory of a call, has the
+// identity after the resource group, the subscription and the provider
+// type, which it pads; without an identity it is as it was without one.
+func TestSettingsKeyHasTheIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		args           []string
-		tenant, client string
-		want           []string
+		settings Settings
+		want     []string
 	}{
-		{[]string{"rg", "sub"}, testTenant, "", []string{"rg", "sub", "", "tenant_id=" + testTenant}},
-		{[]string{"", "sub", "azapi"}, "", testClient, []string{"", "sub", "azapi", "client_id=" + testClient}},
-		{[]string{"rg", "sub"}, "", "", []string{"rg", "sub", ""}},
+		{Settings{ResourceGroup: "rg", Subscription: "sub", TenantID: testTenant}, []string{"rg", "sub", "", "tenant_id=" + testTenant}},
+		{Settings{Subscription: "sub", AzAPI: true, ClientID: testClient}, []string{"", "sub", "azapi", "client_id=" + testClient}},
+		{Settings{ResourceGroup: "rg", Subscription: "sub", TenantID: testTenant, ClientID: testClient}, []string{"rg", "sub", "", "tenant_id=" + testTenant, "client_id=" + testClient}},
+		{Settings{ResourceGroup: "rg", Subscription: "sub"}, []string{"rg", "sub"}},
 	} {
-		if got := IdentityArgs(tc.args, tc.tenant, tc.client); !reflect.DeepEqual(got, tc.want) {
-			t.Errorf("%q: got %q, want %q", tc.args, got, tc.want)
+		if got := tc.settings.InventoryKey(); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%+v: got %q, want %q", tc.settings, got, tc.want)
 		}
 	}
 }
@@ -38,7 +41,7 @@ func TestInitTakesTheIdentity(t *testing.T) {
 	t.Setenv("ARM_TENANT_ID", "99999999-9999-9999-9999-999999999999")
 	t.Setenv("ARM_CLIENT_ID", "88888888-8888-8888-8888-888888888888")
 	p := &Provider{}
-	if err := p.Init(t.Context(), IdentityArgs([]string{"", "sub-identity"}, testTenant, testClient)); err != nil {
+	if err := p.Init(t.Context(), Settings{Subscription: "sub-identity", TenantID: testTenant, ClientID: testClient}); err != nil {
 		t.Fatal(err)
 	}
 	if p.tenantID != testTenant || p.clientID != testClient || p.subscriptionID != "sub-identity" || p.azapi {
@@ -51,7 +54,7 @@ func TestInitTakesTheIdentity(t *testing.T) {
 	// The identity is a sign-in of its own: its credential isn't the
 	// environment's.
 	other := &Provider{}
-	if err := other.Init(t.Context(), []string{"", "sub-identity"}); err != nil {
+	if err := other.Init(t.Context(), Settings{Subscription: "sub-identity"}); err != nil {
 		t.Fatal(err)
 	}
 	if other.tenantID != "" || other.credential == p.credential {

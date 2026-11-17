@@ -483,7 +483,7 @@ func TestCloudAssetLeavesOutUnmapped(t *testing.T) {
 func TestCloudAssetIsInTheWildcard(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
-	if _, ok := p.Services()[cloudAssetService]; !ok {
+	if !slices.Contains(p.ServiceNames(), cloudAssetService) {
 		t.Fatal("cloud_asset isn't a service")
 	}
 	if optIn := p.Profile().OptInServices; !slices.Equal(optIn, []string{harvest.QueryService}) {

@@ -11,8 +11,8 @@ import (
 )
 
 // The keys of an environment's azure section, beside subscriptions, that
-// name the identity its subscriptions are read with, and the Init args
-// that carry them (as key=value).
+// name the identity its subscriptions are read with, which also name them
+// in the inventory key (as key=value; see Settings.InventoryKey).
 const (
 	tenantIDKey = "tenant_id"
 	clientIDKey = "client_id"
@@ -38,23 +38,6 @@ func IdentityKeys() []harvest.IdentityKey {
 		{Key: tenantIDKey, Match: tenantReference, Format: "a tenant ID (GUID) or domain name"},
 		{Key: clientIDKey, Match: clientReference, Format: "a client ID (GUID)"},
 	}
-}
-
-// IdentityArgs returns args, the Init args of a call, with the tenant
-// and client IDs of an environment's identity (tenant, client; "" for
-// none) after the resource group, the subscription and the provider type,
-// which they pad.
-func IdentityArgs(args []string, tenant, client string) []string {
-	for len(args) < 3 {
-		args = append(args, "")
-	}
-	if tenant != "" {
-		args = append(args, tenantIDKey+"="+tenant)
-	}
-	if client != "" {
-		args = append(args, clientIDKey+"="+client)
-	}
-	return args
 }
 
 // TerraformEnv gives Terraform the tenant and client an environment says

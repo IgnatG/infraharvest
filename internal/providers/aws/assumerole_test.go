@@ -17,9 +17,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
-// Args adds the external ID and the session name only where set, so that
-// a call without them keeps the args, and the inventory, it had; Init
-// reads them back.
+// Args, and so the settings' key, add the external ID and the session name
+// only where set, so that a call without them keeps the key, and the
+// inventory, it had; Init reads them back.
 func TestAssumeRoleArgs(t *testing.T) {
 	t.Parallel()
 	const role = "arn:aws:iam::111122223333:role/reader"
@@ -37,7 +37,11 @@ func TestAssumeRoleArgs(t *testing.T) {
 			t.Errorf("%+v: args %q, want %q", tt.role, args, tt.want)
 		}
 		p := &Provider{}
-		if err := p.Init(t.Context(), args); err != nil {
+		settings := Settings{Region: "eu-west-2", Profile: "audit", Role: tt.role}
+		if key := settings.InventoryKey(); !slices.Equal(key, tt.want) {
+			t.Errorf("%+v: key %q, want %q", tt.role, key, tt.want)
+		}
+		if err := p.Init(t.Context(), settings); err != nil {
 			t.Fatal(err)
 		}
 		want := serviceSettings{region: "eu-west-2", profile: "audit", roleARN: role, externalID: tt.role.ExternalID, sessionName: tt.role.SessionName}
@@ -73,7 +77,7 @@ func TestProviderBlockAssumesTheRoleWithItsExternalID(t *testing.T) {
 	t.Setenv("AWS_REGION", "")
 	t.Setenv("AWS_PROFILE", "")
 	p := &Provider{}
-	if err := p.Init(t.Context(), AssumeRole{ARN: "arn:aws:iam::111122223333:role/reader", ExternalID: "ext-1", SessionName: "ci-42"}.Args("eu-west-2", "default")); err != nil {
+	if err := p.Init(t.Context(), Settings{Region: "eu-west-2", Profile: "default", Role: AssumeRole{ARN: "arn:aws:iam::111122223333:role/reader", ExternalID: "ext-1", SessionName: "ci-42"}}); err != nil {
 		t.Fatal(err)
 	}
 	role := p.ProviderBlock()["provider"].(map[string]interface{})["aws"].(map[string]interface{})["assume_role"].(map[string]interface{})
@@ -122,14 +126,14 @@ func TestSDKConfigAssumesWithExternalID(t *testing.T) {
 // role is not.
 func TestInitLogsIgnoredRoleSettings(t *testing.T) {
 	for _, tt := range []struct {
-		name string
-		args []string
-		want bool
+		name     string
+		settings Settings
+		want     bool
 	}{
-		{"external ID without a role", []string{"eu-west-1", "", "", "id-1"}, true},
-		{"session name without a role", []string{"eu-west-1", "", "", "", "ci"}, true},
-		{"with a role", []string{"eu-west-1", "", "arn:aws:iam::123456789012:role/r", "id-1", "ci"}, false},
-		{"neither", []string{"eu-west-1"}, false},
+		{"external ID without a role", Settings{Region: "eu-west-1", Role: AssumeRole{ExternalID: "id-1"}}, true},
+		{"session name without a role", Settings{Region: "eu-west-1", Role: AssumeRole{SessionName: "ci"}}, true},
+		{"with a role", Settings{Region: "eu-west-1", Role: AssumeRole{ARN: "arn:aws:iam::123456789012:role/r", ExternalID: "id-1", SessionName: "ci"}}, false},
+		{"neither", Settings{Region: "eu-west-1"}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
@@ -137,7 +141,7 @@ func TestInitLogsIgnoredRoleSettings(t *testing.T) {
 			log.SetOutput(&buf)
 			log.SetFlags(0)
 			t.Cleanup(func() { log.SetOutput(prev); log.SetFlags(flags) })
-			if err := new(Provider).Init(context.Background(), tt.args); err != nil {
+			if err := new(Provider).Init(context.Background(), tt.settings); err != nil {
 				t.Fatal(err)
 			}
 			if got := strings.Contains(buf.String(), "ignored"); got != tt.want {

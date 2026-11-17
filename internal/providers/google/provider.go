@@ -7,8 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +61,7 @@ type Provider struct {
 	// providerType is "" for the google provider, or beta for google-beta.
 	providerType string
 	// serviceAccount is the service account the environment that names
-	// the project says to read it as (Init's args[3]), "" for the
+	// the project says to read it as (Settings.ServiceAccount), "" for the
 	// environment's credentials.
 	serviceAccount string
 	// catalogue is the catalogue of the import (see SetCatalogue), nil
@@ -79,23 +81,55 @@ func (p *Provider) runCaches() *runCaches {
 	return p.caches
 }
 
-// Init takes the region (args[0]: global, the default, or a region's
-// name), the project (args[1], else GOOGLE_CLOUD_PROJECT) and the provider
-// type (args[2]). A region other than global is looked up through the
+// Settings are what a Google Cloud call is initialised with (see
+// Provider.Init).
+type Settings struct {
+	// Region is global, the default, or a region's name.
+	Region string
+	// Project is the ID of the project to list, "" for GOOGLE_CLOUD_PROJECT's.
+	Project string
+	// Beta is --beta: the provider is google-beta.
+	Beta bool
+	// ServiceAccount is the service account the environment that names
+	// the project says to read it as (see IdentityKeys), "" for the
+	// environment's credentials.
+	ServiceAccount string
+}
+
+// betaProviderType is the provider type of --beta, which extends the
+// provider's name to google-beta.
+const betaProviderType = "beta"
+
+// InventoryKey returns the region, the project and the provider type,
+// "beta" or "", with the service account, impersonate_service_account=<email>,
+// after them where set.
+func (s Settings) InventoryKey() []string {
+	providerType := ""
+	if s.Beta {
+		providerType = betaProviderType
+	}
+	key := []string{s.Region, s.Project, providerType}
+	if s.ServiceAccount != "" {
+		key = append(key, IdentityArg(s.ServiceAccount))
+	}
+	return key
+}
+
+// Init takes the region (global, the default, or a region's name), the
+// project (else GOOGLE_CLOUD_PROJECT) and the provider type (see
+// Settings). A region other than global is looked up through the
 // Compute Engine API, with ctx, so that a misspelt --regions fails rather
 // than finding nothing. A project that hasn't enabled the Compute Engine
 // API, such as one with only serverless services, can't have it looked
 // up: a name shaped like a region's is then taken as given, and logged.
 // The provider keeps ctx's run's caches (see cachesOf).
-func (p *Provider) Init(ctx context.Context, args []string) error {
-	p.caches = cachesOf(ctx)
-	arg := func(i int) string {
-		if i < len(args) {
-			return args[i]
-		}
-		return ""
+func (p *Provider) Init(ctx context.Context, settings harvest.ProviderSettings) error {
+	s, err := harvest.SettingsOf[Settings](providerName, settings)
+	if err != nil {
+		return err
 	}
-	project := arg(1)
+	p.caches = cachesOf(ctx)
+	project := s.Project
 	if project == "" {
 		project = os.Getenv(projectEnv)
 	}
@@ -103,11 +137,14 @@ func (p *Provider) Init(ctx context.Context, args []string) error {
 		return errors.New("google: the Google Cloud project to import isn't set: use --projects, or set " + projectEnv)
 	}
 	p.projectName = project
-	p.providerType = arg(2)
-	p.serviceAccount = strings.TrimPrefix(arg(3), impersonateKey+"=")
+	p.providerType = ""
+	if s.Beta {
+		p.providerType = betaProviderType
+	}
+	p.serviceAccount = s.ServiceAccount
 	p.caches.setImpersonation(project, p.serviceAccount)
 	p.region = compute.Region{}
-	region := arg(0)
+	region := s.Region
 	if region == "" || region == globalRegion {
 		return nil
 	}
@@ -187,16 +224,12 @@ var services = map[string]func() harvest.Lister{
 	harvest.QueryService: func() harvest.Lister { return &harvest.QueryLister{} },
 }
 
-// Services returns a new lister, as Lister makes it, for every service:
+// ServiceNames returns the names of every service, sorted:
 // cloud_asset, and those that list through an API of their own what Cloud
 // Asset Inventory doesn't find, and the query service's, which lists
 // through Terraform.
-func (p *Provider) Services() map[string]harvest.Lister {
-	supported := make(map[string]harvest.Lister, len(services))
-	for name := range services {
-		supported[name], _ = p.Lister(name)
-	}
-	return supported
+func (*Provider) ServiceNames() []string {
+	return slices.Sorted(maps.Keys(services))
 }
 
 // Lister returns a new lister for the service called name, with the

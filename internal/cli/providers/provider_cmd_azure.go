@@ -36,11 +36,11 @@ func init() {
 			"ARM_SUBSCRIPTION_ID's, unless --subscriptions or --management-group names\n" +
 			"several, each imported into roots of its own. Nothing is applied and no state\n" +
 			"is written.",
-		sampleServices: "resource_graph,management_lock",
-		sampleIDs:      "management_lock=LOCK_ID",
-		parallelScopes: "subscriptions of --subscriptions or --management-group",
-		flags:          azureFlags,
-		identityArgs:   azureIdentityArgs,
+		sampleServices:   "resource_graph,management_lock",
+		sampleIDs:        "management_lock=LOCK_ID",
+		parallelScopes:   "subscriptions of --subscriptions or --management-group",
+		flags:            azureFlags,
+		identitySettings: identifying(azureIdentity),
 	})
 }
 
@@ -101,7 +101,7 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 	if len(subscriptions) == 0 {
 		// The provider takes the subscription from ARM_SUBSCRIPTION_ID.
 		return plan{calls: func(scopeOptions importer.Options, _ string) []call {
-			return []call{{options: scopeOptions, args: s.args("")}}
+			return []call{{options: scopeOptions, settings: s.settings("")}}
 		}}, nil
 	}
 	if len(subscriptions) > 1 {
@@ -110,28 +110,21 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 		}
 	}
 	return plan{kind: "subscription", scopes: subscriptions, calls: func(scopeOptions importer.Options, subscription string) []call {
-		return []call{{options: scopeOptions, args: s.args(subscription)}}
+		return []call{{options: scopeOptions, settings: s.settings(subscription)}}
 	}}, nil
 }
 
-// args are what the provider's Init reads for one call: the resource group
-// ("" for the whole subscription), the subscription ("" for
-// ARM_SUBSCRIPTION_ID's) and, with --azapi only, the provider type, so that
-// the args, which name the call's inventory, are as they were without it.
-func (s *azureScopes) args(subscription string) []string {
-	args := []string{s.resourceGroup}
-	if subscription != "" || s.azapi {
-		args = append(args, subscription)
-	}
-	if s.azapi {
-		args = append(args, "azapi")
-	}
-	return args
+// settings are what the provider's Init reads for one call: the resource
+// group ("" for the whole subscription), the subscription ("" for
+// ARM_SUBSCRIPTION_ID's) and --azapi.
+func (s *azureScopes) settings(subscription string) azure.Settings {
+	return azure.Settings{ResourceGroup: s.resourceGroup, Subscription: subscription, AzAPI: s.azapi}
 }
 
-// azureIdentityArgs returns args, the Init args of an Azure call, with
+// azureIdentity returns settings, the Init settings of an Azure call, with
 // the tenant and client the environment that names the subscription says
 // to read it with (see azure.IdentityKeys).
-func azureIdentityArgs(args []string, _ string, id config.Identity) []string {
-	return azure.IdentityArgs(args, id["tenant_id"], id["client_id"])
+func azureIdentity(settings azure.Settings, _ string, id config.Identity) azure.Settings {
+	settings.TenantID, settings.ClientID = id["tenant_id"], id["client_id"]
+	return settings
 }

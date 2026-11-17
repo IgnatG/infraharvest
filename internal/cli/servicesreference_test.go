@@ -107,7 +107,6 @@ func writeProviderServices(b *strings.Builder, name string) error {
 	profile := provider.Profile()
 	optIn := slices.Sorted(slices.Values(profile.OptInServices))
 	services := importer.Services(provider)
-	supported := provider.Services()
 
 	title, ok := providerTitles[name]
 	if !ok {
@@ -124,7 +123,7 @@ func writeProviderServices(b *strings.Builder, name string) error {
 			fmt.Fprintf(b, "| `%s` (opt-in) | the types `--query-types` names, which no other service lists, through Terraform's list resources |\n", service)
 			continue
 		}
-		types := serviceTypes(service, supported[service], source, cat, prefix, slices.Contains(optIn, service), profile.MissingTypes)
+		types := serviceTypes(service, listerOf(provider, service), source, cat, prefix, slices.Contains(optIn, service), profile.MissingTypes)
 		cellService := "`" + service + "`"
 		if slices.Contains(optIn, service) {
 			cellService += " (opt-in)"
@@ -389,4 +388,11 @@ func (s *providerSource) literals(typeNames []string, prefix string) []string {
 		}
 	}
 	return slices.Sorted(maps.Keys(found))
+}
+
+// listerOf returns provider's lister of service, nil for a name that is
+// none.
+func listerOf(provider harvest.Provider, service string) harvest.Lister {
+	lister, _ := provider.Lister(service)
+	return lister
 }

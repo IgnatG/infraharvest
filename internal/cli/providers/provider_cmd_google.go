@@ -39,11 +39,11 @@ func init() {
 			"organization or folders with --organization and --folders. The global region,\n" +
 			"the default, holds resources that belong to no region. Nothing is applied and\n" +
 			"no state is written.",
-		sampleServices: "cloud_asset,iam",
-		sampleIDs:      "storage_bucket=my-logs",
-		parallelScopes: "projects of --projects, --organization or --folders and regions of --regions",
-		flags:          googleFlags,
-		identityArgs:   googleIdentityArgs,
+		sampleServices:   "cloud_asset,iam",
+		sampleIDs:        "storage_bucket=my-logs",
+		parallelScopes:   "projects of --projects, --organization or --folders and regions of --regions",
+		flags:            googleFlags,
+		identitySettings: identifying(googleIdentity),
 	})
 }
 
@@ -147,29 +147,18 @@ func (s *googleScopes) plan(ctx context.Context, options importer.Options) (plan
 			calls = append(calls, call{
 				options: regionOptions,
 				// The provider reads the region, the project and its type.
-				args:  []string{region, project, s.providerType()},
-				where: "project " + project + ", region " + region,
+				settings: google.Settings{Region: region, Project: project, Beta: s.beta},
+				where:    "project " + project + ", region " + region,
 			})
 		}
 		return calls
 	}}, nil
 }
 
-// providerType is the provider's type, as the Google provider's Init reads
-// it: "beta" for google-beta, else "".
-func (s *googleScopes) providerType() string {
-	if s.beta {
-		return "beta"
-	}
-	return ""
-}
-
-// googleIdentityArgs returns args, the Init args of a Google call, with
-// the service account the environment that names the project says to read
-// it as (see google.IdentityKeys).
-func googleIdentityArgs(args []string, _ string, id config.Identity) []string {
-	for len(args) < 3 {
-		args = append(args, "")
-	}
-	return append(args[:3], google.IdentityArg(id["impersonate_service_account"]))
+// googleIdentity returns settings, the Init settings of a Google call,
+// with the service account the environment that names the project says to
+// read it as (see google.IdentityKeys).
+func googleIdentity(settings google.Settings, _ string, id config.Identity) google.Settings {
+	settings.ServiceAccount = id["impersonate_service_account"]
+	return settings
 }

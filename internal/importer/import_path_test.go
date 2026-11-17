@@ -31,11 +31,11 @@ type rootsProvider struct {
 	harvest.Provider
 }
 
-func (p *rootsProvider) Init(context.Context, []string) error  { return nil }
-func (p *rootsProvider) Name() string                          { return "fake" }
-func (p *rootsProvider) Profile() harvest.Profile              { return harvest.Profile{} }
-func (p *rootsProvider) ProviderBlock() map[string]interface{} { return map[string]interface{}{} }
-func (p *rootsProvider) Lister(string) (harvest.Lister, error) { return rootsService{}, nil }
+func (p *rootsProvider) Init(context.Context, harvest.ProviderSettings) error { return nil }
+func (p *rootsProvider) Name() string                                         { return "fake" }
+func (p *rootsProvider) Profile() harvest.Profile                             { return harvest.Profile{} }
+func (p *rootsProvider) ProviderBlock() map[string]interface{}                { return map[string]interface{}{} }
+func (p *rootsProvider) Lister(string) (harvest.Lister, error)                { return rootsService{}, nil }
 
 type rootsService struct{}
 

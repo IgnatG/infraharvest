@@ -174,15 +174,15 @@ func TestGraphResourcesThroughAzapi(t *testing.T) {
 func TestWildcardListsResourceGraph(t *testing.T) {
 	t.Parallel()
 	p := &Provider{}
-	services := p.Services()
+	services := p.ServiceNames()
 	optIn := p.Profile().OptInServices
 	for _, name := range optIn {
-		if _, ok := services[name]; !ok {
+		if !slices.Contains(services, name) {
 			t.Errorf("opt-in service %s isn't a service", name)
 		}
 	}
 	var wildcard []string
-	for name := range services {
+	for _, name := range services {
 		if !slices.Contains(optIn, name) {
 			wildcard = append(wildcard, name)
 		}

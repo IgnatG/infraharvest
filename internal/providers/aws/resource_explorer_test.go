@@ -175,7 +175,7 @@ func listRegion(ctx context.Context, t *testing.T, service string, explorer bool
 	if explorer {
 		p.UseResourceExplorer(true)
 	}
-	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
+	if err := p.Init(ctx, Settings{Region: "eu-west-2", Profile: "default"}); err != nil {
 		t.Fatal(err)
 	}
 	lister, err := p.Lister(service)
@@ -222,7 +222,7 @@ func TestResourceExplorerRulesOutServicesOfAnImport(t *testing.T) {
 	ctx, _ := useExplorer(t, f)
 	p := &Provider{}
 	p.UseResourceExplorer(true)
-	if err := p.Init(ctx, []string{"eu-west-2", "default"}); err != nil {
+	if err := p.Init(ctx, Settings{Region: "eu-west-2", Profile: "default"}); err != nil {
 		t.Fatal(err)
 	}
 	services := []discovery.Discoverer{discovery.Service("sqs", p, harvest.Settings{}), discovery.Service("sfn", p, harvest.Settings{})}
@@ -428,7 +428,7 @@ func TestExplorerTypesAreOfRegionalServices(t *testing.T) {
 	t.Parallel()
 	cat := awsCatalogue()
 	covered := map[string]bool{}
-	for name := range (&Provider{}).Services() {
+	for _, name := range (&Provider{}).ServiceNames() {
 		types := explorerTypes(cat, name)
 		if slices.Contains(GlobalServices, name) || slices.Contains(EastOnlyServices, name) {
 			if len(types) > 0 {

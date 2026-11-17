@@ -228,9 +228,15 @@ type fakeProvider struct {
 	harvest.Provider
 }
 
-func (p *fakeProvider) Init(context.Context, []string) error { return nil }
-func (p *fakeProvider) Name() string                         { return "fake" }
-func (p *fakeProvider) Profile() harvest.Profile             { return harvest.Profile{} }
+// testSettings are the settings of a fake provider: the strings that name
+// the call's inventory.
+type testSettings []string
+
+func (s testSettings) InventoryKey() []string { return s }
+
+func (p *fakeProvider) Init(context.Context, harvest.ProviderSettings) error { return nil }
+func (p *fakeProvider) Name() string                                         { return "fake" }
+func (p *fakeProvider) Profile() harvest.Profile                             { return harvest.Profile{} }
 func (p *fakeProvider) Lister(string) (harvest.Lister, error) {
 	return fakeService{}, nil
 }
@@ -257,9 +263,7 @@ type servicesProvider struct {
 	fakeProvider
 }
 
-func (*servicesProvider) Services() map[string]harvest.Lister {
-	return map[string]harvest.Lister{"vpc": nil, "s3": nil}
-}
+func (*servicesProvider) ServiceNames() []string { return []string{"s3", "vpc"} }
 
 // optInProvider is servicesProvider with s3 opt-in.
 type optInProvider struct {
@@ -376,12 +380,11 @@ func (*catalogueProvider) Name() string { return "aws" }
 
 func (p *catalogueProvider) SetCatalogue(c *catalogue.Catalogue) { p.cat = c }
 
-func (p *catalogueProvider) Services() map[string]harvest.Lister {
-	services := map[string]harvest.Lister{"vpc": nil}
+func (p *catalogueProvider) ServiceNames() []string {
 	if p.cat != nil {
-		services["ivs"] = nil
+		return []string{"ivs", "vpc"}
 	}
-	return services
+	return []string{"vpc"}
 }
 
 // dependentProvider is fakeProvider with the service after, which lists
