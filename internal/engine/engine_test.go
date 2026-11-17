@@ -533,6 +533,16 @@ func importErrorAt(line int, summary string) tfjson.Diagnostic {
 	}
 }
 
+// goneError is what Terraform says of an import ID whose object doesn't
+// exist: an error without a range, whose detail names the address.
+func goneError(address string) tfjson.Diagnostic {
+	return tfjson.Diagnostic{
+		Severity: tfjson.DiagnosticSeverityError,
+		Summary:  "Cannot import non-existent remote object",
+		Detail:   `While attempting to import an existing object to "` + address + `", the provider detected that no object exists with the given id. Only pre-existing objects can be imported; check that the id is correct and that it is associated with the provider's configured region or endpoint, or use "terraform apply" to create a new remote object for this resource.`,
+	}
+}
+
 func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -559,8 +569,8 @@ func TestGenerateLeavesOutUnimportableResources(t *testing.T) {
 	if !reflect.DeepEqual(result.Rejected, want) {
 		t.Errorf("rejected: got %+v, want %+v", result.Rejected, want)
 	}
-	if strings.Join(tf.calls, ",") != "init,plan,validate,plan,show,schema,fmt,validate,plan,show" {
-		t.Errorf("calls: got %v, want [init plan validate plan show schema fmt validate plan show]", tf.calls)
+	if strings.Join(tf.calls, ",") != "init,plan,plan,show,schema,fmt,validate,plan,show" {
+		t.Errorf("calls: got %v, want [init plan plan show schema fmt validate plan show]", tf.calls)
 	}
 	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
 		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
@@ -587,6 +597,72 @@ const invalidGenerated = `resource "aws_route53_record" "a" {
   multivalue_answer_routing_policy = false
 }
 `
+
+// Terraform's error for the missing object may come with another resource's
+// that repair then edits: the later plan, without -generate-config-out,
+// only says the missing one has no configuration, which isn't why it goes.
+func TestGenerateKeepsWhyAResourceIsLeftOutWhenOthersAreRepaired(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	rejected := errorAt(3, "Invalid combination of arguments", `"multivalue_answer_routing_policy": all of `+"`multivalue_answer_routing_policy,set_identifier`"+` must be specified`)
+	tf := &fakeTerraform{
+		dir:         dir,
+		generated:   invalidGenerated,
+		plans:       []fakePlan{{diags: []tfjson.Diagnostic{goneError("aws_sqs_queue.a"), rejected}}, {diags: []tfjson.Diagnostic{rejected}}},
+		validations: []*tfjson.ValidateOutput{{Diagnostics: []tfjson.Diagnostic{rejected}}},
+	}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "gone"}, {Type: "aws_route53_record", Name: "a", ID: "Z1_example.internal_A"}}
+
+	result, err := Generate(context.Background(), tf, dir, imports, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Rejected) != 1 || result.Rejected[0].Address != "aws_sqs_queue.a" || result.Rejected[0].ID != "gone" ||
+		len(result.Rejected[0].Errors) != 1 || !strings.HasPrefix(result.Rejected[0].Errors[0], "Cannot import non-existent remote object") {
+		t.Errorf("rejected: got %+v, want aws_sqs_queue.a left out as having no object", result.Rejected)
+	}
+	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "aws_sqs_queue") || !strings.Contains(got, "aws_route53_record.a") {
+		t.Errorf("imports.tf should only import the record:\n%s", got)
+	}
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, "multivalue") {
+		t.Errorf("the other resource wasn't repaired:\n%s", got)
+	}
+}
+
+// A resource whose configuration Terraform generated, but whose object a
+// later plan finds gone, is left out the same way, and the plan's other errors
+// stay for the rounds that leave out what is invalid.
+func TestGenerateLeavesOutResourcesFoundGoneByLaterPlans(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_sqs_queue" "b" {
+  name = "b"
+}
+
+resource "aws_sqs_queue" "a" {
+  name = "a"
+}
+`,
+		plans: []fakePlan{{}, {diags: []tfjson.Diagnostic{goneError("aws_sqs_queue.a")}}},
+	}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "a"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}}
+
+	result, err := Generate(context.Background(), tf, dir, imports, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Rejected) != 1 || result.Rejected[0].Address != "aws_sqs_queue.a" || result.Rejected[0].ID != "a" ||
+		len(result.Rejected[0].Errors) != 1 || !strings.HasPrefix(result.Rejected[0].Errors[0], "Cannot import non-existent remote object") {
+		t.Errorf("rejected: got %+v, want aws_sqs_queue.a left out as having no object", result.Rejected)
+	}
+	if got := readFile(t, dir, rootfile.GeneratedFileName); strings.Contains(got, `"a"`) || !strings.Contains(got, `"b"`) {
+		t.Errorf("generated.tf should only have aws_sqs_queue.b:\n%s", got)
+	}
+}
 
 func TestGenerateRepairsAndReplans(t *testing.T) {
 	t.Parallel()

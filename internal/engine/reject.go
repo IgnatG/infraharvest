@@ -6,6 +6,7 @@ package engine
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -150,4 +151,51 @@ func variablesIn(block *hclwrite.Block) []string {
 		}
 	}
 	return names
+}
+
+// missingObject is what Terraform and OpenTofu both say of an import ID
+// whose object doesn't exist.
+const missingObject = "Cannot import non-existent remote object"
+
+// dropGone moves out of imports.tf and generated.tf, into out, the
+// resources diags say don't exist, as their import found no object, and
+// returns their rejections with the diagnostics left: those about other
+// resources, and those that name none, which stay as they are. Terraform
+// generates nothing for them, so their other errors, such as the missing
+// configuration of their import blocks, go too.
+func dropGone(dir string, diags []tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, []tfjson.Diagnostic, error) {
+	if !slices.ContainsFunc(diags, isMissingObject) {
+		return nil, diags, nil
+	}
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	if err != nil {
+		return nil, nil, err
+	}
+	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
+	if err != nil {
+		return nil, nil, err
+	}
+	assigned, rest := byResource(diags, generated, imports)
+	errs := map[string][]tfjson.Diagnostic{}
+	for _, addr := range slices.Sorted(maps.Keys(assigned)) {
+		ds := assigned[addr]
+		if slices.ContainsFunc(ds, isMissingObject) {
+			errs[addr] = ds
+			continue
+		}
+		rest = append(rest, ds...)
+	}
+	if len(errs) == 0 {
+		return nil, diags, nil
+	}
+	rejections, err := reject(dir, errs, out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rejections, rest, nil
+}
+
+// isMissingObject reports whether d says an import found no object.
+func isMissingObject(d tfjson.Diagnostic) bool {
+	return d.Severity == tfjson.DiagnosticSeverityError && strings.Contains(d.Summary, missingObject)
 }

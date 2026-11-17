@@ -556,7 +556,36 @@ func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 	if g.diags, err = retryFallbacks(ctx, g.tf, g.dir, g.imports, diags); err != nil {
 		return nil, err
 	}
-	return g.annotate(func(*workspace) []annotation { return generatedAnnotations(g.imports, g.opts, hints) })
+	gone, err := g.leaveGone()
+	if err != nil {
+		return nil, err
+	}
+	reasons, err := g.annotate(func(*workspace) []annotation { return generatedAnnotations(g.imports, g.opts, hints) })
+	if err != nil {
+		return nil, err
+	}
+	if gone && len(g.diags) > 0 {
+		// The errors left point at lines the move changed.
+		reasons = append(reasons, replanGone)
+	}
+	return reasons, nil
+}
+
+// leaveGone leaves out of the root the resources whose import found no
+// object, as the errors of the last plan say, with that error, and reports
+// whether it did. Terraform generates nothing for them, so the root's next
+// plan would fail on their import blocks instead, for want of
+// configuration, and say nothing of why. Such a resource may have been
+// deleted since it was listed, or its import ID may be wrong: the import
+// can't tell, so it is left out like any other.
+func (g *generation) leaveGone() (bool, error) {
+	rejections, rest, err := dropGone(g.dir, g.diags, &g.rejected)
+	if err != nil || len(rejections) == 0 {
+		return false, err
+	}
+	g.diags = rest
+	g.result.Rejected = append(g.result.Rejected, rejections...)
+	return true, nil
 }
 
 // hideSecrets moves the secrets in generated.tf into variables.
@@ -618,6 +647,15 @@ func (g *generation) planUntilValid(ctx context.Context, reasons []string) error
 	g.counting.Step(stepRepair)
 	repaired := false
 	for round := 0; ; round++ {
+		gone, err := g.leaveGone()
+		if err != nil {
+			return err
+		}
+		if gone && len(g.diags) > 0 {
+			if err := g.replan(ctx); err != nil {
+				return err
+			}
+		}
 		errs, err := unresolved("terraform plan", g.dir, g.diags)
 		if err != nil {
 			// Errors can quote the values they reject, as below.
