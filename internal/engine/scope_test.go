@@ -270,3 +270,21 @@ func TestScopeWordIndex(t *testing.T) {
 		}
 	}
 }
+
+// A root of google-beta, which requires no google, reads the project from
+// a google_client_config of google-beta too, as the resources it imports
+// are of google-beta.
+func TestLiftScopeReadsThroughTheRootsProvider(t *testing.T) {
+	t.Parallel()
+	generated := "resource \"google_pubsub_topic\" \"events\" {\n  name = \"projects/acme-prod/topics/events\"\n}\n"
+	scope := &ScopeLocals{Account: ScopeValue{ID: "acme-prod", Data: "google_client_config.current", Local: "project_id", Expr: "data.google_client_config.current.project", Provider: "google-beta"}}
+	ws := lifted(t, map[string]string{rootfile.GeneratedFileName: generated}, scope, nil)
+
+	data := squashed(wsFile(t, ws, rootfile.DataFileName))
+	if want := `data "google_client_config" "current" { provider = google-beta }`; !strings.Contains(data, want) {
+		t.Errorf("data.tf doesn't have %s:\n%s", want, data)
+	}
+	if got := generatedText(t, ws); !strings.Contains(got, "projects/${local.project_id}/topics/events") {
+		t.Errorf("generated.tf doesn't read the project from its local:\n%s", got)
+	}
+}

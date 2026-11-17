@@ -417,6 +417,7 @@ func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t 
 	}
 	opts.Inherited = profile.InheritedArguments
 	opts.Scope = scopeLocals(profile.Merge, c.scope, t.root.provider.Config)
+	nameDataProviders(&opts, provider.Name())
 	if withModuleProviders, ok := provider.(harvest.ProviderWithModuleProviders); ok {
 		opts.ModuleProviders = map[string]rootfile.Provider{}
 		for name, p := range withModuleProviders.ModuleProviders() {
@@ -652,4 +653,30 @@ func appendNew[T comparable](list, more []T) []T {
 		}
 	}
 	return list
+}
+
+// nameDataProviders makes the data sources of opts, which the engine
+// writes into the root, name the root's provider, local name provider,
+// when their types don't imply it (see importProvider): a root of
+// google-beta requires no google, so its google_client_config and the
+// data sources of its external resources read through google-beta, as
+// its imported resources do.
+func nameDataProviders(opts *engine.Options, provider string) {
+	for typ, d := range opts.DataSources {
+		d.Provider = importProvider(provider, d.Type)
+		opts.DataSources[typ] = d
+	}
+	if s := opts.Scope; s != nil {
+		for _, v := range []*engine.ScopeValue{&s.Account, &s.Region} {
+			if v.Data != "" {
+				v.Provider = importProvider(provider, dataType(v.Data))
+			}
+		}
+	}
+}
+
+// dataType is the type of the data source at address, type.name.
+func dataType(address string) string {
+	typ, _, _ := strings.Cut(address, ".")
+	return typ
 }
