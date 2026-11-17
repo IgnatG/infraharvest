@@ -412,7 +412,7 @@ func TestListCallRegenerateVacatedRootKeepsItsProviders(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "beta")
 	options.Layout = "{out}/{provider}/all/"
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := options.run()
 	defer run.unlockOut()
 	rootConfig := run.tools.rootConfig
@@ -453,7 +453,7 @@ func TestListCallRegenerateReferToWhatARootOutOfTheRunKeeps(t *testing.T) {
 
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "gamma")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	importPath(t, options)
 
 	want := []engine.RootResource{{Type: "fake_thing", ID: "id-alpha", Name: "alpha", Root: "fake/all"}}

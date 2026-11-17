@@ -617,7 +617,7 @@ func TestListCallIncrementalReferToWhatOtherRootsHold(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "beta", "gamma")
 	options.Layout = "{out}/{provider}/all/"
-	options.Incremental = true
+	options.Roots = RootsIncremental
 	importPath(t, options)
 
 	want := []engine.RootResource{
