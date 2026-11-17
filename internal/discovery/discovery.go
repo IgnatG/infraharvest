@@ -12,7 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"runtime/debug"
 	"runtime/pprof"
 	"sync"
@@ -101,7 +101,7 @@ func List(ctx context.Context, discoverers []Discoverer, opts Options) ([]Result
 func safely(ctx context.Context, d Discoverer) (resources []harvest.Resource, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("service %s panicked: %v\n%s", d.Name(), r, debug.Stack())
+			slog.Error(fmt.Sprintf("service %s panicked: %v\n%s", d.Name(), r, debug.Stack()))
 			resources, err = nil, fmt.Errorf("panic: %v (the log has the stack)", r)
 		}
 	}()

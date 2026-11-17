@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -16,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/discovery"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
@@ -161,7 +161,7 @@ func leaveOutQueryOverlap(provider string, resources map[string][]harvest.Resour
 		kept = append(kept, r)
 	}
 	for _, typ := range slices.Sorted(maps.Keys(left)) {
-		log.Printf("%s: %s: leaving out the %d %s Terraform listed: the %s service lists that type", provider, harvest.QueryService, left[typ], typ, listedBy[tftypes.Canonical(typ)])
+		logging.Infof("%s: %s: leaving out the %d %s Terraform listed: the %s service lists that type", provider, harvest.QueryService, left[typ], typ, listedBy[tftypes.Canonical(typ)])
 	}
 	resources[harvest.QueryService] = kept
 }

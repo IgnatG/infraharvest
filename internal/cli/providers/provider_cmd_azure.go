@@ -8,13 +8,13 @@ package providers
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/spf13/pflag"
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/managed/stores/azblob"
 	"github.com/IgnatG/infraharvest/internal/providers/azure"
@@ -94,7 +94,7 @@ func (s *azureScopes) plan(ctx context.Context, options importer.Options) (plan,
 		if len(found) == 0 {
 			return plan{}, errors.New("no enabled subscriptions under --management-group " + s.managementGroup)
 		}
-		log.Printf("azurerm: %d subscriptions under management group %s", len(found), s.managementGroup)
+		logging.Infof("azurerm: %d subscriptions under management group %s", len(found), s.managementGroup)
 		subscriptions = appendMissing(subscriptions, found)
 	}
 

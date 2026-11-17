@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"net/url"
 	"os"
@@ -28,6 +27,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // Version is the configuration file format's version.
@@ -155,7 +155,7 @@ func (m Module) check(dir string) (Module, error) {
 			return m, fmt.Errorf("%s: pin a tag or commit with ?ref=", m.Source)
 		}
 		if !commitSHA.MatchString(ref) && !versionTag(ref) {
-			log.Printf("%s: ref %s may be a branch, which moves: pin a release tag or a commit, so that roots call what was tested", m.Source, ref)
+			logging.Warnf("%s: ref %s may be a branch, which moves: pin a release tag or a commit, so that roots call what was tested", m.Source, ref)
 		}
 		if m.Version != "" {
 			return m, fmt.Errorf("%s: a git source takes its version from ref", m.Source)

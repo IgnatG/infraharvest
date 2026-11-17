@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -195,11 +195,11 @@ func (r *Run) writeSelection(partial bool) error {
 		added, dropped := f.Merge(r.listed, r.covers(partial))
 		switch {
 		case partial:
-			log.Printf("updated %s: %d new resources marked new: true for review; the listing failed in part, so the entries it didn't find stay", path, added)
+			logging.Infof("updated %s: %d new resources marked new: true for review; the listing failed in part, so the entries it didn't find stay", path, added)
 		case r.filtered:
-			log.Printf("updated %s: %d new resources marked new: true for review; listed with filters, so the entries it didn't find stay", path, added)
+			logging.Infof("updated %s: %d new resources marked new: true for review; listed with filters, so the entries it didn't find stay", path, added)
 		default:
-			log.Printf("updated %s: %d new resources marked new: true for review, %d no longer found and dropped; entries of what it didn't list stay", path, added, dropped)
+			logging.Infof("updated %s: %d new resources marked new: true for review, %d no longer found and dropped; entries of what it didn't list stay", path, added, dropped)
 		}
 	}
 	if err := f.Save(path); err != nil {
@@ -207,12 +207,12 @@ func (r *Run) writeSelection(partial bool) error {
 	}
 	d := r.summary()
 	c := d.DiscoveryCount
-	log.Printf("listed %d resources into %s: %d not managed, %d excluded by default (%d in a Terraform state, %d by Terraform tags, %d by CloudFormation, %d by other tools, %d by the cloud or other defaults); review it, then import with --selection %s",
+	logging.Infof("listed %d resources into %s: %d not managed, %d excluded by default (%d in a Terraform state, %d by Terraform tags, %d by CloudFormation, %d by other tools, %d by the cloud or other defaults); review it, then import with --selection %s",
 		c.Listed, path, c.Included, c.Excluded, c.TerraformState, c.TerraformTag, c.CloudFormation, c.OtherTool, c.Cloud, path)
 	if r.options.Format != FormatJSON {
 		// JSON has them, by type and scope too.
 		for _, line := range tagLines(d) {
-			log.Print(line)
+			logging.Info(line)
 		}
 	}
 	return nil
@@ -365,7 +365,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 				continue
 			}
 			if dir, ok := held[engine.External{Type: res.Address.Type, ID: id}]; ok {
-				log.Printf("%s %s is in the state %s, and in %s, which an earlier import generated: it stays in that root, which would destroy it if generated again without it", res.Address.Type, id, found.Where, relativePath(options.Out, dir))
+				logging.Warnf("%s %s is in the state %s, and in %s, which an earlier import generated: it stays in that root, which would destroy it if generated again without it", res.Address.Type, id, found.Where, relativePath(options.Out, dir))
 				continue
 			}
 			defaults.Managed(res, found.Where)

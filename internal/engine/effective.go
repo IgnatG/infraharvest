@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"log"
 	"maps"
 	"slices"
 	"strings"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // EffectiveTags describes a provider whose resources' tags attribute holds
@@ -94,7 +94,7 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 	if len(left) == 0 {
 		return
 	}
-	log.Printf("%s: leaving %s out of %s, whose plans change with them; the resources keep them, unmanaged", dir, et.Attribute, strings.Join(slices.Sorted(maps.Keys(left)), ", "))
+	logging.Infof("%s: leaving %s out of %s, whose plans change with them; the resources keep them, unmanaged", dir, et.Attribute, strings.Join(slices.Sorted(maps.Keys(left)), ", "))
 }
 
 // fillTags sets et.Attribute of each resource in generated.tf whose

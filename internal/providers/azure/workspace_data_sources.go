@@ -6,7 +6,6 @@ package azure
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -17,6 +16,7 @@ import (
 	"github.com/magodo/aztft/aztft"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // workspaceType is the Resource Manager type of a Log Analytics workspace.
@@ -92,7 +92,7 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 					return nil, nil, ctx.Err()
 				}
 				if azureCodes.Classify(err) == harvest.OutcomeGone {
-					log.Printf("azurerm: resource_graph: workspace %s is gone: %v", res.Id, err)
+					logging.Warnf("azurerm: resource_graph: workspace %s is gone: %v", res.Id, err)
 					continue
 				}
 				parts.Add(nil, fmt.Sprintf("azurerm: resource_graph: listing the %s data sources of %s", k.kind, res.Id), err)
@@ -114,7 +114,7 @@ func workspaceDataSources(ctx context.Context, credential azcore.TokenCredential
 				id := fmt.Sprintf("/subscriptions/%s/resourceGroups/%s/providers/%s/%s/dataSources/%s", group.SubscriptionId, group.Name, workspaceType, workspace, name)
 				parsed, err := armid.ParseResourceId(id)
 				if err != nil {
-					log.Printf("azurerm: resource_graph: data source %s: %v", id, err)
+					logging.Warnf("azurerm: resource_graph: data source %s: %v", id, err)
 					continue
 				}
 				properties := map[string]interface{}{"kind": string(k.kind)}

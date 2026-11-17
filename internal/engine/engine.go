@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -32,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // maxPlanRounds bounds how often Generate plans again after repairing the
@@ -608,7 +608,7 @@ func (g *generation) replan(ctx context.Context) error {
 // and once maxPlanRounds plans still had errors.
 func (g *generation) planUntilValid(ctx context.Context, reasons []string) error {
 	if len(reasons) > 0 {
-		log.Printf("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(reasons, ", "))
+		logging.Infof("%s: planning %s again: %s", g.dir, rootfile.GeneratedFileName, strings.Join(reasons, ", "))
 		g.counting.Step(stepPrepare)
 		if err := g.replan(ctx); err != nil {
 			return err

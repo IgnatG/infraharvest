@@ -5,13 +5,13 @@ package importer
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // Import engines selectable with --engine.
@@ -60,7 +60,7 @@ func checkFilters(options Options) error {
 	}
 	for _, f := range filters {
 		if f.Path != "id" {
-			log.Printf("a filter on %s only applies to services whose lister supports it (see the provider's page); others list everything", f.Path)
+			logging.Warnf("a filter on %s only applies to services whose lister supports it (see the provider's page); others list everything", f.Path)
 		}
 	}
 	return nil

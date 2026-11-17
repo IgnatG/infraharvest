@@ -5,11 +5,11 @@ package azure
 
 import (
 	"context"
-	"log"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // ManagedIdentityLister lists user-assigned identities, in the
@@ -85,7 +85,7 @@ func (az *ManagedIdentityLister) list() error {
 				return ctx.Err()
 			}
 			if azureCodes.Classify(err) == harvest.OutcomeGone {
-				log.Printf("azurerm: managed_identity: %s is gone: %v", *identity.ID, err)
+				logging.Warnf("azurerm: managed_identity: %s is gone: %v", *identity.ID, err)
 				continue
 			}
 			parts.Add(nil, "azurerm: managed_identity: listing the federated credentials of "+*identity.ID, err)

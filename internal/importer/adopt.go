@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -304,7 +304,7 @@ func (p *mergePhase) keepGone(stack string, prev *mergeCheckpoint, members []mer
 		}
 		members[i].result = m.result.WithKept(kept)
 		p.report.AddNotInCloud(relativePath(out, m.dir), m.scope, kept)
-		log.Printf("%s: no longer in the cloud: %d of what %s has of %s; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", relativePath(out, m.dir), len(blocks), relativePath(out, stack), m.env, filepath.Join(out, report.Dir, "report.md"))
+		logging.Warnf("%s: no longer in the cloud: %d of what %s has of %s; delete their blocks from the root, or plan to create them again (see %s) (--incremental)", relativePath(out, m.dir), len(blocks), relativePath(out, stack), m.env, filepath.Join(out, report.Dir, "report.md"))
 	}
 	return "", nil
 }

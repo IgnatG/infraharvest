@@ -8,7 +8,6 @@ package providers
 import (
 	"context"
 	"errors"
-	"log"
 	"slices"
 	"strings"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/managed/stores/gcs"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
@@ -131,7 +131,7 @@ func (s *googleScopes) plan(ctx context.Context, options importer.Options) (plan
 		if len(found) == 0 {
 			return plan{}, errors.New("no active projects under --organization or --folders")
 		}
-		log.Printf("google: %d active projects under --organization and --folders", len(found))
+		logging.Infof("google: %d active projects under --organization and --folders", len(found))
 		projects = appendMissing(projects, found)
 	}
 

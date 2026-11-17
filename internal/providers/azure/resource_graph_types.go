@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -27,6 +26,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/providers/workers"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // lookupParallel is how many resources resource_graph maps through aztft
@@ -53,7 +53,7 @@ type mapping struct {
 // why id is left out.
 func (m mapping) records(id string, attributes map[string]string) []harvest.Resource {
 	if m.leftOut != "" {
-		log.Printf("azurerm: resource_graph: %s%s", id, m.leftOut)
+		logging.Warnf("azurerm: resource_graph: %s%s", id, m.leftOut)
 		return nil
 	}
 	resources := make([]harvest.Resource, 0, len(m.types))
@@ -134,7 +134,7 @@ func fromQuery(id string, query queryType) mapping {
 	}
 	for i := len(types) - 1; i >= 0; i-- {
 		if slices.Contains(missingTypes, types[i].TFType) {
-			log.Printf("azurerm: resource_graph: %s: aztft maps part of it to %s, which azurerm 5 doesn't have; left out", id, types[i].TFType)
+			logging.Warnf("azurerm: resource_graph: %s: aztft maps part of it to %s, which azurerm 5 doesn't have; left out", id, types[i].TFType)
 			types, ids = slices.Delete(types, i, i+1), slices.Delete(ids, i, i+1)
 		}
 	}

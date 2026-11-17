@@ -6,7 +6,6 @@ package importer
 import (
 	"errors"
 	"fmt"
-	"log"
 	"maps"
 	"path/filepath"
 	"regexp"
@@ -19,6 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -148,7 +148,7 @@ func (r *Run) warnUnscoped(provider harvest.Provider, scope string) {
 	}
 	w := fmt.Sprintf("%s couldn't say which account, subscription or project it lists in, so the configuration file's environments that name one (%s) don't apply to what it lists", provider.Name(), strings.Join(named, ", "))
 	if r.report.AddWarning(w) {
-		log.Printf("warning: %s", w)
+		logging.Warnf("warning: %s", w)
 	}
 }
 
@@ -172,7 +172,7 @@ func (r *Run) warnUnreadEnvTags(provider harvest.Provider, layout callLayout, de
 	}
 	w := fmt.Sprintf("%s: the %d resources the %s service listed have no tags, as Terraform's list resources return none, so environment tags can't place them: they go where resources without them do, to %s unless their import ID names a resource of another environment", provider.Name(), len(queried), harvest.QueryService, untagged)
 	if r.report.AddWarning(w) {
-		log.Printf("warning: %s", w)
+		logging.Warnf("warning: %s", w)
 	}
 }
 
@@ -263,7 +263,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 		root := relativePath(k.index.out, before)
 		c, err := k.index.root(before).checkpoint()
 		if err != nil {
-			log.Printf("%s: %v; it keeps the resources the environments would put under envs/", root, err)
+			logging.Warnf("%s: %v; it keeps the resources the environments would put under envs/", root, err)
 			continue
 		}
 		previous, err := k.shared.previousAddressesOf(k.index, before)
@@ -292,11 +292,11 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 			}
 		}
 		if len(why) > 0 {
-			log.Printf("%s: it keeps the resources the environments would put under envs/, rather than hand them over (--regenerate): %s", root, strings.Join(why, "; "))
+			logging.Infof("%s: it keeps the resources the environments would put under envs/, rather than hand them over (--regenerate): %s", root, strings.Join(why, "; "))
 			continue
 		}
 		if len(previous) > 0 {
-			log.Printf("%s: removed blocks hand its resources over to the roots of their environments under envs/ (--regenerate)", root)
+			logging.Infof("%s: removed blocks hand its resources over to the roots of their environments under envs/ (--regenerate)", root)
 		}
 		k.splits[before] = true
 	}
@@ -307,7 +307,7 @@ func (k *keptRoots) split(resourcesByService map[string][]harvest.Resource, dirO
 func (k *keptRoots) isRecorded(dir string) bool {
 	recorded, err := k.index.root(dir).recorded()
 	if err != nil {
-		log.Printf("%s: %v; its root is taken for one no import generated", relativePath(k.index.out, dir), err)
+		logging.Warnf("%s: %v; its root is taken for one no import generated", relativePath(k.index.out, dir), err)
 	}
 	return recorded
 }
@@ -324,7 +324,7 @@ func (k *keptRoots) report(scope string) []report.KeptRoot {
 	for _, dir := range dirs {
 		envs := slices.Sorted(slices.Values(k.kept[dir]))
 		path := relativePath(k.index.out, dir)
-		log.Printf("%s: an earlier import generated this root, so it keeps the resources the environments %s would put under envs/: a root's state key comes from its path", path, strings.Join(envs, ", "))
+		logging.Infof("%s: an earlier import generated this root, so it keeps the resources the environments %s would put under envs/: a root's state key comes from its path", path, strings.Join(envs, ", "))
 		kept = append(kept, report.KeptRoot{Path: path, Environments: envs, Scope: scope})
 	}
 	return kept

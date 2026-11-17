@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"log"
 	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloud9/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // cloud9DescribeBatch is the most environments DescribeEnvironments
@@ -55,11 +55,11 @@ func (g *Cloud9Lister) list() error {
 		for _, id := range page.EnvironmentIds {
 			env, ok := described[id]
 			if !ok {
-				log.Printf("aws: cloud9: skipping environment %s, which was not described", id)
+				logging.Warnf("aws: cloud9: skipping environment %s, which was not described", id)
 				continue
 			}
 			if env.Type != types.EnvironmentTypeEc2 {
-				log.Printf("aws: cloud9: skipping environment %s of type %q, which Terraform has no resource for", id, env.Type)
+				logging.Warnf("aws: cloud9: skipping environment %s of type %q, which Terraform has no resource for", id, env.Type)
 				continue
 			}
 			if importableLifecycle(env.Lifecycle) {

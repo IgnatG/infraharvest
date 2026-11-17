@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/filelock"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // DefaultRegistry is the registry provider sources without a host use.
@@ -155,7 +155,7 @@ func (b Binary) find(ctx context.Context, explicitPath, cacheDir string, version
 		}
 		// Say why an installed binary isn't used, rather than download
 		// another quietly.
-		log.Printf("%s: not using %s: %v", b.Name, path, err)
+		logging.Warnf("%s: not using %s: %v", b.Name, path, err)
 		skipped = append(skipped, err)
 	}
 	if b.install == nil {
@@ -250,7 +250,7 @@ var initSlot = make(chan struct{}, 1)
 func lockPluginCache(ctx context.Context, dir string) (*filelock.Lock, error) {
 	path := filepath.Clean(dir) + ".lock"
 	lock, err := filelock.Wait(ctx, path, func() {
-		log.Printf("waiting for another process to finish installing providers into %s", dir)
+		logging.Infof("waiting for another process to finish installing providers into %s", dir)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("lock the plugin cache %s: %w", dir, err)
@@ -276,7 +276,7 @@ func Init(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
 	if err == nil || ctx.Err() != nil || errors.As(err, &timedOut) || !networkInitError(err) {
 		return err
 	}
-	log.Printf("terraform init failed reaching the network, trying once more in %s: %v", initRetryDelay, err)
+	logging.Warnf("terraform init failed reaching the network, trying once more in %s: %v", initRetryDelay, err)
 	select {
 	case <-time.After(initRetryDelay):
 	case <-ctx.Done():

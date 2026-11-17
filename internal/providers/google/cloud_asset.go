@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"slices"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // cloudAssetService lists through Cloud Asset Inventory every type the
@@ -157,7 +157,7 @@ func searchAll(ctx context.Context, svc *cloudasset.Service, project string, ass
 	if !isBadRequest(err) || len(searchable) == 1 {
 		return results, err
 	}
-	log.Printf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them in parts", err)
+	logging.Warnf("google: cloud_asset: the search rejects the catalogue's asset types (%v); searching them in parts", err)
 	var rejected []string
 	half := len(searchable) / 2
 	first, err := searchParts(ctx, svc, project, searchable[:half], &rejected)
@@ -188,7 +188,7 @@ func searchParts(ctx context.Context, svc *cloudasset.Service, project string, a
 	case !isBadRequest(err):
 		return results, err
 	case len(assetTypes) == 1:
-		log.Printf("google: cloud_asset: %s can't be searched: %v", assetTypes[0], err)
+		logging.Warnf("google: cloud_asset: %s can't be searched: %v", assetTypes[0], err)
 		*rejected = append(*rejected, assetTypes[0])
 		return nil, nil
 	}
@@ -258,11 +258,11 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 		types := cat.FromInventory(r.AssetType, r.Name)
 		switch len(types) {
 		case 0:
-			log.Printf("%s: cloud_asset: %s (%s): no %s resource type; left out", provider, r.Name, r.AssetType, provider)
+			logging.Warnf("%s: cloud_asset: %s (%s): no %s resource type; left out", provider, r.Name, r.AssetType, provider)
 			continue
 		case 1:
 		default:
-			log.Printf("%s: cloud_asset: %s could be %s, says the catalogue; left out", provider, r.Name, strings.Join(types, " or "))
+			logging.Warnf("%s: cloud_asset: %s could be %s, says the catalogue; left out", provider, r.Name, strings.Join(types, " or "))
 			continue
 		}
 		id := assetID(r.Name, r.Project, projectID)
@@ -276,7 +276,7 @@ func assetResources(results []*cloudasset.ResourceSearchResult, cat *catalogue.C
 			slices.Sort(regions)
 			where = "the imports of their regions, which --regions names: " + strings.Join(regions, ", ")
 		}
-		log.Printf("%s: cloud_asset: %d resources of project %s are in other locations, for %s", provider, elsewhere, projectID, where)
+		logging.Infof("%s: cloud_asset: %d resources of project %s are in other locations, for %s", provider, elsewhere, projectID, where)
 	}
 	return resources
 }

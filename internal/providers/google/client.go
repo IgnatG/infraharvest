@@ -6,7 +6,6 @@ package google
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"google.golang.org/api/option"
 	htransport "google.golang.org/api/transport/http"
 
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/runstate"
 )
@@ -156,12 +156,12 @@ func credentialsClient(ctx context.Context, impersonate string) *http.Client {
 		ctx := runstate.NewContext(context.WithoutCancel(ctx), runstate.Default())
 		opts, err := credentialOptions(ctx, impersonate)
 		if err != nil {
-			log.Printf("google: the credentials the environment names can't be used: %v", err)
+			logging.Warnf("google: the credentials the environment names can't be used: %v", err)
 			opts = []option.ClientOption{option.WithTokenSource(failingTokenSource{err: fmt.Errorf("google: %w", err)})}
 		}
 		client, _, err := htransport.NewClient(ctx, opts...)
 		if err != nil {
-			log.Printf("google: no default credentials for a rate-limited client: %v", err)
+			logging.Warnf("google: no default credentials for a rate-limited client: %v", err)
 			return
 		}
 		found.client = client

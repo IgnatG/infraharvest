@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -42,7 +42,7 @@ func (c *listedCall) recordAdded(dir, fp string, holds *engine.Result, opts engi
 	if holds == nil {
 		var err error
 		if holds, err = checkpointResult(c.options.Out, dir); err != nil || holds == nil {
-			log.Printf("%s: its checkpoint can't be read (%v); its stack isn't merged again", dir, err)
+			logging.Warnf("%s: its checkpoint can't be read (%v); its stack isn't merged again", dir, err)
 			return
 		}
 	}
@@ -254,7 +254,7 @@ func (s *stackMerge) settled() (done bool, err error) {
 	}
 	prev := s.prev
 	if prev != nil && prev.Fingerprint == s.fp && keptAsMerged(s.stack, prev, members) && !plannable(prev, members) {
-		log.Printf("%s is unchanged since it was merged", s.merge.Path)
+		logging.Infof("%s is unchanged since it was merged", s.merge.Path)
 		s.keepUnchanged()
 		return true, nil
 	}
@@ -263,7 +263,7 @@ func (s *stackMerge) settled() (done bool, err error) {
 		// which are as they were when the stack merged, though what it
 		// listed has changed, such as resources gone from the cloud,
 		// whose import a plan of the merged root would fail on.
-		log.Printf("%s: nothing new to merge (--incremental)", s.merge.Path)
+		logging.Infof("%s: nothing new to merge (--incremental)", s.merge.Path)
 		s.keepUnchanged()
 		return true, nil
 	}
@@ -324,7 +324,7 @@ func (s *stackMerge) restorePrevious() error {
 // --regenerate, moved blocks follow it instead.
 func (s *stackMerge) mergeRoots(ctx context.Context) error {
 	p, prev := s.phase, s.prev
-	log.Printf("merging the roots of %s into %s", strings.Join(s.envs, ", "), s.merge.Path)
+	logging.Infof("merging the roots of %s into %s", strings.Join(s.envs, ", "), s.merge.Path)
 	roots := make([]envmerge.MergeRoot, len(s.members))
 	for i, m := range s.members {
 		root, err := s.mergeRoot(ctx, m)
@@ -349,7 +349,7 @@ func (s *stackMerge) mergeRoots(ctx context.Context) error {
 		if !s.keepApart(roots, result, shared) {
 			break
 		}
-		log.Printf("%s: merging again, with what would get another address kept apart as its environment's", s.merge.Path)
+		logging.Infof("%s: merging again, with what would get another address kept apart as its environment's", s.merge.Path)
 		if err := clearMerged(s.stack, result.Files); err != nil {
 			return err
 		}
@@ -502,7 +502,7 @@ func (s *stackMerge) conclude(ctx context.Context) error {
 		return p.keepMerged(s.stack, s.prev, members, "merging it again failed, so it stays as it was, and what is new waits in the roots set aside under "+filepath.ToSlash(filepath.Join(CheckpointDir, premergeDirName))+": "+merge.Reason)
 	}
 	if !merge.Merged {
-		log.Printf("%s: the environments keep their roots: %s", merge.Path, merge.Reason)
+		logging.Infof("%s: the environments keep their roots: %s", merge.Path, merge.Reason)
 		for _, m := range members {
 			if err := os.RemoveAll(premergeDir(out, m.dir)); err != nil {
 				return err
@@ -511,7 +511,7 @@ func (s *stackMerge) conclude(ctx context.Context) error {
 	} else {
 		// The merged root is written for good once its checkpoint is:
 		// until then an error puts back what it had (see mergeStack).
-		log.Printf("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(s.envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
+		logging.Infof("%s: %s share one root; their own roots are kept under %s", merge.Path, strings.Join(s.envs, ", "), filepath.Join(out, CheckpointDir, premergeDirName))
 		if s.prev != nil && s.prev.Merge.Merged {
 			p.report.AddMergedMoves(merge.Path, s.prev.Imports, s.imports, s.removed)
 		}
@@ -672,7 +672,7 @@ func (p *mergePhase) mergeWithout(ctx context.Context, stack string, prev *merge
 		}
 	}
 	path := relativePath(out, stack)
-	log.Printf("%s: %s keep roots of their own, as joining the merged root failed: %s", path, strings.Join(joining, ", "), why)
+	logging.Warnf("%s: %s keep roots of their own, as joining the merged root failed: %s", path, strings.Join(joining, ", "), why)
 	var err error
 	if slices.ContainsFunc(rest, func(m mergeMember) bool { return !m.restored }) {
 		err = p.mergeStack(ctx, stack, rest)
@@ -713,7 +713,7 @@ func (p *mergePhase) keepMerged(stack string, prev *mergeCheckpoint, members []m
 	// The roots of members are set aside, as the merged root has them.
 	p.readdressNotInCloud(kept.Path, members, prev.Imports)
 	err := fmt.Errorf("%s: %s", relativePath(out, stack), why)
-	log.Print(err)
+	logging.Errorf("%v", err)
 	p.fail(err)
 	return nil
 }
@@ -853,7 +853,7 @@ func (p *mergePhase) moveMerged(stack string, result *envmerge.MergeResult, befo
 		return "merging it again would give what the merged root has other addresses, or hand it over to other roots, and the moved and removed blocks fail the moves check: " + strings.Join(check.Details, "; "), nil
 	}
 	if len(moved) > 0 {
-		log.Printf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(p.out, stack), rootfile.MovesFileName, strings.Join(moved, "; "))
+		logging.Warnf("%s: moved blocks in %s move what has other addresses now (--regenerate): %s", relativePath(p.out, stack), rootfile.MovesFileName, strings.Join(moved, "; "))
 	}
 	return "", nil
 }

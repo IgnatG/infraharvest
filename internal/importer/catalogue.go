@@ -4,7 +4,6 @@
 package importer
 
 import (
-	"log"
 	"maps"
 	"slices"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // providerCatalogue returns what the catalogue knows about the provider's
@@ -87,7 +87,7 @@ func catalogueEngineOptions(cat *catalogue.Catalogue, v *goversion.Version) engi
 	// Without the metadata, the engine finds defaults by planning, as it
 	// always could: a broken file costs plans, not the import.
 	if meta, err := schemameta.Builtin(cat.Provider()); err != nil {
-		log.Printf("%s: the built-in schema metadata: %v", cat.Provider(), err)
+		logging.Warnf("%s: the built-in schema metadata: %v", cat.Provider(), err)
 	} else {
 		opts.SchemaMetadata = meta
 	}

@@ -10,9 +10,10 @@ package workers
 
 import (
 	"fmt"
-	"log"
 	"runtime/debug"
 	"sync"
+
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // Panic is the value Group.Wait panics with once a worker has panicked.
@@ -64,7 +65,7 @@ func (g *Group) Go(f func()) {
 		}
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("worker panicked: %v\n%s", r, debug.Stack())
+				logging.Errorf("worker panicked: %v\n%s", r, debug.Stack())
 				g.mu.Lock()
 				defer g.mu.Unlock()
 				if g.first == nil {

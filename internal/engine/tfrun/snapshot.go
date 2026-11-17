@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"maps"
 	"os"
 	"path/filepath"
@@ -25,6 +24,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // A state snapshot is the import-once cache of a root: the state of
@@ -354,7 +354,7 @@ func (c *Cached) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanO
 	if err != nil {
 		// A snapshot that can't follow the root is of no use: plan as
 		// before, and never from a state that may not match it.
-		log.Printf("import-once: dropping the snapshot: %v", err)
+		logging.Warnf("import-once: dropping the snapshot: %v", err)
 		c.Release()
 		return c.Terraform.PlanJSON(ctx, w, opts...)
 	}
@@ -535,7 +535,7 @@ func (s *Snapshot) reconcile(ctx context.Context, tf StateTerraform, blocks []Im
 			if ctx.Err() != nil {
 				return nil, err
 			}
-			log.Printf("import-once: moving %d resources in one apply didn't work, moving them one at a time: %v", len(moves), err)
+			logging.Warnf("import-once: moving %d resources in one apply didn't work, moving them one at a time: %v", len(moves), err)
 			steps = moves
 		default:
 			steps = nil

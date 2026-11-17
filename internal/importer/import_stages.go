@@ -6,7 +6,6 @@ package importer
 import (
 	"context"
 	"fmt"
-	"log"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -20,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/runstate"
 	"github.com/IgnatG/infraharvest/internal/selection"
@@ -111,7 +111,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if options.Roots() == RootsIncremental {
 		var why string
 		if here, why = listedInScope(provider, c, layout.pattern, listed.listed, listed.listFailures, resources.byService); here == nil {
-			log.Printf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
+			logging.Warnf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
 		}
 	}
 	opts := engineOptions(provider, c, listed, tools)
@@ -333,13 +333,13 @@ func (r *Run) toolchain(ctx context.Context, provider harvest.Provider, c *callC
 	}
 	mode := modulesMode(options)
 	if options.stackScoped() && mode != ModulesNone {
-		log.Printf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", mode)
+		logging.Warnf("--modules %s with --cfn-stack: the stacks' resources that go into module calls don't take their templates' parameters and outputs; --modules none keeps them in the roots, which do", mode)
 	}
 	var resolved []adapters.Adapter
 	var constraints []moduleConstraint
 	if modulesFromRegistry(mode) {
 		if mode == ModulesLatestUntested {
-			log.Printf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
+			logging.Warnf("warning: --modules %s calls module releases no adapter is tested with: terraform init downloads them, and plan runs their code with the credentials this import uses; review what they call before you rely on the output", ModulesLatestUntested)
 		}
 		resolved, t.newer, constraints = r.registryModules(ctx, provider, mode, selected)
 		// The organisation's own modules come first.

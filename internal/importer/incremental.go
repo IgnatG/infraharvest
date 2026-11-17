@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -65,10 +65,10 @@ func (c *callRecorder) addToRoot(ctx context.Context, dir string, imports []root
 		added = append(added, imp)
 	}
 	if len(added) == 0 {
-		log.Printf("%s: nothing new to add (--incremental)", dir)
+		logging.Infof("%s: nothing new to add (--incremental)", dir)
 		return nil, nil, nil, nil
 	}
-	log.Printf("adding %d new resources to %s (--incremental)", len(added), dir)
+	logging.Infof("adding %d new resources to %s (--incremental)", len(added), dir)
 	staging := stagingDir(out, dir)
 	tf, err := tr.in(staging)
 	if err != nil {
@@ -170,7 +170,7 @@ func (c *callRecorder) leaveOutHeld(byDir map[string][]rootfile.Import, held map
 			kept = append(kept, imp)
 		}
 		if len(kept) == 0 {
-			log.Printf("%s: each of its resources is in another root of the output (--incremental)", dir)
+			logging.Infof("%s: each of its resources is in another root of the output (--incremental)", dir)
 			delete(byDir, dir)
 			continue
 		}

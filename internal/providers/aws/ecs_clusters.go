@@ -5,7 +5,6 @@ package aws
 
 import (
 	"context"
-	"log"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // EcsLister lists the service "ecs": the ECS clusters, each with its
@@ -122,7 +122,7 @@ func (g *EcsLister) addServices(client *ecs.Client, clusterARN, clusterName stri
 		serviceName := arnName(serviceARN)
 		service, ok := described[serviceName]
 		if !ok {
-			log.Printf("aws: ecs: service %s: not found", serviceARN)
+			logging.Warnf("aws: ecs: service %s: not found", serviceARN)
 			continue
 		}
 		attributes := map[string]string{

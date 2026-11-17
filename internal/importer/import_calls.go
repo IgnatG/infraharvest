@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"sync"
 
 	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // Command is what one provider command imports: its options, as its
@@ -147,7 +147,7 @@ func (c Call) logWhere() {
 // tells when each starts and finishes listing and generating.
 func (c Call) logStep(step string) {
 	if c.Where != "" {
-		log.Printf("%s: %s in %s", c.Provider.Name(), step, c.Where)
+		logging.Infof("%s: %s in %s", c.Provider.Name(), step, c.Where)
 	}
 }
 

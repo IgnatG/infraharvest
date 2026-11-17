@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // generatedBeforeRetry holds, while retryFallbacks has Terraform generate
@@ -95,7 +95,7 @@ func retryFallbacks(ctx context.Context, tf tfrun.Terraform, dir string, imports
 		i := byAddress[address]
 		// Not the errors themselves, which may quote values the
 		// configuration holds, secrets among them.
-		log.Printf("%s: Terraform rejected its import by %s; importing it by %s instead", address, imports[i].ID, imports[i].Fallback)
+		logging.Warnf("%s: Terraform rejected its import by %s; importing it by %s instead", address, imports[i].ID, imports[i].Fallback)
 		imports[i].ID, imports[i].Fallback = imports[i].Fallback, ""
 	}
 	before := filepath.Join(dir, generatedBeforeRetry)

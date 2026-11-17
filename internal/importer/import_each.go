@@ -7,10 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // importEach imports each of scopes, the accounts or projects (kind) a
@@ -38,7 +39,7 @@ func (r *Run) importEach(options Options, kind string, scopes []string, importOn
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
-			log.Printf("%s %s: %v", kind, scope, err)
+			logging.Errorf("%s %s: %v", kind, scope, err)
 			r.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
 		}
 		return nil
@@ -93,7 +94,7 @@ func (r *Run) importEach(options Options, kind string, scopes []string, importOn
 		case errors.Is(err, context.Canceled):
 			canceled = err
 		default:
-			log.Printf("%s %s: %v", kind, scope, err)
+			logging.Errorf("%s %s: %v", kind, scope, err)
 			r.recordFailure(options, fmt.Errorf("%s %s: %w", kind, scope, err))
 		}
 	}
@@ -107,7 +108,7 @@ func (r *Run) importEach(options Options, kind string, scopes []string, importOn
 func importSafely(name string, do func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("%s panicked: %v\n%s", name, r, debug.Stack())
+			logging.Errorf("%s panicked: %v\n%s", name, r, debug.Stack())
 			err = fmt.Errorf("panic: %v (the log has the stack)", r)
 		}
 	}()

@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,6 +14,7 @@ import (
 	iamtypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // IamLister lists the IAM users, groups, customer-managed policies,
@@ -169,7 +169,7 @@ func (g *IamLister) addUsers(client *iam.Client, users []iamtypes.UserDetail) er
 			if !iamGone(err) {
 				return fmt.Errorf("access keys of user %s: %w", name, err)
 			}
-			log.Printf("aws: iam: access keys of user %s: it no longer exists; leaving them out: %v", name, err)
+			logging.Warnf("aws: iam: access keys of user %s: it no longer exists; leaving them out: %v", name, err)
 		}
 	}
 	return nil

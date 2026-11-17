@@ -6,11 +6,11 @@ package google
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"google.golang.org/api/cloudscheduler/v1"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // schedulerJobType is the Terraform type of a Cloud Scheduler job.
@@ -66,7 +66,7 @@ func (g *SchedulerJobsLister) list() error {
 	})
 	if err != nil {
 		if outcome := googleCodes.Classify(err); outcome.LeavesNothingOut() || outcome == harvest.OutcomeSkipRegion {
-			log.Printf("%s: schedulerJobs: no Cloud Scheduler jobs listed in %s: %v", g.Provider(), parent, err)
+			logging.Warnf("%s: schedulerJobs: no Cloud Scheduler jobs listed in %s: %v", g.Provider(), parent, err)
 			return nil
 		}
 		return fmt.Errorf("listing the Cloud Scheduler jobs in %s: %w", parent, err)

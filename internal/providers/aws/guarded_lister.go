@@ -5,9 +5,9 @@ package aws
 
 import (
 	"context"
-	"log"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // guardedLister wraps the lister of every service of the provider. It
@@ -30,12 +30,12 @@ type guardedLister struct {
 // region has none of its resources, or AWS doesn't offer it there.
 func (s *guardedLister) List(ctx context.Context, settings harvest.Settings) ([]harvest.Resource, error) {
 	if reason := s.explorerSkip(ctx, settings.Service); reason != "" {
-		log.Printf("aws: %s: %s; not listing it", settings.Service, reason)
+		logging.Warnf("aws: %s: %s; not listing it", settings.Service, reason)
 		return nil, nil
 	}
 	resources, err := s.lister.List(ctx, settings)
 	if err != nil && awsCodes.Classify(err) == harvest.OutcomeSkipRegion {
-		log.Printf("aws: %s: not offered in %s: %v; not listing it", settings.Service, s.where(), err)
+		logging.Warnf("aws: %s: not offered in %s: %v; not listing it", settings.Service, s.where(), err)
 		return resources, nil
 	}
 	return resources, err

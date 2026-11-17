@@ -5,13 +5,13 @@ package aws
 
 import (
 	"context"
-	"log"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/directconnect"
 	"github.com/aws/aws-sdk-go-v2/service/directconnect/types"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // virtualInterfaceTypes maps the Direct Connect virtual interface types to
@@ -109,7 +109,7 @@ func (g *DirectConnectLister) listVirtualInterfaces(ctx context.Context, client 
 			id, kind := aws.ToString(vif.VirtualInterfaceId), aws.ToString(vif.VirtualInterfaceType)
 			tfType, ok := virtualInterfaceTypes[kind]
 			if !ok {
-				log.Printf("aws: dx: skipping virtual interface %s of type %q, which is not imported", id, kind)
+				logging.Warnf("aws: dx: skipping virtual interface %s of type %q, which is not imported", id, kind)
 				continue
 			}
 			g.Resources = append(g.Resources, harvest.RecordBare(id, aws.ToString(vif.VirtualInterfaceName), tfType, "aws"))

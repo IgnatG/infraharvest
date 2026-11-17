@@ -6,7 +6,6 @@ package azure
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -15,6 +14,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // The Resource Graph types of a role assignment and a role definition, as
@@ -130,7 +130,7 @@ func (az *RoleAssignmentLister) list() error {
 		}
 		prefix, name, ok := assignmentScope(row.id)
 		if !ok {
-			log.Printf("azurerm: role_assignment: %s isn't a role assignment's ID; left out", row.id)
+			logging.Warnf("azurerm: role_assignment: %s isn't a role assignment's ID; left out", row.id)
 			continue
 		}
 		scope := prefix
@@ -165,7 +165,7 @@ func (az *RoleAssignmentLister) list() error {
 		return err
 	}
 	if az.Verbose() {
-		log.Printf("azurerm: role_assignment: %d role assignments and %d custom roles from %d rows of Resource Graph", len(assignments), len(az.Resources), len(rows))
+		logging.Debugf("azurerm: role_assignment: %d role assignments and %d custom roles from %d rows of Resource Graph", len(assignments), len(az.Resources), len(rows))
 	}
 	az.Resources = append(az.Resources, assignments...)
 	return nil

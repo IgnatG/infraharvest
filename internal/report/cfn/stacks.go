@@ -14,7 +14,6 @@ package cfn
 
 import (
 	"fmt"
-	"log"
 	"path"
 	"path/filepath"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
+	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
 // TemplatesDir is where, under the output directory, the report writes the
@@ -437,13 +437,13 @@ func (all Stacks) Log() {
 	for _, s := range all {
 		switch {
 		case s.Deleted:
-			log.Printf("CloudFormation stack %s: deleted already; what it retained is imported", s.Name)
+			logging.Infof("CloudFormation stack %s: deleted already; what it retained is imported", s.Name)
 		case s.SafeToDelete:
-			log.Printf("CloudFormation stack %s: safe to delete once the roots are applied: every resource is imported, left out by the selection file or acknowledged, the plans change nothing, and every resource is retained", s.Name)
+			logging.Infof("CloudFormation stack %s: safe to delete once the roots are applied: every resource is imported, left out by the selection file or acknowledged, the plans change nothing, and every resource is retained", s.Name)
 		default:
-			log.Printf("CloudFormation stack %s: not safe to delete yet:\n- %s", s.Name, strings.Join(s.Blockers, "\n- "))
+			logging.Warnf("CloudFormation stack %s: not safe to delete yet:\n- %s", s.Name, strings.Join(s.Blockers, "\n- "))
 			if s.RetainTemplate != "" {
-				log.Printf("CloudFormation stack %s: a copy of its template with Retain added where it lacks it is in %s: update the stack with it before deleting it", s.Name, s.RetainTemplate)
+				logging.Infof("CloudFormation stack %s: a copy of its template with Retain added where it lacks it is in %s: update the stack with it before deleting it", s.Name, s.RetainTemplate)
 			}
 		}
 	}
