@@ -205,7 +205,7 @@ func sameFilter(a, b []string) bool {
 func listResources(ctx context.Context, provider harvest.Provider, c *callContext, args []string) (listing, []error, error) {
 	options, scope := c.options, c.scope
 	path := inventoryPath(options.Out, provider.Name(), args)
-	if options.ReuseInventory && !options.Discover {
+	if options.ReuseInventory && !options.discovers() {
 		inv, err := loadInventory(path, c.services, options.filterArgs())
 		if err != nil {
 			return listing{}, nil, err
@@ -254,7 +254,7 @@ func listResources(ctx context.Context, provider harvest.Provider, c *callContex
 	if tagsErr != nil {
 		failures = append(failures, tagsErr)
 	}
-	if options.Discover {
+	if options.discovers() {
 		inv := inventory{Version: inventoryVersion, Provider: provider.Name(), Scope: scope, Services: c.services, Filter: options.filterArgs(), Records: listed.records()}
 		for _, f := range failures {
 			inv.Failures = append(inv.Failures, f.Error())

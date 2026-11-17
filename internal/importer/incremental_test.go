@@ -164,7 +164,7 @@ func TestDecideRootRefusesAnUnfinishedRoot(t *testing.T) {
 	raw := filepath.Join(out, "aws", "222")
 	write(raw, rootfile.ImportsFileName, rootfile.GeneratedFileName)
 
-	c := &listedCall{options: Options{Out: out, Incremental: true}}
+	c := &listedCall{options: Options{Out: out, Roots: RootsIncremental}}
 	for _, dir := range []string{started, raw} {
 		d, err := c.decideRoot(dir, "fp")
 		if err != nil || d.mode != rootRefused || d.reason == nil || !strings.Contains(d.reason.Error(), "didn't finish") {

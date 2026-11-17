@@ -328,7 +328,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	// at the address the state has it (see shared.previousAddressesOf).
 	var held map[engine.External]string
 	var own map[string]string
-	if (options.Regenerate || options.Resume) && options.Out != "" {
+	if (options.Roots == RootsRegenerate || options.Resume) && options.Out != "" {
 		var dirs []string
 		if held, dirs, err = run.outputIndex(options.Out).generatedResources(); err != nil {
 			return err
@@ -342,7 +342,7 @@ func excludeManaged(ctx context.Context, run *Run, options Options, listed map[s
 	// the kept ones otherwise, which have it.
 	var mergedOwn map[string]mergedState
 	if options.readsEarlierRoots() && options.Out != "" {
-		if mergedOwn, err = mergedOwnStates(run.outputIndex(options.Out), !options.Regenerate && !options.Resume); err != nil {
+		if mergedOwn, err = mergedOwnStates(run.outputIndex(options.Out), options.Roots != RootsRegenerate && !options.Resume); err != nil {
 			return err
 		}
 	}

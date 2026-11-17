@@ -5,6 +5,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -164,7 +165,7 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		// after a --, is a mistake.
 		Args: cobra.NoArgs,
 	}
-	BaseFlags(cmd.PersistentFlags(), &options, d.sampleServices, d.sampleIDs)
+	modes := BaseFlags(cmd.PersistentFlags(), &options, d.sampleServices, d.sampleIDs)
 	ParallelFlag(cmd, &options, d.parallelScopes)
 	checkScopes, planScopes := d.flags(cmd.PersistentFlags(), &options)
 	var check bool
@@ -178,6 +179,9 @@ func (d definition) command(options importer.Options) (*cobra.Command, RunFunc) 
 		}
 		// --format=json prints the report where the command prints, as
 		// an MCP server or a test running it in process captures it.
+		if err := modes.Apply(&options); err != nil {
+			return err
+		}
 		options.Stdout = c.OutOrStdout()
 		options.ModulesChosen = c.Flags().Changed("modules")
 		options.ManagedStores = managedStores(compiledStores)
@@ -215,8 +219,10 @@ const CheckFlag = "check"
 // BaseFlags adds the flags every provider command has to flags, bound to
 // options. Their names are also the keys of a configuration file's
 // settings. sampleRes and sampleIDs are examples of --services and --id
-// values for the help.
-func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampleIDs string) {
+// values for the help. --all, --regenerate and --incremental set the
+// returned ModeFlags instead, which Apply turns into options' Mode and
+// Roots once the flags and the configuration file have been read.
+func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampleIDs string) *ModeFlags {
 	// What to list.
 	flags.StringSliceVarP(&options.Services, "services", "s", nil, "services to import, such as "+sampleRes+`, or "*" for all (infraharvest services <provider> lists them)`)
 	flags.StringSliceVar(&options.Skip, "skip", nil, "services to leave out of --services, such as "+sampleRes)
@@ -246,14 +252,43 @@ func BaseFlags(flags *pflag.FlagSet, options *importer.Options, sampleRes, sampl
 
 	// Which resources to import, and how earlier runs count.
 	flags.StringVar(&options.Selection, "selection", "", "selection file from infraharvest discover, saying which resources to import (discover: the file to write, default selection.yaml)")
-	flags.BoolVar(&options.All, "all", false, "import everything the default selection includes, without a selection file")
+	modes := &ModeFlags{}
+	flags.BoolVar(&modes.all, "all", false, "import everything the default selection includes, without a selection file")
 	flags.StringSliceVar(&options.ManagedState, "managed-state", nil, "leave out what Terraform already manages, according to this state: state files, directories of them, or s3://bucket/prefix[?region=...&profile=...] (read with --profile unless it names one) gs://bucket/prefix or https://<account>.blob.core.windows.net/<container>/prefix (all their .tfstate objects), or tfc://<organization>/<workspace> (<prefix>* for several, ?host= for Terraform Enterprise); backend reads the configured S3, GCS or azurerm backend's state")
 	flags.BoolVar(&options.IncludeOwned, "include-owned", false, "import resources whose tags or labels say another Terraform state or tool manages them (ManagedBy=Terraform, Pulumi, CloudFormation ..., aws:cloudformation:stack-name, goog-terraform-provisioned), which are left out by default")
 	flags.BoolVar(&options.AllowPartial, "allow-partial", false, "keep going when some services or resources fail to import, leaving them out of the output, and exit 3 instead of 1")
 	flags.BoolVar(&options.Resume, "resume", false, "skip the roots a previous run generated from the same resources and options, and generate again those it didn't finish, such as after a run that failed part way")
-	flags.BoolVar(&options.Regenerate, "regenerate", false, "generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed")
-	flags.BoolVar(&options.Incremental, "incremental", false, "add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have")
+	flags.BoolVar(&modes.regenerate, "regenerate", false, "generate the roots earlier imports generated in --out again, from scratch, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was and reported as failed")
+	flags.BoolVar(&modes.incremental, "incremental", false, "add what is new to the roots earlier imports generated in --out, after the blocks of the file of its type, without changing what they have")
 	flags.BoolVar(&options.ReuseInventory, "reuse-inventory", false, "import from the resources infraharvest discover listed into the same --out, instead of listing them again")
+	return modes
+}
+
+// ModeFlags hold --all, --regenerate and --incremental, which options
+// replace with one value each: Mode and Roots.
+type ModeFlags struct {
+	all, regenerate, incremental bool
+}
+
+// Apply sets the Mode and Roots of options from the flags, and fails, as
+// checkModes did, where they don't go together. options.Mode is
+// importer.ModeDiscover for discover, and stays so.
+func (m *ModeFlags) Apply(options *importer.Options) error {
+	switch {
+	case m.regenerate && m.incremental:
+		return errors.New("use either --regenerate or --incremental")
+	case m.regenerate:
+		options.Roots = importer.RootsRegenerate
+	case m.incremental:
+		options.Roots = importer.RootsIncremental
+	}
+	switch {
+	case options.Mode == importer.ModeDiscover && m.all:
+		return errors.New("discover lists everything; --all is for import")
+	case m.all:
+		options.Mode = importer.ModeAll
+	}
+	return nil
 }
 
 // moduleFamilies names the families of curated public modules of the

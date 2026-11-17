@@ -80,7 +80,7 @@ func TestListCallLimitsWithTheRunsLimiter(t *testing.T) {
 // stay as the command gave them.
 func TestPrepareCallResolvesBesideTheOptions(t *testing.T) {
 	provider := &catalogueProvider{}
-	options := Options{Services: []string{"*"}, Skip: []string{"vpc"}, All: true}
+	options := Options{Services: []string{"*"}, Skip: []string{"vpc"}, Mode: ModeAll}
 
 	c, err := NewRun().prepareCall(t.Context(), provider, options, nil)
 	if err != nil {
@@ -378,7 +378,7 @@ func (*failingScope) Scope(context.Context) (string, string, error) {
 // A provider that can't say its account and region fails the call: with no
 // scope the selection would match the entries of any other account.
 func TestPrepareCallFailsWhenTheScopeIsUnknown(t *testing.T) {
-	_, err := NewRun().prepareCall(t.Context(), &failingScope{}, Options{All: true}, nil)
+	_, err := NewRun().prepareCall(t.Context(), &failingScope{}, Options{Mode: ModeAll}, nil)
 	if err == nil || !strings.Contains(err.Error(), "throttled") {
 		t.Fatalf("prepareCall: got %v, want the scope's error", err)
 	}

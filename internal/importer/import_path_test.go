@@ -243,7 +243,7 @@ type pathImport struct {
 func pathOptions(out string, f *fakeEngine, services ...string) pathImport {
 	return pathImport{
 		Options: Options{
-			All:          true,
+			Mode:         ModeAll,
 			Out:          out,
 			Layout:       "{out}/{provider}/{service}/",
 			Services:     services,
@@ -402,7 +402,7 @@ func TestListCallResumes(t *testing.T) {
 	// --regenerate generates every root again.
 	f = &fakeEngine{}
 	options = pathOptions(out, f, "alpha", "beta", "gamma")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run = importPath(t, options)
 	if !slices.Equal(f.generated, []string{"alpha", "beta", "gamma"}) || len(run.failures) != 0 {
 		t.Errorf("generated %v, failures %v, want every root again", f.generated, run.failures)
@@ -443,7 +443,7 @@ func TestListCallRegeneratesRootsWhoseAddressesStay(t *testing.T) {
 		return imp.Name
 	}}
 	options := pathOptions(out, f, "alpha", "beta")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run = importPath(t, options)
 	if !slices.Equal(f.generated, []string{"alpha", "beta"}) {
 		t.Errorf("generated %v, want both roots again", f.generated)
@@ -477,7 +477,7 @@ func TestListCallRegenerateLeavesARootAsItWasWhenItFails(t *testing.T) {
 
 	f := &fakeEngine{fail: "alpha"}
 	options := pathOptions(out, f, "alpha", "beta")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 
 	if got := directoryPaths(run); !slices.Equal(got, []string{"fake/alpha (failed)", "fake/beta"}) {
@@ -587,7 +587,7 @@ func TestListCallIncrementalLeavesOutWhatOtherRootsHold(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "beta", "gamma")
 	options.Layout = "{out}/{provider}/all/"
-	options.Incremental = true
+	options.Roots = RootsIncremental
 	run := importPath(t, options)
 
 	if !slices.Equal(f.generated, []string{"all"}) {
@@ -623,7 +623,7 @@ func TestListCallRegeneratesRootsWithMoves(t *testing.T) {
 		return imp.Name
 	}}
 	options := pathOptions(out, f, "alpha", "beta")
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 	if len(run.failures) != 0 {
 		t.Fatalf("failures %v, want both roots generated again", run.failures)

@@ -31,14 +31,12 @@ func TestCheckSelectionOptions(t *testing.T) {
 		ok      bool
 	}{
 		{Options{Selection: "selection.yaml"}, true},
-		{Options{All: true}, true},
-		{Options{Discover: true}, true},
+		{Options{Mode: ModeAll}, true},
+		{Options{Mode: ModeDiscover}, true},
 		{Options{}, false},
-		{Options{Selection: "selection.yaml", All: true}, false},
-		{Options{Discover: true, All: true}, false},
-		{Options{All: true, Regenerate: true}, true},
-		{Options{All: true, Regenerate: true, Resume: true}, true},
-		{Options{All: true, Regenerate: true, Incremental: true}, false},
+		{Options{Selection: "selection.yaml", Mode: ModeAll}, false},
+		{Options{Mode: ModeAll, Roots: RootsRegenerate}, true},
+		{Options{Mode: ModeAll, Roots: RootsRegenerate, Resume: true}, true},
 	} {
 		if err := checkModes(tc.options); (err == nil) != tc.ok {
 			t.Errorf("%+v: got %v", tc.options, err)
@@ -271,7 +269,7 @@ func TestSelectionFileIncludeOwned(t *testing.T) {
 // gets one entry, and nothing is new in a first file.
 func TestDiscoverWritesEachResourceOnce(t *testing.T) {
 	run := NewRun()
-	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
+	run.options = Options{Mode: ModeDiscover, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
 	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
 	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
@@ -298,7 +296,7 @@ func TestDiscoverWritesEachResourceOnce(t *testing.T) {
 
 func TestDiscoverWritesSelection(t *testing.T) {
 	run := NewRun()
-	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
+	run.options = Options{Mode: ModeDiscover, Selection: filepath.Join(t.TempDir(), "selection.yaml")}
 
 	run.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "aws/123456789012/eu-west-2", importIDForSelection)
 	if err := run.writeSelection(false); err != nil {
@@ -368,10 +366,10 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 		options Options
 		managed bool
 	}{
-		"regenerate":  {Options{ManagedState: []string{path}, Out: out, Regenerate: true}, false},
+		"regenerate":  {Options{ManagedState: []string{path}, Out: out, Roots: RootsRegenerate}, false},
 		"resume":      {Options{ManagedState: []string{path}, Out: out, Resume: true}, false},
-		"incremental": {Options{ManagedState: []string{path}, Out: out, Incremental: true}, true},
-		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Regenerate: true}, true},
+		"incremental": {Options{ManagedState: []string{path}, Out: out, Roots: RootsIncremental}, true},
+		"a new root":  {Options{ManagedState: []string{path}, Out: t.TempDir(), Roots: RootsRegenerate}, true},
 	} {
 		run := NewRun()
 		run.index = m.index()
@@ -387,7 +385,7 @@ func TestExcludeManagedKeepsWhatRootsHave(t *testing.T) {
 	m.root(dir).checkpoint, m.root(dir).unreadable = nil, errors.New("unexpected end of JSON input")
 	run := NewRun()
 	run.index = m.index()
-	if _, err := excludedManaged(t, run, Options{ManagedState: []string{path}, Out: out, Regenerate: true}, nil); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
+	if _, err := excludedManaged(t, run, Options{ManagedState: []string{path}, Out: out, Roots: RootsRegenerate}, nil); err == nil || !strings.Contains(err.Error(), "aws/123456789012/eu-west-2") {
 		t.Errorf("an unreadable checkpoint: %v", err)
 	}
 }
@@ -423,7 +421,7 @@ func TestExcludeManagedReadsRootsOwnState(t *testing.T) {
 	run := NewRun()
 	run.index = m.index()
 
-	defaults, err := excludedManaged(t, run, Options{ManagedState: []string{out, other}, Out: out, Regenerate: true}, nil)
+	defaults, err := excludedManaged(t, run, Options{ManagedState: []string{out, other}, Out: out, Roots: RootsRegenerate}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +555,7 @@ func TestBackendStateSource(t *testing.T) {
 func TestDiscoverUpdatesSelection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	first := NewRun()
-	first.options = Options{Discover: true, Selection: path}
+	first.options = Options{Mode: ModeDiscover, Selection: path}
 	first.addDiscovered(listing{resources: listedForSelection}, sourcesOf(t, listing{resources: listedForSelection}, defaultsForSelection), "", importIDForSelection)
 	if err := first.writeSelection(false); err != nil {
 		t.Fatal(err)
@@ -576,7 +574,7 @@ func TestDiscoverUpdatesSelection(t *testing.T) {
 	}
 
 	again := NewRun()
-	again.options = Options{Discover: true, Selection: path}
+	again.options = Options{Mode: ModeDiscover, Selection: path}
 	listed := map[string][]harvest.Resource{
 		"vpc": listedForSelection["vpc"],
 		"s3": {
@@ -615,7 +613,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	const a, b = "aws/123456789012/eu-west-1", "aws/123456789012/eu-west-2"
 	path := filepath.Join(t.TempDir(), "selection.yaml")
 	importID := func(r harvest.Resource) (string, bool) { return r.Observed.ID, true }
-	services := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}}
+	services := Options{Mode: ModeDiscover, Selection: path, Services: []string{"s3", "vpc"}}
 
 	first := NewRun()
 	first.options = services
@@ -644,7 +642,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	// Region b again, with its VPC only: its bucket is gone, and the rest
 	// wasn't listed.
 	again := NewRun()
-	vpcOnly := Options{Discover: true, Selection: path, Services: []string{"vpc"}}
+	vpcOnly := Options{Mode: ModeDiscover, Selection: path, Services: []string{"vpc"}}
 	again.options = vpcOnly
 	again.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil}}, nil), b, importID)
 	again.cover(callOf(vpcOnly, b))
@@ -686,7 +684,7 @@ func TestDiscoverOfLessKeepsTheRest(t *testing.T) {
 	// With a filter, discover can't tell what it didn't match from what is
 	// gone, so nothing is dropped.
 	filtered := NewRun()
-	withTag := Options{Discover: true, Selection: path, Services: []string{"s3", "vpc"}, TagFilters: []string{"env=prod"}}
+	withTag := Options{Mode: ModeDiscover, Selection: path, Services: []string{"s3", "vpc"}, TagFilters: []string{"env=prod"}}
 	filtered.options = withTag
 	filtered.addDiscovered(listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, sourcesOf(t, listing{resources: map[string][]harvest.Resource{"vpc": nil, "s3": nil}}, nil), a, importID)
 	filtered.cover(callOf(withTag, a))
@@ -735,7 +733,7 @@ func TestDiscoverPrintsSummary(t *testing.T) {
 	var out bytes.Buffer
 	run := NewRun()
 	run.used = true
-	run.options = Options{Discover: true, Selection: filepath.Join(t.TempDir(), "selection.yaml"), Format: FormatJSON, Stdout: &out, ReportTags: []string{"team"}}
+	run.options = Options{Mode: ModeDiscover, Selection: filepath.Join(t.TempDir(), "selection.yaml"), Format: FormatJSON, Stdout: &out, ReportTags: []string{"team"}}
 	const scope = "aws/1/eu-west-2"
 	stack := report.OtherToolPrefix + "CloudFormation stack app"
 	run.listed = append(run.listed, []selection.Resource{
@@ -775,7 +773,7 @@ func TestDiscoverRefreshesManaged(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "selection.yaml")
 		reason := report.TerraformPrefix + " (prod.tfstate)"
 		first := NewRun()
-		first.options = Options{Discover: true, Selection: path, ManagedState: []string{"prod.tfstate"}}
+		first.options = Options{Mode: ModeDiscover, Selection: path, ManagedState: []string{"prod.tfstate"}}
 		first.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Service: "s3", Reason: reason}}
 		if err := first.writeSelection(false); err != nil {
 			t.Fatal(err)
@@ -824,7 +822,7 @@ func TestSelectionToPick(t *testing.T) {
 			run := NewRun()
 			run.used = true
 			run.failures = tt.failures
-			run.options = Options{Discover: true, Selection: path, Format: tt.format, Stdout: &bytes.Buffer{}}
+			run.options = Options{Mode: ModeDiscover, Selection: path, Format: tt.format, Stdout: &bytes.Buffer{}}
 			run.listed = []selection.Resource{{Type: "aws_s3_bucket", ID: "logs", Scope: "aws/1/eu-west-2", Include: true}}
 			_ = run.finish(tt.err)
 			got := run.SelectionToPick()

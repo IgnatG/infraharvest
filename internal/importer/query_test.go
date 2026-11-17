@@ -60,16 +60,16 @@ func TestCheckQuery(t *testing.T) {
 		options Options
 		want    string
 	}{
-		"listed":              {Options{All: true, Services: query, QueryTypes: []string{"fake_volume"}}, ""},
-		"not used":            {Options{All: true, Services: []string{"vpc"}}, ""},
-		"types without query": {Options{All: true, Services: []string{"vpc"}, QueryTypes: []string{"fake_volume"}}, "--query-types names the types the query service lists: add query to --services"},
-		"query skipped":       {Options{All: true, Services: query, Skip: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}}, "add query to --services"},
-		"query without types": {Options{All: true, Services: query}, "the query service lists the resource types --query-types names, such as fake_...: name at least one"},
-		"tofu":                {Options{All: true, Services: query, QueryTypes: []string{"fake_volume"}, Engine: EngineTofu}, "which OpenTofu doesn't have: use --engine terraform"},
-		"another provider's":  {Options{All: true, Services: query, QueryTypes: []string{"aws_ebs_volume"}}, "--query-types: aws_ebs_volume isn't a resource type of fake"},
-		"listed by a service": {Options{All: true, Services: query, QueryTypes: []string{"fake_volume", "fake_vpc"}}, "--query-types: fake_vpc is listed by the vpc service: use --services vpc"},
-		"wildcard leaves it":  {Options{All: true, Services: []string{"*"}, QueryTypes: []string{"fake_volume"}}, "add query to --services"},
-		"wildcard and query":  {Options{All: true, Services: []string{"*", harvest.QueryService}, QueryTypes: []string{"fake_volume"}}, ""},
+		"listed":              {Options{Mode: ModeAll, Services: query, QueryTypes: []string{"fake_volume"}}, ""},
+		"not used":            {Options{Mode: ModeAll, Services: []string{"vpc"}}, ""},
+		"types without query": {Options{Mode: ModeAll, Services: []string{"vpc"}, QueryTypes: []string{"fake_volume"}}, "--query-types names the types the query service lists: add query to --services"},
+		"query skipped":       {Options{Mode: ModeAll, Services: query, Skip: []string{harvest.QueryService}, QueryTypes: []string{"fake_volume"}}, "add query to --services"},
+		"query without types": {Options{Mode: ModeAll, Services: query}, "the query service lists the resource types --query-types names, such as fake_...: name at least one"},
+		"tofu":                {Options{Mode: ModeAll, Services: query, QueryTypes: []string{"fake_volume"}, Engine: EngineTofu}, "which OpenTofu doesn't have: use --engine terraform"},
+		"another provider's":  {Options{Mode: ModeAll, Services: query, QueryTypes: []string{"aws_ebs_volume"}}, "--query-types: aws_ebs_volume isn't a resource type of fake"},
+		"listed by a service": {Options{Mode: ModeAll, Services: query, QueryTypes: []string{"fake_volume", "fake_vpc"}}, "--query-types: fake_vpc is listed by the vpc service: use --services vpc"},
+		"wildcard leaves it":  {Options{Mode: ModeAll, Services: []string{"*"}, QueryTypes: []string{"fake_volume"}}, "add query to --services"},
+		"wildcard and query":  {Options{Mode: ModeAll, Services: []string{"*", harvest.QueryService}, QueryTypes: []string{"fake_volume"}}, ""},
 	} {
 		err := checkOnly(&queryProvider{}, tc.options)
 		switch {

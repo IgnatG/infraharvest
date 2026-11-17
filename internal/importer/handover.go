@@ -284,7 +284,7 @@ func planHandovers(x *outputIndex, calls []*listedCall) error {
 			live = append(live, c)
 		}
 	}
-	if len(live) == 0 || !live[0].options.Regenerate {
+	if len(live) == 0 || live[0].options.Roots != RootsRegenerate {
 		return nil
 	}
 	callOf := map[string]*listedCall{}

@@ -121,13 +121,13 @@ func TestExcludeManagedKeepsMergedRootsOwn(t *testing.T) {
 			t.Errorf("%s: the VPC of another state isn't left out", name)
 		}
 	}
-	check("incremental", Options{ManagedState: sources, Out: out, Incremental: true}, false)
+	check("incremental", Options{ManagedState: sources, Out: out, Roots: RootsIncremental}, false)
 	check("a plain import", Options{ManagedState: sources, Out: out}, true)
 	if err := mergeCheckpoints.write(out, stack, mergeCheckpoint{Merge: report.Merge{Merged: true}}); err != nil {
 		t.Fatal(err)
 	}
-	check("incremental, recorded", Options{ManagedState: sources, Out: out, Incremental: true}, true)
-	check("regenerate, recorded", Options{ManagedState: sources, Out: out, Regenerate: true}, false)
+	check("incremental, recorded", Options{ManagedState: sources, Out: out, Roots: RootsIncremental}, true)
+	check("regenerate, recorded", Options{ManagedState: sources, Out: out, Roots: RootsRegenerate}, false)
 }
 
 // A merged root no checkpoint records is told from its files: its

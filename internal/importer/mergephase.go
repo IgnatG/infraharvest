@@ -60,9 +60,9 @@ func (r *Run) mergePhase() *mergePhase {
 	p := &mergePhase{
 		out:          options.Out,
 		enabled:      options.MergeEnvironments,
-		incremental:  options.Incremental,
+		incremental:  options.Roots == RootsIncremental,
 		resume:       options.Resume,
-		regenerate:   options.Regenerate,
+		regenerate:   options.Roots == RootsRegenerate,
 		members:      r.members,
 		vacating:     r.vacating,
 		environments: r.environments,

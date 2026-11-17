@@ -12,7 +12,7 @@ import (
 // newDiscoverCmd lists resources into a selection file, which people review
 // and edit before import --selection imports what it includes.
 func newDiscoverCmd() *cobra.Command {
-	options := importer.Options{Discover: true}
+	options := importer.Options{Mode: importer.ModeDiscover}
 	cmd := &cobra.Command{
 		Use:   "discover",
 		Short: "List resources into a selection file to review before importing",

@@ -120,11 +120,10 @@ type Options struct {
 
 	// Selection is the selection file discover writes and import follows.
 	Selection string
-	// All imports what the default selection includes, without a file.
-	All bool
-	// Discover lists resources into the selection file instead of
-	// importing them.
-	Discover bool
+	// Mode is what the run lists and imports: what Selection includes,
+	// what the default selection includes without a file (--all), or, for
+	// discover, a listing into the selection file instead of an import.
+	Mode Mode
 	// ManagedState is state whose resources are left out, as already
 	// managed by Terraform.
 	ManagedState []string
@@ -142,10 +141,9 @@ type Options struct {
 	// Resume skips the roots a previous, identical run generated, and
 	// generates again those a previous run didn't finish.
 	Resume bool
-	// Regenerate generates again the roots earlier runs generated.
-	Regenerate bool
-	// Incremental adds what is new to roots earlier runs generated.
-	Incremental bool
+	// Roots is what the run does with the roots earlier runs generated:
+	// generate them again (--regenerate), or add to them (--incremental).
+	Roots RootsMode
 	// ReuseInventory imports from what discover listed, instead of listing
 	// again.
 	ReuseInventory bool

@@ -72,7 +72,7 @@ func TestListCallAddsToAMergedRoot(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha", "beta")
 	options.Layout = "{out}/{provider}/all/"
-	options.Incremental = true
+	options.Roots = RootsIncremental
 	run := importPath(t, options)
 	if len(f.generated) != 0 || len(run.failures) != 0 {
 		t.Fatalf("generated %v, failures %v, want the root added to", f.generated, run.failures)
@@ -116,7 +116,7 @@ func TestListCallRegeneratesAMergedRoot(t *testing.T) {
 	f := &fakeEngine{}
 	options := pathOptions(out, f, "alpha")
 	options.Layout = "{out}/{provider}/all/"
-	options.Regenerate = true
+	options.Roots = RootsRegenerate
 	run := importPath(t, options)
 	if !slices.Equal(f.generated, []string{"all"}) || len(run.failures) != 0 {
 		t.Fatalf("generated %v, failures %v, want the root generated again", f.generated, run.failures)
@@ -177,15 +177,15 @@ func TestDecideRoot(t *testing.T) {
 		{name: "new", dir: filepath.Join(out, "fake", "new"), set: func(*Options) {}, want: rootFresh},
 		{name: "foreign", dir: foreign, set: func(*Options) {}, want: rootRefused, reason: "no import by infraharvest wrote"},
 		{name: "in use", dir: alpha, set: func(*Options) {}, want: rootRefused, reason: "--regenerate"},
-		{name: "regenerate", dir: alpha, set: func(o *Options) { o.Regenerate = true }, want: rootRegenerated},
+		{name: "regenerate", dir: alpha, set: func(o *Options) { o.Roots = RootsRegenerate }, want: rootRegenerated},
 		{name: "resume", dir: alpha, set: func(o *Options) { o.Resume = true }, want: rootResumed},
 		{name: "resume, changed", dir: alpha, set: func(o *Options) { o.Resume = true }, fp: "changed", want: rootRefused, reason: "is a root an earlier import generated, which may be in use: pass --regenerate"},
-		{name: "incremental", dir: alpha, set: func(o *Options) { o.Incremental = true }, want: rootIncremental},
-		{name: "incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Incremental = true }, want: rootRefused, reason: "didn't finish: generate the root again with --resume"},
-		{name: "resume and incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Resume, o.Incremental = true, true }, want: rootRegenerated},
-		{name: "left by handovers", dir: alpha, set: func(o *Options) { o.Regenerate = true }, h: left, want: rootRefused, reason: "alpha is left as it was"},
-		{name: "unreceived", dir: alpha, set: func(o *Options) { o.Regenerate = true }, h: unreceived, want: rootRefused, reason: "fake_thing.alpha goes to fake/beta, which didn't import it"},
-		{name: "merged, incremental, no resources", dir: empty, set: func(o *Options) { o.Incremental = true }, want: rootRefused, reason: "was merged into the root its stack's environments share", restored: true},
+		{name: "incremental", dir: alpha, set: func(o *Options) { o.Roots = RootsIncremental }, want: rootIncremental},
+		{name: "incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Roots = RootsIncremental }, want: rootRefused, reason: "didn't finish: generate the root again with --resume"},
+		{name: "resume and incremental, unfinished", dir: unfinished, set: func(o *Options) { o.Resume, o.Roots = true, RootsIncremental }, want: rootRegenerated},
+		{name: "left by handovers", dir: alpha, set: func(o *Options) { o.Roots = RootsRegenerate }, h: left, want: rootRefused, reason: "alpha is left as it was"},
+		{name: "unreceived", dir: alpha, set: func(o *Options) { o.Roots = RootsRegenerate }, h: unreceived, want: rootRefused, reason: "fake_thing.alpha goes to fake/beta, which didn't import it"},
+		{name: "merged, incremental, no resources", dir: empty, set: func(o *Options) { o.Roots = RootsIncremental }, want: rootRefused, reason: "was merged into the root its stack's environments share", restored: true},
 	} {
 		c := &listedCall{options: Options{Out: out}, handovers: tc.h}
 		tc.set(&c.options)

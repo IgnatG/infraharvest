@@ -88,7 +88,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	if err != nil {
 		return nil, err
 	}
-	if options.Discover {
+	if options.discovers() {
 		run.recordDiscovery(c, listed)
 		return nil, nil
 	}
@@ -108,7 +108,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	var childFailures []error
 	resources.byService, resources.parents, childFailures = withChildImports(ctx, provider, listed.selected, childParallel(provider, options))
 	var here *listedHere
-	if options.Roots() == RootsIncremental {
+	if options.Roots == RootsIncremental {
 		var why string
 		if here, why = listedInScope(provider, c, layout.pattern, listed.listed, listed.listFailures, resources.byService); here == nil {
 			logging.Warnf("%s: the roots' resources this run doesn't find aren't checked for whether they are still in the cloud: %s (--incremental)", provider.Name(), why)
@@ -122,7 +122,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 	}
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
 	recorder := callRecorder{run: run, scope: c.scope, here: here}
-	if options.Roots() == RootsIncremental {
+	if options.Roots == RootsIncremental {
 		// What an earlier import put in another root stays there.
 		held, err := run.outputIndex(options.Out).heldElsewhere(placed.byDir)
 		if err != nil {
@@ -188,7 +188,7 @@ func (r *Run) prepareCall(ctx context.Context, provider harvest.Provider, option
 		p.SetCatalogue(cat)
 	}
 	c := &callContext{options: options, cat: cat}
-	if !options.Discover {
+	if !options.discovers() {
 		// An import needn't list what it leaves out anyway.
 		chosen, err := r.selectionFile(options)
 		if err != nil {
@@ -245,7 +245,7 @@ func (r *Run) listAndSelect(ctx context.Context, provider harvest.Provider, c *c
 	if err := r.applyImportScope(ctx, provider, listed, l.defaults, c.scope); err != nil {
 		return nil, err
 	}
-	if c.options.Discover {
+	if c.options.discovers() {
 		return l, nil
 	}
 	chosen, err := r.selectionFile(c.options)
@@ -503,7 +503,7 @@ func (r *Run) place(ctx context.Context, provider harvest.Provider, c *callConte
 	if len(layout.envNames) > 0 {
 		p.kept = newKeptRoots(r.outputIndex(options.Out), r.shared)
 		unsplit := layoutDirs(layout.unsplit, options.Out, providerDir(provider), byEnvTags(layout.unsplit))
-		if err := p.kept.split(resources.byService, dirOf, unsplit, c.importID, options.Regenerate); err != nil {
+		if err := p.kept.split(resources.byService, dirOf, unsplit, c.importID, options.Roots == RootsRegenerate); err != nil {
 			return nil, err
 		}
 		dirOf = p.kept.dirs(dirOf, unsplit, envOf)
