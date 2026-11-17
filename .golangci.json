@@ -30,6 +30,7 @@
     "default": "standard",
     "enable": [
       "bodyclose",
+      "contextcheck",
       "depguard",
       "errorlint",
       "funlen",
@@ -54,6 +55,7 @@
         {
           "path": "_test\\.go$",
           "linters": [
+            "contextcheck",
             "funlen",
             "gocyclo",
             "gosec"
@@ -64,6 +66,13 @@
             "gosec"
           ],
           "text": "G306|G703"
+        },
+        {
+          "path": "internal/providers/aws/",
+          "linters": [
+            "contextcheck"
+          ],
+          "text": "configs"
         }
       ]
     },

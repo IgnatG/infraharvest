@@ -37,7 +37,7 @@ func declared(t *testing.T, d *tidying, name string) tidyPass {
 // declaredPass is declared, for a helper without a test: it returns an error
 // if postProcess has no pass called name.
 func declaredPass(d *tidying, name string) (tidyPass, error) {
-	for _, p := range d.passes() {
+	for _, p := range d.passes(context.Background()) {
 		if p.name == name {
 			return p, nil
 		}
@@ -580,7 +580,7 @@ func TestRunChecksThePassesBeforeOneThatPlansAlone(t *testing.T) {
 // names, each of which is one of postProcess's.
 func TestPassesRunAfterTheirPrerequisites(t *testing.T) {
 	t.Parallel()
-	passes := (&tidying{r: generating(Options{})}).passes()
+	passes := (&tidying{r: generating(Options{})}).passes(context.Background())
 
 	ordered, err := orderPasses(passes)
 	if err != nil {
@@ -608,7 +608,7 @@ func TestPassesRunAfterTheirPrerequisites(t *testing.T) {
 func TestPassesThatChangeThePlanPlanAlone(t *testing.T) {
 	t.Parallel()
 	alone := map[string]bool{passEffectiveTags: true, passDefaults: true, passCuratedModules: true, passLocalModules: true}
-	for _, p := range (&tidying{r: generating(Options{})}).passes() {
+	for _, p := range (&tidying{r: generating(Options{})}).passes(context.Background()) {
 		if p.alone != alone[p.name] {
 			t.Errorf("%s: alone=%v, want %v", p.name, p.alone, alone[p.name])
 		}
