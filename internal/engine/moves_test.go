@@ -463,6 +463,36 @@ func TestRelabelledKeepsLabelsAndReservedAddresses(t *testing.T) {
 	}
 }
 
+// A run that stopped while generating a root again knows the labels of the
+// resources the root had in module calls from their addresses alone: two
+// resources of one name keep which has which label.
+func TestRelabelledKeepsTheLabelOfAResourceInAModuleCall(t *testing.T) {
+	t.Parallel()
+	previous := &Previous{Addresses: []Managed{
+		{Type: "aws_s3_bucket", ID: "b1", Address: "module.buckets.aws_s3_bucket.orders_2"},
+		{Type: "aws_s3_bucket", ID: "b2", Address: `module.buckets["a.b"].module.inner.aws_s3_bucket.orders[0]`},
+		{Type: "aws_s3_bucket", ID: "b3", Address: "module.old", Unverified: true},
+	}}
+	imports := []rootfile.Import{
+		{Type: "aws_s3_bucket", Name: "orders", ID: "b1"},
+		{Type: "aws_s3_bucket", Name: "orders", ID: "b2"},
+		{Type: "aws_s3_bucket", Name: "orders", ID: "b3"},
+	}
+	for _, tidy := range []bool{false, true} {
+		labels := map[string]string{}
+		for _, imp := range relabelled(imports, nil, tidy, previous) {
+			labels[imp.ID] = imp.Name
+		}
+		want := map[string]string{"b1": "orders_2", "b2": "orders", "b3": "orders_3"}
+		if !reflect.DeepEqual(labels, want) {
+			t.Errorf("tidy %v: got %v, want %v", tidy, labels, want)
+		}
+	}
+	if _, ok := previous.labels()[External{Type: "aws_s3_bucket", ID: "b3"}]; ok {
+		t.Errorf("a call recorded alone has a label: %v", previous.labels())
+	}
+}
+
 func TestPackagedCall(t *testing.T) {
 	t.Parallel()
 	sources := map[string]string{"eks": "terraform-aws-modules/eks/aws", "vpc": "terraform-aws-modules/vpc/aws", "roles": "../../modules/role"}
