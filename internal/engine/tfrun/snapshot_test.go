@@ -790,3 +790,64 @@ func TestCachedDropsSnapshotsWhenProvidersCantBeRead(t *testing.T) {
 		t.Errorf("the snapshot directory stays: %v", err)
 	}
 }
+
+// validatingState fails the plan while the override in dir has rejected
+// ignore all changes, as a provider's plan check does when it is handed
+// the imported values as the configuration.
+type validatingState struct {
+	fakeState
+	dir, rejected string
+	plans         int
+}
+
+func (v *validatingState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	v.plans++
+	override, err := os.ReadFile(filepath.Join(v.dir, SnapshotOverrideFile))
+	if err != nil {
+		return false, err
+	}
+	typ, name, _ := strings.Cut(v.rejected, ".")
+	if strings.Contains(string(override), fmt.Sprintf("%q %q", typ, name)) {
+		fmt.Fprintln(w, `{"@level":"error","@message":"Error: storage_iops","type":"diagnostic","diagnostic":{"severity":"error","summary":"storage_iops is only supported when storage_type is PremiumV2_LRS","detail":""}}`)
+		return false, nil
+	}
+	return v.fakeState.PlanJSON(ctx, w, opts...)
+}
+
+func TestBuildSnapshotPlansWithoutTheOverrideWhatItFails(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	tf := &validatingState{fakeState: fakeState{imports: 2, plan: importPlan("aws_s3_bucket.a", "azurerm_postgresql_flexible_server.db")}, dir: dir, rejected: "azurerm_postgresql_flexible_server.db"}
+	build := SnapshotBuild{
+		Plan: tf, Apply: tf, Dir: dir,
+		Resources: []string{"aws_s3_bucket.a", "azurerm_postgresql_flexible_server.db"},
+		Imports:   []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}, {To: "azurerm_postgresql_flexible_server.db", ID: "db"}},
+		Blame:     func([]tfjson.Diagnostic) []string { return []string{"azurerm_postgresql_flexible_server.db"} },
+	}
+	s, err := BuildSnapshot(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Remove()
+	if tf.plans != 2 || tf.applies != 1 {
+		t.Errorf("plans %d, applies %d: want 2 and 1", tf.plans, tf.applies)
+	}
+	override, _ := os.ReadFile(filepath.Join(dir, SnapshotOverrideFile))
+	if want := string(SnapshotOverride([]string{"aws_s3_bucket.a"})); string(override) != want {
+		t.Errorf("override:\n%s\nwant:\n%s", override, want)
+	}
+	if !slices.Equal(s.unignored, []string{"azurerm_postgresql_flexible_server.db"}) {
+		t.Errorf("unignored: %v", s.unignored)
+	}
+
+	// Errors it can't blame on the override still fail the build, after
+	// one plan.
+	tf.plans = 0
+	build.Blame = func([]tfjson.Diagnostic) []string { return nil }
+	if _, err := BuildSnapshot(context.Background(), build); err == nil || !strings.Contains(err.Error(), "doesn't plan") {
+		t.Errorf("unblamed errors: %v", err)
+	}
+	if tf.plans != 1 {
+		t.Errorf("plans for unblamed errors: %d", tf.plans)
+	}
+}

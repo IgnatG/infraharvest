@@ -9,11 +9,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
@@ -277,6 +279,16 @@ func fillWithheld(ctx context.Context, tf tfrun.Terraform, dir string) error {
 		return nil
 	}
 	return generated.Save()
+}
+
+// blamed returns the resources of the root in dir that diags are about, or
+// nil if some of diags is about none of them.
+func blamed(dir string, diags []tfjson.Diagnostic) []string {
+	errs, err := unresolved("terraform plan", dir, diags)
+	if err != nil {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(errs))
 }
 
 // moveCopy makes the private copy of the root that the snapshot's moves
