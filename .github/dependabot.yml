@@ -42,9 +42,8 @@ updates:
 
   # The images the Dockerfile pins by tag and digest: the base images, and
   # Terraform and OpenTofu, whose binaries the release image copies.
-  # The setup action's terraform_version and tofu_version
-  # (.github/actions/setup-engines) aren't tracked: bump them in the same PR;
-  # the tests workflow fails until they match (check-versions.sh).
+  # The setup action (.github/actions/setup-engines) and the adapters
+  # workflow install the versions these tags name (engine-versions.sh).
   - package-ecosystem: docker
     directory: /
     schedule:

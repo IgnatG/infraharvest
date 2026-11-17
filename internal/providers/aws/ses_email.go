@@ -112,12 +112,16 @@ func (g *SesLister) listReceiptRuleSets(client *ses.Client) error {
 		}
 		for _, ruleSet := range out.RuleSets {
 			name := aws.ToString(ruleSet.Name)
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_ses_receipt_rule_set", "aws"))
 			// A call per rule set, for rules the import may not keep.
 			if !g.Wants("aws_ses_receipt_rule") {
 				continue
 			}
-			g.parts.Add(awsCodes, "the rules of receipt rule set "+name, g.listReceiptRules(client, name))
+			err := g.listReceiptRules(client, name)
+			if !dropIfGone(&g.Resources, mark, err) {
+				g.parts.Add(awsCodes, "the rules of receipt rule set "+name, err)
+			}
 		}
 		return out.NextToken, nil
 	})

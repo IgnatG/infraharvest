@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      contents: read # check out the code
+      actions: read # read the workflow runs, as Scorecard's checks need
       security-events: write # upload the findings to code scanning
       id-token: write # publish the results, for the badge
     steps:

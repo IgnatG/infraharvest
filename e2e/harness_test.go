@@ -317,13 +317,21 @@ func changedAttributes(change *tfjson.Change) map[string]string {
 	b, _ := change.Before.(map[string]interface{})
 	a, _ := change.After.(map[string]interface{})
 	unknown, _ := change.AfterUnknown.(map[string]interface{})
-	for k, v := range a {
+	compare := func(k string) {
 		if u, _ := unknown[k].(bool); u {
-			continue
+			return
 		}
-		if !reflect.DeepEqual(b[k], v) {
-			changed[k] = fmt.Sprintf("%v -> %v", b[k], v)
+		// An attribute absent from one side reads as nil, so null against
+		// absent is no change while a removed value is.
+		if !reflect.DeepEqual(b[k], a[k]) {
+			changed[k] = fmt.Sprintf("%v -> %v", b[k], a[k])
 		}
+	}
+	for k := range a {
+		compare(k)
+	}
+	for k := range b {
+		compare(k)
 	}
 	return changed
 }

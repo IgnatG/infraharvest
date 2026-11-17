@@ -96,12 +96,16 @@ func (g *CloudWatchLister) createRules(client *eventbridge.Client, parts *harves
 				g.Resources = append(g.Resources, harvest.Record(name, name, "aws_cloudwatch_event_rule", "aws", map[string]string{"managed_by": aws.ToString(rule.ManagedBy)}))
 				continue
 			}
+			mark := len(g.Resources)
 			g.Resources = append(g.Resources, harvest.RecordBare(name, name, "aws_cloudwatch_event_rule", "aws"))
 			// A call per rule, for targets the import may not keep.
 			if !g.Wants("aws_cloudwatch_event_target") {
 				continue
 			}
-			parts.Add(awsCodes, "the targets of rule "+name, g.createTargets(client, name))
+			err := g.createTargets(client, name)
+			if !dropIfGone(&g.Resources, mark, err) {
+				parts.Add(awsCodes, "the targets of rule "+name, err)
+			}
 		}
 		return page.NextToken, nil
 	})

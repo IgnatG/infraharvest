@@ -38,8 +38,8 @@ type itemFailureCase struct {
 
 // TestItemFailures checks that a call about one resource that fails
 // leaves the others listed: a resource deleted since it was listed is no
-// failure, and any other failure makes the listing partial, keeping what
-// was listed.
+// failure and is left out, and any other failure makes the listing
+// partial, keeping what was listed.
 func TestItemFailures(t *testing.T) {
 	t.Parallel()
 	for _, tc := range itemFailureCases() {
@@ -70,9 +70,8 @@ func TestItemFailures(t *testing.T) {
 					if err != nil {
 						t.Fatalf("a resource deleted since it was listed failed the listing: %v", err)
 					}
-					if !tc.keepsFailed {
-						want = []string{"item-a"}
-					}
+					// item-b is gone: it is left out, with its parts.
+					want = []string{"item-a"}
 				} else {
 					assertRecordedError(t, err, code)
 					if !harvest.IsPartial(err) {
@@ -270,6 +269,59 @@ func itemFailureCases() []itemFailureCase {
 					return `{"WebACLs":[
 						{"Id":"1","Name":"item-a","ARN":"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/item-a/1"},
 						{"Id":"2","Name":"item-b","ARN":"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/item-b/2"}]}`
+				}
+				return fail(`{}`)
+			},
+		},
+		{
+			name: "sns", lister: func() harvest.Lister { return &SnsLister{} },
+			typ: "aws_sns_topic", keepsFailed: true,
+			denied: "AuthorizationError", gone: "NotFound",
+			handle: func(call apiCall, fail func(string) string) string {
+				if call.Op == "ListTopics" {
+					return recordQuery(call.Op, recordSNSNS, `<Topics><member><TopicArn>`+recordSNSARN+`item-a</TopicArn></member>`+
+						`<member><TopicArn>`+recordSNSARN+`item-b</TopicArn></member></Topics>`)
+				}
+				return fail(recordQuery(call.Op, recordSNSNS, `<Subscriptions/>`))
+			},
+		},
+		{
+			name: "ecs", lister: func() harvest.Lister { return &EcsLister{} },
+			typ: "aws_ecs_cluster", keepsFailed: true,
+			denied: "AccessDeniedException", gone: "ClusterNotFoundException",
+			handle: func(call apiCall, fail func(string) string) string {
+				switch call.Op {
+				case "ListClusters":
+					return `{"clusterArns":["` + recordEcsARN + `cluster/item-a","` + recordEcsARN + `cluster/item-b"]}`
+				case "ListTaskDefinitions":
+					return `{"taskDefinitionArns":[]}`
+				}
+				return fail(`{"serviceArns":[]}`)
+			},
+		},
+		{
+			name: "efs", lister: func() harvest.Lister { return &EfsLister{} },
+			typ: "aws_efs_file_system", keepsFailed: true,
+			denied: "AccessDeniedException", gone: "FileSystemNotFound",
+			handle: func(call apiCall, fail func(string) string) string {
+				switch call.Path {
+				case "/2015-02-01/file-systems":
+					return `{"FileSystems":[{"FileSystemId":"item-a"},{"FileSystemId":"item-b"}]}`
+				case "/2015-02-01/access-points":
+					return `{"AccessPoints":[]}`
+				}
+				return fail(`{"MountTargets":[]}`)
+			},
+		},
+		{
+			// A repository without a policy answers RepositoryPolicyNotFoundException,
+			// which only says it has none (see TestRecordEcrListsRepositoriesAndPolicies).
+			name: "ecr", lister: func() harvest.Lister { return &EcrLister{} },
+			typ: "aws_ecr_repository", keepsFailed: true,
+			denied: "AccessDeniedException", gone: "RepositoryNotFoundException",
+			handle: func(call apiCall, fail func(string) string) string {
+				if call.Op == "DescribeRepositories" {
+					return `{"repositories":[{"repositoryName":"item-a","registryId":"123456789012"},{"repositoryName":"item-b","registryId":"123456789012"}]}`
 				}
 				return fail(`{}`)
 			},
