@@ -170,6 +170,9 @@ types:
         id_prefixes: [default.]
   aws_redshift_subnet_group:
     cloudformation_types: ["AWS::Redshift::ClusterSubnetGroup"]
+    skip:
+      - reason: the default cluster subnet group, which Redshift creates for the default VPC and Terraform can't manage
+        ids: [default]
   aws_s3_bucket_policy:
     cloudformation_types: ["AWS::S3::BucketPolicy"]
   aws_secretsmanager_secret_policy:
