@@ -7,9 +7,8 @@ import (
 	"regexp"
 	"testing"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	tfjson "github.com/hashicorp/terraform-json"
-
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // cfnGuesses are the names the converter reported as guesses for one

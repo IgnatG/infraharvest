@@ -13,11 +13,10 @@ import (
 	"strings"
 	"testing"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // update rewrites the golden files from what Apply does now:

@@ -407,12 +407,13 @@
     },
     "cfn": {
             "files": [
-              "**/pkg/cfn/**"
+              "**/*.go",
+              "!**/pkg/cfn/**"
             ],
             "deny": [
               {
-                "pkg": "github.com/IgnatG/infraharvest/internal",
-                "desc": "pkg/cfn will be a module of its own, which can't import infraharvest's internal packages"
+                "pkg": "github.com/IgnatG/infraharvest/pkg/cfn",
+                "desc": "the CloudFormation translator is the module github.com/IgnatG/cfn2tf; import that"
               }
             ]
           },

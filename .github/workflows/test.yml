@@ -225,7 +225,7 @@ jobs:
         ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
         ./internal/managed/... ./internal/driftpolicy/... ./internal/filelock/... ./internal/harvest/...
         ./internal/export/... ./internal/catalogue/... ./internal/adapters/... ./internal/logging/...
-        ./internal/tfquery/... ./pkg/...
+        ./internal/tfquery/...
     - name: Race, with every provider's command
       run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
@@ -363,7 +363,7 @@ jobs:
       run: .github/scripts/govulncheck-gate.sh ./infraharvest
 
   # Fuzzes the parsers of what people and clouds hand infraharvest (state,
-  # selection files, filters, CloudFormation templates) and the secret
+  # selection files, filters) and the secret
   # detectors, briefly: go test ./... runs only their seed inputs. go test
   # fuzzes one target at a time.
   # A failing input is uploaded; commit it under the package's
@@ -407,7 +407,6 @@ jobs:
         FuzzParseFromIsParseWhole ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
-        FuzzParseConvert ./pkg/cfn/
         EOF
     - name: Upload the failing inputs
       if: failure()
@@ -416,7 +415,6 @@ jobs:
         name: fuzz-failures
         path: |
           internal/**/testdata/fuzz/
-          pkg/**/testdata/fuzz/
         if-no-files-found: ignore
 
   # Runs the Terraform engine end to end against real Terraform and the

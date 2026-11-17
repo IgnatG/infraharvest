@@ -49,6 +49,8 @@ import (
 	"strings"
 	"unicode"
 
+	cfn "github.com/IgnatG/cfn2tf"
+	"github.com/IgnatG/cfn2tf/hclname"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -56,8 +58,6 @@ import (
 	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/IgnatG/infraharvest/internal/fsutil"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
-	"github.com/IgnatG/infraharvest/pkg/cfn/hclname"
 )
 
 // Stack is a CloudFormation stack whose template Apply carries into a root.

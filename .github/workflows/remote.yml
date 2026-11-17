@@ -8,15 +8,14 @@ name: Remote tasks
 # input picks what it does:
 #
 #   check   go vet and go test of the packages, on the runner os names:
-#             gh workflow run remote.yml --ref <branch> -f task=check -f packages="./pkg/..." -f os=ubuntu-latest
+#             gh workflow run remote.yml --ref <branch> -f task=check -f packages="./internal/..." -f os=ubuntu-latest
 #   golden  rewrites the golden files of the packages' tests that take
 #           -update: ./internal/catalogue (the default), ./internal/cli (the
 #           command-line contract and the generated references,
 #           docs/reference/cli.md and docs/reference/services.md),
 #           ./internal/engine (the roots environments share),
-#           ./internal/harvest, ./internal/stackintent (stack templates
-#           carried into roots) and ./pkg/cfn (CloudFormation templates
-#           converted). No other package takes -update, so go test fails
+#           ./internal/harvest and ./internal/stackintent (stack templates
+#           carried into roots). No other package takes -update, so go test fails
 #           on it. It uploads them as the artifact golden; pushing a
 #           branch named golden/<anything> does the same:
 #             gh workflow run remote.yml --ref <branch> -f task=golden -f packages=./internal/catalogue

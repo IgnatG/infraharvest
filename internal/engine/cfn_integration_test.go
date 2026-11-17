@@ -9,18 +9,20 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	cfn "github.com/IgnatG/cfn2tf"
+
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
-// TestConvertedTemplatesValidate converts each template of pkg/cfn's
-// golden tests and runs terraform validate on the result, with the latest
+// TestConvertedTemplatesValidate converts each template of the cfn2tf
+// module's golden tests and runs terraform validate on the result, with the latest
 // AWS provider, which needs no credentials. It downloads Terraform and the
 // provider, so it runs in CI:
 //
@@ -42,7 +44,11 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := rootfile.Provider{Name: "aws", Source: "hashicorp/aws", Version: rootfile.ProviderConstraint(latest)}
-	templates, err := filepath.Glob(filepath.Join("..", "..", "pkg", "cfn", "testdata", "*.*"))
+	module, err := exec.CommandContext(ctx, "go", "list", "-m", "-f", "{{.Dir}}", "github.com/IgnatG/cfn2tf").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	templates, err := filepath.Glob(filepath.Join(strings.TrimSpace(string(module)), "testdata", "*.*"))
 	if err != nil {
 		t.Fatal(err)
 	}

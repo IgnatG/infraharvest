@@ -6,9 +6,8 @@ package aws
 import (
 	"strings"
 
+	cfn "github.com/IgnatG/cfn2tf"
 	tfjson "github.com/hashicorp/terraform-json"
-
-	"github.com/IgnatG/infraharvest/pkg/cfn"
 )
 
 // StackMapper returns the mapper the importer carries a stack's template
