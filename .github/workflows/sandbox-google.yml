@@ -41,6 +41,10 @@ on:
         type: choice
         options: [terraform, tofu]
         default: terraform
+      import-once:
+        description: Import each root once into a state snapshot its later plans read (INFRAHARVEST_IMPORT_ONCE)
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -54,7 +58,7 @@ concurrency:
 
 jobs:
   round-trip:
-    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }}${{ inputs.import-once && ', import once' || '' }})
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
@@ -64,6 +68,7 @@ jobs:
     env:
       SANDBOX_ESTATE: ${{ inputs.estate }}
       E2E_ENGINE: ${{ inputs.engine }}
+      INFRAHARVEST_IMPORT_ONCE: ${{ inputs.import-once && '1' || '' }}
       SANDBOX_GOOGLE_PROJECT: ${{ vars.GOOGLE_PROJECT_ID }}
       SANDBOX_GOOGLE_REGION: ${{ vars.GOOGLE_REGION || 'europe-west2' }}
       SANDBOX_GOOGLE_READONLY_SERVICE_ACCOUNT: ${{ vars.GOOGLE_READONLY_SERVICE_ACCOUNT }}

@@ -41,6 +41,10 @@ on:
         type: choice
         options: [terraform, tofu]
         default: terraform
+      import-once:
+        description: Import each root once into a state snapshot its later plans read (INFRAHARVEST_IMPORT_ONCE)
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -54,7 +58,7 @@ concurrency:
 
 jobs:
   round-trip:
-    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }})
+    name: round-trip (${{ inputs.estate }}, ${{ inputs.engine }}${{ inputs.import-once && ', import once' || '' }})
     runs-on: ubuntu-latest
     environment: sandbox
     permissions:
@@ -73,6 +77,7 @@ jobs:
       # The estate's second region, which the import keeps apart.
       SANDBOX_AWS_SECOND_REGION: ${{ vars.AWS_SECOND_REGION || 'eu-west-1' }}
       E2E_ENGINE: ${{ inputs.engine }}
+      INFRAHARVEST_IMPORT_ONCE: ${{ inputs.import-once && '1' || '' }}
       SANDBOX_AWS_FIXTURE_PROFILE: fixture
       SANDBOX_AWS_READONLY_PROFILE: readonly
       # Tags every resource of the estate with this run, for the sweep.

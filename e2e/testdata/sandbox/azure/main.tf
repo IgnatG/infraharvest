@@ -323,7 +323,8 @@ resource "azurerm_role_assignment" "app_custom" {
 # No App Service plan: the sandbox subscription has no App Service quota,
 # not even for the free tier (F1).
 
-# A PostgreSQL flexible server on the smallest burstable size and storage,
+# A PostgreSQL flexible server on the smallest general-purpose size (the
+# subscription may not be offered burstable ones in the region) and storage,
 # with no high availability, geo-redundant backup or public access, and
 # the shortest backup retention. Its administrator password comes from
 # random_password: Azure never returns it, so the import must leave it
@@ -342,7 +343,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
   location                      = local.location
   resource_group_name           = local.rg
   version                       = "16"
-  sku_name                      = "B_Standard_B1ms"
+  sku_name                      = "GP_Standard_D2ds_v5"
   storage_mb                    = 32768
   storage_tier                  = "P4"
   backup_retention_days         = 7
