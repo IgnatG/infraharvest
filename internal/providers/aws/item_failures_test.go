@@ -132,6 +132,8 @@ func itemFailureCases() []itemFailureCase {
 					return recordCloudWatchPage("MetricAlarms", cbor.List{}, "")
 				case "ListDashboards":
 					return recordCloudWatchPage("DashboardEntries", cbor.List{}, "")
+				case "ListEventBuses":
+					return `{"EventBuses":[{"Name":"default"}]}`
 				case "ListRules":
 					return `{"Rules":[{"Name":"item-a"},{"Name":"item-b"}]}`
 				}

@@ -22,10 +22,11 @@ func recordCloudWatchPage(listKey string, items cbor.List, token string) string 
 }
 
 // recordCloudWatchAPI answers the metric alarms and dashboards from
-// CloudWatch over two pages each, and the default event bus's rules from
-// EventBridge: a rule a service manages, left out with its targets, and
-// two rules with targets. Rule and target pagination is pinned by
-// TestCloudWatchEventTargetsPaginate.
+// CloudWatch over two pages each, and the rules of two event buses from
+// EventBridge, the default one and the custom "orders": on the default
+// bus a rule a service manages, left out with its targets, and two rules
+// with targets; on "orders" a rule with a target and a managed rule. Rule
+// and target pagination is pinned by TestCloudWatchEventTargetsPaginate.
 func recordCloudWatchAPI(t *testing.T, failing string) func(apiCall) string {
 	return func(call apiCall) string {
 		op := call.Op
@@ -52,21 +53,29 @@ func recordCloudWatchAPI(t *testing.T, failing string) func(apiCall) string {
 			return recordCloudWatchPage("DashboardEntries", cbor.List{
 				cbor.Map{"DashboardName": cbor.String("ops"), "DashboardArn": cbor.String("arn:aws:cloudwatch::123456789012:dashboard/ops")},
 			}, nextPageToken)
+		case "ListEventBuses":
+			return `{"EventBuses":[{"Name":"default"},{"Name":"orders"}]}`
 		case "ListRules":
-			if got := recordJSONField(call, "EventBusName"); got != "" {
-				t.Errorf("rules of event bus %q, want the default bus", got)
+			switch recordJSONField(call, "EventBusName") {
+			case "":
+				return `{"Rules":[
+					{"Name":"nightly","Arn":"arn:aws:events:us-east-1:123456789012:rule/nightly","ScheduleExpression":"cron(0 2 * * ? *)","State":"ENABLED"},
+					{"Name":"StepFunctionsGetEventsForStepFunctionsExecutionRule","ManagedBy":"states.amazonaws.com","State":"ENABLED"},
+					{"Name":"on-upload","Arn":"arn:aws:events:us-east-1:123456789012:rule/on-upload","EventPattern":"{}","State":"DISABLED"}]}`
+			case "orders":
+				return `{"Rules":[
+					{"Name":"nightly","Arn":"arn:aws:events:us-east-1:123456789012:rule/orders/nightly","EventPattern":"{}","State":"ENABLED"},
+					{"Name":"AutogenerateForPartner","ManagedBy":"events.amazonaws.com","State":"ENABLED"}]}`
 			}
-			return `{"Rules":[
-				{"Name":"nightly","Arn":"arn:aws:events:us-east-1:123456789012:rule/nightly","ScheduleExpression":"cron(0 2 * * ? *)","State":"ENABLED"},
-				{"Name":"StepFunctionsGetEventsForStepFunctionsExecutionRule","ManagedBy":"states.amazonaws.com","State":"ENABLED"},
-				{"Name":"on-upload","Arn":"arn:aws:events:us-east-1:123456789012:rule/on-upload","EventPattern":"{}","State":"DISABLED"}]}`
 		case "ListTargetsByRule":
-			switch recordJSONField(call, "Rule") {
-			case "nightly":
+			switch recordJSONField(call, "EventBusName") + "/" + recordJSONField(call, "Rule") {
+			case "/nightly":
 				return `{"Targets":[{"Id":"report","Arn":"arn:aws:lambda:us-east-1:123456789012:function:report"},
 					{"Id":"audit","Arn":"arn:aws:sqs:us-east-1:123456789012:audit"}]}`
-			case "on-upload":
+			case "/on-upload":
 				return `{"Targets":[]}`
+			case "orders/nightly":
+				return `{"Targets":[{"Id":"report","Arn":"arn:aws:lambda:us-east-1:123456789012:function:report"}]}`
 			}
 		}
 		return recordUnexpected(t, call)
@@ -74,8 +83,8 @@ func recordCloudWatchAPI(t *testing.T, failing string) func(apiCall) string {
 }
 
 // The lister lists, in order, metric alarms and dashboards across pages,
-// then the default bus's event rules but those a service manages, each
-// followed by its targets.
+// then the event rules of the default bus and of each custom bus, with
+// the bus in the ID of those of a custom bus, each followed by its targets.
 func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, recordCloudWatchAPI(t, ""))
@@ -100,7 +109,46 @@ func TestRecordCloudWatchListsAlarmsDashboardsRulesAndTargets(t *testing.T) {
 		recordedResource{"aws_cloudwatch_event_rule", "StepFunctionsGetEventsForStepFunctionsExecutionRule", "StepFunctionsGetEventsForStepFunctionsExecutionRule",
 			map[string]string{"managed_by": "states.amazonaws.com"}},
 		recordedResource{"aws_cloudwatch_event_rule", "on-upload", "on-upload", nil},
+		recordedResource{"aws_cloudwatch_event_rule", "orders/nightly", "orders/nightly", nil},
+		recordedResource{"aws_cloudwatch_event_target", "orders/nightly/report", "orders/nightly/report",
+			map[string]string{"rule": "nightly", "target_id": "report", "event_bus_name": "orders"}},
+		recordedResource{"aws_cloudwatch_event_rule", "orders/AutogenerateForPartner", "orders/AutogenerateForPartner",
+			map[string]string{"managed_by": "events.amazonaws.com"}},
 	)
+}
+
+// A custom bus whose rules can't be read leaves a partial listing with the
+// other buses' rules and targets; a bus deleted since it was listed is no
+// failure; and a failing bus list leaves the default bus listed.
+func TestRecordCloudWatchCustomBusFailuresArePartial(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		code    string
+		failing string
+		partial bool
+	}{
+		"rules denied": {"AccessDeniedException", "orders", true},
+		"bus gone":     {"ResourceNotFoundException", "orders", false},
+		"buses denied": {"AccessDeniedException", "", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := recordCloudWatchAPI(t, "")
+			ctx := useFakeAPI(t, func(call apiCall) string {
+				switch {
+				case call.Op == "ListEventBuses" && tc.failing == "":
+					return recordJSONError(tc.code)
+				case call.Op == "ListRules" && tc.failing != "" && recordJSONField(call, "EventBusName") == tc.failing:
+					return recordJSONError(tc.code)
+				}
+				return fake(call)
+			})
+			resources, err := listChecked(ctx, t, &CloudWatchLister{}, harvest.Settings{})
+			if tc.partial != harvest.IsPartial(err) || (err != nil && !tc.partial) {
+				t.Fatalf("error %v, want partial: %v", err, tc.partial)
+			}
+			assertIDs(t, resources, "aws_cloudwatch_event_rule", "nightly", "StepFunctionsGetEventsForStepFunctionsExecutionRule", "on-upload")
+		})
+	}
 }
 
 // The EventBridge lists fail the service. (The fake API cannot answer a

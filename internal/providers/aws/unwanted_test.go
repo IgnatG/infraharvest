@@ -142,6 +142,7 @@ func TestListersSkipTheCallsOfUnwantedTypes(t *testing.T) {
 			parents: map[string]string{
 				"DescribeAlarms": recordCloudWatchPage("MetricAlarms", cbor.List{}, ""),
 				"ListDashboards": recordCloudWatchPage("DashboardEntries", cbor.List{}, ""),
+				"ListEventBuses": `{"EventBuses":[{"Name":"default"}]}`,
 				"ListRules":      `{"Rules":[{"Name":"nightly","State":"ENABLED"}]}`,
 			},
 			children: map[string]string{"ListTargetsByRule": `{"Targets":[]}`},

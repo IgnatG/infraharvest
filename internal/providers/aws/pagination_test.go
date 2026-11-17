@@ -332,6 +332,7 @@ func TestAlbListenerRulesStopOnEmptyMarker(t *testing.T) {
 // The target lister used to page with the rule list's token, which looped
 // forever once there was more than one page of rules. Rules a service
 // manages are recorded, for the catalogue to skip, without their targets.
+// The event buses, the rules of a custom bus and its targets page the same.
 func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 	t.Parallel()
 	calls := 0
@@ -341,6 +342,9 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 			t.Fatal("pagination does not stop")
 		}
 		switch call.Op {
+		case "ListEventBuses":
+			id, token := pageOf(call, "bus")
+			return fmt.Sprintf(`{"EventBuses":[{"Name":"default"},{"Name":%q}],"NextToken":%q}`, id, token)
 		case "ListRules":
 			id, token := pageOf(call, "rule")
 			return fmt.Sprintf(`{"Rules":[{"Name":%q},{"Name":"managed-%s","ManagedBy":"states.amazonaws.com"}],"NextToken":%q}`, id, id, token)
@@ -366,8 +370,14 @@ func TestCloudWatchEventTargetsPaginate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule", "rule-1", "managed-rule-1", "rule-2", "managed-rule-2")
-	assertIDs(t, g.Resources, "aws_cloudwatch_event_target", "rule-1/target-1", "rule-1/target-2", "rule-2/target-1", "rule-2/target-2")
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_rule",
+		"rule-1", "managed-rule-1", "rule-2", "managed-rule-2",
+		"bus-1/rule-1", "bus-1/managed-rule-1", "bus-1/rule-2", "bus-1/managed-rule-2",
+		"bus-2/rule-1", "bus-2/managed-rule-1", "bus-2/rule-2", "bus-2/managed-rule-2")
+	assertIDs(t, g.Resources, "aws_cloudwatch_event_target",
+		"rule-1/target-1", "rule-1/target-2", "rule-2/target-1", "rule-2/target-2",
+		"bus-1/rule-1/target-1", "bus-1/rule-1/target-2", "bus-1/rule-2/target-1", "bus-1/rule-2/target-2",
+		"bus-2/rule-1/target-1", "bus-2/rule-1/target-2", "bus-2/rule-2/target-1", "bus-2/rule-2/target-2")
 }
 
 func TestStopOnDuplicateToken(t *testing.T) {
