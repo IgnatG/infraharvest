@@ -130,7 +130,7 @@ func run(ctx context.Context, s *source, out io.Writer, write bool) error {
 	if !write {
 		return nil
 	}
-	return bump(embedded, opa, conftest, newCaps)
+	return bump(ctx, embedded, opa, conftest, newCaps)
 }
 
 // source reads conftest's and OPA's releases from GitHub.
@@ -408,7 +408,7 @@ var conftestRelease = regexp.MustCompile(`conftest \d+\.\d+\.\d+ is built with`)
 // bump writes the newer capabilities file, unchanged, and names its
 // release, and the conftest release built with it, where the old ones
 // were named.
-func bump(oldOPA, newOPA, conftest string, newCaps []byte) error {
+func bump(ctx context.Context, oldOPA, newOPA, conftest string, newCaps []byte) error {
 	log.Printf("writing %s", capabilitiesFile)
 	if err := os.WriteFile(capabilitiesFile, newCaps, 0o644); err != nil {
 		return err
@@ -428,7 +428,7 @@ func bump(oldOPA, newOPA, conftest string, newCaps []byte) error {
 		}
 	}
 	var notice bytes.Buffer
-	cmd := exec.CommandContext(context.Background(), "bash", noticeScript, schemametaDir)
+	cmd := exec.CommandContext(ctx, "bash", noticeScript, schemametaDir)
 	cmd.Stdout, cmd.Stderr = &notice, os.Stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%s: %w", noticeScript, err)

@@ -79,7 +79,7 @@ func pickSelection(path string, openPicker, terminal bool, open func(string) err
 // args start with the command and the provider; --check goes right after
 // them, where a -- among the flags can't make it an argument.
 func CheckRun(ctx context.Context, args []string) error {
-	cmd := NewCmdRoot()
+	cmd := NewCmdRoot() //nolint:contextcheck // NewCmdRoot builds the commands, whose runs take the context from ExecuteContext
 	cmd.SetArgs(slices.Insert(slices.Clone(args), 2, "--"+providers.CheckFlag))
 	// Nothing to print: the MCP server's standard output is the protocol's.
 	cmd.SetOut(io.Discard)

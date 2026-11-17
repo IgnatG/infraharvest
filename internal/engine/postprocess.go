@@ -61,7 +61,7 @@ func postProcess(ctx context.Context, tf tfrun.Terraform, dir string, r *run, se
 		return nil, liftLiteralsValidated(ctx, tf, ws, r.taken, r.opts.Traits)
 	}
 	t := &tidying{ctx: ctx, tf: tf, ws: ws, r: r, vars: vars, baseline: *baseline, values: values}
-	if err := t.run(t.passes()); err != nil {
+	if err := t.run(t.passes(ctx)); err != nil {
 		return nil, err
 	}
 	return t.declined, nil
@@ -77,7 +77,7 @@ const (
 	passLookups        = "lookups"
 	passTagLift        = "tag lift"
 	passLiterals       = "literals"
-	passCuratedModules = "curated modules"
+	passCuratedModules = "curated modules" //nolint:gosec // G101: the name of a pass, not a credential
 	passOutputLists    = "output lists"
 	passProjects       = "project references"
 	passInherited      = "inherited arguments"
@@ -88,8 +88,8 @@ const (
 // run in, which what they run after (see tidyPass.after) settles. A pass the
 // run doesn't make, such as the data sources of a run without external
 // resources, does nothing.
-func (t *tidying) passes() []tidyPass {
-	ctx, tf, ws, opts, taken := t.ctx, t.tf, t.ws, t.r.opts, t.r.taken
+func (t *tidying) passes(ctx context.Context) []tidyPass {
+	tf, ws, opts, taken := t.tf, t.ws, t.r.opts, t.r.taken
 	// eachResource makes a pass that makes less of itself for the
 	// resources a plan blames it for (see resourceEdit).
 	eachResource := func(name string, after []string, edit func(skip map[string]int) (map[string]bool, error), enabled bool) tidyPass {

@@ -54,7 +54,7 @@ func walkOutputUpTo(dir string, limit int64, visit func(rel, content string)) er
 		if info.Size() > limit {
 			return fmt.Errorf("%s: %d bytes, more than the %d the checks read", path, info.Size(), limit)
 		}
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) //nolint:gosec // G122: walks the user's own directory and reads regular files; no untrusted concurrent writer
 		if err != nil {
 			return err
 		}

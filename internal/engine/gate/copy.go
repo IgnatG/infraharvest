@@ -68,7 +68,7 @@ func VerifyCopy(dir string) (string, func(), error) {
 		if !d.Type().IsRegular() || strings.HasPrefix(name, tfrun.LocalStateFileName) || name == ".terraform.tfstate.lock.info" || checkovConfig(name) {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) //nolint:gosec // G122: walks the user's own directory and reads regular files; no untrusted concurrent writer
 		if err != nil {
 			return err
 		}

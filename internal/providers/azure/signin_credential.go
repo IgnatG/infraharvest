@@ -204,7 +204,7 @@ func newCredential(cfg authConfig) (azcore.TokenCredential, error) {
 // rotates its token. Several of them must hold the same token, as azurerm
 // requires.
 func (cfg authConfig) idToken() (string, error) {
-	token, from := cfg.oidcToken, "ARM_OIDC_TOKEN"
+	token, from := cfg.oidcToken, "ARM_OIDC_TOKEN" //nolint:gosec // G101: the name of an environment variable, not a credential
 	for _, f := range cfg.oidcTokenFiles {
 		data, err := os.ReadFile(f.path)
 		if err != nil {

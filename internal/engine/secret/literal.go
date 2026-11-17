@@ -809,7 +809,7 @@ func NewValues() (*Values, error) {
 // The temporary directories of Values, and the file in each.
 const (
 	secretValuesPattern = "infraharvest-secrets-"
-	secretValuesFile    = "secrets.tfvars.json"
+	secretValuesFile    = "secrets.tfvars.json" //nolint:gosec // G101: a file name, not a credential
 )
 
 // staleSecretsAge is how old a Values directory is when no run uses
