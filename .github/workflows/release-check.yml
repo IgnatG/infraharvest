@@ -4,13 +4,13 @@
 name: Release check
 
 # Builds a snapshot release, as the release workflow would but without
-# signing or publishing, and smoke-tests the binary and the image.
+# signing or publishing, and smoke-tests each cloud's binary and image.
 #
-# Compiling one target of this module takes about five minutes, so a pull
-# request builds only linux/amd64, the target the smoke tests run, with a
-# build cache from main. Every target is built when a pull request changes
-# .goreleaser.yaml, once a week, and on demand; the release workflow builds
-# them all again from a clean cache.
+# A release builds each cloud for every target, which takes long, so a pull
+# request builds only linux/amd64 (the three clouds' builds), the target
+# the smoke tests run, with a build cache from main. Every target is built
+# when a pull request changes .goreleaser.yaml, once a week, and on demand;
+# the release workflow builds them all again from a clean cache.
 on:
   pull_request:
     paths:
@@ -129,32 +129,51 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           key: release-check-linux-amd64-${{ hashFiles('go.sum') }}
-      - name: Smoke-test the binary
-        # The binary must report the version GoReleaser built: a wrong -X
+      - name: Smoke-test the binaries
+        # Each binary must report the version GoReleaser built: a wrong -X
         # path in .goreleaser.yaml leaves it at the development version.
+        # And each must have its own cloud's provider and no other: a
+        # release has one build per cloud.
         run: |
           ls dist/*.tar.gz dist/*_SHA256SUMS dist/*.sbom.json
           want="infraharvest v$(jq -r .version dist/metadata.json)"
-          got=$(dist/infraharvest_linux_amd64_v1/infraharvest version)
-          if [ "$got" != "$want" ]; then
-            echo "::error::the binary reports \"$got\", want \"$want\""
-            exit 1
-          fi
-      - name: Smoke-test the image
+          for cloud in aws azure google; do
+            test -f "dist/infraharvest_$(jq -r .version dist/metadata.json)_${cloud}_linux_amd64.tar.gz"
+            bin="dist/infraharvest-${cloud}_linux_amd64_v1/infraharvest"
+            got=$("$bin" version)
+            if [ "$got" != "$want" ]; then
+              echo "::error::the ${cloud} binary reports \"$got\", want \"$want\""
+              exit 1
+            fi
+            providers=$("$bin" import --help | sed -En 's/^ +(aws|azure|google) +.*/\1/p' | paste -sd, -)
+            if [ "$providers" != "$cloud" ]; then
+              echo "::error::the ${cloud} binary has the providers \"$providers\", want only \"$cloud\""
+              exit 1
+            fi
+          done
+      - name: Smoke-test the images
         run: |
-          images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}')
-          image=$(printf '%s\n' "$images" | grep amd64 | head -n 1 || true)
-          [ -n "$image" ] || image=$(printf '%s\n' "$images" | head -n 1)
-          test -n "$image"
           want="infraharvest v$(jq -r .version dist/metadata.json)"
-          got=$(docker run --rm "$image" version)
-          if [ "$got" != "$want" ]; then
-            echo "::error::the image reports \"$got\", want \"$want\""
-            exit 1
-          fi
-          docker run --rm --entrypoint terraform "$image" version
-          docker run --rm --entrypoint tofu "$image" version
-          docker run --rm --entrypoint git "$image" --version
+          for cloud in aws azure google; do
+            images=$(docker images ghcr.io/ignatg/infraharvest --format '{{.Repository}}:{{.Tag}}' | grep -- "-${cloud}\$" || true)
+            image=$(printf '%s\n' "$images" | grep amd64 | head -n 1 || true)
+            [ -n "$image" ] || image=$(printf '%s\n' "$images" | head -n 1)
+            test -n "$image"
+            got=$(docker run --rm "$image" version)
+            if [ "$got" != "$want" ]; then
+              echo "::error::the ${cloud} image reports \"$got\", want \"$want\""
+              exit 1
+            fi
+            label=$(docker inspect --format '{{ index .Config.Labels "io.github.ignatg.infraharvest.cloud" }}' "$image")
+            if [ "$label" != "$cloud" ]; then
+              echo "::error::the ${cloud} image is labelled \"$label\""
+              exit 1
+            fi
+            docker run --rm "$image" import --help | grep -Eq "^ +${cloud} +"
+            docker run --rm --entrypoint terraform "$image" version
+            docker run --rm --entrypoint tofu "$image" version
+            docker run --rm --entrypoint git "$image" --version
+          done
       - name: Install with install.sh
         env:
           INFRAHARVEST_BASE_URL: file://${{ github.workspace }}/dist
@@ -162,15 +181,24 @@ jobs:
         run: |
           shellcheck install.sh
           version=$(jq -r .version dist/metadata.json)
+          # A release has one build per cloud: the script must be told which.
+          if INFRAHARVEST_VERSION="$version" INFRAHARVEST_SKIP_SIGNATURE=1 sh install.sh; then
+            echo "::error::install.sh installed without INFRAHARVEST_CLOUD"
+            exit 1
+          fi
           # The snapshot is unsigned: by default the script must refuse it.
-          if INFRAHARVEST_VERSION="$version" sh install.sh; then
+          if INFRAHARVEST_CLOUD=aws INFRAHARVEST_VERSION="$version" sh install.sh; then
             echo "::error::install.sh installed an unsigned release without INFRAHARVEST_SKIP_SIGNATURE=1"
             exit 1
           fi
           test ! -e "$INFRAHARVEST_INSTALL_DIR/infraharvest"
-          INFRAHARVEST_VERSION="$version" INFRAHARVEST_SKIP_SIGNATURE=1 sh install.sh
-          got=$("$INFRAHARVEST_INSTALL_DIR/infraharvest" version)
-          if [ "$got" != "infraharvest v$version" ]; then
-            echo "::error::the installed binary reports \"$got\", want \"infraharvest v$version\""
-            exit 1
-          fi
+          for cloud in aws azure google; do
+            INFRAHARVEST_CLOUD="$cloud" INFRAHARVEST_VERSION="$version" INFRAHARVEST_SKIP_SIGNATURE=1 sh install.sh
+            got=$("$INFRAHARVEST_INSTALL_DIR/infraharvest" version)
+            if [ "$got" != "infraharvest v$version" ]; then
+              echo "::error::the installed binary reports \"$got\", want \"infraharvest v$version\""
+              exit 1
+            fi
+            providers=$("$INFRAHARVEST_INSTALL_DIR/infraharvest" import --help | sed -En 's/^ +(aws|azure|google) +.*/\1/p' | paste -sd, -)
+            test "$providers" = "$cloud"
+          done

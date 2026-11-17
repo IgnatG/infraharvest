@@ -113,8 +113,8 @@ jobs:
     # environment, so what verifies them (install.sh, docs/install.md)
     # stays the same.
     environment: release
-    # Six targets built one at a time, about 12 minutes each: past
-    # goreleaser's default --timeout of an hour.
+    # Three clouds on six targets, built one at a time: past goreleaser's
+    # default --timeout of an hour.
     timeout-minutes: 180
     permissions:
       contents: write      # create the tag and the release
