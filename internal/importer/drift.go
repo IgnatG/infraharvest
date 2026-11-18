@@ -436,11 +436,11 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 		var env map[string]string
 		var rootEnv map[string]string
 		if options.UntrustedRoots {
-			private, err := os.MkdirTemp("", "infraharvest-drift-")
+			private, err := tfrun.MkdirTempHeld(tfrun.DriftPattern)
 			if err != nil {
 				return nil, err
 			}
-			defer func() { _ = os.RemoveAll(private) }()
+			defer tfrun.RemoveHeld(private)
 			if env, err = untrustedTerraform(private); err != nil {
 				return nil, err
 			}

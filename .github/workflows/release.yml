@@ -6,7 +6,7 @@ name: Release
 # Publishes a release from main with GoReleaser (see .goreleaser.yaml):
 #   gh workflow run release.yml --ref main -f version=v0.1.0
 #
-# The checks job first checks that the commit passed the tests, lint and
+# The checks job first checks that the commit passed the tests (the e2e jobs of every cloud having run, not skipped), lint and
 # sandbox runs a release depends on (release-gate.sh). The tests run in a
 # job of their own, with a read-only token: no test or
 # dependency code runs where the token can write the repository or packages

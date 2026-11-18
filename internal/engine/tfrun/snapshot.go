@@ -39,6 +39,20 @@ import (
 // SnapshotPattern names the private temporary directories of snapshots.
 const SnapshotPattern = "infraharvest-snapshot-"
 
+// The patterns below name the private temporary directories other packages
+// create with MkdirTempHeld, which RemoveStaleSnapshots sweeps too: they
+// hold copies of roots and selections that a killed run never removed.
+const (
+	// DriftRootsPattern names the copies of the confirmed roots a drift run
+	// reads. DriftPattern is a prefix of it, so one prefix match covers both.
+	DriftRootsPattern = "infraharvest-drift-roots-"
+	// DriftPattern names the private environments of drift runs over
+	// untrusted roots.
+	DriftPattern = "infraharvest-drift-"
+	// MCPPattern names the private copies of files the MCP server reads.
+	MCPPattern = "infraharvest-mcp-"
+)
+
 // staleSnapshotAge is how old a snapshot directory must be to count as left
 // behind by a run that was killed, rather than in use by another run.
 const staleSnapshotAge = 12 * time.Hour
@@ -66,18 +80,21 @@ var _ StateTerraform = (*Runner)(nil)
 
 var staleOnce sync.Once
 
-// RemoveStaleSnapshots removes the directories of snapshots, saved plans
-// and empty states in the system's temporary directory that a run killed
-// before it could remove them left behind, once per process: snapshots and
-// saved plans hold secret values. Only directories older than a run can
-// last are removed, as another run may be using a younger one.
+// RemoveStaleSnapshots removes the directories of snapshots, saved plans,
+// empty states, drift environments and MCP copies in the system's
+// temporary directory that a run killed before it could remove them left
+// behind, once per process: snapshots and
+// saved plans hold secret values. Only directories of the current user,
+// older than a run can last, are removed, as another run may be using a
+// younger one; and none whose lock another process holds (see
+// MkdirTempHeld), as the MCP server and a long drift run outlast any age.
 func RemoveStaleSnapshots() {
 	staleOnce.Do(func() { removeStaleSnapshots(os.TempDir(), time.Now(), staleSnapshotAge) })
 }
 
 // stalePatterns name the temporary directories RemoveStaleSnapshots
-// removes.
-var stalePatterns = []string{SnapshotPattern, PlanPattern, EmptyStatePattern}
+// removes. Matching is by prefix, so DriftPattern covers DriftRootsPattern.
+var stalePatterns = []string{SnapshotPattern, PlanPattern, EmptyStatePattern, DriftPattern, MCPPattern}
 
 func removeStaleSnapshots(tmp string, now time.Time, maxAge time.Duration) {
 	entries, err := os.ReadDir(tmp)
@@ -90,10 +107,14 @@ func removeStaleSnapshots(tmp string, now time.Time, maxAge time.Duration) {
 			continue
 		}
 		info, err := e.Info()
-		if err != nil || now.Sub(info.ModTime()) < maxAge {
+		if err != nil || now.Sub(info.ModTime()) < maxAge || !ownedByCurrentUser(info) {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(tmp, e.Name()))
+		dir := filepath.Join(tmp, name)
+		if inUse(dir) {
+			continue
+		}
+		_ = os.RemoveAll(dir)
 	}
 }
 
