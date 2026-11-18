@@ -1122,6 +1122,12 @@
         "persistent": false
       },
       {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "drop-addresses",
         "type": "bool",
         "default": "false",

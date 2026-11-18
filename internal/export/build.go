@@ -66,6 +66,11 @@ type Options struct {
 	// source: an https URL without credentials, and the hexadecimal ID of
 	// a commit. Both are optional, and no other document has them.
 	RepoURL, CommitSHA string
+	// StateURL returns where the state of the root at a path of the output
+	// directory is, as config.Backend.StateURL does, for the OCSF
+	// inventory's iac source; nil if no backend is known. Redacted as the
+	// paths are.
+	StateURL func(rootPath string) string
 }
 
 // Build returns the document opts asks for, as indented JSON, checked
@@ -291,6 +296,9 @@ type entry struct {
 	// configuration: its address and the directory of its root, relative
 	// to the output directory. Empty for a resource it didn't import.
 	address, dir string
+	// outcome is what the import did with it: one of the import outcomes
+	// of the OCSF inventory (see importWritten).
+	outcome string
 }
 
 type entryKey struct{ scope, typ, id string }
@@ -325,17 +333,27 @@ func entries(r *report.Report, listed []listedResource) []*entry {
 			if e.address == "" {
 				e.address, e.dir = res.Address, d.Path
 			}
+			e.outcome = importWritten
 		}
 		for _, res := range d.LeftOut {
-			add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			e := add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			if e.outcome == "" {
+				e.outcome = importLeftOut
+			}
 		}
 	}
 	for _, x := range r.Excluded {
-		add(x.Scope, x.Type, x.ID, x.ManagedBy())
+		e := add(x.Scope, x.Type, x.ID, x.ManagedBy())
+		if e.outcome == "" {
+			e.outcome = importExcluded
+		}
 	}
 	for _, l := range listed {
 		e := add(l.Scope, l.Type, l.ID, "")
 		e.name, e.tags = l.Name, l.Tags
+		if e.outcome == "" {
+			e.outcome = importNotImported
+		}
 	}
 	order = slices.DeleteFunc(order, func(e *entry) bool { return e.typ == "" || e.id == "" })
 	sort.SliceStable(order, func(i, j int) bool {

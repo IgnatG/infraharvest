@@ -33,14 +33,28 @@
       "description": "The hexadecimal ID (40 or 64 characters) of the commit of the repository the configuration was taken from.",
       "type": "string_t"
     },
-    "workspace": {
-      "caption": "IaC Workspace",
-      "description": "The name of the workspace whose state records the resource.",
-      "type": "string_t"
-    },
     "state_key": {
       "caption": "IaC State Key",
-      "description": "The key of the state that records the resource in its backend, such as the path of the state file in a bucket.",
+      "description": "Where the state that records the resource is, as a URL of its object: <code>s3://</code>bucket/key, <code>gs://</code>bucket/prefix/<code>default.tfstate</code>, or the <code>https://</code> URL of an Azure blob.",
+      "type": "string_t"
+    },
+    "outcome_id": {
+      "caption": "IaC Outcome ID",
+      "description": "What the import did with the resource. The resource is managed once the configuration it wrote is merged and applied.",
+      "type": "integer_t",
+      "sibling": "outcome",
+      "enum": {
+        "0": {"caption": "Unknown", "description": "The outcome is unknown."},
+        "1": {"caption": "Written", "description": "The import wrote the resource's configuration."},
+        "2": {"caption": "Left Out", "description": "The import couldn't import the resource or generate valid configuration for it."},
+        "3": {"caption": "Excluded", "description": "The selection, or the resource's owner, such as the cloud or existing configuration, left it out."},
+        "4": {"caption": "Not Imported", "description": "The resource was listed, but the import didn't take it on."},
+        "99": {"caption": "Other", "description": "The outcome is not mapped. See the <code>outcome</code> attribute."}
+      }
+    },
+    "outcome": {
+      "caption": "IaC Outcome",
+      "description": "The outcome, normalized to the caption of the <code>outcome_id</code> value.",
       "type": "string_t"
     }
   }

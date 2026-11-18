@@ -74,7 +74,7 @@
             "required": ["name", "uid", "version"],
             "properties": {
               "name": {"const": "iac"},
-              "uid": {"const": "1301"},
+              "uid": {"const": "999"},
               "version": {"const": "1.0.0"}
             }
           }
@@ -121,15 +121,16 @@
     "iac_source": {
       "type": "object",
       "additionalProperties": false,
-      "minProperties": 1,
+      "required": ["outcome_id", "outcome"],
       "properties": {
+        "outcome_id": {"enum": [1, 2, 3, 4]},
+        "outcome": {"enum": ["Written", "Left Out", "Excluded", "Not Imported"]},
         "tool": {"enum": ["terraform", "opentofu"]},
         "address": {"$ref": "#/$defs/text"},
         "module_address": {"$ref": "#/$defs/text"},
         "repo_url": {"type": "string", "pattern": "^https?://[^\\s@/?#]+(/[^\\s?#]*)?$"},
         "commit_sha": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
         "path": {"$ref": "#/$defs/text"},
-        "workspace": {"$ref": "#/$defs/text"},
         "state_key": {"$ref": "#/$defs/text"}
       }
     }

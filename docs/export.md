@@ -87,7 +87,7 @@ An event for each resource, not for each account and region, because OCSF's `clo
 
 ### The iac extension
 
-The `iac_source` profile is infraharvest's own OCSF extension, `iac` (`uid` 1301), under [`schemas/ocsf/iac/`](https://github.com/IgnatG/infraharvest/tree/main/schemas/ocsf/iac), in the layout OCSF's extensions have, so that `ocsf-schema-compiler path/to/ocsf-schema -e schemas/ocsf/iac` compiles it with the core schema. It adds the object `iac_source`, as the attribute `iac`, to the object `resource_details`, with:
+The `iac_source` profile is infraharvest's own OCSF extension, `iac` (`uid` 999), under [`schemas/ocsf/iac/`](https://github.com/IgnatG/infraharvest/tree/main/schemas/ocsf/iac), in the layout OCSF's extensions have, so that `ocsf-schema-compiler path/to/ocsf-schema -e schemas/ocsf/iac` compiles it with the core schema. It adds the object `iac_source`, as the attribute `iac`, to the object `resource_details`, with:
 
 | Field | What it is | Filled by export |
 |---|---|---|
@@ -97,12 +97,12 @@ The `iac_source` profile is infraharvest's own OCSF extension, `iac` (`uid` 1301
 | `repo_url` | The repository that holds the configuration | If you pass `--repo-url`, or, for this document only, `GITHUB_SERVER_URL` and `GITHUB_REPOSITORY` are set, as in GitHub Actions. An `http` or `https` URL without credentials, a query or a fragment; a trailing `/` or `.git` is dropped. |
 | `commit_sha` | The commit the configuration is from, 40 or 64 lowercase hexadecimal digits | If you pass `--commit-sha`, or `GITHUB_SHA` is set. |
 | `path` | The directory of the resource's root, relative to the output directory, such as `aws/123456789012/eu-west-2` | Yes. |
-| `workspace` | The workspace whose state records the resource | No: the extension has it, the export doesn't know it. |
-| `state_key` | The key of that state in its backend | No, likewise. |
+| `state_key` | Where the root's state is, as `--managed-state` names state objects: `s3://<bucket>/<key>`, `gs://<bucket>/<prefix>/default.tfstate`, or the `https://` URL of an Azure blob | If you pass `--config` with the import's configuration file and it has a `backend`. |
+| `outcome_id`, `outcome` | What the import did with the resource: `1` `Written` (its configuration was written), `2` `Left Out` (it couldn't be imported or generated), `3` `Excluded` (the selection, or its owner, left it out), or `4` `Not Imported` (listed, but not taken on) | Yes, for every resource. |
 
-Only a resource the import took over has an `iac` source; the export doesn't know where a resource it found managed by a state, a tag or CloudFormation is written, so those have none, and neither does a resource left out. `repo_url` and `commit_sha` are written to each of those that has one, and are not hashed: you name them. `--drop-addresses` leaves `address`, `module_address` and `path` out, and `--hash-ids` hashes them as it does the drift summary's addresses, so an address is the same hash in both documents, and the OCSF inventory's from one export to the next. An address, or a path, that looks like a credential, as a key of a `for_each` can, stops the export.
+Every resource has an `iac` source, with its `outcome`. The rest is only for a resource the import took over, with `Written`: the export doesn't know where a resource it found managed by a state, a tag or CloudFormation is written. Its `status` label stays what discovery found, `unmanaged`, as it is until the configuration is merged and applied; `Written` is what tells it apart from a resource no one has taken on. `repo_url` and `commit_sha` are written to each of those that has one, and are not hashed: you name them. `--drop-addresses` leaves `address`, `module_address`, `path` and `state_key` out, and `--hash-ids` hashes them as it does the drift summary's addresses, so an address is the same hash in both documents, and the OCSF inventory's from one export to the next. An address, a path or a state URL that looks like a credential, as a key of a `for_each` can, stops the export. infraharvest keeps a state for each root and doesn't use Terraform workspaces, so the source has no workspace.
 
-The extension isn't in the [OCSF Extensions Registry](https://github.com/ocsf/ocsf-schema/blob/main/extensions.md): its `uid` is outside the registered range, 1 to 999, so that it can't collide with a registered one. It is meant to be registered if others adopt it.
+The extension isn't in the [OCSF Extensions Registry](https://github.com/ocsf/ocsf-schema/blob/main/extensions.md) yet, so it has the registry's development `uid`, 999, which is meant for extensions that aren't registered. A consumer tells it apart by its `name` and `version`, which `metadata.extensions` gives with the `uid`.
 
 ## The graph
 

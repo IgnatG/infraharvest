@@ -29,15 +29,17 @@ import (
 
 // What the events say of OCSF (schemas/ocsf-inventory-v1.schema.json).
 const (
-	ocsfVersion      = "1.9.0"
-	ocsfCategoryUID  = 5
-	ocsfClassUID     = 5023
-	ocsfActivityID   = 2 // Collect
-	ocsfSeverityID   = 1 // Informational
-	ocsfTypeUID      = ocsfClassUID*100 + ocsfActivityID
-	ocsfProduct      = "infraharvest"
-	ocsfExtension    = "iac"
-	ocsfExtensionUID = "1301"
+	ocsfVersion     = "1.9.0"
+	ocsfCategoryUID = 5
+	ocsfClassUID    = 5023
+	ocsfActivityID  = 2 // Collect
+	ocsfSeverityID  = 1 // Informational
+	ocsfTypeUID     = ocsfClassUID*100 + ocsfActivityID
+	ocsfProduct     = "infraharvest"
+	ocsfExtension   = "iac"
+	// ocsfExtensionUID is OCSF's shared development uid: the extension
+	// isn't in OCSF's extension registry yet.
+	ocsfExtensionUID = "999"
 	// ocsfExtensionVersion is the version of schemas/ocsf/iac.
 	ocsfExtensionVersion = "1.0.0"
 	// ocsfProfileIaC is the extension's profile, named as OCSF names the
@@ -94,9 +96,27 @@ type iacSource struct {
 	RepoURL       string `json:"repo_url,omitempty"`
 	CommitSHA     string `json:"commit_sha,omitempty"`
 	Path          string `json:"path,omitempty"`
-	Workspace     string `json:"workspace,omitempty"`
 	StateKey      string `json:"state_key,omitempty"`
+	// OutcomeID and Outcome are what the import did with the resource
+	// (see importOutcomes).
+	OutcomeID int    `json:"outcome_id"`
+	Outcome   string `json:"outcome"`
 }
+
+// What an import did with a resource: the iac source's outcome. Its
+// configuration was written (it is managed once the change is merged and
+// applied), it couldn't be imported, the selection or its owner left it
+// out, or the import didn't take it on at all.
+const (
+	importWritten     = "Written"
+	importLeftOut     = "Left Out"
+	importExcluded    = "Excluded"
+	importNotImported = "Not Imported"
+)
+
+// importOutcomes are the outcome_id of each outcome, as the extension's
+// dictionary has them.
+var importOutcomes = map[string]int{importWritten: 1, importLeftOut: 2, importExcluded: 3, importNotImported: 4}
 
 type ocsfResource struct {
 	Type   string     `json:"type"`
@@ -327,11 +347,10 @@ func buildOCSFInventory(r *report.Report, opts Options, runID string, now time.T
 	return doc, nil
 }
 
-// iacOf returns the iac source of a resource the import took over: the
-// tool, its address, the module call it is in and the path of its root,
-// and the repository and the commit, if the caller named them. It is nil
-// for any other resource, which has no address in the configuration this
-// import wrote, whoever manages it.
+// iacOf returns the iac source of a resource: what the import did with it
+// and, for one it took over, the tool, its address, the module call it is
+// in, the path of its root and where its state is, and the repository and
+// the commit, if the caller named them.
 func iacOf(e *entry, tool string, opts Options, red *redactor) (*iacSource, error) {
 	var src iacSource
 	if e.address != "" {
@@ -349,12 +368,22 @@ func iacOf(e *entry, tool string, opts Options, red *redactor) (*iacSource, erro
 				src.ModuleAddress = red.hash(m)
 			}
 			src.Path = red.hash(e.dir)
+			if opts.StateURL != nil {
+				if state := opts.StateURL(e.dir); state != "" {
+					if secret.CredentialFormat(state) != "" {
+						return nil, fmt.Errorf("the state of a %s has a format of a credential: nothing is written", e.typ)
+					}
+					src.StateKey = red.hash(state)
+				}
+			}
 		}
 		src.RepoURL, src.CommitSHA = repoURL(opts.RepoURL), opts.CommitSHA
 	}
-	if src == (iacSource{}) {
-		return nil, nil
+	src.Outcome = e.outcome
+	if src.Outcome == "" {
+		src.Outcome = importNotImported
 	}
+	src.OutcomeID = importOutcomes[src.Outcome]
 	return &src, nil
 }
 

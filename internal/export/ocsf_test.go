@@ -150,7 +150,7 @@ func TestOCSFInventory(t *testing.T) {
 	if want := []string{"status:unmanaged", "status_basis:none"}; !slices.Equal(logs.Labels, want) {
 		t.Errorf("labels: %v, want %v", logs.Labels, want)
 	}
-	if want := (&iacSource{Tool: "terraform", Address: ocsfBucketAddr, Path: ocsfDir, RepoURL: ocsfRepo, CommitSHA: ocsfCommit}); logs.IaC == nil || *logs.IaC != *want {
+	if want := (&iacSource{Tool: "terraform", Address: ocsfBucketAddr, Path: ocsfDir, RepoURL: ocsfRepo, CommitSHA: ocsfCommit, OutcomeID: 1, Outcome: importWritten}); logs.IaC == nil || *logs.IaC != *want {
 		t.Errorf("iac of the bucket: %+v, want %+v", logs.IaC, want)
 	}
 	// A resource in a module call says which, nested and keyed.
@@ -158,10 +158,42 @@ func TestOCSFInventory(t *testing.T) {
 		t.Errorf("iac of the module's VPC: %+v", got)
 	}
 	// What the import didn't take over has no address in the
-	// configuration, so no iac source, but still says who manages it.
+	// configuration, so its iac source has only the outcome, but still
+	// says who manages it.
 	state := eventOf(t, doc, ocsfStateVPC).Resources[0]
-	if state.IaC != nil || state.Name != "main" || !slices.Contains(state.Labels, "owner:terraform_state") || !slices.Contains(state.Labels, "status:managed") {
-		t.Errorf("a VPC a state manages: %+v", state)
+	if want := (iacSource{OutcomeID: 3, Outcome: importExcluded}); state.IaC == nil || *state.IaC != want || state.Name != "main" ||
+		!slices.Contains(state.Labels, "owner:terraform_state") || !slices.Contains(state.Labels, "status:managed") {
+		t.Errorf("a VPC a state manages: %+v, iac %+v", state, state.IaC)
+	}
+}
+
+// With a backend, each resource the import wrote names where its root's
+// state is, redacted as the paths are.
+func TestOCSFInventoryNamesTheState(t *testing.T) {
+	t.Parallel()
+	out := writeOCSFOut(t, ocsfDir)
+	stateURL := func(root string) string { return "s3://states/" + root + "/terraform.tfstate" }
+	want := "s3://states/" + ocsfDir + "/terraform.tfstate"
+	key := []byte("0123456789abcdef0123456789abcdef")
+	for _, tc := range []struct {
+		name string
+		opts Options
+		want string
+	}{
+		{"plain", Options{StateURL: stateURL}, want},
+		{"hashed", Options{StateURL: stateURL, HashKey: key}, (&redactor{key: key}).hash(want)},
+		{"dropped", Options{StateURL: stateURL, DropAddresses: true}, ""},
+	} {
+		tc.opts.Out, tc.opts.Document = out, DocOCSFInventory
+		doc := decodeOCSF(t, build(t, tc.opts))
+		id := (&redactor{key: tc.opts.HashKey}).hash("logs-bucket")
+		if got := eventOf(t, doc, id).Resources[0].IaC; got == nil || got.StateKey != tc.want || got.Outcome != importWritten {
+			t.Errorf("%s: %+v, want state_key %q", tc.name, got, tc.want)
+		}
+	}
+	bad := Options{Out: out, Document: DocOCSFInventory, StateURL: func(string) string { return "s3://states/" + credentialTag }}
+	if _, err := Build(bad); err == nil {
+		t.Error("a state URL with a credential's format was written")
 	}
 }
 
@@ -172,10 +204,10 @@ func TestOCSFInventoryOmitsWhatItDoesNotKnow(t *testing.T) {
 	out := writeOCSFOut(t, ocsfDir)
 	doc := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory}))
 	got := eventOf(t, doc, "logs-bucket").Resources[0].IaC
-	if got == nil || got.RepoURL != "" || got.CommitSHA != "" || got.Workspace != "" || got.StateKey != "" || got.Tool != "terraform" {
+	if got == nil || got.RepoURL != "" || got.CommitSHA != "" || got.StateKey != "" || got.Tool != "terraform" {
 		t.Errorf("iac: %+v", got)
 	}
-	for _, name := range []string{"repo_url", "commit_sha", "workspace", "state_key"} {
+	for _, name := range []string{"repo_url", "commit_sha", "state_key"} {
 		if strings.Contains(string(build(t, Options{Out: out, Document: DocOCSFInventory})), `"`+name+`"`) {
 			t.Errorf("the document names %s", name)
 		}
@@ -253,7 +285,7 @@ func TestOCSFInventoryHashIDs(t *testing.T) {
 			t.Errorf("hashed: %+v", e)
 		}
 		src := res.IaC
-		if src == nil {
+		if src == nil || src.Outcome != importWritten {
 			continue
 		}
 		pl := plain.Events[i].Resources[0].IaC
@@ -298,7 +330,7 @@ func TestOCSFInventoryDropAddresses(t *testing.T) {
 		// What isn't an address stays, as the counts do in the summary.
 		for _, e := range doc.Events {
 			res := e.Resources[0]
-			if res.IaC != nil && (res.IaC.Tool != "terraform" || res.IaC.RepoURL != ocsfRepo || res.IaC.CommitSHA != ocsfCommit) {
+			if res.IaC != nil && res.IaC.Outcome == importWritten && (res.IaC.Tool != "terraform" || res.IaC.RepoURL != ocsfRepo || res.IaC.CommitSHA != ocsfCommit) {
 				t.Errorf("iac: %+v", res.IaC)
 			}
 		}
@@ -306,7 +338,7 @@ func TestOCSFInventoryDropAddresses(t *testing.T) {
 	// Without a repository or a commit, nothing of the iac source is left.
 	doc := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory, DropAddresses: true}))
 	for _, e := range doc.Events {
-		if src := e.Resources[0].IaC; src != nil && *src != (iacSource{Tool: "terraform"}) {
+		if src := e.Resources[0].IaC; src != nil && src.Outcome == importWritten && *src != (iacSource{Tool: "terraform", OutcomeID: 1, Outcome: importWritten}) {
 			t.Errorf("iac: %+v", src)
 		}
 	}
@@ -466,7 +498,7 @@ func TestOCSFSchemaIsClosed(t *testing.T) {
 		"no product":            func(doc map[string]any) { delete(meta(doc), "product") },
 		"other profile":         func(doc map[string]any) { meta(doc)["profiles"] = []any{"cloud", "host"} },
 		"no extension":          func(doc map[string]any) { meta(doc)["extensions"] = []any{} },
-		"other extension uid":   func(doc map[string]any) { meta(doc)["extensions"].([]any)[0].(map[string]any)["uid"] = "999" },
+		"other extension uid":   func(doc map[string]any) { meta(doc)["extensions"].([]any)[0].(map[string]any)["uid"] = "1301" },
 		"no cloud":              func(doc map[string]any) { delete(event(doc), "cloud") },
 		"no provider":           func(doc map[string]any) { delete(cloud(doc), "provider") },
 		"other provider":        func(doc map[string]any) { cloud(doc)["provider"] = "Oracle" },
@@ -532,7 +564,7 @@ func TestOCSFExtensionFilesAgreeWithTheDocument(t *testing.T) {
 		return v
 	}
 	ext := read("extension.json")
-	if ext["name"] != ocsfExtension || ext["version"] != ocsfExtensionVersion || ext["uid"] != 1301.0 || ocsfExtensionUID != "1301" {
+	if ext["name"] != ocsfExtension || ext["version"] != ocsfExtensionVersion || ext["uid"] != 999.0 || ocsfExtensionUID != "999" {
 		t.Errorf("extension.json: %v", ext)
 	}
 	profile := read("profiles/iac_source.json")
@@ -543,7 +575,7 @@ func TestOCSFExtensionFilesAgreeWithTheDocument(t *testing.T) {
 	// dictionary defines each of them but path, which OCSF has.
 	object := read("objects/iac_source.json")["attributes"].(map[string]any)
 	dictionary := read("dictionary.json")["attributes"].(map[string]any)
-	want := []string{"tool", "address", "module_address", "repo_url", "commit_sha", "path", "workspace", "state_key"}
+	want := []string{"tool", "address", "module_address", "repo_url", "commit_sha", "path", "state_key", "outcome_id", "outcome"}
 	if got := slices.Sorted(maps.Keys(object)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 		t.Errorf("object attributes: %v, want %v", got, want)
 	}

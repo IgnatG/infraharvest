@@ -23,14 +23,14 @@
       "description": "The directory of the root module that holds the resource's configuration, relative to the root of the generated output.",
       "requirement": "recommended"
     },
-    "workspace": {
-      "requirement": "optional"
-    },
     "state_key": {
       "requirement": "optional"
+    },
+    "outcome_id": {
+      "requirement": "required"
+    },
+    "outcome": {
+      "requirement": "recommended"
     }
-  },
-  "constraints": {
-    "at_least_one": ["tool", "address", "module_address", "repo_url", "commit_sha", "path", "workspace", "state_key"]
   }
 }

@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/IgnatG/infraharvest/internal/cli/providers"
+	"github.com/IgnatG/infraharvest/internal/config"
 	"github.com/IgnatG/infraharvest/internal/export"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -30,6 +32,7 @@ type exportFlags struct {
 	commitSHA     string
 	startedAt     string
 	finishedAt    string
+	configFile    string
 }
 
 func newExportCmd() *cobra.Command {
@@ -69,7 +72,9 @@ func newExportCmd() *cobra.Command {
 			"them out of the documents that have them.\n" +
 			"The OCSF inventory names the repository and the commit the configuration is in\n" +
 			"if you pass --repo-url and --commit-sha, or, for that document, if GitHub Actions\n" +
-			"sets GITHUB_SERVER_URL, GITHUB_REPOSITORY and GITHUB_SHA.\n" +
+			"sets GITHUB_SERVER_URL, GITHUB_REPOSITORY and GITHUB_SHA. With --config, the\n" +
+			"import's configuration file, it also names where each root's state is, from\n" +
+			"the file's backend: hashed with --hash-ids, and left out with --drop-addresses.\n" +
 			"--print-schema prints the JSON Schema of the document instead.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -105,6 +110,7 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses (and, in the OCSF inventory, paths) in the drift summary and the OCSF inventory, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
 	cmd.Flags().StringVar(&f.repoURL, "repo-url", "", "repository the configuration is committed to, for the OCSF inventory, as its web address (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&f.commitSHA, "commit-sha", "", "commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory (default: GITHUB_SHA)")
+	cmd.Flags().StringVar(&f.configFile, "config", "", "the import's configuration file, whose backend says where each root's state is, for the OCSF inventory")
 	cmd.Flags().StringVar(&f.hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
 	cmd.Flags().StringVar(&f.startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")
 	cmd.Flags().StringVar(&f.finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now)")
@@ -124,6 +130,15 @@ func buildExport(out string, f exportFlags) ([]byte, error) {
 		opts.RepoURL, opts.CommitSHA = repoFromEnv(f.repoURL, f.commitSHA, os.Getenv)
 	} else {
 		opts.RepoURL, opts.CommitSHA = f.repoURL, f.commitSHA
+	}
+	if f.configFile != "" {
+		file, err := config.Load(f.configFile, providers.Profiles())
+		if err != nil {
+			return nil, err
+		}
+		if file.Backend != nil {
+			opts.StateURL = file.Backend.StateURL
+		}
 	}
 	if f.startedAt != "" {
 		if opts.StartedAt, err = export.ParseTime("--started-at", f.startedAt); err != nil {
