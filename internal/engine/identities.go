@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"maps"
 	"math"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -115,17 +114,6 @@ func nameAttributes(t Traits) []string {
 	return slices.Concat([]string{"name"}, t.NameAttributes)
 }
 
-// sharedAttributes hold values many resources have without being them:
-// where a resource's identity is one of them, as the region of a
-// region-wide setting, it identifies nothing.
-var sharedAttributes = []string{"region", "location", "project", "account_id", "owner_id", "tenant_id", "subscription_id"}
-
-// regionLike matches cloud regions and zones, such as AWS's eu-west-2 and
-// eu-west-2a and Google's europe-west1 and us-central1-a, which some
-// region-wide settings have as their ID. It matches the shapes the clouds
-// name them by, not any name that ends with a number, such as web-server-1.
-var regionLike = regexp.MustCompile(`^(?:[a-z]{2}(?:-gov|-iso[a-z]?)?-(?:north|south|east|west|central)(?:east|west)?-[0-9]+[a-z]?|(?:us|europe|asia|australia|southamerica|northamerica|me|africa)-(?:north|south|east|west|central)(?:east|west)?[0-9]+(?:-[a-z])?)$`)
-
 // derivedIdentity returns the identity the resource at address, of
 // attrs, has of several attributes, as Terraform reads it back in other
 // resources, where the catalogue says its type has one (see
@@ -212,14 +200,14 @@ func identityIndex(values map[string]map[string]any, written map[string]map[stri
 	for _, address := range addresses {
 		attrs := values[address]
 		shared := map[string]bool{}
-		for _, key := range sharedAttributes {
+		for _, key := range t.ScopeAttributes {
 			if v, _ := attrs[key].(string); v != "" {
 				shared[v] = true
 			}
 		}
 		for _, key := range keys {
 			v, _ := attrs[key].(string)
-			if v == "" || shared[v] || regionLike.MatchString(v) || (slices.Contains(t.IdentityAttributes, key) && written[address][key]) {
+			if v == "" || shared[v] || t.IsRegion(v) || (slices.Contains(t.IdentityAttributes, key) && written[address][key]) {
 				continue
 			}
 			named := attrs["family"] == v

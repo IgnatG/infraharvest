@@ -189,6 +189,16 @@ type Traits struct {
 	// WellKnownIDs, if set, matches IDs that read better where they are
 	// used than as a local, such as AWS-managed policies.
 	WellKnownIDs *regexp.Regexp
+	// ScopeAttributes are the attributes that say where a resource is or
+	// whose it is, such as AWS's region and account_id, Azure's location
+	// and subscription_id and Google's project: many resources share their
+	// values without being them.
+	ScopeAttributes []string
+	// RegionIDs, if set, matches the names of the provider's regions and
+	// zones, such as eu-west-2a, which some region-wide settings have as
+	// their ID. It matches the shapes the cloud names them by, not any
+	// name that ends with a number, such as web-server-1.
+	RegionIDs *regexp.Regexp
 	// SelfLinkAliases map the start of a self link, as the provider writes
 	// it, to another start some APIs name the same resource by.
 	SelfLinkAliases map[string]string

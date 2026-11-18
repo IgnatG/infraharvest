@@ -68,3 +68,23 @@ func TestTraits(t *testing.T) {
 		t.Errorf("TagAttributes %v, MergedTagAttributes %v: want %s and %s", traits.TagAttributes, traits.MergedTagAttributes, profile.DefaultTags.Attribute, profile.DefaultTags.Block)
 	}
 }
+
+// AWS's regions and availability zones are shared by what is in them, so
+// none identifies a resource; a name that merely ends with a number does.
+func TestTraitsRegionIDs(t *testing.T) {
+	t.Parallel()
+	traits := (&Provider{}).Profile().Traits
+	for _, v := range []string{"us-east-1", "eu-west-2", "eu-west-2a", "ap-southeast-1", "eu-central-1", "us-gov-west-1"} {
+		if !traits.RegionIDs.MatchString(v) {
+			t.Errorf("%s isn't taken for a region", v)
+		}
+	}
+	for _, v := range []string{"web-server-1", "prod-api-2", "orders-queue-10", "app-db-1a", "europe-west1", "us-central1-a"} {
+		if traits.RegionIDs.MatchString(v) {
+			t.Errorf("%s is taken for a region", v)
+		}
+	}
+	if want := []string{"region", "account_id", "owner_id"}; !slices.Equal(traits.ScopeAttributes, want) {
+		t.Errorf("ScopeAttributes %v, want %v", traits.ScopeAttributes, want)
+	}
+}

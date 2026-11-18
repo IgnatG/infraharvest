@@ -12,11 +12,14 @@ import (
 // provider whose resources are like AWS's, Azure's and Google's at once,
 // so that each test can use the fixtures of any of them.
 var testTraits = Traits{
-	IDPrefixes:        []string{"arn:", "/subscriptions/", "projects/"},
-	IDSuffixes:        []string{".gserviceaccount.com"},
-	IDSegments:        []string{"projects/", "/subscriptions/"},
-	ARNPrefix:         "arn:",
-	WellKnownIDs:      regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`),
+	IDPrefixes:      []string{"arn:", "/subscriptions/", "projects/"},
+	IDSuffixes:      []string{".gserviceaccount.com"},
+	IDSegments:      []string{"projects/", "/subscriptions/"},
+	ARNPrefix:       "arn:",
+	WellKnownIDs:    regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`),
+	ScopeAttributes: []string{"region", "location", "project", "account_id", "owner_id", "tenant_id", "subscription_id"},
+	RegionIDs: regexp.MustCompile(`^(?:[a-z]{2}(?:-gov|-iso[a-z]?)?-(?:north|south|east|west|central)(?:east|west)?-[0-9]+[a-z]?` +
+		`|(?:us|europe|asia|australia|southamerica|northamerica|me|africa)-(?:north|south|east|west|central)(?:east|west)?[0-9]+(?:-[a-z])?)$`),
 	SelfLinkAliases:   map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},
 	PrimaryIdentities: []string{"arn", "self_link"},
 	NameAttributes:    []string{"function_name", "bucket"},

@@ -23,6 +23,9 @@ func TestTraits(t *testing.T) {
 	if !slices.Contains(traits.IdentityAttributes, "role_definition_resource_id") || traits.NestedIdentities["identity"] != "principal_id" {
 		t.Errorf("IdentityAttributes %v, NestedIdentities %v", traits.IdentityAttributes, traits.NestedIdentities)
 	}
+	if want := []string{"location", "tenant_id", "subscription_id"}; !slices.Equal(traits.ScopeAttributes, want) {
+		t.Errorf("ScopeAttributes %v, want %v", traits.ScopeAttributes, want)
+	}
 	if !slices.Contains(traits.TagAttributes, profile.DefaultTags.Attribute) {
 		t.Errorf("TagAttributes %v: want %s", traits.TagAttributes, profile.DefaultTags.Attribute)
 	}

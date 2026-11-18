@@ -134,6 +134,15 @@ type Traits struct {
 	// used than as a local, such as cloud-managed policies, whose names
 	// say what they grant.
 	WellKnownIDs *regexp.Regexp
+	// ScopeAttributes are the attributes whose values many resources
+	// share without being them, as a region or an account is: where a
+	// resource's identity is one of them, it identifies nothing (see
+	// identityIndex).
+	ScopeAttributes []string
+	// RegionIDs, if set, matches the names of regions and zones, which
+	// some region-wide settings have as their ID, so that none is
+	// theirs (see Traits.IsRegion).
+	RegionIDs *regexp.Regexp
 	// SelfLinkAliases map the start of a self link, as the provider writes
 	// it, to another start some APIs name the same resource by.
 	SelfLinkAliases map[string]string
@@ -235,6 +244,12 @@ func (t Traits) HoldsIDs(value string) bool {
 	return slices.ContainsFunc(t.IDPrefixes, func(p string) bool { return strings.HasPrefix(value, p) }) ||
 		strings.Contains(value, "://") ||
 		slices.ContainsFunc(t.IDSegments, func(s string) bool { return strings.Contains(value, s) })
+}
+
+// IsRegion reports whether value is the name of a region or a zone (see
+// RegionIDs).
+func (t Traits) IsRegion(value string) bool {
+	return t.RegionIDs != nil && t.RegionIDs.MatchString(value)
 }
 
 // IsARN reports whether value is an ARN (see ARNPrefix).

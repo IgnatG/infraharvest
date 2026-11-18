@@ -586,6 +586,8 @@ func engineTraits(t harvest.Traits) engine.Traits {
 		IDSegments:          t.IDSegments,
 		ARNPrefix:           t.ARNPrefix,
 		WellKnownIDs:        t.WellKnownIDs,
+		ScopeAttributes:     t.ScopeAttributes,
+		RegionIDs:           t.RegionIDs,
 		SelfLinkAliases:     t.SelfLinkAliases,
 		PrimaryIdentities:   t.PrimaryIdentities,
 		NameAttributes:      t.NameAttributes,
@@ -603,7 +605,7 @@ func engineTraits(t harvest.Traits) engine.Traits {
 // such as ARNs and Azure resource IDs, are still references.
 func unionTraits(provider func(string) harvest.Provider, names []string) harvest.Traits {
 	var u harvest.Traits
-	var wellKnown []string
+	var wellKnown, regions []string
 	for _, name := range names {
 		var p harvest.Provider
 		if provider != nil {
@@ -616,6 +618,10 @@ func unionTraits(provider func(string) harvest.Provider, names []string) harvest
 		u.IDPrefixes = appendNew(u.IDPrefixes, t.IDPrefixes)
 		u.IDSuffixes = appendNew(u.IDSuffixes, t.IDSuffixes)
 		u.IDSegments = appendNew(u.IDSegments, t.IDSegments)
+		u.ScopeAttributes = appendNew(u.ScopeAttributes, t.ScopeAttributes)
+		if t.RegionIDs != nil {
+			regions = append(regions, "(?:"+t.RegionIDs.String()+")")
+		}
 		if u.ARNPrefix == "" {
 			u.ARNPrefix = t.ARNPrefix
 		}
@@ -647,6 +653,9 @@ func unionTraits(provider func(string) harvest.Provider, names []string) harvest
 	}
 	if len(wellKnown) > 0 {
 		u.WellKnownIDs = regexp.MustCompile(strings.Join(wellKnown, "|"))
+	}
+	if len(regions) > 0 {
+		u.RegionIDs = regexp.MustCompile(strings.Join(regions, "|"))
 	}
 	return u
 }

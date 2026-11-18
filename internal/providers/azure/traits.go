@@ -13,11 +13,13 @@ import "github.com/IgnatG/infraharvest/internal/harvest"
 // identity's principal and client IDs, and the DNS names and IDs of
 // zones, servers and the like, and a resource's system-assigned
 // identity, identity[0].principal_id, which a role assignment grants a
-// role to; and resources take tags, and some labels.
+// role to; resources take tags, and some labels; and the resources of a
+// location, a tenant or a subscription share it.
 func traits() harvest.Traits {
 	return harvest.Traits{
-		IDPrefixes: []string{"/subscriptions/"},
-		IDSegments: []string{"/subscriptions/"},
+		IDPrefixes:      []string{"/subscriptions/"},
+		IDSegments:      []string{"/subscriptions/"},
+		ScopeAttributes: []string{"location", "tenant_id", "subscription_id"},
 		IdentityAttributes: []string{
 			"key_id", "zone_id", "dns_name", "domain_name", "fqdn", "principal_id", "client_id", "unique_id", "role_definition_resource_id",
 		},
