@@ -24,6 +24,12 @@ variable "suffix" {
   default     = "terraform"
 }
 
+variable "alerts_environment" {
+  description = "The Environment tag of prd's alerts queue. Another value takes the queue out of both environments, which the next import hands over to another root."
+  type        = string
+  default     = "prd"
+}
+
 variable "run_id" {
   description = "The CI run that applies the estate, if any. Every resource is tagged with it, so the run's last sweep finds what the run left, and nothing else."
   type        = string
@@ -71,7 +77,7 @@ resource "aws_sqs_queue" "prd_orders" {
 resource "aws_sqs_queue" "prd_alerts" {
   name                      = "${local.name}-prd-alerts"
   message_retention_seconds = 86400
-  tags                      = local.prd
+  tags                      = var.alerts_environment == "prd" ? local.prd : merge(local.prd, { Environment = var.alerts_environment })
 }
 
 # A bucket in each, named after the account, as bucket names are global.
