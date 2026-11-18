@@ -78,15 +78,18 @@ func newRedactor(drop []string, all bool, key []byte) *redactor {
 func (r *redactor) tags(tags map[string]string, id, name string) map[string]string {
 	var kept map[string]string
 	for k, v := range tags {
-		// A key that is itself a credential is dropped without being
-		// listed, however it came to be dropped.
-		listable := secret.CredentialFormat(k) == ""
+		// A key that is itself a credential, or that names the resource
+		// whose ID and name are hashed (such as kubernetes.io/cluster/<name>),
+		// is dropped without being listed, however it came to be dropped:
+		// the list would show it.
+		names := r.key != nil && (namedIn(k, id) || namedIn(k, name))
+		listable := secret.CredentialFormat(k) == "" && !names
 		switch {
 		case r.all, r.drop[k], looksSecret(k, v):
 			if listable {
 				r.dropped[k] = true
 			}
-		case r.key != nil && (namedIn(k, id) || namedIn(k, name)):
+		case names:
 			// The key itself names the resource, such as
 			// kubernetes.io/cluster/<name>: dropped, and not listed, as
 			// the list would show it.

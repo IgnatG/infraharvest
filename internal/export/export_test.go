@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -292,6 +293,17 @@ func TestHashingTags(t *testing.T) {
 	}
 	if keys := r.droppedKeys(); len(keys) != 0 {
 		t.Errorf("listed as dropped: %v", keys)
+	}
+	// Nor is such a key listed when it is dropped another way: by
+	// --drop-tags, --drop-tag, or as looking secret.
+	for _, dropped := range []*redactor{
+		newRedactor(nil, true, []byte("0123456789abcdef-key")),
+		newRedactor([]string{"kubernetes.io/cluster/logs-bucket"}, false, []byte("0123456789abcdef-key")),
+	} {
+		dropped.tags(map[string]string{"kubernetes.io/cluster/logs-bucket": "owned", "env": "prod"}, "logs-bucket", "logs")
+		if keys := dropped.droppedKeys(); slices.Contains(keys, "kubernetes.io/cluster/logs-bucket") {
+			t.Errorf("a key naming the resource was listed as dropped: %v", keys)
+		}
 	}
 	// Without --hash-ids, tags stay as they are.
 	plain := newRedactor(nil, false, nil).tags(map[string]string{"Name": "web", "alias": "logs"}, "logs-bucket", "logs")
