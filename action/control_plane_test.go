@@ -165,8 +165,9 @@ type result struct {
 	err     error
 }
 
-// layout is which reports the output directory has.
-type layout struct{ report, drift bool }
+// layout is which reports the output directory has: an import's, a drift
+// check's, the inventories a discover run saved and verify.json.
+type layout struct{ report, drift, inventory, verify, linkInventory bool }
 
 // run runs the script in a directory with an output directory that has a
 // report (an import's, unless noReport), with env added to the variables a
@@ -189,11 +190,34 @@ func runIn(t *testing.T, mode string, env map[string]string, files layout) resul
 	if err := os.MkdirAll(reports, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for name, has := range map[string]bool{"report.json": files.report, "drift.json": files.drift} {
+	for name, has := range map[string]bool{"report.json": files.report, "drift.json": files.drift, "verify.json": files.verify} {
 		if !has {
 			continue
 		}
 		if err := os.WriteFile(filepath.Join(reports, name), []byte("{}"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if files.inventory {
+		inventories := filepath.Join(dir, "out", ".infraharvest", "inventory")
+		if files.linkInventory {
+			// The repository commits a link where the inventories go.
+			elsewhere := filepath.Join(dir, "elsewhere")
+			if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			inventories = filepath.Join(elsewhere, "inventory")
+			if err := os.MkdirAll(inventories, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(elsewhere, filepath.Join(dir, "out", ".infraharvest")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := os.MkdirAll(inventories, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(inventories, "aws-0123456789abcdef.json"), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -260,6 +284,24 @@ func uploadIn(t *testing.T, cp *controlPlane, env map[string]string, files layou
 // import, with env added.
 func driftEnv(env map[string]string) map[string]string {
 	all := map[string]string{"IMPORT": "false", "IMPORT_OUTCOME": "skipped", "DRIFT": "report", "DRIFT_OUTCOME": "success"}
+	for k, v := range env {
+		all[k] = v
+	}
+	return all
+}
+
+// discoverEnv is what the Control plane step has after a discover run, with
+// env added; verifyEnv, after a verify run.
+func discoverEnv(env map[string]string) map[string]string {
+	all := map[string]string{"IMPORT": "false", "IMPORT_OUTCOME": "skipped", "DISCOVER": "true", "DISCOVER_OUTCOME": "success"}
+	for k, v := range env {
+		all[k] = v
+	}
+	return all
+}
+
+func verifyEnv(env map[string]string) map[string]string {
+	all := map[string]string{"IMPORT": "false", "IMPORT_OUTCOME": "skipped", "VERIFY": "true", "VERIFY_OUTCOME": "success"}
 	for k, v := range env {
 		all[k] = v
 	}
@@ -1023,5 +1065,159 @@ func TestUploadSendsTheOCSFInventory(t *testing.T) {
 				t.Errorf("inventory/v1 was exported or sent: %d requests, %q", cp.count("/api/v1/ingest/inventory"), res.args)
 			}
 		})
+	}
+}
+
+func TestUploadOfADiscoverRunSendsTheOCSFInventoryAndTheRun(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, discoverEnv(map[string]string{
+		"STARTED_AT": "2026-11-03T09:30:00Z", "FINISHED_AT": "2026-11-03T09:31:00Z", "REQUEST_ID": "req-7",
+		"DROP_TAGS": "true", "DROP_ADDRESSES": "true",
+	}), layout{inventory: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	got := exports(res)
+	if len(got) != 2 || !strings.Contains(got[0], "--schema=ocsf-inventory ") || !strings.Contains(got[1], "--schema=run ") {
+		t.Fatalf("exports: %q", got)
+	}
+	// The inventory takes the redaction flags and the finish, and says the
+	// command; the run takes the times, the command and the request.
+	for _, want := range []string{"--command=discover", "--drop-tags", "--drop-addresses", "--finished-at=2026-11-03T09:31:00Z"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the OCSF inventory export ran as %q, want %s", got[0], want)
+		}
+	}
+	for _, want := range []string{"--command=discover", "--started-at=2026-11-03T09:30:00Z", "--finished-at=2026-11-03T09:31:00Z", "--request-id=req-7"} {
+		if !strings.Contains(got[1], want) {
+			t.Errorf("the run export ran as %q, want %s", got[1], want)
+		}
+	}
+	if strings.Contains(got[1], "--drop") {
+		t.Errorf("the run export ran as %q", got[1])
+	}
+	for _, doc := range []string{"gate", "graph", "drift-summary"} {
+		if n := cp.count("/api/v1/ingest/" + doc); n != 0 {
+			t.Errorf("%s: %d requests, want none", doc, n)
+		}
+	}
+	for _, doc := range []string{"ocsf-inventory", "run"} {
+		path := "/api/v1/ingest/" + doc
+		if cp.count(path) != 1 || cp.headers[path].Get("Idempotency-Key") != runID+":"+doc {
+			t.Errorf("%s: %d requests, Idempotency-Key %q", path, cp.count(path), cp.headers[path].Get("Idempotency-Key"))
+		}
+	}
+	if cmd := cp.document(t, "run").Command; cmd != "discover" {
+		t.Errorf("run document's command is %q", cmd)
+	}
+	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+func TestUploadOfADiscoverRunThatFailedStillSendsWhatItSaved(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, discoverEnv(map[string]string{"DISCOVER_OUTCOME": "failure"}), layout{inventory: true})
+	if res.err != nil || cp.count("/api/v1/ingest/run") != 1 || cp.count("/api/v1/ingest/ocsf-inventory") != 1 {
+		t.Errorf("run %d, inventory %d requests: %v\n%s", cp.count("/api/v1/ingest/run"), cp.count("/api/v1/ingest/ocsf-inventory"), res.err, res.output)
+	}
+}
+
+func TestUploadOfADiscoverRunWithoutAnInventory(t *testing.T) {
+	cp := newControlPlane(t)
+	// Failed before it saved one: a warning, and the step's failure shows.
+	res := uploadIn(t, cp, discoverEnv(map[string]string{"DISCOVER_OUTCOME": "failure"}), layout{report: true})
+	if res.err != nil || !strings.Contains(res.output, "::warning::control plane: discover left no inventory") {
+		t.Errorf("want a warning and no failure: %v\n%s", res.err, res.output)
+	}
+	if cp.count(sessionPath) != 0 || res.args != "" || strings.Contains(res.outputs, "control-plane-run-id") {
+		t.Errorf("something was sent: %q\n%s", res.args, res.output)
+	}
+	// After a success it is an error.
+	res = uploadIn(t, cp, discoverEnv(nil), layout{report: true})
+	if res.err == nil || !strings.Contains(res.output, "::error::control plane: no inventory to send") {
+		t.Errorf("want a failure: %v\n%s", res.err, res.output)
+	}
+}
+
+func TestUploadDoesNotFollowALinkedInventory(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, discoverEnv(nil), layout{inventory: true, linkInventory: true})
+	if res.err == nil || !strings.Contains(res.output, "no inventory to send") || cp.count(sessionPath) != 0 {
+		t.Errorf("want a failure and no session: %v\n%s", res.err, res.output)
+	}
+}
+
+func TestUploadOfAVerifyRunSendsTheRunAndTheGate(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, verifyEnv(map[string]string{
+		"STARTED_AT": "2026-11-03T09:30:00Z", "FINISHED_AT": "2026-11-03T09:40:00Z", "REQUEST_ID": "req-8", "DROP_TAGS": "true", "HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123",
+	}), layout{verify: true, report: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	got := exports(res)
+	if len(got) != 2 || !strings.Contains(got[0], "--schema=run ") || !strings.Contains(got[1], "--schema=gate ") {
+		t.Fatalf("exports: %q", got)
+	}
+	for _, want := range []string{"--command=verify", "--started-at=2026-11-03T09:30:00Z", "--finished-at=2026-11-03T09:40:00Z", "--request-id=req-8"} {
+		if !strings.Contains(got[0], want) {
+			t.Errorf("the run export ran as %q, want %s", got[0], want)
+		}
+	}
+	// The gate has no tags, IDs or times to redact or give.
+	if !strings.Contains(got[1], "--command=verify") || strings.Contains(got[1], "--drop") || strings.Contains(got[1], "--hash") || strings.Contains(got[1], "--started-at") || strings.Contains(got[1], "--request-id") {
+		t.Errorf("the gate export ran as %q", got[1])
+	}
+	for _, doc := range []string{"ocsf-inventory", "graph", "drift-summary"} {
+		if n := cp.count("/api/v1/ingest/" + doc); n != 0 {
+			t.Errorf("%s: %d requests, want none", doc, n)
+		}
+	}
+	for _, doc := range []string{"run", "gate"} {
+		path := "/api/v1/ingest/" + doc
+		if cp.count(path) != 1 || cp.headers[path].Get("Idempotency-Key") != runID+":"+doc {
+			t.Errorf("%s: %d requests, Idempotency-Key %q", path, cp.count(path), cp.headers[path].Get("Idempotency-Key"))
+		}
+	}
+	if cmd := cp.document(t, "run").Command; cmd != "verify" {
+		t.Errorf("run document's command is %q", cmd)
+	}
+	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+func TestUploadOfAVerifyRunThatFailedItsChecksStillSends(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, verifyEnv(map[string]string{"VERIFY_OUTCOME": "failure"}), layout{verify: true})
+	if res.err != nil || cp.count("/api/v1/ingest/run") != 1 || cp.count("/api/v1/ingest/gate") != 1 {
+		t.Errorf("run %d, gate %d requests: %v\n%s", cp.count("/api/v1/ingest/run"), cp.count("/api/v1/ingest/gate"), res.err, res.output)
+	}
+}
+
+func TestUploadOfAVerifyRunWithoutItsReport(t *testing.T) {
+	cp := newControlPlane(t)
+	// An import's report is there, but the run is verify's.
+	res := uploadIn(t, cp, verifyEnv(map[string]string{"VERIFY_OUTCOME": "failure"}), layout{report: true})
+	if res.err != nil || !strings.Contains(res.output, "::warning::control plane: verify left no report") || cp.count(sessionPath) != 0 || res.args != "" {
+		t.Errorf("want a warning and no failure: %v\n%s", res.err, res.output)
+	}
+	res = uploadIn(t, cp, verifyEnv(nil), layout{report: true})
+	if res.err == nil || !strings.Contains(res.output, "::error::control plane: no report to send") {
+		t.Errorf("want a failure: %v\n%s", res.err, res.output)
+	}
+}
+
+// A run sends the documents of what ran only: discover and verify steps
+// that were skipped leave the import's four.
+func TestUploadOfAnImportIgnoresDiscoverAndVerifyFiles(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, map[string]string{"DISCOVER": "false", "DISCOVER_OUTCOME": "skipped", "VERIFY": "false", "VERIFY_OUTCOME": "skipped"}, layout{report: true, inventory: true, verify: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := exports(res); len(got) != 4 || strings.Contains(res.args, "--command") {
+		t.Errorf("exports: %q", got)
 	}
 }

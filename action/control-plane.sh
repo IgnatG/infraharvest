@@ -17,9 +17,11 @@
 # The documents are those of what ran: an import sends ocsf-inventory, run,
 # gate and graph; a drift check sends drift-summary, and, when no import ran,
 # the run document of the drift check (export --command drift) before it; both
-# send the five. The inventory is sent as the OCSF inventory: inventory/v1 is
-# not uploaded. The drift summary has a run_id of its own, made from
-# drift.json.
+# send the five. A discover run sends ocsf-inventory and run (export --command
+# discover), made from the inventories it saved, and a verify run sends run
+# and gate (export --command verify), made from verify.json. The inventory is
+# sent as the OCSF inventory: inventory/v1 is not uploaded. The drift summary
+# has a run_id of its own, made from drift.json.
 #
 # Usage: control-plane.sh check|upload
 #
@@ -36,11 +38,13 @@
 # Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
 # and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
-# outcome; skipped when it didn't run), DRIFT (off, report or accept),
+# outcome; skipped when it didn't run), DISCOVER and VERIFY (true when the
+# run is a discover or a verify run) with DISCOVER_OUTCOME and
+# VERIFY_OUTCOME (their steps' outcomes), DRIFT (off, report or accept),
 # DRIFT_OUTCOME (the Drift step's), DRIFT_STARTED_AT and DRIFT_FINISHED_AT
 # (its start and finish), STARTED_AT and FINISHED_AT (when the
-# import started and finished, RFC 3339, from the Import step; either may be
-# empty), and the runner's
+# import, discover or verify started and finished, RFC 3339, from its step;
+# either may be empty), and the runner's
 # ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
 # INFRAHARVEST_UPLOAD_RETRY_DELAY is the first delay in seconds between
 # attempts (default 2, doubling), for tests.
@@ -229,12 +233,14 @@ read_run_id() {
 
 upload() {
   [[ -n "$url" ]] || return 0
-  local bin out report drift_report import_ran=false drift_ran=false send_import=false send_drift=false
+  local bin out report drift_report inventories verify_report import_ran=false drift_ran=false send_import=false send_drift=false send_discover=false send_verify=false
   set_base
   bin="${BINARY:-infraharvest}"
   out="${OUT:-infrastructure}"
   report="$out/_reports/report.json"
   drift_report="$out/_reports/drift.json"
+  inventories="$out/.infraharvest/inventory"
+  verify_report="$out/_reports/verify.json"
 
   # What ran: the Import step, unless it was skipped, such as after a drift
   # check that failed, and the Drift step, when it ran to its end.
@@ -266,7 +272,28 @@ upload() {
       annotation warning "control plane: the drift check left no drift report to send ($drift_report)"
     fi
   fi
-  if [[ "$send_import" != true && "$send_drift" != true ]]; then return 0; fi
+  # A discover run left the inventories it saved, and a verify run its
+  # verify.json, unless it failed before: then the step's own failure is the
+  # one to show, as for an import. After a success they must be there.
+  if [[ "${DISCOVER-}" == true && "${DISCOVER_OUTCOME-}" != skipped ]]; then
+    if ! linked "$inventories" && compgen -G "$inventories/*.json" > /dev/null; then
+      send_discover=true
+    elif [[ "${DISCOVER_OUTCOME-}" == failure ]]; then
+      annotation warning "control plane: discover left no inventory to send ($inventories)"
+    else
+      problem "no inventory to send: $inventories has no file that no symbolic link leads to"
+    fi
+  fi
+  if [[ "${VERIFY-}" == true && "${VERIFY_OUTCOME-}" != skipped ]]; then
+    if unlinked "$verify_report"; then
+      send_verify=true
+    elif [[ "${VERIFY_OUTCOME-}" == failure ]]; then
+      annotation warning "control plane: verify left no report to send ($verify_report)"
+    else
+      problem "no report to send: $verify_report isn't a regular file that no symbolic link leads to"
+    fi
+  fi
+  if [[ "$send_import" != true && "$send_drift" != true && "$send_discover" != true && "$send_verify" != true ]]; then return 0; fi
 
   tmp=$(umask 077; mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/infraharvest-control-plane.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT
@@ -299,7 +326,9 @@ upload() {
   # The report holds no times: the import's own start and finish go to the
   # run (started_at, finished_at), and the finish to the OCSF inventory (the
   # time of its events), so that sending the same run again changes neither.
-  # A drift check's own start and finish go to its run document.
+  # The start and finish of a discover or verify run go to its run document
+  # the same way. A drift check's own start and finish go to its run
+  # document.
   local times=() finish=()
   [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
   [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT") && finish=("--finished-at=$FINISHED_AT")
@@ -311,7 +340,15 @@ upload() {
   # both reports are there); without one, it is the drift check's, which
   # export takes from drift.json, not an old report.json the repository has.
   local docs=() doc
-  if [[ "$send_import" == true ]]; then docs=(ocsf-inventory run gate graph); else docs=(run); fi
+  if [[ "$send_import" == true ]]; then
+    docs=(ocsf-inventory run gate graph)
+  elif [[ "$send_discover" == true ]]; then
+    docs=(ocsf-inventory run)
+  elif [[ "$send_verify" == true ]]; then
+    docs=(run gate)
+  else
+    docs=(run)
+  fi
   if [[ "$send_drift" == true ]]; then docs+=(drift-summary); fi
 
   for doc in "${docs[@]}"; do
@@ -322,10 +359,22 @@ upload() {
         # the job, which export reads.
         flags=(${redact[@]+"${redact[@]}"} ${finish[@]+"${finish[@]}"})
         if [[ "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
+        if [[ "$send_discover" == true ]]; then flags+=(--command=discover); fi
         ;;
       run)
-        if [[ "$send_import" == true ]]; then flags=(${times[@]+"${times[@]}"}); else flags=(--command=drift ${drift_times[@]+"${drift_times[@]}"}); fi
+        if [[ "$send_import" == true ]]; then
+          flags=(${times[@]+"${times[@]}"})
+        elif [[ "$send_discover" == true ]]; then
+          flags=(--command=discover ${times[@]+"${times[@]}"})
+        elif [[ "$send_verify" == true ]]; then
+          flags=(--command=verify ${times[@]+"${times[@]}"})
+        else
+          flags=(--command=drift ${drift_times[@]+"${drift_times[@]}"})
+        fi
         if [[ -n "$request_id" ]]; then flags+=("--request-id=$request_id"); fi
+        ;;
+      gate)
+        if [[ "$send_verify" == true ]]; then flags=(--command=verify); fi
         ;;
       graph | drift-summary)
         if [[ "$hash_ids" == true ]]; then flags=(--hash-ids); fi
