@@ -43,6 +43,12 @@ variable "extra_name" {
   default     = ""
 }
 
+variable "app_role_tag" {
+  description = "A Drift tag for the app role alone, which the drift test adds out of band: the iam-role module gives the role and its instance profile the same tags, so accepting the tag is rejected."
+  type        = string
+  default     = ""
+}
+
 variable "run_id" {
   description = "The CI run that applies the estate, if any. Every resource is tagged with it, so the run's last sweep finds what the run left, and nothing else."
   type        = string
@@ -291,7 +297,7 @@ resource "aws_iam_role" "app" {
   name                 = "${local.name}-app"
   assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
   permissions_boundary = local.permissions_boundary
-  tags                 = local.tags
+  tags                 = var.app_role_tag == "" ? local.tags : merge(local.tags, { Drift = var.app_role_tag })
 }
 
 resource "aws_iam_role_policy_attachment" "app_ssm" {

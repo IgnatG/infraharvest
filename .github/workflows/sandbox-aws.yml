@@ -205,7 +205,7 @@ jobs:
           clusters) test=TestSandboxAWSClusters timeout=120m ;;
           data) test=TestSandboxAWSData timeout=90m ;;
           cfn) test=TestSandboxAWSCloudFormation timeout=160m ;;
-          environments) test=TestSandboxAWSEnvironments timeout=70m ;;
+          environments) test=TestSandboxAWSEnvironments timeout=100m ;;
           *) echo "::error::Unknown estate $SANDBOX_ESTATE"; exit 1 ;;
         esac
         go test -tags e2e,sandbox,minimal,aws -run "^${test}\$" -timeout "$timeout" -v ./e2e/

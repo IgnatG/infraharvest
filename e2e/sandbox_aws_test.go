@@ -23,8 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
@@ -68,7 +73,10 @@ var sandboxClusterServices = []string{"eks", "elasticache", "iam", "rds", "sg", 
 // import with no changes. On the way it interrupts the import and resumes
 // it with both regions at once (see checkResume), and at the end it adds
 // a resource to the estate and imports again with --incremental. It
-// destroys the estate when it is done. The sandbox-aws workflow runs it,
+// checks what the import leaves out of what AWS creates on its own (see
+// checkSandboxAWSDefaults), and runs infraharvest drift on the roots (see
+// checkSandboxDrift and checkSandboxDriftRejected). It destroys the estate
+// when it is done. The sandbox-aws workflow runs it,
 // after approval; see e2e/README.md.
 func TestSandboxAWS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Minute)
@@ -88,6 +96,7 @@ func TestSandboxAWS(t *testing.T) {
 
 	coverage, imported := s.checkImport(ctx, t, state)
 	checkModuleCalls(t, coverage)
+	checkSandboxAWSDefaults(ctx, t, s, coverage, state)
 	checkRegions(t, coverage, state, s.region, secondRegion)
 	checkGlobalTable(t, coverage, s.out, state, s.region, secondRegion)
 	checkSandboxAWSQuery(ctx, t, s, state)
@@ -95,6 +104,7 @@ func TestSandboxAWS(t *testing.T) {
 	created := checkSandboxIncremental(ctx, t, s, estate, importSandbox, imported)
 	work, rel := checkRegenerated(ctx, t, s, estate, importSandbox, created)
 	checkSandboxDrift(ctx, t, s, estate, work, rel, created)
+	checkSandboxDriftRejected(ctx, t, s, estate, work, coverage, created)
 }
 
 // TestSandboxAWSClusters creates testdata/sandbox/aws-clusters, a
@@ -880,30 +890,255 @@ func checkRegenerated(ctx context.Context, t *testing.T, s *sandbox, estate *san
 // as the read-only profile, on the root of rel that checkRegenerated
 // applied in work. Drift must report the tag as kept, exit with 4 with
 // --detailed-exitcode, and leave the code as it was; accepted, the tag
-// must be written into the code, which then plans no change. Only the log
-// group, a resource of the estate, changes in the cloud; the estate's
-// destroy deletes it as it is.
+// must be written into the code, which then plans no change, and drift
+// exits with 0 with --detailed-exitcode: nothing is left to revert. Only
+// the log group, a resource of the estate, changes in the cloud; the
+// estate's destroy deletes it as it is.
+//
+// The root's secret variables have no value in its files, so the root's
+// secrets.auto.tfvars gives drift each one's value, as a team would
+// (see writeSecretVars): without them drift plans with placeholders in
+// their place, which it can't assess what they set by (see
+// report.DriftRoot.Placeholders), and says drift is left for each one
+// that changed.
 func checkSandboxDrift(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, work, rel string, created []*tfjson.StateResource) {
 	t.Helper()
 	const before, after = "infraharvest-sandbox-renamed", "infraharvest-sandbox-drifted"
 	estate.apply(ctx, t, tfexec.Var("extra=true"), tfexec.Var("extra_name="+after), tfexec.Target("aws_cloudwatch_log_group.extra"))
 	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
+	root := filepath.Join(work, filepath.FromSlash(rel))
+	generated := filepath.Join(s.out, filepath.FromSlash(rel))
+	writeSecretVars(t, root, secretAssignments(t, generated, created))
 
 	code := codeFiles(t, work)
 	d := drift.mustExit(t, report.ExitDrift, "--root", rel, "--detailed-exitcode")
 	checkCodeUnchanged(t, "drift", code, work)
 	checkDriftChange(t, "drift", driftChange(t, "drift", d, "aws_cloudwatch_log_group", "tags.Name"), before, after, report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	checkNoPlaceholders(t, "drift", d)
 
-	d = drift.mustExit(t, report.ExitOK, "--root", rel, "--accept", "type=aws_cloudwatch_log_group")
+	d = drift.mustExit(t, report.ExitOK, "--root", rel, "--accept", "type=aws_cloudwatch_log_group", "--detailed-exitcode")
 	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "aws_cloudwatch_log_group", "tags.Name"), before, after, report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	checkNoPlaceholders(t, "drift --accept", d)
 	if !codeMatches(t, work, `"`+after+`"`) || codeMatches(t, work, `"`+before+`"`) {
 		t.Errorf("drift --accept: the code doesn't have the log group's Name tag %q in place of %q", after, before)
 	}
-	root := filepath.Join(work, filepath.FromSlash(rel))
-	vars := secretValues(t, filepath.Join(s.out, filepath.FromSlash(rel)), created)
+	vars := secretValues(t, generated, created)
 	for _, rc := range planned(ctx, t, root, s.execPath, s.plugins, vars).ResourceChanges {
 		if rc.Mode == tfjson.ManagedResourceMode && (!rc.Change.Actions.NoOp() || rc.Change.Importing != nil) {
 			t.Errorf("%s, drift accepted: %s is planned to %v", rel, rc.Address, rc.Change.Actions)
+		}
+	}
+}
+
+// sandboxDriftTag is the tag checkSandboxDriftRejected adds to the app
+// role alone.
+const sandboxDriftTag = "Drift"
+
+// checkSandboxDriftRejected goes on from checkSandboxDrift, with the
+// estate's app role and its instance profile, which the import makes one
+// call of the iam-role module (coverage is the import's report): the
+// module gives both the tags of its one input, so a tag only the role
+// gets in the cloud can't be accepted into the code without the plan
+// changing the profile too. The estate adds the tag to the role alone, as
+// the fixture profile (app_role_tag); the role's root, global as IAM is,
+// is applied in work, and drift, as the read-only profile, accepts the
+// tag with --detailed-exitcode. The plan of the edited code changes the
+// profile, so the change must be rejected by the plan, naming the profile,
+// drift exit with 1 (report.ExitDriftRejected), and the code stay as it
+// was.
+func checkSandboxDriftRejected(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, work string, coverage report.Report, created []*tfjson.StateResource) {
+	t.Helper()
+	var role *tfjson.StateResource
+	for _, r := range created {
+		if r.Type == "aws_iam_role" && r.Name == "app" {
+			role = r
+		}
+	}
+	if role == nil {
+		t.Fatal("the estate has no app role")
+	}
+	name, _ := role.AttributeValues["name"].(string)
+	rel, declined := iamRoleCall(coverage, name)
+	if rel == "" {
+		t.Errorf("the import doesn't make the role %s and its instance profile a call of %s (declined: %q), so no change of the role's tags can be rejected for reaching the profile", name, adapters.IAMRole().Source, declined)
+		return
+	}
+	generated := filepath.Join(s.out, filepath.FromSlash(rel))
+	root := filepath.Join(work, filepath.FromSlash(rel))
+	values := secretAssignments(t, generated, created)
+	applyPlanned(ctx, t, root, s.execPath, s.plugins, secretValues(t, generated, created))
+	writeSecretVars(t, root, values)
+
+	estate.apply(ctx, t, tfexec.Var("app_role_tag=rejected"), tfexec.Target("aws_iam_role.app"))
+	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
+	code := codeFiles(t, work)
+	d := drift.mustExit(t, report.ExitDriftRejected, "--root", rel, "--accept", "attribute=tags."+sandboxDriftTag, "--detailed-exitcode")
+	c := driftChange(t, "drift --accept of the role's tag", d, "aws_iam_role", "tags."+sandboxDriftTag)
+	if c.Decision != report.DriftAccept || c.Outcome != report.DriftRejectedByPlan || !strings.Contains(c.Reason, "aws_iam_instance_profile") {
+		t.Errorf("drift --accept: %s %s is %s, %s (%s), want accepted, rejected by the plan for changing the instance profile", c.Address, c.Attribute, c.Decision, c.Outcome, c.Reason)
+	}
+	if d.Totals.RejectedByPlan == 0 {
+		t.Errorf("drift --accept: totals %+v, want a change rejected by the plan", d.Totals)
+	}
+	checkCodeUnchanged(t, "drift --accept, rejected", code, work)
+}
+
+// iamRoleCall returns the root, relative to the output directory, whose
+// import makes the role called name and its instance profile one call of
+// the iam-role module, or "" and why the module declined them.
+func iamRoleCall(coverage report.Report, name string) (root, declined string) {
+	for _, d := range coverage.Directories {
+		var role, profile string
+		for _, r := range d.Imported {
+			switch {
+			case r.ID != name:
+			case engine.AddressType(r.Address) == "aws_iam_role":
+				role = r.Address
+			case engine.AddressType(r.Address) == "aws_iam_instance_profile":
+				profile = r.Address
+			}
+		}
+		if role == "" || profile == "" {
+			continue
+		}
+		for _, m := range d.Modules {
+			if m.Source != adapters.IAMRole().Source || !slices.Contains(m.Resources, role) {
+				continue
+			}
+			if m.Declined != "" {
+				declined = m.Declined
+			} else if slices.Contains(m.Resources, profile) {
+				return d.Path, ""
+			}
+		}
+	}
+	return "", declined
+}
+
+// writeSecretVars gives the root in dir the values of its secret
+// variables, by name, in a secrets.auto.tfvars that Terraform and
+// infraharvest drift read by themselves, as a team gives them. The file
+// is private, and the root is a copy the test removes.
+func writeSecretVars(t *testing.T, dir string, values map[string]string) {
+	t.Helper()
+	if len(values) == 0 {
+		return
+	}
+	f := hclwrite.NewEmptyFile()
+	for _, name := range slices.Sorted(maps.Keys(values)) {
+		f.Body().SetAttributeValue(name, cty.StringVal(values[name]))
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.auto.tfvars"), f.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkNoPlaceholders fails the test for each root the drift report d
+// says planned with a placeholder for a variable without a value: what
+// such a variable sets can't be assessed.
+func checkNoPlaceholders(t *testing.T, what string, d report.Drift) {
+	t.Helper()
+	for _, r := range d.Roots {
+		if len(r.Placeholders) > 0 {
+			t.Errorf("%s: %s planned with placeholders for %v, whose values secrets.auto.tfvars should give", what, r.Path, r.Placeholders)
+		}
+	}
+}
+
+// checkSandboxAWSDefaults checks what the import leaves out of what AWS
+// creates on its own, in a real account, which the emulator's default VPC
+// doesn't tell: coverage is the import's report, and created the estate's
+// resources.
+//
+//   - Every VPC of the estate has a main route table and a default
+//     security group AWS created with it, unchanged, which the catalogue's
+//     skip rules leave out as as created: both are reported left out, as
+//     the cloud's, and no root imports either.
+//   - The region's default VPC, if the account has one, is left out as
+//     the cloud's, with its subnets, internet gateway and route tables,
+//     and no root imports any.
+func checkSandboxAWSDefaults(ctx context.Context, t *testing.T, s *sandbox, coverage report.Report, created []*tfjson.StateResource) {
+	t.Helper()
+	imported := map[string]bool{}
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			imported[engine.AddressType(r.Address)+" "+r.ID] = true
+		}
+	}
+	left := map[string]report.Excluded{}
+	for _, x := range coverage.Excluded {
+		left[x.Type+" "+x.ID] = x
+	}
+	// check checks that typ id is left out as the cloud's, for a reason
+	// that has fragment (any, with ""), and imported by no root.
+	check := func(what, typ, id, fragment string) {
+		t.Helper()
+		x, ok := left[typ+" "+id]
+		switch {
+		case id == "":
+			t.Errorf("%s has no ID", what)
+		case imported[typ+" "+id]:
+			t.Errorf("%s %s %s is imported", what, typ, id)
+		case !ok:
+			t.Errorf("%s %s %s isn't reported left out", what, typ, id)
+		case x.ManagedBy() != report.OwnerCloud || !strings.Contains(x.Reason, fragment):
+			t.Errorf("%s %s %s is left out as %q by %q, want the cloud's, as %q", what, typ, id, x.Reason, x.ManagedBy(), fragment)
+		}
+	}
+	vpcs := 0
+	for _, r := range created {
+		if r.Type != "aws_vpc" {
+			continue
+		}
+		vpcs++
+		main, _ := r.AttributeValues["main_route_table_id"].(string)
+		group, _ := r.AttributeValues["default_security_group_id"].(string)
+		check("the main route table of "+r.Address, "aws_route_table", main, "main route table AWS creates")
+		check("the default security group of "+r.Address, "aws_security_group", group, "default security group AWS creates")
+	}
+	if vpcs == 0 {
+		t.Error("the estate has no VPC")
+	}
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithSharedConfigProfile(s.readonlyProfile), awsconfig.WithRegion(s.region))
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := ec2.NewFromConfig(cfg)
+	described, err := svc.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{Filters: []ec2types.Filter{{Name: aws.String("is-default"), Values: []string{"true"}}}})
+	if err != nil {
+		t.Fatalf("describe the default VPCs of %s: %v", s.region, err)
+	}
+	if len(described.Vpcs) == 0 {
+		t.Logf("%s has no default VPC: nothing to check of it", s.region)
+		return
+	}
+	for _, vpc := range described.Vpcs {
+		id := aws.ToString(vpc.VpcId)
+		filter := []ec2types.Filter{{Name: aws.String("vpc-id"), Values: []string{id}}}
+		check("the default VPC", "aws_vpc", id, "default VPC")
+		subnets, err := svc.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{Filters: filter})
+		if err != nil {
+			t.Fatalf("describe the subnets of %s: %v", id, err)
+		}
+		for _, subnet := range subnets.Subnets {
+			check("a subnet of the default VPC", "aws_subnet", aws.ToString(subnet.SubnetId), "default VPC")
+		}
+		gateways, err := svc.DescribeInternetGateways(ctx, &ec2.DescribeInternetGatewaysInput{Filters: []ec2types.Filter{{Name: aws.String("attachment.vpc-id"), Values: []string{id}}}})
+		if err != nil {
+			t.Fatalf("describe the internet gateways of %s: %v", id, err)
+		}
+		for _, gateway := range gateways.InternetGateways {
+			check("the internet gateway of the default VPC", "aws_internet_gateway", aws.ToString(gateway.InternetGatewayId), "default VPC")
+		}
+		tables, err := svc.DescribeRouteTables(ctx, &ec2.DescribeRouteTablesInput{Filters: filter})
+		if err != nil {
+			t.Fatalf("describe the route tables of %s: %v", id, err)
+		}
+		for _, table := range tables.RouteTables {
+			// Its main one may be as AWS created it, which the catalogue
+			// leaves out for that reason instead.
+			check("a route table of the default VPC", "aws_route_table", aws.ToString(table.RouteTableId), "")
 		}
 	}
 }
