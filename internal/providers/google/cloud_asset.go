@@ -103,7 +103,7 @@ func (g *CloudAssetLister) list() error {
 func (*CloudAssetLister) Types(cat *catalogue.Catalogue) []string {
 	var types []string
 	for _, typ := range cat.Types() {
-		if e, ok := cat.Entry(typ); ok && e.Inventory != nil {
+		if e, ok := cat.View(typ); ok && e.Inventory != nil {
 			types = append(types, typ)
 		}
 	}
@@ -115,7 +115,7 @@ func (*CloudAssetLister) Types(cat *catalogue.Catalogue) []string {
 func inventoryTypes(cat *catalogue.Catalogue, types []string) []string {
 	var assetTypes []string
 	for _, typ := range types {
-		if e, ok := cat.Entry(typ); ok && e.Inventory != nil && !slices.Contains(assetTypes, e.Inventory.Type) {
+		if e, ok := cat.View(typ); ok && e.Inventory != nil && !slices.Contains(assetTypes, e.Inventory.Type) {
 			assetTypes = append(assetTypes, e.Inventory.Type)
 		}
 	}
@@ -339,7 +339,7 @@ func (p *Provider) PartialTypes() []string {
 		return types
 	}
 	for _, typ := range p.catalogue.Types() {
-		e, ok := p.catalogue.Entry(typ)
+		e, ok := p.catalogue.View(typ)
 		if ok && e.Inventory != nil && slices.ContainsFunc(assetTypes, func(t string) bool { return strings.EqualFold(t, e.Inventory.Type) }) {
 			types = append(types, typ)
 		}
