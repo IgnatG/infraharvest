@@ -50,6 +50,10 @@ type Result struct {
 	// Owned are the resources left out because their tags say another
 	// tool manages them (see OwnedBy).
 	Owned []OwnedResource `json:",omitempty"`
+	// Gone are the resources left out because their import found no
+	// object where Options.MayBeGone says the listing can lag behind the
+	// cloud: they were deleted since they were listed.
+	Gone []Rejection `json:",omitempty"`
 	// Gate is the result of the verification gate (see runGate).
 	Gate gate.Gate
 	// Warnings are about what the configuration holds that people should
@@ -201,6 +205,12 @@ type Options struct {
 	// their tags say another tool manages them, such as those a selection
 	// file includes.
 	KeepOwned map[string]bool
+	// MayBeGone are resources, as "<type> <import ID>", listed from an
+	// index that can go on listing a resource after it is deleted, such as
+	// Azure Resource Graph, by the ID the cloud itself reads them by: one
+	// whose import finds no object is gone, not wrongly identified, and
+	// goes in Result.Gone rather than rejected.hcl.
+	MayBeGone map[string]bool
 	// TidyLabels has Generate label resources the way a person names those
 	// of one root (see tidyLabels): without the words of their type, without
 	// a prefix most of their names share, and main for the only resource of
@@ -578,14 +588,16 @@ func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 // plan would fail on their import blocks instead, for want of
 // configuration, and say nothing of why. Such a resource may have been
 // deleted since it was listed, or its import ID may be wrong: the import
-// can't tell, so it is left out like any other.
+// can't tell, so it is left out like any other, but for those
+// Options.MayBeGone names, which go in Result.Gone.
 func (g *generation) leaveGone() (bool, error) {
-	rejections, rest, err := dropGone(g.dir, g.diags, &g.rejected)
-	if err != nil || len(rejections) == 0 {
+	rejections, gone, rest, err := dropGone(g.dir, g.diags, &g.rejected, g.opts.MayBeGone)
+	if err != nil || len(rejections)+len(gone) == 0 {
 		return false, err
 	}
 	g.diags = rest
 	g.result.Rejected = append(g.result.Rejected, rejections...)
+	g.result.Gone = append(g.result.Gone, gone...)
 	return true, nil
 }
 

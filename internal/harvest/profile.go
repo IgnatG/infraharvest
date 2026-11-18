@@ -61,6 +61,13 @@ type Profile struct {
 	// from, which people read it by, such as AWS's Name; without it, or
 	// the tag, the name the lister gave it.
 	NameTag string
+	// ListingLags says the provider can list a resource the cloud has
+	// deleted, from an index that lags behind it, such as Azure Resource
+	// Graph, and imports what it lists by the ID the cloud reads it by:
+	// a resource whose import finds no object at that ID is reported as
+	// deleted since it was listed, not left out (see
+	// engine.Options.MayBeGone).
+	ListingLags bool
 	// ConcurrentListing says the services may list at the same time,
 	// because their listers share only state that is safe for concurrent
 	// use.

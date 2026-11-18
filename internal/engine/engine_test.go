@@ -592,6 +592,43 @@ import {
 	}
 }
 
+// A resource listed from an index that lags behind the cloud, by the ID
+// the cloud reads it by, whose import finds no object, was deleted since:
+// it leaves the root without going into rejected.hcl, and comes back gone.
+func TestGenerateReportsGoneWhatTheListingSaysMayBeGone(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tf := &fakeTerraform{
+		dir: dir,
+		generated: `resource "aws_sqs_queue" "b" {
+  name = "b"
+}
+`,
+		plans: []fakePlan{{diags: []tfjson.Diagnostic{
+			importErrorAt(2, "Cannot import non-existent remote object"),
+			importErrorAt(2, "Configuration for import target does not exist"),
+		}}},
+	}
+	imports := []rootfile.Import{{Type: "aws_sqs_queue", Name: "a", ID: "gone"}, {Type: "aws_sqs_queue", Name: "b", ID: "b"}}
+
+	result, err := Generate(context.Background(), tf, dir, imports, Options{MayBeGone: map[string]bool{"aws_sqs_queue gone": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Rejected) != 0 {
+		t.Errorf("rejected: %+v, want none", result.Rejected)
+	}
+	if len(result.Gone) != 1 || result.Gone[0].Address != "aws_sqs_queue.a" || result.Gone[0].ID != "gone" {
+		t.Errorf("gone: %+v, want aws_sqs_queue.a", result.Gone)
+	}
+	if got := readFile(t, dir, rootfile.ImportsFileName); strings.Contains(got, "aws_sqs_queue.a") || !strings.Contains(got, "aws_sqs_queue.b") {
+		t.Errorf("imports.tf should only import aws_sqs_queue.b:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, rootfile.RejectedFileName)); err == nil {
+		t.Errorf("rejected.hcl written for a resource that is gone:\n%s", readFile(t, dir, rootfile.RejectedFileName))
+	}
+}
+
 const invalidGenerated = `resource "aws_route53_record" "a" {
   name                             = "example.internal"
   multivalue_answer_routing_policy = false

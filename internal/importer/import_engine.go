@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // generate generates the call's roots into its run, each referring to the
@@ -308,6 +309,10 @@ func (c *callRecorder) addDirectory(dir string, imports []rootfile.Import, resul
 	}
 	for _, o := range result.Owned {
 		r.report.Exclude(c.scope, engine.AddressType(o.Address), o.ID, ownedByTags(o.Owner))
+	}
+	for _, g := range result.Gone {
+		logging.Infof("%s: %s (%s) left out: deleted since it was listed", dir, g.Address, g.ID)
+		r.report.Exclude(c.scope, engine.AddressType(g.Address), g.ID, report.Gone())
 	}
 	for _, w := range result.Warnings {
 		logging.Warnf("%s: %s", dir, w)
