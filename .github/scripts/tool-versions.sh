@@ -18,16 +18,16 @@
 # jq on PATH, and GH_TOKEN for gh).
 set -euo pipefail
 
-# pinned <file> <sed -E script>: the first version the script prints from
-# the file.
+# pinned <file> <sed -E script> [n]: the nth (default the first) version the
+# script prints from the file.
 pinned() {
-  sed -nE "$2" "$1" | head -n 1
+  sed -nE "$2" "$1" | sed -n "${3:-1}p"
 }
 
-# after <file> <pattern> <sed -E script>: pinned, in the lines just after
-# the first line matching pattern.
+# after <file> <pattern> <sed -E script> [n]: pinned, in the lines just
+# after the lines matching pattern, for the nth (default the first) match.
 after() {
-  grep -A4 -m1 -E "$2" "$1" | sed -nE "$3" | head -n 1
+  grep -A4 -E "$2" "$1" | sed -nE "$3" | sed -n "${4:-1}p"
 }
 
 latest() {
@@ -61,7 +61,13 @@ check() {
 
 check GoReleaser "$(pinned .github/workflows/release.yml 's/^[[:space:]]*version: (v[0-9][^ ]*)$/\1/p')" \
   github goreleaser/goreleaser .github/workflows/release.yml
+check "GoReleaser (release check)" "$(pinned .github/workflows/release-check.yml 's/^[[:space:]]*version: (v[0-9][^ ]*)$/\1/p' 1)" \
+  github goreleaser/goreleaser .github/workflows/release-check.yml
+check "GoReleaser (release check snapshot)" "$(pinned .github/workflows/release-check.yml 's/^[[:space:]]*version: (v[0-9][^ ]*)$/\1/p' 2)" \
+  github goreleaser/goreleaser .github/workflows/release-check.yml
 check conftest "$(after .github/workflows/test.yml 'name: Install conftest' 's/^[[:space:]]*VERSION: ([0-9][^ ]*)$/\1/p')" \
+  github open-policy-agent/conftest .github/workflows/test.yml
+check "conftest (end-to-end tests)" "$(after .github/workflows/test.yml 'name: Install conftest' 's/^[[:space:]]*VERSION: ([0-9][^ ]*)$/\1/p' 2)" \
   github open-policy-agent/conftest .github/workflows/test.yml
 check TFLint "$(pinned .github/actions/setup-engines/action.yml 's/^[[:space:]]*tflint_version: (v?[0-9][^ ]*)$/\1/p')" \
   github terraform-linters/tflint .github/actions/setup-engines/action.yml

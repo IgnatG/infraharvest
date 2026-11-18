@@ -16,6 +16,7 @@ const toolVersionsScript = ".github/scripts/tool-versions.sh"
 // toolVersionFiles are the files tool-versions.sh reads the pins from.
 var toolVersionFiles = []string{
 	".github/workflows/release.yml",
+	".github/workflows/release-check.yml",
 	".github/workflows/test.yml",
 	".github/actions/setup-engines/action.yml",
 	".mega-linter.yml",
