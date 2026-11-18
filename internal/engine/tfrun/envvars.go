@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
 // WithEnvVars returns tf with each plan reading the TF_VAR_<name>
@@ -110,6 +111,12 @@ func (t *envVarTerraform) varFile() (string, func(), error) {
 		return "", func() {}, err
 	}
 	remove := func() { _ = os.RemoveAll(private) }
+	// The mode is 0700 already; this also covers Windows, which the mode
+	// doesn't.
+	if _, err := fsutil.MakePrivate(private); err != nil {
+		remove()
+		return "", func() {}, err
+	}
 	path := filepath.Join(private, "env.tfvars")
 	if err := os.WriteFile(path, hclwrite.Format(append(body.BuildTokens(nil).Bytes(), raw...)), 0o600); err != nil {
 		remove()
