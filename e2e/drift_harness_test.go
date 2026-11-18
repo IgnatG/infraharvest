@@ -343,6 +343,10 @@ type sharedDrift struct {
 	// args select the root to check, such as --root=<path>, and are passed
 	// to each run.
 	args []string
+	// dir is the root's directory in the output, which the checks of the
+	// code look at alone: the other roots keep their own copy of the shared
+	// key, which the run doesn't change. Empty, they look at all of it.
+	dir string
 	// sharedAttribute is the shared key's attribute, such as
 	// tags.infraharvest-sandbox, which changed from sharedBefore to
 	// sharedAfter. sharedNew and sharedOld are regular expressions the
@@ -388,6 +392,7 @@ func checkSharedDrift(t *testing.T, drift driftRun, p sharedDrift) {
 	}
 
 	// Report only.
+	root := filepath.Join(out, filepath.FromSlash(p.dir))
 	code := codeFiles(t, out)
 	d := drift.mustExit(t, report.ExitDrift, with("--detailed-exitcode")...)
 	checkCodeUnchanged(t, "report only", code, out)
@@ -425,10 +430,10 @@ func checkSharedDrift(t *testing.T, drift driftRun, p sharedDrift) {
 	d = drift.mustExit(t, report.ExitOK, with("--keep", "all", "--accept", "attribute="+p.ownAttribute)...)
 	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, p.ownType, p.ownAttribute), p.ownBefore, p.ownAfter, report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
 	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, "", p.sharedAttribute), p.sharedBefore, p.sharedAfter, report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
-	if !codeMatches(t, out, p.ownNew) {
+	if !codeMatches(t, root, p.ownNew) {
 		t.Errorf("--keep then --accept: the code doesn't match %s", p.ownNew)
 	}
-	if codeMatches(t, out, p.sharedNew) {
+	if codeMatches(t, root, p.sharedNew) {
 		t.Errorf("--keep then --accept: the code has the shared key's new value, which was kept: %s", p.sharedNew)
 	}
 
@@ -445,7 +450,10 @@ func checkSharedDrift(t *testing.T, drift driftRun, p sharedDrift) {
 	if decided.DecisionStale {
 		t.Errorf("--decisions: %s %s is decision_stale", decided.Address, decided.Attribute)
 	}
-	if !codeMatches(t, out, p.sharedNew) || codeMatches(t, out, p.sharedOld) {
-		t.Errorf("--decisions: the code doesn't match %s in place of %s", p.sharedNew, p.sharedOld)
+	if !codeMatches(t, root, p.sharedNew) {
+		t.Errorf("--decisions: the code doesn't match %s", p.sharedNew)
+	}
+	if codeMatches(t, root, p.sharedOld) {
+		t.Errorf("--decisions: the code still matches %s", p.sharedOld)
 	}
 }

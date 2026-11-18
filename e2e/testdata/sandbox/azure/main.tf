@@ -345,13 +345,16 @@ resource "random_password" "postgres" {
 }
 
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                          = local.name
-  location                      = local.location
-  resource_group_name           = local.rg
-  version                       = "16"
-  sku_name                      = "GP_Standard_D2ds_v5"
-  storage_mb                    = 32768
-  storage_tier                  = "P4"
+  name                = local.name
+  location            = local.location
+  resource_group_name = local.rg
+  version             = "16"
+  sku_name            = "GP_Standard_D2ds_v5"
+  storage_mb          = 32768
+  storage_tier        = "P4"
+  # Without a zone, Azure picks one that azurerm 5 doesn't keep (it isn't
+  # computed), so every later update plans to clear it and fails.
+  zone                          = "1"
   backup_retention_days         = 7
   geo_redundant_backup_enabled  = false
   public_network_access_enabled = false
