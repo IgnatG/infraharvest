@@ -103,7 +103,7 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&f.dropAllTags, "drop-tags", false, "leave all tags out of the inventory")
 	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses and root paths out of the documents that have them, such as the drift summary and the OCSF inventory")
 	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses (and, in the OCSF inventory, paths) in the drift summary and the OCSF inventory, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
-	cmd.Flags().StringVar(&f.repoURL, "repo-url", "", "repository the configuration is committed to, for the OCSF inventory, such as https://github.com/owner/repo (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY)")
+	cmd.Flags().StringVar(&f.repoURL, "repo-url", "", "repository the configuration is committed to, for the OCSF inventory, as its web address (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&f.commitSHA, "commit-sha", "", "commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory (default: GITHUB_SHA)")
 	cmd.Flags().StringVar(&f.hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
 	cmd.Flags().StringVar(&f.startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")

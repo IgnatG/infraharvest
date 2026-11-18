@@ -279,7 +279,7 @@ infraharvest export [output-directory] [flags]
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
-| `--repo-url` |  | repository the configuration is committed to, for the OCSF inventory, such as https://github.com/owner/repo (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY) |
+| `--repo-url` |  | repository the configuration is committed to, for the OCSF inventory, as its web address (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY) |
 | `--request-id` |  | ID a control plane gave to ask for this run, for the run document's request_id: 1 to 128 letters, digits, and . _ : - |
 | `--schema` | `inventory` | document to write: inventory, run, gate, graph, drift-summary, ocsf-inventory |
 | `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
