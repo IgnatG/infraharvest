@@ -889,7 +889,7 @@ jobs:
         export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/plugins"
         mkdir -p "$TF_PLUGIN_CACHE_DIR"
         for dir in permissions/*/ e2e/testdata/sandbox/*/; do
-          terraform -chdir="$dir" init -backend=false -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$dir" init -backend=false -input=false
           terraform -chdir="$dir" validate
         done
     # The templates' own tests, against a mock provider: what the role
@@ -941,7 +941,7 @@ jobs:
           '    azapi   = { source = "Azure/azapi" }' \
           '    azurerm = { source = "hashicorp/azurerm" }' \
           '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
-        terraform -chdir="$dir/root" init -backend=false -input=false
+        "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$dir/root" init -backend=false -input=false
         terraform -chdir="$dir/root" providers schema -json > "$dir/schemas.json"
         terraform -chdir="$dir/root" version -json > "$dir/versions.json"
         jq -r '.provider_selections | to_entries[] | "\(.key) \(.value)"' "$dir/versions.json"
