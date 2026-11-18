@@ -327,11 +327,12 @@ type parsed struct {
 	RequestID string `json:"request_id"`
 }
 
-func (cp *controlPlane) document(t *testing.T, doc string) parsed {
+// runDocument returns the run document the control plane received.
+func (cp *controlPlane) runDocument(t *testing.T) parsed {
 	t.Helper()
 	var p parsed
-	if err := json.Unmarshal([]byte(cp.bodies["/api/v1/ingest/"+doc]), &p); err != nil {
-		t.Fatalf("%s: body isn't JSON: %v\n%q", doc, err, cp.bodies["/api/v1/ingest/"+doc])
+	if err := json.Unmarshal([]byte(cp.bodies["/api/v1/ingest/run"]), &p); err != nil {
+		t.Fatalf("run: body isn't JSON: %v\n%q", err, cp.bodies["/api/v1/ingest/run"])
 	}
 	return p
 }
@@ -838,7 +839,7 @@ func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
 			t.Errorf("%s: Idempotency-Key is %q", path, got)
 		}
 	}
-	if cmd := cp.document(t, "run").Command; cmd != "drift" {
+	if cmd := cp.runDocument(t).Command; cmd != "drift" {
 		t.Errorf("run document's command is %q", cmd)
 	}
 	if !strings.Contains(res.outputs, "control-plane-run-id="+driftRunID+"\n") {
@@ -874,7 +875,7 @@ func TestUploadOfAnImportAndADriftCheckSendsFive(t *testing.T) {
 	if strings.Contains(got[4], "--started-at") || strings.Contains(got[4], "--finished-at") {
 		t.Errorf("drift summary export ran as %q", got[4])
 	}
-	if cmd := cp.document(t, "run").Command; cmd != "import" {
+	if cmd := cp.runDocument(t).Command; cmd != "import" {
 		t.Errorf("run document's command is %q", cmd)
 	}
 	if got := cp.headers["/api/v1/ingest/drift-summary"].Get("Idempotency-Key"); got != driftRunID+":drift-summary" {
@@ -982,7 +983,7 @@ func TestUploadPassesTheRequestID(t *testing.T) {
 				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 			}
 			// It reaches the run document, and only that one.
-			if got := cp.document(t, "run").RequestID; got != "01HZX-7:a.b_c" {
+			if got := cp.runDocument(t).RequestID; got != "01HZX-7:a.b_c" {
 				t.Errorf("run document's request_id is %q", got)
 			}
 			for _, line := range exports(res) {
@@ -1107,7 +1108,7 @@ func TestUploadOfADiscoverRunSendsTheOCSFInventoryAndTheRun(t *testing.T) {
 			t.Errorf("%s: %d requests, Idempotency-Key %q", path, cp.count(path), cp.headers[path].Get("Idempotency-Key"))
 		}
 	}
-	if cmd := cp.document(t, "run").Command; cmd != "discover" {
+	if cmd := cp.runDocument(t).Command; cmd != "discover" {
 		t.Errorf("run document's command is %q", cmd)
 	}
 	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
@@ -1180,7 +1181,7 @@ func TestUploadOfAVerifyRunSendsTheRunAndTheGate(t *testing.T) {
 			t.Errorf("%s: %d requests, Idempotency-Key %q", path, cp.count(path), cp.headers[path].Get("Idempotency-Key"))
 		}
 	}
-	if cmd := cp.document(t, "run").Command; cmd != "verify" {
+	if cmd := cp.runDocument(t).Command; cmd != "verify" {
 		t.Errorf("run document's command is %q", cmd)
 	}
 	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
