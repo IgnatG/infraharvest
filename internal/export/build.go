@@ -3,8 +3,8 @@
 
 // Package export writes the metadata of an import that a hosted control
 // plane may receive: the inventory of the estate, the run and the
-// verification gate, and the summary of a drift check, each a JSON document
-// with a schema (see schemas/).
+// verification gate, the summary of a drift check, and the inventory as OCSF
+// events, each a JSON document with a schema (see schemas/).
 // It reads the report and the saved inventory of an output directory, or
 // its drift report,
 // copies into each document only the fields the document names, drops tags
@@ -57,9 +57,15 @@ type Options struct {
 	// RequestID, if set, is the run document's request_id, which a control
 	// plane gave to ask for the run.
 	RequestID string
-	// DropAddresses leaves the resource addresses out of the documents that
-	// have them (the drift summary); HashKey hashes them otherwise.
+	// DropAddresses leaves the resource addresses, module addresses and
+	// paths out of the documents that have them (the drift summary and the
+	// OCSF inventory); HashKey hashes them otherwise.
 	DropAddresses bool
+	// RepoURL and CommitSHA are the repository and the commit the
+	// configuration was generated into, for the OCSF inventory's iac
+	// source: an https URL without credentials, and the hexadecimal ID of
+	// a commit. Both are optional, and no other document has them.
+	RepoURL, CommitSHA string
 }
 
 // Build returns the document opts asks for, as indented JSON, checked
@@ -116,7 +122,7 @@ func checkOptions(opts Options) error {
 	if opts.Command != "" && opts.Document != DocRun {
 		return fmt.Errorf("a command is for the run document only: the %s document has no choice of command", opts.Document)
 	}
-	return nil
+	return checkRepo(opts)
 }
 
 // commandOf is the command whose run opts exports. Only the run document
@@ -164,6 +170,8 @@ func buildFromReport(opts Options) (any, error) {
 		return buildInventory(r, opts, runID, generatedAt(opts))
 	case DocGraph:
 		return buildGraph(r, opts, runID, generatedAt(opts))
+	case DocOCSFInventory:
+		return buildOCSFInventory(r, opts, runID, generatedAt(opts))
 	case DocRun:
 		doc := buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
 		doc.RequestID = opts.RequestID
@@ -279,6 +287,10 @@ type entry struct {
 	// owner is what manages it, one of the report package's Owner
 	// constants, or "".
 	owner string
+	// address and dir are where the import wrote the resource's
+	// configuration: its address and the directory of its root, relative
+	// to the output directory. Empty for a resource it didn't import.
+	address, dir string
 }
 
 type entryKey struct{ scope, typ, id string }
@@ -309,7 +321,10 @@ func entries(r *report.Report, listed []listedResource) []*entry {
 	}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			e := add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			if e.address == "" {
+				e.address, e.dir = res.Address, d.Path
+			}
 		}
 		for _, res := range d.LeftOut {
 			add(d.Scope, engine.AddressType(res.Address), res.ID, "")

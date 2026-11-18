@@ -26,6 +26,8 @@ type exportFlags struct {
 	dropAddresses bool
 	hashIDs       bool
 	hashKeyFile   string
+	repoURL       string
+	commitSHA     string
 	startedAt     string
 	finishedAt    string
 }
@@ -43,12 +45,15 @@ func newExportCmd() *cobra.Command {
 		Long: "Write one JSON document of the metadata of an import, from the report in its\n" +
 			"output directory (default: " + report.DefaultOut + ") and the inventory discover saved there:\n" +
 			"inventory (each resource's type, ID, account and who manages it, with tags),\n" +
-			"run (command, outcome and, for an import, exit code and counts) or gate (each\n" +
-			"check of the verification gate, with reason codes). Nothing is uploaded and no\n" +
+			"ocsf-inventory (the same resources as OCSF 1.9.0 events, with the configuration\n" +
+			"that manages each one), run (command, outcome and, for an import, exit code and\n" +
+			"counts) or gate (each check of the verification gate, with reason codes).\n" +
+			"Nothing is uploaded and no\n" +
 			"network call is made: the document goes to standard output, or to --out-file,\n" +
 			"for you to send or keep.\n" +
-			"No document holds an attribute or a value, and only the drift summary holds\n" +
-			"addresses. Tags whose key or value looks like a secret are dropped; --drop-tag\n" +
+			"No document holds an attribute or a value, and only the drift summary and the\n" +
+			"OCSF inventory hold addresses (the latter also the paths of the roots). Tags\n" +
+			"whose key or value looks like a secret are dropped; --drop-tag\n" +
 			"and --drop-tags drop more, and --hash-ids\n" +
 			"replaces IDs and names with HMAC-SHA256 hashes under a key only you hold.\n" +
 			"The report holds no times, so pass --started-at and --finished-at (RFC 3339) to\n" +
@@ -62,6 +67,9 @@ func newExportCmd() *cobra.Command {
 			"outcome and resource type, with the addresses of the resources that changed\n" +
 			"and never a value: --hash-ids hashes the addresses, and --drop-addresses leaves\n" +
 			"them out of the documents that have them.\n" +
+			"The OCSF inventory names the repository and the commit the configuration is in\n" +
+			"if you pass --repo-url and --commit-sha, or, for that document, if GitHub Actions\n" +
+			"sets GITHUB_SERVER_URL, GITHUB_REPOSITORY and GITHUB_SHA.\n" +
 			"--print-schema prints the JSON Schema of the document instead.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -93,8 +101,10 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outFile, "out-file", "", "file to write the document to (default: standard output)")
 	cmd.Flags().StringSliceVar(&f.dropTags, "drop-tag", nil, "tag key to leave out of the inventory; repeat or comma-separate for several")
 	cmd.Flags().BoolVar(&f.dropAllTags, "drop-tags", false, "leave all tags out of the inventory")
-	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses out of the documents that have them, such as the drift summary")
-	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses in the drift summary, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
+	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses and root paths out of the documents that have them, such as the drift summary and the OCSF inventory")
+	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses (and, in the OCSF inventory, paths) in the drift summary and the OCSF inventory, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
+	cmd.Flags().StringVar(&f.repoURL, "repo-url", "", "repository the configuration is committed to, for the OCSF inventory, such as https://github.com/owner/repo (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY)")
+	cmd.Flags().StringVar(&f.commitSHA, "commit-sha", "", "commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory (default: GITHUB_SHA)")
 	cmd.Flags().StringVar(&f.hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
 	cmd.Flags().StringVar(&f.startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")
 	cmd.Flags().StringVar(&f.finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now)")
@@ -110,6 +120,11 @@ func buildExport(out string, f exportFlags) ([]byte, error) {
 		Command: f.command, RequestID: f.requestID, DropAddresses: f.dropAddresses,
 	}
 	var err error
+	if f.document == export.DocOCSFInventory {
+		opts.RepoURL, opts.CommitSHA = repoFromEnv(f.repoURL, f.commitSHA, os.Getenv)
+	} else {
+		opts.RepoURL, opts.CommitSHA = f.repoURL, f.commitSHA
+	}
 	if f.startedAt != "" {
 		if opts.StartedAt, err = export.ParseTime("--started-at", f.startedAt); err != nil {
 			return nil, err
@@ -135,4 +150,21 @@ func buildExport(out string, f exportFlags) ([]byte, error) {
 		return nil, fmt.Errorf("export: %w", err)
 	}
 	return content, nil
+}
+
+// repoFromEnv returns the repository URL and the commit the OCSF inventory
+// names: the flags' values, else those of the GitHub Actions run, if it
+// sets them. The URL of the environment is the server's and the
+// repository's together, such as https://github.com/owner/repo. Export
+// checks both, whichever way they came.
+func repoFromEnv(repoURL, commitSHA string, getenv func(string) string) (string, string) {
+	if repoURL == "" {
+		if server, repo := strings.TrimRight(getenv("GITHUB_SERVER_URL"), "/"), strings.Trim(getenv("GITHUB_REPOSITORY"), "/"); server != "" && repo != "" {
+			repoURL = server + "/" + repo
+		}
+	}
+	if commitSHA == "" {
+		commitSHA = getenv("GITHUB_SHA")
+	}
+	return repoURL, commitSHA
 }

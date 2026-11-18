@@ -1116,6 +1116,12 @@
         "persistent": false
       },
       {
+        "name": "commit-sha",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "drop-addresses",
         "type": "bool",
         "default": "false",
@@ -1172,6 +1178,12 @@
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "repo-url",
+        "type": "string",
+        "default": "",
         "persistent": false
       },
       {

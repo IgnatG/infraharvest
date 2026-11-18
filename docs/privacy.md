@@ -24,8 +24,9 @@ A run connects only to what it needs, with the credentials you give it:
 - **`run`**: the command, the outcome and, for an import, the exit code, the versions of infraharvest and Terraform or OpenTofu, and the counts.
 - **`gate`**: whether each check of the verification gate passed, with reason codes from a fixed list.
 - **`drift-summary`**: for each root and environment, how many changes in the cloud drift found, by outcome and resource type, and the addresses of the resources that changed, never what they changed to. `--hash-ids` hashes the addresses, and `--drop-addresses` leaves them out.
+- **`ocsf-inventory`**: the inventory's resources as OCSF events, one for each, and, for a resource the import took over, its address in the configuration, the module call it is in and the path of its root, and the repository and commit if you name them or GitHub Actions sets them. `--hash-ids` hashes the addresses and paths, and `--drop-addresses` leaves them out.
 
-It holds no attributes, values, paths or messages, and, but for the addresses of the drift summary, no resource addresses. Each document is checked against its schema before it is written. See [Export](export.md).
+It holds no attributes, values or messages, and, but for the addresses of the drift summary and the OCSF inventory and the paths of the OCSF inventory's roots, no resource addresses or paths. Each document is checked against its schema before it is written. See [Export](export.md).
 
 ## The GitHub Action and the MCP server
 

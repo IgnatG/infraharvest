@@ -1,0 +1,47 @@
+{
+  "caption": "Attribute Dictionary",
+  "description": "The attributes of the Infrastructure as Code extension.",
+  "name": "dictionary",
+  "attributes": {
+    "iac": {
+      "caption": "IaC Source",
+      "description": "The infrastructure-as-code source that manages the resource.",
+      "type": "iac_source"
+    },
+    "tool": {
+      "caption": "IaC Tool",
+      "description": "The tool that applies the configuration: <code>terraform</code> or <code>opentofu</code>.",
+      "type": "string_t"
+    },
+    "address": {
+      "caption": "IaC Address",
+      "description": "The address of the resource in the configuration, as the tool names it, such as <code>module.db.aws_db_instance.main</code> or <code>aws_s3_bucket.logs[\"a\"]</code>.",
+      "type": "string_t"
+    },
+    "module_address": {
+      "caption": "IaC Module Address",
+      "description": "The address of the module call the resource is in, such as <code>module.db</code>, or <code>module.a.module.b</code> for a nested one. Absent for a resource in the root module.",
+      "type": "string_t"
+    },
+    "repo_url": {
+      "caption": "Repository URL",
+      "description": "The URL of the source repository that holds the configuration, such as <code>https://github.com/example/infrastructure</code>.",
+      "type": "url_t"
+    },
+    "commit_sha": {
+      "caption": "Commit SHA",
+      "description": "The hexadecimal ID (40 or 64 characters) of the commit of the repository the configuration was taken from.",
+      "type": "string_t"
+    },
+    "workspace": {
+      "caption": "IaC Workspace",
+      "description": "The name of the workspace whose state records the resource.",
+      "type": "string_t"
+    },
+    "state_key": {
+      "caption": "IaC State Key",
+      "description": "The key of the state that records the resource in its backend, such as the path of the state file in a bucket.",
+      "type": "string_t"
+    }
+  }
+}
