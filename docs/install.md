@@ -15,7 +15,7 @@ cosign verify-blob \
 sha256sum --check --ignore-missing "infraharvest_${VERSION}_SHA256SUMS"
 ```
 
-The archives' build provenance is attested on GitHub; with the [GitHub CLI](https://cli.github.com/), `gh attestation verify "infraharvest_${VERSION}_aws_linux_amd64.tar.gz" --repo IgnatG/infraharvest` checks it.
+The archives' build provenance is attested on GitHub; with the [GitHub CLI](https://cli.github.com/), `gh attestation verify "infraharvest_${VERSION}_aws_linux_amd64.tar.gz" --repo IgnatG/infraharvest` checks it. The images' build provenance is attested too, in the registry beside each image: `gh attestation verify "oci://ghcr.io/ignatg/infraharvest:v${VERSION}-aws" --repo IgnatG/infraharvest` checks it.
 
 Each archive is named after the release, the cloud, the system and the architecture, such as `infraharvest_0.1.0_aws_linux_amd64.tar.gz` or `infraharvest_0.1.0_azure_windows_amd64.zip`, and holds the `infraharvest` binary (`infraharvest.exe` on Windows) with the licence and the README. Extract it into a directory on your `PATH`. On Windows, which the install script doesn't cover, this, the container image and Go are the ways to install.
 
