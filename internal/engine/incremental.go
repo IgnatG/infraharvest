@@ -26,6 +26,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -190,7 +191,7 @@ func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) 
 //
 // Staging may hold the lock file to generate with, such as root's: Add
 // empties staging but for it, and pins the providers opts.Config requires
-// to its releases (see pinnedToLock), so that the additions are generated
+// to its releases (see versions.PinnedToLock), so that the additions are generated
 // with the provider releases root runs.
 func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts Options, existing map[External]string) (*Result, error) {
 	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
@@ -289,7 +290,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 // configuration files are root, and which has the resources existing (see
 // Existing). Its options differ from the caller's (see generating): with
 // lock, the lock file staging generates with, the providers opts.Config
-// requires are pinned to its releases (see pinnedToLock); it names
+// requires are pinned to its releases (see versions.PinnedToLock); it names
 // nothing as root does; it makes no local modules, and calls of curated
 // modules only where it can by the same source, as a directory's module
 // is called by its path relative to the root it is in, and staging isn't
@@ -301,8 +302,8 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 func adding(opts Options, lock []byte, root []*hclfile.File, existing map[External]string) (*run, error) {
 	r := generating(opts)
 	o := &r.opts
-	if versions, ok := opts.Config[rootfile.VersionsFileName]; ok && lock != nil {
-		pinned, err := pinnedToLock(versions, lock)
+	if required, ok := opts.Config[rootfile.VersionsFileName]; ok && lock != nil {
+		pinned, err := versions.PinnedToLock(required, lock)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", rootfile.VersionsFileName, err)
 		}

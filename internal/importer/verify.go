@@ -29,6 +29,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -427,7 +428,7 @@ func lockedProviderVersion(dir, registry string, provider harvest.Provider) *gov
 	if err != nil {
 		return nil
 	}
-	v, err := goversion.NewVersion(engine.LockedVersion(lock, qualifiedSource(registry, engineProvider(provider).Source)))
+	v, err := goversion.NewVersion(versions.LockedVersion(lock, qualifiedSource(registry, engineProvider(provider).Source)))
 	if err != nil {
 		return nil
 	}

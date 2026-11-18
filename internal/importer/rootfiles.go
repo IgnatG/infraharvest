@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
@@ -53,7 +54,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		return nil, err
 	}
 	source := qualifiedSource(registry, p.Source)
-	latest, err := engine.LatestProviderVersion(ctx, client, registryURL, source)
+	latest, err := versions.LatestProviderVersion(ctx, client, registryURL, source)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		for i, c := range constraints {
 			all[i] = c.constraint
 		}
-		v, err := engine.ProviderVersion(ctx, client, registryURL, source, all)
+		v, err := versions.ProviderVersion(ctx, client, registryURL, source, all)
 		switch {
 		case err != nil:
 			// The modules' calls then fail their plans and are declined.

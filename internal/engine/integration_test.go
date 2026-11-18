@@ -16,6 +16,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 )
 
 // TestGenerateWithRealTerraform runs the whole engine against real Terraform
@@ -38,7 +39,7 @@ func TestGenerateWithRealTerraform(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The real registry, so a change to its API fails here.
-	latest, err := LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/random")
+	latest, err := versions.LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/random")
 	if err != nil {
 		t.Fatal(err)
 	}

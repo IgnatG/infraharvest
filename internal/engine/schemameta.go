@@ -20,6 +20,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
@@ -59,7 +60,7 @@ var constrainedPaths sync.Map
 
 // schemaHintsFor returns the hints of file for the root in dir, after
 // init, by the release its lock file records, whether Terraform's
-// registry or OpenTofu's wrote it (see lockedVersionOf).
+// registry or OpenTofu's wrote it (see versions.LockedVersionOf).
 func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 	if file == nil {
 		return schemaHints{}
@@ -72,7 +73,7 @@ func schemaHintsFor(dir string, file *schemameta.File) schemaHints {
 		if parts := strings.Split(source, "/"); len(parts) == 3 {
 			source = parts[1] + "/" + parts[2]
 		}
-		used = lockedVersionOf(lock, source)
+		used = versions.LockedVersionOf(lock, source)
 	}
 	h.exact = used != "" && used == file.Version
 	h.defaults = h.exact || sameMajor(used, file.Version)

@@ -18,6 +18,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -372,8 +373,8 @@ func (r *Run) registryModules(ctx context.Context, provider harvest.Provider, mo
 
 // moduleReleases returns the releases of the registry module at source,
 // looked up once for the whole command (see moduleReleases).
-func (r *Run) moduleReleases(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
-	return r.shared.releases.get(ctx, source, func(ctx context.Context) ([]engine.ModuleRelease, error) {
+func (r *Run) moduleReleases(ctx context.Context, source string) ([]versions.ModuleRelease, error) {
+	return r.shared.releases.get(ctx, source, func(ctx context.Context) ([]versions.ModuleRelease, error) {
 		return r.tools.listModuleReleases(ctx, source)
 	})
 }

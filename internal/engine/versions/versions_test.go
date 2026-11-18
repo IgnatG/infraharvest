@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package versions
 
 import (
 	"context"
@@ -230,7 +230,7 @@ func TestPinnedToLock(t *testing.T) {
   constraints = "~> 6.30"
 }
 `)
-	got, err := pinnedToLock(versions, lock)
+	got, err := PinnedToLock(versions, lock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestPinnedToLock(t *testing.T) {
 
 	// A provider the lock doesn't record stays as it is.
 	other := rootfile.VersionsFile("", rootfile.Provider{Name: "google", Source: "hashicorp/google", Version: "~> 7.1"})
-	if got, err := pinnedToLock(other, lock); err != nil || string(got) != string(other) {
+	if got, err := PinnedToLock(other, lock); err != nil || string(got) != string(other) {
 		t.Errorf("got %s, %v; want it unchanged", got, err)
 	}
 }
@@ -251,10 +251,10 @@ func TestLockedVersionOfAnOpenTofuProvider(t *testing.T) {
   version = "6.2.0"
 }
 `)
-	if got := lockedVersionOf(lock, "hashicorp/aws"); got != "6.2.0" {
+	if got := LockedVersionOf(lock, "hashicorp/aws"); got != "6.2.0" {
 		t.Errorf("got %q, want 6.2.0", got)
 	}
-	if got := lockedVersionOf(lock, "registry.terraform.io/hashicorp/aws"); got != "" {
+	if got := LockedVersionOf(lock, "registry.terraform.io/hashicorp/aws"); got != "" {
 		t.Errorf("another registry's provider: got %q, want none", got)
 	}
 }

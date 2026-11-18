@@ -13,6 +13,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 )
 
 // An import records what it does as it goes, root by root and resource by
@@ -121,7 +122,7 @@ func (r *Report) AddKeptRoots(kept []KeptRoot) {
 // of a call with a run of its own, merged into the run's, keeps the
 // first version either has (see Manifest.Add).
 func (r *Report) LockProvider(lock []byte) {
-	r.Provider.Version = engine.LockedVersion(lock, r.Provider.Source)
+	r.Provider.Version = versions.LockedVersion(lock, r.Provider.Source)
 }
 
 // SetExitCode records the exit code of an import that ended with an error,

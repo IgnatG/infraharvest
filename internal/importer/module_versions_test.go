@@ -13,7 +13,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -34,8 +34,8 @@ func TestResolveAdapters(t *testing.T) {
 		{Source: "acme/missing/aws", Version: "3.0.0"},
 	}
 
-	releasesOf := func(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
-		return engine.ModuleReleases(ctx, registry.Client(), registry.URL, source)
+	releasesOf := func(ctx context.Context, source string) ([]versions.ModuleRelease, error) {
+		return versions.ModuleReleases(ctx, registry.Client(), registry.URL, source)
 	}
 	used, newer, constraints := resolveAdapters(t.Context(), releasesOf, list, "registry.terraform.io/hashicorp/aws", false)
 	if used[0].Version != "1.0.0" || used[1].Version != "3.0.0" {

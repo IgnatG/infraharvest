@@ -473,7 +473,7 @@ func TypeChanges(pinned, newer *Interface, inputs []string) []string {
 
 // NewestRelease returns the newest release of the provider at source that
 // every one of constraints accepts, or the newest of all with none, as
-// engine.ProviderVersion, which pins the root's provider, does.
+// versions.ProviderVersion, which pins the root's provider, does.
 type NewestRelease func(source string, constraints []version.Constraints) (*version.Version, error)
 
 // CheckProviders returns, of the providers named (by the local names the

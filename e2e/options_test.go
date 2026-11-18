@@ -30,10 +30,10 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/cli"
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -370,7 +370,7 @@ func TestAWSOptionsLayout(t *testing.T) {
 		t.Errorf("generated IAM role modules: %v (%v), want one", modules, err)
 	}
 	// The report names a newer release of the module than the one called.
-	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
+	releases, err := versions.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
 	if err != nil {
 		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket().Source, err)
 	}
@@ -445,7 +445,7 @@ func TestAWSOptionsModules(t *testing.T) {
 		t.Errorf("--modules=local: the roots import %v, want the roles and the buckets", imported)
 	}
 
-	releases, err := engine.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
+	releases, err := versions.ModuleReleases(e.ctx, http.DefaultClient, "", adapters.S3Bucket().Source)
 	if err != nil {
 		t.Fatalf("look up the releases of %s: %v", adapters.S3Bucket().Source, err)
 	}

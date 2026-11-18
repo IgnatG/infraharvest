@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package versions
 
 import (
 	"context"
@@ -309,13 +309,13 @@ func LockedVersion(lock []byte, source string) string {
 	return ""
 }
 
-// pinnedToLock returns versions, a file with a terraform block, with each
+// PinnedToLock returns versions, a file with a terraform block, with each
 // provider its required_providers names that lock records pinned to the
 // locked release's minor line (see ProviderConstraint): init then accepts
 // the lock, instead of failing on a constraint the locked release doesn't
 // meet. Requirements that aren't literal, and providers lock doesn't
 // record, stay as they are.
-func pinnedToLock(versions, lock []byte) ([]byte, error) {
+func PinnedToLock(versions, lock []byte) ([]byte, error) {
 	f, diags := hclfile.ParseDiagnostics(rootfile.VersionsFileName, versions)
 	if diags.HasErrors() {
 		return nil, diags
@@ -342,7 +342,7 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 				if source.IsNull() || source.Type() != cty.String {
 					continue
 				}
-				locked, err := version.NewVersion(lockedVersionOf(lock, source.AsString()))
+				locked, err := version.NewVersion(LockedVersionOf(lock, source.AsString()))
 				if err != nil {
 					continue
 				}
@@ -359,10 +359,10 @@ func pinnedToLock(versions, lock []byte) ([]byte, error) {
 	return hclwrite.Format(f.Edit().Bytes()), nil
 }
 
-// lockedVersionOf is LockedVersion for a provider source as
+// LockedVersionOf is LockedVersion for a provider source as
 // required_providers names it: without a host, it is the provider of the
 // Terraform or the OpenTofu registry, whichever the lock records.
-func lockedVersionOf(lock []byte, source string) string {
+func LockedVersionOf(lock []byte, source string) string {
 	if strings.Count(source, "/") >= 2 {
 		return LockedVersion(lock, source)
 	}
