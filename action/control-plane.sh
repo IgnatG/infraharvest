@@ -10,7 +10,10 @@
 # {"token": "...", "expires_at": "..."}. Then it runs infraharvest export for
 # the documents of the run, and POSTs each to <url>/api/v1/ingest/<document>
 # as application/json, gzip-compressed (Content-Encoding: gzip), with the run
-# token as a bearer token and the header Idempotency-Key: <run_id>:<document>.
+# token as a bearer token and the header Idempotency-Key: <run_id>:<document>,
+# with :<GITHUB_RUN_ID> after it in GitHub Actions, so that two workflow runs
+# with the same results are two runs to the control plane, and a re-run of one
+# is the same.
 # The OIDC token goes to the session endpoint only. Nothing else is sent. See
 # docs/export.md.
 #
@@ -358,6 +361,8 @@ upload() {
         # The repository and the commit come from the GITHUB_* variables of
         # the job, which export reads.
         flags=(${redact[@]+"${redact[@]}"} ${finish[@]+"${finish[@]}"})
+        # The configuration file says where each root's state is.
+        if [[ -n "${CONFIG-}" ]]; then flags+=("--config=$CONFIG"); fi
         if [[ "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
         if [[ "$send_discover" == true ]]; then flags+=(--command=discover); fi
         ;;
@@ -397,7 +402,7 @@ upload() {
     read_run_id "$doc"
     if ! http_request "$base/api/v1/ingest/$doc" "$tmp/headers" "$tmp/response" \
       -X POST -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
-      -H "Idempotency-Key: $doc_run_id:$doc" --data-binary "@$tmp/$doc.json.gz"; then
+      -H "Idempotency-Key: $doc_run_id:$doc${GITHUB_RUN_ID:+:$GITHUB_RUN_ID}" --data-binary "@$tmp/$doc.json.gz"; then
       problem "sending the $doc document to $base/api/v1/ingest/$doc failed: $(describe "$tmp/response" "upload")"
     fi
     annotation notice "control plane: sent the $doc document (HTTP $http_code)"

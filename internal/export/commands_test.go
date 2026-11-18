@@ -151,7 +151,7 @@ func TestOCSFInventoryOfDiscover(t *testing.T) {
 			t.Errorf("event: cloud %s, product %+v", event.Cloud.Provider, event.Metadata.Product)
 		}
 		res := event.Resources[0]
-		if !slices.Contains(res.Labels, "status:unmanaged") || !slices.Contains(res.Labels, "status_basis:none") || res.IaC != nil {
+		if !slices.Contains(res.Labels, "status:unmanaged") || !slices.Contains(res.Labels, "status_basis:none") || res.IaC == nil || *res.IaC != (iacSource{OutcomeID: 4, Outcome: importNotImported}) {
 			t.Errorf("%s %s: labels %v, iac %v", res.Type, res.UID, res.Labels, res.IaC)
 		}
 	}

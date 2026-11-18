@@ -723,6 +723,7 @@ runs:
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
         DROP_ADDRESSES: ${{ inputs.control-plane-drop-addresses }}
         REQUEST_ID: ${{ inputs.control-plane-request-id }}
+        CONFIG: ${{ inputs.config }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
         BINARY: ${{ inputs.binary }}
         OUT: ${{ inputs.out }}
