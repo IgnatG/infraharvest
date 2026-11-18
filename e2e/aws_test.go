@@ -8,6 +8,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -299,9 +300,25 @@ func isolateAWSConfig(t *testing.T) {
 	}
 }
 
+// secretValues returns the -var options that give the root in dir the
+// values of its secret variables, from the created resources they stand
+// for.
 func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []tfexec.PlanOption {
 	t.Helper()
-	var vars []tfexec.PlanOption
+	assignments := secretAssignments(t, dir, created)
+	vars := make([]tfexec.PlanOption, 0, len(assignments))
+	for _, name := range slices.Sorted(maps.Keys(assignments)) {
+		vars = append(vars, tfexec.Var(name+"="+assignments[name]))
+	}
+	return vars
+}
+
+// secretAssignments returns, by name, the value of each secret variable
+// of the root in dir: those a resource's argument reads, which no default
+// sets, and which the created resource of that name has.
+func secretAssignments(t *testing.T, dir string, created []*tfjson.StateResource) map[string]string {
+	t.Helper()
+	vars := map[string]string{}
 	blocks := configBlocks(t, dir)
 	// Variables with a default, such as those for another root's
 	// resources, need no value: only secrets have none.
@@ -337,7 +354,7 @@ func secretValues(t *testing.T, dir string, created []*tfjson.StateResource) []t
 				t.Errorf("%s: no created %s named %q with a %s for variable %s", dir, block.Labels[0], name, attrName, variable)
 				continue
 			}
-			vars = append(vars, tfexec.Var(variable+"="+value))
+			vars[variable] = value
 		}
 	}
 	return vars
