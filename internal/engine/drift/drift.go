@@ -130,6 +130,10 @@ type Options struct {
 	// working files, the TF_DATA_DIR it runs with, which Check reads the
 	// modules its init installed from; "" for .terraform in the root.
 	DataDir string
+	// NoEnvVars says the plans get no TF_VAR_ value, as for roots from
+	// someone else: every variable without a default or a tfvars value
+	// gets a placeholder, whatever the environment holds.
+	NoEnvVars bool
 	// OutDir is the output directory the root is in: an accepted change
 	// is written into a generated module the root calls only if the
 	// module is in it too (see addModuleFiles). "" takes the directory the

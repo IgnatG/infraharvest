@@ -160,7 +160,7 @@ func (s *driftSession) placeholders() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	vars, names := variablePlaceholders(s.staging, files, s.varFiles...)
+	vars, names := variablePlaceholders(s.staging, files, s.opts.NoEnvVars, s.varFiles...)
 	s.vars = append(s.vars, vars...)
 	return names, nil
 }

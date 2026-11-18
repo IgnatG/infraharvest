@@ -744,13 +744,19 @@ variable "enabled" {
 	if err != nil {
 		t.Fatal(err)
 	}
-	vars, names := variablePlaceholders(dir, files)
+	vars, names := variablePlaceholders(dir, files, false)
 	if want := []string{"enabled", "ports", "settings"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("placeholders for %v, want %v", names, want)
 	}
 	want := []tfexec.PlanOption{tfexec.Var("enabled=false"), tfexec.Var("ports=[]"), tfexec.Var("settings={}")}
 	if !reflect.DeepEqual(vars, want) {
 		t.Errorf("vars %#v, want %#v", vars, want)
+	}
+
+	// Roots from someone else get no TF_VAR_ value, so the variable the
+	// environment sets gets a placeholder too.
+	if _, names := variablePlaceholders(dir, files, true); !slices.Contains(names, "from_env") {
+		t.Errorf("with no TF_VAR_ values, placeholders for %v, want from_env among them", names)
 	}
 }
 

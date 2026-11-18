@@ -23,10 +23,10 @@ import (
 
 // variablePlaceholders returns -var options with a placeholder value for
 // each variable of files without a default, a TF_VAR_ environment
-// variable or a value in a tfvars file of dir that Terraform reads by
+// variable (unless noEnvVars) or a value in a tfvars file of dir that Terraform reads by
 // itself, or in varFiles, the other var files the plans read, and their
 // names, sorted: a plan with -input=false fails without them.
-func variablePlaceholders(dir string, files []*hclfile.File, varFiles ...string) ([]tfexec.PlanOption, []string) {
+func variablePlaceholders(dir string, files []*hclfile.File, noEnvVars bool, varFiles ...string) ([]tfexec.PlanOption, []string) {
 	set := tfvarsNames(dir, varFiles...)
 	var names []string
 	types := map[string]string{}
@@ -39,7 +39,7 @@ func variablePlaceholders(dir string, files []*hclfile.File, varFiles ...string)
 			if _, ok := b.Body.Attributes["default"]; ok || set[name] {
 				continue
 			}
-			if _, ok := os.LookupEnv("TF_VAR_" + name); ok {
+			if _, ok := os.LookupEnv("TF_VAR_" + name); ok && !noEnvVars {
 				continue
 			}
 			names = append(names, name)
