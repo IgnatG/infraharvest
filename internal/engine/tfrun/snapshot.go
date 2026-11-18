@@ -111,9 +111,10 @@ type Snapshot struct {
 	// ids are the import IDs of the entries by address, as they were
 	// imported or moved to: state doesn't keep them.
 	ids map[string]string
-	// unignored are the resources the copy's plans can't have ignore all
-	// changes (see SnapshotBuild.Blame).
-	unignored []string
+	// partial are the resources the copy's plans can't have ignore all
+	// changes, with the arguments they ignore instead (see
+	// SnapshotBuild.Blame).
+	partial map[string][]string
 }
 
 // Path returns the snapshot's state file.
@@ -153,21 +154,24 @@ type SnapshotBuild struct {
 	// such as a value the root keeps out of its files.
 	Prepare func(ctx context.Context, tf Terraform) error
 	// Blame, if set, returns the resources, as "<type>.<name>", that the
-	// errors of the copy's plan are about, or nil if it can't tell for
-	// each error. Ignoring all changes hands the provider a resource's
-	// imported values as its configuration, and some providers' plan
-	// checks reject values the API sets but the configuration doesn't
+	// errors of the copy's plan are about, each with the arguments and
+	// blocks its configuration sets, or nil if it can't tell for each
+	// error. Ignoring all changes hands the provider a resource's imported
+	// values as its configuration, and some providers' plan checks reject
+	// values the API sets but the configuration leaves out
 	// (azurerm_postgresql_flexible_server's storage_iops without
-	// PremiumV2_LRS storage, for one): those resources are planned again
-	// without the override, as the root plans them.
-	Blame func(diags []tfjson.Diagnostic) []string
+	// PremiumV2_LRS storage, aws_nat_gateway's
+	// secondary_private_ip_address_count on a public gateway): those
+	// resources are planned again ignoring only what their configuration
+	// sets, so that what it leaves out stays unset.
+	Blame func(diags []tfjson.Diagnostic) map[string][]string
 	// Timeout bounds the apply.
 	Timeout time.Duration
 }
 
 // snapshotOverrideTries is how many times the copy is planned: the first
-// plan, then one more each time Blame names resources to plan without the
-// override.
+// plan, then one more each time Blame names resources to plan ignoring
+// only what their configuration sets.
 const snapshotOverrideTries = 3
 
 // BuildSnapshot builds a snapshot of the root b describes: it adds an
@@ -213,7 +217,7 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 	planFile := filepath.Join(s.dir, "plan")
 	var p *tfjson.Plan
 	for try := 1; ; try++ {
-		if err := fsutil.WriteFile(filepath.Join(b.Dir, SnapshotOverrideFile), SnapshotOverride(without(b.Resources, s.unignored)), 0o600); err != nil {
+		if err := fsutil.WriteFile(filepath.Join(b.Dir, SnapshotOverrideFile), SnapshotOverride(b.Resources, s.partial), 0o600); err != nil {
 			return err
 		}
 		planned, _, diags, err := showPlanTo(ctx, b.Plan, planFile, b.Vars)
@@ -224,11 +228,14 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 			p = planned
 			break
 		}
-		blamed := blamedIgnored(b, s.unignored, diags)
+		blamed := blamedIgnored(b, s.partial, diags)
 		if len(blamed) == 0 || try == snapshotOverrideTries {
 			return fmt.Errorf("the copy doesn't plan: %w", DiagnosticsError(diags))
 		}
-		s.unignored = append(s.unignored, blamed...)
+		if s.partial == nil {
+			s.partial = map[string][]string{}
+		}
+		maps.Copy(s.partial, blamed)
 	}
 	if err := CheckImportOnly(p); err != nil {
 		return err
@@ -262,41 +269,38 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 	return nil
 }
 
-// blamedIgnored returns the resources b.Blame finds diags are about, if
-// each is one the copy still has ignore all changes; otherwise nil, as the
-// override isn't what fails the plan.
-func blamedIgnored(b SnapshotBuild, unignored []string, diags []tfjson.Diagnostic) []string {
+// blamedIgnored returns the resources b.Blame finds diags are about, with
+// what their configuration sets, if each is one the copy still has ignore
+// all changes; otherwise nil, as the override isn't what fails the plan.
+func blamedIgnored(b SnapshotBuild, partial map[string][]string, diags []tfjson.Diagnostic) map[string][]string {
 	if b.Blame == nil {
 		return nil
 	}
 	blamed := b.Blame(diags)
-	for _, r := range blamed {
-		if !slices.Contains(b.Resources, r) || slices.Contains(unignored, r) {
+	for r := range blamed {
+		if _, done := partial[r]; done || !slices.Contains(b.Resources, r) {
 			return nil
 		}
 	}
 	return blamed
 }
 
-// without returns resources without those in drop.
-func without(resources, drop []string) []string {
-	if len(drop) == 0 {
-		return resources
-	}
-	return slices.DeleteFunc(slices.Clone(resources), func(r string) bool { return slices.Contains(drop, r) })
-}
-
 // SnapshotOverride returns the override file that has every one of
-// resources, as "<type>.<name>", ignore all changes: the plan of the copy
-// then imports the resources and changes nothing.
-func SnapshotOverride(resources []string) []byte {
+// resources, as "<type>.<name>", ignore all changes, but for those partial
+// has, which ignore changes to the arguments and blocks it gives for each:
+// the plan of the copy then imports the resources and changes nothing.
+func SnapshotOverride(resources []string, partial map[string][]string) []byte {
 	var b bytes.Buffer
 	for _, r := range resources {
 		typ, name, ok := strings.Cut(r, ".")
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "resource %q %q {\n  lifecycle {\n    ignore_changes = all\n  }\n}\n\n", typ, name)
+		ignored := "all"
+		if arguments, ok := partial[r]; ok {
+			ignored = "[" + strings.Join(arguments, ", ") + "]"
+		}
+		fmt.Fprintf(&b, "resource %q %q {\n  lifecycle {\n    ignore_changes = %s\n  }\n}\n\n", typ, name, ignored)
 	}
 	return b.Bytes()
 }
@@ -814,7 +818,7 @@ func (s *Snapshot) moveAll(ctx context.Context, copies MoveCopier, moves []state
 	defer c.Remove()
 	// What the snapshot's build couldn't plan with the override can't
 	// plan with it here either.
-	if err := fsutil.WriteFile(filepath.Join(c.Dir, SnapshotOverrideFile), SnapshotOverride(without(c.Resources, s.unignored)), 0o600); err != nil {
+	if err := fsutil.WriteFile(filepath.Join(c.Dir, SnapshotOverrideFile), SnapshotOverride(c.Resources, s.partial), 0o600); err != nil {
 		return false, err
 	}
 	pairs := make(map[string]string, len(moves))

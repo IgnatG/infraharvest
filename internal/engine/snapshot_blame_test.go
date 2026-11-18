@@ -6,7 +6,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
-	"slices"
+	"reflect"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -28,7 +28,7 @@ func TestBlamedNamesTheResourcesOfTheErrors(t *testing.T) {
 		return tfjson.Diagnostic{Severity: tfjson.DiagnosticSeverityError, Summary: "secondary_private_ip_address_count is not supported",
 			Range: &tfjson.Range{Filename: rootfile.GeneratedFileName, Start: tfjson.Pos{Line: line}}}
 	}
-	if got := blamed(dir, []tfjson.Diagnostic{at(6)}); !slices.Equal(got, []string{"aws_nat_gateway.main"}) {
+	if got := blamed(dir, []tfjson.Diagnostic{at(6)}); !reflect.DeepEqual(got, map[string][]string{"aws_nat_gateway.main": {"subnet_id"}}) {
 		t.Errorf("an error in a resource: %v", got)
 	}
 	general := tfjson.Diagnostic{Severity: tfjson.DiagnosticSeverityError, Summary: "Invalid provider configuration"}
