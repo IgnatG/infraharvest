@@ -106,11 +106,11 @@ func (t *envVarTerraform) varFile() (string, func(), error) {
 		}
 		raw = append(raw, name+" = "+value+"\n"...)
 	}
-	private, err := os.MkdirTemp("", "infraharvest-envvars-")
+	private, err := MkdirTempHeld(EnvVarsPattern)
 	if err != nil {
 		return "", func() {}, err
 	}
-	remove := func() { _ = os.RemoveAll(private) }
+	remove := func() { RemoveHeld(private) }
 	// The mode is 0700 already; this also covers Windows, which the mode
 	// doesn't.
 	if _, err := fsutil.MakePrivate(private); err != nil {

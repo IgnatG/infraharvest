@@ -34,12 +34,21 @@ type fakeTerraform struct {
 	schemas *tfjson.ProviderSchemas
 	output  []byte
 	exit    error
+	// initErrs are the errors the first inits fail with; inits counts them.
+	initErrs []error
+	inits    int
 	// queried is the list blocks the working directory had when it was
 	// queried.
 	queried string
 }
 
-func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error { return nil }
+func (f *fakeTerraform) Init(context.Context, ...tfexec.InitOption) error {
+	f.inits++
+	if f.inits <= len(f.initErrs) {
+		return f.initErrs[f.inits-1]
+	}
+	return nil
+}
 
 func (f *fakeTerraform) ProvidersSchema(context.Context) (*tfjson.ProviderSchemas, error) {
 	return f.schemas, nil
@@ -257,5 +266,34 @@ func TestBinary(t *testing.T) {
 	t.Parallel()
 	if b := Binary(); b.Name != "terraform" || b.Minimum.String() != "1.14.0" || tfrun.TerraformBinary.Minimum.String() != "1.5.0" {
 		t.Errorf("got %s %s; Terraform's own %s", b.Name, b.Minimum, tfrun.TerraformBinary.Minimum)
+	}
+}
+
+// An init that fails reaching a registry runs once more, as the plan and
+// import paths' does; one that fails for the configuration doesn't.
+func TestListRetriesAnInitThatFailedReachingTheRegistry(t *testing.T) {
+	t.Parallel()
+	output, err := os.ReadFile(filepath.Join("testdata", "query.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := errors.New("could not connect to registry.terraform.io: Client.Timeout exceeded while awaiting headers")
+	for _, tc := range []struct {
+		name      string
+		errs      []error
+		wantInits int
+		wantErr   bool
+	}{
+		{"a registry timeout", []error{registry}, 2, false},
+		{"the configuration", []error{errors.New("Error: Unsupported argument")}, 1, true},
+	} {
+		tf := &fakeTerraform{t: t, schemas: awsSchemas(), output: output, exit: errors.New("exit status 1"), initErrs: tc.errs}
+		_, err := fakeRunner(t, tf, "1.16.6").list(context.Background(), request(t, "aws_cloudwatch_log_group"))
+		if tf.inits != tc.wantInits || (err != nil && !tc.wantErr) {
+			t.Errorf("%s: %d inits, error %v; want %d inits", tc.name, tf.inits, err, tc.wantInits)
+		}
+		if tc.wantErr && (err == nil || !strings.Contains(err.Error(), "terraform init")) {
+			t.Errorf("%s: error %v, want a terraform init error", tc.name, err)
+		}
 	}
 }

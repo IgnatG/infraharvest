@@ -258,13 +258,18 @@ func lockPluginCache(ctx context.Context, dir string) (*filelock.Lock, error) {
 	return lock, nil
 }
 
+// Initer is what Init runs: a Terraform, or anything that can init.
+type Initer interface {
+	Init(ctx context.Context, opts ...tfexec.InitOption) error
+}
+
 // Init runs terraform init in tf's working directory, one at a
 // time (see initSlot). An init that fails reaching a registry or a
 // download, such as on a timeout, runs once more after initRetryDelay: an
 // init downloads every provider and module of a root, and one slow answer
 // would otherwise fail the root. One that fails for anything else, such
 // as the configuration, doesn't.
-func Init(ctx context.Context, tf Terraform, opts ...tfexec.InitOption) error {
+func Init(ctx context.Context, tf Initer, opts ...tfexec.InitOption) error {
 	select {
 	case initSlot <- struct{}{}:
 	case <-ctx.Done():

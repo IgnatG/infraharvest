@@ -51,6 +51,9 @@ const (
 	DriftPattern = "infraharvest-drift-"
 	// MCPPattern names the private copies of files the MCP server reads.
 	MCPPattern = "infraharvest-mcp-"
+	// EnvVarsPattern names the private directories holding the var file of
+	// the TF_VAR values a plan reads.
+	EnvVarsPattern = "infraharvest-envvars-"
 )
 
 // staleSnapshotAge is how old a snapshot directory must be to count as left
@@ -94,7 +97,7 @@ func RemoveStaleSnapshots() {
 
 // stalePatterns name the temporary directories RemoveStaleSnapshots
 // removes. Matching is by prefix, so DriftPattern covers DriftRootsPattern.
-var stalePatterns = []string{SnapshotPattern, PlanPattern, EmptyStatePattern, DriftPattern, MCPPattern}
+var stalePatterns = []string{SnapshotPattern, PlanPattern, EmptyStatePattern, DriftPattern, MCPPattern, EnvVarsPattern}
 
 func removeStaleSnapshots(tmp string, now time.Time, maxAge time.Duration) {
 	entries, err := os.ReadDir(tmp)

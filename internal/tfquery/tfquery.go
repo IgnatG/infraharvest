@@ -158,7 +158,7 @@ func (r runner) list(ctx context.Context, req Request) ([]harvest.Resource, erro
 	if err != nil {
 		return nil, err
 	}
-	if err := tf.Init(ctx); err != nil {
+	if err := tfrun.Init(ctx, tf); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	schemas, err := tf.ProvidersSchema(ctx)

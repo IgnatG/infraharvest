@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
@@ -363,15 +364,14 @@ func dropBlocks(dir string, types ...string) error {
 		return err
 	}
 	for _, f := range files {
-		body := f.Edit().Body()
-		dropped := false
-		for _, b := range body.Blocks() {
+		var dropped []*hclwrite.Block
+		for _, b := range f.Edit().Body().Blocks() {
 			if slices.Contains(types, b.Type()) {
-				body.RemoveBlock(b)
-				dropped = true
+				dropped = append(dropped, b)
 			}
 		}
-		if dropped {
+		if len(dropped) > 0 {
+			f.RemoveBlocks(dropped)
 			if err := f.Save(); err != nil {
 				return err
 			}

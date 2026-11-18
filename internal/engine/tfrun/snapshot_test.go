@@ -263,14 +263,15 @@ func TestRemoveStaleSnapshots(t *testing.T) {
 	old, young, other := filepath.Join(tmp, SnapshotPattern+"old"), filepath.Join(tmp, SnapshotPattern+"young"), filepath.Join(tmp, "other-old")
 	oldPlan, oldState := filepath.Join(tmp, PlanPattern+"old"), filepath.Join(tmp, EmptyStatePattern+"old")
 	oldDrift, oldRoots, oldMCP := filepath.Join(tmp, DriftPattern+"old"), filepath.Join(tmp, DriftRootsPattern+"old"), filepath.Join(tmp, MCPPattern+"old")
+	oldEnv, youngEnv := filepath.Join(tmp, EnvVarsPattern+"old"), filepath.Join(tmp, EnvVarsPattern+"young")
 	youngRoots, youngMCP := filepath.Join(tmp, DriftRootsPattern+"young"), filepath.Join(tmp, MCPPattern+"young")
-	for _, d := range []string{old, young, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP, youngRoots, youngMCP} {
+	for _, d := range []string{old, young, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP, youngRoots, youngMCP, oldEnv, youngEnv} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-48 * time.Hour)
-	for _, d := range []string{old, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP} {
+	for _, d := range []string{old, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP, oldEnv} {
 		if err := os.Chtimes(d, past, past); err != nil {
 			t.Fatal(err)
 		}
@@ -280,7 +281,7 @@ func TestRemoveStaleSnapshots(t *testing.T) {
 	// process's young ones stay.
 	for dir, want := range map[string]bool{
 		old: false, young: true, other: true, oldPlan: false, oldState: false,
-		oldDrift: false, oldRoots: false, oldMCP: false, youngRoots: true, youngMCP: true,
+		oldDrift: false, oldRoots: false, oldMCP: false, youngRoots: true, youngMCP: true, oldEnv: false, youngEnv: true,
 	} {
 		if _, err := os.Stat(dir); (err == nil) != want {
 			t.Errorf("%s exists: %v, want %v", filepath.Base(dir), err == nil, want)

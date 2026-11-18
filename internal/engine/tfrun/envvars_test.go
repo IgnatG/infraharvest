@@ -157,6 +157,9 @@ func TestWithEnvVarsGivesPlansTheValues(t *testing.T) {
 		t.Errorf("the plan's environment has a TF_VAR_ variable:\n%s", env)
 	}
 	path := strings.TrimSpace(readRecord(t, records, "paths"))
+	if !strings.HasPrefix(filepath.Base(filepath.Dir(path)), EnvVarsPattern) {
+		t.Errorf("the var file is in %s, which RemoveStaleSnapshots does not sweep", filepath.Dir(path))
+	}
 	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
 		t.Errorf("the private directory of the var file is still there after the plan (%v)", err)
 	}
