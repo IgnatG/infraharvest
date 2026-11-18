@@ -1002,17 +1002,25 @@ func iamRoleCall(coverage report.Report, name string) (root, declined string) {
 			continue
 		}
 		for _, m := range d.Modules {
-			if m.Source != adapters.IAMRole().Source || !slices.Contains(m.Resources, role) {
+			if m.Source != adapters.IAMRole().Source || !inModuleCall(m, role) {
 				continue
 			}
 			if m.Declined != "" {
 				declined = m.Declined
-			} else if slices.Contains(m.Resources, profile) {
+			} else if inModuleCall(m, profile) {
 				return d.Path, ""
 			}
 		}
 	}
 	return "", declined
+}
+
+// inModuleCall reports whether the resource an import records at address
+// is in the call m records: at the address the call gave it, as the
+// import blocks have it (module.<name>.), or, in a cluster Generate
+// declined, at the address it kept in the root, which m lists.
+func inModuleCall(m report.Module, address string) bool {
+	return slices.Contains(m.Resources, address) || (m.Name != "" && strings.HasPrefix(address, "module."+m.Name+"."))
 }
 
 // writeSecretVars gives the root in dir the values of its secret
@@ -1244,6 +1252,37 @@ func TestCheckAWSFound(t *testing.T) {
 			checkAWSFound(r, created, tc.imported)
 			if len(r.errors) != tc.errors {
 				t.Errorf("errors %q, want %d", r.errors, tc.errors)
+			}
+		})
+	}
+}
+
+// TestIAMRoleCall checks that iamRoleCall finds the role and its instance
+// profile in a call of the iam-role module as a report records it: the
+// imports at their addresses in the call, the call's resources at the
+// ones they had in the root.
+func TestIAMRoleCall(t *testing.T) {
+	source := adapters.IAMRole().Source
+	imported := []report.Resource{
+		{Address: "module.app.aws_iam_role.this[0]", ID: "ih-app"},
+		{Address: "module.app.aws_iam_instance_profile.this[0]", ID: "ih-app"},
+		{Address: "aws_iam_role.other", ID: "ih-other"},
+	}
+	for _, tc := range []struct {
+		name         string
+		imported     []report.Resource
+		module       report.Module
+		root, reason string
+	}{
+		{"a call of both", imported, report.Module{Name: "app", Source: source, Resources: []string{"aws_iam_role.app", "aws_iam_instance_profile.main"}}, "global", ""},
+		{"a call of the role alone", imported[:1], report.Module{Name: "app", Source: source, Resources: []string{"aws_iam_role.app"}}, "", ""},
+		{"declined", []report.Resource{{Address: "aws_iam_role.app", ID: "ih-app"}, {Address: "aws_iam_instance_profile.app", ID: "ih-app"}}, report.Module{Source: source, Resources: []string{"aws_iam_role.app", "aws_iam_instance_profile.app"}, Declined: "no"}, "", "no"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			coverage := report.Report{Directories: []report.Directory{{Path: "global", Imported: tc.imported, Modules: []report.Module{tc.module}}}}
+			root, reason := iamRoleCall(coverage, "ih-app")
+			if root != tc.root || reason != tc.reason {
+				t.Errorf("iamRoleCall = %q, %q, want %q, %q", root, reason, tc.root, tc.reason)
 			}
 		})
 	}
