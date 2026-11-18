@@ -1110,6 +1110,12 @@
     "silence_errors": false,
     "flags": [
       {
+        "name": "command",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
         "name": "drop-tag",
         "type": "stringSlice",
         "default": "[]",
@@ -1159,6 +1165,12 @@
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "request-id",
+        "type": "string",
+        "default": "",
         "persistent": false
       },
       {

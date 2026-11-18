@@ -70,8 +70,8 @@ func roundTrip(t *testing.T, v any) any {
 // builds them.
 func TestInstanceIsTheEncoding(t *testing.T) {
 	t.Parallel()
-	docs := []any{&inventoryDoc{}, &runDoc{}, &gateDoc{}}
-	for _, empty := range []any{&inventoryDoc{}, &runDoc{}, &gateDoc{}} {
+	docs := []any{&inventoryDoc{}, &runDoc{}, &driftRunDoc{}, &gateDoc{}}
+	for _, empty := range []any{&inventoryDoc{}, &runDoc{}, &driftRunDoc{}, &gateDoc{}} {
 		full := reflect.New(reflect.TypeOf(empty).Elem())
 		fill(full)
 		docs = append(docs, full.Interface())

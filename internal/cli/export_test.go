@@ -104,3 +104,33 @@ func TestExportTimes(t *testing.T) {
 		}
 	}
 }
+
+func TestExportRunCommandAndRequestID(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := writeExportReport(t)
+	d := &report.Drift{Roots: []report.DriftRoot{{Path: "aws/123456789012/eu-west-2", Resources: 1}}}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+
+	// With both reports, the import's is the run, as before.
+	stdout, err := runExport(t, out, "--schema", "run", "--request-id", "req-1")
+	if err != nil || !strings.Contains(stdout, `"command": "import"`) || !strings.Contains(stdout, `"request_id": "req-1"`) {
+		t.Fatalf("import run: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, out, "--schema", "run", "--command", "drift", "--request-id", "req-1")
+	if err != nil || !strings.Contains(stdout, `"command": "drift"`) || !strings.Contains(stdout, `"request_id": "req-1"`) || strings.Contains(stdout, "exit_code") {
+		t.Fatalf("drift run: %v\n%s", err, stdout)
+	}
+	for _, args := range [][]string{
+		{"--schema", "run", "--command", "verify"},
+		{"--schema", "run", "--request-id", "not valid"},
+		{"--request-id", "req-1"},
+		{"--command", "drift"},
+	} {
+		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
+			t.Errorf("%v worked", args)
+		}
+	}
+}

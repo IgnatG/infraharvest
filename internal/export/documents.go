@@ -96,9 +96,25 @@ type inventoryDoc struct {
 	Coverage    coverage   `json:"coverage"`
 }
 
+// The commands whose runs the run document describes: those that leave a
+// report in the output directory. import is also what an incremental import
+// is; discover and verify leave none.
+const (
+	CommandImport = "import"
+	CommandDrift  = "drift"
+)
+
+// Commands are the commands the run document can describe.
+var Commands = []string{CommandImport, CommandDrift}
+
+// requestIDPattern is what a request ID looks like (see
+// schemas/run-v1.schema.json).
+const requestIDPattern = `^[A-Za-z0-9._:-]{1,128}$`
+
 type runDoc struct {
 	Schema       string    `json:"schema"`
 	RunID        string    `json:"run_id"`
+	RequestID    string    `json:"request_id,omitempty"`
 	Command      string    `json:"command"`
 	ExitCode     int       `json:"exit_code"`
 	Outcome      string    `json:"outcome"`
@@ -108,6 +124,20 @@ type runDoc struct {
 	Engine       component `json:"engine"`
 	Coverage     counts    `json:"coverage"`
 	FailureCodes []string  `json:"failure_codes,omitempty"`
+}
+
+// driftRunDoc is the run document of a drift run: drift.json records
+// neither an exit code, which depends on flags, nor the versions of what
+// ran, nor counts of what an import covers.
+type driftRunDoc struct {
+	Schema       string   `json:"schema"`
+	RunID        string   `json:"run_id"`
+	RequestID    string   `json:"request_id,omitempty"`
+	Command      string   `json:"command"`
+	Outcome      string   `json:"outcome"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	FinishedAt   string   `json:"finished_at,omitempty"`
+	FailureCodes []string `json:"failure_codes,omitempty"`
 }
 
 type gateCheck struct {

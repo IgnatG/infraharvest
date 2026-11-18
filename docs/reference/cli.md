@@ -268,6 +268,7 @@ infraharvest export [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--command` |  | command whose run the run document describes: import or drift (default: the one whose report the output directory has, import if both) |
 | `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |
 | `--drop-tags` |  | leave all tags out of the inventory |
 | `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now) |
@@ -276,6 +277,7 @@ infraharvest export [output-directory] [flags]
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
+| `--request-id` |  | ID a control plane gave to ask for this run, for the run document's request_id: 1 to 128 letters, digits, and . _ : - |
 | `--schema` | `inventory` | document to write: inventory, run, gate, graph |
 | `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
 | `--verbose` |  | log more, such as the requests to the cloud's APIs |

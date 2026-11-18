@@ -4,7 +4,8 @@
 // Package export writes the metadata of an import that a hosted control
 // plane may receive: the inventory of the estate, the run and the
 // verification gate, each a JSON document with a schema (see schemas/).
-// It reads the report and the saved inventory of an output directory,
+// It reads the report and the saved inventory of an output directory, or
+// its drift report,
 // copies into each document only the fields the document names, drops tags
 // that look like secrets, hashes IDs and names if asked, checks the
 // document against its schema, and returns it. It uploads nothing and makes
@@ -12,12 +13,14 @@
 package export
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -46,6 +49,13 @@ type Options struct {
 	StartedAt, FinishedAt time.Time
 	// Now is the time generated_at has without FinishedAt; time.Now if nil.
 	Now func() time.Time
+	// Command is the command whose run the run document describes: one of
+	// Commands. Without it, the command whose report the output directory
+	// has (see commandOf).
+	Command string
+	// RequestID, if set, is the run document's request_id, which a control
+	// plane gave to ask for the run.
+	RequestID string
 }
 
 // Build returns the document opts asks for, as indented JSON, checked
@@ -56,30 +66,17 @@ func Build(opts Options) ([]byte, error) {
 	if !slices.Contains(Documents, opts.Document) {
 		return nil, fmt.Errorf("unknown document %q: want one of %s", opts.Document, strings.Join(Documents, ", "))
 	}
-	// The report is read once: its bytes name the run, and its content
-	// fills the document.
-	content, err := os.ReadFile(filepath.Join(opts.Out, report.Dir, "report.json"))
-	if err != nil {
+	if err := checkOptions(opts); err != nil {
 		return nil, err
 	}
-	r, err := report.Parse(content)
-	if err != nil {
-		return nil, err
-	}
-	runID := runID(content)
-	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
-		return nil, fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
-	}
-	var doc any
-	switch opts.Document {
-	case DocInventory:
-		doc, err = buildInventory(r, opts, runID, generatedAt(opts))
-	case DocGraph:
-		doc, err = buildGraph(r, opts, runID, generatedAt(opts))
-	case DocRun:
-		doc = buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
-	case DocGate:
-		doc = buildGate(r, runID)
+	var (
+		doc any
+		err error
+	)
+	if commandOf(opts) == CommandDrift {
+		doc, err = buildFromDrift(opts)
+	} else {
+		doc, err = buildFromReport(opts)
 	}
 	if err != nil {
 		return nil, err
@@ -92,6 +89,91 @@ func Build(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("the %s document doesn't match its schema, so nothing is written: %w", opts.Document, err)
 	}
 	return append(encoded, '\n'), nil
+}
+
+// requestIDRE is requestIDPattern, compiled.
+var requestIDRE = regexp.MustCompile(requestIDPattern)
+
+// checkOptions refuses options that can't be right, before anything is
+// read.
+func checkOptions(opts Options) error {
+	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
+		return fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
+	}
+	if opts.RequestID != "" && !requestIDRE.MatchString(opts.RequestID) {
+		return fmt.Errorf("the request ID %q must be 1 to 128 letters, digits, dots, underscores, colons or hyphens", opts.RequestID)
+	}
+	if opts.RequestID != "" && opts.Document != DocRun {
+		return fmt.Errorf("a request ID goes into the run document only, not the %s document", opts.Document)
+	}
+	if opts.Command != "" && !slices.Contains(Commands, opts.Command) {
+		return fmt.Errorf("unknown command %q: want one of %s", opts.Command, strings.Join(Commands, ", "))
+	}
+	if opts.Command != "" && opts.Document != DocRun {
+		return fmt.Errorf("a command is for the run document only: the %s document has no choice of command", opts.Document)
+	}
+	return nil
+}
+
+// commandOf is the command whose run opts exports. Only the run document
+// has a choice: opts.Command, else the command whose report the output
+// directory has, which is import when it has the reports of both, as an
+// import and a later drift leave. Neither, and the import's report is the
+// one that fails to read.
+func commandOf(opts Options) string {
+	if opts.Document != DocRun || opts.Command != "" {
+		return cmp.Or(opts.Command, CommandImport)
+	}
+	if exists(filepath.Join(opts.Out, report.Dir, reportFile)) || !exists(filepath.Join(opts.Out, report.Dir, report.DriftJSONFile)) {
+		return CommandImport
+	}
+	return CommandDrift
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// reportFile is the report an import leaves in the report directory.
+const reportFile = "report.json"
+
+// buildFromReport builds the document of opts from the report of an
+// import.
+func buildFromReport(opts Options) (any, error) {
+	// The report is read once: its bytes name the run, and its content
+	// fills the document.
+	content, err := os.ReadFile(filepath.Join(opts.Out, report.Dir, reportFile))
+	if err != nil {
+		return nil, err
+	}
+	r, err := report.Parse(content)
+	if err != nil {
+		return nil, err
+	}
+	runID := runID(content)
+	switch opts.Document {
+	case DocInventory:
+		return buildInventory(r, opts, runID, generatedAt(opts))
+	case DocGraph:
+		return buildGraph(r, opts, runID, generatedAt(opts))
+	case DocRun:
+		doc := buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
+		doc.RequestID = opts.RequestID
+		return doc, nil
+	}
+	return buildGate(r, runID), nil
+}
+
+// buildFromDrift builds the document of opts from the drift report.
+func buildFromDrift(opts Options) (any, error) {
+	d, content, err := readDrift(opts.Out)
+	if err != nil {
+		return nil, err
+	}
+	doc := buildDriftRun(d, runID(content), opts.StartedAt, opts.FinishedAt)
+	doc.RequestID = opts.RequestID
+	return doc, nil
 }
 
 // generatedAt is the time a document's generated_at says: when the import
@@ -345,7 +427,7 @@ func buildRun(r *report.Report, runID string, started, finished time.Time) *runD
 	doc := &runDoc{
 		Schema:   schemaRun,
 		RunID:    runID,
-		Command:  "import",
+		Command:  CommandImport,
 		ExitCode: r.ExitCode,
 		Outcome:  outcomeOf(r.ExitCode),
 		Tool:     toComponent(r.Tool),

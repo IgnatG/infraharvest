@@ -5,6 +5,7 @@
 ```sh
 infraharvest export infrastructure --out-file inventory.json
 infraharvest export infrastructure --schema run --out-file run.json
+infraharvest export infrastructure --schema run --command drift --request-id 01HZX-7 --out-file run.json
 infraharvest export infrastructure --schema gate --out-file gate.json
 infraharvest export infrastructure --schema graph --out-file graph.json
 ```
@@ -18,7 +19,7 @@ Each document has a JSON Schema (2020-12, no fields beyond the ones it lists), a
 | `--schema` | What it has |
 |---|---|
 | `inventory` | The cloud, the scopes (provider, account and region), and for each resource its type, ID, account, region, name, tags and who manages it: `managed` (by a Terraform state, a root of the output, or Terraform's tags), `other_iac` (CloudFormation or another tool) or `unmanaged`, with whether a state, a tag or nothing says so. The counts of the report, in all, by type and by scope. What the export left out (see below). |
-| `run` | The command, exit code and outcome (`ok`, `partial`, `failed` or `interrupted`), when it started and finished if you pass `--started-at` and `--finished-at`, the versions of infraharvest and of Terraform or OpenTofu, the counts, and failure codes from a fixed list. |
+| `run` | The command (`import` or `drift`), the outcome (`ok`, `partial`, `failed` or `interrupted`), when it started and finished if you pass `--started-at` and `--finished-at`, the `request_id` if you pass `--request-id`, and failure codes from a fixed list. For an import also the exit code, the versions of infraharvest and of Terraform or OpenTofu, and the counts. See [The run](#the-run). |
 | `gate` | For each check of the [verification gate](output.md#verification-gate) (G1 to G8): whether it passed or was skipped, with reason codes from a fixed list, such as `secrets_found` or `tool_missing`. |
 | `graph` | How the imported resources fit together, to draw them: a node for each imported resource, with its type, ID, account and region as the inventory has them, and for each module call, with its registry source and version (`local` or `other` for a module from a path or a URL), each resource in a module naming it as `parent`; and an edge (`from`, `to`, the nodes' indexes) for each reference between them that the generated configuration writes, directly or through a local or a data source. Instances of `for_each` and `count` resources refer to the instance with the same key, as `each.key` and `count.index` make them. See [The graph](#the-graph). |
 
@@ -42,6 +43,14 @@ Resource types, accounts, regions and scopes, and the counts, stay readable: the
 - The export describes the last import in the directory. It adds the resources `discover` listed that the report doesn't name, as unmanaged.
 - **Times.** The report holds no timestamps, so that its bytes, and the `run_id` made from them, name the run. `--started-at` and `--finished-at` (RFC 3339, such as `2026-11-03T09:30:00Z`; another offset is converted to UTC) say when the import ran: the run document gets them as `started_at` and `finished_at`, and `--finished-at` is also the inventory's `generated_at`. Without them `started_at` and `finished_at` are left out and `generated_at` is the time of the export, so exporting the same run again moves it. `--finished-at` may not be before `--started-at`. The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) records them around the import and passes them on.
 - A resource whose ID looks like a credential stops the export.
+
+## The run
+
+The run document describes the last run of a command that leaves a report in the output directory: `import`, which also covers an incremental import, writes `report.json`, and `drift` writes `drift.json`. `discover` and `verify` leave no report, so they have no run document. The export reads the command from the directory: with only `drift.json` it describes the drift run, else the import. A directory that has both, as when you import and check for drift later, is described as the import, as it always was; `--command drift` describes the drift run instead. `--command import` without a `report.json`, or `--command drift` without a `drift.json`, is an error.
+
+A drift run is `ok` when every root was checked, `partial` when some couldn't be, with the failure code `roots_not_checked`, and `failed` when none could. Drift found in the cloud isn't a failure of the run. It has no exit code, as that depends on `--detailed-exitcode`, and no versions or counts: those are an import's. Its `run_id` is made from `drift.json`, as an import's is from `report.json`, so it differs from the import's.
+
+`--request-id <id>` puts a `request_id` into the run document: the ID a control plane gave to ask for the run, so that it can match the run to its request. It is 1 to 128 letters, digits, `.`, `_`, `:` and `-`. No other document has it.
 
 ## The graph
 
