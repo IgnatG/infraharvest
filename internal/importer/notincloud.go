@@ -104,7 +104,7 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 	}
 	children := map[string]bool{}
 	for _, typ := range cat.Types() {
-		if e, ok := cat.Entry(typ); ok {
+		if e, ok := cat.View(typ); ok {
 			for _, child := range e.Children {
 				children[child] = true
 			}
@@ -117,7 +117,7 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 	inventoryServices := provider.Profile().Layout.InventoryServices
 	inventory := slices.ContainsFunc(c.services, func(s string) bool { return slices.Contains(inventoryServices, s) })
 	for _, typ := range cat.Types() {
-		e, ok := cat.Entry(typ)
+		e, ok := cat.View(typ)
 		if !ok || children[typ] || e.NotImportable != "" || (c.unwanted != nil && c.unwanted(typ)) || slices.Contains(partial, typ) {
 			continue
 		}

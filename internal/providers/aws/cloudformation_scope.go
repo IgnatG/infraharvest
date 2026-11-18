@@ -326,7 +326,7 @@ func (s *StackScope) Services(cat *catalogue.Catalogue) []string {
 				continue
 			}
 			for _, typ := range types[r.cfnType] {
-				if e, ok := cat.Entry(typ); ok && e.Service != "" && !slices.Contains(services, e.Service) {
+				if e, ok := cat.View(typ); ok && e.Service != "" && !slices.Contains(services, e.Service) {
 					services = append(services, e.Service)
 				}
 			}

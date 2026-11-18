@@ -48,6 +48,6 @@ func coversType(cat *catalogue.Catalogue, parent, typ string) bool {
 	if typ == parent || strings.HasPrefix(typ, parent+"_") {
 		return true
 	}
-	e, ok := cat.Entry(parent)
+	e, ok := cat.View(parent)
 	return ok && slices.Contains(e.Children, typ)
 }

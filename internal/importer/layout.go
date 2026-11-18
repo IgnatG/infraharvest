@@ -34,7 +34,7 @@ func configFile(profile harvest.Profile, service, typ string, cat *catalogue.Cat
 		inventory := service
 		service = ""
 		if cat != nil {
-			if e, ok := cat.Entry(typ); ok && e.Service != inventory {
+			if e, ok := cat.View(typ); ok && e.Service != inventory {
 				service = e.Service
 			}
 		}
