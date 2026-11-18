@@ -118,6 +118,7 @@ func TestAWSParallelRegions(t *testing.T) {
 	if len(coverage.Failures) != 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 {
 		t.Errorf("report.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 	}
+	checkPlanBudget(t, "--parallel=2", coverage)
 	// The emulator is shared with the other tests, each in accounts of its
 	// own: nothing of theirs may reach this import's output.
 	checkNoOtherAccounts(t, sequential, regionsAccount)

@@ -175,7 +175,7 @@ jobs:
           vars+=(-var "dev_subscription_id=$ARM_SUBSCRIPTION_ID" -var "dev_client_id=$SANDBOX_AZURE_FIXTURE_CLIENT_ID")
           vars+=(-var "prod_subscription_id=$SANDBOX_AZURE_SECOND_SUBSCRIPTION_ID" -var "prod_client_id=$SANDBOX_AZURE_SECOND_FIXTURE_CLIENT_ID")
         fi
-        "$E2E_ENGINE" init -input=false
+        "$GITHUB_WORKSPACE"/.github/scripts/retry.sh "$E2E_ENGINE" init -input=false
         # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
         # still deletes, is tried twice more before what is left counts.
         for attempt in 1 2 3; do

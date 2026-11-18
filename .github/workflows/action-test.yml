@@ -136,7 +136,7 @@ jobs:
             root=$(dirname "$file")
             n=$((n + 1))
             printf 'terraform {\n  backend "local" {\n    path = "%s"\n  }\n}\n' "$RUNNER_TEMP/state/$n.tfstate" > "$root/backend.tf"
-            "$ENGINE" -chdir="$root" init -input=false
+            "$GITHUB_WORKSPACE"/.github/scripts/retry.sh "$ENGINE" -chdir="$root" init -input=false
             "$ENGINE" -chdir="$root" apply -input=false -auto-approve
           done
           url=$(aws sqs get-queue-url --queue-name infraharvest-action --query QueueUrl --output text)
@@ -499,7 +499,7 @@ jobs:
           test -f "$root/vars/dev/terraform.tfvars"
           test -f "$root/vars/prod/terraform.tfvars"
           jq -e '[.merges[] | select(.path == "aws/us-east-1" and .merged)] | length == 1' "$RUNNER_TEMP/out/_reports/report.json"
-          terraform -chdir="$root" init -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$root" init -input=false
           for env in dev prod; do
             if [[ "$env" == dev ]]; then account=$DEV; else account=$PROD; fi
             vars=()
@@ -649,7 +649,7 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/seed"
           cp e2e/testdata/azure/main.tf "$RUNNER_TEMP/seed/"
-          terraform -chdir="$RUNNER_TEMP/seed" init -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$RUNNER_TEMP/seed" init -input=false
           terraform -chdir="$RUNNER_TEMP/seed" apply -input=false -auto-approve
           printf 'version: 1\nproviders:\n  azure:\n    resource-group: infraharvest-e2e\n' > "$RUNNER_TEMP/infraharvest.yaml"
       - name: Run the action
@@ -725,7 +725,7 @@ jobs:
         run: |
           mkdir "$RUNNER_TEMP/seed"
           cp e2e/testdata/google/main.tf "$RUNNER_TEMP/seed/"
-          terraform -chdir="$RUNNER_TEMP/seed" init -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$RUNNER_TEMP/seed" init -input=false
           terraform -chdir="$RUNNER_TEMP/seed" apply -input=false -auto-approve \
             -target=google_storage_bucket.assets -target=google_pubsub_topic.events
       # What Cloud Asset Inventory would find of them, named as it names
@@ -830,7 +830,7 @@ jobs:
           # Planned again, the root imports the two and changes nothing but,
           # with Google, the labels the provider keeps only in the state
           # (labels, terraform_labels, effective_labels; see docs/drift.md).
-          terraform -chdir="$root" init -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$root" init -input=false
           terraform -chdir="$root" plan -input=false -out=tfplan
           terraform -chdir="$root" show -json tfplan > "$RUNNER_TEMP/plan.json"
           rm "$root/tfplan"
