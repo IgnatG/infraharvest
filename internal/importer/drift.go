@@ -445,6 +445,7 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 				return nil, err
 			}
 			opts.DataDir = filepath.Join(private, "data")
+			opts.NoEnvVars = true
 			rootEnv = maps.Clone(env)
 			rootEnv["TF_DATA_DIR"] = opts.DataDir
 		}
@@ -453,7 +454,16 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 			if err != nil {
 				return nil, err
 			}
-			return tf, nil
+			if options.UntrustedRoots {
+				// A root from someone else could name a variable after any
+				// TF_VAR_ secret of this process and send its value out:
+				// such roots get none, and drift gives their variables
+				// placeholders.
+				return tf, nil
+			}
+			// The staged copy's plans read the TF_VAR_ values drift
+			// leaves without a placeholder.
+			return tfrun.WithEnvVars(tf, dir), nil
 		}
 		tf, err := tfrun.New(dir, execPath, plugins, rootEnv, schemas, tfrun.Parallelism(options.EngineParallelism))
 		if err != nil {

@@ -128,7 +128,12 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		opts.Scanners, opts.CommandTimeout = scanners, options.EngineTimeout
 		// Each check runs in a private copy of the root (see engine.Verify).
 		newTF := func(d string) (tfrun.Terraform, error) {
-			return tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil, schemas, tfrun.Parallelism(options.EngineParallelism))
+			tf, err := tfrun.New(d, execPath, filepath.Join(cacheDir, "plugins"), nil, schemas, tfrun.Parallelism(options.EngineParallelism))
+			if err != nil {
+				return nil, err
+			}
+			// Plans read the TF_VAR_ values the help promises.
+			return tfrun.WithEnvVars(tf, d), nil
 		}
 		checks, managed, err := verifyRoot(ctx, newTF, t, opts)
 		if err != nil {
