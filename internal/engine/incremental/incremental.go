@@ -1,0 +1,814 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package incremental
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/hashicorp/terraform-exec/tfexec"
+
+	"github.com/IgnatG/infraharvest/internal/adapters"
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
+)
+
+// HasConfiguration reports whether dir holds a root with resources or
+// module calls, such as one an earlier import generated.
+func HasConfiguration(dir string) (bool, error) {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		return false, err
+	}
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type == "resource" || b.Type == "module" {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// Existing returns the resources the root in dir already has, by type and
+// import ID: those its import blocks import, and those previous, the
+// result of the import that generated it, imported or left out. Each has
+// its address if it is a resource block of the root, so that what is
+// added can refer to it; "" if not, such as inside a module.
+func Existing(dir string, previous *run.Result) (map[run.External]string, error) {
+	files, err := hclfile.ConfigFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	resources := map[string]bool{}
+	for _, f := range files {
+		for r := range f.ResourceSyntax() {
+			resources[r.Address] = true
+		}
+	}
+	existing := map[run.External]string{}
+	add := func(typ, id, address string) {
+		if !resources[address] {
+			address = ""
+		}
+		// By identity, as the lookups of what is added are (see ResourceKey):
+		// an ID with a part that changes, such as an azapi one, is the same
+		// resource whatever the part is.
+		e := run.ResourceKey(typ, id)
+		if existing[e] == "" {
+			existing[e] = address
+		}
+	}
+	if previous != nil {
+		for _, imp := range previous.Imported {
+			add(imp.Type, imp.ID, imp.Type+"."+imp.Name)
+		}
+		for _, r := range previous.Rejected {
+			add(hclfile.AddressType(r.Address), r.ID, "")
+		}
+	}
+	for _, f := range files {
+		for key, address := range hclfile.ImportTargets(f) {
+			typ, id, _ := strings.Cut(key, "\x00")
+			add(typ, id, address)
+		}
+	}
+	return existing, nil
+}
+
+// AppliedTags returns the tags the root's provider applies to every
+// resource through dt.Block (an argument with dt.Argument), if they are
+// literal, directly or through a local. Without dt.Block, they are the
+// local the resources refer to, local.<dt.Attribute>.
+func AppliedTags(files []*hclfile.File, dt run.DefaultTags) (map[string]string, bool) {
+	if dt.Block == "" {
+		return literalLocal(files, dt.Attribute)
+	}
+	var expr hclsyntax.Expression
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type != "provider" || len(b.Labels) != 1 || b.Labels[0] != dt.Provider {
+				continue
+			}
+			if attr, ok := b.Body.Attributes[dt.Block]; ok && dt.Argument {
+				expr = attr.Expr
+			}
+			for _, inner := range b.Body.Blocks {
+				if attr, ok := inner.Body.Attributes[dt.Attribute]; ok && inner.Type == dt.Block {
+					expr = attr.Expr
+				}
+			}
+		}
+	}
+	if expr == nil {
+		return nil, false
+	}
+	if tags, ok := hclfile.StringMap(expr); ok {
+		return tags, true
+	}
+	traversal, diags := hcl.AbsTraversalForExpr(expr)
+	if diags.HasErrors() || len(traversal) != 2 || traversal.RootName() != "local" {
+		return nil, false
+	}
+	local, ok := traversal[1].(hcl.TraverseAttr)
+	if !ok {
+		return nil, false
+	}
+	return literalLocal(files, local.Name)
+}
+
+// literalLocal returns the local named name, if it is a literal map of
+// strings.
+func literalLocal(files []*hclfile.File, name string) (map[string]string, bool) {
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if attr, ok := b.Body.Attributes[name]; ok && b.Type == "locals" {
+				return hclfile.StringMap(attr.Expr)
+			}
+		}
+	}
+	return nil, false
+}
+
+// Engine is what Add needs of the engine, which this package, one of the
+// engine's sub-packages, can't import: how it generates the configuration
+// of the resources to add, which gate it runs on the result, and how it
+// adds the second provider configuration the added resources may use.
+type Engine struct {
+	// Generate generates the configuration of r's resources in dir.
+	Generate func(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run.Run) (*run.Result, error)
+	// FullGate returns the policy that runs every check of the gate.
+	FullGate func(opts run.Options) gate.Policy
+	// AddRootAlias adds to the providers.tf of ws's root the second
+	// configuration of dt's provider that staging's resources use, and
+	// reports whether it did.
+	AddRootAlias func(staging string, ws *run.Workspace, dt run.DefaultTags) (bool, error)
+}
+
+// Add adds the resources of imports to root, a root an earlier import
+// generated, without changing what root has. It generates their
+// configuration in staging, a directory of its own, with tf, as Generate
+// does, without local modules, with the tags root's provider applies, and
+// naming nothing as root does. The resources root has, existing (see
+// Existing), are external there: references to the ones with an address
+// in root then refer to them, and references to the others read them.
+// Then it adds the result to root (see merge), where it runs the
+// verification gate with rootTF: the plan check is staging's, as root's
+// plan needs its state. Should running it fail, or its secrets check, root
+// is left as it was.
+//
+// Staging may hold the lock file to generate with, such as root's: Add
+// empties staging but for it, and pins the providers opts.Config requires
+// to its releases (see versions.PinnedToLock), so that the additions are generated
+// with the provider releases root runs.
+func (e Engine) Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, imports []rootfile.Import, opts run.Options, existing map[run.External]string) (*run.Result, error) {
+	rootTF = tfrun.WithTimeout(rootTF, opts.CommandTimeout)
+	run.WarnLargeRoot(root, len(imports)+len(existing))
+	lock, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, err
+	}
+	if lock != nil {
+		if err := os.MkdirAll(staging, 0o755); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(filepath.Join(staging, tfrun.LockFileName), lock, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	ws, err := run.OpenWorkspace(root)
+	if err != nil {
+		return nil, err
+	}
+	files, err := ws.ConfigFiles()
+	if err != nil {
+		return nil, err
+	}
+	r, err := adding(opts, lock, files, existing)
+	if err != nil {
+		return nil, err
+	}
+	result, err := e.Generate(ctx, tf, staging, imports, r)
+	if err != nil {
+		return nil, err
+	}
+	// What follows changes root: undo it on failure, so that root stays as
+	// it was and a rerun adds the resources again. The snapshot of its
+	// workspace has every configuration file; the files besides them that
+	// merge writes are backed up.
+	before := ws.Snapshot()
+	backup, err := fsutil.BackupFiles(root, rootfile.RejectedFileName, tfrun.LockFileName)
+	if err != nil {
+		return nil, err
+	}
+	undo := func() error {
+		ws.Restore(before)
+		return errors.Join(ws.Flush(), backup.Restore())
+	}
+	// The resources go into the files of their types, such as network.tf,
+	// after the root's own blocks.
+	added, err := merge(staging, ws, existing, opts.DataSources, run.BlockFiles(result.Imported, result.Modules))
+	if err == nil && r.Opts.DefaultTags != nil {
+		// The added resources without the root's default tags use the
+		// configuration without them, which root may not have yet.
+		_, err = e.AddRootAlias(staging, ws, *r.Opts.DefaultTags)
+	}
+	if err == nil {
+		err = ws.Flush()
+	}
+	if err != nil {
+		return nil, errors.Join(err, undo())
+	}
+	result.Files = added
+	// After merge: the calls it added need their modules installed.
+	if err := tfrun.Init(ctx, rootTF, tfexec.Backend(false)); err != nil {
+		return nil, errors.Join(fmt.Errorf("terraform init: %w", err), undo())
+	}
+	staged := result.Gate
+	// The root's gate knows the organisation's own modules root calls, as
+	// Verify's does, although staging calls none of them. Only staging's
+	// plan knew the secret values to look for: where root has the ones it
+	// found, its secrets check fails and its scanners don't run either.
+	secrets := staged.Named(gate.CheckSecrets)
+	policy := e.FullGate(opts)
+	policy.Plan = func() (gate.Check, []string, error) { return staged.Named(gate.CheckPlan), nil, nil }
+	policy.Withheld = &secrets
+	checks, _, err := policy.Run(ctx, rootTF, root)
+	if err != nil {
+		return nil, errors.Join(err, undo())
+	}
+	// A secret value in root, which the output must never keep, undoes
+	// the addition.
+	for _, c := range checks {
+		if c.Name == gate.CheckSecrets && !c.Passed {
+			return nil, errors.Join(fmt.Errorf("%s failed, so nothing is added: %s", c.Name, strings.Join(c.Details, "; ")), undo())
+		}
+	}
+	result.Gate = checks
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// adding is Add's run with opts, of resources to add to a root whose
+// configuration files are root, and which has the resources existing (see
+// Existing). Its options differ from the caller's (see generating): with
+// lock, the lock file staging generates with, the providers opts.Config
+// requires are pinned to its releases (see versions.PinnedToLock); it names
+// nothing as root does; it makes no local modules, and calls of curated
+// modules only where it can by the same source, as a directory's module
+// is called by its path relative to the root it is in, and staging isn't
+// root; it lifts the tags root's provider applies, if any; the resources
+// root has are external; and it writes the configuration into
+// generated.tf, whose resources merge then puts after the blocks of the
+// file of their type, or into a file of their own. The caller's opts stay
+// as they are.
+func adding(opts run.Options, lock []byte, root []*hclfile.File, existing map[run.External]string) (*run.Run, error) {
+	r := run.Generating(opts)
+	o := &r.Opts
+	if required, ok := opts.Config[rootfile.VersionsFileName]; ok && lock != nil {
+		pinned, err := versions.PinnedToLock(required, lock)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", rootfile.VersionsFileName, err)
+		}
+		o.Config = maps.Clone(opts.Config)
+		o.Config[rootfile.VersionsFileName] = pinned
+	}
+	r.Taken = run.RootNames(root)
+	o.ModulesDir = ""
+	o.ImportOnce = nil
+	o.Adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
+	if opts.DefaultTags != nil {
+		dt := *opts.DefaultTags
+		if applied, ok := AppliedTags(root, dt); ok {
+			dt.Applied = applied
+			o.DefaultTags = &dt
+		} else {
+			// Lifting tags would change root's provider, or the tags its
+			// resources refer to.
+			o.DefaultTags = nil
+		}
+	}
+	external := map[run.External]bool{}
+	for _, e := range opts.External {
+		external[run.ResourceKey(e.Type, e.ID)] = true
+	}
+	o.External = slices.Clone(opts.External)
+	for _, e := range sortedExternal(existing) {
+		if !external[run.ResourceKey(e.Type, e.ID)] {
+			o.External = append(o.External, e)
+		}
+	}
+	o.SplitFiles = false
+	return r, nil
+}
+
+func sortedExternal(m map[run.External]string) []run.External {
+	list := make([]run.External, 0, len(m))
+	for e := range m {
+		list = append(list, e)
+	}
+	run.SortExternal(list)
+	return list
+}
+
+// AddedFileName returns the name of the n-th file of resources an
+// incremental import adds: generated_2.tf, generated_3.tf, ...
+func AddedFileName(n int) string {
+	return fmt.Sprintf("generated_%d.tf", n)
+}
+
+// merge adds what Generate wrote into staging to the root of ws: each resource and
+// module call after the blocks of the file fileOf names for it by address
+// (see blockFiles), such as network.tf, or, where it names none, in a file
+// of their own (see AddedFileName); and the import blocks, variables,
+// locals, data sources and resources left out after root's own.
+// References to data sources that read a resource root has, existing, as
+// a resource block, or that root already has, use root's, as do references
+// to variables root declares the same (see stagedVariables). The provider
+// configuration and the locals it uses stay root's, but for the providers
+// root has none of, which it gets (see mergeProviders). It returns the
+// files of resources it wrote to, sorted, also when it fails after
+// writing them.
+func merge(staging string, ws *run.Workspace, existing map[run.External]string, sources map[string]run.DataSource, fileOf map[string]string) ([]string, error) {
+	generated, err := hclfile.Load(filepath.Join(staging, rootfile.GeneratedFileName))
+	if err != nil {
+		return nil, err
+	}
+	rootFiles, err := ws.ConfigFiles()
+	if err != nil {
+		return nil, err
+	}
+	// Where root reads or has each resource, by data source type and ID.
+	rootData := map[string][]string{}
+	for e, address := range existing {
+		if source, ok := sources[e.Type]; ok && address != "" {
+			rootData[source.Type+"\x00"+e.ID] = strings.Split(address, ".")
+		}
+	}
+	for _, f := range rootFiles {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type != "data" || len(b.Labels) != 2 {
+				continue
+			}
+			key := dataKey(b, sources)
+			if _, ok := rootData[key]; key != "" && !ok {
+				rootData[key] = []string{"data", b.Labels[0], b.Labels[1]}
+			}
+		}
+	}
+	declared := rootDeclarations(rootFiles)
+	var data []*hclwrite.Block
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.DataFileName))
+	if err != nil {
+		return nil, err
+	}
+	if staged != nil {
+		blocks := staged.Edit().Body().Blocks()
+		for i, b := range staged.Syntax.Blocks {
+			if b.Type != "data" || len(b.Labels) != 2 || i >= len(blocks) {
+				continue
+			}
+			replacement, ok := rootData[dataKey(b, sources)]
+			if !ok {
+				// A data source root declares the same, such as a lookup
+				// of the tenant: the staged one has another name.
+				replacement, ok = declared[declarationKey(b, staged.Src)]
+			}
+			if !ok {
+				data = append(data, blocks[i])
+				continue
+			}
+			for _, block := range generated.Edit().Body().Blocks() {
+				replaceTraversals(block.Body(), []string{"data", b.Labels[0], b.Labels[1]}, replacement)
+			}
+		}
+	}
+	variables, err := stagedVariables(staging, declared, generated)
+	if err != nil {
+		return nil, err
+	}
+
+	// The blocks for each file, in the order they come; those without one
+	// go to the next file of their own.
+	own := ""
+	var names []string
+	blocksFor := map[string][]*hclwrite.Block{}
+	for _, b := range generated.Edit().Body().Blocks() {
+		name := fileOf[hclfile.BlockAddress(b)]
+		if name == "" {
+			if own == "" {
+				own = nextAddedFile(ws)
+			}
+			name = own
+		}
+		if _, ok := blocksFor[name]; !ok {
+			names = append(names, name)
+		}
+		blocksFor[name] = append(blocksFor[name], b)
+	}
+	slices.Sort(names)
+	var added []string
+	for _, name := range names {
+		added = append(added, name)
+		if err := ws.AppendBlocks(name, "", blocksFor[name]); err != nil {
+			return added, err
+		}
+	}
+	if err := ws.AppendBlocks(rootfile.DataFileName, rootfile.DataFileHeader, data); err != nil {
+		return added, err
+	}
+	imports, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.ImportsFileName))
+	if err != nil {
+		return added, err
+	}
+	if imports != nil {
+		if err := ws.AppendBlocks(rootfile.ImportsFileName, "", imports.Edit().Body().Blocks()); err != nil {
+			return added, err
+		}
+	}
+	if err := ws.AppendBlocks(hclfile.VariablesFileName, "", variables); err != nil {
+		return added, err
+	}
+	if err := mergeLocals(staging, ws); err != nil {
+		return added, err
+	}
+	if err := mergeProviders(staging, ws, rootFiles); err != nil {
+		return added, err
+	}
+	if rejected, err := os.ReadFile(filepath.Join(staging, rootfile.RejectedFileName)); err == nil {
+		if err := appendFile(ws.Path(rootfile.RejectedFileName), rejected); err != nil {
+			return added, err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return added, err
+	}
+	lock := ws.Path(tfrun.LockFileName)
+	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
+		if content, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName)); err == nil {
+			return added, fsutil.WriteFile(lock, content, 0o644)
+		}
+	}
+	return added, nil
+}
+
+// replaceTraversals replaces the start of references that begin with
+// search, such as data.aws_vpc.main, with replacement, which may have
+// another length, such as aws_vpc.main, in body and its nested blocks.
+func replaceTraversals(body *hclwrite.Body, search, replacement []string) {
+	hclfile.ReplaceReferences(body, search, hclwrite.TokensForTraversal(traversalOf(replacement)))
+}
+
+func traversalOf(names []string) hcl.Traversal {
+	t := hcl.Traversal{hcl.TraverseRoot{Name: names[0]}}
+	for _, name := range names[1:] {
+		t = append(t, hcl.TraverseAttr{Name: name})
+	}
+	return t
+}
+
+// dataKey identifies what a data block reads: its type and the ID its
+// source's argument (see DataSource) is set to, or "".
+func dataKey(b *hclsyntax.Block, sources map[string]run.DataSource) string {
+	for _, source := range sources {
+		if source.Type != b.Labels[0] {
+			continue
+		}
+		if id := hclfile.StringAttribute(b.Body, source.Argument); id != "" {
+			return source.Type + "\x00" + id
+		}
+	}
+	return ""
+}
+
+// rootDeclarations returns, by declarationKey, the address of each data
+// source and each variable with a default that files declare, the first
+// of those that declare the same: data.<type>.<name> or var.<name>, as
+// steps of a reference.
+func rootDeclarations(files []*hclfile.File) map[string][]string {
+	declared := map[string][]string{}
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			var address []string
+			switch {
+			case b.Type == "data" && len(b.Labels) == 2:
+				address = []string{"data", b.Labels[0], b.Labels[1]}
+			case b.Type == "variable" && len(b.Labels) == 1 && hclfile.HasDefault(b):
+				address = []string{"var", b.Labels[0]}
+			default:
+				continue
+			}
+			key := declarationKey(b, f.Src)
+			if _, ok := declared[key]; key != "" && !ok {
+				declared[key] = address
+			}
+		}
+	}
+	return declared
+}
+
+// declarationKey identifies what the data or variable block b declares:
+// its type, its data source's type, and its arguments as src writes them,
+// whitespace aside. Two blocks with one key declare the same, such as two
+// lookups of the tenant Azure signs in to, or two variables for one
+// resource's ID with the same default. It is "" for a block with nested
+// blocks, which it doesn't compare.
+func declarationKey(b *hclsyntax.Block, src []byte) string {
+	if len(b.Labels) == 0 || len(b.Body.Blocks) > 0 {
+		return ""
+	}
+	key := b.Type + "\x00" + strings.Join(b.Labels[:len(b.Labels)-1], ".")
+	names := make([]string, 0, len(b.Body.Attributes))
+	for name := range b.Body.Attributes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		r := b.Body.Attributes[name].Expr.Range()
+		if r.Start.Byte < 0 || r.End.Byte > len(src) || r.Start.Byte > r.End.Byte {
+			return ""
+		}
+		key += "\x00" + name + "=" + strings.Join(strings.Fields(string(src[r.Start.Byte:r.End.Byte])), " ")
+	}
+	return key
+}
+
+// stagedVariables returns the blocks of staging's variables.tf to add to
+// root's, but for the variables with a default that root declares the
+// same (see rootDeclarations): references to those in generated's blocks
+// refer to root's instead, which has another name.
+func stagedVariables(staging string, declared map[string][]string, generated *hclfile.File) ([]*hclwrite.Block, error) {
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, hclfile.VariablesFileName))
+	if err != nil || staged == nil {
+		return nil, err
+	}
+	blocks := staged.Edit().Body().Blocks()
+	var kept []*hclwrite.Block
+	for i, b := range staged.Syntax.Blocks {
+		if i >= len(blocks) {
+			break
+		}
+		if b.Type == "variable" && len(b.Labels) == 1 && hclfile.HasDefault(b) {
+			if replacement, ok := declared[declarationKey(b, staged.Src)]; ok {
+				for _, block := range generated.Edit().Body().Blocks() {
+					replaceTraversals(block.Body(), []string{"var", b.Labels[0]}, replacement)
+				}
+				continue
+			}
+		}
+		kept = append(kept, blocks[i])
+	}
+	return kept, nil
+}
+
+// mergeLocals adds staging's locals to the locals.tf of ws's root, but for
+// those its provider configuration uses and those root has, such as the
+// tags its resources refer to: root has its own of them.
+func mergeLocals(staging string, ws *run.Workspace) error {
+	staged, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.LocalsFileName))
+	if err != nil || staged == nil {
+		return err
+	}
+	rootFiles, err := ws.ConfigFiles()
+	if err != nil {
+		return err
+	}
+	taken := run.RootNames(rootFiles)
+	providers, err := hclfile.Load(filepath.Join(staging, rootfile.ProvidersFileName))
+	if err != nil {
+		return err
+	}
+	used := map[string]bool{}
+	for _, b := range providers.Syntax.Blocks {
+		for _, t := range hclfile.Traversals(b.Body) {
+			if t.RootName() == "local" && len(t) > 1 {
+				if attr, ok := t[1].(hcl.TraverseAttr); ok {
+					used[attr.Name] = true
+				}
+			}
+		}
+	}
+	type local struct {
+		name   string
+		tokens hclwrite.Tokens
+	}
+	var added []local
+	for _, b := range staged.Edit().Body().Blocks() {
+		if b.Type() != "locals" {
+			continue
+		}
+		for name, attr := range b.Body().Attributes() {
+			if !used[name] && !taken["local."+name] {
+				added = append(added, local{name, attr.Expr().BuildTokens(nil)})
+			}
+		}
+	}
+	if len(added) == 0 {
+		return nil
+	}
+	sort.Slice(added, func(i, j int) bool { return added[i].name < added[j].name })
+	f, err := ws.LoadOptional(rootfile.LocalsFileName)
+	if err != nil {
+		return err
+	}
+	var body *hclwrite.Body
+	if f == nil {
+		f = hclfile.New(ws.Path(rootfile.LocalsFileName))
+	} else {
+		for _, b := range f.Edit().Body().Blocks() {
+			if b.Type() == "locals" {
+				body = b.Body()
+				break
+			}
+		}
+	}
+	if body == nil {
+		body = f.Edit().Body().AppendNewBlock("locals", nil).Body()
+	}
+	for _, l := range added {
+		body.SetAttributeRaw(l.name, l.tokens)
+	}
+	ws.Save(f)
+	return nil
+}
+
+// mergeProviders adds to ws's root the providers staging configures and
+// requires that root doesn't, such as google-beta, which a curated module
+// creates resources with (see writeModuleProviders): each block of
+// staging's providers.tf for a provider root has no block for goes to
+// root's providers.tf, and each provider staging's versions.tf requires
+// and root doesn't goes, with the version staging pinned it to, to root's
+// required_providers (see requiredProvidersFile). Without them, an added
+// module call would run on a provider root neither configures nor pins.
+// rootFiles are root's files before the merge.
+func mergeProviders(staging string, ws *run.Workspace, rootFiles []*hclfile.File) error {
+	configured := map[string]bool{}
+	required := map[string]bool{}
+	for _, f := range rootFiles {
+		for _, b := range f.Syntax.Blocks {
+			switch b.Type {
+			case "provider":
+				if len(b.Labels) == 1 {
+					configured[b.Labels[0]] = true
+				}
+			case "terraform":
+				for _, nested := range b.Body.Blocks {
+					if nested.Type != "required_providers" {
+						continue
+					}
+					for name := range nested.Body.Attributes {
+						required[name] = true
+					}
+				}
+			}
+		}
+	}
+	providers, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.ProvidersFileName))
+	if err != nil {
+		return err
+	}
+	if providers != nil {
+		var blocks []*hclwrite.Block
+		for _, b := range providers.Edit().Body().Blocks() {
+			if b.Type() == "provider" && len(b.Labels()) == 1 && !configured[b.Labels()[0]] {
+				blocks = append(blocks, b)
+			}
+		}
+		if err := ws.AppendBlocks(rootfile.ProvidersFileName, "", blocks); err != nil {
+			return err
+		}
+	}
+	versions, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.VersionsFileName))
+	if err != nil || versions == nil {
+		return err
+	}
+	missing := map[string]hclwrite.Tokens{}
+	for _, b := range versions.Edit().Body().Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		for _, nested := range b.Body().Blocks() {
+			if nested.Type() != "required_providers" {
+				continue
+			}
+			for name, attr := range nested.Body().Attributes() {
+				// A root that requires none of its providers, as one
+				// written by hand may, gets only the new ones.
+				if !required[name] && (len(required) > 0 || !configured[name]) {
+					missing[name] = attr.Expr().BuildTokens(nil)
+				}
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	name := requiredProvidersFile(rootFiles)
+	f, err := ws.LoadOptional(name)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = hclfile.New(ws.Path(name))
+	}
+	body := requiredProvidersBody(f.Edit().Body())
+	names := make([]string, 0, len(missing))
+	for name := range missing {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		body.SetAttributeRaw(name, missing[name])
+	}
+	ws.Save(f)
+	return nil
+}
+
+// requiredProvidersFile returns the name of the file of files that has
+// the root's required_providers, or versions.tf, where Generate writes
+// them, if none has.
+func requiredProvidersFile(files []*hclfile.File) string {
+	for _, f := range files {
+		for _, b := range f.Syntax.Blocks {
+			if b.Type != "terraform" {
+				continue
+			}
+			for _, nested := range b.Body.Blocks {
+				if nested.Type == "required_providers" {
+					return filepath.Base(f.Path)
+				}
+			}
+		}
+	}
+	return rootfile.VersionsFileName
+}
+
+// requiredProvidersBody returns the body of body's required_providers
+// block, adding the block, and a terraform block for it, where body has
+// none.
+func requiredProvidersBody(body *hclwrite.Body) *hclwrite.Body {
+	var terraform *hclwrite.Block
+	for _, b := range body.Blocks() {
+		if b.Type() != "terraform" {
+			continue
+		}
+		if required := b.Body().FirstMatchingBlock("required_providers", nil); required != nil {
+			return required.Body()
+		}
+		if terraform == nil {
+			terraform = b
+		}
+	}
+	if terraform == nil {
+		if len(body.Blocks()) > 0 {
+			body.AppendNewline()
+		}
+		terraform = body.AppendNewBlock("terraform", nil)
+	}
+	return terraform.Body().AppendNewBlock("required_providers", nil).Body()
+}
+
+// appendFile adds content to the end of the file at path.
+func appendFile(path string, content []byte) error {
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if len(existing) > 0 && !bytes.HasSuffix(existing, []byte("\n\n")) {
+		existing = append(bytes.TrimRight(existing, "\n"), '\n', '\n')
+	}
+	return fsutil.WriteFile(path, append(existing, content...), 0o644)
+}
+
+// nextAddedFile returns the first of generated_2.tf, generated_3.tf and so
+// on (see AddedFileName) that ws's root doesn't have.
+func nextAddedFile(ws *run.Workspace) string {
+	for n := 2; ; n++ {
+		name := AddedFileName(n)
+		if !ws.Has(name) {
+			return name
+		}
+	}
+}

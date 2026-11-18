@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
@@ -101,7 +102,7 @@ func (c *listedCall) decideRoot(dir, fp string) (rootDecision, error) {
 		files = premergeDir(out, dir)
 	}
 	if options.Roots == RootsIncremental {
-		has, err := engine.HasConfiguration(files)
+		has, err := incremental.HasConfiguration(files)
 		if err != nil {
 			return rootDecision{}, err
 		}

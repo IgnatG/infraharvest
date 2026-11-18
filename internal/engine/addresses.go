@@ -30,7 +30,7 @@ func ImportedAddresses(dir string) ([]Managed, error) {
 	return managedOf(targets), nil
 }
 
-// managedOf returns targets (see importTargetsIn) as resources, sorted by
+// managedOf returns targets (see hclfile.ImportTargets) as resources, sorted by
 // type and import ID.
 func managedOf(targets map[string]string) []Managed {
 	managed := make([]Managed, 0, len(targets))
@@ -160,20 +160,7 @@ func Retyped(previous, now []Managed) []string {
 // An address of no resource, such as module.logs, a module call alone,
 // has none: "".
 func AddressType(address string) string {
-	names := hclfile.AddressNames(address)
-	for len(names) > 0 && names[0] == "module" {
-		if len(names) < 2 {
-			return ""
-		}
-		names = names[2:]
-	}
-	if len(names) > 0 && names[0] == "data" {
-		names = names[1:]
-	}
-	if len(names) < 2 {
-		return ""
-	}
-	return names[0]
+	return hclfile.AddressType(address)
 }
 
 // ManagedIndex answers, for many addresses of the same resources, which

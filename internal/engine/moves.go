@@ -12,9 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
-
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/run"
@@ -338,28 +335,6 @@ func callSources(calls []ModuleCall) map[string]string {
 		}
 	}
 	return sources
-}
-
-// movedFrom returns the name of the root (see Names) that b, a moved or
-// removed block, takes a resource from: type.label for a resource of the
-// root, or module.name for one in a module call.
-func movedFrom(b *hclsyntax.Block) (string, bool) {
-	attr, ok := b.Body.Attributes["from"]
-	if !ok {
-		return "", false
-	}
-	traversal, diags := hcl.AbsTraversalForExpr(attr.Expr)
-	if diags.HasErrors() || len(traversal) < 2 {
-		return "", false
-	}
-	next, ok := traversal[1].(hcl.TraverseAttr)
-	if !ok {
-		return "", false
-	}
-	if traversal.RootName() == "module" {
-		return "module." + next.Name, true
-	}
-	return traversal.RootName() + "." + next.Name, true
 }
 
 // Vacate writes the root in dir that an earlier import generated, all of

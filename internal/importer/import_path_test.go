@@ -19,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -185,7 +186,7 @@ func (f *fakeEngine) tools() *callTools {
 				f.added = map[string][]rootfile.Import{}
 			}
 			f.added[filepath.Base(root)] = imports
-			name := engine.AddedFileName(2)
+			name := incremental.AddedFileName(2)
 			return &engine.Result{Imported: imports, Files: []string{name}}, os.WriteFile(filepath.Join(root, name), []byte("# fake\n"), 0o644)
 		},
 		merge: func(_ context.Context, dir string, roots []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {

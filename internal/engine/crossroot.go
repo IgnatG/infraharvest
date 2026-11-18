@@ -282,5 +282,5 @@ func addRootVariables(ws *run.Workspace, others []RootResource, arns map[string]
 	if err := data.write(); err != nil {
 		return nil, err
 	}
-	return edited, appendBlocks(ws, hclfile.VariablesFileName, "", blocks)
+	return edited, ws.AppendBlocks(hclfile.VariablesFileName, "", blocks)
 }

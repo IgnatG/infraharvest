@@ -17,6 +17,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -333,7 +334,7 @@ resource "google_storage_bucket" "b" {
 		}
 		files = append(files, f)
 	}
-	if tags, ok := appliedTags(files, dt); !ok || tags["env"] != "prod" || len(tags) != 1 {
+	if tags, ok := incremental.AppliedTags(files, dt); !ok || tags["env"] != "prod" || len(tags) != 1 {
 		t.Errorf("applied labels: %v, %v", tags, ok)
 	}
 }
@@ -536,7 +537,7 @@ resource "aws_subnet" "c" {
 		}
 		files = append(files, f)
 	}
-	if tags, ok := appliedTags(files, awsDefaultTags); !ok || len(tags) != 2 {
+	if tags, ok := incremental.AppliedTags(files, awsDefaultTags); !ok || len(tags) != 2 {
 		t.Errorf("applied tags: %v, %v", tags, ok)
 	}
 }

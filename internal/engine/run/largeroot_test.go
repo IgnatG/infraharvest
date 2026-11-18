@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package run
 
 import (
 	"bytes"
@@ -18,11 +18,11 @@ func TestWarnLargeRoot(t *testing.T) {
 	log.SetOutput(&logged)
 	t.Cleanup(func() { log.SetOutput(writer) })
 
-	warnLargeRoot("out/aws/main", LargeRootResources)
+	WarnLargeRoot("out/aws/main", LargeRootResources)
 	if logged.Len() != 0 {
 		t.Errorf("a root of %d resources was warned about: %s", LargeRootResources, logged.String())
 	}
-	warnLargeRoot("out/aws/main", LargeRootResources+1)
+	WarnLargeRoot("out/aws/main", LargeRootResources+1)
 	for _, want := range []string{"out/aws/main", "2001 resources", "--engine-parallelism", "--layout"} {
 		if !strings.Contains(logged.String(), want) {
 			t.Errorf("warning %q lacks %q", logged.String(), want)

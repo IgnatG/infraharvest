@@ -58,8 +58,8 @@ import {
 	if ids["aws_cloudwatch_log_group.logs"] != id || ids["aws_sqs_queue.orders"] != "https://sqs.eu-west-2.amazonaws.com/123/orders" {
 		t.Errorf("Imports() read %v", ids)
 	}
-	if got := importTargetsIn(f)["aws_cloudwatch_log_group\x00"+id]; got != "aws_cloudwatch_log_group.logs" {
-		t.Errorf("importTargetsIn: got %q", got)
+	if got := hclfile.ImportTargets(f)["aws_cloudwatch_log_group\x00"+id]; got != "aws_cloudwatch_log_group.logs" {
+		t.Errorf("hclfile.ImportTargets: got %q", got)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -268,4 +269,30 @@ func (f flushingTerraform) FormatCheck(ctx context.Context, opts ...tfexec.Forma
 		return false, nil, err
 	}
 	return f.Terraform.FormatCheck(ctx, opts...)
+}
+
+// AppendBlocks adds blocks to the end of the file name of w, which starts
+// with header if it is new.
+func (w *Workspace) AppendBlocks(name, header string, blocks []*hclwrite.Block) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	f, err := w.LoadOptional(name)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		f = hclfile.New(w.Path(name))
+		if header != "" {
+			f.Edit().Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
+		}
+	}
+	for _, b := range blocks {
+		if len(f.Edit().Body().Blocks()) > 0 || header != "" {
+			f.Edit().Body().AppendNewline()
+		}
+		f.Edit().Body().AppendBlock(b)
+	}
+	w.Save(f)
+	return nil
 }

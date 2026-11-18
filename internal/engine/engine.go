@@ -90,7 +90,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
-	warnLargeRoot(dir, len(imports))
+	run.WarnLargeRoot(dir, len(imports))
 	generated := filepath.Join(dir, rootfile.GeneratedFileName)
 	// imports.tf too: with SplitFiles, an earlier run leaves no generated.tf.
 	for _, path := range []string{generated, filepath.Join(dir, rootfile.ImportsFileName)} {

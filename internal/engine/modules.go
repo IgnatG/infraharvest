@@ -630,7 +630,7 @@ func rewriteRoot(ws *run.Workspace, generated *hclfile.File, groups []*moduleGro
 	if err != nil {
 		return err
 	}
-	for name := range rootNames(append(files, generated)) {
+	for name := range run.RootNames(append(files, generated)) {
 		if label, ok := strings.CutPrefix(name, "module."); ok {
 			used[label] = true
 		}

@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -54,7 +55,7 @@ func TestRenameIndex(t *testing.T) {
 	byStart := indexRenames(len(references), func(i int) []string { return references[i].search })
 	for i, block := range all.Body().Blocks() {
 		for _, rn := range references {
-			replaceReferences(block.Body(), rn.search, rn.replacement)
+			hclfile.ReplaceReferences(block.Body(), rn.search, rn.replacement)
 		}
 		replaceAllReferences(indexed.Body().Blocks()[i].Body(), references, byStart)
 	}

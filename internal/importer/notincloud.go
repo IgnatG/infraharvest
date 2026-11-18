@@ -136,7 +136,7 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 }
 
 // notInCloud returns, sorted by address, the resources of existing, what
-// a root has (see engine.Existing), that the listing didn't find although
+// a root has (see incremental.Existing), that the listing didn't find although
 // it lists every resource of their type in its scope: those the root has
 // a resource block for, which its next plan would create again. Those
 // only in a module call, or left out of the root, aren't. A nil h finds
