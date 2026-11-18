@@ -104,16 +104,27 @@ type inventoryDoc struct {
 	Coverage    coverage   `json:"coverage"`
 }
 
-// The commands whose runs the run document describes: those that leave a
-// report in the output directory. import is also what an incremental import
-// is; discover and verify leave none.
+// The commands whose runs the run document describes. import, which is also
+// what an incremental import is, and drift leave a report in the output
+// directory; discover leaves the inventories it saved there, and verify
+// verify.json (see report.VerifyJSONFile).
 const (
-	CommandImport = "import"
-	CommandDrift  = "drift"
+	CommandImport   = "import"
+	CommandDrift    = "drift"
+	CommandDiscover = "discover"
+	CommandVerify   = "verify"
 )
 
 // Commands are the commands the run document can describe.
-var Commands = []string{CommandImport, CommandDrift}
+var Commands = []string{CommandImport, CommandDrift, CommandDiscover, CommandVerify}
+
+// commandDocuments are the documents besides the run document that the run
+// of a command has, if it has any: what discover saved is the OCSF
+// inventory's resources, and verify's checks are the gate.
+var commandDocuments = map[string][]string{
+	CommandDiscover: {DocOCSFInventory},
+	CommandVerify:   {DocGate},
+}
 
 // requestIDPattern is what a request ID looks like (see
 // schemas/run-v1.schema.json).
@@ -134,9 +145,10 @@ type runDoc struct {
 	FailureCodes []string  `json:"failure_codes,omitempty"`
 }
 
-// driftRunDoc is the run document of a drift run: drift.json records
-// neither an exit code, which depends on flags, nor the versions of what
-// ran, nor counts of what an import covers.
+// driftRunDoc is the run document of a run that records neither an exit
+// code, which depends on flags, nor the versions of what ran, nor counts of
+// what an import covers: a drift run (drift.json), and the runs of discover
+// and verify.
 type driftRunDoc struct {
 	Schema       string   `json:"schema"`
 	RunID        string   `json:"run_id"`

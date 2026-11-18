@@ -57,6 +57,12 @@ const DefaultOut = "infrastructure"
 // Dir is the directory of the output the report files go into.
 const Dir = "_reports"
 
+// VerifyJSONFile is the file infraharvest verify writes into the report
+// directory: each root's checks, as verify --format json prints them. It
+// sits apart from the import's report, as drift.json does, so that the
+// import's report stays the same.
+const VerifyJSONFile = "verify.json"
+
 // Report is what one import did.
 type Report struct {
 	SchemaVersion int `json:"schema_version"`

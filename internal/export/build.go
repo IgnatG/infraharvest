@@ -83,9 +83,14 @@ func Build(opts Options) ([]byte, error) {
 		doc any
 		err error
 	)
-	if commandOf(opts) == CommandDrift {
+	switch commandOf(opts) {
+	case CommandDrift:
 		doc, err = buildFromDrift(opts)
-	} else {
+	case CommandDiscover:
+		doc, err = buildFromDiscover(opts)
+	case CommandVerify:
+		doc, err = buildFromVerify(opts)
+	default:
 		doc, err = buildFromReport(opts)
 	}
 	if err != nil {
@@ -120,16 +125,24 @@ func checkOptions(opts Options) error {
 		return fmt.Errorf("unknown command %q: want one of %s", opts.Command, strings.Join(Commands, ", "))
 	}
 	if opts.Command != "" && opts.Document != DocRun {
-		return fmt.Errorf("a command is for the run document only: the %s document has no choice of command", opts.Document)
+		docs := commandDocuments[opts.Command]
+		switch {
+		case len(docs) == 0:
+			return fmt.Errorf("a command is for the run document only: the %s document has no choice of command", opts.Document)
+		case !slices.Contains(docs, opts.Document):
+			return fmt.Errorf("a %s run has the run document and the %s document only, not the %s document", opts.Command, strings.Join(docs, ", "), opts.Document)
+		}
 	}
 	return checkRepo(opts)
 }
 
 // commandOf is the command whose run opts exports. Only the run document
-// has a choice: opts.Command, else the command whose report the output
-// directory has, which is import when it has the reports of both, as an
-// import and a later drift leave. Neither, and the import's report is the
-// one that fails to read. The drift summary is of a drift run.
+// has a choice of any command: opts.Command, else the command whose report
+// the output directory has, which is import when it has the reports of
+// both, as an import and a later drift leave. Neither, and the import's
+// report is the one that fails to read. discover and verify are never
+// found, only named, and the OCSF inventory and the gate may name them too.
+// The drift summary is of a drift run.
 func commandOf(opts Options) string {
 	if opts.Document == DocDriftSummary {
 		return CommandDrift

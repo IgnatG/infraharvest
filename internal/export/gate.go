@@ -70,10 +70,23 @@ func reasonCodes(id string, c report.Check) []string {
 }
 
 // buildGate summarises the checks of every directory and merged root of
-// the report by their IDs: a check passed if none of its runs failed, and
+// the report by their IDs (see gateOf): a check passed if none of its runs failed, and
 // was skipped if all of them were; its reason codes are those of the runs
 // that failed or were skipped.
 func buildGate(r *report.Report, runID string) *gateDoc {
+	var groups [][]report.Check
+	for _, d := range r.Directories {
+		groups = append(groups, d.Checks)
+	}
+	for _, m := range r.Merges {
+		groups = append(groups, m.Checks)
+	}
+	return gateOf(groups, runID)
+}
+
+// gateOf summarises the checks of each of groups, the checks of one root,
+// as buildGate does.
+func gateOf(groups [][]report.Check, runID string) *gateDoc {
 	type summary struct {
 		failed, run, skipped int
 		codes                map[string]bool
@@ -102,11 +115,8 @@ func buildGate(r *report.Report, runID string) *gateDoc {
 			}
 		}
 	}
-	for _, d := range r.Directories {
-		add(d.Checks)
-	}
-	for _, m := range r.Merges {
-		add(m.Checks)
+	for _, checks := range groups {
+		add(checks)
 	}
 	doc := &gateDoc{Schema: schemaGate, RunID: runID, Passed: len(sums) > 0, Checks: []gateCheck{}}
 	ids := make([]string, 0, len(sums))

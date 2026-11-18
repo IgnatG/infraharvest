@@ -268,7 +268,7 @@ infraharvest export [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--command` |  | command whose run the run document describes: import or drift (default: the one whose report the output directory has, import if both) |
+| `--command` |  | command whose run to describe: import, drift, discover, verify (default: the one whose report the output directory has, import if both; discover and verify, which have none of that kind, must be named) |
 | `--commit-sha` |  | commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory (default: GITHUB_SHA) |
 | `--drop-addresses` |  | leave resource addresses and root paths out of the documents that have them, such as the drift summary and the OCSF inventory |
 | `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |

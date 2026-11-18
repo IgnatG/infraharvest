@@ -35,6 +35,9 @@ func newVerifyCmd() *cobra.Command {
 			"--config takes the import's configuration file: its settings verify has,\n" +
 			"engine, terraform-path, engine-timeout, engine-parallelism, catalogue and policy, apply where the\n" +
 			"command line doesn't give them.\n" +
+			"Each root's checks are also written to _reports/verify.json in the output\n" +
+			"directory, as --format json prints them, which infraharvest export reads for\n" +
+			"--command verify.\n" +
 			"Exit code 0 means every check passed, 1 that one failed, 2 that a root\n" +
 			"couldn't be checked.",
 		Args:         cobra.MaximumNArgs(1),

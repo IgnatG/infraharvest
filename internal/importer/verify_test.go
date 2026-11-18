@@ -256,3 +256,35 @@ func TestRootProvider(t *testing.T) {
 		}
 	}
 }
+
+// verify.json holds what --format json prints, whatever format verify
+// prints, and sits in the report directory, which it makes.
+func TestWriteVerifiedFile(t *testing.T) {
+	results := []verifiedRoot{
+		{Path: "aws/1/eu-west-2", Checks: []report.Check{{Name: gate.CheckFormat, Passed: true}}},
+		{Path: "aws/1/global", Environment: "dev", Error: "terraform init: registry unreachable"},
+	}
+	out := t.TempDir()
+	if err := writeVerifiedFile(out, results); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(out, report.Dir, report.VerifyJSONFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var printed bytes.Buffer
+	if err := writeVerified(&printed, results, FormatJSON); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != printed.String() {
+		t.Errorf("verify.json:\n%s\nwant what --format json prints:\n%s", got, printed.String())
+	}
+	// Written again, it replaces the file.
+	if err := writeVerifiedFile(out, results[:1]); err != nil {
+		t.Fatal(err)
+	}
+	again, err := os.ReadFile(filepath.Join(out, report.Dir, report.VerifyJSONFile))
+	if err != nil || strings.Contains(string(again), "registry unreachable") {
+		t.Errorf("verify.json after a second run: %v\n%s", err, again)
+	}
+}
