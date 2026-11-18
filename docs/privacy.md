@@ -21,10 +21,11 @@ A run connects only to what it needs, with the credentials you give it:
 `infraharvest export` is opt-in: nothing runs it for you. It is local: it reads the output directory of an import, makes no network calls and uploads nothing, so whether the file goes anywhere is for you to decide. (The GitHub Action can send the documents for you, but only when you set `control-plane-url`: see below.) It writes one document, to standard output or to `--out-file`:
 
 - **`inventory`**: for each resource its type, ID, account, region, name, tags and who manages it, with counts by type and scope. Tags whose key or value looks like a secret are dropped, and you can drop more with `--drop-tag` and `--drop-tags`, or hash IDs and names with `--hash-ids` under a key only you hold.
-- **`run`**: the exit code and outcome, the versions of infraharvest and Terraform or OpenTofu, and the counts.
+- **`run`**: the command, the outcome and, for an import, the exit code, the versions of infraharvest and Terraform or OpenTofu, and the counts.
 - **`gate`**: whether each check of the verification gate passed, with reason codes from a fixed list.
+- **`drift-summary`**: for each root and environment, how many changes in the cloud drift found, by outcome and resource type, and the addresses of the resources that changed, never what they changed to. `--hash-ids` hashes the addresses, and `--drop-addresses` leaves them out.
 
-It holds no attributes, values, resource addresses, paths or messages, and each document is checked against its schema before it is written. See [Export](export.md).
+It holds no attributes, values, paths or messages, and, but for the addresses of the drift summary, no resource addresses. Each document is checked against its schema before it is written. See [Export](export.md).
 
 ## The GitHub Action and the MCP server
 

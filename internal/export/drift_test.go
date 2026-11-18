@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +41,8 @@ func driftChanges() []report.DriftChange {
 		}
 	}
 	return []report.DriftChange{
-		change(root, "", "aws_s3_bucket.logs", "aws_s3_bucket", report.DriftKept),
-		change(root, "", "aws_s3_bucket.logs", "aws_s3_bucket", report.DriftWritten),
+		change(root, "", "aws_s3_bucket.audit", "aws_s3_bucket", report.DriftKept),
+		change(root, "", "aws_s3_bucket.audit", "aws_s3_bucket", report.DriftWritten),
 		change(root, "", `aws_s3_bucket.named["team-blue"]`, "aws_s3_bucket", report.DriftManual),
 		change(root, "", "module.db.aws_db_instance.main", "aws_db_instance", report.DriftSecret),
 		change(root, "", "aws_sqs_queue.jobs", "aws_sqs_queue", report.DriftAbsorbed),
@@ -48,7 +51,7 @@ func driftChanges() []report.DriftChange {
 		change(root, "", "aws_sqs_queue.later", "aws_sqs_queue", report.DriftRejectedByCheck),
 		{
 			Root: root, Address: "local.tags", Kind: "changed", Attribute: "tags.Env", Before: "a", After: "b", Decision: report.DriftKeep, Outcome: report.DriftKept,
-			Covers: []string{"aws_s3_bucket.logs", "aws_sqs_queue.jobs"},
+			Covers: []string{"aws_s3_bucket.audit", "aws_sqs_queue.jobs"},
 		},
 		change("aws/123456789012/us-east-1", "prod", "aws_vpc.main", "aws_vpc", report.DriftKept),
 		change("aws/123456789012/us-east-1", "dev", "aws_vpc.main", "aws_vpc", report.DriftKept),
@@ -269,5 +272,315 @@ func TestRunSchemaPerCommand(t *testing.T) {
 		if err := validate(DocRun, encode(doc)); err == nil {
 			t.Errorf("%s: passed", name)
 		}
+	}
+}
+
+// writeOutWithDrift is writeOut, with the drift report of writeDrift beside
+// the import's: the output of an import that was checked for drift.
+func writeOutWithDrift(t *testing.T) string {
+	t.Helper()
+	out := writeOut(t)
+	content, err := os.ReadFile(filepath.Join(writeDrift(t), report.Dir, report.DriftJSONFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(out, report.Dir, report.DriftJSONFile), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func decodeSummary(t *testing.T, content []byte) driftSummaryDoc {
+	t.Helper()
+	var doc driftSummaryDoc
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func TestDriftSummary(t *testing.T) {
+	t.Parallel()
+	out := writeDrift(t)
+	content := build(t, Options{Out: out, Document: DocDriftSummary})
+	doc := decodeSummary(t, content)
+	if doc.Schema != schemaDriftSummary || doc.GeneratedAt != "2026-11-02T10:00:00Z" || !doc.DriftFound {
+		t.Errorf("header: %+v", doc)
+	}
+	if want := (outcomeCounts{Written: 1, Kept: 4, RejectedByPlan: 1, RejectedByCheck: 1, Manual: 1, Secret: 1, NotAssessable: 1, Absorbed: 1}); doc.Totals.Outcomes != want {
+		t.Errorf("outcomes %+v, want %+v", doc.Totals.Outcomes, want)
+	}
+	if doc.Totals.Roots != 4 || doc.Totals.RootsNotChecked != 1 || doc.Totals.Changes != 11 {
+		t.Errorf("totals: %+v", doc.Totals)
+	}
+	if doc.Redaction.Addresses != addressesPlain || doc.Redaction.HashAlg != hashAlg {
+		t.Errorf("redaction: %+v", doc.Redaction)
+	}
+
+	// The roots, sorted by path and then environment.
+	var names []string
+	for _, r := range doc.Roots {
+		names = append(names, r.Root+" "+r.Environment)
+	}
+	want := []string{"aws/123456789012/ap-south-1 ", "aws/123456789012/eu-west-2 ", "aws/123456789012/us-east-1 dev", "aws/123456789012/us-east-1 prod"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("roots %q, want %q", names, want)
+	}
+	notChecked, london, dev := doc.Roots[0], doc.Roots[1], doc.Roots[2]
+	if notChecked.Checked || notChecked.Changes != 0 || len(notChecked.Types) != 0 || len(notChecked.Addresses) != 0 {
+		t.Errorf("the root that couldn't be checked: %+v", notChecked)
+	}
+	if !london.Checked || london.Changes != 9 || london.Outcomes.Kept != 2 || london.Outcomes.Written != 1 || london.Outcomes.Manual != 1 {
+		t.Errorf("eu-west-2: %+v", london)
+	}
+	if dev.Changes != 1 || dev.Outcomes.Kept != 1 || len(dev.Addresses) != 1 || dev.Addresses[0] != "aws_vpc.main" {
+		t.Errorf("dev: %+v", dev)
+	}
+
+	// By type, including the change of tags several resources share, which
+	// has none.
+	var types []string
+	for _, ty := range london.Types {
+		types = append(types, ty.Type+"="+strconv.Itoa(ty.Changes))
+	}
+	if got := strings.Join(types, ","); got != "aws_db_instance=1,aws_s3_bucket=3,aws_sqs_queue=4,shared_tags=1" {
+		t.Errorf("types %s", got)
+	}
+	// The resources that changed, once each; the place that sets shared
+	// tags isn't one.
+	wantAddresses := []string{
+		`aws_s3_bucket.audit`, `aws_s3_bucket.named["team-blue"]`, "aws_sqs_queue.dead", "aws_sqs_queue.jobs",
+		"aws_sqs_queue.late", "aws_sqs_queue.later", "module.db.aws_db_instance.main",
+	}
+	if !slices.Equal(london.Addresses, wantAddresses) {
+		t.Errorf("addresses %q, want %q", london.Addresses, wantAddresses)
+	}
+
+	// No value, reason, attribute or name of who changed it, nor the
+	// message of the root that failed.
+	for _, leak := range []string{driftSecretBefore, driftSecretAfter, "alice", "ModifyDBInstance", "CloudTrail", "password", "access denied", "terraform init", "local.tags", `"before"`, `"after"`} {
+		if strings.Contains(string(content), leak) {
+			t.Errorf("the drift summary holds %q:\n%s", leak, content)
+		}
+	}
+}
+
+func TestDriftSummaryHashAndDropAddresses(t *testing.T) {
+	t.Parallel()
+	out := writeDrift(t)
+	keyA, keyB := []byte("0123456789abcdef-key-a"), []byte("0123456789abcdef-key-b")
+	plain := decodeSummary(t, build(t, Options{Out: out, Document: DocDriftSummary}))
+	a1 := decodeSummary(t, build(t, Options{Out: out, Document: DocDriftSummary, HashKey: keyA}))
+	a2 := decodeSummary(t, build(t, Options{Out: out, Document: DocDriftSummary, HashKey: keyA}))
+	b := decodeSummary(t, build(t, Options{Out: out, Document: DocDriftSummary, HashKey: keyB}))
+	if a1.Redaction.Addresses != addressesHashed {
+		t.Errorf("redaction: %+v", a1.Redaction)
+	}
+	london := func(d driftSummaryDoc) driftRootSummary { return d.Roots[1] }
+	if len(london(a1).Addresses) != len(london(plain).Addresses) {
+		t.Fatalf("hashed %d addresses, want %d", len(london(a1).Addresses), len(london(plain).Addresses))
+	}
+	for _, h := range london(a1).Addresses {
+		if len(h) != 64 || strings.Contains(h, "aws_") || strings.Contains(h, "team-blue") {
+			t.Errorf("address not hashed: %s", h)
+		}
+		if !slices.Contains(london(a2).Addresses, h) || slices.Contains(london(b).Addresses, h) {
+			t.Errorf("the same key gave other hashes, or another key the same: %s", h)
+		}
+	}
+	// Roots, environments, types and counts stay readable.
+	if london(a1).Root != "aws/123456789012/eu-west-2" || len(london(a1).Types) != 4 || london(a1).Types[0].Type != "aws_db_instance" || a1.Totals != plain.Totals {
+		t.Errorf("hashed: %+v", london(a1))
+	}
+
+	// Dropping wins over hashing.
+	for _, key := range [][]byte{nil, keyA} {
+		content := build(t, Options{Out: out, Document: DocDriftSummary, HashKey: key, DropAddresses: true})
+		doc := decodeSummary(t, content)
+		if doc.Redaction.Addresses != addressesDropped {
+			t.Errorf("redaction: %+v", doc.Redaction)
+		}
+		for _, r := range doc.Roots {
+			if r.Addresses != nil {
+				t.Errorf("%s has addresses: %q", r.Root, r.Addresses)
+			}
+		}
+		for _, leak := range []string{`"addresses": [`, "aws_sqs_queue.", "aws_s3_bucket.", "team-blue", "aws_vpc.main"} {
+			if strings.Contains(string(content), leak) {
+				t.Errorf("the dropped summary holds %q:\n%s", leak, content)
+			}
+		}
+		if doc.Roots[1].Changes != 9 || len(doc.Roots[1].Types) != 4 {
+			t.Errorf("dropping addresses changed the counts: %+v", doc.Roots[1])
+		}
+	}
+}
+
+func TestDriftSummaryIsStable(t *testing.T) {
+	t.Parallel()
+	out := writeDrift(t)
+	finished := time.Date(2026, 11, 3, 9, 37, 0, 0, time.UTC)
+	var first, second driftSummaryDoc
+	for i, doc := range []*driftSummaryDoc{&first, &second} {
+		opts := Options{Out: out, Document: DocDriftSummary, FinishedAt: finished}
+		opts.Now = func() time.Time { return time.Date(2026, 11, 3, 12+i, 0, 0, 0, time.UTC) }
+		content, err := Build(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(content, doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if first.GeneratedAt != "2026-11-03T09:37:00Z" || !reflect.DeepEqual(first, second) {
+		t.Errorf("exporting again gave another document: %+v, %+v", first, second)
+	}
+	// It has the run ID of the drift run's document, and not the import's.
+	run := decodeRun(t, build(t, Options{Out: out, Document: DocRun}))
+	if run["run_id"] != first.RunID {
+		t.Errorf("run_id %s, the drift run's is %v", first.RunID, run["run_id"])
+	}
+	both := writeOutWithDrift(t)
+	if again := decodeSummary(t, build(t, Options{Out: both, Document: DocDriftSummary})); again.RunID != first.RunID {
+		t.Errorf("the import's report beside it changed the run_id: %s, %s", again.RunID, first.RunID)
+	}
+}
+
+func TestDriftSummaryNeedsDriftJSON(t *testing.T) {
+	t.Parallel()
+	if _, err := Build(Options{Out: writeOut(t), Document: DocDriftSummary}); err == nil {
+		t.Error("a drift summary of an import was built")
+	}
+	// An older drift.json has no schema field; another one is refused.
+	out := t.TempDir()
+	for schema, ok := range map[string]bool{"": true, report.DriftSchema: true, "infraharvest/drift/v2": false} {
+		content := `{"schema_version": 1, "drift_found": false, "roots": [], "changes": []}`
+		if schema != "" {
+			content = `{"schema": "` + schema + `", "schema_version": 1, "drift_found": false, "roots": [], "changes": []}`
+		}
+		if err := os.MkdirAll(filepath.Join(out, report.Dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(out, report.Dir, report.DriftJSONFile), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Build(Options{Out: out, Document: DocDriftSummary, Now: fixedNow})
+		if (err == nil) != ok {
+			t.Errorf("schema %q: %v", schema, err)
+		}
+	}
+	// Nothing to count is a summary with no roots.
+	empty := `{"schema_version": 1, "drift_found": false, "roots": [], "changes": []}`
+	if err := os.WriteFile(filepath.Join(out, report.Dir, report.DriftJSONFile), []byte(empty), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := decodeSummary(t, build(t, Options{Out: out, Document: DocDriftSummary}))
+	if doc.DriftFound || doc.Roots == nil || len(doc.Roots) != 0 || doc.Totals.Changes != 0 {
+		t.Errorf("empty drift: %+v", doc)
+	}
+	// An outcome it doesn't know isn't counted as another.
+	bad := `{"schema_version": 1, "drift_found": true, "roots": [], "changes": [{"root": "r", "address": "a", "type": "t", "outcome": "fixed"}]}`
+	if err := os.WriteFile(filepath.Join(out, report.Dir, report.DriftJSONFile), []byte(bad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Options{Out: out, Document: DocDriftSummary, Now: fixedNow}); err == nil {
+		t.Error("an unknown outcome was counted")
+	}
+}
+
+// An address that looks like a credential, as a key of a resource can,
+// stops the export, as an ID does; unless the addresses are left out.
+func TestDriftSummaryRefusesCredentialAddress(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	d := &report.Drift{
+		Roots:   []report.DriftRoot{{Path: "aws/1/eu-west-2"}},
+		Changes: []report.DriftChange{{Root: "aws/1/eu-west-2", Address: credentialTag, Type: "aws_s3_bucket", Kind: "changed", Decision: report.DriftKeep, Outcome: report.DriftKept}},
+	}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Options{Out: out, Document: DocDriftSummary, Now: fixedNow}); err == nil {
+		t.Error("an address with a credential's format was written")
+	}
+	if _, err := Build(Options{Out: out, Document: DocDriftSummary, Now: fixedNow, HashKey: []byte("0123456789abcdef-key-a")}); err == nil {
+		t.Error("an address with a credential's format was written, hashed")
+	}
+	content := build(t, Options{Out: out, Document: DocDriftSummary, DropAddresses: true})
+	if strings.Contains(string(content), credentialTag) {
+		t.Errorf("the credential reached the summary:\n%s", content)
+	}
+}
+
+func TestDriftSummarySchemaIsClosed(t *testing.T) {
+	t.Parallel()
+	c, err := checkerOf(DocDriftSummary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.items["roots"] == nil {
+		t.Fatalf("the roots aren't checked on their own: %v", c.items)
+	}
+	good := build(t, Options{Out: writeDrift(t), Document: DocDriftSummary})
+	root := func(doc map[string]any) map[string]any { return doc["roots"].([]any)[1].(map[string]any) }
+	for name, mutate := range map[string]func(doc map[string]any){
+		"extra field":        func(doc map[string]any) { doc["x"] = 1 },
+		"extra root field":   func(doc map[string]any) { root(doc)["attributes"] = map[string]any{} },
+		"root without types": func(doc map[string]any) { delete(root(doc), "types") },
+		"empty root":         func(doc map[string]any) { root(doc)["root"] = "" },
+		"extra outcome":      func(doc map[string]any) { root(doc)["outcomes"].(map[string]any)["fixed"] = 1 },
+		"missing outcome":    func(doc map[string]any) { delete(root(doc)["outcomes"].(map[string]any), "kept") },
+		"negative count":     func(doc map[string]any) { root(doc)["changes"] = -1 },
+		"extra type field":   func(doc map[string]any) { root(doc)["types"].([]any)[0].(map[string]any)["x"] = 1 },
+		"duplicate address": func(doc map[string]any) {
+			a := root(doc)["addresses"].([]any)
+			root(doc)["addresses"] = append(a, a[0])
+		},
+		"empty address":       func(doc map[string]any) { root(doc)["addresses"] = []any{""} },
+		"address not text":    func(doc map[string]any) { root(doc)["addresses"] = []any{1} },
+		"other redaction":     func(doc map[string]any) { doc["redaction"].(map[string]any)["addresses"] = "some" },
+		"no redaction":        func(doc map[string]any) { delete(doc, "redaction") },
+		"extra total":         func(doc map[string]any) { doc["totals"].(map[string]any)["x"] = 1 },
+		"other schema":        func(doc map[string]any) { doc["schema"] = "infraharvest/drift-summary/v2" },
+		"roots null":          func(doc map[string]any) { doc["roots"] = nil },
+		"no generated_at":     func(doc map[string]any) { delete(doc, "generated_at") },
+		"run ID not a UUID":   func(doc map[string]any) { doc["run_id"] = "x" },
+		"environment is null": func(doc map[string]any) { root(doc)["environment"] = nil },
+	} {
+		var doc map[string]any
+		if err := json.Unmarshal(good, &doc); err != nil {
+			t.Fatal(err)
+		}
+		mutate(doc)
+		content, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var instance any
+		if err := json.Unmarshal(content, &instance); err != nil {
+			t.Fatal(err)
+		}
+		whole, split := c.whole.Validate(instance), validate(DocDriftSummary, content)
+		if (whole == nil) != (split == nil) {
+			t.Errorf("%s: the whole schema says %v, the check %v", name, whole, split)
+		}
+		if split == nil {
+			t.Errorf("%s: passed", name)
+		}
+	}
+}
+
+// The schemas of drift.json and of the decisions file are published beside
+// the documents' but aren't documents of export.
+func TestSchemaOfWhatIsNoDocument(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"drift", "drift-decisions"} {
+		if _, err := Schema(name); err == nil {
+			t.Errorf("the schema of %s was printed as a document's", name)
+		}
+	}
+	if _, err := Schema(DocDriftSummary); err != nil {
+		t.Error(err)
 	}
 }

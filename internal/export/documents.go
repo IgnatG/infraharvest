@@ -15,17 +15,21 @@ const (
 	DocRun       = "run"
 	DocGate      = "gate"
 	DocGraph     = "graph"
+
+	// DocDriftSummary is built from drift.json, not from the import's report.
+	DocDriftSummary = "drift-summary"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate, DocGraph}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary}
 
 // The value of each document's schema field.
 const (
-	schemaInventory = "infraharvest/inventory/v1"
-	schemaRun       = "infraharvest/run/v1"
-	schemaGate      = "infraharvest/gate/v1"
-	schemaGraph     = "infraharvest/graph/v1"
+	schemaInventory    = "infraharvest/inventory/v1"
+	schemaRun          = "infraharvest/run/v1"
+	schemaGate         = "infraharvest/gate/v1"
+	schemaGraph        = "infraharvest/graph/v1"
+	schemaDriftSummary = "infraharvest/drift-summary/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.

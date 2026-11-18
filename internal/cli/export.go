@@ -18,15 +18,16 @@ import (
 
 // exportFlags are the values of the flags of export that shape a document.
 type exportFlags struct {
-	document    string
-	command     string
-	requestID   string
-	dropTags    []string
-	dropAllTags bool
-	hashIDs     bool
-	hashKeyFile string
-	startedAt   string
-	finishedAt  string
+	document      string
+	command       string
+	requestID     string
+	dropTags      []string
+	dropAllTags   bool
+	dropAddresses bool
+	hashIDs       bool
+	hashKeyFile   string
+	startedAt     string
+	finishedAt    string
 }
 
 func newExportCmd() *cobra.Command {
@@ -46,8 +47,9 @@ func newExportCmd() *cobra.Command {
 			"check of the verification gate, with reason codes). Nothing is uploaded and no\n" +
 			"network call is made: the document goes to standard output, or to --out-file,\n" +
 			"for you to send or keep.\n" +
-			"It holds no attributes, values or addresses. Tags whose key or value looks like\n" +
-			"a secret are dropped; --drop-tag and --drop-tags drop more, and --hash-ids\n" +
+			"No document holds an attribute or a value, and only the drift summary holds\n" +
+			"addresses. Tags whose key or value looks like a secret are dropped; --drop-tag\n" +
+			"and --drop-tags drop more, and --hash-ids\n" +
 			"replaces IDs and names with HMAC-SHA256 hashes under a key only you hold.\n" +
 			"The report holds no times, so pass --started-at and --finished-at (RFC 3339) to\n" +
 			"put them in the run document; --finished-at is also the inventory's\n" +
@@ -56,6 +58,10 @@ func newExportCmd() *cobra.Command {
 			"import's report.json, or, if it has none, the drift report drift.json; --command\n" +
 			"names the one to describe when it has both (default: import). --request-id puts\n" +
 			"the ID a control plane gave to ask for the run into it.\n" +
+			"drift-summary counts the changes drift.json lists, by root, environment,\n" +
+			"outcome and resource type, with the addresses of the resources that changed\n" +
+			"and never a value: --hash-ids hashes the addresses, and --drop-addresses leaves\n" +
+			"them out of the documents that have them.\n" +
 			"--print-schema prints the JSON Schema of the document instead.",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -87,10 +93,11 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outFile, "out-file", "", "file to write the document to (default: standard output)")
 	cmd.Flags().StringSliceVar(&f.dropTags, "drop-tag", nil, "tag key to leave out of the inventory; repeat or comma-separate for several")
 	cmd.Flags().BoolVar(&f.dropAllTags, "drop-tags", false, "leave all tags out of the inventory")
-	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
+	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses out of the documents that have them, such as the drift summary")
+	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses in the drift summary, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
 	cmd.Flags().StringVar(&f.hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
 	cmd.Flags().StringVar(&f.startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")
-	cmd.Flags().StringVar(&f.finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now)")
+	cmd.Flags().StringVar(&f.finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now)")
 	cmd.Flags().StringVar(&f.command, "command", "", "command whose run the run document describes: "+strings.Join(export.Commands, " or ")+" (default: the one whose report the output directory has, import if both)")
 	cmd.Flags().StringVar(&f.requestID, "request-id", "", "ID a control plane gave to ask for this run, for the run document's request_id: 1 to 128 letters, digits, and . _ : -")
 	return cmd
@@ -100,7 +107,7 @@ func newExportCmd() *cobra.Command {
 func buildExport(out string, f exportFlags) ([]byte, error) {
 	opts := export.Options{
 		Out: out, Document: f.document, DropTags: f.dropTags, DropAllTags: f.dropAllTags,
-		Command: f.command, RequestID: f.requestID,
+		Command: f.command, RequestID: f.requestID, DropAddresses: f.dropAddresses,
 	}
 	var err error
 	if f.startedAt != "" {

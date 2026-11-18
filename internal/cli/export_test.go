@@ -134,3 +134,45 @@ func TestExportRunCommandAndRequestID(t *testing.T) {
 		}
 	}
 }
+
+func TestExportDriftSummary(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := t.TempDir()
+	d := &report.Drift{
+		Roots: []report.DriftRoot{{Path: "aws/123456789012/eu-west-2", Resources: 2}},
+		Changes: []report.DriftChange{{
+			Root: "aws/123456789012/eu-west-2", Address: "aws_s3_bucket.audit", Type: "aws_s3_bucket", Attribute: "tags.Env",
+			Before: "prod-value-1", After: "dev-value-2", Kind: "changed", Decision: report.DriftKeep, Outcome: report.DriftKept,
+		}},
+	}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, err := runExport(t, out, "--schema", "drift-summary")
+	if err != nil || !strings.Contains(stdout, `"schema": "infraharvest/drift-summary/v1"`) || !strings.Contains(stdout, `"aws_s3_bucket.audit"`) ||
+		strings.Contains(stdout, "prod-value-1") || strings.Contains(stdout, "dev-value-2") {
+		t.Fatalf("drift summary: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, out, "--schema", "drift-summary", "--drop-addresses")
+	if err != nil || strings.Contains(stdout, "aws_s3_bucket.audit") || !strings.Contains(stdout, `"addresses": "dropped"`) {
+		t.Fatalf("--drop-addresses: %v\n%s", err, stdout)
+	}
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "an-environment-key-0123")
+	stdout, err = runExport(t, out, "--schema", "drift-summary", "--hash-ids")
+	if err != nil || strings.Contains(stdout, "aws_s3_bucket.audit") || !strings.Contains(stdout, `"addresses": "hashed"`) {
+		t.Fatalf("--hash-ids: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, "--schema", "drift-summary", "--print-schema")
+	var schema struct {
+		ID string `json:"$id"`
+	}
+	if err != nil || json.Unmarshal([]byte(stdout), &schema) != nil || !strings.HasSuffix(schema.ID, "drift-summary-v1.schema.json") {
+		t.Fatalf("--print-schema: %v\n%s", err, stdout)
+	}
+	// A directory of an import has no drift to summarise.
+	if _, err := runExport(t, writeExportReport(t), "--schema", "drift-summary"); err == nil {
+		t.Error("a drift summary of an import worked")
+	}
+}

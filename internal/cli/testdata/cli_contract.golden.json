@@ -1116,6 +1116,13 @@
         "persistent": false
       },
       {
+        "name": "drop-addresses",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
         "name": "drop-tag",
         "type": "stringSlice",
         "default": "[]",

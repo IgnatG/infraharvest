@@ -3,7 +3,8 @@
 
 // Package export writes the metadata of an import that a hosted control
 // plane may receive: the inventory of the estate, the run and the
-// verification gate, each a JSON document with a schema (see schemas/).
+// verification gate, and the summary of a drift check, each a JSON document
+// with a schema (see schemas/).
 // It reads the report and the saved inventory of an output directory, or
 // its drift report,
 // copies into each document only the fields the document names, drops tags
@@ -56,12 +57,15 @@ type Options struct {
 	// RequestID, if set, is the run document's request_id, which a control
 	// plane gave to ask for the run.
 	RequestID string
+	// DropAddresses leaves the resource addresses out of the documents that
+	// have them (the drift summary); HashKey hashes them otherwise.
+	DropAddresses bool
 }
 
 // Build returns the document opts asks for, as indented JSON, checked
 // against its schema. It fails, and returns nothing, if the report can't be
-// read, the output has something the schema doesn't allow, or the key is
-// missing.
+// read (drift.json, for the drift summary and the run of a drift check), the
+// output has something the schema doesn't allow, or the key is missing.
 func Build(opts Options) ([]byte, error) {
 	if !slices.Contains(Documents, opts.Document) {
 		return nil, fmt.Errorf("unknown document %q: want one of %s", opts.Document, strings.Join(Documents, ", "))
@@ -119,8 +123,11 @@ func checkOptions(opts Options) error {
 // has a choice: opts.Command, else the command whose report the output
 // directory has, which is import when it has the reports of both, as an
 // import and a later drift leave. Neither, and the import's report is the
-// one that fails to read.
+// one that fails to read. The drift summary is of a drift run.
 func commandOf(opts Options) string {
+	if opts.Document == DocDriftSummary {
+		return CommandDrift
+	}
 	if opts.Document != DocRun || opts.Command != "" {
 		return cmp.Or(opts.Command, CommandImport)
 	}
@@ -171,7 +178,11 @@ func buildFromDrift(opts Options) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	doc := buildDriftRun(d, runID(content), opts.StartedAt, opts.FinishedAt)
+	runID := runID(content)
+	if opts.Document == DocDriftSummary {
+		return buildDriftSummary(d, opts, runID, generatedAt(opts))
+	}
+	doc := buildDriftRun(d, runID, opts.StartedAt, opts.FinishedAt)
 	doc.RequestID = opts.RequestID
 	return doc, nil
 }

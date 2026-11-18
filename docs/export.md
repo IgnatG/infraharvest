@@ -8,6 +8,7 @@ infraharvest export infrastructure --schema run --out-file run.json
 infraharvest export infrastructure --schema run --command drift --request-id 01HZX-7 --out-file run.json
 infraharvest export infrastructure --schema gate --out-file gate.json
 infraharvest export infrastructure --schema graph --out-file graph.json
+infraharvest export infrastructure --schema drift-summary --out-file drift-summary.json
 ```
 
 Without `--out-file` the document goes to standard output. The directory defaults to `infrastructure`, as for [`report`](reference/cli.md#infraharvest-report).
@@ -22,18 +23,21 @@ Each document has a JSON Schema (2020-12, no fields beyond the ones it lists), a
 | `run` | The command (`import` or `drift`), the outcome (`ok`, `partial`, `failed` or `interrupted`), when it started and finished if you pass `--started-at` and `--finished-at`, the `request_id` if you pass `--request-id`, and failure codes from a fixed list. For an import also the exit code, the versions of infraharvest and of Terraform or OpenTofu, and the counts. See [The run](#the-run). |
 | `gate` | For each check of the [verification gate](output.md#verification-gate) (G1 to G8): whether it passed or was skipped, with reason codes from a fixed list, such as `secrets_found` or `tool_missing`. |
 | `graph` | How the imported resources fit together, to draw them: a node for each imported resource, with its type, ID, account and region as the inventory has them, and for each module call, with its registry source and version (`local` or `other` for a module from a path or a URL), each resource in a module naming it as `parent`; and an edge (`from`, `to`, the nodes' indexes) for each reference between them that the generated configuration writes, directly or through a local or a data source. Instances of `for_each` and `count` resources refer to the instance with the same key, as `each.key` and `count.index` make them. See [The graph](#the-graph). |
+| `drift-summary` | What `infraharvest drift` found, counted: for each root, and each environment of a root [environments share](configuration.md), whether it was checked, how many changes in the cloud there are, by what became of them (`written`, `kept`, `rejected_by_plan`, `rejected_by_check`, `manual`, `secret`, `not_assessable` or `absorbed`, as in [Drift](drift.md#what-it-reports)) and by resource type, and the addresses of the resources that changed. See [The drift summary](#the-drift-summary). |
 
-It has no attributes, no values, no resource addresses, no file paths and no messages: every field is copied by name, and nothing else of the report or the saved inventory is read. The inventory takes its names and tags from what `discover` saved under `.infraharvest/`; without it, the resources are those the report names, without names or tags. Before it is written, each document is checked against its schema, and an export that doesn't match writes nothing.
+No document has an attribute, a value, a file path or a message, and only the drift summary has resource addresses: every field is copied by name, and nothing else of the report or the saved inventory is read. The inventory takes its names and tags from what `discover` saved under `.infraharvest/`; without it, the resources are those the report names, without names or tags. Before it is written, each document is checked against its schema, and an export that doesn't match writes nothing.
 
 ## What it leaves out
 
 - **Tags that look like secrets.** A tag is dropped when the detectors the verification gate uses flag its key or its value, such as `db_password`, or a GitHub token. The inventory lists the dropped keys (`redaction.tag_keys_dropped`), unless the key is itself a credential.
 - **Tags you choose.** `--drop-tag <key>` drops a tag key (repeat it, or separate keys with commas), and `--drop-tags` drops all tags.
-- **IDs and names, if you hash them.** `--hash-ids` replaces each ID and name with its HMAC-SHA256 in hexadecimal. The key is yours: it comes from the environment variable `INFRAHARVEST_EXPORT_KEY`, or from a file with `--hash-key-file`, and must have at least 16 bytes. Nothing writes it down. The same key gives the same hash for a resource in every export, so the control plane can follow it over time; without the key, nobody can check a guess. `--hash-ids` without a key is an error. With it, tags don't give the ID or name away either: the `Name` tag's value, and a value that is or holds the resource's ID or name (one of 4 characters or more), such as an ARN, are hashed with the same key, and a tag whose key holds one, such as `kubernetes.io/cluster/<name>`, is dropped without being listed. Other tags can still name things, such as `aws:cloudformation:stack-name`: drop them with `--drop-tag`.
+- **IDs and names, if you hash them.** `--hash-ids` replaces each ID and name, and the addresses of the drift summary, with its HMAC-SHA256 in hexadecimal. The key is yours: it comes from the environment variable `INFRAHARVEST_EXPORT_KEY`, or from a file with `--hash-key-file`, and must have at least 16 bytes. Nothing writes it down. The same key gives the same hash for a resource in every export, so the control plane can follow it over time; without the key, nobody can check a guess. `--hash-ids` without a key is an error. With it, tags don't give the ID or name away either: the `Name` tag's value, and a value that is or holds the resource's ID or name (one of 4 characters or more), such as an ARN, are hashed with the same key, and a tag whose key holds one, such as `kubernetes.io/cluster/<name>`, is dropped without being listed. Other tags can still name things, such as `aws:cloudformation:stack-name`: drop them with `--drop-tag`.
+- **Addresses, if you drop them.** `--drop-addresses` leaves the resource addresses out of the documents that have them, which is the drift summary today; the counts stay. It is for a control plane that needs to know how much drifted, not what. With `--hash-ids`, the addresses are hashed with the same key instead, so an address in one export is the same hash in the next. A hashed address doesn't join the inventory's hashed ID: the two hash different text.
 
 ```sh
 export INFRAHARVEST_EXPORT_KEY="$(openssl rand -hex 32)"   # keep it: another key hashes differently
 infraharvest export infrastructure --hash-ids --drop-tag owner-email --out-file inventory.json
+infraharvest export infrastructure --schema drift-summary --drop-addresses --out-file drift-summary.json
 ```
 
 Resource types, accounts, regions and scopes, and the counts, stay readable: they are what the control plane groups by. Account IDs are not hashed.
@@ -52,6 +56,14 @@ A drift run is `ok` when every root was checked, `partial` when some couldn't be
 
 `--request-id <id>` puts a `request_id` into the run document: the ID a control plane gave to ask for the run, so that it can match the run to its request. It is 1 to 128 letters, digits, `.`, `_`, `:` and `-`. No other document has it.
 
+## The drift summary
+
+`drift-summary` is made from `_reports/drift.json`, which `infraharvest drift` writes, so it needs a directory that has been checked for drift; it doesn't read the import's report. Drift writes values into `drift.json`, and the export never reads them: it takes each change's root, environment, address, resource type and outcome, and nothing else, so no attribute and no value, not even the name of the attribute, reaches the document. Its `run_id` is made from `drift.json`, as the run document of a drift run's is, so the two match. `generated_at` is the time of the export, or `--finished-at`.
+
+Each root is listed with the environment it was checked as, if it is one [environments share](configuration.md), and `checked`: `false` for a root drift couldn't check, which has no changes counted, and whose error is not in the document. Each root has its changes counted by outcome and by resource type, with `outcomes` having every outcome of [Drift](drift.md#what-it-reports), so a control plane can say how many changes the next apply reverts (`kept`), how many need a hand edit (`manual`, `rejected_by_plan` and `rejected_by_check`) and how many are secrets. A change of tags that several resources get from one place, such as `local.tags`, has no resource type: it is counted under the type `shared_tags`, and the resources it covers are in the root's `addresses`, not the place that sets the tags. `drift_found` is the report's: whether a change is left that the next apply reverts or that can't be assessed.
+
+`addresses` lists the resources that changed in each root, once each, sorted, as Terraform names them, such as `module.db.aws_db_instance.main` or `aws_s3_bucket.named["logs"]`. An address can hold the key of a `for_each`, which can be a name: hash the addresses with `--hash-ids`, which is the same HMAC under the same key as the inventory's, or leave them out with `--drop-addresses`, which wins when both are given. `redaction.addresses` says which was done: `plain`, `hashed` or `dropped`. An address that looks like a credential stops the export. Roots and environments are named as in the output directory and aren't hashed.
+
 ## The graph
 
 The graph is drawn from the configuration of each root, so it shows what the code says: a subnet's `vpc_id = aws_vpc.main.id` is an edge from the subnet to the VPC. It has the resources the import took over, not the ones it left out or excluded. References between roots go through variables (see [Output](output.md)), and references inside a module's own code are the module's, so neither is an edge; the roots of [environments](configuration.md) merged into a root they share have their nodes, but no edges yet: the merged root names their resources at other addresses. The same output gives the same graph, nodes and edges in the same order, so two graphs can be compared.
@@ -60,7 +72,7 @@ The graph is drawn from the configuration of each root, so it shows what the cod
 
 ## Control plane API
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) sends the inventory, run and gate documents to a control plane when `control-plane-url` is set; the graph isn't sent yet. `infraharvest export` itself never does. A server that implements the following can receive them; `<base>` is the URL as given, without a trailing slash, and may have a path.
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) sends the inventory, run and gate documents to a control plane when `control-plane-url` is set; the graph and the drift summary aren't sent yet. `infraharvest export` itself never does. A server that implements the following can receive them; `<base>` is the URL as given, without a trailing slash, and may have a path.
 
 | Request | Body |
 |---|---|
