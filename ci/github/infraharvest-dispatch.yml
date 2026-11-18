@@ -167,6 +167,14 @@ jobs:
           persist-credentials: false
           sparse-checkout: selection.yaml
           sparse-checkout-cone-mode: false
+      # The action writes the selection there: not through a link the branch
+      # committed.
+      - name: Refuse a linked selection
+        run: |
+          if [[ -L .infraharvest-inputs/selection.yaml ]]; then
+            echo "::error::selection.yaml on the branch is a symbolic link"
+            exit 1
+          fi
       # Replace with your cloud's credentials: see the action's README.
       - uses: aws-actions/configure-aws-credentials@<sha>
         with:
@@ -185,7 +193,9 @@ jobs:
           control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
           control-plane-request-id: ${{ inputs.request-id }}
       # Only now does the token go on disk, with the branch to push to,
-      # after infraharvest has run.
+      # after infraharvest has run. Nothing is written into this checkout:
+      # the commit is built with git's own commands, from the branch's tree
+      # and the selection file's content.
       - name: Check out the branch to push to
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -199,8 +209,8 @@ jobs:
           INPUTS_REF: ${{ inputs.inputs-ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [[ -z "$SELECTION_FILE" || ! -f "$SELECTION_FILE" ]]; then
-            echo "::error::discover wrote no selection file"
+          if [[ -z "$SELECTION_FILE" || -L "$SELECTION_FILE" || ! -f "$SELECTION_FILE" ]]; then
+            echo "::error::discover wrote no selection file, or one that is a symbolic link"
             exit 1
           fi
           # Never the default branch, whatever the check said.
@@ -208,16 +218,25 @@ jobs:
             echo "::error::inputs-ref must be a branch under infraharvest/control-plane/, not the default branch"
             exit 1
           fi
-          cp "$SELECTION_FILE" .infraharvest-push/selection.yaml
+          file="$PWD/$SELECTION_FILE"
           cd .infraharvest-push || exit 1
-          git add selection.yaml
-          if git diff --cached --quiet; then
+          parent=$(git rev-parse HEAD)
+          blob=$(git hash-object -w --no-filters -- "$file")
+          # A temporary index holding the branch's tree with this blob as
+          # selection.yaml: the working tree is never written.
+          export GIT_INDEX_FILE="$RUNNER_TEMP/infraharvest-push-index"
+          git read-tree "$parent"
+          git update-index --add --cacheinfo "100644,$blob,selection.yaml"
+          tree=$(git write-tree)
+          if [[ "$tree" == "$(git rev-parse "$parent^{tree}")" ]]; then
             echo "The selection is the one $INPUTS_REF has: nothing to commit."
             exit 0
           fi
-          git -c "user.name=github-actions[bot]" -c "user.email=41898282+github-actions[bot]@users.noreply.github.com" commit -q -m "chore: record the selection infraharvest discover listed"
+          export GIT_AUTHOR_NAME="github-actions[bot]" GIT_COMMITTER_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com" GIT_COMMITTER_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          commit=$(git commit-tree "$tree" -p "$parent" -m "chore: record the selection infraharvest discover listed")
           # No force: a branch that moved since it was checked out fails.
-          git push origin "HEAD:refs/heads/$INPUTS_REF"
+          git push origin "$commit:refs/heads/$INPUTS_REF"
 
   # A verify run checks the roots the default branch has again. It writes
   # nothing back.
