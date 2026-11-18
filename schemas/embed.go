@@ -9,8 +9,10 @@ package schemas
 import "embed"
 
 // FS has the schemas: inventory-v1.schema.json, run-v1.schema.json,
-// gate-v1.schema.json, graph-v1.schema.json and
-// drift-summary-v1.schema.json, the documents export writes; and
+// gate-v1.schema.json, graph-v1.schema.json,
+// drift-summary-v1.schema.json and ocsf-inventory-v1.schema.json, the
+// documents export writes (the extension that last one uses is under
+// ocsf/, and isn't embedded); and
 // drift-v1.schema.json, which describes drift.json, and
 // drift-decisions-v1.schema.json, the decisions file.
 //

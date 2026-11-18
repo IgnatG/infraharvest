@@ -176,3 +176,81 @@ func TestExportDriftSummary(t *testing.T) {
 		t.Error("a drift summary of an import worked")
 	}
 }
+
+func TestExportOCSFInventory(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	t.Setenv("GITHUB_SERVER_URL", "")
+	t.Setenv("GITHUB_REPOSITORY", "")
+	t.Setenv("GITHUB_SHA", "")
+	out := writeExportReport(t)
+	const sha = "0123456789abcdef0123456789abcdef01234567"
+
+	stdout, err := runExport(t, out, "--schema", "ocsf-inventory", "--repo-url", "https://github.com/o/r", "--commit-sha", sha)
+	if err != nil || !strings.Contains(stdout, `"schema": "infraharvest/ocsf-inventory/v1"`) || !strings.Contains(stdout, `"class_uid": 5023`) {
+		t.Fatalf("ocsf-inventory: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, "--schema", "ocsf-inventory", "--print-schema")
+	var schema struct {
+		ID string `json:"$id"`
+	}
+	if err != nil || json.Unmarshal([]byte(stdout), &schema) != nil || !strings.HasSuffix(schema.ID, "ocsf-inventory-v1.schema.json") {
+		t.Fatalf("--print-schema: %v\n%s", err, stdout)
+	}
+	// The repository and the commit are for the OCSF inventory only, and
+	// must be what they say.
+	for _, args := range [][]string{
+		{"--repo-url", "https://github.com/o/r"},
+		{"--schema", "run", "--commit-sha", sha},
+		{"--schema", "ocsf-inventory", "--repo-url", "https://user:pw@github.com/o/r"},
+		{"--schema", "ocsf-inventory", "--commit-sha", "main"},
+	} {
+		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
+			t.Errorf("%v worked", args)
+		}
+	}
+}
+
+// The GitHub Actions environment names the repository and the commit for
+// the OCSF inventory only, and the flags win.
+func TestExportRepoFromEnvironment(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	t.Setenv("GITHUB_SERVER_URL", "https://github.com/")
+	t.Setenv("GITHUB_REPOSITORY", "owner/infra")
+	t.Setenv("GITHUB_SHA", "0123456789abcdef0123456789abcdef01234567")
+	out := writeExportReport(t)
+
+	// Another document isn't refused for what the environment sets.
+	for _, schema := range []string{"inventory", "run", "gate", "graph"} {
+		if _, err := runExport(t, out, "--schema", schema); err != nil {
+			t.Errorf("%s: %v", schema, err)
+		}
+	}
+	if _, err := runExport(t, out, "--schema", "ocsf-inventory"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		flagURL, flagSHA, wantURL, wantSHA string
+	}{
+		{"", "", "https://github.com/owner/infra", "0123456789abcdef0123456789abcdef01234567"},
+		{"https://git.example.com/o/r", "", "https://git.example.com/o/r", "0123456789abcdef0123456789abcdef01234567"},
+		{"", strings.Repeat("ab", 20), "https://github.com/owner/infra", strings.Repeat("ab", 20)},
+	} {
+		url, sha := repoFromEnv(tc.flagURL, tc.flagSHA, os.Getenv)
+		if url != tc.wantURL || sha != tc.wantSHA {
+			t.Errorf("%+v: got %s, %s", tc, url, sha)
+		}
+	}
+	none := func(string) string { return "" }
+	if url, sha := repoFromEnv("", "", none); url != "" || sha != "" {
+		t.Errorf("without the environment: %q, %q", url, sha)
+	}
+	onlyServer := func(k string) string {
+		if k == "GITHUB_SERVER_URL" {
+			return "https://github.com"
+		}
+		return ""
+	}
+	if url, _ := repoFromEnv("", "", onlyServer); url != "" {
+		t.Errorf("a server without a repository: %q", url)
+	}
+}

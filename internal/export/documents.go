@@ -18,18 +18,22 @@ const (
 
 	// DocDriftSummary is built from drift.json, not from the import's report.
 	DocDriftSummary = "drift-summary"
+
+	// DocOCSFInventory is the inventory as OCSF events (see ocsf.go).
+	DocOCSFInventory = "ocsf-inventory"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory}
 
 // The value of each document's schema field.
 const (
-	schemaInventory    = "infraharvest/inventory/v1"
-	schemaRun          = "infraharvest/run/v1"
-	schemaGate         = "infraharvest/gate/v1"
-	schemaGraph        = "infraharvest/graph/v1"
-	schemaDriftSummary = "infraharvest/drift-summary/v1"
+	schemaInventory     = "infraharvest/inventory/v1"
+	schemaRun           = "infraharvest/run/v1"
+	schemaGate          = "infraharvest/gate/v1"
+	schemaGraph         = "infraharvest/graph/v1"
+	schemaDriftSummary  = "infraharvest/drift-summary/v1"
+	schemaOCSFInventory = "infraharvest/ocsf-inventory/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.
