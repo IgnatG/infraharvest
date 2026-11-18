@@ -197,10 +197,10 @@ jobs:
 
 ### Runs a control plane starts
 
-A control plane whose GitHub App can dispatch workflows on the repository can start an import or a drift check itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step with your cloud's. It is started by `workflow_dispatch`, with three inputs:
+A control plane whose GitHub App can dispatch workflows on the repository can start an import, a drift check, a discover or a verify run itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step of each job with your cloud's. It is started by `workflow_dispatch`, with three inputs:
 
-- `command`: `import` or `drift`.
-- `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports.
+- `command`: `import`, `drift`, `discover` or `verify`.
+- `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name, and the default branch): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports. A discover run needs it: the branch must exist, and the run commits the selection it lists to it as `selection.yaml`, which the control plane reads there.
 - `request-id`: the control plane's ID of the request, checked as `control-plane-request-id` is and passed to it, so the run document sent back says which request it answers.
 
 ```yaml
@@ -217,7 +217,15 @@ A control plane whose GitHub App can dispatch workflows on the repository can st
           control-plane-request-id: ${{ inputs.request-id }}
 ```
 
-The workflow runs only on the default branch: a dispatch of another ref fails in its first step. The files come from a branch, not from the dispatch's inputs, so what a run imports or accepts is in Git's history, where whoever committed it, and when, can be seen; only the two files are checked out, into a directory of their own, and nothing else of that branch is run. The inputs reach the shell as variables, never in a script's text, so they can't inject commands. The result still arrives as a pull request, which someone reviews and merges: the dispatch changes no code on the default branch itself. One run at a time per repository (`concurrency`); a second waits.
+The workflow has a job for each kind of run, so that each has only the permissions it needs, after a `check` job that checks the inputs and has none:
+
+| `command` | Job | Permissions | What it does |
+|---|---|---|---|
+| `import`, `drift` | `infraharvest` | `contents: write`, `pull-requests: write`, `id-token: write` | Runs the action as the example above, and opens a pull request |
+| `discover` | `discover` | `contents: write`, `id-token: write` | Runs `discover: "true"` with `selection` the file it checked out of `inputs-ref` (so the decisions in it stay), then commits the file back to `inputs-ref`, with no force. No commit if it didn't change. It changes no code and opens no pull request |
+| `verify` | `verify` | `contents: read`, `id-token: write` | Runs `verify: "true"` on the roots the default branch has, and writes nothing back |
+
+The workflow runs only on the default branch: a dispatch of another ref fails in its first job. A discover run pushes to `inputs-ref` and never to the default branch: the name is checked twice, and the token that can push goes on disk after infraharvest has run, in a checkout of its own. The selection file lists resource IDs, names and tags, so the branch has them as the repository's other branches do. The files come from a branch, not from the dispatch's inputs, so what a run imports or accepts is in Git's history, where whoever committed it, and when, can be seen; only the files are checked out, into a directory of their own, and nothing else of that branch is run. The inputs reach the shell as variables, never in a script's text, so they can't inject commands. An import's or a drift check's result still arrives as a pull request, which someone reviews and merges: the dispatch changes no code on the default branch itself. One run at a time per repository (`concurrency`); a second waits.
 
 ## Signed evidence
 
