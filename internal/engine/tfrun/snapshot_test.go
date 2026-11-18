@@ -863,3 +863,17 @@ resource "azurerm_postgresql_flexible_server" "db" {
 		t.Errorf("plans for unblamed errors: %d", tf.plans)
 	}
 }
+
+func TestCheckImportOnlyNamesWhatAnUpdateChanges(t *testing.T) {
+	t.Parallel()
+	p := importPlan("aws_sns_topic_subscription.main")
+	c := p.ResourceChanges[0].Change
+	c.Actions = tfjson.Actions{tfjson.ActionUpdate}
+	c.Before = map[string]any{"endpoint": "e", "confirmation_timeout_in_minutes": nil, "arn": "a"}
+	c.After = map[string]any{"endpoint": "e", "confirmation_timeout_in_minutes": float64(1), "arn": nil}
+	c.AfterUnknown = map[string]any{"arn": true}
+	err := CheckImportOnly(p)
+	if err == nil || !strings.HasSuffix(err.Error(), "(update of confirmation_timeout_in_minutes)") {
+		t.Errorf("got %v", err)
+	}
+}

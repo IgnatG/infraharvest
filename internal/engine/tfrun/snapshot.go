@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -332,11 +333,39 @@ func CheckImportOnly(p *tfjson.Plan) error {
 			}
 		default:
 			if !rc.Change.Actions.NoOp() || rc.Change.Importing == nil {
-				return fmt.Errorf("%s: the plan does more than import it (%s)", rc.Address, strings.Join(ActionNames(rc.Change.Actions), ","))
+				what := strings.Join(ActionNames(rc.Change.Actions), ",")
+				if changed := changedArguments(rc.Change); len(changed) > 0 {
+					what += " of " + strings.Join(changed, ", ")
+				}
+				return fmt.Errorf("%s: the plan does more than import it (%s)", rc.Address, what)
 			}
 		}
 	}
 	return nil
+}
+
+// changedArguments returns the names of the top-level arguments whose
+// values c changes, never the values: they may be secrets.
+func changedArguments(c *tfjson.Change) []string {
+	before, _ := c.Before.(map[string]any)
+	after, _ := c.After.(map[string]any)
+	unknown, _ := c.AfterUnknown.(map[string]any)
+	var names []string
+	for name, value := range after {
+		if u, ok := unknown[name].(bool); ok && u {
+			continue
+		}
+		if !reflect.DeepEqual(before[name], value) {
+			names = append(names, name)
+		}
+	}
+	for name := range before {
+		if _, ok := after[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Cached is a Terraform whose plans, while it has a snapshot (see Use), run
