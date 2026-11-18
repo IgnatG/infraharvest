@@ -221,6 +221,11 @@ func ParseDecisions(path string, content []byte) (*Decisions, error) {
 		}
 		seen[k] = true
 	}
+	// What the checks above don't say, the schema does: a value that isn't
+	// text, say.
+	if err := checkSchema(content); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
 	f.index()
 	return f, nil
 }

@@ -34,6 +34,7 @@ roots[].not_applied array of string omitempty
 roots[].path string
 roots[].placeholders array of string omitempty
 roots[].resources number
+schema string
 schema_version number
 totals object
 totals.absorbed number

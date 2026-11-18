@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/drift-decisions-v1.schema.json",
+  "title": "infraharvest drift decisions, version 1",
+  "description": "The content of a decisions file, drift.yaml, which infraharvest drift --write-decisions writes and --decisions reads, read as JSON: which changes in the cloud to accept into the code, and which to keep. It holds the fingerprint of each change's values, never the values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {"const": 1},
+    "defaults": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {"enum": ["", "accept", "keep"]}
+      }
+    },
+    "rules": {
+      "type": ["array", "null"],
+      "items": {"$ref": "#/$defs/rule"}
+    },
+    "changes": {
+      "type": ["array", "null"],
+      "items": {"$ref": "#/$defs/change"}
+    }
+  },
+  "$defs": {
+    "patterns": {
+      "anyOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"type": "string"}}
+      ]
+    },
+    "match": {
+      "anyOf": [
+        {"const": "all"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "attribute": {"$ref": "#/$defs/patterns"},
+            "type": {"$ref": "#/$defs/patterns"},
+            "address": {"$ref": "#/$defs/patterns"},
+            "root": {"$ref": "#/$defs/patterns"}
+          }
+        }
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {"$ref": "#/$defs/match"},
+        "keep": {"$ref": "#/$defs/match"}
+      },
+      "oneOf": [
+        {"required": ["accept"]},
+        {"required": ["keep"]}
+      ]
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "address", "fingerprint", "decision"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "environment": {"type": "string"},
+        "address": {"type": "string", "minLength": 1},
+        "attribute": {"type": "string"},
+        "fingerprint": {"type": "string", "minLength": 1},
+        "decision": {"enum": ["accept", "keep", "undecided"]},
+        "note": {"type": "string"}
+      }
+    }
+  }
+}

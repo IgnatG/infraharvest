@@ -10,6 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/IgnatG/infraharvest/schemas"
 )
 
 func sampleDrift() *Drift {
@@ -236,5 +240,127 @@ func TestDriftModuleCall(t *testing.T) {
 	want := "(`generated.tf:7`, which the module reads at `../../../modules/s3_bucket_0a1b2c3d/main.tf:3 var.tags`)"
 	if md := d.Markdown(); !strings.Contains(md, want) {
 		t.Errorf("drift.md:\n%s\nwant:\n%s", md, want)
+	}
+}
+
+// fullDrift has every field drift.json can hold, so that the schema is
+// checked against all of them.
+func fullDrift() *Drift {
+	d := &Drift{
+		Roots: []DriftRoot{
+			{Path: "aws/123/eu-west-2", Environment: "dev", Backend: "s3", Resources: 3, NotApplied: []string{"aws_s3_bucket.fresh"}, Placeholders: []string{"db_password"}, Error: "terraform init failed"},
+		},
+		Changes: []DriftChange{
+			{
+				Root: "aws/123/eu-west-2", Environment: "dev", Address: "module.web.aws_instance.web", Type: "aws_instance", ModuleCall: "web",
+				Attribute: "tags.Env", Before: map[string]any{"a": []any{1, "x", nil}}, After: false, Kind: "changed",
+				Source:   &DriftSource{File: "main.tf", Line: 4, Expression: "var.tags", ModulePath: "../modules/web/main.tf:4 var.tags"},
+				Decision: DriftAccept, DecisionSource: DriftDecidedByEntry, DecisionStale: true, Outcome: DriftManual, Reason: "edit it by hand", ForcesReplacement: true,
+				LastChange: &DriftLastChange{By: "arn:aws:iam::1:user/a", Call: "ModifyInstanceAttribute", At: "2026-11-03T09:30:00Z", Log: "CloudTrail"},
+			},
+			{Root: "aws/123/eu-west-2", Address: "local.tags", Kind: "changed", Covers: []string{"aws_s3_bucket.a", "aws_s3_bucket.b"}, Decision: DriftKeep, Outcome: DriftKept},
+		},
+	}
+	d.Finish()
+	return d
+}
+
+// driftSchema returns the schema drift.json is written against.
+func driftSchema(t *testing.T) *jsonschema.Resolved {
+	t.Helper()
+	content, err := schemas.FS.ReadFile("drift-v1.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s jsonschema.Schema
+	if err := json.Unmarshal(content, &s); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := s.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
+}
+
+func validateDriftJSON(t *testing.T, schema *jsonschema.Resolved, content []byte) error {
+	t.Helper()
+	var doc any
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return schema.Validate(doc)
+}
+
+func TestDriftJSONMatchesItsSchema(t *testing.T) {
+	t.Parallel()
+	schema := driftSchema(t)
+	empty := &Drift{}
+	empty.Finish()
+	for name, d := range map[string]*Drift{"sample": sampleDrift(), "every field": fullDrift(), "empty": empty} {
+		var b bytes.Buffer
+		if err := d.WriteJSON(&b); err != nil {
+			t.Fatal(err)
+		}
+		if err := validateDriftJSON(t, schema, b.Bytes()); err != nil {
+			t.Errorf("%s: %v\n%s", name, err, b.String())
+		}
+		if !strings.Contains(b.String(), `"schema": "infraharvest/drift/v1"`) {
+			t.Errorf("%s: no schema field:\n%s", name, b.String())
+		}
+	}
+	// drift.json on disk is the same document.
+	out := t.TempDir()
+	if err := fullDrift().WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(out, Dir, DriftJSONFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDriftJSON(t, schema, content); err != nil {
+		t.Errorf("drift.json: %v", err)
+	}
+}
+
+func TestDriftSchemaIsClosed(t *testing.T) {
+	t.Parallel()
+	schema := driftSchema(t)
+	var b bytes.Buffer
+	if err := fullDrift().WriteJSON(&b); err != nil {
+		t.Fatal(err)
+	}
+	// The changes are sorted by address: the second is the one with every
+	// field.
+	change := func(doc map[string]any) map[string]any { return doc["changes"].([]any)[1].(map[string]any) }
+	for name, mutate := range map[string]func(doc map[string]any){
+		"top-level field":  func(doc map[string]any) { doc["x"] = 1 },
+		"no schema":        func(doc map[string]any) { delete(doc, "schema") },
+		"other schema":     func(doc map[string]any) { doc["schema"] = "infraharvest/drift/v2" },
+		"change field":     func(doc map[string]any) { change(doc)["x"] = 1 },
+		"outcome":          func(doc map[string]any) { change(doc)["outcome"] = "fixed" },
+		"root field":       func(doc map[string]any) { doc["roots"].([]any)[0].(map[string]any)["x"] = 1 },
+		"totals field":     func(doc map[string]any) { doc["totals"].(map[string]any)["x"] = 1 },
+		"source field":     func(doc map[string]any) { change(doc)["source"].(map[string]any)["x"] = 1 },
+		"last change":      func(doc map[string]any) { delete(change(doc)["last_change"].(map[string]any), "by") },
+		"no changes":       func(doc map[string]any) { delete(doc, "changes") },
+		"negative count":   func(doc map[string]any) { doc["totals"].(map[string]any)["kept"] = -1 },
+		"decision":         func(doc map[string]any) { change(doc)["decision"] = "maybe" },
+		"decision_source":  func(doc map[string]any) { change(doc)["decision_source"] = "me" },
+		"kind":             func(doc map[string]any) { change(doc)["kind"] = "moved" },
+		"schema_version 2": func(doc map[string]any) { doc["schema_version"] = 2 },
+	} {
+		var doc map[string]any
+		if err := json.Unmarshal(b.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		mutate(doc)
+		content, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateDriftJSON(t, schema, content); err == nil {
+			t.Errorf("%s: passed", name)
+		}
 	}
 }

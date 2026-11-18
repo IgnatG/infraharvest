@@ -85,6 +85,12 @@ func TestParseDecisionsRefuses(t *testing.T) {
 		"not yaml":         {"version: [1\n", "drift.yaml"},
 		"version missing":  {"defaults: { decision: keep }\n", "version 0 isn't supported"},
 		"patterns not map": {"version: 1\nrules:\n  - accept: { type: { a: b } }\n", "cannot unmarshal !!map into []string"},
+		// What the checks above let through, the schema refuses.
+		"note a number":     {"version: 1\nchanges:\n  - { root: r, address: a, fingerprint: f, decision: keep, note: 12 }\n", "doesn't match drift-decisions-v1.schema.json"},
+		"root a number":     {"version: 1\nchanges:\n  - { root: 7, address: a, fingerprint: f, decision: keep }\n", "doesn't match drift-decisions-v1.schema.json"},
+		"pattern a number":  {"version: 1\nrules:\n  - accept: { type: [1] }\n", "doesn't match drift-decisions-v1.schema.json"},
+		"a key not text":    {"version: 1\n1: x\n", "drift.yaml"},
+		"defaults not text": {"version: 1\ndefaults: { decision: 3 }\n", "decision must be accept or keep"},
 	} {
 		_, err := driftpolicy.ParseDecisions("drift.yaml", []byte(tc.content))
 		if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "drift.yaml") {
