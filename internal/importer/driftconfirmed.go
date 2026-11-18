@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/driftpolicy"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 )
 
@@ -37,7 +38,7 @@ type confirmedRoots struct {
 // doesn't cover, is copied too, for drift to pull. The checkpoints aren't
 // copied, as drift stages each root's plans there, in the copy.
 func copyConfirmedRoots(out, digest string) (_ *confirmedRoots, err error) {
-	dir, err := os.MkdirTemp("", "infraharvest-drift-roots-")
+	dir, err := tfrun.MkdirTempHeld(tfrun.DriftRootsPattern)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ var defaultWriteBackFile = fsutil.WriteFile
 
 // remove removes the copy.
 func (c *confirmedRoots) remove() {
-	_ = os.RemoveAll(c.dir)
+	tfrun.RemoveHeld(c.dir)
 }
 
 // inCheckpoints reports whether rel, a path relative to the output

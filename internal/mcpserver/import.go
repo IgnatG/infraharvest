@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -364,19 +365,19 @@ type snapshot struct {
 }
 
 func newSnapshot(name string, content []byte) (*snapshot, error) {
-	dir, err := os.MkdirTemp("", "infraharvest-mcp-")
+	dir, err := tfrun.MkdirTempHeld(tfrun.MCPPattern)
 	if err != nil {
 		return nil, err
 	}
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, content, 0o600); err != nil {
-		_ = os.RemoveAll(dir)
+		tfrun.RemoveHeld(dir)
 		return nil, err
 	}
 	return &snapshot{dir: dir, path: path}, nil
 }
 
-func (s *snapshot) remove() { _ = os.RemoveAll(s.dir) }
+func (s *snapshot) remove() { tfrun.RemoveHeld(s.dir) }
 
 // canAsk reports whether the client can ask its user to confirm.
 func canAsk(session *mcp.ServerSession) bool {

@@ -442,19 +442,26 @@ func TestRemoveStaleSnapshots(t *testing.T) {
 	tmp := t.TempDir()
 	old, young, other := filepath.Join(tmp, SnapshotPattern+"old"), filepath.Join(tmp, SnapshotPattern+"young"), filepath.Join(tmp, "other-old")
 	oldPlan, oldState := filepath.Join(tmp, PlanPattern+"old"), filepath.Join(tmp, EmptyStatePattern+"old")
-	for _, d := range []string{old, young, other, oldPlan, oldState} {
+	oldDrift, oldRoots, oldMCP := filepath.Join(tmp, DriftPattern+"old"), filepath.Join(tmp, DriftRootsPattern+"old"), filepath.Join(tmp, MCPPattern+"old")
+	youngRoots, youngMCP := filepath.Join(tmp, DriftRootsPattern+"young"), filepath.Join(tmp, MCPPattern+"young")
+	for _, d := range []string{old, young, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP, youngRoots, youngMCP} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	past := time.Now().Add(-48 * time.Hour)
-	for _, d := range []string{old, other, oldPlan, oldState} {
+	for _, d := range []string{old, other, oldPlan, oldState, oldDrift, oldRoots, oldMCP} {
 		if err := os.Chtimes(d, past, past); err != nil {
 			t.Fatal(err)
 		}
 	}
 	removeStaleSnapshots(tmp, time.Now(), staleSnapshotAge)
-	for dir, want := range map[string]bool{old: false, young: true, other: true, oldPlan: false, oldState: false} {
+	// The drift roots' prefix overlaps DriftPattern: old ones go, a running
+	// process's young ones stay.
+	for dir, want := range map[string]bool{
+		old: false, young: true, other: true, oldPlan: false, oldState: false,
+		oldDrift: false, oldRoots: false, oldMCP: false, youngRoots: true, youngMCP: true,
+	} {
 		if _, err := os.Stat(dir); (err == nil) != want {
 			t.Errorf("%s exists: %v, want %v", filepath.Base(dir), err == nil, want)
 		}
@@ -1006,5 +1013,62 @@ func TestProviderDefaults(t *testing.T) {
 		if got := providerDefaults(c.plan, c.partial); len(got) != 0 {
 			t.Errorf("%s: %v", name, got)
 		}
+	}
+}
+
+// TestRemoveStaleSnapshotsSparesDirectoriesInUse checks that a directory
+// whose lock a process holds survives the sweep however old it is, the
+// long-lived MCP server's, and goes once its holder lets go or ends.
+func TestRemoveStaleSnapshotsSparesDirectoriesInUse(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	mcp, err := mkdirTempHeld(tmp, MCPPattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := mkdirTempHeld(tmp, DriftRootsPattern)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One of an older version, with no lock file at all.
+	legacy := filepath.Join(tmp, DriftPattern+"legacy")
+	if err := os.Mkdir(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-14 * 24 * time.Hour)
+	for _, d := range []string{mcp, roots, legacy} {
+		if err := os.Chtimes(d, past, past); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removeStaleSnapshots(tmp, time.Now(), 24*time.Hour)
+	for dir, want := range map[string]bool{mcp: true, roots: true, legacy: false} {
+		if _, err := os.Stat(dir); (err == nil) != want {
+			t.Errorf("%s exists: %v, want %v", filepath.Base(dir), err == nil, want)
+		}
+	}
+	// A process that ends without removing its directory releases the lock.
+	releaseHeld(roots)
+	removeStaleSnapshots(tmp, time.Now(), 24*time.Hour)
+	if _, err := os.Stat(roots); err == nil {
+		t.Error("the directory whose holder let go was kept")
+	}
+	if _, err := os.Stat(mcp); err != nil {
+		t.Errorf("the directory still in use was removed: %v", err)
+	}
+	RemoveHeld(mcp)
+	if _, err := os.Stat(mcp); err == nil {
+		t.Error("RemoveHeld kept the directory")
+	}
+}
+
+func TestOwnedByCurrentUser(t *testing.T) {
+	t.Parallel()
+	info, err := os.Stat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownedByCurrentUser(info) {
+		t.Error("a directory the test made isn't the current user's")
 	}
 }
