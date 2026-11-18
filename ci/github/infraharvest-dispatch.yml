@@ -1,0 +1,119 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# infraharvest in GitHub Actions, started by a control plane: a workflow a
+# control plane's GitHub App dispatches (workflow_dispatch) to run an import
+# or a drift check on the default branch, which sends the run's metadata back
+# to it. See the action's README ("Runs a control plane starts").
+#
+# Copy it to .github/workflows/ on the default branch, set the repository
+# variable INFRAHARVEST_CONTROL_PLANE_URL, and replace the AWS credentials
+# step with your cloud's. Nothing outside the inputs below runs: command is
+# import or drift, and the files a control plane chooses (the selection and
+# the drift decisions) come from a branch it committed them to, never from
+# the dispatch's inputs, so they stay in the repository's history.
+name: infraharvest (control plane)
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: What to run, import or drift.
+        type: choice
+        options: [import, drift]
+        default: import
+      inputs-ref:
+        description: Branch the control plane committed selection.yaml or drift.yaml to, under infraharvest/control-plane/; empty for neither.
+        type: string
+        required: false
+      request-id:
+        description: The control plane's ID of the request that started this run, sent back in the run document.
+        type: string
+        required: false
+
+# One run of a repository at a time; a second one waits.
+concurrency:
+  group: infraharvest
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  infraharvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write       # push the pull request's branch
+      pull-requests: write  # open the pull request
+      id-token: write       # OIDC to the cloud and to the control plane
+    steps:
+      # The inputs reach the shell as variables, never in the script's text.
+      - name: Check the inputs
+        env:
+          COMMAND: ${{ inputs.command }}
+          INPUTS_REF: ${{ inputs.inputs-ref }}
+          REQUEST_ID: ${{ inputs.request-id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::runs only on the default branch, not $GITHUB_REF"
+            exit 1
+          fi
+          case "$COMMAND" in import|drift) ;; *) echo "::error::command must be import or drift"; exit 1 ;; esac
+          if [[ -n "$INPUTS_REF" && ! "$INPUTS_REF" =~ ^infraharvest/control-plane/[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::inputs-ref must be a branch under infraharvest/control-plane/"
+            exit 1
+          fi
+          if [[ -n "$REQUEST_ID" && ! "$REQUEST_ID" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+            echo "::error::request-id must be 1 to 128 letters, digits or . _ : -"
+            exit 1
+          fi
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Only the two files, from the branch the control plane committed them
+      # to, into a directory of their own: nothing else of that branch is
+      # checked out or run.
+      - name: Check out the control plane's files
+        if: inputs.inputs-ref != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.inputs-ref }}
+          path: .infraharvest-inputs
+          persist-credentials: false
+          sparse-checkout: |
+            selection.yaml
+            drift.yaml
+          sparse-checkout-cone-mode: false
+      - name: Find the control plane's files
+        id: files
+        run: |
+          dir=.infraharvest-inputs
+          selection="" decisions=""
+          if [[ -f "$dir/selection.yaml" ]]; then selection="$dir/selection.yaml"; fi
+          if [[ -f "$dir/drift.yaml" ]]; then decisions="$dir/drift.yaml"; fi
+          echo "selection=$selection" >> "$GITHUB_OUTPUT"
+          echo "decisions=$decisions" >> "$GITHUB_OUTPUT"
+          # A drift run decides by the control plane's decisions when it sent
+          # some, and only reports otherwise.
+          if [[ -n "$decisions" ]]; then echo "drift=accept" >> "$GITHUB_OUTPUT"; else echo "drift=report" >> "$GITHUB_OUTPUT"; fi
+      # Replace with your cloud's credentials: see the action's README.
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3
+          regions: eu-west-2
+          import: ${{ inputs.command == 'import' }}
+          selection: ${{ steps.files.outputs.selection }}
+          drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
+          drift-decisions: ${{ steps.files.outputs.decisions }}
+          pull-request: "true"
+          control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
+          control-plane-request-id: ${{ inputs.request-id }}
