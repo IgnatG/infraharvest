@@ -5,16 +5,29 @@
   "description": "The resources of the inventory document as OCSF 1.9.0 Cloud Resources Inventory Info events (class_uid 5023), one event for each resource, with the infraharvest iac extension's iac_source profile (schemas/ocsf/iac). It describes the subset of the OCSF class that infraharvest writes, not all of it. No attributes and no values.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "run_id", "ocsf_version", "events"],
+  "required": ["schema", "run_id", "ocsf_version", "redaction", "events"],
   "properties": {
     "schema": {"const": "infraharvest/ocsf-inventory/v1"},
     "run_id": {"$ref": "#/$defs/uuid"},
     "ocsf_version": {"const": "1.9.0"},
+    "redaction": {"$ref": "#/$defs/redaction"},
     "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
   },
   "$defs": {
     "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
     "text": {"type": "string", "minLength": 1},
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag_keys_dropped", "ids_hashed", "hash_alg", "addresses_dropped"],
+      "properties": {
+        "tag_keys_dropped": {"type": "array", "items": {"$ref": "#/$defs/text"}},
+        "all_tags_dropped": {"type": "boolean"},
+        "ids_hashed": {"type": "boolean"},
+        "hash_alg": {"const": "hmac-sha256"},
+        "addresses_dropped": {"type": "boolean"}
+      }
+    },
     "event": {
       "type": "object",
       "additionalProperties": false,

@@ -219,10 +219,14 @@ func TestOCSFInventoryDropTags(t *testing.T) {
 	if strings.Contains(string(all), `"tags"`) {
 		t.Errorf("--drop-tags left tags:\n%s", all)
 	}
-	for _, leak := range []string{secretTagValue, credentialTag, secretTagKey, secretAttribute} {
+	for _, leak := range []string{secretTagValue, credentialTag, secretAttribute} {
 		if strings.Contains(string(build(t, Options{Out: out, Document: DocOCSFInventory})), leak) {
 			t.Errorf("the OCSF inventory holds %q", leak)
 		}
+	}
+	// The key of a dropped tag is only in the redaction, as in the inventory.
+	if doc := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory})); strings.Count(string(build(t, Options{Out: out, Document: DocOCSFInventory})), secretTagKey) != 1 || !slices.Contains(doc.Redaction.TagKeysDropped, secretTagKey) {
+		t.Errorf("the key of the dropped tag: %v", doc.Redaction.TagKeysDropped)
 	}
 }
 
@@ -418,6 +422,7 @@ func TestOCSFSchemaIsClosed(t *testing.T) {
 	iac := func(doc map[string]any) map[string]any { return res(doc)["iac"].(map[string]any) }
 	meta := func(doc map[string]any) map[string]any { return event(doc)["metadata"].(map[string]any) }
 	cloud := func(doc map[string]any) map[string]any { return event(doc)["cloud"].(map[string]any) }
+	redaction := func(doc map[string]any) map[string]any { return doc["redaction"].(map[string]any) }
 	mutations := map[string]func(doc map[string]any){
 		"none":                  func(map[string]any) {},
 		"extra top-level field": func(doc map[string]any) { doc["x"] = 1.0 },
@@ -427,6 +432,19 @@ func TestOCSFSchemaIsClosed(t *testing.T) {
 		"extra metadata field":  func(doc map[string]any) { meta(doc)["log_name"] = "x" },
 		"extra cloud field":     func(doc map[string]any) { cloud(doc)["zone"] = "x" },
 		"extra tag field":       func(doc map[string]any) { res(doc)["tags"].([]any)[0].(map[string]any)["values"] = []any{} },
+		"no redaction":          func(doc map[string]any) { delete(doc, "redaction") },
+		"redaction null":        func(doc map[string]any) { doc["redaction"] = nil },
+		"extra redaction field": func(doc map[string]any) { redaction(doc)["key"] = "x" },
+		"no hash algorithm":     func(doc map[string]any) { delete(redaction(doc), "hash_alg") },
+		"other hash algorithm":  func(doc map[string]any) { redaction(doc)["hash_alg"] = "sha256" },
+		"no hashed flag":        func(doc map[string]any) { delete(redaction(doc), "ids_hashed") },
+		"hashed flag not bool":  func(doc map[string]any) { redaction(doc)["ids_hashed"] = "yes" },
+		"no addresses flag":     func(doc map[string]any) { delete(redaction(doc), "addresses_dropped") },
+		"addresses flag text":   func(doc map[string]any) { redaction(doc)["addresses_dropped"] = "yes" },
+		"no dropped keys":       func(doc map[string]any) { delete(redaction(doc), "tag_keys_dropped") },
+		"dropped keys null":     func(doc map[string]any) { redaction(doc)["tag_keys_dropped"] = nil },
+		"empty dropped key":     func(doc map[string]any) { redaction(doc)["tag_keys_dropped"] = []any{""} },
+		"all tags not bool":     func(doc map[string]any) { redaction(doc)["all_tags_dropped"] = 1.0 },
 		"other schema":          func(doc map[string]any) { doc["schema"] = "infraharvest/ocsf-inventory/v2" },
 		"other OCSF version":    func(doc map[string]any) { doc["ocsf_version"] = "1.8.0" },
 		"no OCSF version":       func(doc map[string]any) { delete(doc, "ocsf_version") },
@@ -548,5 +566,61 @@ func TestOCSFExtensionFilesAgreeWithTheDocument(t *testing.T) {
 	encoded := roundTrip(t, func() any { var s iacSource; fill(reflect.ValueOf(&s)); return &s }()).(map[string]any)
 	if got := slices.Sorted(maps.Keys(encoded)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
 		t.Errorf("iacSource encodes %v, want %v", got, want)
+	}
+}
+
+// The document records its redaction as the inventory does, so that a
+// receiver can tell a hashed ID from a real one.
+func TestOCSFInventoryRedaction(t *testing.T) {
+	t.Parallel()
+	out := writeOCSFOut(t, ocsfDir)
+	key := []byte("0123456789abcdef-key-a")
+	opts := func(o Options) Options {
+		o.Out, o.Document = out, DocOCSFInventory
+		return o
+	}
+
+	plain := decodeOCSF(t, build(t, opts(Options{})))
+	// Tags that look like secrets are dropped and listed, as in the
+	// inventory, and the list is there, though it may be empty.
+	if got := strings.Join(plain.Redaction.TagKeysDropped, ","); got != secretTagKey+",owner-note" {
+		t.Errorf("tag keys dropped: %q", got)
+	}
+	if want := (ocsfRedaction{TagKeysDropped: plain.Redaction.TagKeysDropped, HashAlg: hashAlg}); !reflect.DeepEqual(plain.Redaction, want) {
+		t.Errorf("redaction: %+v, want %+v", plain.Redaction, want)
+	}
+	inv := decodeInventory(t, build(t, Options{Out: out, Document: DocInventory}))
+	if !slices.Equal(plain.Redaction.TagKeysDropped, inv.Redaction.TagKeysDropped) {
+		t.Errorf("the OCSF inventory dropped %v, the inventory %v", plain.Redaction.TagKeysDropped, inv.Redaction.TagKeysDropped)
+	}
+	if strings.Contains(string(build(t, opts(Options{}))), `"all_tags_dropped"`) {
+		t.Error("all_tags_dropped is there without --drop-tags")
+	}
+
+	one := decodeOCSF(t, build(t, opts(Options{DropTags: []string{keepTagKey}})))
+	if got := strings.Join(one.Redaction.TagKeysDropped, ","); got != secretTagKey+",owner-note,"+keepTagKey {
+		t.Errorf("--drop-tag: %q", got)
+	}
+	all := decodeOCSF(t, build(t, opts(Options{DropAllTags: true})))
+	if !all.Redaction.AllTagsDropped || all.Redaction.IDsHashed || all.Redaction.AddressesDropped {
+		t.Errorf("--drop-tags: %+v", all.Redaction)
+	}
+
+	hashed := decodeOCSF(t, build(t, opts(Options{HashKey: key})))
+	if !hashed.Redaction.IDsHashed || hashed.Redaction.HashAlg != "hmac-sha256" || hashed.Redaction.AddressesDropped {
+		t.Errorf("--hash-ids: %+v", hashed.Redaction)
+	}
+	// The key never goes into the document.
+	if strings.Contains(string(build(t, opts(Options{HashKey: key}))), string(key)) {
+		t.Error("the document holds the key")
+	}
+
+	dropped := decodeOCSF(t, build(t, opts(Options{DropAddresses: true})))
+	if !dropped.Redaction.AddressesDropped || dropped.Redaction.IDsHashed {
+		t.Errorf("--drop-addresses: %+v", dropped.Redaction)
+	}
+	both := decodeOCSF(t, build(t, opts(Options{DropAddresses: true, HashKey: key})))
+	if !both.Redaction.AddressesDropped || !both.Redaction.IDsHashed {
+		t.Errorf("both: %+v", both.Redaction)
 	}
 }
