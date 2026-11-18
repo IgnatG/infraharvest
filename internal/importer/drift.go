@@ -453,7 +453,9 @@ func engineDriftCheck(ctx context.Context, options DriftOptions) (driftCheck, er
 			if err != nil {
 				return nil, err
 			}
-			return tf, nil
+			// The staged copy's plans read the TF_VAR_ values drift
+			// leaves without a placeholder.
+			return tfrun.WithEnvVars(tf, dir), nil
 		}
 		tf, err := tfrun.New(dir, execPath, plugins, rootEnv, schemas, tfrun.Parallelism(options.EngineParallelism))
 		if err != nil {
