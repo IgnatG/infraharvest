@@ -85,7 +85,7 @@ jobs:
           PROVIDER: ${{ matrix.provider }}
         run: |
           mkdir "$RUNNER_TEMP/provider/ihschemameta"
-          for file in main.go "provider_$PROVIDER.go"; do
+          for file in main.go meta.go "provider_$PROVIDER.go"; do
             grep -vx '//go:build ignore' "internal/catalogue/schemameta/gen/$file" > "$RUNNER_TEMP/provider/ihschemameta/$file"
           done
       - name: Install Go

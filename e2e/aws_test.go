@@ -155,6 +155,7 @@ func TestAWSRoundTrip(t *testing.T) {
 	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
 		t.Errorf("report.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 	}
+	checkPlanBudget(t, "--all", coverage)
 	// The verification gate may only fail on what the emulator leaves out.
 	for _, d := range coverage.Directories {
 		for _, c := range d.Checks {
@@ -694,6 +695,7 @@ func checkIncremental(ctx context.Context, t *testing.T, engineName, execPath, p
 	if inRoot == 0 || coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
 		t.Errorf("report.json of --incremental: %d in the roots already, %+v, failures %v", inRoot, coverage.Totals, coverage.Failures)
 	}
+	checkPlanBudget(t, "--incremental", coverage)
 	// Everything the roots have is still there.
 	if len(coverage.NotInCloud) != 0 {
 		t.Errorf("--incremental reports what the emulator has as no longer in the cloud: %+v", coverage.NotInCloud)

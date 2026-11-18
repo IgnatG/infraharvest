@@ -235,7 +235,7 @@ jobs:
         if [ "$SANDBOX_ESTATE" = main ]; then
           vars+=(-var "second_region=$SANDBOX_AWS_SECOND_REGION")
         fi
-        "$E2E_ENGINE" init -input=false
+        "$GITHUB_WORKSPACE"/.github/scripts/retry.sh "$E2E_ENGINE" init -input=false
         # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
         # still deletes, is tried twice more before what is left counts.
         for attempt in 1 2 3; do

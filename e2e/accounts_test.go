@@ -74,6 +74,7 @@ func TestAWSParallelAccounts(t *testing.T) {
 	if len(coverage.Failures) != 0 || coverage.Totals.LeftOut != 0 || len(coverage.Scopes) != len(parallelAccounts) {
 		t.Errorf("report.json: %+v, scopes %+v, failures %v", coverage.Totals, coverage.Scopes, coverage.Failures)
 	}
+	checkPlanBudget(t, "--accounts --parallel", coverage)
 	for account, queue := range parallelAccounts {
 		dir := filepath.Join(out, "aws", account, "us-east-1")
 		generated := configuration(t, dir)
@@ -145,6 +146,7 @@ func checkAccountEnvironments(ctx context.Context, t *testing.T, out, engineName
 		if len(coverage.Failures) != 0 || coverage.Totals.LeftOut != 0 {
 			t.Errorf("report.json: %+v, failures %v", coverage.Totals, coverage.Failures)
 		}
+		checkPlanBudget(t, strings.Join(more, " "), coverage)
 		return coverage
 	}
 

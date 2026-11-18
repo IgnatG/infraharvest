@@ -154,6 +154,10 @@ jobs:
     # the seed; -shuffle=<seed> repeats the order.
     - name: Test
       run: go test -shuffle=on -coverprofile=coverage.out ./...
+    # The schema metadata generator's parts that read no provider. Its files
+    # carry the ignore constraint, so go test ./... skips them: name them.
+    - name: Test the schema metadata generator
+      run: go test ./internal/catalogue/schemameta/gen/meta.go ./internal/catalogue/schemameta/gen/meta_test.go
     - name: Coverage
       if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
       env:
@@ -192,7 +196,8 @@ jobs:
   # the drift rules and decisions the drift runs read. Two providers keep
   # most builds small; the CLI and the MCP server, whose tests take every
   # provider's command, build with all three in a run of their own, so that
-  # each command runs under it. The provider packages build on their own.
+  # each command runs under it. Every other package runs, as
+  # .github/scripts/race-packages.sh lists them.
   race:
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
@@ -218,14 +223,12 @@ jobs:
         name: race
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
+    # Every package but the ones race-packages.sh leaves out, so that a new
+    # package runs under the race detector without being added to a list.
     - name: Race
-      run: >-
-        go test -race -tags minimal,aws,google
-        ./internal/config/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
-        ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
-        ./internal/managed/... ./internal/driftpolicy/... ./internal/filelock/... ./internal/harvest/...
-        ./internal/export/... ./internal/catalogue/... ./internal/adapters/... ./internal/logging/...
-        ./internal/tfquery/...
+      run: |
+        mapfile -t packages < <(.github/scripts/race-packages.sh)
+        go test -race -tags minimal,aws,google "${packages[@]}"
     - name: Race, with every provider's command
       run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
@@ -407,6 +410,7 @@ jobs:
         FuzzParseFromIsParseWhole ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
+        FuzzIdentityID ./internal/tftypes/
         EOF
     - name: Upload the failing inputs
       if: failure()
@@ -885,7 +889,7 @@ jobs:
         export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/plugins"
         mkdir -p "$TF_PLUGIN_CACHE_DIR"
         for dir in permissions/*/ e2e/testdata/sandbox/*/; do
-          terraform -chdir="$dir" init -backend=false -input=false
+          "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$dir" init -backend=false -input=false
           terraform -chdir="$dir" validate
         done
     # The templates' own tests, against a mock provider: what the role
@@ -937,7 +941,7 @@ jobs:
           '    azapi   = { source = "Azure/azapi" }' \
           '    azurerm = { source = "hashicorp/azurerm" }' \
           '    google  = { source = "hashicorp/google" }' '  }' '}' > "$dir/root/main.tf"
-        terraform -chdir="$dir/root" init -backend=false -input=false
+        "$GITHUB_WORKSPACE"/.github/scripts/retry.sh terraform -chdir="$dir/root" init -backend=false -input=false
         terraform -chdir="$dir/root" providers schema -json > "$dir/schemas.json"
         terraform -chdir="$dir/root" version -json > "$dir/versions.json"
         jq -r '.provider_selections | to_entries[] | "\(.key) \(.value)"' "$dir/versions.json"
@@ -1114,6 +1118,10 @@ jobs:
     - name: Engine and scanner versions
       if: ${{ !cancelled() }}
       run: .github/scripts/check-versions.sh
+    # Every fuzz target is in the fuzz job's list, or it only runs its seeds.
+    - name: Fuzz targets
+      if: ${{ !cancelled() }}
+      run: .github/scripts/check-fuzz-list.sh
     - name: reuse lint
       if: ${{ !cancelled() }}
       uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
