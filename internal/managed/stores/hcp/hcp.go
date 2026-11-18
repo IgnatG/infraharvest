@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -216,9 +217,36 @@ func (h *Store) List(ctx context.Context, organization, prefix string) ([]string
 // Get returns the current state of the organization's workspace, nil if it
 // has none yet.
 func (h *Store) Get(ctx context.Context, organization, workspace string) ([]byte, error) {
-	id, err := h.workspaceID(ctx, organization, workspace)
+	u, what, err := h.stateURL(ctx, organization, workspace)
+	if err != nil || u == "" {
+		return nil, err
+	}
+	return h.fetch(ctx, u, what, "application/json")
+}
+
+// Open returns the current state of the organization's workspace to read
+// as it goes (see managed.StreamStore), nil if it has none yet.
+func (h *Store) Open(ctx context.Context, organization, workspace string) (io.ReadCloser, error) {
+	u, what, err := h.stateURL(ctx, organization, workspace)
+	if err != nil || u == "" {
+		return nil, err
+	}
+	rc, err := h.open(ctx, u, what, "application/json")
 	if err != nil {
 		return nil, err
+	}
+	return rc, nil
+}
+
+// Stores read state as it is decoded.
+var _ managed.StreamStore = (*Store)(nil)
+
+// stateURL returns the signed URL the workspace's current state downloads
+// from, and what errors call that download, or "" if it has no state.
+func (h *Store) stateURL(ctx context.Context, organization, workspace string) (u, what string, err error) {
+	id, err := h.workspaceID(ctx, organization, workspace)
+	if err != nil {
+		return "", "", err
 	}
 	var version struct {
 		Data struct {
@@ -229,15 +257,12 @@ func (h *Store) Get(ctx context.Context, organization, workspace string) ([]byte
 	}
 	err = h.get(ctx, h.base+"/workspaces/"+url.PathEscape(id)+"/current-state-version", &version)
 	if errors.Is(err, errNotFound) {
-		return nil, nil
+		return "", "", nil
 	}
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-	if version.Data.Attributes.DownloadURL == "" {
-		return nil, nil
-	}
-	return h.download(ctx, version.Data.Attributes.DownloadURL, "downloading the state of workspace "+organization+"/"+workspace)
+	return version.Data.Attributes.DownloadURL, "downloading the state of workspace " + organization + "/" + workspace, nil
 }
 
 // workspaceID returns the ID of the organization's workspace: the one List
@@ -268,12 +293,6 @@ func (h *Store) get(ctx context.Context, u string, v any) error {
 	return json.Unmarshal(body, v)
 }
 
-// download returns the state at u, a signed URL that grants access to the
-// state, which what describes in errors instead.
-func (h *Store) download(ctx context.Context, u, what string) ([]byte, error) {
-	return h.fetch(ctx, u, what, "application/json")
-}
-
 // fetch returns the content at u, which errors name as what. Only the API's
 // host gets the token, and over https: state downloads are signed URLs,
 // which can be on another host, and which errors, logs and an MCP client
@@ -282,12 +301,28 @@ func (h *Store) download(ctx context.Context, u, what string) ([]byte, error) {
 // times in all, after the wait its Retry-After asks for, or else one that
 // doubles each time.
 func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, error) {
+	body, err := h.open(ctx, u, what, accept)
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	content, err := managed.ReadState(body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+	}
+	return content, nil
+}
+
+// open asks for u as fetch does, with its retries, and returns the body to
+// read as it goes, which the caller closes. The request's time limit runs
+// until then. Reading it is the caller's to bound (see managed.ParseFrom).
+func (h *Store) open(ctx context.Context, u, what, accept string) (io.ReadCloser, error) {
 	wait := h.retryBase
 	if wait == 0 {
 		wait = defaultRetryBase
 	}
 	for attempt := 1; ; attempt++ {
-		body, retryAfter, err := h.fetchOnce(ctx, u, what, accept)
+		body, retryAfter, err := h.openOnce(ctx, u, what, accept)
 		if retryAfter < 0 || attempt == fetchAttempts {
 			return body, err
 		}
@@ -305,12 +340,16 @@ func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, erro
 	}
 }
 
-// fetchOnce asks for u once, as fetch does. A retryAfter of 0 or more
+// openOnce asks for u once, as open does. A retryAfter of 0 or more
 // says the answer may be different later: the wait the answer's
 // Retry-After asks for, or 0 when it asks for none; it is -1 otherwise.
-func (h *Store) fetchOnce(ctx context.Context, u, what, accept string) (body []byte, retryAfter time.Duration, err error) {
+func (h *Store) openOnce(ctx context.Context, u, what, accept string) (body io.ReadCloser, retryAfter time.Duration, err error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
-	defer cancel()
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
@@ -323,7 +362,11 @@ func (h *Store) fetchOnce(ctx context.Context, u, what, accept string) (body []b
 	if err != nil {
 		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err != nil {
+			resp.Body.Close()
+		}
+	}()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, -1, fmt.Errorf("%s: %w", what, errNotFound)
@@ -332,11 +375,18 @@ func (h *Store) fetchOnce(ctx context.Context, u, what, accept string) (body []b
 	case resp.StatusCode != http.StatusOK:
 		return nil, -1, fmt.Errorf("%s: %s", what, resp.Status)
 	}
-	body, err = managed.ReadState(resp.Body)
-	if err != nil {
-		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
-	}
-	return body, -1, nil
+	return &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}, -1, nil
+}
+
+// cancelOnClose ends the request a body belongs to when it is closed.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnClose) Close() error {
+	defer c.cancel()
+	return c.ReadCloser.Close()
 }
 
 // parseRetryAfter returns the wait a Retry-After header value asks for, in

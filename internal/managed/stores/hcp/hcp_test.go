@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"time"
 
 	svchost "github.com/hashicorp/terraform-svchost"
+
+	"github.com/IgnatG/infraharvest/internal/managed"
 )
 
 func TestStore(t *testing.T) {
@@ -309,5 +312,95 @@ func TestParseRetryAfter(t *testing.T) {
 		if got := parseRetryAfter(value, now); got != want {
 			t.Errorf("%q: %s, want %s", value, got, want)
 		}
+	}
+}
+
+// Open hands over the state as it downloads, rather than once it is all
+// there: the first of it reads while the host still holds back the rest,
+// and the whole of it decodes to the resources it manages.
+func TestOpenStreamsTheState(t *testing.T) {
+	t.Parallel()
+	const head = `{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "name": "logs", "instances": [{"attributes": {"id": "logs"}}]}`
+	release := make(chan struct{})
+	archivist := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, head)
+		w.(http.Flusher).Flush()
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = io.WriteString(w, `]}`)
+	}))
+	defer archivist.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body any
+		switch r.URL.Path {
+		case "/api/v2/organizations/acme/workspaces/prod":
+			body = map[string]any{"data": map[string]any{"id": "ws-prod"}}
+		case "/api/v2/workspaces/ws-prod/current-state-version":
+			body = map[string]any{"data": map[string]any{"attributes": map[string]any{"hosted-state-download-url": archivist.URL + "/signed"}}}
+		case "/api/v2/organizations/acme/workspaces/empty":
+			body = map[string]any{"data": map[string]any{"id": "ws-empty"}}
+		default:
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	defer api.Close()
+	h := &Store{client: api.Client(), base: api.URL + "/api/v2", token: "api-token", retryBase: time.Millisecond}
+
+	if in, err := h.Open(t.Context(), "acme", "empty"); err != nil || in != nil {
+		t.Errorf("Open of a workspace without state: %v, %v", in, err)
+	}
+	in, err := h.Open(t.Context(), "acme", "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer in.Close()
+	first := make([]byte, 16)
+	if _, err := io.ReadFull(in, first); err != nil || string(first) != head[:16] {
+		t.Fatalf("the start of the state, before the rest is sent: %q, %v", first, err)
+	}
+	close(release)
+	found := managed.Resources{}
+	if err := found.ParseFrom(io.MultiReader(strings.NewReader(string(first)), in), "acme/prod"); err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 {
+		t.Errorf("the state manages %d resources, want 1: %v", len(found), found)
+	}
+}
+
+// A throttled Open is asked again before it hands anything over, and its
+// errors hide the signed URL as Get's do.
+func TestOpenRetriesAndHidesTheURL(t *testing.T) {
+	t.Parallel()
+	var asks atomic.Int32
+	archivist := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if asks.Add(1) == 1 {
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = io.WriteString(w, `{"version": 4}`)
+	}))
+	defer archivist.Close()
+	h := &Store{client: archivist.Client(), base: archivist.URL + "/api/v2", token: "api-token", retryBase: time.Millisecond}
+	in, err := h.open(t.Context(), archivist.URL+"/signed-c2VjcmV0", "downloading", "application/json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, _ := io.ReadAll(in)
+	in.Close()
+	if string(content) != `{"version": 4}` || asks.Load() != 2 {
+		t.Errorf("got %q after %d asks, want the state after 2", content, asks.Load())
+	}
+
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	_, err = h.open(t.Context(), closed.URL+"/signed-c2VjcmV0", "downloading", "application/json")
+	if err == nil || strings.Contains(err.Error(), "signed-") {
+		t.Errorf("want an error without the signed URL, got %v", err)
 	}
 }
