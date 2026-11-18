@@ -95,9 +95,10 @@ func (c *listedCall) applyRoot(ctx context.Context, dir, fp string, d rootDecisi
 	case rootIncremental:
 		return c.addTo(ctx, dir, fp, d, dirOpts)
 	case rootFresh, rootRegenerated:
-		var fatal error
-		if result, err, fatal = c.generateRoot(ctx, dir, fp, d, dirOpts, roots, untemplated); fatal != nil {
-			return fatal
+		result, err = c.generateRoot(ctx, dir, fp, d, dirOpts, roots, untemplated)
+		var stop fatalError
+		if errors.As(err, &stop) {
+			return stop.error
 		}
 	}
 	c.handovers.record(dir, result, err)
@@ -162,16 +163,22 @@ func (c *listedCall) addTo(ctx context.Context, dir, fp string, d rootDecision, 
 	return nil
 }
 
+// fatalError is an error that stops the whole import, not just the root that
+// met it: generateRoot returns one for what no later root can get past.
+type fatalError struct{ error }
+
+func (e fatalError) Unwrap() error { return e.error }
+
 // generateRoot generates the root in dir from scratch, from fingerprint
 // fp, afresh or again (see claimRoot), with dirOpts, and returns the
-// result, or why the root failed; fatal is set only if the import can't
-// go on. A root that hands every resource it had over to other roots
+// result, or why the root failed; the error is a fatalError only if the
+// import can't go on. A root that hands every resource it had over to other roots
 // keeps only the removed blocks that do (see engine.Vacate).
-func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]rootfile.Import, untemplated bool) (result *engine.Result, err, fatal error) {
+func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDecision, dirOpts engine.Options, roots map[string][]rootfile.Import, untemplated bool) (result *engine.Result, err error) {
 	run, options, imports := c.run, c.options, c.byDir[dir]
 	tr, err := c.terraformRun(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, fatalError{err}
 	}
 	newClaim := func() (*claim, error) {
 		claimed, err := claimRoot(run.outputIndex(options.Out), dir, fp, d, run.shared)
@@ -190,7 +197,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	}
 	claimed, err := newClaim()
 	if err != nil {
-		return nil, err, nil
+		return nil, err
 	}
 	if len(imports) == 0 {
 		logging.Infof("%s: %s hands every resource it had over to other roots", c.provider.Name(), dir)
@@ -227,10 +234,10 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 			logging.Infof("%s: %s: generating the root again without its import-once snapshot", c.provider.Name(), dir)
 			dirOpts.ImportOnce = nil
 			if undoErr := claimed.discard(options.Out, dir); undoErr != nil {
-				return nil, undoErr, nil
+				return nil, undoErr
 			}
 			if claimed, err = newClaim(); err != nil {
-				return nil, err, nil
+				return nil, err
 			}
 			dirOpts.Previous = claimed.previousRoot()
 			if d.premerged {
@@ -243,7 +250,7 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 		}
 	}
 	if err != nil && ctx.Err() != nil {
-		return nil, nil, ctx.Err()
+		return nil, fatalError{ctx.Err()}
 	}
 	if err == nil {
 		err = leakedSecrets(result)
@@ -262,10 +269,10 @@ func (c *listedCall) generateRoot(ctx context.Context, dir, fp string, d rootDec
 	}
 	if err == nil {
 		if err := saveCheckpoint(options.Out, dir, fp, result); err != nil {
-			return nil, nil, err
+			return nil, fatalError{err}
 		}
 	}
-	return result, err, nil
+	return result, err
 }
 
 // ownProviders returns the providers.tf the root in dir has, by name; none
