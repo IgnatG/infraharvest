@@ -218,3 +218,6 @@ types:
     cloudformation_types: ["AWS::WAFv2::LoggingConfiguration"]
   aws_xray_sampling_rule:
     cloudformation_types: ["AWS::XRay::SamplingRule"]
+    skip:
+      - reason: the Default sampling rule, which X-Ray creates in every region and which can't be deleted
+        ids: [Default]

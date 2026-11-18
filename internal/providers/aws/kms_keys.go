@@ -23,8 +23,9 @@ type KmsLister struct {
 
 // List records the keys, each followed by its grants, then the
 // aliases. Only keys a customer manages and that aren't being deleted are
-// listed, and only the aliases of such keys: AWS manages the rest, and a key
-// on its way out can't be imported for long. The aliases are listed first,
+// listed, and only the aliases of such keys, and the AWS managed aliases the
+// catalogue skips: a key on its way out can't be imported for long. The
+// aliases are listed first,
 // as a key is named after its alias. Failing to list keys or aliases fails
 // the service; a key or an alias whose key can't be described, and a key
 // whose grants can't be listed, is left out, and the failures are returned
@@ -150,10 +151,10 @@ func (l *kmsLister) grants(keyID, keyName string) ([]harvest.Resource, error) {
 
 // listAliases returns the aliases of listable keys, which List records as
 // aws_kms_alias, imported by their name. An alias that points at no key is
-// left out, and so is an AWS managed alias, alias/aws/<service>, without
-// describing its key: only AWS managed keys have those. Its key is
-// remembered as AWS managed, so that listing the keys doesn't describe it
-// either.
+// left out. An AWS managed alias, alias/aws/<service>, is returned without
+// describing its key, for the catalogue to skip: only AWS managed keys have
+// those. Its key is remembered as AWS managed, so that listing the keys
+// doesn't describe it either.
 func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 	var aliases []types.AliasListEntry
 	for page, err := range pagesOf(l.g.Context(), kms.NewListAliasesPaginator(l.svc, &kms.ListAliasesInput{}, stopOnDuplicateToken)) {
@@ -170,6 +171,7 @@ func (l *kmsLister) listAliases() ([]types.AliasListEntry, error) {
 				if _, described := l.keys[*alias.TargetKeyId]; !described {
 					l.keys[*alias.TargetKeyId] = &types.KeyMetadata{KeyId: alias.TargetKeyId, KeyManager: types.KeyManagerTypeAws}
 				}
+				aliases = append(aliases, alias)
 				continue
 			}
 			customer = append(customer, alias)

@@ -1,1 +1,1 @@
-{"resources": [{"id": "alias/app", "name": "app"}]}
+{"resources": [{"id": "alias/app", "name": "app"}, {"id": "alias/aws/s3", "name": "aws_s3"}]}

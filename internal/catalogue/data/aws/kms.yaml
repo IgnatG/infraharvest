@@ -4,6 +4,9 @@ service: kms
 types:
   aws_kms_alias:
     cloudformation_types: ["AWS::KMS::Alias"]
+    skip:
+      - reason: an alias for a key AWS manages for a service, which no one else can create or change
+        id_prefixes: [alias/aws/]
   aws_kms_key:
     cloudformation_types:
       - { type: "AWS::KMS::Key", also: [aws_kms_external_key, aws_kms_replica_key, aws_kms_replica_external_key] }

@@ -9,7 +9,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 )
 
-// The default resources the DocumentDB, Redshift and CloudWatch listers
+// The default resources the DocumentDB, Redshift, CloudWatch, X-Ray and KMS listers
 // used to leave out in code are skipped by the catalogue instead, with a
 // reason selection.yaml shows, and nothing else of their types is.
 func TestDefaultsSkippedByTheCatalogue(t *testing.T) {
@@ -30,6 +30,12 @@ func TestDefaultsSkippedByTheCatalogue(t *testing.T) {
 		{"aws_redshift_parameter_group", "etl-params", nil, false},
 		{"aws_cloudwatch_event_rule", "StepFunctionsGetEventsForStepFunctionsExecutionRule", map[string]string{"managed_by": "states.amazonaws.com"}, true},
 		{"aws_cloudwatch_event_rule", "nightly", map[string]string{}, false},
+		{"aws_xray_sampling_rule", "Default", nil, true},
+		{"aws_xray_sampling_rule", "default", nil, false},
+		{"aws_xray_sampling_rule", "checkout", nil, false},
+		{"aws_kms_alias", "alias/aws/s3", nil, true},
+		{"aws_kms_alias", "alias/app", nil, false},
+		{"aws_kms_alias", "alias/aws-logs", nil, false},
 	} {
 		reason := cat.Skipped(tt.typ, tt.id, tt.attributes)
 		if (reason != "") != tt.skipped {

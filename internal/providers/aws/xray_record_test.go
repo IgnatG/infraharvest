@@ -16,8 +16,8 @@ func recordXraySamplingRule(name string, priority int) string {
 		"URLPath":"*","ResourceARN":"*","Version":1}}`, name, name, priority)
 }
 
-// The lister lists sampling rules by name, across pages, but the built-in
-// Default rule, which can't be deleted.
+// The lister lists sampling rules by name, across pages, the built-in
+// Default rule too, which the catalogue skips.
 func TestRecordXrayListsSamplingRules(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, func(call apiCall) string {
@@ -38,6 +38,7 @@ func TestRecordXrayListsSamplingRules(t *testing.T) {
 	}
 
 	assertRecorded(t, resources,
+		recordedResource{"aws_xray_sampling_rule", "Default", "Default", nil},
 		recordedResource{"aws_xray_sampling_rule", "api", "api", nil},
 		recordedResource{"aws_xray_sampling_rule", "checkout", "checkout", nil},
 	)
