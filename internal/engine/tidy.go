@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -174,8 +175,8 @@ type tidyDecision struct {
 type tidying struct {
 	ctx  context.Context //nolint:containedctx // the run's context: tidying lives for one postProcess and its plan calls are spread over many passes
 	tf   tfrun.Terraform
-	ws   *workspace
-	r    *run
+	ws   *run.Workspace
+	r    *run.Run
 	vars []tfexec.PlanOption
 
 	baseline Baseline

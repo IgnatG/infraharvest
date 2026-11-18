@@ -17,22 +17,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
-
-// RootResource is a resource another root of the same import manages.
-type RootResource struct {
-	Type, ID string
-	// Name is the resource's name in that root, and Root that root's
-	// directory, relative to the output directory.
-	Name, Root string
-}
-
-// ARN is where the ARNs of a resource type whose IDs aren't ARNs name its
-// resources: the ARN's service, and the resource type its resource part
-// starts with, "" if the part is the ID alone.
-type ARN struct {
-	Service, ResourceType string
-}
 
 // rootValue is the value of an attribute of a resource another root
 // manages.
@@ -78,16 +64,16 @@ func (v rootValues) match(argument, value string) (rootValue, bool) {
 	for _, r := range v.byID[value] {
 		attribute := "name"
 		switch {
-		case v.traits.isARN(r.ID):
+		case v.traits.IsARN(r.ID):
 			attribute = "arn"
-		case v.traits.referenceable(r.ID):
+		case v.traits.Referenceable(r.ID):
 			attribute = "id"
 		case !namesType(argument, r.Type+"."+r.Name):
 			continue
 		}
 		found = append(found, rootValue{resource: r, attribute: attribute})
 	}
-	if len(found) == 0 && v.traits.isARN(value) {
+	if len(found) == 0 && v.traits.IsARN(value) {
 		found = v.byARN(value)
 	}
 	if len(found) == 0 {
@@ -202,7 +188,7 @@ var attributeWords = map[string]string{"arn": "The ARN", "id": "The ID", "name":
 // root, whose provider is in another region. Variables and data sources
 // are named other than those in taken, variables.tf and data.tf. It
 // returns the resources it changed.
-func addRootVariables(ws *workspace, others []RootResource, arns map[string]ARN, t Traits, taken Names, skip map[string]int) (map[string]bool, error) {
+func addRootVariables(ws *run.Workspace, others []RootResource, arns map[string]ARN, t Traits, taken Names, skip map[string]int) (map[string]bool, error) {
 	if len(others) == 0 {
 		return nil, nil
 	}

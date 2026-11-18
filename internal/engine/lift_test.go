@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -169,7 +170,7 @@ func TestCommonTags(t *testing.T) {
 // liftTagsVerified lifts tags in dir as postProcess does, against an empty
 // baseline, and leaves the files in dir as it settled them.
 func liftTagsVerified(tf *fakeTerraform, dir string) (bool, error) {
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return false, err
 	}
@@ -245,7 +246,7 @@ func TestPostProcessWithoutAPlanToCompare(t *testing.T) {
 	tf.plans = []fakePlan{{diags: []tfjson.Diagnostic{errorAt(1, "Invalid value", "")}}}
 	opts := Options{DefaultTags: &awsDefaultTags}
 
-	_, err := postProcess(context.Background(), tf, dir, generating(opts), nil, nil)
+	_, err := postProcess(context.Background(), tf, dir, run.Generating(opts), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

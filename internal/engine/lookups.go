@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // lookup is a data source that reads a value no root manages, which the
@@ -53,13 +54,13 @@ func lookupFor(resourceType, argument, value string) (lookup, bool) {
 // dataBlocks names the data sources of lookups, other than those in
 // taken and data.tf, and keeps the blocks to add to data.tf.
 type dataBlocks struct {
-	ws        *workspace
+	ws        *run.Workspace
 	used      map[string]bool
 	addresses map[string]string // by lookup key
 	blocks    []*hclwrite.Block
 }
 
-func newDataBlocks(ws *workspace, taken Names) (*dataBlocks, error) {
+func newDataBlocks(ws *run.Workspace, taken Names) (*dataBlocks, error) {
 	d := &dataBlocks{ws: ws, used: map[string]bool{}, addresses: map[string]string{}}
 	data, err := ws.LoadOptional(rootfile.DataFileName)
 	if err != nil {
@@ -115,7 +116,7 @@ func (d *dataBlocks) write() error {
 // data.azurerm_client_config.current.tenant_id, for the resources not in
 // skip, and adds the data sources to data.tf, named other than those in
 // taken and data.tf. It returns the resources it changed.
-func addLookups(ws *workspace, taken Names, skip map[string]int) (map[string]bool, error) {
+func addLookups(ws *run.Workspace, taken Names, skip map[string]int) (map[string]bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err

@@ -21,33 +21,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
-
-// DefaultTags describes how a provider applies tags to every resource it
-// manages, such as the AWS provider's default_tags.
-type DefaultTags struct {
-	// Provider is the provider block's name, e.g. aws.
-	Provider string
-	// Attribute is the resources' tags attribute, e.g. tags.
-	Attribute string
-	// Block is the provider block that applies tags to every resource,
-	// e.g. default_tags, with the tags in its Attribute. Empty if the
-	// provider has none, as azurerm: each resource's tags then refer to
-	// the local instead (see referTags).
-	Block string
-	// Argument says Block is an argument of the provider block that holds
-	// the tags, as the Google provider's default_labels, rather than a
-	// block holding them in Attribute, as the AWS provider's default_tags.
-	Argument bool `json:",omitempty"`
-	// ReservedPrefix starts the keys of tags the cloud sets itself, which
-	// can't be applied through the provider, e.g. aws:.
-	ReservedPrefix string
-	// Applied, if set, are tags the provider already applies, such as in
-	// the root an incremental import adds to: Generate applies them too,
-	// and leaves them out of the resources instead of lifting others.
-	Applied map[string]string `json:",omitempty"`
-}
 
 // minRepeats is how often a value must appear to be lifted into a local.
 const minRepeats = 3
@@ -69,7 +45,7 @@ const minRepeats = 3
 // anything. With dt.Applied, it only leaves those tags out of the
 // resources, or makes the resources refer to them: the root has them
 // already (see applyDefaultTags).
-func applyTagLift(ws *workspace, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
+func applyTagLift(ws *run.Workspace, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
@@ -135,7 +111,7 @@ func applyTagLift(ws *workspace, dt DefaultTags, schemas *tfjson.ProviderSchemas
 // don't have, such as untagged ones, keep theirs and use the second
 // configuration of the provider, without dt.Block, as the root's own do
 // (see addRootAlias).
-func applyAppliedTags(ws *workspace, generated *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
+func applyAppliedTags(ws *run.Workspace, generated *hclfile.File, dt DefaultTags, schemas *tfjson.ProviderSchemas) (bool, error) {
 	resources, ok := taggedResources(generated, dt, schemas)
 	if !ok {
 		return false, nil
@@ -205,7 +181,7 @@ func hasAlias(providers *hclfile.File, name, alias string) bool {
 // configuration of dt's provider (see addAliasProvider) if the resources an
 // incremental import staged in staging use it and root has none, and
 // reports whether it did.
-func addRootAlias(staging string, ws *workspace, dt DefaultTags) (bool, error) {
+func addRootAlias(staging string, ws *run.Workspace, dt DefaultTags) (bool, error) {
 	if dt.Block == "" {
 		return false, nil
 	}
@@ -234,7 +210,7 @@ func addRootAlias(staging string, ws *workspace, dt DefaultTags) (bool, error) {
 		return false, err
 	}
 	if provider == nil {
-		return false, fmt.Errorf("%s has no provider %q", ws.path(rootfile.ProvidersFileName), dt.Provider)
+		return false, fmt.Errorf("%s has no provider %q", ws.Path(rootfile.ProvidersFileName), dt.Provider)
 	}
 	if err := addAliasProvider(providers, provider, dt, alias); err != nil {
 		return false, err
@@ -327,7 +303,7 @@ func commonTags(resources []taggedResource, reserved string) map[string]string {
 // applyDefaultTags makes the provider of ws apply dt.Applied to every
 // resource, as the root an incremental import adds to does; without
 // dt.Block, it only defines the local the resources refer to.
-func applyDefaultTags(ws *workspace, dt DefaultTags) error {
+func applyDefaultTags(ws *run.Workspace, dt DefaultTags) error {
 	if dt.Block == "" {
 		return setLocals(ws, map[string]cty.Value{dt.Attribute: mapValue(dt.Applied)})
 	}
@@ -343,7 +319,7 @@ func applyDefaultTags(ws *workspace, dt DefaultTags) error {
 
 // loadProvider loads providers.tf and finds the default configuration of
 // the provider named name, the block without an alias, or nil.
-func loadProvider(ws *workspace, name string) (*hclfile.File, *hclwrite.Body, error) {
+func loadProvider(ws *run.Workspace, name string) (*hclfile.File, *hclwrite.Body, error) {
 	providers, err := ws.Load(rootfile.ProvidersFileName)
 	if err != nil {
 		return nil, nil, err
@@ -358,7 +334,7 @@ func loadProvider(ws *workspace, name string) (*hclfile.File, *hclwrite.Body, er
 
 // setDefaultTags makes provider, in providers, apply tags through local.tags
 // (dt.Attribute) and dt.Block.
-func setDefaultTags(ws *workspace, providers *hclfile.File, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
+func setDefaultTags(ws *run.Workspace, providers *hclfile.File, provider *hclwrite.Body, dt DefaultTags, tags map[string]string) error {
 	local := hcl.Traversal{hcl.TraverseRoot{Name: "local"}, hcl.TraverseAttr{Name: dt.Attribute}}
 	if dt.Argument {
 		provider.SetAttributeTraversal(dt.Block, local)
@@ -492,7 +468,7 @@ func mapValue(m map[string]string) cty.Value {
 // refer to the local, named other than the locals in taken. The values
 // stay the same, so the plan does too. It reports whether it lifted
 // anything.
-func liftLiterals(ws *workspace, taken Names, t Traits) (bool, error) {
+func liftLiterals(ws *run.Workspace, taken Names, t Traits) (bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err
@@ -518,7 +494,7 @@ func liftLiterals(ws *workspace, taken Names, t Traits) (bool, error) {
 				continue
 			}
 			v, diags := tmpl.Value(nil)
-			if diags.HasErrors() || !t.liftable(v.AsString()) || t.wellKnown(v.AsString()) {
+			if diags.HasErrors() || !t.Liftable(v.AsString()) || t.WellKnown(v.AsString()) {
 				continue
 			}
 			if _, seen := uses[v.AsString()]; !seen {
@@ -575,7 +551,7 @@ func hasLocal(locals map[string]cty.Value, name string) bool {
 }
 
 // setLocals adds values to locals.tf, replacing locals of the same name.
-func setLocals(ws *workspace, values map[string]cty.Value) error {
+func setLocals(ws *run.Workspace, values map[string]cty.Value) error {
 	locals, err := readLocals(ws)
 	if err != nil {
 		return err
@@ -587,7 +563,7 @@ func setLocals(ws *workspace, values map[string]cty.Value) error {
 // readLocals returns the literal locals in locals.tf, if any. The others,
 // such as one that reads a data source (see liftScope), writeLocals
 // keeps as they are.
-func readLocals(ws *workspace) (map[string]cty.Value, error) {
+func readLocals(ws *run.Workspace) (map[string]cty.Value, error) {
 	locals := map[string]cty.Value{}
 	f, err := ws.Load(rootfile.LocalsFileName)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -612,7 +588,7 @@ func readLocals(ws *workspace) (map[string]cty.Value, error) {
 // writeLocals writes locals.tf with one locals block, in name order: the
 // literal locals, and the others locals.tf has, such as one that reads a
 // data source, as they are, but where locals has one of the same name.
-func writeLocals(ws *workspace, locals map[string]cty.Value) error {
+func writeLocals(ws *run.Workspace, locals map[string]cty.Value) error {
 	others := map[string]hclwrite.Tokens{}
 	existing, err := ws.LoadOptional(rootfile.LocalsFileName)
 	if err != nil {

@@ -24,19 +24,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/logging"
 )
 
-// ImportOnce has Generate import the resources of a root once, into a
-// private state snapshot, and plan the rest of the generation against it
-// (see tfrun.Snapshot), instead of importing and reading every resource
-// in each of the 10 to 40 plans of a root. The verification gate still
-// plans the root as the user will, with import blocks and no state.
-type ImportOnce struct {
-	// NewRunner returns a Terraform runner for the private copy of the
-	// root the snapshot is built in, as the root's own: it plans with the
-	// same fresh credentials. It must return a tfrun.StateTerraform, as
-	// *tfrun.Runner is, for the snapshot to be built.
-	NewRunner gate.NewRunner
-}
-
 // SnapshotError is the error of a generation that planned against a
 // snapshot, which Generate returns so that the caller can generate the root
 // again without one (see NeedsFreshGeneration).
@@ -149,7 +136,7 @@ func (g *generation) followProviders() {
 // the plans of the steps after the secrets do. It costs the plan that reads
 // the cloud, which the plan it takes the place of would have cost.
 func (g *generation) rebuildSnapshot(ctx context.Context) (*tfrun.Snapshot, error) {
-	snapshot, err := g.snapshotOf(ctx, append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...))
+	snapshot, err := g.snapshotOf(ctx, append(secret.Placeholders(g.result.Secrets), g.r.Secrets.Options()...))
 	if err != nil {
 		// The caller logs it: errors can quote the values they reject.
 		return nil, errors.New(secret.RedactText(err.Error(), secret.TextForms(secret.KnownValues(g.literal))))
@@ -184,7 +171,7 @@ func (g *generation) buildSnapshot(ctx context.Context) error {
 		return nil
 	}
 	g.counting.Step(stepSnapshot)
-	snapshot, err := g.snapshotOf(ctx, g.r.secrets.Options())
+	snapshot, err := g.snapshotOf(ctx, g.r.Secrets.Options())
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -364,7 +351,7 @@ func (g *generation) moveCopyIn(copied string) (*tfrun.MoveCopy, error) {
 	plan.Hide(g.literal)
 	// The secrets read from variables by now: those without a value get
 	// placeholders, as the plans of the steps after the secrets do.
-	vars := append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...)
+	vars := append(secret.Placeholders(g.result.Secrets), g.r.Secrets.Options()...)
 	return &tfrun.MoveCopy{Dir: copied, Plan: plan, Apply: apply, Resources: resources, Vars: vars}, nil
 }
 

@@ -292,10 +292,10 @@ func TestModuleRefsKeepSharedModules(t *testing.T) {
 	a, b := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
 	var refs ModuleRefs
 
-	if wrote, err := refs.hold(a, path, write); err != nil || !wrote {
+	if wrote, err := refs.Hold(a, path, write); err != nil || !wrote {
 		t.Fatalf("a: wrote %v, %v", wrote, err)
 	}
-	if wrote, err := refs.hold(b, path, write); err != nil || wrote {
+	if wrote, err := refs.Hold(b, path, write); err != nil || wrote {
 		t.Fatalf("b: wrote %v, %v; want it reused", wrote, err)
 	}
 	if err := refs.Release(a); err != nil {

@@ -19,6 +19,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -29,7 +30,7 @@ import (
 // root's resource types are named after, such as google for a root of
 // google-beta, also applies the root's default tags, tags (see
 // shareDefaultTags).
-func writeModuleProviders(ws *workspace, trials []*trial, configured map[string]rootfile.Provider, tags *DefaultTags) error {
+func writeModuleProviders(ws *run.Workspace, trials []*trial, configured map[string]rootfile.Provider, tags *DefaultTags) error {
 	var names []string
 	for _, t := range trials {
 		for _, name := range t.adapter.Providers {
@@ -53,7 +54,7 @@ func writeModuleProviders(ws *workspace, trials []*trial, configured map[string]
 // google-beta for a root of google, applies none: modules create with it
 // only resources that name it, such as the network module's network,
 // which takes no labels.
-func shareDefaultTags(ws *workspace, names []string, tags *DefaultTags) error {
+func shareDefaultTags(ws *run.Workspace, names []string, tags *DefaultTags) error {
 	if tags == nil || tags.Block == "" {
 		return nil
 	}
@@ -102,7 +103,7 @@ func shareDefaultTags(ws *workspace, names []string, tags *DefaultTags) error {
 // or of resources whose type another provider implies (see
 // resourceProviders). It sets no version: pinModuleProviders pins each
 // to the release init selected.
-func requireProviders(ws *workspace, names []string, configured map[string]rootfile.Provider) error {
+func requireProviders(ws *run.Workspace, names []string, configured map[string]rootfile.Provider) error {
 	if len(names) == 0 {
 		return nil
 	}
@@ -151,14 +152,14 @@ func requireProviders(ws *workspace, names []string, configured map[string]rootf
 // pinModuleProviders pins each provider of configured that versions.tf
 // requires without a version to the major and minor version the lock file
 // selected for it, as the root's own provider is pinned.
-func pinModuleProviders(ws *workspace, configured map[string]rootfile.Provider) error {
+func pinModuleProviders(ws *run.Workspace, configured map[string]rootfile.Provider) error {
 	if len(configured) == 0 {
 		return nil
 	}
-	if _, err := os.Stat(ws.path(tfrun.LockFileName)); err != nil {
+	if _, err := os.Stat(ws.Path(tfrun.LockFileName)); err != nil {
 		return nil //nolint:nilerr // no lock file yet, nothing to read
 	}
-	lock, err := hclfile.Load(ws.path(tfrun.LockFileName))
+	lock, err := hclfile.Load(ws.Path(tfrun.LockFileName))
 	if err != nil {
 		return err
 	}

@@ -17,13 +17,14 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // writeCalls replaces the trials' resources in generated.tf with their
 // module calls, makes references to them use the modules' outputs,
 // imports into the modules, and configures the other providers the
 // modules use, of moduleProviders, with the root's tags of tags.
-func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootfile.Provider, tags *DefaultTags) error {
+func writeCalls(ws *run.Workspace, trials []*trial, moduleProviders map[string]rootfile.Provider, tags *DefaultTags) error {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return err
@@ -61,7 +62,7 @@ func writeCalls(ws *workspace, trials []*trial, moduleProviders map[string]rootf
 	generated.RemoveBlocks(gone)
 	for _, t := range trials {
 		block := hclwrite.NewBlock("module", []string{t.name})
-		source, err := hclfile.CallSource(ws.dir, t.adapter.Source)
+		source, err := hclfile.CallSource(ws.Dir, t.adapter.Source)
 		if err != nil {
 			return err
 		}
@@ -111,7 +112,7 @@ type moduleImport struct {
 // resource each names, or, where that resource is imported by its
 // identity, by the identity the adapter makes of its (see
 // adapters.Import.Identity).
-func retargetImports(ws *workspace, to map[string]string, added []moduleImport) error {
+func retargetImports(ws *run.Workspace, to map[string]string, added []moduleImport) error {
 	imports, err := ws.Load(rootfile.ImportsFileName)
 	if err != nil {
 		return err

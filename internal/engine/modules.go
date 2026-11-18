@@ -22,6 +22,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -96,7 +97,7 @@ type moduleGroup struct {
 // the module directories it wrote, and holds the ones it calls in refs
 // (see ModuleRefs.hold); it changes nothing when no shape repeats, or when moving
 // would break a reference it can't follow.
-func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, taken Names, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
+func modularize(ws *run.Workspace, modulesDir string, refs *ModuleRefs, taken Names, schemas *tfjson.ProviderSchemas) ([]string, bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, false, err
@@ -128,7 +129,7 @@ func modularize(ws *workspace, modulesDir string, refs *ModuleRefs, taken Names,
 	var created []string
 	for _, g := range groups {
 		path := filepath.Join(modulesDir, g.name)
-		wrote, err := refs.hold(ws.dir, path, func(at string) error { return writeModule(at, g, versions) })
+		wrote, err := refs.Hold(ws.Dir, path, func(at string) error { return writeModule(at, g, versions) })
 		if err != nil {
 			return created, false, err
 		}
@@ -612,8 +613,8 @@ func writeModule(path string, g *moduleGroup, versions []byte) error {
 // rewriteRoot replaces the clusters' resources in generated.tf with module
 // calls, makes references to them use the modules' outputs, and imports
 // into the modules.
-func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, modulesDir string, taken Names) error {
-	source, err := filepath.Rel(ws.dir, modulesDir)
+func rewriteRoot(ws *run.Workspace, generated *hclfile.File, groups []*moduleGroup, modulesDir string, taken Names) error {
+	source, err := filepath.Rel(ws.Dir, modulesDir)
 	if err != nil {
 		return err
 	}
@@ -708,7 +709,7 @@ func rewriteRoot(ws *workspace, generated *hclfile.File, groups []*moduleGroup, 
 // the plan is still Exact to the baseline. Undoing it releases the modules
 // it wrote, but for those another root calls (see ModuleRefs). The module calls of taken are not
 // reused for the calls it adds.
-func liftModules(ctx context.Context, tf tfrun.Terraform, ws *workspace, modulesDir string, refs *ModuleRefs, taken Names) *tidyEdit {
+func liftModules(ctx context.Context, tf tfrun.Terraform, ws *run.Workspace, modulesDir string, refs *ModuleRefs, taken Names) *tidyEdit {
 	return &tidyEdit{
 		edit: func(*tidyAttempt) (edited, error) {
 			schemas, err := tf.ProvidersSchema(ctx)
@@ -725,14 +726,14 @@ func liftModules(ctx context.Context, tf tfrun.Terraform, ws *workspace, modules
 			}
 			return edited{other: true}, nil
 		},
-		undo: func() error { return refs.Release(ws.dir) },
+		undo: func() error { return refs.Release(ws.Dir) },
 	}
 }
 
 // moduleVersionsFile renders a generated module's versions.tf from its
 // root's, in ws: the same providers and Terraform versions, as lower bounds
 // only, as modules should (~> 6.14 becomes >= 6.14). The root pins the rest.
-func moduleVersionsFile(ws *workspace) ([]byte, error) {
+func moduleVersionsFile(ws *run.Workspace) ([]byte, error) {
 	root, err := ws.Load(rootfile.VersionsFileName)
 	if err != nil {
 		return nil, err

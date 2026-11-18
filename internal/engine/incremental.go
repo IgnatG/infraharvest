@@ -25,6 +25,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -211,7 +212,7 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 			return nil, err
 		}
 	}
-	ws, err := openWorkspace(root)
+	ws, err := run.OpenWorkspace(root)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +244,10 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 	// The resources go into the files of their types, such as network.tf,
 	// after the root's own blocks.
 	added, err := merge(staging, ws, existing, opts.DataSources, blockFiles(result.Imported, result.Modules))
-	if err == nil && r.opts.DefaultTags != nil {
+	if err == nil && r.Opts.DefaultTags != nil {
 		// The added resources without the root's default tags use the
 		// configuration without them, which root may not have yet.
-		_, err = addRootAlias(staging, ws, *r.opts.DefaultTags)
+		_, err = addRootAlias(staging, ws, *r.Opts.DefaultTags)
 	}
 	if err == nil {
 		err = ws.Flush()
@@ -299,9 +300,9 @@ func Add(ctx context.Context, tf, rootTF tfrun.Terraform, staging, root string, 
 // generated.tf, whose resources merge then puts after the blocks of the
 // file of their type, or into a file of their own. The caller's opts stay
 // as they are.
-func adding(opts Options, lock []byte, root []*hclfile.File, existing map[External]string) (*run, error) {
-	r := generating(opts)
-	o := &r.opts
+func adding(opts Options, lock []byte, root []*hclfile.File, existing map[External]string) (*run.Run, error) {
+	r := run.Generating(opts)
+	o := &r.Opts
 	if required, ok := opts.Config[rootfile.VersionsFileName]; ok && lock != nil {
 		pinned, err := versions.PinnedToLock(required, lock)
 		if err != nil {
@@ -310,7 +311,7 @@ func adding(opts Options, lock []byte, root []*hclfile.File, existing map[Extern
 		o.Config = maps.Clone(opts.Config)
 		o.Config[rootfile.VersionsFileName] = pinned
 	}
-	r.taken = rootNames(root)
+	r.Taken = rootNames(root)
 	o.ModulesDir = ""
 	o.ImportOnce = nil
 	o.Adapters = slices.DeleteFunc(slices.Clone(opts.Adapters), func(a adapters.Adapter) bool { return filepath.IsAbs(a.Source) })
@@ -366,45 +367,6 @@ func sortExternal(list []External) {
 	})
 }
 
-// With returns what a root holds once an incremental import added added
-// to it (see Add): r's resources and added's, in the files of both, with
-// added's checks. Its addresses are both's, unless r, as from an older
-// release, recorded none for what it imports: InferredAddresses and the
-// root's import blocks then tell all of them, not only added's. Its moves
-// are r's: Add leaves moves.tf as it is.
-func (r *Result) With(added *Result) *Result {
-	if r == nil {
-		return added
-	}
-	var addresses []Managed
-	if len(r.Addresses) > 0 || len(r.Imported) == 0 {
-		addresses = append(slices.Clone(r.Addresses), added.Addresses...)
-		sortManaged(addresses)
-	}
-	files := slices.Clone(r.Files)
-	for _, name := range added.Files {
-		if !slices.Contains(files, name) {
-			files = append(files, name)
-		}
-	}
-	slices.Sort(files)
-	return &Result{
-		Imported:  append(slices.Clone(r.Imported), added.Imported...),
-		Secrets:   append(slices.Clone(r.Secrets), added.Secrets...),
-		Rejected:  append(slices.Clone(r.Rejected), added.Rejected...),
-		Owned:     append(slices.Clone(r.Owned), added.Owned...),
-		Gone:      append(slices.Clone(r.Gone), added.Gone...),
-		Modules:   append(slices.Clone(r.Modules), added.Modules...),
-		Warnings:  append(slices.Clone(r.Warnings), added.Warnings...),
-		Gate:      added.Gate,
-		Files:     files,
-		Addresses: addresses,
-		Moves:     r.Moves,
-		Removed:   r.Removed,
-		Arrived:   r.Arrived,
-	}
-}
-
 // AddedFileName returns the name of the n-th file of resources an
 // incremental import adds: generated_2.tf, generated_3.tf, ...
 func AddedFileName(n int) string {
@@ -423,7 +385,7 @@ func AddedFileName(n int) string {
 // root has none of, which it gets (see mergeProviders). It returns the
 // files of resources it wrote to, sorted, also when it fails after
 // writing them.
-func merge(staging string, ws *workspace, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
+func merge(staging string, ws *run.Workspace, existing map[External]string, sources map[string]DataSource, fileOf map[string]string) ([]string, error) {
 	generated, err := hclfile.Load(filepath.Join(staging, rootfile.GeneratedFileName))
 	if err != nil {
 		return nil, err
@@ -530,13 +492,13 @@ func merge(staging string, ws *workspace, existing map[External]string, sources 
 		return added, err
 	}
 	if rejected, err := os.ReadFile(filepath.Join(staging, rootfile.RejectedFileName)); err == nil {
-		if err := appendFile(ws.path(rootfile.RejectedFileName), rejected); err != nil {
+		if err := appendFile(ws.Path(rootfile.RejectedFileName), rejected); err != nil {
 			return added, err
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return added, err
 	}
-	lock := ws.path(tfrun.LockFileName)
+	lock := ws.Path(tfrun.LockFileName)
 	if _, err := os.Stat(lock); errors.Is(err, fs.ErrNotExist) {
 		if content, err := os.ReadFile(filepath.Join(staging, tfrun.LockFileName)); err == nil {
 			return added, fsutil.WriteFile(lock, content, 0o644)
@@ -657,7 +619,7 @@ func stagedVariables(staging string, declared map[string][]string, generated *hc
 // mergeLocals adds staging's locals to the locals.tf of ws's root, but for
 // those its provider configuration uses and those root has, such as the
 // tags its resources refer to: root has its own of them.
-func mergeLocals(staging string, ws *workspace) error {
+func mergeLocals(staging string, ws *run.Workspace) error {
 	staged, err := hclfile.LoadOptional(filepath.Join(staging, rootfile.LocalsFileName))
 	if err != nil || staged == nil {
 		return err
@@ -706,7 +668,7 @@ func mergeLocals(staging string, ws *workspace) error {
 	}
 	var body *hclwrite.Body
 	if f == nil {
-		f = hclfile.New(ws.path(rootfile.LocalsFileName))
+		f = hclfile.New(ws.Path(rootfile.LocalsFileName))
 	} else {
 		for _, b := range f.Edit().Body().Blocks() {
 			if b.Type() == "locals" {
@@ -734,7 +696,7 @@ func mergeLocals(staging string, ws *workspace) error {
 // required_providers (see requiredProvidersFile). Without them, an added
 // module call would run on a provider root neither configures nor pins.
 // rootFiles are root's files before the merge.
-func mergeProviders(staging string, ws *workspace, rootFiles []*hclfile.File) error {
+func mergeProviders(staging string, ws *run.Workspace, rootFiles []*hclfile.File) error {
 	configured := map[string]bool{}
 	required := map[string]bool{}
 	for _, f := range rootFiles {
@@ -802,7 +764,7 @@ func mergeProviders(staging string, ws *workspace, rootFiles []*hclfile.File) er
 		return err
 	}
 	if f == nil {
-		f = hclfile.New(ws.path(name))
+		f = hclfile.New(ws.Path(name))
 	}
 	body := requiredProvidersBody(f.Edit().Body())
 	names := make([]string, 0, len(missing))
@@ -863,7 +825,7 @@ func requiredProvidersBody(body *hclwrite.Body) *hclwrite.Body {
 
 // appendBlocks adds blocks to the end of the file name of ws, which starts
 // with header if it is new.
-func appendBlocks(ws *workspace, name, header string, blocks []*hclwrite.Block) error {
+func appendBlocks(ws *run.Workspace, name, header string, blocks []*hclwrite.Block) error {
 	if len(blocks) == 0 {
 		return nil
 	}
@@ -872,7 +834,7 @@ func appendBlocks(ws *workspace, name, header string, blocks []*hclwrite.Block) 
 		return err
 	}
 	if f == nil {
-		f = hclfile.New(ws.path(name))
+		f = hclfile.New(ws.Path(name))
 		if header != "" {
 			f.Edit().Body().AppendUnstructuredTokens(hclwrite.Tokens{{Type: hclsyntax.TokenComment, Bytes: []byte(header)}})
 		}
@@ -901,10 +863,10 @@ func appendFile(path string, content []byte) error {
 
 // nextAddedFile returns the first of generated_2.tf, generated_3.tf and so
 // on (see AddedFileName) that ws's root doesn't have.
-func nextAddedFile(ws *workspace) string {
+func nextAddedFile(ws *run.Workspace) string {
 	for n := 2; ; n++ {
 		name := AddedFileName(n)
-		if _, ok := ws.files[name]; !ok {
+		if !ws.Has(name) {
 			return name
 		}
 	}

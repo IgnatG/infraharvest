@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -67,7 +68,7 @@ func outputLists(trials []*trial) map[string]int {
 // needs them, say. Blocks that only name the output's subnets (see
 // catalogue.BlocksAsList) become the argument that takes them. It reports
 // whether it changed anything.
-func collapseOutputLists(ws *workspace, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
+func collapseOutputLists(ws *run.Workspace, lists map[string]int, getSchemas func() (*tfjson.ProviderSchemas, error)) (bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err

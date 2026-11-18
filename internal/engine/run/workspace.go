@@ -1,0 +1,271 @@
+// Copyright 2026 Gabriel Ignat
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package run
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2/hclwrite"
+	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
+
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
+)
+
+// Workspace is the configuration files of a root, held in memory: the edits
+// of the tidying passes read and change them here, and only Terraform, which
+// reads them from disk, needs them written (see Flush). A snapshot holds
+// every file, so restoring one puts back the files an edit changed and
+// removes those it added, whichever they are.
+type Workspace struct {
+	// Dir is the root's directory.
+	Dir string
+	// files are the contents of the root's files, by name in dir.
+	files map[string][]byte
+	// disk is what dir has of them: as read, or as Flush last wrote them.
+	disk map[string][]byte
+	// parsed are the files as Load last parsed them, by name: a pass
+	// loads generated.tf many times, and it is parsed again only once its
+	// content has changed. Load hands out Unedited copies, never these,
+	// so an edit to one File never shows in another.
+	parsed map[string]*hclfile.File
+}
+
+// Snapshot is the files of a workspace at one time (see
+// Workspace.Snapshot).
+type Snapshot map[string][]byte
+
+// OpenWorkspace reads the configuration files of the root in dir, its .tf
+// files, as hclfile.ConfigFiles finds them: a symlinked file is read
+// through its link. The other files of dir, such as the lock file
+// Terraform writes, stay on disk.
+func OpenWorkspace(dir string) (*Workspace, error) {
+	if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+	paths, err := filepath.Glob(filepath.Join(dir, "*.tf"))
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		files[filepath.Base(path)] = content
+	}
+	return NewWorkspace(dir, files), nil
+}
+
+// NewWorkspace is a workspace of the root in dir whose files are files, as
+// dir has them.
+func NewWorkspace(dir string, files map[string][]byte) *Workspace {
+	return &Workspace{Dir: dir, files: files, disk: maps.Clone(files)}
+}
+
+// Path is the path of the file name of the root.
+func (w *Workspace) Path(name string) string {
+	return filepath.Join(w.Dir, name)
+}
+
+// Load parses the file name, as the edits so far left it. Like
+// hclfile.Load, it returns an error that is fs.ErrNotExist where there is
+// no such file. Each call returns a File of its own, to edit and Save,
+// but the parse is shared while the content stays the same (see parsed).
+// Like the rest of the workspace, it is for one goroutine at a time.
+func (w *Workspace) Load(name string) (*hclfile.File, error) {
+	content, ok := w.files[name]
+	if !ok {
+		return nil, &fs.PathError{Op: "open", Path: w.Path(name), Err: fs.ErrNotExist}
+	}
+	// The cache is checked by content, not by which method changed the
+	// file last, so Save, Write, Restore and any other change to files
+	// all count: comparing the bytes is far cheaper than parsing them.
+	if f, ok := w.parsed[name]; ok && bytes.Equal(f.Src, content) {
+		return f.Unedited(), nil
+	}
+	f, err := hclfile.Parse(w.Path(name), content)
+	if err != nil {
+		return nil, err
+	}
+	if w.parsed == nil {
+		w.parsed = map[string]*hclfile.File{}
+	}
+	w.parsed[name] = f
+	return f.Unedited(), nil
+}
+
+// LoadOptional is Load, or nil where there is no file name.
+func (w *Workspace) LoadOptional(name string) (*hclfile.File, error) {
+	f, err := w.Load(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return f, err
+}
+
+// ConfigFiles parses the files Terraform reads as the configuration, as
+// hclfile.ConfigFiles does from a directory: by name, but for override
+// files.
+func (w *Workspace) ConfigFiles() ([]*hclfile.File, error) {
+	names := slices.Sorted(maps.Keys(w.files))
+	var files []*hclfile.File
+	for _, name := range names {
+		if !strings.HasSuffix(name, ".tf") || name == "override.tf" || strings.HasSuffix(name, "_override.tf") {
+			continue
+		}
+		f, err := w.Load(name)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+// Save keeps the edited file f, formatted, as hclfile.File.Save writes it.
+func (w *Workspace) Save(f *hclfile.File) {
+	w.files[filepath.Base(f.Path)] = bytes.TrimLeft(hclwrite.Format(f.Bytes()), "\n")
+}
+
+// Write keeps content as the file name.
+func (w *Workspace) Write(name string, content []byte) {
+	w.files[name] = bytes.Clone(content)
+}
+
+// File returns the content of the file name, and whether the workspace has
+// it.
+func (w *Workspace) File(name string) ([]byte, bool) {
+	content, ok := w.files[name]
+	return content, ok
+}
+
+// Has reports whether the workspace has a file name.
+func (w *Workspace) Has(name string) bool {
+	_, ok := w.files[name]
+	return ok
+}
+
+// Remove drops the file name, which Flush then removes from the directory.
+func (w *Workspace) Remove(name string) {
+	delete(w.files, name)
+}
+
+// Snapshot returns the files as they are, for Restore. The contents are
+// never changed in place, only replaced, so the snapshot shares them.
+func (w *Workspace) Snapshot() Snapshot {
+	return maps.Clone(w.files)
+}
+
+// Restore puts every file back as s has it, and removes those s hasn't.
+func (w *Workspace) Restore(s Snapshot) {
+	w.files = maps.Clone(s)
+}
+
+// Flush writes the files that differ from what dir has to it, and removes
+// from it those the workspace no longer has.
+func (w *Workspace) Flush() error {
+	for name, content := range w.files {
+		if on, ok := w.disk[name]; ok && bytes.Equal(on, content) {
+			continue
+		}
+		if err := fsutil.WriteFile(w.Path(name), content, 0o644); err != nil {
+			return err
+		}
+		w.disk[name] = content
+	}
+	for name := range w.disk {
+		if _, ok := w.files[name]; ok {
+			continue
+		}
+		if err := os.Remove(w.Path(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		delete(w.disk, name)
+	}
+	return nil
+}
+
+// Terraform returns tf, which runs in the workspace's root, writing the
+// workspace's files before each command (see Flush): Terraform then reads
+// the configuration as the edits left it.
+func (w *Workspace) Terraform(tf tfrun.Terraform) tfrun.Terraform {
+	return flushingTerraform{Terraform: tf, ws: w}
+}
+
+// flushingTerraform is the Terraform of a workspace (see
+// Workspace.Terraform).
+type flushingTerraform struct {
+	tfrun.Terraform
+	ws *Workspace
+}
+
+func (f flushingTerraform) flush() error {
+	if err := f.ws.Flush(); err != nil {
+		return fmt.Errorf("write %s: %w", f.ws.Dir, err)
+	}
+	return nil
+}
+
+func (f flushingTerraform) Init(ctx context.Context, opts ...tfexec.InitOption) error {
+	if err := f.flush(); err != nil {
+		return err
+	}
+	return f.Terraform.Init(ctx, opts...)
+}
+
+func (f flushingTerraform) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	if err := f.flush(); err != nil {
+		return false, err
+	}
+	return f.Terraform.PlanJSON(ctx, w, opts...)
+}
+
+func (f flushingTerraform) Validate(ctx context.Context) (*tfjson.ValidateOutput, error) {
+	if err := f.flush(); err != nil {
+		return nil, err
+	}
+	return f.Terraform.Validate(ctx)
+}
+
+func (f flushingTerraform) ProvidersSchema(ctx context.Context) (*tfjson.ProviderSchemas, error) {
+	if err := f.flush(); err != nil {
+		return nil, err
+	}
+	return f.Terraform.ProvidersSchema(ctx)
+}
+
+func (f flushingTerraform) ShowPlanFile(ctx context.Context, planPath string, opts ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	if err := f.flush(); err != nil {
+		return nil, err
+	}
+	return f.Terraform.ShowPlanFile(ctx, planPath, opts...)
+}
+
+func (f flushingTerraform) FormatCheck(ctx context.Context, opts ...tfexec.FormatOption) (bool, []string, error) {
+	if err := f.flush(); err != nil {
+		return false, nil, err
+	}
+	return f.Terraform.FormatCheck(ctx, opts...)
+}

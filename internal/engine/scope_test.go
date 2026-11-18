@@ -15,6 +15,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // awsScope is what an AWS root of account 680077350850 reads of its own
@@ -57,7 +58,7 @@ resource "aws_subnet" "a" {
 
 // lifted lifts scope in generated, as the annotation stage does once the
 // references are made, and returns the workspace.
-func lifted(t *testing.T, files map[string]string, scope *ScopeLocals, taken Names) *workspace {
+func lifted(t *testing.T, files map[string]string, scope *ScopeLocals, taken Names) *run.Workspace {
 	t.Helper()
 	ws := memoryWorkspace(files)
 	replan, err := annotate(ws, referencedAnnotations(ws, Options{Scope: scope, DefaultTags: &DefaultTags{Attribute: "tags"}}, taken))
@@ -178,7 +179,7 @@ func TestLiftScopeAddsNothingWithoutTheScope(t *testing.T) {
 		t.Errorf("generated.tf changed:\n%s", got)
 	}
 	for _, name := range []string{rootfile.DataFileName, rootfile.LocalsFileName} {
-		if _, ok := ws.files[name]; ok {
+		if ws.Has(name) {
 			t.Errorf("%s written for nothing to lift", name)
 		}
 	}

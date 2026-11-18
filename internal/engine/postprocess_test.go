@@ -12,6 +12,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // A plan error about a data source is the resources' that read it, so a
@@ -46,7 +47,7 @@ func TestPostProcessPlanCount(t *testing.T) {
 	dir, tf := liftTagsDir(t)
 	writeConfig(t, dir, rootfile.GeneratedFileName, strings.Replace(networkGenerated, "  vpc_id = \"vpc-0def5678\"\n", "  propagating_vgws = null\n  vpc_id           = \"vpc-0def5678\"\n", 1))
 
-	if _, err := postProcess(context.Background(), tf, dir, generating(Options{DefaultTags: &awsDefaultTags}), nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, run.Generating(Options{DefaultTags: &awsDefaultTags}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

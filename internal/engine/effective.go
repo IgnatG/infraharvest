@@ -13,26 +13,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/logging"
 )
-
-// EffectiveTags describes a provider whose resources' tags attribute holds
-// only the tags their configuration sets, such as the Google provider's
-// labels since its version 5.0: an import leaves it empty, and another
-// attribute, such as effective_labels, has every tag the resource has.
-// Terraform then generates no tags, so Generate writes them from that
-// attribute (see fillEffectiveTags).
-type EffectiveTags struct {
-	// Attribute is the resources' tags attribute, e.g. labels.
-	Attribute string
-	// Effective is the attribute with every tag a resource has, e.g.
-	// effective_labels.
-	Effective string
-	// ReservedPrefix starts the keys of tags the cloud or the provider
-	// sets itself, e.g. goog-, which Generate leaves out: the tags
-	// attribute only manages the tags it has, so those stay as they are.
-	ReservedPrefix string
-}
 
 // maxFillRounds bounds how often the pass that fills the tags plans.
 const maxFillRounds = 2
@@ -51,7 +34,7 @@ const maxFillRounds = 2
 // resource keeps tags. Where the rounds end with resources left, the
 // resources that settled keep their tags, with no plan to check them: the
 // pass rebases onto a new plan.
-func fillEffectiveTags(ws *workspace, et EffectiveTags, values map[string]map[string]any) *tidyEdit {
+func fillEffectiveTags(ws *run.Workspace, et EffectiveTags, values map[string]map[string]any) *tidyEdit {
 	left := map[string]bool{}
 	var filled []string
 	return &tidyEdit{
@@ -76,12 +59,12 @@ func fillEffectiveTags(ws *workspace, et EffectiveTags, values map[string]map[st
 			if !settled {
 				return tidyDecision{outcome: tidyRetry}, nil
 			}
-			logUnfilled(ws.dir, et, left)
+			logUnfilled(ws.Dir, et, left)
 			return tidyDecision{outcome: tidyAccept}, nil
 		},
 		unplanned: func(*tidyAttempt) (bool, error) {
 			settled, err := fillTags(ws, et, values, left)
-			logUnfilled(ws.dir, et, left)
+			logUnfilled(ws.Dir, et, left)
 			return len(settled) > 0, err
 		},
 	}
@@ -101,7 +84,7 @@ func logUnfilled(dir string, et EffectiveTags, left map[string]bool) {
 // imported values have it, unset, null or empty, to its et.Effective
 // without reserved tags, but for the resources in skip. It returns the
 // addresses of the resources it set.
-func fillTags(ws *workspace, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
+func fillTags(ws *run.Workspace, et EffectiveTags, values map[string]map[string]any, skip map[string]bool) ([]string, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err

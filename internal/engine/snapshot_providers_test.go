@@ -18,6 +18,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -158,12 +159,12 @@ func providerTidy(t *testing.T, snapshot bool) (*tidying, *cloudModel, *tfrun.Ca
 	cloud := newCloudModel()
 	root := &modelRunner{cloudModel: cloud, dir: dir}
 	var cache *tfrun.Cached
-	g := &generation{dir: dir, r: generating(Options{}), result: &Result{}, counting: &tfrun.Counting{Terraform: root}}
+	g := &generation{dir: dir, r: run.Generating(Options{}), result: &Result{}, counting: &tfrun.Counting{Terraform: root}}
 	if snapshot {
 		g.opts = Options{ImportOnce: &ImportOnce{NewRunner: func(copied string) (tfrun.Terraform, error) {
 			return &modelRunner{cloudModel: cloud, dir: copied}, nil
 		}}}
-		g.r = generating(g.opts)
+		g.r = run.Generating(g.opts)
 		cache = cachedRunner(root, root, dir, g.opts)
 		g.cache = cache
 		g.followProviders()
@@ -197,7 +198,8 @@ func setProviders(d *tidying, providers string) *tidyEdit {
 // touch is an edit that changes nothing a plan shows.
 func touch(d *tidying) *tidyEdit {
 	return &tidyEdit{edit: plainEdit(func() (bool, error) {
-		d.ws.Write(rootfile.GeneratedFileName, append(d.ws.files[rootfile.GeneratedFileName], '\n'))
+		content, _ := d.ws.File(rootfile.GeneratedFileName)
+		d.ws.Write(rootfile.GeneratedFileName, append(content, '\n'))
 		return true, nil
 	})}
 }
@@ -218,7 +220,7 @@ func TestProviderConfigEditSettlesAlikeWithTheSnapshot(t *testing.T) {
 			if !kept {
 				t.Fatal("the edit of the provider block was rejected")
 			}
-			if got := string(d.ws.files["providers.tf"]); !strings.Contains(got, "default_tags") {
+			if got := wsFile(t, d.ws, "providers.tf"); !strings.Contains(got, "default_tags") {
 				t.Errorf("the provider block was undone:\n%s", got)
 			}
 			if !snapshot {

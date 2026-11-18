@@ -17,6 +17,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/logging"
 )
@@ -88,8 +89,8 @@ func (c defaultCandidate) key() string {
 // shows in the plan, so it could hide a real setting. Where the plan can't
 // settle what to leave out, only nulls and proven defaults go, with no plan
 // to check them (see stripNullsOnly): the pass rebases onto a new plan.
-func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *workspace, rules defaultRules) (*tidyEdit, error) {
-	dir := ws.dir
+func stripDefaults(ctx context.Context, tf tfrun.Terraform, ws *run.Workspace, rules defaultRules) (*tidyEdit, error) {
+	dir := ws.Dir
 	current, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
@@ -169,7 +170,7 @@ func defaultsRetry(dir string, a *tidyAttempt) tidyDecision {
 // release where the configuration still validates without them: no plan
 // would correct a wrong one. It reports whether it changed generated.tf;
 // restore puts it back as it was.
-func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, ws *workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, error) {
+func stripNullsOnly(ctx context.Context, tf tfrun.Terraform, ws *run.Workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) (bool, error) {
 	type pass struct {
 		schemas *tfjson.ProviderSchemas
 		rules   defaultRules
@@ -261,7 +262,7 @@ func keepWhatChanged(changed []*tfjson.ResourceChange, removed []defaultCandidat
 // resource that validation rejects, those its errors name or else all of
 // them, are kept. After maxDefaultValidations, the plan has the last word.
 // It returns the candidates it left out.
-func removeValid(ctx context.Context, tf tfrun.Terraform, ws *workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
+func removeValid(ctx context.Context, tf tfrun.Terraform, ws *run.Workspace, restore func() error, schemas *tfjson.ProviderSchemas, rules defaultRules, keep map[string]bool) ([]defaultCandidate, error) {
 	for validation := 0; ; validation++ {
 		if err := restore(); err != nil {
 			return nil, err
@@ -305,7 +306,7 @@ func removeValid(ctx context.Context, tf tfrun.Terraform, ws *workspace, restore
 
 // assignErrors assigns diags to the resources of ws they are about (see
 // byResource).
-func assignErrors(ws *workspace, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
+func assignErrors(ws *run.Workspace, diags []tfjson.Diagnostic) (map[string][]tfjson.Diagnostic, []tfjson.Diagnostic, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, nil, err

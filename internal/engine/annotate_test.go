@@ -14,6 +14,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // annotated makes edit of src, as generated.tf, in memory, and returns the
@@ -41,7 +42,7 @@ func editFile(path string, edit func(f *hclfile.File) bool) (bool, error) {
 }
 
 // generatedText is generated.tf as ws has it.
-func generatedText(t *testing.T, ws *workspace) string {
+func generatedText(t *testing.T, ws *run.Workspace) string {
 	t.Helper()
 	f, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {

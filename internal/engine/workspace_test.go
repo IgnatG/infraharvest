@@ -13,13 +13,14 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // rootWorkspace opens the workspace of the root in dir, for a test.
-func rootWorkspace(t testing.TB, dir string) *workspace {
+func rootWorkspace(t testing.TB, dir string) *run.Workspace {
 	t.Helper()
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +28,7 @@ func rootWorkspace(t testing.TB, dir string) *workspace {
 }
 
 // flushed writes ws to its directory, for a test that reads the files there.
-func flushed(t testing.TB, ws *workspace) {
+func flushed(t testing.TB, ws *run.Workspace) {
 	t.Helper()
 	if err := ws.Flush(); err != nil {
 		t.Fatal(err)
@@ -36,18 +37,18 @@ func flushed(t testing.TB, ws *workspace) {
 
 // memoryWorkspace is a workspace of files, by name, that no directory has:
 // for a test of an edit that never needs Terraform.
-func memoryWorkspace(files map[string]string) *workspace {
+func memoryWorkspace(files map[string]string) *run.Workspace {
 	contents := map[string][]byte{}
 	for name, content := range files {
 		contents[name] = []byte(content)
 	}
-	return newWorkspace("", contents)
+	return run.NewWorkspace("", contents)
 }
 
 // wsFile returns the file name of ws, which it must have.
-func wsFile(t testing.TB, ws *workspace, name string) string {
+func wsFile(t testing.TB, ws *run.Workspace, name string) string {
 	t.Helper()
-	content, ok := ws.files[name]
+	content, ok := ws.File(name)
 	if !ok {
 		t.Fatalf("the workspace has no %s", name)
 	}
@@ -55,8 +56,8 @@ func wsFile(t testing.TB, ws *workspace, name string) string {
 }
 
 // appendComment appends comment to generated.tf in ws.
-func appendComment(ws *workspace, comment string) (bool, error) {
-	content, ok := ws.files[rootfile.GeneratedFileName]
+func appendComment(ws *run.Workspace, comment string) (bool, error) {
+	content, ok := ws.File(rootfile.GeneratedFileName)
 	if !ok {
 		return false, errors.New("no " + rootfile.GeneratedFileName)
 	}
@@ -65,7 +66,7 @@ func appendComment(ws *workspace, comment string) (bool, error) {
 }
 
 // commentEdit is an edit that appends comment to generated.tf in ws.
-func commentEdit(ws *workspace, comment string) *tidyEdit {
+func commentEdit(ws *run.Workspace, comment string) *tidyEdit {
 	return &tidyEdit{edit: plainEdit(func() (bool, error) { return appendComment(ws, comment) })}
 }
 
@@ -80,7 +81,7 @@ func TestWorkspaceFlushWritesWhatChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := rootWorkspace(t, dir)
-	if _, ok := ws.files[tfrun.LockFileName]; ok {
+	if ws.Has(tfrun.LockFileName) {
 		t.Errorf("the workspace holds %s, which Terraform writes", tfrun.LockFileName)
 	}
 
@@ -88,7 +89,7 @@ func TestWorkspaceFlushWritesWhatChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws.Write(rootfile.DataFileName, []byte("# data\n"))
-	delete(ws.files, rootfile.LocalsFileName)
+	ws.Remove(rootfile.LocalsFileName)
 	if got := readFile(t, dir, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf written before a flush:\n%s", got)
 	}
@@ -161,7 +162,7 @@ func TestSettleRestoresEveryFileOfTheWorkspace(t *testing.T) {
 			t.Errorf("%s not restored:\n%s", name, got)
 		}
 	}
-	if _, ok := ws.files["extra.tf"]; ok {
+	if ws.Has("extra.tf") {
 		t.Error("extra.tf not removed from the workspace")
 	}
 	// The plan saw the edit; the next flush takes it back off the disk.
@@ -228,8 +229,8 @@ resource "aws_subnet" "a" {
 		if edited, err := addLookups(ws, nil, nil); err != nil || len(edited) > 0 {
 			t.Fatalf("got edited=%v err=%v, want none", edited, err)
 		}
-		if len(ws.files) != len(before) || wsFile(t, ws, rootfile.GeneratedFileName) != networkGenerated {
-			t.Errorf("the workspace changed: %v", ws.files)
+		if len(ws.Snapshot()) != len(before) || wsFile(t, ws, rootfile.GeneratedFileName) != networkGenerated {
+			t.Errorf("the workspace changed: %v", ws.Snapshot())
 		}
 	})
 }
@@ -277,10 +278,15 @@ func TestOpenWorkspaceReadsSymlinkedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := rootWorkspace(t, dir)
-	if got := string(ws.files["providers.tf"]); got != providers {
+	if got := wsFile(t, ws, "providers.tf"); got != providers {
 		t.Errorf("providers.tf: got %q, want %q", got, providers)
 	}
-	if _, ok := ws.files["dir.tf"]; ok {
+	if ws.Has("dir.tf") {
 		t.Error("a directory named dir.tf was read as a file")
 	}
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }

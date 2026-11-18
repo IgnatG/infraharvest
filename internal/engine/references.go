@@ -17,6 +17,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // referenceTarget is a resource attribute a literal can refer to instead.
@@ -75,7 +76,7 @@ func (t referenceTarget) node() string {
 // the references of the index and its parents, which identify the
 // resource by its whole ID, ARN or name; one at level 2 or more gets none
 // (see tidying.settle). It returns the resources it changed.
-func addReferencesSkipping(ws *workspace, values map[string]map[string]any, skip map[string]int, t Traits) (map[string]bool, error) {
+func addReferencesSkipping(ws *run.Workspace, values map[string]map[string]any, skip map[string]int, t Traits) (map[string]bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, err
@@ -168,14 +169,14 @@ func uniqueTarget(argument, value string, targets []referenceTarget, traits Trai
 	for _, t := range targets {
 		addresses = append(addresses, t.address)
 	}
-	if parent := parentOf(addresses); parent != "" && (traits.referenceable(value) || namedAfter(argument, parent)) {
+	if parent := parentOf(addresses); parent != "" && (traits.Referenceable(value) || namedAfter(argument, parent)) {
 		for _, t := range targets {
 			if t.address == parent {
 				return t, true
 			}
 		}
 	}
-	if traits.referenceable(value) {
+	if traits.Referenceable(value) {
 		return referenceTarget{}, false
 	}
 	var named []referenceTarget
@@ -317,7 +318,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 			}
 			body.SetAttributeRaw(name, rp.tokens())
 			changed = true
-			if t, single := rp.single(); single && idAttribute(t.attribute) && r.traits.distinctive(v) {
+			if t, single := rp.single(); single && idAttribute(t.attribute) && r.traits.Distinctive(v) {
 				byValue[v] = rp
 			}
 		case *hclsyntax.TupleConsExpr:
@@ -326,7 +327,7 @@ func (r *resolver) attributes(address string, syntax *hclsyntax.Body, body *hclw
 				changed = true
 			}
 		case *hclsyntax.ObjectConsExpr:
-			if !all || r.traits.unreferencedMap(name) {
+			if !all || r.traits.UnreferencedMap(name) {
 				continue
 			}
 			byKey := func(key, value string) (hclwrite.Tokens, bool) { return tokens(snakeCase(key), value) }

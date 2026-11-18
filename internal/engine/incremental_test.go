@@ -1064,7 +1064,7 @@ func TestAdding(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			o := r.opts
+			o := r.Opts
 			if got := string(o.Config[rootfile.VersionsFileName]); got != string(tc.versions) {
 				t.Errorf("versions.tf: got\n%s\nwant\n%s", got, tc.versions)
 			}

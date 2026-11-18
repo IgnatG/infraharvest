@@ -50,16 +50,16 @@ func TestTraitsValues(t *testing.T) {
 		{value: "https://sqs.eu-west-2.amazonaws.com/123456789012/q", referenceable: true},
 		{value: "Enabled"},
 	} {
-		if got := testTraits.referenceable(tc.value); got != tc.referenceable {
+		if got := testTraits.Referenceable(tc.value); got != tc.referenceable {
 			t.Errorf("referenceable(%q): got %v, want %v", tc.value, got, tc.referenceable)
 		}
-		if got := testTraits.liftable(tc.value); got != tc.liftable {
+		if got := testTraits.Liftable(tc.value); got != tc.liftable {
 			t.Errorf("liftable(%q): got %v, want %v", tc.value, got, tc.liftable)
 		}
-		if got := testTraits.wellKnown(tc.value); got != tc.well {
+		if got := testTraits.WellKnown(tc.value); got != tc.well {
 			t.Errorf("wellKnown(%q): got %v, want %v", tc.value, got, tc.well)
 		}
-		if got := testTraits.isARN(tc.value); got != tc.arn {
+		if got := testTraits.IsARN(tc.value); got != tc.arn {
 			t.Errorf("isARN(%q): got %v, want %v", tc.value, got, tc.arn)
 		}
 	}
@@ -71,11 +71,11 @@ func TestZeroTraits(t *testing.T) {
 	t.Parallel()
 	var none Traits
 	for value, want := range map[string]bool{"vpc-0abc12de": true, "https://example.com/x": true, "arn:aws:iam::123456789012:role/app": false, "app@p.iam.gserviceaccount.com": false} {
-		if got := none.referenceable(value); got != want {
+		if got := none.Referenceable(value); got != want {
 			t.Errorf("referenceable(%q): got %v, want %v", value, got, want)
 		}
 	}
-	if none.isARN("arn:aws:iam::123456789012:role/app") || none.wellKnown("arn:aws:iam::aws:policy/ReadOnlyAccess") || none.unreferencedMap("tags") {
+	if none.IsARN("arn:aws:iam::123456789012:role/app") || none.WellKnown("arn:aws:iam::aws:policy/ReadOnlyAccess") || none.UnreferencedMap("tags") {
 		t.Error("the zero traits know a provider's values")
 	}
 }

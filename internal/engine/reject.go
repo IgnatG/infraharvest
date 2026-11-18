@@ -21,15 +21,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// Rejection is a resource Generate left out because Terraform couldn't
-// import it or generate valid configuration for it. Its import block and
-// any generated configuration are in rejected.hcl, under its errors.
-type Rejection struct {
-	Address string
-	ID      string // the import ID
-	Errors  []string
-}
-
 // reject moves the resources errs names out of imports.tf and generated.tf,
 // and appends them, with their errors, to out.
 func reject(dir string, errs map[string][]tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, error) {

@@ -16,19 +16,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
-// ModuleCall is a module call Generate made, or a cluster of resources it
-// tried to move into a module and didn't.
-type ModuleCall struct {
-	// Name is the call's name; Source and Version are the module's.
-	Name    string
-	Source  string
-	Version string
-	// Resources are the addresses the resources had in the root.
-	Resources []string
-	// Declined, if set, is why the resources stayed where they were.
-	Declined string
-}
-
 // trial is a cluster an adapter mapped, written as a module call to try.
 type trial struct {
 	adapter *adapters.Adapter
@@ -76,11 +63,11 @@ func (t *trial) moduleAddress(member string) string {
 // passes after to compare with. It returns no edit where the run has no
 // adapters or they map no cluster.
 func (t *tidying) synthesize() (*tidyEdit, error) {
-	opts, ws := t.r.opts, t.ws
+	opts, ws := t.r.Opts, t.ws
 	if len(opts.Adapters) == 0 {
 		return nil, nil
 	}
-	trials, declined, err := mapClusters(ws, opts.Adapters, t.r.taken, t.values)
+	trials, declined, err := mapClusters(ws, opts.Adapters, t.r.Taken, t.values)
 	if err != nil || len(trials) == 0 {
 		t.declined = declined
 		return nil, err

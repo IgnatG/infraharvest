@@ -15,21 +15,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
-// Names are names a root already uses, which Generate gives nothing it
-// adds: resources as type.name, and data.type.name, module.name, var.name
-// and local.name.
-type Names map[string]bool
-
-// hasType reports whether n has a resource of resourceType.
-func (n Names) hasType(resourceType string) bool {
-	for name := range n {
-		if typ, _, ok := strings.Cut(name, "."); ok && typ == resourceType {
-			return true
-		}
-	}
-	return false
-}
-
 // relabelled returns imports with Name turned into a label (see Label),
 // tidied if tidy is set (see tidyLabels), and made unique per resource
 // type with _2, _3, ... in import ID order, so the labels don't depend on
@@ -55,12 +40,12 @@ func relabelled(imports []rootfile.Import, taken Names, tidy bool, previous *Pre
 	if tidy {
 		tidyLabels(sorted, taken)
 	}
-	reserved := previous.reserved()
+	reserved := previous.Reserved()
 	free := func(imp rootfile.Import, name string) bool {
 		owner, ok := reserved[imp.Type+"."+name]
 		return !ok || owner == ResourceKey(imp.Type, imp.ID)
 	}
-	labels := previous.labels()
+	labels := previous.LabelsByKey()
 	kept := map[External]bool{}
 	for i, imp := range sorted {
 		key := ResourceKey(imp.Type, imp.ID)
@@ -155,7 +140,7 @@ func tidyLabels(imports []rootfile.Import, taken Names) {
 		perType[imp.Type]++
 	}
 	for i, imp := range imports {
-		if perType[imp.Type] == 1 && !taken.hasType(imp.Type) {
+		if perType[imp.Type] == 1 && !taken.HasType(imp.Type) {
 			imports[i].Name = hclfile.MainLabel
 		}
 	}

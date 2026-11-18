@@ -12,6 +12,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
@@ -32,7 +33,7 @@ var importedValues = map[string]map[string]any{
 // addReferences is addReferencesSkipping for every resource: it reports
 // whether it changed anything.
 func addReferences(dir string, values map[string]map[string]any) (bool, error) {
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return false, err
 	}
@@ -241,7 +242,7 @@ func TestPostProcessAddsReferences(t *testing.T) {
 	writeConfig(t, dir, rootfile.GeneratedFileName, referencingGenerated)
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues)}
 
-	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, run.Generating(Options{}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -262,7 +263,7 @@ func TestPostProcessUndoesReferencesThatChangeThePlan(t *testing.T) {
 	changed := fakePlan{summary: tfrun.ChangeSummary{Change: 1}}
 	tf := &fakeTerraform{dir: dir, shown: plannedImports(importedValues), plans: []fakePlan{{}, changed, changed}}
 
-	if _, err := postProcess(context.Background(), tf, dir, generating(Options{}), nil, nil); err != nil {
+	if _, err := postProcess(context.Background(), tf, dir, run.Generating(Options{}), nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
