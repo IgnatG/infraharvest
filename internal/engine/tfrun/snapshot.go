@@ -172,7 +172,8 @@ type SnapshotBuild struct {
 
 // snapshotOverrideTries is how many times the copy is planned: the first
 // plan, then one more each time Blame names resources to plan ignoring
-// only what their configuration sets.
+// only what their configuration sets, and each time a plan shows those
+// resources taking provider defaults (see providerDefaults).
 const snapshotOverrideTries = 3
 
 // BuildSnapshot builds a snapshot of the root b describes: it adds an
@@ -226,8 +227,15 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 			return err
 		}
 		if len(diags) == 0 {
-			p = planned
-			break
+			defaulted := providerDefaults(planned, s.partial)
+			if len(defaulted) == 0 || try == snapshotOverrideTries {
+				p = planned
+				break
+			}
+			for r, names := range defaulted {
+				s.partial[r] = mergeNames(s.partial[r], names)
+			}
+			continue
 		}
 		blamed := blamedIgnored(b, s.partial, diags)
 		if len(blamed) == 0 || try == snapshotOverrideTries {
@@ -284,6 +292,56 @@ func blamedIgnored(b SnapshotBuild, partial map[string][]string, diags []tfjson.
 		}
 	}
 	return blamed
+}
+
+// providerDefaults returns, for the resources of p that the copy has ignore
+// only some arguments (partial), the arguments the provider fills in with a
+// default its read never returns: the import leaves them null, the
+// configuration leaves them out, and the plan sets them (aws_sns_topic_
+// subscription's confirmation_timeout_in_minutes and endpoint_auto_confirms
+// after a tidy pass drops the values that equal the default). The copy
+// ignores them too: it only has to import, and ignoring an argument keeps
+// the imported value, null, so that the plan changes nothing. It returns
+// nil unless every change of p that isn't an import is such an update of a
+// partial resource: any other change stays what CheckImportOnly rejects.
+func providerDefaults(p *tfjson.Plan, partial map[string][]string) map[string][]string {
+	if p == nil || len(partial) == 0 {
+		return nil
+	}
+	found := map[string][]string{}
+	for _, rc := range p.ResourceChanges {
+		c := rc.Change
+		if c == nil || rc.Mode != tfjson.ManagedResourceMode || (c.Actions.NoOp() && c.Importing != nil) {
+			continue
+		}
+		key := rc.Type + "." + rc.Name
+		if rc.Type == "" {
+			key, _, _ = strings.Cut(rc.Address, "[")
+		}
+		if _, ok := partial[key]; !ok || !c.Actions.Update() || c.Importing == nil {
+			return nil
+		}
+		before, _ := c.Before.(map[string]any)
+		after, _ := c.After.(map[string]any)
+		changed := changedArguments(c)
+		if len(changed) == 0 {
+			return nil
+		}
+		for _, name := range changed {
+			if before[name] != nil || after[name] == nil {
+				return nil
+			}
+		}
+		found[key] = mergeNames(found[key], changed)
+	}
+	return found
+}
+
+// mergeNames returns the sorted union of a and b.
+func mergeNames(a, b []string) []string {
+	merged := slices.Concat(a, b)
+	slices.Sort(merged)
+	return slices.Compact(merged)
 }
 
 // SnapshotOverride returns the override file that has every one of

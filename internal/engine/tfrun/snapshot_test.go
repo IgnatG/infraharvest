@@ -877,3 +877,134 @@ func TestCheckImportOnlyNamesWhatAnUpdateChanges(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// defaultingState plans the update of the arguments a provider defaults
+// (null in what the import read, set by the plan) for as long as the
+// override in dir doesn't ignore them, and the import alone after. Its
+// plans fail while the override has the resource ignore all changes.
+type defaultingState struct {
+	fakeState
+	dir, resource string
+	defaults      map[string]any // argument to the default
+	plans         int
+}
+
+func (d *defaultingState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	d.plans++
+	override, err := os.ReadFile(filepath.Join(d.dir, SnapshotOverrideFile))
+	if err != nil {
+		return false, err
+	}
+	if strings.Contains(string(override), "ignore_changes = all") {
+		fmt.Fprintln(w, `{"@level":"error","@message":"Error: filter_policy","type":"diagnostic","diagnostic":{"severity":"error","summary":"filter_policy is required when filter_policy_scope is set","detail":""}}`)
+		return false, nil
+	}
+	return d.fakeState.PlanJSON(ctx, w, opts...)
+}
+
+func (d *defaultingState) ShowPlanFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.Plan, error) {
+	override, err := os.ReadFile(filepath.Join(d.dir, SnapshotOverrideFile))
+	if err != nil {
+		return nil, err
+	}
+	p := importPlan(d.resource)
+	typ, name, _ := strings.Cut(d.resource, ".")
+	rc := p.ResourceChanges[0]
+	rc.Type, rc.Name = typ, name
+	before, after := map[string]any{"endpoint": "e"}, map[string]any{"endpoint": "e"}
+	changed := false
+	for argument, value := range d.defaults {
+		if strings.Contains(string(override), argument) {
+			continue
+		}
+		before[argument], after[argument] = nil, value
+		changed = true
+	}
+	if changed {
+		rc.Change.Actions = tfjson.Actions{tfjson.ActionUpdate}
+		rc.Change.Before, rc.Change.After = before, after
+	}
+	return p, nil
+}
+
+func TestBuildSnapshotIgnoresWhatTheProviderDefaults(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	tf := &defaultingState{
+		fakeState: fakeState{imports: 1},
+		dir:       dir, resource: "aws_sns_topic_subscription.main",
+		defaults: map[string]any{"confirmation_timeout_in_minutes": float64(1), "endpoint_auto_confirms": false},
+	}
+	build := SnapshotBuild{
+		Plan: tf, Apply: tf, Dir: dir,
+		Resources: []string{"aws_sns_topic_subscription.main"},
+		Imports:   []ImportBlock{{To: "aws_sns_topic_subscription.main", ID: "arn"}},
+		Blame: func([]tfjson.Diagnostic) map[string][]string {
+			return map[string][]string{"aws_sns_topic_subscription.main": {"endpoint", "protocol", "topic_arn"}}
+		},
+	}
+	s, err := BuildSnapshot(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Remove()
+	if tf.plans != 3 || tf.applies != 1 {
+		t.Errorf("plans %d, applies %d: want 3 and 1", tf.plans, tf.applies)
+	}
+	override, _ := os.ReadFile(filepath.Join(dir, SnapshotOverrideFile))
+	want := `resource "aws_sns_topic_subscription" "main" {
+  lifecycle {
+    ignore_changes = [confirmation_timeout_in_minutes, endpoint, endpoint_auto_confirms, protocol, topic_arn]
+  }
+}
+
+`
+	if string(override) != want {
+		t.Errorf("override:\n%s\nwant:\n%s", override, want)
+	}
+}
+
+func TestProviderDefaults(t *testing.T) {
+	t.Parallel()
+	partial := map[string][]string{"aws_sns_topic_subscription.main": {"endpoint"}}
+	update := func(address, typ, name string, before, after map[string]any) *tfjson.Plan {
+		p := importPlan(address)
+		rc := p.ResourceChanges[0]
+		rc.Type, rc.Name = typ, name
+		rc.Change.Actions = tfjson.Actions{tfjson.ActionUpdate}
+		rc.Change.Before, rc.Change.After = before, after
+		return p
+	}
+	defaulted := update("aws_sns_topic_subscription.main", "aws_sns_topic_subscription", "main",
+		map[string]any{"endpoint": "e", "endpoint_auto_confirms": nil, "confirmation_timeout_in_minutes": nil},
+		map[string]any{"endpoint": "e", "endpoint_auto_confirms": false, "confirmation_timeout_in_minutes": float64(1)})
+	got := providerDefaults(defaulted, partial)
+	if want := []string{"confirmation_timeout_in_minutes", "endpoint_auto_confirms"}; !slices.Equal(got["aws_sns_topic_subscription.main"], want) {
+		t.Errorf("defaults: %v, want %v", got, want)
+	}
+
+	for name, c := range map[string]struct {
+		plan    *tfjson.Plan
+		partial map[string][]string
+	}{
+		"an import alone":         {importPlan("aws_sns_topic_subscription.main"), partial},
+		"a resource ignoring all": {defaulted, map[string][]string{}},
+		"another resource": {update("aws_sqs_queue.q", "aws_sqs_queue", "q",
+			map[string]any{"a": nil}, map[string]any{"a": "x"}), partial},
+		"an argument the import read": {update("aws_sns_topic_subscription.main", "aws_sns_topic_subscription", "main",
+			map[string]any{"raw_message_delivery": true}, map[string]any{"raw_message_delivery": false}), partial},
+		"an argument the plan removes": {update("aws_sns_topic_subscription.main", "aws_sns_topic_subscription", "main",
+			map[string]any{"raw_message_delivery": true}, map[string]any{"raw_message_delivery": nil}), partial},
+		"a replacement": {func() *tfjson.Plan {
+			p := update("aws_sns_topic_subscription.main", "aws_sns_topic_subscription", "main",
+				map[string]any{"a": nil}, map[string]any{"a": "x"})
+			p.ResourceChanges[0].Change.Actions = tfjson.Actions{tfjson.ActionDelete, tfjson.ActionCreate}
+			return p
+		}(), partial},
+		"no plan": {nil, partial},
+	} {
+		if got := providerDefaults(c.plan, c.partial); len(got) != 0 {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+}
