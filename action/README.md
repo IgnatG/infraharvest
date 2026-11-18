@@ -119,7 +119,7 @@ jobs:
 
 ## Sending a run to a control plane
 
-Off by default. With `control-plane-url` set, the action sends the metadata of the import to a hosted control plane, after the import (and after the pull request or commit): the four documents `infraharvest export` writes, [inventory, run, gate and graph](../docs/export.md), and nothing else. They hold no attributes, values, resource addresses, paths or messages; the [Export](../docs/export.md) page lists what they have and what they leave out. The control plane has to implement the [Control plane API](../docs/export.md#control-plane-api).
+Off by default. With `control-plane-url` set, the action sends the metadata of the run to a hosted control plane, after the import or the drift check (and after the pull request or commit): the documents `infraharvest export` writes, [inventory, run, gate and graph](../docs/export.md) for an import and the drift summary for a drift check, and nothing else. They hold no attributes, values, paths or messages, and only the drift summary has resource addresses; the [Export](../docs/export.md) page lists what they have and what they leave out. The control plane has to implement the [Control plane API](../docs/export.md#control-plane-api).
 
 ```yaml
 permissions:
@@ -153,52 +153,39 @@ jobs:
 ```
 
 - **Authentication.** The action requests the job's GitHub Actions OIDC token for the audience in `control-plane-audience` (default `infraharvest-api`; the control plane checks it, so set the one it expects) and trades it for a run token: `POST <url>/api/v1/session`, with an empty body and the OIDC token in the header `X-GitHub-OIDC-Token`. The control plane answers `{"token": "...", "expires_at": "..."}`, and the run token is the bearer token (`Authorization: Bearer`) of every upload. The OIDC token goes to the session endpoint only. The job needs `id-token: write`; without it the action says so and fails (before the import, when it can tell). Both tokens are masked and never printed, and go to `curl` in a file, not in its arguments.
-- **Uploads.** The session is opened first, then the inventory, run, gate and graph documents are exported and sent, one after another, to `<url>/api/v1/ingest/{inventory|run|gate|graph}`. Each body is gzip-compressed (`Content-Encoding: gzip`, `Content-Type: application/json`), and carries `Idempotency-Key: <run_id>:<document>`, so sending a document again gives the same result.
+- **Uploads.** The session is opened first, then the documents are exported and sent, one after another, to `<url>/api/v1/ingest/{inventory|run|gate|graph|drift-summary}`. Each body is gzip-compressed (`Content-Encoding: gzip`, `Content-Type: application/json`), and carries `Idempotency-Key: <run_id>:<document>`, so sending a document again gives the same result. What is sent depends on what ran, as the next item says.
 - **Refusals.** A `4xx` other than `429` is not retried. The step prints the reason the control plane gives in its JSON body, `{"error": "..."}`, or the start of the body if it isn't JSON. A `402` means the organisation's plan refused the upload, such as for being over its cloud-account limit: it is not a problem with the token. `401` and `403` mean the control plane refused the token: check `control-plane-audience`. The same goes for the session request.
-- **Redaction.** `control-plane-drop-tags` and `control-plane-drop-tag` (a key a line, or comma-separated) leave tags out of the inventory, and `control-plane-hash-ids` replaces IDs and names (the graph's IDs too) with HMAC-SHA256 hashes under a key only you hold, from `control-plane-hash-key` or, better, `INFRAHARVEST_EXPORT_KEY` from a secret. Tags that look like secrets are always dropped. See [Export](../docs/export.md#what-it-leaves-out).
+- **Redaction.** `control-plane-drop-tags` and `control-plane-drop-tag` (a key a line, or comma-separated) leave tags out of the inventory, and `control-plane-hash-ids` replaces IDs and names (the graph's IDs and the drift summary's addresses too) with HMAC-SHA256 hashes under a key only you hold, from `control-plane-hash-key` or, better, `INFRAHARVEST_EXPORT_KEY` from a secret. `control-plane-drop-addresses` (`true` or `false`) leaves the addresses out of the drift summary instead, and wins when both are set. Tags that look like secrets are always dropped. See [Export](../docs/export.md#what-it-leaves-out).
 - **Transport.** HTTPS only (`http://` only for `localhost`, `127.0.0.1` and `[::1]`), no redirects followed. A `5xx`, a `429` and a connection failure are retried up to four times, with a growing delay; any other failure fails at once.
-- **Failures.** The step runs last and after a failed import too, when it left a report, so a failed run is reported as well. An export or upload failure fails the step, unless `control-plane-optional` is `true`, which turns it into a warning. A run that left no report, such as an import that couldn't start, sends nothing.
-- **Times.** The step records when the import started and finished (UTC) and passes them to `infraharvest export` (`--started-at`, `--finished-at`), so the run document has `started_at` and `finished_at`, and the inventory's `generated_at` is the finish: sending the same run again changes neither. A run with no recorded times, such as an import that never started, leaves them out.
-- **Imports only.** The documents describe the import of the run, so `control-plane-url` needs `import` to be `true`: a drift-only run would send an old report, if the repository has one.
-- **Output.** `control-plane-run-id` is the `run_id` of the documents, set once all four were accepted.
+- **Failures.** The step runs last and after a failed import or drift check too, when it left a report, so a failed run is reported as well. An export or upload failure fails the step, unless `control-plane-optional` is `true`, which turns it into a warning. A run that left no report, such as an import that couldn't start, sends nothing, and a drift check that left no `drift.json` (`out` doesn't exist yet, or it failed before writing one) sends nothing, with a warning.
+- **Times.** The step records when the import started and finished (UTC) and passes them to `infraharvest export` (`--started-at`, `--finished-at`), so the run document has `started_at` and `finished_at`, and the inventory's `generated_at` is the finish: sending the same run again changes neither. A run with no recorded times, such as an import that never started, leaves them out. The drift check records none, so the run document of a drift-only run and the drift summary have none.
+- **Imports and drift.** An import (`import: "true"`) sends the inventory, run, gate and graph documents. A drift check (`drift: report` or `accept`) sends the drift summary, which counts the changes by root, outcome and resource type and lists the addresses of the resources that changed. With `import: "false"` and a drift check, the run document describes the drift check (`export --command drift`, from `drift.json`, so an import's older report in the repository isn't sent): the run document, then the drift summary, and nothing else. With both, the five are sent, the run document being the import's. The drift summary's `run_id` is the drift check's own, so its `Idempotency-Key` uses it. Without `control-plane-hash-ids` or `control-plane-drop-addresses`, the addresses are sent as they are; they can hold the key of a `for_each` resource.
+- **Request ID.** `control-plane-request-id`, such as the ID a control plane gave to the request that started the run (see [Runs a control plane starts](#runs-a-control-plane-starts)), goes into the run document as `request_id` (`--request-id`), so the control plane can match the run to its request. It must be 1 to 128 letters, digits or `.` `_` `:` `-`; anything else fails before the run starts.
+- **Output.** `control-plane-run-id` is the `run_id` of the run document (an import's, when the run has one), set once every document of the run was accepted.
 
-### Imports started from the control plane
+### Runs a control plane starts
 
-A control plane whose GitHub App has `contents: write` on the repository can start an import itself, such as when someone asks for one from its selection page. It sends a `repository_dispatch` event of type `infraharvest-import`, whose payload names the selection file, `{"selection": "selection.yaml", "ref": "main"}`, and nothing else. The selection itself comes from the repository, where a pull request approved it, so the event can't change what is imported:
+A control plane whose GitHub App can dispatch workflows on the repository can start an import or a drift check itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step with your cloud's. It is started by `workflow_dispatch`, with three inputs:
+
+- `command`: `import` or `drift`.
+- `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports.
+- `request-id`: the control plane's ID of the request, checked as `control-plane-request-id` is and passed to it, so the run document sent back says which request it answers.
 
 ```yaml
-name: import
-on:
-  repository_dispatch:
-    types: [infraharvest-import]
-  workflow_dispatch:
-
-permissions:
-  contents: write       # push the pull request branch
-  pull-requests: write  # open the pull request
-  id-token: write       # OIDC to AWS, and the token the control plane is sent
-
-jobs:
-  import:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@<sha>
-      - uses: aws-actions/configure-aws-credentials@<sha>
-        with:
-          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
-          aws-region: eu-west-2
       - uses: IgnatG/infraharvest/action@<sha>
         with:
           version: v0.1.0
           provider: aws
-          services: vpc,subnet,sg,s3,iam
-          regions: eu-west-2
-          selection: ${{ github.event.client_payload.selection || 'selection.yaml' }}
+          import: ${{ inputs.command == 'import' }}
+          selection: ${{ steps.files.outputs.selection }}
+          drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
+          drift-decisions: ${{ steps.files.outputs.decisions }}
           pull-request: "true"
-          control-plane-url: https://control-plane.example.com
+          control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
+          control-plane-request-id: ${{ inputs.request-id }}
 ```
 
-A `repository_dispatch` run always runs the workflow on the default branch and checks out that branch, so the import reads the selection as merged. The selection path reaches the action only as an input, never through a `run:` script, so a payload can't inject commands. To ignore the payload altogether, set `selection` to a fixed path. Leave out `repository_dispatch` to keep imports to the schedule and to runs started by hand.
+The workflow runs only on the default branch: a dispatch of another ref fails in its first step. The files come from a branch, not from the dispatch's inputs, so what a run imports or accepts is in Git's history, where whoever committed it, and when, can be seen; only the two files are checked out, into a directory of their own, and nothing else of that branch is run. The inputs reach the shell as variables, never in a script's text, so they can't inject commands. The result still arrives as a pull request, which someone reviews and merges: the dispatch changes no code on the default branch itself. One run at a time per repository (`concurrency`); a second waits.
 
 ## Signed evidence
 
@@ -444,12 +431,14 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `pull-request-token` | `github.token` | Token to push the branch and open the pull request with, and to push with `commit`: see [Checks on the pull request](#checks-on-the-pull-request) |
 | `commit` | `false` | Commit the output and push it to `commit-branch`, without a pull request (see [Committing straight to a branch](#committing-straight-to-a-branch)). Not with `pull-request` |
 | `commit-branch` | the branch checked out | With `commit`, the branch to push to. A detached checkout, such as a pull request's, needs one |
-| `control-plane-url` | | Send the export documents of the import to this control plane (see [Sending a run to a control plane](#sending-a-run-to-a-control-plane)). HTTPS only; needs `id-token: write`. Empty, nothing is sent |
+| `control-plane-url` | | Send the export documents of the import and the drift check to this control plane (see [Sending a run to a control plane](#sending-a-run-to-a-control-plane)). HTTPS only; needs `id-token: write`. Empty, nothing is sent |
 | `control-plane-audience` | `infraharvest-api` | With `control-plane-url`, the audience of the OIDC token the session is opened with |
 | `control-plane-drop-tags` | `false` | With `control-plane-url`, leave all tags out of the inventory |
 | `control-plane-drop-tag` | | With `control-plane-url`, tag keys to leave out of the inventory, a line each or comma-separated |
-| `control-plane-hash-ids` | `false` | With `control-plane-url`, hash IDs and names in the inventory; needs `control-plane-hash-key` or `INFRAHARVEST_EXPORT_KEY` |
+| `control-plane-hash-ids` | `false` | With `control-plane-url`, hash IDs and names in the inventory and graph, and the addresses in the drift summary; needs `control-plane-hash-key` or `INFRAHARVEST_EXPORT_KEY` |
 | `control-plane-hash-key` | | The key `control-plane-hash-ids` hashes with, from a secret |
+| `control-plane-drop-addresses` | `false` | With `control-plane-url` and a drift check, leave the resource addresses out of the drift summary |
+| `control-plane-request-id` | | With `control-plane-url`, the ID of the control plane's request, which goes into the run document as `request_id` (1 to 128 letters, digits or `. _ : -`) |
 | `control-plane-optional` | `false` | Warn, rather than fail, when the export or the upload fails |
 | `sign-evidence` | `false` | Write the export documents and a signed `SHA256SUMS` of them and the report to `_reports/evidence/` in `out` (see [Signed evidence](#signed-evidence)). Needs `id-token: write` and `import: "true"` |
 
@@ -464,5 +453,5 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `drift-exit-code` | infraharvest drift's exit code: 0 no drift left, 4 drift left, 1 an accepted change failed verification, 2 a root couldn't be checked; empty if drift didn't run |
 | `pull-request-url` | URL of the pull request, if one was opened |
 | `commit-sha` | SHA of the commit pushed with `commit`; empty when the output didn't change, or without `commit` |
-| `control-plane-run-id` | The `run_id` of the documents sent to the control plane, once all four were accepted; empty otherwise |
+| `control-plane-run-id` | The `run_id` of the run document sent to the control plane, once every document of the run was accepted; empty otherwise |
 | `evidence-dir` | The directory of the signed evidence, with `sign-evidence`; empty otherwise |

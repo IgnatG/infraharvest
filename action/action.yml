@@ -88,7 +88,7 @@ inputs:
     description: With commit, the branch to push to. Default the branch checked out; a detached checkout, such as a pull request's, needs one. The push never forces, so it fails when the branch has commits the checkout doesn't have.
     required: false
   control-plane-url:
-    description: Send the metadata of the import (infraharvest export's inventory, run, gate and graph documents, nothing else) to a hosted control plane at this URL. The job's GitHub Actions OIDC token is traded at <url>/api/v1/session for a run token, which goes as the bearer token with each document, gzip-compressed, to <url>/api/v1/ingest/{inventory|run|gate|graph}; the OIDC token itself goes to the session endpoint only. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
+    description: Send the metadata of the run (infraharvest export's documents, nothing else) to a hosted control plane at this URL. An import sends the inventory, run, gate and graph documents; a drift check (drift report or accept) sends the drift summary, and, without an import, the run document of the drift check before it; both send all five. The job's GitHub Actions OIDC token is traded at <url>/api/v1/session for a run token, which goes as the bearer token with each document, gzip-compressed, to <url>/api/v1/ingest/{inventory|run|gate|graph|drift-summary}; the OIDC token itself goes to the session endpoint only. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
     default: ""
   control-plane-audience:
     description: With control-plane-url, the audience of the GitHub Actions OIDC token the session is opened with. The control plane checks it, so it must be the one it expects.
@@ -100,10 +100,16 @@ inputs:
     description: With control-plane-url, tag keys to leave out of the inventory (export --drop-tag), one a line or comma-separated.
     required: false
   control-plane-hash-ids:
-    description: With control-plane-url, replace IDs and names in the inventory with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
+    description: With control-plane-url, replace IDs and names in the inventory and the graph, and the addresses in the drift summary, with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
     default: "false"
   control-plane-hash-key:
     description: The key control-plane-hash-ids hashes with. Pass a secret, or set INFRAHARVEST_EXPORT_KEY in the job's environment instead.
+    required: false
+  control-plane-drop-addresses:
+    description: With control-plane-url and a drift check, leave the resource addresses out of the drift summary (export --drop-addresses). It wins over control-plane-hash-ids for the addresses.
+    default: "false"
+  control-plane-request-id:
+    description: 'With control-plane-url, the ID the control plane gave to the request that started this run, such as the request-id input of a workflow it dispatched. It goes into the run document as request_id, so the control plane can match the run to its request. 1 to 128 letters, digits and . _ : - only.'
     required: false
   control-plane-optional:
     description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
@@ -135,7 +141,7 @@ outputs:
     description: SHA of the commit pushed with commit; empty when the output didn't change, or commit is false.
     value: ${{ steps.commit.outputs.commit-sha }}
   control-plane-run-id:
-    description: The run_id of the run document the control plane accepted (all four documents sent); empty without control-plane-url, or when the upload failed or was skipped.
+    description: The run_id of the run document the control plane accepted, once every document of the run was sent (the four of an import, plus the drift summary after a drift check; or the run document and the drift summary of a drift check alone); empty without control-plane-url, or when the upload failed or was skipped.
     value: ${{ steps.control-plane.outputs.control-plane-run-id }}
   evidence-dir:
     description: The directory of the signed evidence (sign-evidence); empty when it wasn't signed.
@@ -165,6 +171,8 @@ runs:
         DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        DROP_ADDRESSES: ${{ inputs.control-plane-drop-addresses }}
+        REQUEST_ID: ${{ inputs.control-plane-request-id }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
         SIGN_EVIDENCE: ${{ inputs.sign-evidence }}
       # Only what must be checked before infraharvest is installed, or what
@@ -544,13 +552,13 @@ runs:
         COMMIT_MESSAGE: ${{ steps.pull-request-details.outputs.commit-message }}
       run: bash "$GITHUB_ACTION_PATH/commit.sh"
     # Last, so that a control plane that is down doesn't keep the pull request
-    # or the commit from being made, and after a failed import too: its
-    # report says what failed. Only after an import ran; the script skips a
-    # run with no report. The inputs reach it as variables, never in the
-    # script.
+    # or the commit from being made, and after a failed import or drift check
+    # too: the report says what failed. Only after an import or a drift check
+    # ran; the script skips a run with no report. The inputs reach it as
+    # variables, never in the script.
     - name: Control plane
       id: control-plane
-      if: ${{ !cancelled() && inputs.control-plane-url != '' && (steps.import.outcome == 'success' || steps.import.outcome == 'failure') }}
+      if: ${{ !cancelled() && inputs.control-plane-url != '' && (steps.import.outcome == 'success' || steps.import.outcome == 'failure' || steps.drift.outcome == 'success' || steps.drift.outcome == 'failure') }}
       shell: bash
       env:
         URL: ${{ inputs.control-plane-url }}
@@ -559,10 +567,15 @@ runs:
         DROP_TAG: ${{ inputs.control-plane-drop-tag }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        DROP_ADDRESSES: ${{ inputs.control-plane-drop-addresses }}
+        REQUEST_ID: ${{ inputs.control-plane-request-id }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
         BINARY: ${{ inputs.binary }}
         OUT: ${{ inputs.out }}
+        IMPORT: ${{ inputs.import }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
+        DRIFT: ${{ inputs.drift }}
+        DRIFT_OUTCOME: ${{ steps.drift.outcome }}
         STARTED_AT: ${{ steps.import.outputs.started-at }}
         FINISHED_AT: ${{ steps.import.outputs.finished-at }}
       run: bash "$GITHUB_ACTION_PATH/control-plane.sh" upload

@@ -24,6 +24,7 @@ const (
 	oidcRequestToken = "request-token-1234"
 	runToken         = "run-token-Zm9vYmFyYmF6"
 	runID            = "6f1c9d3e-0a52-5b8e-9c47-2d1f3a5b7c90"
+	driftRunID       = "0b7e5c1a-4d3f-5e92-8a16-9c2d4e6f8a10"
 	sessionPath      = "/api/v1/session"
 )
 
@@ -35,14 +36,26 @@ var documents = []string{"inventory", "run", "gate", "graph"}
 var oidcToken = strings.Join([]string{"eyJhbGciOiJSUzI1NiJ9", "eyJhdWQiOiJ4In0", "c2lnbmF0dXJl"}, ".")
 
 // fakeBinary stands in for infraharvest: it records its arguments and
-// writes a document with a run_id to --out-file.
+// writes a document with a run_id to --out-file. As the real export does,
+// the drift summary and the run of --command drift have the run_id of the
+// drift check, and the run document has the command and the request_id.
 const fakeBinary = `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_ARGS_LOG"
 printf 'key=%s\n' "$INFRAHARVEST_EXPORT_KEY" >> "$FAKE_ARGS_LOG"
+command=import request=
 for arg in "$@"; do
-  case "$arg" in --out-file=*) file=${arg#--out-file=} ;; --schema=*) doc=${arg#--schema=} ;; esac
+  case "$arg" in
+    --out-file=*) file=${arg#--out-file=} ;;
+    --schema=*) doc=${arg#--schema=} ;;
+    --command=*) command=${arg#--command=} ;;
+    --request-id=*) request=${arg#--request-id=} ;;
+  esac
 done
-printf '{"schema":"%s/v1","run_id":"` + runID + `"}\n' "$doc" > "$file"
+id=` + runID + `
+if [[ "$doc" == drift-summary || "$command" == drift ]]; then id=` + driftRunID + `; fi
+extra=
+if [[ "$doc" == run ]]; then extra=",\"command\":\"$command\",\"request_id\":\"$request\""; fi
+printf '{"schema":"%s/v1","run_id":"%s"%s}\n' "$doc" "$id" "$extra" > "$file"
 `
 
 // controlPlane is a fake control plane: it answers the OIDC token request,
@@ -150,9 +163,19 @@ type result struct {
 	err     error
 }
 
+// layout is which reports the output directory has.
+type layout struct{ report, drift bool }
+
 // run runs the script in a directory with an output directory that has a
-// report, with env added to the variables a step would have.
+// report (an import's, unless noReport), with env added to the variables a
+// step would have.
 func run(t *testing.T, mode string, env map[string]string, noReport bool) result {
+	t.Helper()
+	return runIn(t, mode, env, layout{report: !noReport})
+}
+
+// runIn is run with the reports the output directory has.
+func runIn(t *testing.T, mode string, env map[string]string, files layout) result {
 	t.Helper()
 	for _, tool := range []string{"bash", "curl", "jq"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -160,12 +183,15 @@ func run(t *testing.T, mode string, env map[string]string, noReport bool) result
 		}
 	}
 	dir := t.TempDir()
-	if !noReport {
-		reports := filepath.Join(dir, "out", "_reports")
-		if err := os.MkdirAll(reports, 0o755); err != nil {
-			t.Fatal(err)
+	reports := filepath.Join(dir, "out", "_reports")
+	if err := os.MkdirAll(reports, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, has := range map[string]bool{"report.json": files.report, "drift.json": files.drift} {
+		if !has {
+			continue
 		}
-		if err := os.WriteFile(filepath.Join(reports, "report.json"), []byte("{}"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(reports, name), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -207,8 +233,14 @@ func run(t *testing.T, mode string, env map[string]string, noReport bool) result
 	return result{output: out.String(), outputs: string(outputs), args: string(args), err: runErr}
 }
 
-// upload runs the upload with the OIDC endpoint of cp.
+// upload runs the upload of an import with the OIDC endpoint of cp.
 func upload(t *testing.T, cp *controlPlane, env map[string]string) result {
+	t.Helper()
+	return uploadIn(t, cp, env, layout{report: true})
+}
+
+// uploadIn is upload with the reports the output directory has.
+func uploadIn(t *testing.T, cp *controlPlane, env map[string]string, files layout) result {
 	t.Helper()
 	all := map[string]string{
 		"URL":                            cp.URL + "/",
@@ -219,7 +251,45 @@ func upload(t *testing.T, cp *controlPlane, env map[string]string) result {
 	for k, v := range env {
 		all[k] = v
 	}
-	return run(t, "upload", all, false)
+	return runIn(t, "upload", all, files)
+}
+
+// driftEnv is what the Control plane step has after a drift check and no
+// import, with env added.
+func driftEnv(env map[string]string) map[string]string {
+	all := map[string]string{"IMPORT": "false", "IMPORT_OUTCOME": "skipped", "DRIFT": "report", "DRIFT_OUTCOME": "success"}
+	for k, v := range env {
+		all[k] = v
+	}
+	return all
+}
+
+// exports are the export commands the fake binary ran, in order.
+func exports(res result) []string {
+	var lines []string
+	for _, line := range strings.Split(res.args, "\n") {
+		if strings.HasPrefix(line, "export ") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// parsed is the part of a document the tests read.
+type parsed struct {
+	Schema    string `json:"schema"`
+	RunID     string `json:"run_id"`
+	Command   string `json:"command"`
+	RequestID string `json:"request_id"`
+}
+
+func (cp *controlPlane) document(t *testing.T, doc string) parsed {
+	t.Helper()
+	var p parsed
+	if err := json.Unmarshal([]byte(cp.bodies["/api/v1/ingest/"+doc]), &p); err != nil {
+		t.Fatalf("%s: body isn't JSON: %v\n%q", doc, err, cp.bodies["/api/v1/ingest/"+doc])
+	}
+	return p
 }
 
 func TestUploadSendsEachDocument(t *testing.T) {
@@ -614,7 +684,14 @@ func TestCheckInputs(t *testing.T) {
 		{"not a url", map[string]string{"URL": "cp.example.com"}, "https://"},
 		{"audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "https://cp.example.com/api"}, ""},
 		{"bad audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "a&b=c"}, "control-plane-audience"},
-		{"no import", map[string]string{"URL": "https://cp.example.com", "IMPORT": "false"}, "needs import"},
+		{"drift only", map[string]string{"URL": "https://cp.example.com", "IMPORT": "false", "DRIFT": "report"}, ""},
+		{"request id", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": "01HZX-7:a.b_c"}, ""},
+		{"longest request id", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": strings.Repeat("a", 128)}, ""},
+		{"request id too long", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": strings.Repeat("a", 129)}, "control-plane-request-id"},
+		{"request id with a space", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": "a b"}, "control-plane-request-id"},
+		{"request id with a newline", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": "a\nb=c"}, "control-plane-request-id"},
+		{"request id with a slash", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": "a/b"}, "control-plane-request-id"},
+		{"bad drop addresses", map[string]string{"URL": "https://cp.example.com", "DROP_ADDRESSES": "yes"}, "control-plane-drop-addresses must be true or false"},
 		{"bad boolean", map[string]string{"URL": "https://cp.example.com", "OPTIONAL": "yes"}, "must be true or false"},
 		{"hash without key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true"}, "needs a key"},
 		{"hash with env key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "k"}, ""},
@@ -678,6 +755,203 @@ func TestUploadWithoutImportTimes(t *testing.T) {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
 	if strings.Contains(res.args, "--started-at") || strings.Contains(res.args, "--finished-at") {
+		t.Errorf("exports ran as %q", res.args)
+	}
+}
+
+func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
+	cp := newControlPlane(t)
+	// The repository has an import's report too, which isn't this run's.
+	res := uploadIn(t, cp, driftEnv(map[string]string{"STARTED_AT": "", "DROP_TAGS": "true"}), layout{report: true, drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	for _, doc := range []string{"inventory", "gate", "graph"} {
+		if n := cp.count("/api/v1/ingest/" + doc); n != 0 {
+			t.Errorf("%s: %d requests, want none", doc, n)
+		}
+	}
+	got := exports(res)
+	if len(got) != 2 || !strings.Contains(got[0], "--schema=run") || !strings.Contains(got[0], "--command=drift") ||
+		!strings.Contains(got[1], "--schema=drift-summary") {
+		t.Fatalf("exports: %q", got)
+	}
+	// The drift check records no times, and the tag flags are the inventory's.
+	if strings.Contains(res.args, "--started-at") || strings.Contains(res.args, "--finished-at") || strings.Contains(res.args, "--drop-tags") {
+		t.Errorf("exports ran as %q", res.args)
+	}
+	for _, doc := range []string{"run", "drift-summary"} {
+		path := "/api/v1/ingest/" + doc
+		if cp.count(path) != 1 {
+			t.Errorf("%s: %d requests, want 1", path, cp.count(path))
+		}
+		if got := cp.headers[path].Get("Idempotency-Key"); got != driftRunID+":"+doc {
+			t.Errorf("%s: Idempotency-Key is %q", path, got)
+		}
+	}
+	if cmd := cp.document(t, "run").Command; cmd != "drift" {
+		t.Errorf("run document's command is %q", cmd)
+	}
+	if !strings.Contains(res.outputs, "control-plane-run-id="+driftRunID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+func TestUploadOfAnImportAndADriftCheckSendsFive(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, map[string]string{"DRIFT": "accept", "DRIFT_OUTCOME": "success", "STARTED_AT": "2026-11-03T09:30:00Z", "FINISHED_AT": "2026-11-03T09:37:00Z"},
+		layout{report: true, drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	want := []string{"inventory", "run", "gate", "graph", "drift-summary"}
+	got := exports(res)
+	if len(got) != len(want) {
+		t.Fatalf("exports: %q", got)
+	}
+	for i, doc := range want {
+		if !strings.Contains(got[i], "--schema="+doc+" ") {
+			t.Errorf("export %d ran as %q, want %s", i, got[i], doc)
+		}
+		if cp.count("/api/v1/ingest/"+doc) != 1 {
+			t.Errorf("%s: %d requests, want 1", doc, cp.count("/api/v1/ingest/"+doc))
+		}
+	}
+	// The run document is the import's, with its times; the drift summary
+	// has the drift check's run_id, and none.
+	if strings.Contains(got[1], "--command") || !strings.Contains(got[1], "--started-at=2026-11-03T09:30:00Z") {
+		t.Errorf("run export ran as %q", got[1])
+	}
+	if strings.Contains(got[4], "--started-at") || strings.Contains(got[4], "--finished-at") {
+		t.Errorf("drift summary export ran as %q", got[4])
+	}
+	if cmd := cp.document(t, "run").Command; cmd != "import" {
+		t.Errorf("run document's command is %q", cmd)
+	}
+	if got := cp.headers["/api/v1/ingest/drift-summary"].Get("Idempotency-Key"); got != driftRunID+":drift-summary" {
+		t.Errorf("drift-summary: Idempotency-Key is %q", got)
+	}
+	if got := cp.headers["/api/v1/ingest/run"].Get("Idempotency-Key"); got != runID+":run" {
+		t.Errorf("run: Idempotency-Key is %q", got)
+	}
+	// The run id is the import's, set once all five were accepted.
+	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+func TestUploadOfAnImportDoesNotSendADriftSummary(t *testing.T) {
+	cp := newControlPlane(t)
+	// drift.json is there from an earlier run, and the Drift step didn't run.
+	res := uploadIn(t, cp, map[string]string{"DRIFT": "off", "DRIFT_OUTCOME": "skipped"}, layout{report: true, drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if n := len(exports(res)); n != 4 || cp.count("/api/v1/ingest/drift-summary") != 0 {
+		t.Errorf("%d exports, %d drift summaries", n, cp.count("/api/v1/ingest/drift-summary"))
+	}
+}
+
+func TestUploadOfADriftCheckThatFailedStillSends(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, driftEnv(map[string]string{"DRIFT": "accept", "DRIFT_OUTCOME": "failure"}), layout{drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if cp.count("/api/v1/ingest/run") != 1 || cp.count("/api/v1/ingest/drift-summary") != 1 {
+		t.Errorf("run %d, drift summary %d requests", cp.count("/api/v1/ingest/run"), cp.count("/api/v1/ingest/drift-summary"))
+	}
+}
+
+func TestUploadOfADriftCheckWithoutDriftJSON(t *testing.T) {
+	cp := newControlPlane(t)
+	// An import's report is there, but the run is the drift check's.
+	res := uploadIn(t, cp, driftEnv(nil), layout{report: true})
+	if res.err != nil || !strings.Contains(res.output, "::warning::control plane: the drift check left no drift report") {
+		t.Errorf("want a warning and no failure: %v\n%s", res.err, res.output)
+	}
+	if cp.count(sessionPath) != 0 || res.args != "" || strings.Contains(res.outputs, "control-plane-run-id") {
+		t.Errorf("sent something: %d sessions, exports %q, outputs %q", cp.count(sessionPath), res.args, res.outputs)
+	}
+}
+
+func TestUploadOfADriftSummaryPassesTheRedactionFlags(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		want []string
+		not  []string
+	}{
+		{"hashed", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123"}, []string{"--hash-ids"}, []string{"--drop-addresses"}},
+		{"dropped", map[string]string{"DROP_ADDRESSES": "true"}, []string{"--drop-addresses"}, []string{"--hash-ids"}},
+		{"both", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123", "DROP_ADDRESSES": "true"}, []string{"--hash-ids", "--drop-addresses"}, nil},
+		{"plain", map[string]string{"DROP_ADDRESSES": "false"}, nil, []string{"--hash-ids", "--drop-addresses"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			res := uploadIn(t, cp, driftEnv(tt.env), layout{drift: true})
+			if res.err != nil {
+				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+			}
+			got := exports(res)
+			if len(got) != 2 {
+				t.Fatalf("exports: %q", got)
+			}
+			for _, flag := range tt.want {
+				if !strings.Contains(got[1], flag) {
+					t.Errorf("drift summary export ran as %q, want %s", got[1], flag)
+				}
+			}
+			for _, flag := range tt.not {
+				if strings.Contains(got[1], flag) {
+					t.Errorf("drift summary export ran as %q, not %s", got[1], flag)
+				}
+			}
+			// The run document has no address to hash or drop.
+			if strings.Contains(got[0], "--hash-ids") || strings.Contains(got[0], "--drop-addresses") {
+				t.Errorf("run export ran as %q", got[0])
+			}
+		})
+	}
+}
+
+func TestUploadPassesTheRequestID(t *testing.T) {
+	tests := []struct {
+		name  string
+		env   map[string]string
+		files layout
+	}{
+		{"import", map[string]string{"REQUEST_ID": "01HZX-7:a.b_c"}, layout{report: true}},
+		{"drift", driftEnv(map[string]string{"REQUEST_ID": "01HZX-7:a.b_c"}), layout{drift: true}},
+		{"both", map[string]string{"REQUEST_ID": "01HZX-7:a.b_c", "DRIFT": "report", "DRIFT_OUTCOME": "success"}, layout{report: true, drift: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			res := uploadIn(t, cp, tt.env, tt.files)
+			if res.err != nil {
+				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+			}
+			// It reaches the run document, and only that one.
+			if got := cp.document(t, "run").RequestID; got != "01HZX-7:a.b_c" {
+				t.Errorf("run document's request_id is %q", got)
+			}
+			for _, line := range exports(res) {
+				if has := strings.Contains(line, "--request-id=01HZX-7:a.b_c"); has != strings.Contains(line, "--schema=run ") {
+					t.Errorf("export ran as %q", line)
+				}
+			}
+		})
+	}
+}
+
+func TestUploadWithoutARequestID(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, nil)
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if strings.Contains(res.args, "--request-id") {
 		t.Errorf("exports ran as %q", res.args)
 	}
 }

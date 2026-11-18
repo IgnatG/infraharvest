@@ -72,7 +72,7 @@ The graph is drawn from the configuration of each root, so it shows what the cod
 
 ## Control plane API
 
-The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) sends the inventory, run, gate and graph documents to a control plane when `control-plane-url` is set; the drift summary isn't sent yet. `infraharvest export` itself never does. A server that implements the following can receive them; `<base>` is the URL as given, without a trailing slash, and may have a path.
+The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/README.md#sending-a-run-to-a-control-plane) sends the documents of the run to a control plane when `control-plane-url` is set: the inventory, run, gate and graph documents of an import, and the drift summary of a drift check (with the run document of the drift check, `--command drift`, when no import ran). `infraharvest export` itself never does. A server that implements the following can receive them; `<base>` is the URL as given, without a trailing slash, and may have a path.
 
 | Request | Body |
 |---|---|
@@ -81,9 +81,10 @@ The [GitHub Action](https://github.com/IgnatG/infraharvest/blob/main/action/READ
 | `POST <base>/api/v1/ingest/run` | a `run/v1` document |
 | `POST <base>/api/v1/ingest/gate` | a `gate/v1` document |
 | `POST <base>/api/v1/ingest/graph` | a `graph/v1` document |
+| `POST <base>/api/v1/ingest/drift-summary` | a `drift-summary/v1` document |
 
 - **Session.** First, the Action sends the job's GitHub Actions OIDC token, requested for the audience in `control-plane-audience` (default `infraharvest-api`), in the header `X-GitHub-OIDC-Token` of `POST <base>/api/v1/session`, with an empty body. Verify it against GitHub's keys (`https://token.actions.githubusercontent.com/.well-known/jwks`): the issuer, the audience, the expiry, and the `repository`, `ref` and `sub` claims that say which workflow sent it. A `200` answers `{"token": "<run token>", "expires_at": "<RFC 3339 time>"}`. The OIDC token goes to this endpoint only; the uploads carry the run token. The Action masks both and doesn't print them.
-- **Order.** The four are sent one after another, in that order, after the session, and the next is not sent if one fails. They share a `run_id`, and sending a document again (after a retry) must give the same result: key it by `run_id` and the endpoint.
+- **Order.** The documents are sent one after another after the session, and the next is not sent if one fails: an import's inventory, run, gate and graph, in that order; a drift check's run document (when no import ran) and then the drift summary, last of all. The documents of an import share a `run_id`; the drift summary has the drift check's own, which its run document has too. Sending a document again (after a retry) must give the same result: key it by `run_id` and the endpoint.
 - **Headers.** `Authorization: Bearer <run token>`, from the session; `Content-Type: application/json`; `Content-Encoding: gzip`; and `Idempotency-Key: <run_id>:<document>`, such as `6f1c9d3e-0a52-5b8e-9c47-2d1f3a5b7c90:inventory`, the same for each send of a document of a run.
 - **Body.** The document, as `infraharvest export` wrote it, gzip-compressed, so decompress it before reading it as JSON; validated against its schema ([`schemas/`](https://github.com/IgnatG/infraharvest/tree/main/schemas)). A server should check it again.
 - **Response.** Any `2xx` means the document was accepted; the body is ignored (`201` or `204` are fine). Any `4xx` other than `429` fails the run without a retry, such as `401` and `403` (token refused), `400` and `422` (document refused), and `402` (the organisation's plan refused it, such as for being over its cloud-account limit). The same goes for the session request. Say why in a JSON body, `{"error": "..."}`: the Action prints it, or the start of the body if it isn't JSON. `429` and `5xx` are retried up to four times in all, after 2, 4 and 8 seconds, so a server that is overloaded can say so. Redirects are not followed.

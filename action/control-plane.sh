@@ -8,18 +8,23 @@
 # for a run token: POST <url>/api/v1/session with an empty body and the OIDC
 # token in the header X-GitHub-OIDC-Token, answered with JSON,
 # {"token": "...", "expires_at": "..."}. Then it runs infraharvest export for
-# the inventory, run, gate and graph documents, and POSTs each to
-# <url>/api/v1/ingest/{inventory|run|gate|graph} as application/json,
-# gzip-compressed (Content-Encoding: gzip), with the run token as a bearer
-# token and the header Idempotency-Key: <run_id>:<document>. The OIDC token
-# goes to the session endpoint only. Nothing else is sent. See
+# the documents of the run, and POSTs each to <url>/api/v1/ingest/<document>
+# as application/json, gzip-compressed (Content-Encoding: gzip), with the run
+# token as a bearer token and the header Idempotency-Key: <run_id>:<document>.
+# The OIDC token goes to the session endpoint only. Nothing else is sent. See
 # docs/export.md.
+#
+# The documents are those of what ran: an import sends inventory, run, gate
+# and graph; a drift check sends drift-summary, and, when no import ran, the
+# run document of the drift check (export --command drift) before it; both
+# send the five. The drift summary has a run_id of its own, made from
+# drift.json.
 #
 # Usage: control-plane.sh check|upload
 #
 # check validates the inputs, before anything long has run. upload exports
 # and sends; it writes control-plane-run-id (the run_id of the run document)
-# to $GITHUB_OUTPUT once all four documents were accepted (a 2xx).
+# to $GITHUB_OUTPUT once every document was accepted (a 2xx).
 #
 # The URL must be https, or http for localhost. The tokens are masked and
 # never printed, and go to curl in a file, not in its arguments. A 5xx, a
@@ -27,13 +32,16 @@
 # answer fails at once, with the reason the control plane gives in its JSON
 # body, {"error": "..."}. A failure fails the step, unless OPTIONAL is true.
 #
-# Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, HASH_IDS,
-# HASH_KEY (else INFRAHARVEST_EXPORT_KEY), OPTIONAL; and, for upload, BINARY,
-# OUT, IMPORT, IMPORT_OUTCOME, STARTED_AT and FINISHED_AT (when the import
-# started and finished, RFC 3339, from the Import step; either may be
-# empty), and the runner's ACTIONS_ID_TOKEN_REQUEST_URL and
-# ACTIONS_ID_TOKEN_REQUEST_TOKEN. INFRAHARVEST_UPLOAD_RETRY_DELAY is the
-# first delay in seconds between attempts (default 2, doubling), for tests.
+# Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
+# HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
+# and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
+# outcome; skipped when it didn't run), DRIFT (off, report or accept),
+# DRIFT_OUTCOME (the Drift step's), STARTED_AT and FINISHED_AT (when the
+# import started and finished, RFC 3339, from the Import step; either may be
+# empty; the drift check has no times), and the runner's
+# ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
+# INFRAHARVEST_UPLOAD_RETRY_DELAY is the first delay in seconds between
+# attempts (default 2, doubling), for tests.
 set -euo pipefail
 
 # shellcheck source=action/output.sh
@@ -46,6 +54,8 @@ audience="${AUDIENCE:-infraharvest-api}"
 optional="${OPTIONAL-false}"
 hash_ids="${HASH_IDS-false}"
 drop_tags="${DROP_TAGS-false}"
+drop_addresses="${DROP_ADDRESSES-false}"
+request_id="${REQUEST_ID-}"
 
 # fail <message>: a mistake in the inputs, which optional doesn't excuse.
 fail() {
@@ -83,7 +93,7 @@ check() {
   [[ -n "$url" ]] || return 0
   set_base
   local input
-  for input in "control-plane-optional=$optional" "control-plane-hash-ids=$hash_ids" "control-plane-drop-tags=$drop_tags"; do
+  for input in "control-plane-optional=$optional" "control-plane-hash-ids=$hash_ids" "control-plane-drop-tags=$drop_tags" "control-plane-drop-addresses=$drop_addresses"; do
     case "${input#*=}" in
       true | false) ;;
       *) fail "${input%%=*} must be true or false, got '${input#*=}'" ;;
@@ -93,8 +103,9 @@ check() {
   if [[ ! "$audience" =~ ^[A-Za-z0-9._~:/-]+$ ]]; then
     fail "control-plane-audience may hold letters, digits and . _ ~ : / - only, got '$audience'"
   fi
-  if [[ "${IMPORT-}" != true ]]; then
-    fail "control-plane-url sends the metadata of an import: it needs import to be true"
+  # The ID goes into the run document, and the control plane matches it.
+  if [[ -n "$request_id" && ! "$request_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    fail "control-plane-request-id must be 1 to 128 letters, digits or . _ : -, got '$request_id'"
   fi
   if [[ "$hash_ids" == true && -z "${HASH_KEY-}" && -z "${INFRAHARVEST_EXPORT_KEY-}" ]]; then
     fail "control-plane-hash-ids needs a key: set control-plane-hash-key, or INFRAHARVEST_EXPORT_KEY from a secret"
@@ -205,23 +216,55 @@ open_session() {
   annotation notice "control plane: opened a session${expires:+ (the token expires at $expires)}"
 }
 
+# read_run_id <document>: sets doc_run_id to the run_id of the exported
+# document, checked as a header can hold it.
+read_run_id() {
+  doc_run_id=$(jq -r '.run_id // empty' "$tmp/$1.json")
+  [[ -n "$doc_run_id" ]] || problem "the $1 document has no run_id"
+  # The run_id goes into a header.
+  [[ "$doc_run_id" =~ ^[A-Za-z0-9._:-]+$ ]] || problem "the $1 document's run_id has characters that can't go in a header"
+}
+
 upload() {
   [[ -n "$url" ]] || return 0
-  local bin out report
+  local bin out report drift_report import_ran=false drift_ran=false send_import=false send_drift=false
   set_base
   bin="${BINARY:-infraharvest}"
   out="${OUT:-infrastructure}"
   report="$out/_reports/report.json"
+  drift_report="$out/_reports/drift.json"
 
-  # The import can have failed before it wrote a report: nothing to send,
-  # and the import's own failure is the one to show.
-  if ! unlinked "$report"; then
-    if [[ "${IMPORT_OUTCOME-}" == failure ]]; then
+  # What ran: the Import step, unless it was skipped, such as after a drift
+  # check that failed, and the Drift step, when it ran to its end.
+  if [[ "${IMPORT-}" == true && "${IMPORT_OUTCOME-}" != skipped ]]; then import_ran=true; fi
+  case "${DRIFT-off}" in
+    report | accept)
+      case "${DRIFT_OUTCOME-}" in
+        success | failure) drift_ran=true ;;
+      esac
+      ;;
+  esac
+
+  # The import can have failed before it wrote a report, and the drift check
+  # before it wrote drift.json: nothing of that to send, and the step's own
+  # failure is the one to show.
+  if [[ "$import_ran" == true ]]; then
+    if unlinked "$report"; then
+      send_import=true
+    elif [[ "${IMPORT_OUTCOME-}" == failure ]]; then
       annotation warning "control plane: the import left no report to send ($report)"
-      return 0
+    else
+      problem "no report to send: $report isn't a regular file that no symbolic link leads to"
     fi
-    problem "no report to send: $report isn't a regular file that no symbolic link leads to"
   fi
+  if [[ "$drift_ran" == true ]]; then
+    if unlinked "$drift_report"; then
+      send_drift=true
+    else
+      annotation warning "control plane: the drift check left no drift report to send ($drift_report)"
+    fi
+  fi
+  if [[ "$send_import" != true && "$send_drift" != true ]]; then return 0; fi
 
   tmp=$(umask 077; mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/infraharvest-control-plane.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT
@@ -235,7 +278,8 @@ upload() {
   open_session
 
   # The redaction flags apply to the inventory, which has the tags, IDs and
-  # names, and --hash-ids to the graph too, which has the IDs.
+  # names, and --hash-ids to the graph too, which has the IDs, and to the
+  # drift summary, which has the addresses.
   local redact=() flags=() key tag err
   [[ "$drop_tags" == true ]] && redact+=(--drop-tags)
   while IFS= read -r tag; do
@@ -251,17 +295,32 @@ upload() {
 
   # The report holds no times: the import's own start and finish go to the
   # run (started_at, finished_at) and the inventory (generated_at is the
-  # finish), so that sending the same run again changes neither.
+  # finish), so that sending the same run again changes neither. The drift
+  # check records none.
   local times=()
   [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
   [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT")
 
-  local doc
-  for doc in inventory run gate graph; do
+  # With an import, the run document is the import's (export's default when
+  # both reports are there); without one, it is the drift check's, which
+  # export takes from drift.json, not an old report.json the repository has.
+  local docs=() doc
+  if [[ "$send_import" == true ]]; then docs=(inventory run gate graph); else docs=(run); fi
+  if [[ "$send_drift" == true ]]; then docs+=(drift-summary); fi
+
+  for doc in "${docs[@]}"; do
     flags=()
-    if [[ "$doc" == inventory ]]; then flags=(${redact[@]+"${redact[@]}"}); fi
-    if [[ "$doc" == graph && "$hash_ids" == true ]]; then flags=(--hash-ids); fi
-    if [[ "$doc" == inventory || "$doc" == run ]]; then flags+=(${times[@]+"${times[@]}"}); fi
+    case "$doc" in
+      inventory) flags=(${redact[@]+"${redact[@]}"} ${times[@]+"${times[@]}"}) ;;
+      run)
+        if [[ "$send_import" == true ]]; then flags=(${times[@]+"${times[@]}"}); else flags=(--command=drift); fi
+        if [[ -n "$request_id" ]]; then flags+=("--request-id=$request_id"); fi
+        ;;
+      graph | drift-summary)
+        if [[ "$hash_ids" == true ]]; then flags=(--hash-ids); fi
+        if [[ "$doc" == drift-summary && "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
+        ;;
+    esac
     if ! err=$(INFRAHARVEST_EXPORT_KEY="$key" "$bin" export "$out" "--schema=$doc" "--out-file=$tmp/$doc.json" ${flags[@]+"${flags[@]}"} 2>&1 > /dev/null); then
       problem "infraharvest export ($doc) failed: $err"
     fi
@@ -270,15 +329,15 @@ upload() {
     fi
   done
 
-  run_id=$(jq -r '.run_id // empty' "$tmp/run.json")
-  [[ -n "$run_id" ]] || problem "the run document has no run_id"
-  # The run_id goes into a header.
-  [[ "$run_id" =~ ^[A-Za-z0-9._:-]+$ ]] || problem "the run document's run_id has characters that can't go in a header"
+  read_run_id run
+  run_id=$doc_run_id
 
-  for doc in inventory run gate graph; do
+  for doc in "${docs[@]}"; do
+    # The drift summary's run is the drift check's, which an import's isn't.
+    read_run_id "$doc"
     if ! http_request "$base/api/v1/ingest/$doc" "$tmp/headers" "$tmp/response" \
       -X POST -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
-      -H "Idempotency-Key: $run_id:$doc" --data-binary "@$tmp/$doc.json.gz"; then
+      -H "Idempotency-Key: $doc_run_id:$doc" --data-binary "@$tmp/$doc.json.gz"; then
       problem "sending the $doc document to $base/api/v1/ingest/$doc failed: $(describe "$tmp/response" "upload")"
     fi
     annotation notice "control plane: sent the $doc document (HTTP $http_code)"
@@ -290,6 +349,7 @@ base=
 tmp=
 token=
 run_token=
+doc_run_id=
 http_code=
 case "${1-}" in
   check) check ;;
