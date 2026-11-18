@@ -113,8 +113,8 @@ var azureAuthorizationErrors = []string{
 // with no changes, and that the import found the resource group, with its
 // tags, and what the estate created, and that no file of the output
 // holds the estate's secrets (see checkAzureSecrets). Applied, the root
-// must take a tag added out of band through infraharvest drift (see
-// checkAzureDrift). It destroys the estate when it is done. The
+// must take a tag added out of band, and the tag its resources share
+// changed, through infraharvest drift (see checkAzureDrift). It destroys the estate when it is done. The
 // sandbox-azure workflow runs it, after approval; see e2e/README.md.
 func TestSandboxAzure(t *testing.T) {
 	// The PostgreSQL server takes most of the estate's apply.
@@ -457,15 +457,21 @@ func checkGroupTags(t *testing.T, root string, group *tfjson.StateResource) {
 	}
 }
 
-// checkAzureDrift does what a team does when someone changes a resource
+// checkAzureDrift does what a team does when someone changes resources
 // of an applied root outside Terraform: it applies root, in a copy of the
 // output, as the read-only identity, as the apply only imports; adds a
-// drift tag to the estate's network security group, as the fixture
-// identity; and runs infraharvest drift, as the read-only identity. Drift
-// must report the tag as kept, exit with 4 with --detailed-exitcode, and
-// leave the code as it was; accepted, the tag must be written into the
-// code, which then plans no change. Only the group, a resource of the
-// estate, changes in the cloud; the estate's destroy deletes it as it is.
+// drift tag to the estate's network security group, and gives every
+// resource that takes local.tags another value of the sweep's
+// infraharvest-sandbox tag, as the fixture identity; and runs
+// infraharvest drift, as the read-only identity (see checkSharedDrift).
+// Drift must report the drift tag as kept and the sweep's tag, which the
+// estate's resources share, as one change of local.tags, exit with 4 with
+// --detailed-exitcode, and leave the code as it was. With rules, the last
+// to match a change decides it; accepted, as the rules and the decisions
+// file say, both must be written into the code, which then plans no
+// change. The resource group, which the estate doesn't change, has no
+// sweep tag. Only the estate's resources change in the cloud; the
+// estate's destroy deletes them as they are.
 func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate *sandboxEstate, root string) {
 	t.Helper()
 	rel, err := filepath.Rel(s.out, root)
@@ -480,20 +486,20 @@ func (s *azureSandbox) checkAzureDrift(ctx context.Context, t *testing.T, estate
 	applyRoot(ctx, t, applied, s.execPath, s.plugins, nil)
 	checkPlanClean(t, rel+": after the apply", planRoot(ctx, t, applied, s.execPath, s.plugins))
 
-	estate.apply(ctx, t, tfexec.Var("drift_tag=reported"), tfexec.Target("azurerm_network_security_group.app"))
+	estate.apply(ctx, t, tfexec.Var("drift_tag=reported"), tfexec.Var("drift_shared="+azureDriftShared))
 	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
-	code := codeFiles(t, work)
-	d := drift.mustExit(t, report.ExitDrift, "--detailed-exitcode")
-	checkCodeUnchanged(t, "drift", code, work)
-	checkDriftChange(t, "drift", driftChange(t, "drift", d, "azurerm_network_security_group", "tags.drift"), "<nil>", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
-
-	d = drift.mustExit(t, report.ExitOK, "--accept", "type=azurerm_network_security_group")
-	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "azurerm_network_security_group", "tags.drift"), "<nil>", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
-	if !codeMatches(t, work, `drift\s*=\s*"reported"`) {
-		t.Errorf("drift --accept: the code doesn't have the group's tag drift = \"reported\"")
-	}
+	checkSharedDrift(t, drift, sharedDrift{
+		sharedAttribute: "tags.infraharvest-sandbox", sharedBefore: s.engineName, sharedAfter: azureDriftShared,
+		sharedNew: `infraharvest-sandbox"?\s*=\s*"` + azureDriftShared + `"`, sharedOld: `infraharvest-sandbox"?\s*=\s*"` + regexp.QuoteMeta(s.engineName) + `"`,
+		ownType: "azurerm_network_security_group", ownAttribute: "tags.drift", ownBefore: "<nil>", ownAfter: "reported",
+		ownNew: `drift\s*=\s*"reported"`,
+	})
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
 }
+
+// azureDriftShared is the value checkAzureDrift gives the sweep's
+// infraharvest-sandbox tag.
+const azureDriftShared = "drifted"
 
 // checkAzureAzapi imports the estate's resource group again, with
 // --azapi, into an output of its own, as the read-only identity: the
