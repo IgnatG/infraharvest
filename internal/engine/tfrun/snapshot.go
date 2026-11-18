@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -111,6 +112,10 @@ type Snapshot struct {
 	// ids are the import IDs of the entries by address, as they were
 	// imported or moved to: state doesn't keep them.
 	ids map[string]string
+	// partial are the resources the copy's plans can't have ignore all
+	// changes, with the arguments they ignore instead (see
+	// SnapshotBuild.Blame).
+	partial map[string][]string
 }
 
 // Path returns the snapshot's state file.
@@ -149,9 +154,26 @@ type SnapshotBuild struct {
 	// validate and import, so it can take what the root's own files lack,
 	// such as a value the root keeps out of its files.
 	Prepare func(ctx context.Context, tf Terraform) error
+	// Blame, if set, returns the resources, as "<type>.<name>", that the
+	// errors of the copy's plan are about, each with the arguments and
+	// blocks its configuration sets, or nil if it can't tell for each
+	// error. Ignoring all changes hands the provider a resource's imported
+	// values as its configuration, and some providers' plan checks reject
+	// values the API sets but the configuration leaves out
+	// (azurerm_postgresql_flexible_server's storage_iops without
+	// PremiumV2_LRS storage, aws_nat_gateway's
+	// secondary_private_ip_address_count on a public gateway): those
+	// resources are planned again ignoring only what their configuration
+	// sets, so that what it leaves out stays unset.
+	Blame func(diags []tfjson.Diagnostic) map[string][]string
 	// Timeout bounds the apply.
 	Timeout time.Duration
 }
+
+// snapshotOverrideTries is how many times the copy is planned: the first
+// plan, then one more each time Blame names resources to plan ignoring
+// only what their configuration sets.
+const snapshotOverrideTries = 3
 
 // BuildSnapshot builds a snapshot of the root b describes: it adds an
 // override file that has every resource ignore all changes to the copy,
@@ -183,9 +205,6 @@ func BuildSnapshot(ctx context.Context, b SnapshotBuild) (*Snapshot, error) {
 }
 
 func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
-	if err := fsutil.WriteFile(filepath.Join(b.Dir, SnapshotOverrideFile), SnapshotOverride(b.Resources), 0o600); err != nil {
-		return err
-	}
 	// The lock file in the copy pins the providers, so that the state
 	// the plan is applied to is of the release the root's plans use.
 	if err := Init(ctx, b.Plan, tfexec.Backend(false)); err != nil {
@@ -197,12 +216,27 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 		}
 	}
 	planFile := filepath.Join(s.dir, "plan")
-	p, _, diags, err := showPlanTo(ctx, b.Plan, planFile, b.Vars)
-	if err != nil {
-		return err
-	}
-	if len(diags) > 0 {
-		return fmt.Errorf("the copy doesn't plan: %w", DiagnosticsError(diags))
+	var p *tfjson.Plan
+	for try := 1; ; try++ {
+		if err := fsutil.WriteFile(filepath.Join(b.Dir, SnapshotOverrideFile), SnapshotOverride(b.Resources, s.partial), 0o600); err != nil {
+			return err
+		}
+		planned, _, diags, err := showPlanTo(ctx, b.Plan, planFile, b.Vars)
+		if err != nil {
+			return err
+		}
+		if len(diags) == 0 {
+			p = planned
+			break
+		}
+		blamed := blamedIgnored(b, s.partial, diags)
+		if len(blamed) == 0 || try == snapshotOverrideTries {
+			return fmt.Errorf("the copy doesn't plan: %w", DiagnosticsError(diags))
+		}
+		if s.partial == nil {
+			s.partial = map[string][]string{}
+		}
+		maps.Copy(s.partial, blamed)
 	}
 	if err := CheckImportOnly(p); err != nil {
 		return err
@@ -236,17 +270,38 @@ func (s *Snapshot) build(ctx context.Context, b SnapshotBuild) error {
 	return nil
 }
 
+// blamedIgnored returns the resources b.Blame finds diags are about, with
+// what their configuration sets, if each is one the copy still has ignore
+// all changes; otherwise nil, as the override isn't what fails the plan.
+func blamedIgnored(b SnapshotBuild, partial map[string][]string, diags []tfjson.Diagnostic) map[string][]string {
+	if b.Blame == nil {
+		return nil
+	}
+	blamed := b.Blame(diags)
+	for r := range blamed {
+		if _, done := partial[r]; done || !slices.Contains(b.Resources, r) {
+			return nil
+		}
+	}
+	return blamed
+}
+
 // SnapshotOverride returns the override file that has every one of
-// resources, as "<type>.<name>", ignore all changes: the plan of the copy
-// then imports the resources and changes nothing.
-func SnapshotOverride(resources []string) []byte {
+// resources, as "<type>.<name>", ignore all changes, but for those partial
+// has, which ignore changes to the arguments and blocks it gives for each:
+// the plan of the copy then imports the resources and changes nothing.
+func SnapshotOverride(resources []string, partial map[string][]string) []byte {
 	var b bytes.Buffer
 	for _, r := range resources {
 		typ, name, ok := strings.Cut(r, ".")
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "resource %q %q {\n  lifecycle {\n    ignore_changes = all\n  }\n}\n\n", typ, name)
+		ignored := "all"
+		if arguments, ok := partial[r]; ok {
+			ignored = "[" + strings.Join(arguments, ", ") + "]"
+		}
+		fmt.Fprintf(&b, "resource %q %q {\n  lifecycle {\n    ignore_changes = %s\n  }\n}\n\n", typ, name, ignored)
 	}
 	return b.Bytes()
 }
@@ -278,11 +333,39 @@ func CheckImportOnly(p *tfjson.Plan) error {
 			}
 		default:
 			if !rc.Change.Actions.NoOp() || rc.Change.Importing == nil {
-				return fmt.Errorf("%s: the plan does more than import it (%s)", rc.Address, strings.Join(ActionNames(rc.Change.Actions), ","))
+				what := strings.Join(ActionNames(rc.Change.Actions), ",")
+				if changed := changedArguments(rc.Change); len(changed) > 0 {
+					what += " of " + strings.Join(changed, ", ")
+				}
+				return fmt.Errorf("%s: the plan does more than import it (%s)", rc.Address, what)
 			}
 		}
 	}
 	return nil
+}
+
+// changedArguments returns the names of the top-level arguments whose
+// values c changes, never the values: they may be secrets.
+func changedArguments(c *tfjson.Change) []string {
+	before, _ := c.Before.(map[string]any)
+	after, _ := c.After.(map[string]any)
+	unknown, _ := c.AfterUnknown.(map[string]any)
+	var names []string
+	for name, value := range after {
+		if u, ok := unknown[name].(bool); ok && u {
+			continue
+		}
+		if !reflect.DeepEqual(before[name], value) {
+			names = append(names, name)
+		}
+	}
+	for name := range before {
+		if _, ok := after[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // Cached is a Terraform whose plans, while it has a snapshot (see Use), run
@@ -762,7 +845,9 @@ func (s *Snapshot) moveAll(ctx context.Context, copies MoveCopier, moves []state
 		return false, err
 	}
 	defer c.Remove()
-	if err := fsutil.WriteFile(filepath.Join(c.Dir, SnapshotOverrideFile), SnapshotOverride(c.Resources), 0o600); err != nil {
+	// What the snapshot's build couldn't plan with the override can't
+	// plan with it here either.
+	if err := fsutil.WriteFile(filepath.Join(c.Dir, SnapshotOverrideFile), SnapshotOverride(c.Resources, s.partial), 0o600); err != nil {
 		return false, err
 	}
 	pairs := make(map[string]string, len(moves))

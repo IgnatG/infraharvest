@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
@@ -232,6 +233,7 @@ func (g *generation) snapshotOf(ctx context.Context, vars []tfexec.PlanOption) (
 		Imports:   imports,
 		Vars:      vars,
 		Prepare:   func(ctx context.Context, tf tfrun.Terraform) error { return fillWithheld(ctx, tf, copied) },
+		Blame:     func(diags []tfjson.Diagnostic) map[string][]string { return blamed(copied, diags) },
 		Timeout:   g.opts.CommandTimeout,
 	})
 }
@@ -277,6 +279,50 @@ func fillWithheld(ctx context.Context, tf tfrun.Terraform, dir string) error {
 		return nil
 	}
 	return generated.Save()
+}
+
+// blamed returns the resources of the root in dir that diags are about,
+// each with the arguments and blocks its configuration sets, or nil if some
+// of diags is about none of them.
+func blamed(dir string, diags []tfjson.Diagnostic) map[string][]string {
+	errs, err := unresolved("terraform plan", dir, diags)
+	if err != nil || len(errs) == 0 {
+		return nil
+	}
+	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
+	if err != nil {
+		return nil
+	}
+	set := map[string][]string{}
+	for r := range generated.ResourceSyntax() {
+		if _, ok := errs[r.Address]; !ok {
+			continue
+		}
+		var names []string
+		for name := range r.Syntax.Body.Attributes {
+			if !metaArguments[name] {
+				names = append(names, name)
+			}
+		}
+		for _, block := range r.Syntax.Body.Blocks {
+			if !metaArguments[block.Type] && !slices.Contains(names, block.Type) {
+				names = append(names, block.Type)
+			}
+		}
+		slices.Sort(names)
+		set[r.Address] = names
+	}
+	if len(set) != len(errs) {
+		return nil
+	}
+	return set
+}
+
+// metaArguments are the arguments and blocks of a resource that are
+// Terraform's, which ignore_changes can't name.
+var metaArguments = map[string]bool{
+	"count": true, "for_each": true, "provider": true, "depends_on": true,
+	"lifecycle": true, "provisioner": true, "connection": true,
 }
 
 // moveCopy makes the private copy of the root that the snapshot's moves

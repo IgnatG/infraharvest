@@ -128,8 +128,8 @@ func TestCheckImportOnly(t *testing.T) {
 
 func TestSnapshotOverride(t *testing.T) {
 	t.Parallel()
-	got := string(SnapshotOverride([]string{"aws_s3_bucket.a", "aws_iam_role.b", "bad"}))
-	for _, want := range []string{`resource "aws_s3_bucket" "a" {`, `resource "aws_iam_role" "b" {`, "ignore_changes = all"} {
+	got := string(SnapshotOverride([]string{"aws_s3_bucket.a", "aws_iam_role.b", "bad"}, map[string][]string{"aws_iam_role.b": {"name", "inline_policy"}}))
+	for _, want := range []string{`resource "aws_s3_bucket" "a" {`, `resource "aws_iam_role" "b" {`, "ignore_changes = all", "ignore_changes = [name, inline_policy]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in\n%s", want, got)
 		}
@@ -788,5 +788,92 @@ func TestCachedDropsSnapshotsWhenProvidersCantBeRead(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("the snapshot directory stays: %v", err)
+	}
+}
+
+// validatingState fails the plan while the override in dir has rejected
+// ignore all changes, as a provider's plan check does when it is handed
+// the imported values as the configuration.
+type validatingState struct {
+	fakeState
+	dir, rejected string
+	plans         int
+}
+
+func (v *validatingState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfexec.PlanOption) (bool, error) {
+	v.plans++
+	override, err := os.ReadFile(filepath.Join(v.dir, SnapshotOverrideFile))
+	if err != nil {
+		return false, err
+	}
+	typ, name, _ := strings.Cut(v.rejected, ".")
+	if strings.Contains(string(override), fmt.Sprintf("%q %q {\n  lifecycle {\n    ignore_changes = all", typ, name)) {
+		fmt.Fprintln(w, `{"@level":"error","@message":"Error: storage_iops","type":"diagnostic","diagnostic":{"severity":"error","summary":"storage_iops is only supported when storage_type is PremiumV2_LRS","detail":""}}`)
+		return false, nil
+	}
+	return v.fakeState.PlanJSON(ctx, w, opts...)
+}
+
+func TestBuildSnapshotIgnoresOnlyWhatTheConfigurationSetsWhereAllFails(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	dir := t.TempDir()
+	tf := &validatingState{fakeState: fakeState{imports: 2, plan: importPlan("aws_s3_bucket.a", "azurerm_postgresql_flexible_server.db")}, dir: dir, rejected: "azurerm_postgresql_flexible_server.db"}
+	build := SnapshotBuild{
+		Plan: tf, Apply: tf, Dir: dir,
+		Resources: []string{"aws_s3_bucket.a", "azurerm_postgresql_flexible_server.db"},
+		Imports:   []ImportBlock{{To: "aws_s3_bucket.a", ID: "a"}, {To: "azurerm_postgresql_flexible_server.db", ID: "db"}},
+		Blame: func([]tfjson.Diagnostic) map[string][]string {
+			return map[string][]string{"azurerm_postgresql_flexible_server.db": {"name", "sku_name"}}
+		},
+	}
+	s, err := BuildSnapshot(context.Background(), build)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Remove()
+	if tf.plans != 2 || tf.applies != 1 {
+		t.Errorf("plans %d, applies %d: want 2 and 1", tf.plans, tf.applies)
+	}
+	override, _ := os.ReadFile(filepath.Join(dir, SnapshotOverrideFile))
+	want := `resource "aws_s3_bucket" "a" {
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "azurerm_postgresql_flexible_server" "db" {
+  lifecycle {
+    ignore_changes = [name, sku_name]
+  }
+}
+
+`
+	if string(override) != want {
+		t.Errorf("override:\n%s\nwant:\n%s", override, want)
+	}
+
+	// Errors it can't blame on the override still fail the build, after
+	// one plan.
+	tf.plans = 0
+	build.Blame = func([]tfjson.Diagnostic) map[string][]string { return nil }
+	if _, err := BuildSnapshot(context.Background(), build); err == nil || !strings.Contains(err.Error(), "doesn't plan") {
+		t.Errorf("unblamed errors: %v", err)
+	}
+	if tf.plans != 1 {
+		t.Errorf("plans for unblamed errors: %d", tf.plans)
+	}
+}
+
+func TestCheckImportOnlyNamesWhatAnUpdateChanges(t *testing.T) {
+	t.Parallel()
+	p := importPlan("aws_sns_topic_subscription.main")
+	c := p.ResourceChanges[0].Change
+	c.Actions = tfjson.Actions{tfjson.ActionUpdate}
+	c.Before = map[string]any{"endpoint": "e", "confirmation_timeout_in_minutes": nil, "arn": "a"}
+	c.After = map[string]any{"endpoint": "e", "confirmation_timeout_in_minutes": float64(1), "arn": nil}
+	c.AfterUnknown = map[string]any{"arn": true}
+	err := CheckImportOnly(p)
+	if err == nil || !strings.HasSuffix(err.Error(), "(update of confirmation_timeout_in_minutes)") {
+		t.Errorf("got %v", err)
 	}
 }
