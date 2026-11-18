@@ -14,6 +14,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
@@ -102,7 +103,7 @@ func generateDir(ctx context.Context, dir string, tr terraformRun, imports []roo
 // that records no version of source, or a constraint or version that
 // doesn't parse, counts as meeting it, as before such a check.
 func lockMeets(lock []byte, source, constraint string) bool {
-	locked := engine.LockedVersion(lock, source)
+	locked := versions.LockedVersion(lock, source)
 	if locked == "" || constraint == "" {
 		return true
 	}

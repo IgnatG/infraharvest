@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -23,7 +23,7 @@ func TestRunUsesTheRegistryItIsGiven(t *testing.T) {
 
 	selected := map[string][]harvest.Resource{"sqs": {harvest.RecordBare("q", "q", "aws_sqs_queue", "aws")}}
 	var looked []string
-	tools := &callTools{moduleReleases: func(_ context.Context, source string) ([]engine.ModuleRelease, error) {
+	tools := &callTools{moduleReleases: func(_ context.Context, source string) ([]versions.ModuleRelease, error) {
 		looked = append(looked, source)
 		return nil, errors.New("offline")
 	}}

@@ -39,7 +39,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/adapters/moduleinterface"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 )
 
 func main() {
@@ -172,7 +172,7 @@ func checkPinned(ctx context.Context, client *moduleinterface.Client, a adapters
 // asked for once.
 func newestRelease(ctx context.Context, client *http.Client) moduleinterface.NewestRelease {
 	return func(source string, constraints []version.Constraints) (*version.Version, error) {
-		return engine.ProviderVersion(ctx, client, "", source, constraints)
+		return versions.ProviderVersion(ctx, client, "", source, constraints)
 	}
 }
 

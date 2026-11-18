@@ -14,7 +14,7 @@ import (
 	goversion "github.com/hashicorp/go-version"
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -34,7 +34,7 @@ type moduleConstraint struct {
 // release than the one used, and what the versions used accept of the
 // provider at providerSource. An adapter whose module can't be looked up
 // keeps its tested version.
-func resolveAdapters(ctx context.Context, releasesOf func(ctx context.Context, source string) ([]engine.ModuleRelease, error), list []adapters.Adapter, providerSource string, untested bool) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
+func resolveAdapters(ctx context.Context, releasesOf func(ctx context.Context, source string) ([]versions.ModuleRelease, error), list []adapters.Adapter, providerSource string, untested bool) ([]adapters.Adapter, []report.ModuleVersion, []moduleConstraint) {
 	used := make([]adapters.Adapter, 0, len(list))
 	var newer []report.ModuleVersion
 	var constraints []moduleConstraint
@@ -83,14 +83,14 @@ type moduleReleases struct {
 type moduleReleaseLookup struct {
 	mu       sync.Mutex
 	done     bool
-	releases []engine.ModuleRelease
+	releases []versions.ModuleRelease
 	err      error
 }
 
 // get returns the releases of the module at source, looking them up with
 // list on first use. A lookup cut short by its own context isn't kept, so
 // that a later call, with a context still live, looks again.
-func (m *moduleReleases) get(ctx context.Context, source string, list func(context.Context) ([]engine.ModuleRelease, error)) ([]engine.ModuleRelease, error) {
+func (m *moduleReleases) get(ctx context.Context, source string, list func(context.Context) ([]versions.ModuleRelease, error)) ([]versions.ModuleRelease, error) {
 	m.mu.Lock()
 	if m.of == nil {
 		m.of = map[string]*moduleReleaseLookup{}
@@ -114,7 +114,7 @@ func (m *moduleReleases) get(ctx context.Context, source string, list func(conte
 	return l.releases, l.err
 }
 
-// providerKey is how engine.ModuleRelease keys a provider: namespace/type,
+// providerKey is how versions.ModuleRelease keys a provider: namespace/type,
 // in lower case.
 func providerKey(source string) string {
 	parts := strings.Split(strings.ToLower(source), "/")
@@ -150,7 +150,7 @@ func heldBack(latest *goversion.Version, constraints []moduleConstraint) string 
 // writing the configuration today would use.
 func newestMajor(ctx context.Context, client *http.Client, registryURL, source string, latest *goversion.Version, constraints []moduleConstraint) (admitted, refused []moduleConstraint) {
 	for _, c := range constraints {
-		v, err := engine.ProviderVersion(ctx, client, registryURL, source, []goversion.Constraints{c.constraint})
+		v, err := versions.ProviderVersion(ctx, client, registryURL, source, []goversion.Constraints{c.constraint})
 		if err != nil || v.Segments()[0] != latest.Segments()[0] {
 			refused = append(refused, c)
 			continue

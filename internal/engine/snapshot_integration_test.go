@@ -23,6 +23,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 )
 
 // importRecorder is a runner that counts the plans that import: those a
@@ -93,7 +94,7 @@ func TestGenerateWithSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	latest, err := LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/random")
+	latest, err := versions.LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/random")
 	if err != nil {
 		t.Fatal(err)
 	}

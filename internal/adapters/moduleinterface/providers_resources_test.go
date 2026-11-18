@@ -48,7 +48,7 @@ func readFixture(t *testing.T, name string) *Interface {
 	return iface
 }
 
-// registry answers as engine.ProviderVersion would from the releases of
+// registry answers as versions.ProviderVersion would from the releases of
 // each provider source, and records the sources asked about.
 type registry struct {
 	releases map[string][]string

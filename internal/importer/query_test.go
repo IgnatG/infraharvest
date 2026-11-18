@@ -16,9 +16,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/catalogue"
-	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
@@ -209,9 +209,9 @@ func TestModuleReleasesLookedUpOncePerCommand(t *testing.T) {
 		answer(w, r)
 	}))
 	defer registry.Close()
-	lookUpIn := func(server *httptest.Server) func(context.Context, string) ([]engine.ModuleRelease, error) {
-		return func(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
-			return engine.ModuleReleases(ctx, server.Client(), server.URL, source)
+	lookUpIn := func(server *httptest.Server) func(context.Context, string) ([]versions.ModuleRelease, error) {
+		return func(ctx context.Context, source string) ([]versions.ModuleRelease, error) {
+			return versions.ModuleReleases(ctx, server.Client(), server.URL, source)
 		}
 	}
 	provider := &moduleQueryProvider{}

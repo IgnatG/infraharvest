@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/tfquery"
 )
@@ -38,8 +39,8 @@ type callTools struct {
 	// default registry.
 	rootConfig func(ctx context.Context, registry, execPath string, p rootfile.Provider, constraints []moduleConstraint) (*rootFiles, error)
 	// moduleReleases lists the releases of a registry module, as
-	// engine.ModuleReleases does with the default registry.
-	moduleReleases func(ctx context.Context, source string) ([]engine.ModuleRelease, error)
+	// versions.ModuleReleases does with the default registry.
+	moduleReleases func(ctx context.Context, source string) ([]versions.ModuleRelease, error)
 	// generate generates a root, as generateDir does.
 	generate func(ctx context.Context, dir string, tr terraformRun, imports []rootfile.Import, opts engine.Options, lock *[]byte) (*engine.Result, error)
 	// addTo adds to a root, as engine.Add does.
@@ -98,12 +99,12 @@ func (t *callTools) root(ctx context.Context, registry, execPath string, p rootf
 }
 
 // listModuleReleases lists the releases of the registry module at source
-// (see engine.ModuleReleases).
-func (t *callTools) listModuleReleases(ctx context.Context, source string) ([]engine.ModuleRelease, error) {
+// (see versions.ModuleReleases).
+func (t *callTools) listModuleReleases(ctx context.Context, source string) ([]versions.ModuleRelease, error) {
 	if t != nil && t.moduleReleases != nil {
 		return t.moduleReleases(ctx, source)
 	}
-	return engine.ModuleReleases(ctx, http.DefaultClient, "", source)
+	return versions.ModuleReleases(ctx, http.DefaultClient, "", source)
 }
 
 // generateDir generates the root in dir (see generateDir).

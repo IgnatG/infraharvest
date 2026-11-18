@@ -19,6 +19,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
+	"github.com/IgnatG/infraharvest/internal/engine/versions"
 )
 
 // TestConvertedTemplatesValidate converts each template of the cfn2tf
@@ -39,7 +40,7 @@ func TestConvertedTemplatesValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	latest, err := LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/aws")
+	latest, err := versions.LatestProviderVersion(ctx, http.DefaultClient, "", "hashicorp/aws")
 	if err != nil {
 		t.Fatal(err)
 	}
