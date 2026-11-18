@@ -19,7 +19,10 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
+	"github.com/IgnatG/infraharvest/internal/report"
 )
 
 // sandboxEnvironmentsConfig maps the two estates of
@@ -57,10 +60,11 @@ var sandboxEnvironmentTags = map[string]string{"dev": "dev", "prd": "prod"}
 // variable that no var file sets and no file of the output holds. Planned
 // as each environment, with its var files and its secret, the merged root
 // must import what that environment has and change nothing. It destroys
-// the estate when it is done. The sandbox-aws workflow runs it when asked
-// to (estate=environments); see e2e/README.md.
+// the estate when it is done. Last, it hands a resource from the merged
+// root to another over (see checkSandboxHandover). The sandbox-aws workflow
+// runs it when asked to (estate=environments); see e2e/README.md.
 func TestSandboxAWSEnvironments(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Minute)
 	defer cancel()
 	s := newSandbox(ctx, t)
 
@@ -70,7 +74,8 @@ func TestSandboxAWSEnvironments(t *testing.T) {
 
 	config := writeConfig(t, sandboxEnvironmentsConfig)
 	// No module calls: each bucket is a resource of the merged root.
-	s.importer(t, []string{s.region}, sandboxEnvironmentsServices).must(ctx, t, "--config="+config, "--modules=none")
+	run := s.importer(t, []string{s.region}, sandboxEnvironmentsServices)
+	run.must(ctx, t, "--config="+config, "--modules=none")
 	coverage := readCoverage(t, s.out)
 	t.Logf("totals: %+v", coverage.Totals)
 	checkCoverage(t, "the import", coverage, nil)
@@ -150,6 +155,166 @@ func TestSandboxAWSEnvironments(t *testing.T) {
 			checkNoChanges(ctx, t, other, s.execPath, s.plugins, secretValues(t, other, created))
 		}
 	}
+
+	checkSandboxHandover(ctx, t, s, estate, run, config, path, secretVariable, secrets, created)
+}
+
+// sandboxHandoverEnvironment is the Environment tag checkSandboxHandover
+// gives prd's alerts queue, which neither environment's tags match.
+const sandboxHandoverEnvironment = "sandbox-handover"
+
+// checkSandboxHandover does what a team does when the Environment tag of
+// a resource changes: it moves to another root. It applies the merged
+// root of path in the output as each environment, into the workspace
+// named after it, so that each has prd's alerts queue as its state has it
+// (only prod's does, as only prod counts it); gives the queue another
+// Environment tag as the fixture profile (alerts_environment), so that it
+// is neither dev's nor prod's; and imports again with --regenerate. The
+// queue must be handed over: the merged root's moves.tf gets a removed
+// block for it, with destroy = false, which its README lists with the
+// root it goes to, and that root imports it, with nothing else failing or
+// left incomplete. Applied in order, the merged root as each environment
+// first, then the root the queue goes to, the prod workspace must have
+// forgotten the queue, and every plan, as each environment and of the new
+// root, must have no changes. config is the configuration file of the
+// import (see sandboxEnvironmentsConfig), secretVariable the merged
+// root's variable for the parameters' values, secrets their values by
+// environment, and created the estate's resources.
+func checkSandboxHandover(ctx context.Context, t *testing.T, s *sandbox, estate *sandboxEstate, run sandboxImport, config, path, secretVariable string, secrets map[string]string, created []*tfjson.StateResource) {
+	t.Helper()
+	environments := []string{"dev", "prod"}
+	alerts := ""
+	for _, r := range created {
+		if r.Type == "aws_sqs_queue" && r.Name == "prd_alerts" {
+			alerts, _ = r.AttributeValues["name"].(string)
+		}
+	}
+	if alerts == "" {
+		t.Fatal("the estate has no alerts queue")
+	}
+	dir, err := filepath.Abs(filepath.Join(s.out, filepath.FromSlash(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// vars are the options an environment plans and applies the merged
+	// root with: its var files and its secret.
+	secret := func(env string) []tfexec.PlanOption {
+		if secretVariable == "" {
+			return nil
+		}
+		return []tfexec.PlanOption{tfexec.Var(secretVariable + "=" + secrets[env])}
+	}
+	apply := func(tf *tfrun.Runner, env string) {
+		t.Helper()
+		opts := []tfexec.ApplyOption{tfexec.Lock(false)}
+		for _, f := range mergedVarFiles(dir, env) {
+			opts = append(opts, tfexec.VarFile(f))
+		}
+		for _, v := range secret(env) {
+			opts = append(opts, v.(tfexec.ApplyOption))
+		}
+		if err := tf.Apply(ctx, opts...); err != nil {
+			t.Fatalf("%s: terraform apply: %v", env, err)
+		}
+	}
+	for _, env := range environments {
+		tf, err := tfrun.New(dir, s.execPath, s.plugins, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := tf.Init(ctx); err != nil {
+			t.Fatalf("%s: terraform init: %v", env, err)
+		}
+		if err := tf.WorkspaceNew(ctx, env); err != nil {
+			t.Fatalf("terraform workspace new %s: %v", env, err)
+		}
+		apply(tf, env)
+		if has := workspaceHasQueue(ctx, t, tf, alerts); has != (env == "prod") {
+			t.Errorf("the %s workspace has the alerts queue %s: %v, want %v", env, alerts, has, env == "prod")
+		}
+	}
+
+	created = estate.apply(ctx, t, tfexec.Var("alerts_environment="+sandboxHandoverEnvironment), tfexec.Target("aws_sqs_queue.prd_alerts"))
+	run.must(ctx, t, "--config="+config, "--modules=none", "--regenerate")
+	coverage := readCoverage(t, s.out)
+	checkCoverage(t, "--regenerate", coverage, nil)
+	checkMerged(t, s.out, coverage, path, "dev", "prod")
+	if len(coverage.IncompleteHandovers) != 0 {
+		t.Errorf("--regenerate: incomplete handovers %+v", coverage.IncompleteHandovers)
+	}
+	i := slices.IndexFunc(coverage.Departed, func(m report.Move) bool { return strings.HasSuffix(m.ID, "/"+alerts) })
+	if i < 0 {
+		t.Fatalf("--regenerate: the alerts queue %s isn't handed over: departed %+v", alerts, coverage.Departed)
+	}
+	departed := coverage.Departed[i]
+	if departed.FromRoot != path || departed.ToRoot == "" || departed.ToRoot == path || departed.To == "" {
+		t.Fatalf("--regenerate: the alerts queue goes from %s (%s) to %s (%s), want from %s to another root", departed.FromRoot, departed.From, departed.ToRoot, departed.To, path)
+	}
+	imports := false
+	for _, d := range coverage.Directories {
+		for _, r := range d.Imported {
+			if d.Path == departed.ToRoot && strings.HasSuffix(r.ID, "/"+alerts) {
+				imports = true
+			}
+			if d.Path != departed.ToRoot && strings.HasSuffix(r.ID, "/"+alerts) {
+				t.Errorf("--regenerate: %s imports the alerts queue too", d.Path)
+			}
+		}
+	}
+	if !imports {
+		t.Errorf("--regenerate: %s, which the alerts queue goes to, doesn't import it", departed.ToRoot)
+	}
+	moves := readFile(t, filepath.Join(dir, rootfile.MovesFileName))
+	for _, want := range []string{"removed {", "destroy = false"} {
+		if !strings.Contains(moves, want) {
+			t.Errorf("the merged root's %s has no %q:\n%s", rootfile.MovesFileName, want, moves)
+		}
+	}
+	if readme := readFile(t, filepath.Join(dir, rootfile.ReadmeFileName)); !strings.Contains(readme, "`"+departed.ToRoot+"`") {
+		t.Errorf("the merged root's README doesn't say the alerts queue goes to %s:\n%s", departed.ToRoot, readme)
+	}
+	// The applied states hold the secrets, so the output isn't searched
+	// for them again: the merged root must still read them from the
+	// variable.
+	if secretVariable != "" && !strings.Contains(configuration(t, dir), `variable "`+secretVariable+`"`) {
+		t.Errorf("--regenerate: the merged root no longer declares the secret variable %s", secretVariable)
+	}
+
+	// The merged root first, as each environment, which forgets the queue
+	// where it has it, then the root the queue goes to, which imports it.
+	for _, env := range environments {
+		tf := workspace(ctx, t, dir, s.execPath, s.plugins, env)
+		apply(tf, env)
+		if workspaceHasQueue(ctx, t, tf, alerts) {
+			t.Errorf("the %s workspace still has the alerts queue %s once the merged root is applied again", env, alerts)
+		}
+	}
+	other := filepath.Join(s.out, filepath.FromSlash(departed.ToRoot))
+	applyPlanned(ctx, t, other, s.execPath, s.plugins, secretValues(t, other, created))
+	for _, env := range environments {
+		selectWorkspace(ctx, t, dir, s.execPath, s.plugins, env)
+		checkPlannedNothing(t, "the merged root, as "+env+", with the alerts queue handed over", planRoot(ctx, t, dir, s.execPath, s.plugins, append(mergedVars(dir, env), secret(env)...)...))
+	}
+	checkPlannedNothing(t, departed.ToRoot+", with the alerts queue", planRoot(ctx, t, other, s.execPath, s.plugins, secretValues(t, other, created)...))
+}
+
+// workspaceHasQueue reports whether the state of the workspace tf has
+// selected has the SQS queue called name.
+func workspaceHasQueue(ctx context.Context, t *testing.T, tf *tfrun.Runner, name string) bool {
+	t.Helper()
+	state, err := tf.Show(ctx)
+	if err != nil {
+		t.Fatalf("terraform show: %v", err)
+	}
+	if state.Values == nil || state.Values.RootModule == nil {
+		return false
+	}
+	for _, r := range state.Values.RootModule.Resources {
+		if r.Type == "aws_sqs_queue" && r.AttributeValues["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 // sandboxEnvironmentSecrets returns the value of each environment's
