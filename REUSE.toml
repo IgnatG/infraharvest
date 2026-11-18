@@ -55,3 +55,15 @@ path = "internal/engine/cmd/opacapabilities/testdata/v*.json"
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright The OPA Authors"
 SPDX-License-Identifier = "Apache-2.0"
+
+# The JSON Schemas of the documents infraharvest export writes
+# (schemas/*.schema.json, and the OCSF extension under schemas/ocsf/) are
+# Apache-2.0, so that a control plane or any other tool, open or not, can
+# validate the documents and generate types from the schemas. The code that
+# writes and validates the documents, schemas/embed.go among it, stays
+# AGPL-3.0-only.
+[[annotations]]
+path = ["schemas/*.schema.json", "schemas/ocsf/**/*.json"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright 2026 Gabriel Ignat"
+SPDX-License-Identifier = "Apache-2.0"
