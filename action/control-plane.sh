@@ -14,10 +14,11 @@
 # The OIDC token goes to the session endpoint only. Nothing else is sent. See
 # docs/export.md.
 #
-# The documents are those of what ran: an import sends inventory, run, gate
-# and graph; a drift check sends drift-summary, and, when no import ran, the
-# run document of the drift check (export --command drift) before it; both
-# send the five. The drift summary has a run_id of its own, made from
+# The documents are those of what ran: an import sends ocsf-inventory, run,
+# gate and graph; a drift check sends drift-summary, and, when no import ran,
+# the run document of the drift check (export --command drift) before it; both
+# send the five. The inventory is sent as the OCSF inventory: inventory/v1 is
+# not uploaded. The drift summary has a run_id of its own, made from
 # drift.json.
 #
 # Usage: control-plane.sh check|upload
@@ -278,9 +279,10 @@ upload() {
   # export has run.
   open_session
 
-  # The redaction flags apply to the inventory, which has the tags, IDs and
-  # names, and --hash-ids to the graph too, which has the IDs, and to the
-  # drift summary, which has the addresses.
+  # The redaction flags apply to the OCSF inventory, which has the tags, IDs
+  # and names, and --hash-ids to the graph too, which has the IDs, and to the
+  # drift summary, which has the addresses. --drop-addresses applies to the
+  # OCSF inventory and the drift summary.
   local redact=() flags=() key tag err
   [[ "$drop_tags" == true ]] && redact+=(--drop-tags)
   while IFS= read -r tag; do
@@ -295,12 +297,12 @@ upload() {
   key="${HASH_KEY:-${INFRAHARVEST_EXPORT_KEY-}}"
 
   # The report holds no times: the import's own start and finish go to the
-  # run (started_at, finished_at) and the inventory (generated_at is the
-  # finish), so that sending the same run again changes neither. A drift
-  # check's own start and finish go to its run document.
-  local times=()
+  # run (started_at, finished_at), and the finish to the OCSF inventory (the
+  # time of its events), so that sending the same run again changes neither.
+  # A drift check's own start and finish go to its run document.
+  local times=() finish=()
   [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
-  [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT")
+  [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT") && finish=("--finished-at=$FINISHED_AT")
   local drift_times=()
   [[ -n "${DRIFT_STARTED_AT-}" ]] && drift_times+=("--started-at=$DRIFT_STARTED_AT")
   [[ -n "${DRIFT_FINISHED_AT-}" ]] && drift_times+=("--finished-at=$DRIFT_FINISHED_AT")
@@ -309,13 +311,18 @@ upload() {
   # both reports are there); without one, it is the drift check's, which
   # export takes from drift.json, not an old report.json the repository has.
   local docs=() doc
-  if [[ "$send_import" == true ]]; then docs=(inventory run gate graph); else docs=(run); fi
+  if [[ "$send_import" == true ]]; then docs=(ocsf-inventory run gate graph); else docs=(run); fi
   if [[ "$send_drift" == true ]]; then docs+=(drift-summary); fi
 
   for doc in "${docs[@]}"; do
     flags=()
     case "$doc" in
-      inventory) flags=(${redact[@]+"${redact[@]}"} ${times[@]+"${times[@]}"}) ;;
+      ocsf-inventory)
+        # The repository and the commit come from the GITHUB_* variables of
+        # the job, which export reads.
+        flags=(${redact[@]+"${redact[@]}"} ${finish[@]+"${finish[@]}"})
+        if [[ "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
+        ;;
       run)
         if [[ "$send_import" == true ]]; then flags=(${times[@]+"${times[@]}"}); else flags=(--command=drift ${drift_times[@]+"${drift_times[@]}"}); fi
         if [[ -n "$request_id" ]]; then flags+=("--request-id=$request_id"); fi

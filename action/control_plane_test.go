@@ -29,7 +29,7 @@ const (
 )
 
 // documents are the ones the script sends, in the order it sends them.
-var documents = []string{"inventory", "run", "gate", "graph"}
+var documents = []string{"ocsf-inventory", "run", "gate", "graph"}
 
 // oidcToken is the fake identity token the fake OIDC endpoint returns. It
 // is joined at run time so secret scanners don't read it as a real JWT.
@@ -38,7 +38,8 @@ var oidcToken = strings.Join([]string{"eyJhbGciOiJSUzI1NiJ9", "eyJhdWQiOiJ4In0",
 // fakeBinary stands in for infraharvest: it records its arguments and
 // writes a document with a run_id to --out-file. As the real export does,
 // the drift summary and the run of --command drift have the run_id of the
-// drift check, and the run document has the command and the request_id.
+// drift check, the run document has the command and the request_id, and the
+// OCSF inventory has its version and events.
 const fakeBinary = `#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_ARGS_LOG"
 printf 'key=%s\n' "$INFRAHARVEST_EXPORT_KEY" >> "$FAKE_ARGS_LOG"
@@ -55,6 +56,7 @@ id=` + runID + `
 if [[ "$doc" == drift-summary || "$command" == drift ]]; then id=` + driftRunID + `; fi
 extra=
 if [[ "$doc" == run ]]; then extra=",\"command\":\"$command\",\"request_id\":\"$request\""; fi
+if [[ "$doc" == ocsf-inventory ]]; then extra=",\"ocsf_version\":\"1.9.0\",\"events\":[]"; fi
 printf '{"schema":"%s/v1","run_id":"%s"%s}\n' "$doc" "$id" "$extra" > "$file"
 `
 
@@ -436,7 +438,7 @@ func TestUploadFailsWhenTheGraphFails(t *testing.T) {
 }
 
 func TestUploadPlanRefusalIsNotRetried(t *testing.T) {
-	for _, path := range []string{sessionPath, "/api/v1/ingest/inventory", "/api/v1/ingest/graph"} {
+	for _, path := range []string{sessionPath, "/api/v1/ingest/ocsf-inventory", "/api/v1/ingest/graph"} {
 		t.Run(path, func(t *testing.T) {
 			cp := newControlPlane(t)
 			cp.queue(path, 402)
@@ -481,7 +483,7 @@ func TestUploadRefusedSession(t *testing.T) {
 					t.Errorf("output lacks %q:\n%s", want, res.output)
 				}
 			}
-			if cp.count("/api/v1/ingest/inventory") != 0 {
+			if cp.count("/api/v1/ingest/ocsf-inventory") != 0 {
 				t.Error("uploaded without a session")
 			}
 		})
@@ -537,13 +539,13 @@ func TestUploadRefusalWithoutJSONShowsTheBody(t *testing.T) {
 
 func TestUploadRetriesServerErrorsAndRateLimits(t *testing.T) {
 	cp := newControlPlane(t)
-	cp.queue("/api/v1/ingest/inventory", 503, 500, 200)
+	cp.queue("/api/v1/ingest/ocsf-inventory", 503, 500, 200)
 	cp.queue("/api/v1/ingest/run", 429, 200)
 	res := upload(t, cp, nil)
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
-	if got := cp.count("/api/v1/ingest/inventory"); got != 3 {
+	if got := cp.count("/api/v1/ingest/ocsf-inventory"); got != 3 {
 		t.Errorf("inventory: %d requests, want 3", got)
 	}
 	if got := cp.count("/api/v1/ingest/run"); got != 2 {
@@ -559,12 +561,12 @@ func TestUploadRetriesServerErrorsAndRateLimits(t *testing.T) {
 
 func TestUploadGivesUpOnPersistentServerErrors(t *testing.T) {
 	cp := newControlPlane(t)
-	cp.queue("/api/v1/ingest/inventory", 502)
+	cp.queue("/api/v1/ingest/ocsf-inventory", 502)
 	res := upload(t, cp, nil)
 	if res.err == nil {
 		t.Fatalf("upload succeeded:\n%s", res.output)
 	}
-	if got := cp.count("/api/v1/ingest/inventory"); got != 4 {
+	if got := cp.count("/api/v1/ingest/ocsf-inventory"); got != 4 {
 		t.Errorf("inventory: %d requests, want 4", got)
 	}
 	if cp.count("/api/v1/ingest/run") != 0 || strings.Contains(res.outputs, "control-plane-run-id") {
@@ -594,7 +596,7 @@ func TestUploadFailsOnClientErrorWithoutRetry(t *testing.T) {
 
 func TestUploadOptionalOnlyWarns(t *testing.T) {
 	cp := newControlPlane(t)
-	cp.queue("/api/v1/ingest/inventory", 401)
+	cp.queue("/api/v1/ingest/ocsf-inventory", 401)
 	res := upload(t, cp, map[string]string{"OPTIONAL": "true"})
 	if res.err != nil {
 		t.Fatalf("upload failed although optional: %v\n%s", res.err, res.output)
@@ -610,7 +612,7 @@ func TestUploadWithoutOIDCPermission(t *testing.T) {
 	if res.err == nil || !strings.Contains(res.output, "id-token: write") {
 		t.Errorf("want a failure that names id-token: write: %v\n%s", res.err, res.output)
 	}
-	if cp.count("/api/v1/ingest/inventory") != 0 {
+	if cp.count("/api/v1/ingest/ocsf-inventory") != 0 {
 		t.Error("sent without a token")
 	}
 }
@@ -635,9 +637,9 @@ func TestUploadPassesTheRedactionFlags(t *testing.T) {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
 	lines := strings.Split(res.args, "\n")
-	if want := "export out --schema=inventory --out-file="; !strings.HasPrefix(lines[0], want) ||
+	if want := "export out --schema=ocsf-inventory --out-file="; !strings.HasPrefix(lines[0], want) ||
 		!strings.Contains(lines[0], "--drop-tags --drop-tag=owner-email --drop-tag=cost-center --hash-ids") {
-		t.Errorf("inventory export ran as %q", lines[0])
+		t.Errorf("OCSF inventory export ran as %q", lines[0])
 	}
 	if lines[1] != "key=0123456789abcdef0123" {
 		t.Errorf("key: %q", lines[1])
@@ -657,7 +659,7 @@ func TestUploadSkipsAFailedImportWithoutReport(t *testing.T) {
 	if res.err != nil || !strings.Contains(res.output, "::warning::") {
 		t.Errorf("want a warning and no failure: %v\n%s", res.err, res.output)
 	}
-	if cp.count("/api/v1/ingest/inventory") != 0 {
+	if cp.count("/api/v1/ingest/ocsf-inventory") != 0 {
 		t.Error("sent without a report")
 	}
 	// After an import that succeeded, a missing report is an error.
@@ -729,7 +731,7 @@ func TestUploadPassesTheImportTimes(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
-	times := "--started-at=2026-11-03T09:30:00Z --finished-at=2026-11-03T09:37:00Z"
+	started, finished := "--started-at=2026-11-03T09:30:00Z", "--finished-at=2026-11-03T09:37:00Z"
 	var exports []string
 	for _, line := range strings.Split(res.args, "\n") {
 		if strings.HasPrefix(line, "export ") {
@@ -739,11 +741,14 @@ func TestUploadPassesTheImportTimes(t *testing.T) {
 	if len(exports) != 4 {
 		t.Fatalf("exports: %q", exports)
 	}
-	// The inventory (generated_at) and the run have them; the gate and the
-	// graph have no time.
-	for i, want := range []bool{true, true, false, false} {
-		if got := strings.Contains(exports[i], times); got != want {
-			t.Errorf("export %d ran as %q, times wanted: %v", i, exports[i], want)
+	// The run has both. The OCSF inventory has the finish, which is the time
+	// of its events, and not the start; the gate and the graph have no time.
+	for i, want := range [][2]bool{{false, true}, {true, true}, {false, false}, {false, false}} {
+		if got := strings.Contains(exports[i], started); got != want[0] {
+			t.Errorf("export %d ran as %q, start wanted: %v", i, exports[i], want[0])
+		}
+		if got := strings.Contains(exports[i], finished); got != want[1] {
+			t.Errorf("export %d ran as %q, finish wanted: %v", i, exports[i], want[1])
 		}
 	}
 }
@@ -766,7 +771,7 @@ func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
-	for _, doc := range []string{"inventory", "gate", "graph"} {
+	for _, doc := range []string{"ocsf-inventory", "gate", "graph"} {
 		if n := cp.count("/api/v1/ingest/" + doc); n != 0 {
 			t.Errorf("%s: %d requests, want none", doc, n)
 		}
@@ -806,7 +811,7 @@ func TestUploadOfAnImportAndADriftCheckSendsFive(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
-	want := []string{"inventory", "run", "gate", "graph", "drift-summary"}
+	want := []string{"ocsf-inventory", "run", "gate", "graph", "drift-summary"}
 	got := exports(res)
 	if len(got) != len(want) {
 		t.Fatalf("exports: %q", got)
@@ -955,5 +960,68 @@ func TestUploadWithoutARequestID(t *testing.T) {
 	}
 	if strings.Contains(res.args, "--request-id") {
 		t.Errorf("exports ran as %q", res.args)
+	}
+}
+
+// The OCSF inventory is what the Action sends of the inventory: it takes the
+// redaction flags, --drop-addresses and the import's finish, and the
+// repository and the commit come from the GITHUB_* variables export reads,
+// not from flags. inventory/v1 is exported and sent no more.
+func TestUploadSendsTheOCSFInventory(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		want []string
+		not  []string
+	}{
+		{"plain", nil, nil, []string{"--hash-ids", "--drop-addresses", "--drop-tags"}},
+		{"hashed", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123"}, []string{"--hash-ids"}, []string{"--drop-addresses"}},
+		{"dropped", map[string]string{"DROP_ADDRESSES": "true"}, []string{"--drop-addresses"}, []string{"--hash-ids"}},
+		{"both", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123", "DROP_ADDRESSES": "true", "DROP_TAGS": "true"}, []string{"--hash-ids", "--drop-addresses", "--drop-tags"}, nil},
+		{"not dropped", map[string]string{"DROP_ADDRESSES": "false", "DROP_TAG": "owner-email"}, []string{"--drop-tag=owner-email"}, []string{"--drop-addresses"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			env := map[string]string{"FINISHED_AT": "2026-11-03T09:37:00Z"}
+			for k, v := range tt.env {
+				env[k] = v
+			}
+			res := upload(t, cp, env)
+			if res.err != nil {
+				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+			}
+			got := exports(res)
+			if len(got) != 4 || !strings.Contains(got[0], "--schema=ocsf-inventory ") {
+				t.Fatalf("exports: %q", got)
+			}
+			for _, flag := range tt.want {
+				if !strings.Contains(got[0], flag) {
+					t.Errorf("OCSF inventory export ran as %q, want %s", got[0], flag)
+				}
+			}
+			for _, flag := range append([]string{"--repo-url", "--commit-sha", "--started-at"}, tt.not...) {
+				if strings.Contains(got[0], flag) {
+					t.Errorf("OCSF inventory export ran as %q, not %s", got[0], flag)
+				}
+			}
+			if !strings.Contains(got[0], "--finished-at=2026-11-03T09:37:00Z") {
+				t.Errorf("OCSF inventory export ran as %q, want the finish", got[0])
+			}
+			// The route, the key and the body are the OCSF inventory's; the
+			// inventory document is neither exported nor sent.
+			path := "/api/v1/ingest/ocsf-inventory"
+			if n := cp.count(path); n != 1 {
+				t.Errorf("%s: %d requests, want 1", path, n)
+			}
+			if got := cp.headers[path].Get("Idempotency-Key"); got != runID+":ocsf-inventory" {
+				t.Errorf("Idempotency-Key is %q", got)
+			}
+			if body := cp.bodies[path]; !strings.Contains(body, `"schema":"ocsf-inventory/v1"`) || !strings.Contains(body, `"ocsf_version":"1.9.0"`) {
+				t.Errorf("body is %q", body)
+			}
+			if cp.count("/api/v1/ingest/inventory") != 0 || strings.Contains(res.args, "--schema=inventory") {
+				t.Errorf("inventory/v1 was exported or sent: %d requests, %q", cp.count("/api/v1/ingest/inventory"), res.args)
+			}
+		})
 	}
 }
