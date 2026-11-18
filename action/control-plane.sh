@@ -36,9 +36,10 @@
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
 # and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
 # outcome; skipped when it didn't run), DRIFT (off, report or accept),
-# DRIFT_OUTCOME (the Drift step's), STARTED_AT and FINISHED_AT (when the
+# DRIFT_OUTCOME (the Drift step's), DRIFT_STARTED_AT and DRIFT_FINISHED_AT
+# (its start and finish), STARTED_AT and FINISHED_AT (when the
 # import started and finished, RFC 3339, from the Import step; either may be
-# empty; the drift check has no times), and the runner's
+# empty), and the runner's
 # ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
 # INFRAHARVEST_UPLOAD_RETRY_DELAY is the first delay in seconds between
 # attempts (default 2, doubling), for tests.
@@ -295,11 +296,14 @@ upload() {
 
   # The report holds no times: the import's own start and finish go to the
   # run (started_at, finished_at) and the inventory (generated_at is the
-  # finish), so that sending the same run again changes neither. The drift
-  # check records none.
+  # finish), so that sending the same run again changes neither. A drift
+  # check's own start and finish go to its run document.
   local times=()
   [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
   [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT")
+  local drift_times=()
+  [[ -n "${DRIFT_STARTED_AT-}" ]] && drift_times+=("--started-at=$DRIFT_STARTED_AT")
+  [[ -n "${DRIFT_FINISHED_AT-}" ]] && drift_times+=("--finished-at=$DRIFT_FINISHED_AT")
 
   # With an import, the run document is the import's (export's default when
   # both reports are there); without one, it is the drift check's, which
@@ -313,7 +317,7 @@ upload() {
     case "$doc" in
       inventory) flags=(${redact[@]+"${redact[@]}"} ${times[@]+"${times[@]}"}) ;;
       run)
-        if [[ "$send_import" == true ]]; then flags=(${times[@]+"${times[@]}"}); else flags=(--command=drift); fi
+        if [[ "$send_import" == true ]]; then flags=(${times[@]+"${times[@]}"}); else flags=(--command=drift ${drift_times[@]+"${drift_times[@]}"}); fi
         if [[ -n "$request_id" ]]; then flags+=("--request-id=$request_id"); fi
         ;;
       graph | drift-summary)

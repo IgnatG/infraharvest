@@ -762,7 +762,7 @@ func TestUploadWithoutImportTimes(t *testing.T) {
 func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
 	cp := newControlPlane(t)
 	// The repository has an import's report too, which isn't this run's.
-	res := uploadIn(t, cp, driftEnv(map[string]string{"STARTED_AT": "", "DROP_TAGS": "true"}), layout{report: true, drift: true})
+	res := uploadIn(t, cp, driftEnv(map[string]string{"STARTED_AT": "", "DROP_TAGS": "true", "DRIFT_STARTED_AT": "2026-11-03T10:00:00Z", "DRIFT_FINISHED_AT": "2026-11-03T10:02:00Z"}), layout{report: true, drift: true})
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
@@ -776,8 +776,10 @@ func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
 		!strings.Contains(got[1], "--schema=drift-summary") {
 		t.Fatalf("exports: %q", got)
 	}
-	// The drift check records no times, and the tag flags are the inventory's.
-	if strings.Contains(res.args, "--started-at") || strings.Contains(res.args, "--finished-at") || strings.Contains(res.args, "--drop-tags") {
+	// The drift check's own times go to its run document, not to the
+	// summary, and the tag flags are the inventory's.
+	if !strings.Contains(got[0], "--started-at=2026-11-03T10:00:00Z --finished-at=2026-11-03T10:02:00Z") ||
+		strings.Contains(got[1], "--started-at") || strings.Contains(got[1], "--finished-at") || strings.Contains(res.args, "--drop-tags") {
 		t.Errorf("exports ran as %q", res.args)
 	}
 	for _, doc := range []string{"run", "drift-summary"} {

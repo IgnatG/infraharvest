@@ -435,7 +435,9 @@ runs:
         # it (commands_off in output.sh). Its stderr goes to stdout, after
         # commands_off on the same stream.
         commands_off
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         "$bin" "${args[@]}" 2>&1 > "$json" || code=$?
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         commands_on
         report="$OUT/_reports/drift.md"
         found=false
@@ -446,6 +448,9 @@ runs:
         fi
         output exit-code "$code"
         output drift-found "$found"
+        # As the import's, for the Control plane step.
+        output started-at "$started"
+        output finished-at "$finished"
         # Not through a symbolic link the repository commits, which a run
         # that failed before writing the report would leave as it is (see
         # unlinked in output.sh).
@@ -576,6 +581,8 @@ runs:
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
         DRIFT: ${{ inputs.drift }}
         DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        DRIFT_STARTED_AT: ${{ steps.drift.outputs.started-at }}
+        DRIFT_FINISHED_AT: ${{ steps.drift.outputs.finished-at }}
         STARTED_AT: ${{ steps.import.outputs.started-at }}
         FINISHED_AT: ${{ steps.import.outputs.finished-at }}
       run: bash "$GITHUB_ACTION_PATH/control-plane.sh" upload
