@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -103,8 +104,9 @@ const sandboxGoogleQueried = "google_compute_network_firewall_policy"
 // the project and the read-only account's grants, and that the default
 // selection leaves out what Google created for the estate's function, and
 // that no file of the import holds the Cloud SQL user's password.
-// Applied, the global root must take a label added out of band through
-// infraharvest drift (see checkGoogleDrift). It destroys the estate when
+// Applied, the global root must take a label added out of band, and the
+// label its resources share changed, through infraharvest drift (see
+// checkGoogleDrift). It destroys the estate when
 // it is done. The sandbox-google workflow runs it, after approval; see
 // e2e/README.md.
 func TestSandboxGoogle(t *testing.T) {
@@ -837,20 +839,24 @@ func checkGoogleSecrets(t *testing.T, out string, created []*tfjson.StateResourc
 	}
 }
 
-// checkGoogleDrift does what a team does when someone changes a resource
+// checkGoogleDrift does what a team does when someone changes resources
 // of an applied root outside Terraform: it applies the global root, which
 // has the estate's topic, in a copy of the output, as the fixture service
 // account, as checkApplied does; gives the topic another value of its
 // project label, which the code sets through the provider's
-// default_labels, as the fixture service account; and runs infraharvest
-// drift on the root, as the read-only one. A label the code doesn't set
-// at all would be absorbed: the google provider manages only the labels
-// the code sets. Drift must report the label as kept, exit with 4
-// with --detailed-exitcode, and leave the code as it was; accepted, the
-// label must be written into the code, which then plans no change but to
-// the labels the provider keeps only in state. Only the topic, a resource
-// of the estate, changes in the cloud; the estate's destroy deletes it as
-// it is.
+// default_labels, and every labelled resource of the root another value
+// of the sweep's infraharvest-sandbox label, as the fixture service
+// account; and runs infraharvest drift on the root, as the read-only one
+// (see checkSharedDrift). A label the code doesn't set at all would be
+// absorbed: the google provider manages only the labels the code sets.
+// Drift must report the project label as kept and the sweep's label,
+// which the root's resources share, as one change of where the code keeps
+// them, exit with 4 with --detailed-exitcode, and leave the code as it
+// was. With rules, the last to match a change decides it; accepted, as
+// the rules and the decisions file say, both must be written into the
+// code, which then plans no change but to the labels the provider keeps
+// only in state. Only the global resources change in the cloud; the
+// estate's destroy deletes them as they are.
 func (s *googleSandbox) checkGoogleDrift(ctx context.Context, t *testing.T, estate *sandboxEstate) {
 	t.Helper()
 	rel := filepath.Join("google", s.project, "global")
@@ -862,17 +868,20 @@ func (s *googleSandbox) checkGoogleDrift(ctx context.Context, t *testing.T, esta
 	applyRoot(ctx, t, applied, s.execPath, s.plugins, map[string]string{"GOOGLE_APPLICATION_CREDENTIALS": s.fixtureCredentials})
 	checkPlanClean(t, rel+": after the apply", planRoot(ctx, t, applied, s.execPath, s.plugins))
 
-	estate.apply(ctx, t, tfexec.Var("drift_label=reported"), tfexec.Target("google_pubsub_topic.events"))
+	// Only the resources of the global root change: the regional ones, the
+	// database and the function among them, keep their labels.
+	estate.apply(ctx, t, tfexec.Var("drift_label=reported"), tfexec.Var("drift_shared="+googleDriftShared), tfexec.Target("google_pubsub_topic.events"), tfexec.Target("google_pubsub_subscription.events"), tfexec.Target("google_dns_managed_zone.internal"), tfexec.Target("google_secret_manager_secret.app"), tfexec.Target("google_compute_global_address.web"), tfexec.Target("google_compute_global_forwarding_rule.web"))
 	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
-	code := codeFiles(t, work)
-	d := drift.mustExit(t, report.ExitDrift, "--root", filepath.ToSlash(rel), "--detailed-exitcode")
-	checkCodeUnchanged(t, "drift", code, work)
-	checkDriftChange(t, "drift", driftChange(t, "drift", d, "google_pubsub_topic", "labels.project"), "infraharvest-sandbox", "reported", report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
-
-	d = drift.mustExit(t, report.ExitOK, "--root", filepath.ToSlash(rel), "--accept", "type=google_pubsub_topic")
-	checkDriftChange(t, "drift --accept", driftChange(t, "drift --accept", d, "google_pubsub_topic", "labels.project"), "infraharvest-sandbox", "reported", report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
-	if !codeMatches(t, work, `project\s*=\s*"reported"`) {
-		t.Errorf("drift --accept: the code doesn't have the topic's label project = \"reported\"")
-	}
+	checkSharedDrift(t, drift, sharedDrift{
+		args:            []string{"--root", filepath.ToSlash(rel)},
+		sharedAttribute: "labels.infraharvest-sandbox", sharedBefore: s.engineName, sharedAfter: googleDriftShared,
+		sharedNew: `infraharvest-sandbox"?\s*=\s*"` + googleDriftShared + `"`, sharedOld: `infraharvest-sandbox"?\s*=\s*"` + regexp.QuoteMeta(s.engineName) + `"`,
+		ownType: "google_pubsub_topic", ownAttribute: "labels.project", ownBefore: "infraharvest-sandbox", ownAfter: "reported",
+		ownNew: `project\s*=\s*"reported"`,
+	})
 	checkPlanClean(t, rel+": drift accepted", planRoot(ctx, t, applied, s.execPath, s.plugins))
 }
+
+// googleDriftShared is the value checkGoogleDrift gives the sweep's
+// infraharvest-sandbox label.
+const googleDriftShared = "drifted"

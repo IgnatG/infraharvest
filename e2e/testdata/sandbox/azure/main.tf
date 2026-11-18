@@ -58,6 +58,12 @@ variable "drift_tag" {
   default     = ""
 }
 
+variable "drift_shared" {
+  description = "Another value of the sweep's infraharvest-sandbox tag on every resource that takes local.tags, which a second apply sets out of band of the applied root for infraharvest drift to find as one change of the tags they share."
+  type        = string
+  default     = ""
+}
+
 provider "azurerm" {
   features {
     # The fixture identity's role is on the resource group alone, and the
@@ -102,7 +108,7 @@ locals {
   compact  = "ihsbx${var.suffix}${random_string.id.result}"
   location = data.azurerm_resource_group.sandbox.location
   rg       = data.azurerm_resource_group.sandbox.name
-  tags     = { project = "infraharvest-sandbox", infraharvest-sandbox = var.suffix }
+  tags     = { project = "infraharvest-sandbox", infraharvest-sandbox = var.drift_shared == "" ? var.suffix : var.drift_shared }
 }
 
 resource "azurerm_virtual_network" "main" {

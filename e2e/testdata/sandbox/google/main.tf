@@ -61,6 +61,12 @@ variable "drift_label" {
   default     = ""
 }
 
+variable "drift_shared" {
+  description = "Another value of the sweep's infraharvest-sandbox label on every labelled resource of the global root (the topic, its subscription, the zone, the secret, the address and the forwarding rule), which a second apply sets out of band of the applied root for infraharvest drift to find as one change of the labels they share."
+  type        = string
+  default     = ""
+}
+
 provider "google" {
   project = var.project
   region  = var.region
@@ -85,6 +91,11 @@ locals {
   # take no labels: the sweep finds them by name.
   name   = "ih-sbx-${var.suffix}-${random_string.id.result}"
   labels = { project = "infraharvest-sandbox", infraharvest-sandbox = var.suffix }
+  # The labels of the resources the global root holds, which a second apply
+  # can give another value of the sweep's label, out of band of the
+  # applied root, for infraharvest drift to find as one change of the
+  # labels they share. The regional resources keep local.labels.
+  global_labels = var.drift_shared == "" ? local.labels : merge(local.labels, { infraharvest-sandbox = var.drift_shared })
 }
 
 output "name" {
@@ -201,14 +212,14 @@ resource "google_storage_bucket" "data" {
 # A topic and a subscription with no messages cost nothing.
 resource "google_pubsub_topic" "events" {
   name   = local.name
-  labels = var.drift_label == "" ? local.labels : merge(local.labels, { project = var.drift_label })
+  labels = var.drift_label == "" ? local.global_labels : merge(local.global_labels, { project = var.drift_label })
 }
 
 resource "google_pubsub_subscription" "events" {
   name                 = local.name
   topic                = google_pubsub_topic.events.id
   ack_deadline_seconds = 20
-  labels               = local.labels
+  labels               = local.global_labels
 }
 
 # A private zone, visible to the network, with a record set: a fraction of
@@ -218,7 +229,7 @@ resource "google_dns_managed_zone" "internal" {
   dns_name    = "${local.name}.internal."
   description = "infraharvest sandbox"
   visibility  = "private"
-  labels      = local.labels
+  labels      = local.global_labels
 
   private_visibility_config {
     networks {
@@ -401,7 +412,7 @@ resource "google_compute_target_http_proxy" "web" {
 resource "google_compute_global_address" "web" {
   name        = local.name
   description = "infraharvest sandbox"
-  labels      = local.labels
+  labels      = local.global_labels
 }
 
 resource "google_compute_global_forwarding_rule" "web" {
@@ -410,7 +421,7 @@ resource "google_compute_global_forwarding_rule" "web" {
   ip_address            = google_compute_global_address.web.id
   port_range            = "80"
   load_balancing_scheme = "EXTERNAL_MANAGED"
-  labels                = local.labels
+  labels                = local.global_labels
 }
 
 # The smallest Cloud SQL for PostgreSQL instance: shared-core db-f1-micro,
@@ -518,7 +529,7 @@ resource "google_kms_crypto_key" "main" {
 # A secret with no version, so no value: free.
 resource "google_secret_manager_secret" "app" {
   secret_id = local.name
-  labels    = local.labels
+  labels    = local.global_labels
 
   replication {
     auto {}

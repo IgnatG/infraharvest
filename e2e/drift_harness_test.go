@@ -22,6 +22,7 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/cli"
+	"github.com/IgnatG/infraharvest/internal/driftpolicy"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -288,4 +289,163 @@ func stateValue(t *testing.T, state []*tfjson.StateResource, resourceType, name,
 	}
 	t.Fatalf("no %s of %s.%s", attribute, resourceType, name)
 	return ""
+}
+
+// loadDecisions reads the decisions file at path.
+func loadDecisions(t *testing.T, path string) *driftpolicy.Decisions {
+	t.Helper()
+	f, err := driftpolicy.LoadDecisions(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// decisionEntry returns the entry of the decisions file at path for a
+// change to attribute, failing the test unless there is one, decided as
+// decision.
+func decisionEntry(t *testing.T, path, attribute, decision string) driftpolicy.Entry {
+	t.Helper()
+	f := loadDecisions(t, path)
+	for _, e := range f.Changes {
+		if e.Attribute == attribute {
+			if e.Decision != decision || e.Fingerprint == "" {
+				t.Errorf("%s: the entry of %s %s is %s with fingerprint %q, want %s", path, e.Address, attribute, e.Decision, e.Fingerprint, decision)
+			}
+			return e
+		}
+	}
+	t.Fatalf("%s has no entry for %s: %+v", path, attribute, f.Changes)
+	return driftpolicy.Entry{}
+}
+
+// acceptDrift accepts the entries of the decisions file at path for
+// changes to attribute, as a person reviewing it does.
+func acceptDrift(t *testing.T, path, attribute string) {
+	t.Helper()
+	f := loadDecisions(t, path)
+	for i := range f.Changes {
+		if f.Changes[i].Attribute == attribute {
+			f.Changes[i].Decision = report.DriftAccept
+		}
+	}
+	if err := f.Save(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// sharedDrift describes what checkSharedDrift checks, on an applied root
+// whose resources share tags (or labels) and one of them also has a change
+// of its own: the key of the shared tags that changed in the cloud on every
+// resource that gets it from there, and a key that changed on one resource
+// of ownType alone.
+type sharedDrift struct {
+	// args select the root to check, such as --root=<path>, and are passed
+	// to each run.
+	args []string
+	// sharedAttribute is the shared key's attribute, such as
+	// tags.infraharvest-sandbox, which changed from sharedBefore to
+	// sharedAfter. sharedNew and sharedOld are regular expressions the
+	// code matches with the new value of the key in place of the old.
+	sharedAttribute, sharedBefore, sharedAfter string
+	sharedNew, sharedOld                       string
+	// ownType and ownAttribute are the resource's own change, from
+	// ownBefore to ownAfter, and ownNew is what the code matches once it is
+	// accepted.
+	ownType, ownAttribute, ownBefore, ownAfter string
+	ownNew                                     string
+}
+
+// checkSharedDrift runs infraharvest drift, as drift, on out, with the
+// root of p changed in the cloud as p says, and checks what it reports and
+// writes for the tags several resources share, which only the AWS tests
+// change everywhere else, with the decisions and the rules that decide
+// them:
+//
+//   - Report only: the shared key is one change of the place the code keeps
+//     the tags, covering every resource that gets the key from it, the
+//     resource's own change another; both are kept, exiting 4 with
+//     --detailed-exitcode, and the code isn't changed.
+//   - Rules: the last that matches a change decides it, in flags and in a
+//     --rules file, a type rule matching the shared change through the
+//     resources it covers, so that both are kept; then the own change
+//     alone is accepted and written into the code, the shared one kept.
+//   - The decisions file: --write-decisions writes the shared change's
+//     entry, undecided; set to accept, it is written, by its entry, into
+//     the place the code keeps the tags.
+//
+// It leaves both changes accepted in the code. The caller checks the code
+// then plans no change.
+func checkSharedDrift(t *testing.T, drift driftRun, p sharedDrift) {
+	t.Helper()
+	out := drift.out
+	with := func(more ...string) []string { return append(slices.Clone(p.args), more...) }
+	pattern := strings.SplitN(p.sharedAttribute, ".", 2)[0] + ".*"
+	both := func(what string, d report.Drift, decision, source, outcome string) {
+		t.Helper()
+		checkDriftChange(t, what, driftChange(t, what, d, "", p.sharedAttribute), p.sharedBefore, p.sharedAfter, decision, source, outcome)
+		checkDriftChange(t, what, driftChange(t, what, d, p.ownType, p.ownAttribute), p.ownBefore, p.ownAfter, decision, source, outcome)
+	}
+
+	// Report only.
+	code := codeFiles(t, out)
+	d := drift.mustExit(t, report.ExitDrift, with("--detailed-exitcode")...)
+	checkCodeUnchanged(t, "report only", code, out)
+	both("report only", d, report.DriftKeep, report.DriftDecidedByDefault, report.DriftKept)
+	shared := driftChange(t, "report only", d, "", p.sharedAttribute)
+	if !strings.HasPrefix(shared.Address, "local.") && !strings.HasPrefix(shared.Address, "provider.") {
+		t.Errorf("report only: the shared change is of %s, want the place the root keeps the tags", shared.Address)
+	}
+	owners := 0
+	for _, address := range shared.Covers {
+		if strings.Contains(address, p.ownType+".") {
+			owners++
+		}
+	}
+	if len(shared.Covers) < 2 || owners == 0 {
+		t.Errorf("report only: %s covers %v, want at least two resources, one of them of %s", shared.Address, shared.Covers, p.ownType)
+	}
+	for _, c := range d.Changes {
+		if c.Attribute == p.sharedAttribute && len(c.Covers) == 0 {
+			t.Errorf("report only: %s's key is a change of its own as well as of %s: %+v", c.Address, shared.Address, c)
+		}
+	}
+
+	// The last rule that matches a change decides it.
+	d = drift.mustExit(t, report.ExitOK, with("--accept", "attribute="+pattern, "--keep", "type="+p.ownType)...)
+	both("--accept then --keep", d, report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
+	checkCodeUnchanged(t, "--accept then --keep", code, out)
+	rules := filepath.Join(t.TempDir(), "drift.rules")
+	if err := os.WriteFile(rules, []byte("# every key, then the type of the resource\nattribute="+pattern+"\n\nkeep type="+p.ownType+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d = drift.mustExit(t, report.ExitOK, with("--rules", rules)...)
+	both("--rules", d, report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
+	checkCodeUnchanged(t, "--rules", code, out)
+	d = drift.mustExit(t, report.ExitOK, with("--keep", "all", "--accept", "attribute="+p.ownAttribute)...)
+	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, p.ownType, p.ownAttribute), p.ownBefore, p.ownAfter, report.DriftAccept, report.DriftDecidedByFlag, report.DriftWritten)
+	checkDriftChange(t, "--keep then --accept", driftChange(t, "--keep then --accept", d, "", p.sharedAttribute), p.sharedBefore, p.sharedAfter, report.DriftKeep, report.DriftDecidedByFlag, report.DriftKept)
+	if !codeMatches(t, out, p.ownNew) {
+		t.Errorf("--keep then --accept: the code doesn't match %s", p.ownNew)
+	}
+	if codeMatches(t, out, p.sharedNew) {
+		t.Errorf("--keep then --accept: the code has the shared key's new value, which was kept: %s", p.sharedNew)
+	}
+
+	// The decisions file.
+	decisions := filepath.Join(out, driftpolicy.DefaultDecisionsFile)
+	code = codeFiles(t, out)
+	drift.mustExit(t, report.ExitOK, with("--write-decisions")...)
+	checkCodeUnchanged(t, "--write-decisions", code, out)
+	decisionEntry(t, decisions, p.sharedAttribute, driftpolicy.Undecided)
+	acceptDrift(t, decisions, p.sharedAttribute)
+	d = drift.mustExit(t, report.ExitOK, with("--decisions", decisions)...)
+	decided := driftChange(t, "--decisions", d, "", p.sharedAttribute)
+	checkDriftChange(t, "--decisions", decided, p.sharedBefore, p.sharedAfter, report.DriftAccept, report.DriftDecidedByEntry, report.DriftWritten)
+	if decided.DecisionStale {
+		t.Errorf("--decisions: %s %s is decision_stale", decided.Address, decided.Attribute)
+	}
+	if !codeMatches(t, out, p.sharedNew) || codeMatches(t, out, p.sharedOld) {
+		t.Errorf("--decisions: the code doesn't match %s in place of %s", p.sharedNew, p.sharedOld)
+	}
 }
