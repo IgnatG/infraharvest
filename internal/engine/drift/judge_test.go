@@ -253,7 +253,7 @@ resource "aws_sqs_queue" "mail" {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := reasons(judgeDrift(nil, tc.diags, nil, pending, sources, nil, contents, tc.forms))
+			got := reasons(judgeDrift(judgeInput{diags: tc.diags, pending: pending, sources: sources, contents: contents, forms: tc.forms}))
 			for key, want := range tc.want {
 				if !strings.HasPrefix(got[key], want) {
 					t.Errorf("%s: %q, want %q", key, got[key], want)
