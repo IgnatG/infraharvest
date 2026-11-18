@@ -154,6 +154,10 @@ jobs:
     # the seed; -shuffle=<seed> repeats the order.
     - name: Test
       run: go test -shuffle=on -coverprofile=coverage.out ./...
+    # The schema metadata generator's parts that read no provider. Its files
+    # carry the ignore constraint, so go test ./... skips them: name them.
+    - name: Test the schema metadata generator
+      run: go test ./internal/catalogue/schemameta/gen/meta.go ./internal/catalogue/schemameta/gen/meta_test.go
     - name: Coverage
       if: ${{ !cancelled() && hashFiles('coverage.out') != '' }}
       env:
