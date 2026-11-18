@@ -192,7 +192,8 @@ jobs:
   # the drift rules and decisions the drift runs read. Two providers keep
   # most builds small; the CLI and the MCP server, whose tests take every
   # provider's command, build with all three in a run of their own, so that
-  # each command runs under it. The provider packages build on their own.
+  # each command runs under it. Every other package runs, as
+  # .github/scripts/race-packages.sh lists them.
   race:
     needs: changes
     if: github.event_name == 'push' || needs.changes.outputs.code == 'true'
@@ -218,14 +219,12 @@ jobs:
         name: race
     - name: Wait for free disk space
       run: .github/scripts/free-disk-space.sh wait
+    # Every package but the ones race-packages.sh leaves out, so that a new
+    # package runs under the race detector without being added to a list.
     - name: Race
-      run: >-
-        go test -race -tags minimal,aws,google
-        ./internal/config/... ./internal/importer/ ./internal/selection/ ./internal/report/ ./internal/fsutil/...
-        ./internal/discovery/... ./internal/ratelimit/... ./internal/engine/... ./internal/providers/...
-        ./internal/managed/... ./internal/driftpolicy/... ./internal/filelock/... ./internal/harvest/...
-        ./internal/export/... ./internal/catalogue/... ./internal/adapters/... ./internal/logging/...
-        ./internal/tfquery/...
+      run: |
+        mapfile -t packages < <(.github/scripts/race-packages.sh)
+        go test -race -tags minimal,aws,google "${packages[@]}"
     - name: Race, with every provider's command
       run: go test -race ./internal/cli/... ./internal/mcpserver/...
     - name: Save the Go cache
