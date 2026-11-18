@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/adapters"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // mapClusters builds each adapter's clusters in generated.tf, anchors in
@@ -22,7 +23,7 @@ import (
 // anchor it refers to, if that cluster has no member of its type yet or
 // the type may repeat. It returns the clusters the adapters mapped and the
 // ones they declined.
-func mapClusters(ws *workspace, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
+func mapClusters(ws *run.Workspace, list []adapters.Adapter, taken Names, values map[string]map[string]any) ([]*trial, []ModuleCall, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return nil, nil, err

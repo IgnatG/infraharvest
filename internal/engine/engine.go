@@ -18,16 +18,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 
-	"github.com/IgnatG/infraharvest/internal/adapters"
-	"github.com/IgnatG/infraharvest/internal/catalogue/schemameta"
-	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
@@ -37,250 +34,6 @@ import (
 // maxPlanRounds bounds how often Generate plans again after repairing the
 // configuration or leaving resources out.
 const maxPlanRounds = 3
-
-// Result is what Generate leaves for the user to finish.
-type Result struct {
-	// Imported are the resources the configuration imports, with the
-	// labels Generate gave them.
-	Imported []rootfile.Import
-	// Secrets are the variables to set before planning.
-	Secrets []secret.Variable
-	// Rejected are the resources left out of the configuration.
-	Rejected []Rejection
-	// Owned are the resources left out because their tags say another
-	// tool manages them (see OwnedBy).
-	Owned []OwnedResource `json:",omitempty"`
-	// Gone are the resources left out because their import found no
-	// object where Options.MayBeGone says the listing can lag behind the
-	// cloud: they were deleted since they were listed.
-	Gone []Rejection `json:",omitempty"`
-	// Gate is the result of the verification gate (see runGate).
-	Gate gate.Gate
-	// Warnings are about what the configuration holds that people should
-	// look at, such as a tag named after an AWS access key ID.
-	Warnings []string `json:",omitempty"`
-	// Modules are the module calls the configuration makes, and the
-	// clusters of resources Generate didn't move into one, with why.
-	Modules []ModuleCall
-	// Files are the files the configuration is in besides generated.tf,
-	// with Options.SplitFiles.
-	Files []string `json:",omitempty"`
-	// Addresses are where the root's import blocks import each resource,
-	// as Generate finally wrote them, module calls included, so that a
-	// later run can tell which resources it would give other addresses.
-	Addresses []Managed `json:",omitempty"`
-	// Moves are the moved blocks of moves.tf, for a root generated again
-	// whose resources have other addresses than before (see
-	// Options.Previous).
-	Moves []rootfile.Move `json:",omitempty"`
-	// Removed are the removed blocks of moves.tf, for a root generated
-	// again that hands resources over to other roots (see
-	// Previous.Removed), and Arrived the resources it imports that other
-	// roots hand over (see Options.Arrivals).
-	Removed []rootfile.Removal `json:",omitempty"`
-	Arrived []rootfile.Arrival `json:",omitempty"`
-	// Retyped are the resources of such a root that are of another type now,
-	// another name of the one they were, which its removed blocks forget
-	// at the addresses they had and its import blocks import again (see
-	// Retype).
-	Retyped []rootfile.Retype `json:",omitempty"`
-	// Unmoved are the resources of such a root at other addresses that no
-	// moved block can follow, with why; a checkpoint doesn't keep them.
-	Unmoved []string `json:"-"`
-	// NotInCloud are the resources of the root an incremental import added
-	// to that its listing found no longer in the cloud, for the README; a
-	// checkpoint doesn't keep them, as the next run looks again.
-	NotInCloud []rootfile.Import `json:"-"`
-	// UsedSnapshot says the root's later plans ran against a state snapshot
-	// (see Options.ImportOnce), which a caller may generate it again
-	// without (see NeedsFreshGeneration).
-	UsedSnapshot bool `json:"-"`
-	// Plans count the plans Generate ran for the root, by step (see the
-	// step constants), and the plan files it showed: each plan imports
-	// every resource of the root again.
-	Plans []tfrun.StepPlans `json:",omitempty"`
-}
-
-// Options configure Generate.
-type Options struct {
-	// Config are files to write besides imports.tf, such as versions.tf and
-	// providers.tf, by name.
-	Config map[string][]byte
-	// Omit names, per resource type, arguments to leave out of the generated
-	// configuration because another imported resource manages them, such as
-	// an S3 bucket's versioning. They must be computed, so that leaving them
-	// out changes no plan.
-	Omit map[string][]string
-	// Defaults names, per resource type, the values the provider or the
-	// cloud gives arguments it isn't told, as path=value, such as a
-	// bucket's storage_class=STANDARD: Generate leaves out the arguments
-	// set to them where the plan stays the same (see stripDefaults).
-	Defaults map[string][]string
-	// SchemaMetadata, if set, is what the provider's code says of its
-	// resource types' arguments (see schemameta): Generate leaves out the
-	// arguments set to their defaults and settles conflicting arguments
-	// without a plan or a validation to tell it, where it is of the release
-	// the root uses, and only tries more defaults where it isn't (see
-	// schemaHints). The verification gate checks the result either way.
-	SchemaMetadata *schemameta.File
-	// DefaultTags, if set, lets Generate move the tags every resource shares
-	// into local.tags, applied through the provider (see applyTagLift).
-	DefaultTags *DefaultTags
-	// EffectiveTags, if set, lets Generate write each resource's tags,
-	// which an import leaves out of the provider's tags attribute, from
-	// the attribute that has them all (see fillEffectiveTags).
-	EffectiveTags *EffectiveTags
-	// Traits are what the provider's resources and the values that
-	// identify them are like, which references, owners and lifted
-	// literals go by (see Traits).
-	Traits Traits
-	// Inherited names arguments of the provider block that resources take
-	// as theirs when they don't set them, such as Google's project and
-	// region: Generate leaves them out of the resources that repeat the
-	// provider's value (see omitInherited).
-	Inherited []string
-	// StateOnly names, per resource type, arguments the provider keeps only
-	// in state, which import can't set and the plan check (see runGate)
-	// lets change.
-	StateOnly map[string][]string
-	// KeepEmpty names, per resource type, optional arguments whose empty
-	// value ("", [] or {}) is a setting of its own, which Generate keeps
-	// where they are set empty (see stripDefaults).
-	KeepEmpty map[string][]string
-	// Placeholders, per resource type, set what Terraform can't read back,
-	// such as where a function's code comes from (see setPlaceholders).
-	Placeholders map[string]Placeholder
-	// Lifecycles, per resource type, are lifecycle settings every resource
-	// of the type gets, such as create_before_destroy (see setLifecycles).
-	Lifecycles map[string]Lifecycle
-	// SplitFiles moves the configuration out of generated.tf, once it is
-	// done, into the files the imports name (see Import.File).
-	SplitFiles bool
-	// ModulesDir, if set, is where Generate puts local modules for clusters
-	// of resources that repeat with the same shape (see modularize).
-	ModulesDir string
-	// Modules counts the roots that call each module of ModulesDir (see
-	// ModuleRefs): roots that share ModulesDir, such as those of one
-	// import, share it, so that one's undo leaves the modules the others
-	// call. nil gives the run one of its own.
-	Modules *ModuleRefs `json:"-"`
-	// Adapters map clusters of resources onto calls of curated modules,
-	// tried before generated local modules (see synthesize).
-	Adapters []adapters.Adapter
-	// ModuleProviders configures, by local name, the providers modules may
-	// use besides the root's, such as google-beta, or google for a root of
-	// google-beta: a call whose adapter names one (see
-	// adapters.Adapter.Providers) gets its provider block and source,
-	// consistent with the root's provider, with its default tags where
-	// the root's types are named after it (see shareDefaultTags). So does
-	// a root that imports resources whose type one of them implies, such
-	// as azapi_resource (see resourceProviders).
-	ModuleProviders map[string]rootfile.Provider
-	// External are resources the import listed but doesn't manage, which
-	// the configuration may refer to through the data sources in
-	// DataSources, by resource type (see addDataSourcesSkipping).
-	External    []External
-	DataSources map[string]DataSource
-	// OtherRoots are the resources the import's other roots manage: what
-	// no data source reads of them, the configuration refers to through
-	// variables (see addRootVariables). ARNs say, by resource type, how the
-	// ARNs of types whose IDs aren't ARNs name their resources.
-	OtherRoots []RootResource
-	ARNs       map[string]ARN
-	// Scope, if set, is the root's own account (or subscription, or
-	// project) and region: the literals that hold them read them from
-	// locals of data sources instead, as a root environments share does
-	// (see liftScope). Nil leaves them literal.
-	Scope *ScopeLocals
-	// Scanners run in the verification gate (see runScanners), each in one
-	// of ScannerSlots: roots checked at the same time, such as those of one
-	// import, share them, so that the scanners of all of them together
-	// don't outnumber the CPUs. nil gives the run slots of its own.
-	Scanners     []gate.Scanner
-	ScannerSlots *gate.ScannerSlots `json:"-"`
-	// IncludeOwned keeps the resources whose tags say another tool
-	// manages them, which Generate leaves out otherwise (see OwnedBy).
-	IncludeOwned bool
-	// KeepOwned are resources, as "<type> <import ID>", to keep although
-	// their tags say another tool manages them, such as those a selection
-	// file includes.
-	KeepOwned map[string]bool
-	// MayBeGone are resources, as "<type> <import ID>", listed from an
-	// index that can go on listing a resource after it is deleted, such as
-	// Azure Resource Graph, by the ID the cloud itself reads them by: one
-	// whose import finds no object is gone, not wrongly identified, and
-	// goes in Result.Gone rather than rejected.hcl.
-	MayBeGone map[string]bool
-	// TidyLabels has Generate label resources the way a person names those
-	// of one root (see tidyLabels): without the words of their type, without
-	// a prefix most of their names share, and main for the only resource of
-	// a type. Without it, labels are the names as Label writes them.
-	TidyLabels bool
-	// Previous, if set, is what an earlier import generated in the root,
-	// which Generate generates again: each resource keeps its label while
-	// its name still gives it (see relabelled), and Generate writes a
-	// moved block into moves.tf for each that gets another address (see
-	// moves).
-	Previous *Previous
-	// Arrivals are the resources the root imports that other roots of the
-	// output hand over (see Removal), for its README.
-	Arrivals []rootfile.Arrival
-	// CommandTimeout bounds each Terraform command Generate, Add and
-	// Verify run, such as a plan whose provider retries an unreachable
-	// endpoint: a command still running then is stopped, and fails the
-	// root. 0 means no limit.
-	CommandTimeout time.Duration
-	// Refine, if set, edits the root once Generate has written every file and
-	// the resources' addresses are final, and before the gate, which then
-	// checks what it changed as it checks the rest: an edit that changed a
-	// plan fails the plan check. It is given the root's directory, what
-	// the root imports and where (see ImportedAddresses), and the providers'
-	// schemas, and returns warnings for the result. The importer uses it to
-	// carry a CloudFormation stack's template into the root (AWS
-	// --cfn-stack).
-	Refine func(ctx context.Context, dir string, addresses []Managed, schemas *tfjson.ProviderSchemas) ([]string, error) `json:"-"`
-	// ImportOnce, if set, has Generate import the root's resources once
-	// into a private state snapshot, which its later plans read (see
-	// ImportOnce). The importer sets it unless INFRAHARVEST_IMPORT_ONCE
-	// switches it off: the output is the same with and without it.
-	ImportOnce *ImportOnce `json:"-"`
-	// RefineKey identifies what Refine carries into the root, such as the
-	// templates and parameter values of its stacks, for the fingerprint
-	// --resume compares: a root whose Refine input changed is generated
-	// again.
-	RefineKey string `json:"-"`
-}
-
-// run is one run of the pipeline, Generate's, of a root of its own (see
-// generating), or Add's, of resources to add to a root an earlier import
-// generated (see adding): the Options it runs with, which for Add's
-// differ from the caller's, and what it finds on the way, which the
-// passes receive with it. The passes and the gate of the directory the
-// run generates in read its Options; Add checks the root it adds to with
-// the caller's own (see Add).
-type run struct {
-	opts Options
-	// taken are names the run leaves alone, such as those of the root an
-	// add adds to.
-	taken Names
-	// secrets gives the run's own plans the values of the secrets it found
-	// in the configuration (see secret.LiteralsToVariables), once it found
-	// any.
-	secrets *secret.Values
-	// modules counts the users of the generated modules the run takes up
-	// (see Options.Modules).
-	modules *ModuleRefs
-}
-
-// generating is Generate's run with opts: a root of its own, with the
-// settings opts gives.
-func generating(opts Options) *run {
-	modules := opts.Modules
-	if modules == nil {
-		modules = &ModuleRefs{}
-	}
-	return &run{opts: opts, modules: modules}
-}
 
 // The steps of generate that Result.Plans counts plans by.
 const (
@@ -322,7 +75,7 @@ const (
 // Generate fails if Terraform can't plan the directory at all. It refuses
 // to overwrite an existing generated.tf or imports.tf.
 func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, opts Options) (*Result, error) {
-	return generate(ctx, tf, dir, imports, generating(opts))
+	return generate(ctx, tf, dir, imports, run.Generating(opts))
 }
 
 // generate is Generate's pipeline, run with r's options. It runs in
@@ -333,7 +86,7 @@ func Generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 // import (leaveOut), makes the secret attributes read from variables
 // (secretVariables), tidies the configuration (tidy, finish) and gates it
 // (gate). Last, it writes the README.
-func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run) (result *Result, err error) {
+func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []rootfile.Import, r *run.Run) (result *Result, err error) {
 	if len(imports) == 0 {
 		return nil, errors.New("no resources to import")
 	}
@@ -357,12 +110,12 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 		return nil, err
 	}
 	defer removeEmptyState()
-	timed := tfrun.WithTimeout(tf, r.opts.CommandTimeout)
+	timed := tfrun.WithTimeout(tf, r.Opts.CommandTimeout)
 	plain := timed
 	// With Options.ImportOnce the plans after leaveOut run against a state
 	// snapshot (see buildSnapshot), until the gate, which plans as the user
 	// will.
-	cache := cachedRunner(timed, raw, dir, r.opts)
+	cache := cachedRunner(timed, raw, dir, r.Opts)
 	if cache != nil {
 		plain = cache
 	}
@@ -384,9 +137,9 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 		cache:     cache,
 		dir:       dir,
 		generated: generated,
-		imports:   relabelled(imports, r.taken, r.opts.TidyLabels, r.opts.Previous),
+		imports:   relabelled(imports, r.Taken, r.Opts.TidyLabels, r.Opts.Previous),
 		r:         r,
-		opts:      r.opts,
+		opts:      r.Opts,
 		result:    &Result{},
 		leftOut:   map[string]bool{},
 	}
@@ -405,7 +158,7 @@ func generate(ctx context.Context, tf tfrun.Terraform, dir string, imports []roo
 	}
 	// The values of the secrets hideSecrets moves, which the run's plans
 	// read, go with the run.
-	defer func() { r.secrets.Remove() }()
+	defer func() { r.Secrets.Remove() }()
 	if err := g.hideSecrets(); err != nil {
 		return nil, err
 	}
@@ -465,7 +218,7 @@ type generation struct {
 	// generated is the path of generated.tf.
 	generated string
 	imports   []rootfile.Import
-	r         *run
+	r         *run.Run
 	opts      Options
 	// literal are the secrets found in the configuration Terraform
 	// generated (see hideSecrets).
@@ -507,7 +260,7 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	if restoreAccess, err = fsutil.MakePrivate(dir); err != nil {
 		return nil, err
 	}
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -528,7 +281,7 @@ func (g *generation) write(ctx context.Context) (restoreAccess func() error, err
 	if err := requireProviders(ws, others, opts.ModuleProviders); err != nil {
 		return nil, err
 	}
-	if err := tfrun.Init(ctx, ws.terraform(g.tf)); err != nil {
+	if err := tfrun.Init(ctx, ws.Terraform(g.tf)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
 	if len(others) > 0 {
@@ -571,7 +324,7 @@ func (g *generation) planGenerated(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	reasons, err := g.annotate(func(*workspace) []annotation { return generatedAnnotations(g.imports, g.opts, hints) })
+	reasons, err := g.annotate(func(*run.Workspace) []annotation { return generatedAnnotations(g.imports, g.opts, hints) })
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +360,7 @@ func (g *generation) leaveGone() (bool, error) {
 // Generate's own plans read their values from outside the output (see
 // secret.Values), which the run's secrets hold once there are any.
 func (g *generation) hideSecrets() error {
-	literal, warnings, err := secret.LiteralsToVariables(g.generated, g.r.taken)
+	literal, warnings, err := secret.LiteralsToVariables(g.generated, g.r.Taken)
 	if err != nil {
 		return err
 	}
@@ -616,10 +369,10 @@ func (g *generation) hideSecrets() error {
 		return nil
 	}
 	g.redacting.Hide(literal)
-	if g.r.secrets, err = secret.NewValues(); err != nil {
+	if g.r.Secrets, err = secret.NewValues(); err != nil {
 		return err
 	}
-	if err := g.r.secrets.Write(literal); err != nil {
+	if err := g.r.Secrets.Write(literal); err != nil {
 		return err
 	}
 	return writeVariables(g.dir, literal, nil)
@@ -628,7 +381,7 @@ func (g *generation) hideSecrets() error {
 // replan plans the root again, for its errors and, if it has none, its
 // plan (see generation.last).
 func (g *generation) replan(ctx context.Context) error {
-	shown, summary, ds, err := tfrun.ShowPlan(ctx, g.tf, g.r.secrets.Options())
+	shown, summary, ds, err := tfrun.ShowPlan(ctx, g.tf, g.r.Secrets.Options())
 	if err != nil {
 		return err
 	}
@@ -764,11 +517,11 @@ func (g *generation) secretVariables(ctx context.Context) error {
 		}
 	}
 	var err error
-	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.taken, kept, &g.result.Rejected, &g.rejected, importedPlan(g.r.secrets.Options())); err != nil {
+	if g.result.Secrets, err = useVariables(ctx, g.tf, g.dir, g.r.Taken, kept, &g.result.Rejected, &g.rejected, importedPlan(g.r.Secrets.Options())); err != nil {
 		return err
 	}
 	// The secrets read from variables now: they plan with placeholders.
-	vars := append(secret.Placeholders(g.result.Secrets), g.r.secrets.Options()...)
+	vars := append(secret.Placeholders(g.result.Secrets), g.r.Secrets.Options()...)
 	var public bool
 	if g.result.Secrets, public, err = secret.PublicToLiterals(filepath.Join(g.dir, rootfile.GeneratedFileName), g.result.Secrets, importedPlan(vars)); err != nil {
 		return err
@@ -778,9 +531,9 @@ func (g *generation) secretVariables(ctx context.Context) error {
 			return err
 		}
 	}
-	if g.r.secrets != nil {
+	if g.r.Secrets != nil {
 		// Only the variables still declared: Terraform warns about others.
-		if err := g.r.secrets.Write(g.result.Secrets); err != nil {
+		if err := g.r.Secrets.Write(g.result.Secrets); err != nil {
 			return err
 		}
 	}
@@ -817,7 +570,7 @@ func (g *generation) tidy(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := g.annotate(func(ws *workspace) []annotation { return referencedAnnotations(ws, g.opts, g.r.taken) }); err != nil {
+	if _, err := g.annotate(func(ws *run.Workspace) []annotation { return referencedAnnotations(ws, g.opts, g.r.Taken) }); err != nil {
 		return err
 	}
 	moved, err := movedAddresses(g.dir, before)
@@ -904,7 +657,7 @@ func (g *generation) gate(ctx context.Context) error {
 	// The gate checks the modules the run may call, which for Add's are
 	// fewer than the caller's (see adding).
 	g.counting.Step(stepGate)
-	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.secrets, unrefined, warned)
+	return gateRefined(ctx, g.tf, g.dir, g.result, g.opts, g.r.Secrets, unrefined, warned)
 }
 
 // unresolved returns the errors in diags by resource, leaving out errors

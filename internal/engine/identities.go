@@ -330,7 +330,7 @@ func (x *identities) whole(address, argument, value string, preferred map[string
 	switch {
 	case len(named) > 0:
 		return choose(named, func(identity) bool { return true })
-	case takesIDs(argument) && x.traits.distinctive(value):
+	case takesIDs(argument) && x.traits.Distinctive(value):
 		return choose(candidates, func(id identity) bool { return !id.named })
 	case strings.ContainsAny(value, "./"):
 		return choose(candidates, func(id identity) bool { return dnsAttribute(id.attribute) || id.attribute == "arn_suffix" })
@@ -376,7 +376,7 @@ func (x *identities) embedded(address, value string) (replacement, bool) {
 				continue
 			}
 			sub := value[start:end]
-			if !x.traits.distinctive(sub) {
+			if !x.traits.Distinctive(sub) {
 				continue
 			}
 			ref, ok := x.embeddable(address, sub)
@@ -505,16 +505,6 @@ func dnsAttribute(attribute string) bool {
 // idAttribute reports whether attribute holds an ID or ARN.
 func idAttribute(attribute string) bool {
 	return attribute == "id" || attribute == "arn" || takesIDs(attribute)
-}
-
-// distinctive reports whether value identifies a resource on its own
-// (see Traits.referenceable), or looks like a generated ID: six characters or
-// more, letters and digits, no spaces.
-func (t Traits) distinctive(value string) bool {
-	if t.referenceable(value) {
-		return true
-	}
-	return len(value) >= 6 && strings.ContainsFunc(value, unicode.IsLetter) && strings.ContainsFunc(value, unicode.IsDigit) && !strings.ContainsFunc(value, unicode.IsSpace)
 }
 
 // effectiveArgument names the argument a literal is in: name, or, for the

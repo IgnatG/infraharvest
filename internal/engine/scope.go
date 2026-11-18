@@ -13,40 +13,12 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
-
-// ScopeLocals is what a root reads of its own account (or subscription,
-// or project) and of its own region, as a root environments share reads
-// them (see envmerge.MergeProfile): the literals that hold them become
-// references to locals of data sources (see liftScope). A part without
-// an ID stays literal, such as the region of a root of global services,
-// whose provider is in a region that isn't the root's.
-type ScopeLocals struct {
-	Account, Region ScopeValue
-}
-
-// ScopeValue is one ID a root's literals hold: ID is the value, such as
-// 123456789012 or eu-west-2, "" for none; Data the data source that reads
-// it, such as aws_caller_identity.current; Local the local that holds it,
-// such as aws_account_id; and Expr the expression that reads it, such as
-// data.aws_caller_identity.current.account_id.
-type ScopeValue struct {
-	ID, Data, Local, Expr string
-	// Provider is the local name of the provider that reads Data, when it
-	// isn't the one its type implies: google-beta for the
-	// google_client_config of a root of google-beta, which requires no
-	// google. "" otherwise.
-	Provider string `json:",omitempty"`
-}
-
-// set reports whether v has an ID and says how to read it.
-func (v ScopeValue) set() bool {
-	return v.ID != "" && v.Data != "" && v.Local != "" && v.Expr != ""
-}
 
 // scopeAnnotation is the annotation that makes generated.tf read the
 // root's own account and region from locals (see liftScope).
-func scopeAnnotation(ws *workspace, s *ScopeLocals, taken Names, keep map[string]bool) annotation {
+func scopeAnnotation(ws *run.Workspace, s *ScopeLocals, taken Names, keep map[string]bool) annotation {
 	return annotation{name: "scope read from data sources", edit: func(f *hclfile.File) (bool, error) {
 		return liftScope(ws, f, s, taken, keep)
 	}}
@@ -67,7 +39,7 @@ func scopeAnnotation(ws *workspace, s *ScopeLocals, taken Names, keep map[string
 // do the import blocks, variables and data sources. A part whose local or data source the root, or taken,
 // has for something else stays literal too. It reports whether it
 // changed generated.
-func liftScope(ws *workspace, generated *hclfile.File, s *ScopeLocals, taken Names, keep map[string]bool) (bool, error) {
+func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken Names, keep map[string]bool) (bool, error) {
 	if s == nil {
 		return false, nil
 	}
@@ -82,7 +54,7 @@ func liftScope(ws *workspace, generated *hclfile.File, s *ScopeLocals, taken Nam
 	var values []ScopeValue
 	own := map[string]bool{}
 	for _, v := range []ScopeValue{s.Account, s.Region} {
-		if v.set() && scopeLocalFree(v, locals, data, taken) {
+		if v.Set() && scopeLocalFree(v, locals, data, taken) {
 			values = append(values, v)
 			own[v.Local] = true
 		}
@@ -137,7 +109,7 @@ func liftScope(ws *workspace, generated *hclfile.File, s *ScopeLocals, taken Nam
 		return false, err
 	}
 	if locals == nil {
-		locals = hclfile.New(ws.path(rootfile.LocalsFileName))
+		locals = hclfile.New(ws.Path(rootfile.LocalsFileName))
 	}
 	var body *hclwrite.Body
 	for _, b := range locals.Edit().Body().Blocks() {

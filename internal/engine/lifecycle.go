@@ -13,16 +13,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
-// Lifecycle is what every resource of a type gets in its lifecycle block,
-// such as create_before_destroy for an API Gateway deployment, which a
-// stage refers to: Reason goes in a comment above it. Lifecycle settings
-// change how Terraform replaces a resource, never what the plan of an
-// import shows.
-type Lifecycle struct {
-	CreateBeforeDestroy bool
-	Reason              string
-}
-
 // setLifecycles adds to the resources of f the lifecycle settings
 // lifecycles has for their type, and reports whether it changed anything.
 // A resource that already sets one keeps its own.

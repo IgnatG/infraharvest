@@ -18,6 +18,7 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
@@ -334,7 +335,7 @@ func TestSnapshotOfRootWithWithheldSecret(t *testing.T) {
 		built = &stateFake{fakeTerraform: fake}
 		return built, nil
 	}}}
-	g := &generation{dir: dir, opts: opts, r: generating(opts), counting: &tfrun.Counting{}}
+	g := &generation{dir: dir, opts: opts, r: run.Generating(opts), counting: &tfrun.Counting{}}
 
 	snapshot, err := g.snapshotOf(context.Background(), nil)
 	if err != nil {

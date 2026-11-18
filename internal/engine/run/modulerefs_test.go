@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package run
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ func TestModuleRefsRelease(t *testing.T) {
 	write := func(at string) error { return os.WriteFile(filepath.Join(at, "main.tf"), nil, 0o644) }
 	var refs ModuleRefs
 	for _, hold := range []struct{ root, module string }{{root, "only"}, {root, "shared"}, {other, "shared"}} {
-		if _, err := refs.hold(hold.root, filepath.Join(modules, hold.module), write); err != nil {
+		if _, err := refs.Hold(hold.root, filepath.Join(modules, hold.module), write); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -49,10 +49,10 @@ func TestModuleRefsOfTwoImports(t *testing.T) {
 	write := func(at string) error { return os.WriteFile(filepath.Join(at, "main.tf"), nil, 0o644) }
 	a, b := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
 	var first, second ModuleRefs
-	if wrote, err := first.hold(a, path, write); err != nil || !wrote {
+	if wrote, err := first.Hold(a, path, write); err != nil || !wrote {
 		t.Fatalf("first: wrote %v, %v", wrote, err)
 	}
-	if wrote, err := second.hold(b, path, write); err != nil || wrote {
+	if wrote, err := second.Hold(b, path, write); err != nil || wrote {
 		t.Fatalf("second: wrote %v, %v; want the module found", wrote, err)
 	}
 	if err := second.Release(a); err != nil || !exists(path) {
@@ -83,13 +83,13 @@ func TestModuleRefsWriteOutsideTheLock(t *testing.T) {
 	}
 	held := make(chan error, 1)
 	go func() {
-		_, err := refs.hold("a", filepath.Join(modules, "slow"), slow)
+		_, err := refs.Hold("a", filepath.Join(modules, "slow"), slow)
 		held <- err
 	}()
 	<-writing
 	done := make(chan error, 1)
 	go func() {
-		_, err := refs.hold("b", filepath.Join(modules, "fast"), func(string) error { return nil })
+		_, err := refs.Hold("b", filepath.Join(modules, "fast"), func(string) error { return nil })
 		done <- err
 	}()
 	select {
@@ -150,7 +150,7 @@ func TestModuleRefsConcurrently(t *testing.T) {
 	}
 	at(all, func(root string) error {
 		for _, path := range paths {
-			if _, err := refs.hold(root, path, write); err != nil {
+			if _, err := refs.Hold(root, path, write); err != nil {
 				return err
 			}
 			if !exists(filepath.Join(path, "main.tf")) {

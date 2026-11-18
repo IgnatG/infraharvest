@@ -15,6 +15,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/catalogue"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // moduleTarget is a type whose resources module calls name by an
@@ -36,7 +37,7 @@ type moduleTarget struct {
 // omitInherited). Only those arguments count: another argument with the
 // same value, such as a bucket's name, isn't the project. It reports
 // whether it changed generated.tf.
-func referModulesToResources(ws *workspace) (bool, error) {
+func referModulesToResources(ws *run.Workspace) (bool, error) {
 	generated, err := ws.Load(rootfile.GeneratedFileName)
 	if err != nil {
 		return false, err

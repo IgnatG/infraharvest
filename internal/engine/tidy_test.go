@@ -16,13 +16,14 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 )
 
 // tidier returns a driver of the root of ws for a test, comparing with
 // baseline.
-func tidier(tf tfrun.Terraform, ws *workspace, baseline Baseline) *tidying {
-	return &tidying{ctx: context.Background(), tf: ws.terraform(tf), ws: ws, r: generating(Options{}), baseline: baseline}
+func tidier(tf tfrun.Terraform, ws *run.Workspace, baseline Baseline) *tidying {
+	return &tidying{ctx: context.Background(), tf: ws.Terraform(tf), ws: ws, r: run.Generating(Options{}), baseline: baseline}
 }
 
 // declared returns postProcess's pass called name, as the driver would run
@@ -59,7 +60,7 @@ func settleEdit(t *testing.T, d *tidying, name string, e *tidyEdit) (bool, error
 // whose baseline is the plan the pass settled on. The files are in dir as it
 // left them.
 func settleDefaults(tf tfrun.Terraform, dir string, changes map[string]string, rules defaultRules) (bool, *tidying, error) {
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return false, nil, err
 	}
@@ -80,12 +81,12 @@ func settleDefaults(tf tfrun.Terraform, dir string, changes map[string]string, r
 // returns the clusters it declined, the baseline it rebased on, and the list
 // lengths of its calls. The files are in dir as it left them.
 func synthesizeRoot(tf tfrun.Terraform, dir string, opts Options, baseline Baseline) ([]ModuleCall, Baseline, map[string]int, error) {
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return nil, Baseline{}, nil, err
 	}
 	d := tidier(tf, ws, baseline)
-	d.r = generating(opts)
+	d.r = run.Generating(opts)
 	e, err := d.synthesize()
 	if err == nil && e != nil {
 		var p tidyPass
@@ -119,7 +120,7 @@ func TestSettleRestoresWhenTheEditFails(t *testing.T) {
 	if got := wsFile(t, ws, rootfile.GeneratedFileName); got != networkGenerated {
 		t.Errorf("generated.tf not restored:\n%s", got)
 	}
-	if _, ok := ws.files[rootfile.LocalsFileName]; ok {
+	if ws.Has(rootfile.LocalsFileName) {
 		t.Error("locals.tf not removed")
 	}
 	if len(tf.calls) != 0 {
@@ -206,7 +207,7 @@ func TestSettleTriesTheOtherEditWhereThePlanRejects(t *testing.T) {
 // resourceNames is a resource edit that appends a comment to generated.tf
 // for each address it is given, but those skip has at a higher level than
 // 0, and reports them.
-func resourceNames(ws *workspace, addresses ...string) *tidyEdit {
+func resourceNames(ws *run.Workspace, addresses ...string) *tidyEdit {
 	return &tidyEdit{edit: resourceEdit(func(skip map[string]int) (map[string]bool, error) {
 		edited := map[string]bool{}
 		for _, a := range addresses {
@@ -357,7 +358,7 @@ func TestSettleRebasesOnWhatItSettledOn(t *testing.T) {
 	t.Parallel()
 	moved := resourceChange("module.a.aws_subnet.this", tfjson.Actions{tfjson.ActionNoop}, nil, nil)
 	accepted := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{moved}}
-	acceptsOwnPlan := func(ws *workspace) *tidyEdit {
+	acceptsOwnPlan := func(ws *run.Workspace) *tidyEdit {
 		e := commentEdit(ws, "edit")
 		e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) {
 			return tidyDecision{outcome: tidyAccept, plan: &shownPlan{accepted, &tfrun.ChangeSummary{Import: 7}}}, nil
@@ -366,20 +367,20 @@ func TestSettleRebasesOnWhatItSettledOn(t *testing.T) {
 	}
 	for name, tt := range map[string]struct {
 		rebases bool
-		edit    func(ws *workspace) *tidyEdit
+		edit    func(ws *run.Workspace) *tidyEdit
 		address string // what the baseline has afterwards
 		imports int
 		calls   string
 	}{
 		"onto the plan it accepted": {true, acceptsOwnPlan, "module.a.aws_subnet.this", 7, "plan,show"},
 		"not at all":                {false, acceptsOwnPlan, "aws_subnet.a", 0, "plan,show"},
-		"onto a new plan, with none": {true, func(ws *workspace) *tidyEdit {
+		"onto a new plan, with none": {true, func(ws *run.Workspace) *tidyEdit {
 			e := commentEdit(ws, "x")
 			e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) { return tidyDecision{outcome: tidyFallBack}, nil }
 			e.unplanned = func(*tidyAttempt) (bool, error) { return true, nil }
 			return e
 		}, "aws_subnet.a", 0, "plan,show,plan,show"},
-		"onto the plan it was shown": {true, func(ws *workspace) *tidyEdit {
+		"onto the plan it was shown": {true, func(ws *run.Workspace) *tidyEdit {
 			e := commentEdit(ws, "x")
 			e.review = func(*tidyAttempt, tidyReview) (tidyDecision, error) { return tidyDecision{outcome: tidyAccept}, nil }
 			return e
@@ -582,7 +583,7 @@ func TestRunChecksThePassesBeforeOneThatPlansAlone(t *testing.T) {
 // names, each of which is one of postProcess's.
 func TestPassesRunAfterTheirPrerequisites(t *testing.T) {
 	t.Parallel()
-	passes := (&tidying{r: generating(Options{})}).passes(context.Background())
+	passes := (&tidying{r: run.Generating(Options{})}).passes(context.Background())
 
 	ordered, err := orderPasses(passes)
 	if err != nil {
@@ -610,7 +611,7 @@ func TestPassesRunAfterTheirPrerequisites(t *testing.T) {
 func TestPassesThatChangeThePlanPlanAlone(t *testing.T) {
 	t.Parallel()
 	alone := map[string]bool{passEffectiveTags: true, passDefaults: true, passCuratedModules: true, passLocalModules: true}
-	for _, p := range (&tidying{r: generating(Options{})}).passes(context.Background()) {
+	for _, p := range (&tidying{r: run.Generating(Options{})}).passes(context.Background()) {
 		if p.alone != alone[p.name] {
 			t.Errorf("%s: alone=%v, want %v", p.name, p.alone, alone[p.name])
 		}
@@ -719,7 +720,7 @@ func rejectingPlans(tf *fakeTerraform, dir string) {
 
 // commentPasses are passes that each append a comment to generated.tf, the
 // first of them the baseline's, and record the order their edits were made in.
-func commentPasses(ws *workspace, made *[]string, comments ...string) []tidyPass {
+func commentPasses(ws *run.Workspace, made *[]string, comments ...string) []tidyPass {
 	var passes []tidyPass
 	for _, c := range comments {
 		passes = append(passes, tidyPass{name: c, start: func() (*tidyEdit, error) {

@@ -13,20 +13,9 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
-
-// Managed is a resource a root imports: its type and import ID, and its
-// address in the root, such as module.logs.aws_s3_bucket.this[0].
-type Managed struct {
-	Type, ID string
-	Address  string
-	// Unverified, if set, says Address was inferred from what an older
-	// checkpoint recorded rather than read from the root's import blocks:
-	// for a resource moved into a module call, it is then the call alone,
-	// such as module.logs.
-	Unverified bool `json:",omitempty"`
-}
 
 // ImportedAddresses returns what the import blocks of dir import, and
 // where, sorted by type and import ID; none if dir has no imports.tf.
@@ -49,7 +38,7 @@ func managedOf(targets map[string]string) []Managed {
 		typ, id, _ := strings.Cut(key, "\x00")
 		managed = append(managed, Managed{Type: typ, ID: id, Address: address})
 	}
-	sortManaged(managed)
+	run.SortManaged(managed)
 	return managed
 }
 
@@ -62,17 +51,8 @@ func MergedManaged(ids map[string]string) []Managed {
 	for address, id := range ids {
 		managed = append(managed, Managed{Type: AddressType(address), ID: id, Address: address})
 	}
-	sortManaged(managed)
+	run.SortManaged(managed)
 	return managed
-}
-
-func sortManaged(managed []Managed) {
-	sort.Slice(managed, func(i, j int) bool {
-		if managed[i].Type != managed[j].Type {
-			return managed[i].Type < managed[j].Type
-		}
-		return managed[i].ID < managed[j].ID
-	})
 }
 
 // InferredAddresses returns the addresses of what result imports, for a
@@ -101,7 +81,7 @@ func InferredAddresses(result *Result) []Managed {
 		}
 		managed = append(managed, m)
 	}
-	sortManaged(managed)
+	run.SortManaged(managed)
 	return managed
 }
 

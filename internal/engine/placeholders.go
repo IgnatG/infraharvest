@@ -17,18 +17,6 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 )
 
-// Placeholder is for configuration Terraform can't read back from the
-// cloud, such as where a Lambda function's code comes from: when a
-// resource sets none of OneOf, setPlaceholders sets the arguments in Set
-// and makes Terraform ignore changes to Ignore, so the plan keeps what is
-// deployed. Reason goes in a comment above ignore_changes.
-type Placeholder struct {
-	OneOf  []string
-	Set    map[string]string
-	Ignore []string
-	Reason string
-}
-
 // placeholderField is an {argument} in a Placeholder value.
 var placeholderField = regexp.MustCompile(`\{([a-z0-9_]+)\}`)
 

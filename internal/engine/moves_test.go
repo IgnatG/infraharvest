@@ -488,8 +488,8 @@ func TestRelabelledKeepsTheLabelOfAResourceInAModuleCall(t *testing.T) {
 			t.Errorf("tidy %v: got %v, want %v", tidy, labels, want)
 		}
 	}
-	if _, ok := previous.labels()[External{Type: "aws_s3_bucket", ID: "b3"}]; ok {
-		t.Errorf("a call recorded alone has a label: %v", previous.labels())
+	if _, ok := previous.LabelsByKey()[External{Type: "aws_s3_bucket", ID: "b3"}]; ok {
+		t.Errorf("a call recorded alone has a label: %v", previous.LabelsByKey())
 	}
 }
 

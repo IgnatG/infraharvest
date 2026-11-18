@@ -6,6 +6,7 @@ package engine
 import (
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 // annotation is an edit of generated.tf that adds to or trims what
@@ -27,7 +28,7 @@ type annotation struct {
 // generated.tf in ws, each on the file as the ones before it left it, and
 // returns why the root then plans again: the names of those that changed
 // it and need a replan, none if it needs no plan.
-func annotate(ws *workspace, annotations []annotation) ([]string, error) {
+func annotate(ws *run.Workspace, annotations []annotation) ([]string, error) {
 	var replan []string
 	var f *hclfile.File
 	for _, a := range annotations {
@@ -95,7 +96,7 @@ func generatedAnnotations(imports []rootfile.Import, opts Options, hints schemaH
 // postProcess made its references: what is still a literal then is no
 // resource's. Last, the root's own account and region of opts.Scope are
 // read from locals (see liftScope), but in tags, and in names taken.
-func referencedAnnotations(ws *workspace, opts Options, taken Names) []annotation {
+func referencedAnnotations(ws *run.Workspace, opts Options, taken Names) []annotation {
 	return []annotation{
 		{name: "principals noted", edit: func(f *hclfile.File) (bool, error) {
 			return notePrincipals(f), nil
@@ -119,8 +120,8 @@ func scopeKept(opts Options) map[string]bool {
 // annotate runs the annotation stage (see annotate) on the root's
 // generated.tf, as its directory has it, with the annotations build
 // returns for its workspace, and writes back what they changed.
-func (g *generation) annotate(build func(ws *workspace) []annotation) ([]string, error) {
-	ws, err := openWorkspace(g.dir)
+func (g *generation) annotate(build func(ws *run.Workspace) []annotation) ([]string, error) {
+	ws, err := run.OpenWorkspace(g.dir)
 	if err != nil {
 		return nil, err
 	}

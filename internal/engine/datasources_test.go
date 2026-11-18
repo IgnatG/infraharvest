@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
 
 var awsDataSources = map[string]DataSource{
@@ -27,7 +28,7 @@ func addDataSources(dir string, external []External, sources map[string]DataSour
 
 // addDataSourcesWith is addDataSources for a provider whose traits are t.
 func addDataSourcesWith(dir string, external []External, sources map[string]DataSource, taken Names, t Traits) (bool, error) {
-	ws, err := openWorkspace(dir)
+	ws, err := run.OpenWorkspace(dir)
 	if err != nil {
 		return false, err
 	}

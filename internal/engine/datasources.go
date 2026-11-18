@@ -16,21 +16,13 @@ import (
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
+	"github.com/IgnatG/infraharvest/internal/engine/run"
 )
-
-// External is a resource the import listed but doesn't manage, such as one
-// the selection left out: the configuration may still refer to it. Name is
-// the name it was listed by, from which the label of the data source that
-// reads it is made; with none, the label is made from the ID.
-type External struct {
-	Type, ID string
-	Name     string `json:",omitempty"`
-}
 
 // sameResource reports whether a and b are the same resource, whatever
 // they are named.
 func sameResource(a, b External) bool {
-	return a.Type == b.Type && identityID(a.Type, a.ID) == identityID(b.Type, b.ID)
+	return a.Type == b.Type && run.IdentityID(a.Type, a.ID) == run.IdentityID(b.Type, b.ID)
 }
 
 // dataLabel is the label of the data source that reads e: its name as a
@@ -44,16 +36,6 @@ func dataLabel(e External) string {
 	return withoutTypeWords(e.Type, hclfile.Label(e.Name))
 }
 
-// DataSource reads one resource of a type: the data source's type, and the
-// argument that takes the resource's ID.
-type DataSource struct {
-	Type, Argument string
-	// Provider is the local name of the provider that reads it, when it
-	// isn't the one Type implies: google-beta for a root of google-beta,
-	// which requires no google. "" otherwise.
-	Provider string `json:",omitempty"`
-}
-
 // addDataSourcesSkipping replaces literals in generated.tf that are the
 // ID of an external resource with a reference to a data source that reads
 // it, such as vpc_id = data.aws_vpc.vpc_0abc1234.id, and writes the data
@@ -62,7 +44,7 @@ type DataSource struct {
 // resource's type. Data sources are named other than those in taken. It
 // leaves the resources in skip as they are (see tidying.settle), and returns
 // the resources it changed.
-func addDataSourcesSkipping(ws *workspace, external []External, sources map[string]DataSource, taken Names, skip map[string]int, t Traits) (map[string]bool, error) {
+func addDataSourcesSkipping(ws *run.Workspace, external []External, sources map[string]DataSource, taken Names, skip map[string]int, t Traits) (map[string]bool, error) {
 	// In one order whatever the caller's, as the names depend on it, and
 	// each resource once, with a name if any of its entries has one.
 	external = slices.Clone(external)
