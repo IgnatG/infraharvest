@@ -445,6 +445,9 @@ func (s *stackMerge) handOver() error {
 		result.Reason = "merging it again from what this run lists would leave out what the merged root has that this run doesn't list, but can't tell is no longer in the cloud (not listed in full with these services, filters and layout, or in another root): " + strings.Join(gone, "; ")
 	} else {
 		s.removed, s.incomplete, result.Reason = mergedHandovers(s.out, s.stack, s.members, s.imports)
+		if unselected := unselectedFromMerge(prev.Imports, s.imports, s.members, s.removed); result.Reason == "" && len(unselected) > 0 {
+			result.Reason = "merging it again would leave out what the merged root has that this run lists but doesn't select, which are still in the cloud, and each environment's plan would destroy them: " + strings.Join(unselected, "; ")
+		}
 		if result.Reason == "" {
 			var err error
 			if result.Reason, err = s.phase.moveMerged(s.stack, result, prev.Imports, s.imports, s.kept, append(s.removed, stillRemoved(s.keptRemoved, s.imports, s.removed)...)); err != nil {
