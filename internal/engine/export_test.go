@@ -7,5 +7,5 @@ package engine
 
 // scopeWordIndex is scopeWordIndexFrom from the start of s.
 func scopeWordIndex(s, id string) int {
-	return scopeWordIndexFrom(s, id, 0)
+	return scopeWordIndexFrom(s, id, 0, testTraits)
 }

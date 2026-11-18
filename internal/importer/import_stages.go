@@ -583,6 +583,7 @@ func engineTraits(t harvest.Traits) engine.Traits {
 	return engine.Traits{
 		IDPrefixes:          t.IDPrefixes,
 		IDSuffixes:          t.IDSuffixes,
+		IDSegments:          t.IDSegments,
 		ARNPrefix:           t.ARNPrefix,
 		WellKnownIDs:        t.WellKnownIDs,
 		SelfLinkAliases:     t.SelfLinkAliases,
@@ -614,6 +615,7 @@ func unionTraits(provider func(string) harvest.Provider, names []string) harvest
 		t := p.Profile().Traits
 		u.IDPrefixes = appendNew(u.IDPrefixes, t.IDPrefixes)
 		u.IDSuffixes = appendNew(u.IDSuffixes, t.IDSuffixes)
+		u.IDSegments = appendNew(u.IDSegments, t.IDSegments)
 		if u.ARNPrefix == "" {
 			u.ARNPrefix = t.ARNPrefix
 		}

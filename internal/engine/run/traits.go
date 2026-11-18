@@ -122,6 +122,10 @@ type Traits struct {
 	// IDSuffixes end such values, as a Google service account's email
 	// ends with its domain.
 	IDSuffixes []string
+	// IDSegments are the parts that make a value, wherever they are in it,
+	// a path or a link whose own parts are IDs, such as a Google Cloud
+	// projects/ and an Azure /subscriptions/ (see HoldsIDs).
+	IDSegments []string
 	// ARNPrefix, if set, starts the ARNs of resources whose IDs may be
 	// other values: a value with it names a resource by its arn attribute,
 	// as Options.ARNs say how (see rootValues.byARN).
@@ -221,6 +225,16 @@ func (t Traits) Liftable(value string) bool {
 // used than as a local (see WellKnownIDs).
 func (t Traits) WellKnown(value string) bool {
 	return t.WellKnownIDs != nil && t.WellKnownIDs.MatchString(value)
+}
+
+// HoldsIDs reports whether value is an ARN, a URL, or a path that has an
+// ID's own parts, the IDs in which are told from the parts of a name (see
+// scopeWordIndexFrom): it starts with one of IDPrefixes, has "://", or has
+// one of IDSegments.
+func (t Traits) HoldsIDs(value string) bool {
+	return slices.ContainsFunc(t.IDPrefixes, func(p string) bool { return strings.HasPrefix(value, p) }) ||
+		strings.Contains(value, "://") ||
+		slices.ContainsFunc(t.IDSegments, func(s string) bool { return strings.Contains(value, s) })
 }
 
 // IsARN reports whether value is an ARN (see ARNPrefix).

@@ -286,6 +286,7 @@ func TestEngineTraits(t *testing.T) {
 	profile := harvest.Traits{
 		IDPrefixes:          []string{"arn:"},
 		IDSuffixes:          []string{".example.com"},
+		IDSegments:          []string{"projects/"},
 		ARNPrefix:           "arn:",
 		WellKnownIDs:        regexp.MustCompile(`^arn:aws:iam::aws:policy/`),
 		SelfLinkAliases:     map[string]string{"https://a/": "https://b/"},

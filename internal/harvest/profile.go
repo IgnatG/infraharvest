@@ -177,6 +177,11 @@ type Traits struct {
 	// as AWS's ARNs, and IDSuffixes end them, as Google service accounts'
 	// emails end with their domain.
 	IDPrefixes, IDSuffixes []string
+	// IDSegments are the parts that make a value, wherever they are in it,
+	// a path or a link whose own parts are IDs, such as Google's projects/
+	// and Azure's /subscriptions/: an account or a region in it is an ID,
+	// where in a name it is only a part of the name.
+	IDSegments []string
 	// ARNPrefix, if set, starts the ARNs of resources whose IDs may be
 	// other values, which the catalogue's ARNs say how to read, such as
 	// arn:.
