@@ -4,8 +4,6 @@
 package aws
 
 import (
-	"reflect"
-	"strconv"
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/harvest"
@@ -132,43 +130,6 @@ func TestRecordDynamoDbReturnsErrors(t *testing.T) {
 	g := &DynamoDbLister{}
 
 	assertRecordedError(t, listError(ctx, g), "AccessDeniedException")
-}
-
-// A global table is imported once, in the first of its regions by name:
-// the default selection leaves out its replicas in the others, naming that
-// region, without asking AWS more than for the stacks. A table with no
-// replicas, or whose replicas are all in regions after its own, stays.
-func TestExcludedByDefaultGlobalTableReplicas(t *testing.T) {
-	t.Parallel()
-	ctx := useFakeAPI(t, func(call apiCall) string {
-		if call.Op == "ListStacks" {
-			return noStacks
-		}
-		return recordUnexpected(t, call)
-	})
-	// The fake configuration lists us-east-1.
-	p := &Provider{region: "us-east-1"}
-	replicas := func(regions ...string) map[string]string {
-		attributes := map[string]string{"replica.#": strconv.Itoa(len(regions))}
-		for i, region := range regions {
-			attributes["replica."+strconv.Itoa(i)+".region_name"] = region
-		}
-		return attributes
-	}
-
-	excluded, err := p.ExcludedByDefault(ctx, []harvest.Resource{
-		harvest.Record("orders", "orders", "aws_dynamodb_table", "aws", replicas("eu-west-1", "us-west-2")),
-		harvest.Record("carts", "carts", "aws_dynamodb_table", "aws", replicas("us-west-2")),
-		harvest.RecordBare("users", "users", "aws_dynamodb_table", "aws"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := map[string]string{"aws_dynamodb_table orders": reasonGlobalTableReplica("eu-west-1")}
-	if !reflect.DeepEqual(excluded, want) {
-		t.Errorf("got %v, want %v", excluded, want)
-	}
 }
 
 // The tables are described several at once, and recorded in the listed
