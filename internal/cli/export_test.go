@@ -124,10 +124,68 @@ func TestExportRunCommandAndRequestID(t *testing.T) {
 		t.Fatalf("drift run: %v\n%s", err, stdout)
 	}
 	for _, args := range [][]string{
-		{"--schema", "run", "--command", "verify"},
+		{"--schema", "run", "--command", "apply"},
 		{"--schema", "run", "--request-id", "not valid"},
 		{"--request-id", "req-1"},
 		{"--command", "drift"},
+	} {
+		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
+			t.Errorf("%v worked", args)
+		}
+	}
+}
+
+// discover and verify are named with --command, and each has the documents
+// of its own run: the OCSF inventory of what was saved, or the gate.
+func TestExportDiscoverAndVerify(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
+	t.Setenv("GITHUB_REPOSITORY", "acme/infra")
+	t.Setenv("GITHUB_SHA", strings.Repeat("a", 40))
+	out := t.TempDir()
+	inventories := filepath.Join(out, ".infraharvest", "inventory")
+	if err := os.MkdirAll(inventories, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := `{"version":2,"provider":"aws","scope":"aws/123456789012/eu-west-2","services":["vpc"],"records":[{"service":"vpc","provider":"aws","type":"aws_vpc","id":"vpc-1","name":"main"}]}`
+	if err := os.WriteFile(filepath.Join(inventories, "aws-0123456789abcdef.json"), []byte(inventory), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(out, report.Dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	roots := `[{"path":"aws/123456789012/eu-west-2","checks":[{"name":"G1 format","passed":true},{"name":"G3 plan","passed":false,"details":["aws_vpc.main: update"]}]}]`
+	if err := os.WriteFile(filepath.Join(out, report.Dir, report.VerifyJSONFile), []byte(roots), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"--schema", "run", "--command", "discover", "--request-id", "req-1"}, []string{`"command": "discover"`, `"outcome": "ok"`, `"request_id": "req-1"`}},
+		{[]string{"--schema", "ocsf-inventory", "--command", "discover"}, []string{`"ocsf_version"`, `"aws_vpc"`, `"status:unmanaged"`}},
+		{[]string{"--schema", "run", "--command", "verify"}, []string{`"command": "verify"`, `"outcome": "failed"`, `"check_failed"`}},
+		{[]string{"--schema", "gate", "--command", "verify"}, []string{`"passed": false`, `"plan_failed"`}},
+	} {
+		stdout, err := runExport(t, append([]string{out}, tc.args...)...)
+		if err != nil {
+			t.Errorf("%v: %v", tc.args, err)
+			continue
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("%v: no %s in\n%s", tc.args, want, stdout)
+			}
+		}
+		if strings.Contains(stdout, "aws_vpc.main") {
+			t.Errorf("%v: an address reached the document", tc.args)
+		}
+	}
+	for _, args := range [][]string{
+		{"--schema", "gate", "--command", "discover"},
+		{"--schema", "ocsf-inventory", "--command", "verify"},
+		{"--schema", "run"}, // neither report is the import's or the drift's
 	} {
 		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
 			t.Errorf("%v worked", args)

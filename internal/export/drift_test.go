@@ -208,7 +208,7 @@ func TestOptionsAreChecked(t *testing.T) {
 	t.Parallel()
 	out := writeOut(t)
 	for name, opts := range map[string]Options{
-		"unknown command":             {Document: DocRun, Command: "verify"},
+		"unknown command":             {Document: DocRun, Command: "apply"},
 		"command of the inventory":    {Document: DocInventory, Command: CommandImport},
 		"request ID with a space":     {Document: DocRun, RequestID: "a b"},
 		"request ID with a slash":     {Document: DocRun, RequestID: "a/b"},
@@ -260,8 +260,7 @@ func TestRunSchemaPerCommand(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(doc map[string]any){
 		"no command":       func(doc map[string]any) { delete(doc, "command") },
-		"verify":           func(doc map[string]any) { doc["command"] = "verify" },
-		"discover":         func(doc map[string]any) { doc["command"] = "discover" },
+		"apply":            func(doc map[string]any) { doc["command"] = "apply" },
 		"request ID space": func(doc map[string]any) { doc["request_id"] = "a b" },
 		"request ID empty": func(doc map[string]any) { doc["request_id"] = "" },
 		"failure code":     func(doc map[string]any) { doc["failure_codes"] = []string{"roots_failed"} },

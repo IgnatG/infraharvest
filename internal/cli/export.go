@@ -64,8 +64,12 @@ func newExportCmd() *cobra.Command {
 			"generated_at, which is the time of the export without it.\n" +
 			"The run document describes the run the output directory's report is of: an\n" +
 			"import's report.json, or, if it has none, the drift report drift.json; --command\n" +
-			"names the one to describe when it has both (default: import). --request-id puts\n" +
-			"the ID a control plane gave to ask for the run into it.\n" +
+			"names the one to describe when it has both (default: import). --command discover\n" +
+			"describes a discover run, from the inventories it saved, and with the\n" +
+			"ocsf-inventory document, which then says nothing of who manages a resource;\n" +
+			"--command verify describes a verify run, from verify.json, and with the gate\n" +
+			"document. --request-id puts the ID a control plane gave to ask for the run into\n" +
+			"the run document.\n" +
 			"drift-summary counts the changes drift.json lists, by root, environment,\n" +
 			"outcome and resource type, with the addresses of the resources that changed\n" +
 			"and never a value: --hash-ids hashes the addresses, and --drop-addresses leaves\n" +
@@ -114,7 +118,7 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&f.hashKeyFile, "hash-key-file", "", "file with the key --hash-ids hashes with (at least 16 bytes), instead of "+export.KeyEnv)
 	cmd.Flags().StringVar(&f.startedAt, "started-at", "", "when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at")
 	cmd.Flags().StringVar(&f.finishedAt, "finished-at", "", "when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now)")
-	cmd.Flags().StringVar(&f.command, "command", "", "command whose run the run document describes: "+strings.Join(export.Commands, " or ")+" (default: the one whose report the output directory has, import if both)")
+	cmd.Flags().StringVar(&f.command, "command", "", "command whose run to describe: "+strings.Join(export.Commands, ", ")+" (default: the one whose report the output directory has, import if both; discover and verify, which have none of that kind, must be named)")
 	cmd.Flags().StringVar(&f.requestID, "request-id", "", "ID a control plane gave to ask for this run, for the run document's request_id: 1 to 128 letters, digits, and . _ : -")
 	return cmd
 }

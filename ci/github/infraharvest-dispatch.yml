@@ -2,28 +2,32 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # infraharvest in GitHub Actions, started by a control plane: a workflow a
-# control plane's GitHub App dispatches (workflow_dispatch) to run an import
-# or a drift check on the default branch, which sends the run's metadata back
-# to it. See the action's README ("Runs a control plane starts").
+# control plane's GitHub App dispatches (workflow_dispatch) to run an import,
+# a drift check, a discover or a verify on the default branch, which sends the
+# run's metadata back to it. See the action's README ("Runs a control plane
+# starts").
 #
 # Copy it to .github/workflows/ on the default branch, set the repository
 # variable INFRAHARVEST_CONTROL_PLANE_URL, and replace the AWS credentials
-# step with your cloud's. Nothing outside the inputs below runs: command is
-# import or drift, and the files a control plane chooses (the selection and
-# the drift decisions) come from a branch it committed them to, never from
-# the dispatch's inputs, so they stay in the repository's history.
+# step of each job with your cloud's. Nothing outside the inputs below runs:
+# command is import, drift, discover or verify, and the files a control plane
+# chooses (the selection and the drift decisions) come from a branch it
+# committed them to, never from the dispatch's inputs, so they stay in the
+# repository's history. A discover run writes the selection back to that
+# branch, never to the default branch. Each command has a job of its own, so
+# that each has only the permissions it needs.
 name: infraharvest (control plane)
 
 on:
   workflow_dispatch:
     inputs:
       command:
-        description: What to run, import or drift.
+        description: What to run, import, drift, discover or verify.
         type: choice
-        options: [import, drift]
+        options: [import, drift, discover, verify]
         default: import
       inputs-ref:
-        description: Branch the control plane committed selection.yaml or drift.yaml to, under infraharvest/control-plane/; empty for neither.
+        description: Branch the control plane committed selection.yaml or drift.yaml to, under infraharvest/control-plane/; empty for neither. A discover run needs it, and commits the selection it lists to it.
         type: string
         required: false
       request-id:
@@ -40,15 +44,13 @@ permissions:
   contents: read
 
 jobs:
-  infraharvest:
+  # What each job runs takes only the inputs checked here. They reach the
+  # shell as variables, never in the script's text.
+  check:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
-    permissions:
-      contents: write       # push the pull request's branch
-      pull-requests: write  # open the pull request
-      id-token: write       # OIDC to the cloud and to the control plane
+    timeout-minutes: 5
+    permissions: {}
     steps:
-      # The inputs reach the shell as variables, never in the script's text.
       - name: Check the inputs
         env:
           COMMAND: ${{ inputs.command }}
@@ -60,15 +62,35 @@ jobs:
             echo "::error::runs only on the default branch, not $GITHUB_REF"
             exit 1
           fi
-          case "$COMMAND" in import|drift) ;; *) echo "::error::command must be import or drift"; exit 1 ;; esac
+          case "$COMMAND" in import|drift|discover|verify) ;; *) echo "::error::command must be import, drift, discover or verify"; exit 1 ;; esac
           if [[ -n "$INPUTS_REF" && ! "$INPUTS_REF" =~ ^infraharvest/control-plane/[A-Za-z0-9._/-]+$ ]]; then
             echo "::error::inputs-ref must be a branch under infraharvest/control-plane/"
+            exit 1
+          fi
+          if [[ "$INPUTS_REF" == "$DEFAULT_BRANCH" ]]; then
+            echo "::error::inputs-ref must not be the default branch"
+            exit 1
+          fi
+          if [[ "$COMMAND" == discover && -z "$INPUTS_REF" ]]; then
+            echo "::error::discover needs inputs-ref, the branch to commit the selection to"
             exit 1
           fi
           if [[ -n "$REQUEST_ID" && ! "$REQUEST_ID" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
             echo "::error::request-id must be 1 to 128 letters, digits or . _ : -"
             exit 1
           fi
+
+  # An import, which opens a pull request, and a drift check.
+  infraharvest:
+    needs: check
+    if: inputs.command == 'import' || inputs.command == 'drift'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write       # push the pull request's branch
+      pull-requests: write  # open the pull request
+      id-token: write       # OIDC to the cloud and to the control plane
+    steps:
       - name: Check out the code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -115,5 +137,134 @@ jobs:
           drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
           drift-decisions: ${{ steps.files.outputs.decisions }}
           pull-request: "true"
+          control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
+          control-plane-request-id: ${{ inputs.request-id }}
+
+  # A discover run lists the cloud into the selection file, and commits the
+  # file to inputs-ref, where the control plane reads it. It changes no code
+  # and opens no pull request, and pushes to that branch only.
+  discover:
+    needs: check
+    if: inputs.command == 'discover'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write       # push the selection to inputs-ref
+      id-token: write       # OIDC to the cloud and to the control plane
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The branch must be there: the control plane creates it. Its
+      # selection.yaml, if it has one, keeps the decisions in it when discover
+      # lists again. No credentials are kept while infraharvest runs.
+      - name: Check out the control plane's selection
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.inputs-ref }}
+          path: .infraharvest-inputs
+          persist-credentials: false
+          sparse-checkout: selection.yaml
+          sparse-checkout-cone-mode: false
+      # The action writes the selection there: not through a link the branch
+      # committed.
+      - name: Refuse a linked selection
+        run: |
+          if [[ -L .infraharvest-inputs/selection.yaml ]]; then
+            echo "::error::selection.yaml on the branch is a symbolic link"
+            exit 1
+          fi
+      # Replace with your cloud's credentials: see the action's README.
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        id: discover
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3
+          regions: eu-west-2
+          import: "false"
+          discover: "true"
+          selection: .infraharvest-inputs/selection.yaml
+          control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
+          control-plane-request-id: ${{ inputs.request-id }}
+      # Only now does the token go on disk, with the branch to push to,
+      # after infraharvest has run. Nothing is written into this checkout:
+      # the commit is built with git's own commands, from the branch's tree
+      # and the selection file's content.
+      - name: Check out the branch to push to
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.inputs-ref }}
+          path: .infraharvest-push
+          sparse-checkout: selection.yaml
+          sparse-checkout-cone-mode: false
+      - name: Commit the selection
+        env:
+          SELECTION_FILE: ${{ steps.discover.outputs.selection-file }}
+          INPUTS_REF: ${{ inputs.inputs-ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ -z "$SELECTION_FILE" || -L "$SELECTION_FILE" || ! -f "$SELECTION_FILE" ]]; then
+            echo "::error::discover wrote no selection file, or one that is a symbolic link"
+            exit 1
+          fi
+          # Never the default branch, whatever the check said.
+          if [[ "$INPUTS_REF" == "$DEFAULT_BRANCH" || ! "$INPUTS_REF" =~ ^infraharvest/control-plane/[A-Za-z0-9._/-]+$ ]]; then
+            echo "::error::inputs-ref must be a branch under infraharvest/control-plane/, not the default branch"
+            exit 1
+          fi
+          file="$PWD/$SELECTION_FILE"
+          cd .infraharvest-push || exit 1
+          parent=$(git rev-parse HEAD)
+          blob=$(git hash-object -w --no-filters -- "$file")
+          # A temporary index holding the branch's tree with this blob as
+          # selection.yaml: the working tree is never written.
+          export GIT_INDEX_FILE="$RUNNER_TEMP/infraharvest-push-index"
+          git read-tree "$parent"
+          git update-index --add --cacheinfo "100644,$blob,selection.yaml"
+          tree=$(git write-tree)
+          if [[ "$tree" == "$(git rev-parse "$parent^{tree}")" ]]; then
+            echo "The selection is the one $INPUTS_REF has: nothing to commit."
+            exit 0
+          fi
+          export GIT_AUTHOR_NAME="github-actions[bot]" GIT_COMMITTER_NAME="github-actions[bot]"
+          export GIT_AUTHOR_EMAIL="41898282+github-actions[bot]@users.noreply.github.com" GIT_COMMITTER_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+          commit=$(git commit-tree "$tree" -p "$parent" -m "chore: record the selection infraharvest discover listed")
+          # No force: a branch that moved since it was checked out fails.
+          git push origin "$commit:refs/heads/$INPUTS_REF"
+
+  # A verify run checks the roots the default branch has again. It writes
+  # nothing back.
+  verify:
+    needs: check
+    if: inputs.command == 'verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write       # OIDC to the cloud and to the control plane
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Replace with your cloud's credentials: see the action's README. The
+      # plans read the cloud, and the secret variables the roots need are
+      # TF_VAR_ variables from the repository's secrets.
+      - uses: aws-actions/configure-aws-credentials@<sha>
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/infraharvest-readonly
+          aws-region: eu-west-2
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          import: "false"
+          verify: "true"
           control-plane-url: ${{ vars.INFRAHARVEST_CONTROL_PLANE_URL }}
           control-plane-request-id: ${{ inputs.request-id }}

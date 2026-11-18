@@ -1,6 +1,6 @@
 # infraharvest GitHub Action
 
-Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch).
+Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch). Two more modes each do only one thing: `discover` lists the cloud into a selection file, and `verify` checks the roots the repository has again (see [Discover and verify](#discover-and-verify)).
 
 The action installs the release's build for the `provider`'s cloud and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Then, when importing, it checks the import as `infraharvest import <provider> --check` does, with the flags its inputs make and those the configuration file sets, so that an unknown provider or service, or a flag the import would refuse, fails the step before drift or the import reads anything. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
@@ -117,9 +117,40 @@ jobs:
 - Branch protection rules and rulesets apply: a push to a branch that requires pull requests, such as `main` usually, is rejected, unless the token's app or user may bypass them.
 - The commit's author is `github-actions[bot]`, unless the job sets `user.name` and `user.email` with `git config`.
 
+## Discover and verify
+
+Two more modes each do only one thing. Both need `import: "false"`, and neither goes with the other, `drift`, `pull-request`, `commit` or `sign-evidence`: the action refuses the combination before it installs anything.
+
+`discover: "true"` runs `infraharvest discover <provider> --pick=false` with the `services`, `regions`, `config`, `args` and `allow-partial` inputs, as an import takes them, and `out`. It writes the selection file to `selection` (`selection.yaml` in the working directory without it), keeping the decisions in a file that is there, and sets the output `selection-file` to its path. It also saves what it listed in `out`, under `.infraharvest/inventory/`, which the OCSF inventory sent to a [control plane](#sending-a-run-to-a-control-plane) is made from. It reads the cloud only. The exit code is the import's: 0 when every listing worked, 1 when some failed in part (the file is still written, and says so), 2 when it couldn't run, and 3 with `allow-partial: "true"`, which doesn't fail the step.
+
+```yaml
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3
+          regions: eu-west-2
+          import: "false"
+          discover: "true"
+          selection: selection.yaml
+```
+
+`verify: "true"` runs `infraharvest verify <out>`, which runs the [verification gate](../docs/output.md#verification-gate) again on the roots already in `out`, with the `config` and `engine` inputs. The roots must be in the repository the job checked out: it fails if `out` isn't there. The plans read the cloud, so the job has its credentials as an import does, and the secret variables the roots need as `TF_VAR_` variables. It writes `_reports/verify.json` into `out`, and sets `exit-code` as verify exits: 0 when every check passed, 1 when one failed, 2 when a root couldn't be checked. Any other code than 0 fails the step.
+
+```yaml
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          import: "false"
+          verify: "true"
+```
+
+`provider` chooses the build to install when the action installs a release, for both, and is the provider to list for discover.
+
 ## Sending a run to a control plane
 
-Off by default. With `control-plane-url` set, the action sends the metadata of the run to a hosted control plane, after the import or the drift check (and after the pull request or commit): the documents `infraharvest export` writes, [the OCSF inventory, run, gate and graph](../docs/export.md) for an import and the drift summary for a drift check, and nothing else. They hold no attributes, values or messages, and only the OCSF inventory and the drift summary have resource addresses (the OCSF inventory the paths of the roots too); the [Export](../docs/export.md) page lists what they have and what they leave out. The control plane has to implement the [Control plane API](../docs/export.md#control-plane-api).
+Off by default. With `control-plane-url` set, the action sends the metadata of the run to a hosted control plane, after the import, the drift check, the discover or the verify run (and after the pull request or commit): the documents `infraharvest export` writes, [the OCSF inventory, run, gate and graph](../docs/export.md) for an import, the drift summary for a drift check, the OCSF inventory and run for a discover run and the run and gate for a verify run, and nothing else. They hold no attributes, values or messages, and only the OCSF inventory and the drift summary have resource addresses (the OCSF inventory the paths of the roots too); the [Export](../docs/export.md) page lists what they have and what they leave out. The control plane has to implement the [Control plane API](../docs/export.md#control-plane-api).
 
 ```yaml
 permissions:
@@ -157,18 +188,19 @@ jobs:
 - **Refusals.** A `4xx` other than `429` is not retried. The step prints the reason the control plane gives in its JSON body, `{"error": "..."}`, or the start of the body if it isn't JSON. A `402` means the organisation's plan refused the upload, such as for being over its cloud-account limit: it is not a problem with the token. `401` and `403` mean the control plane refused the token: check `control-plane-audience`. The same goes for the session request.
 - **Redaction.** `control-plane-drop-tags` and `control-plane-drop-tag` (a key a line, or comma-separated) leave tags out of the OCSF inventory, and `control-plane-hash-ids` replaces IDs and names (the graph's IDs and the addresses of the OCSF inventory and the drift summary too) with HMAC-SHA256 hashes under a key only you hold, from `control-plane-hash-key` or, better, `INFRAHARVEST_EXPORT_KEY` from a secret. `control-plane-drop-addresses` (`true` or `false`) leaves the addresses out of the OCSF inventory (with its module addresses and the paths of its roots) and the drift summary instead, and wins when both are set. The OCSF inventory says what was done in its `redaction` block. Tags that look like secrets are always dropped. See [Export](../docs/export.md#what-it-leaves-out).
 - **Transport.** HTTPS only (`http://` only for `localhost`, `127.0.0.1` and `[::1]`), no redirects followed. A `5xx`, a `429` and a connection failure are retried up to four times, with a growing delay; any other failure fails at once.
-- **Failures.** The step runs last and after a failed import or drift check too, when it left a report, so a failed run is reported as well. An export or upload failure fails the step, unless `control-plane-optional` is `true`, which turns it into a warning. A run that left no report, such as an import that couldn't start, sends nothing, and a drift check that left no `drift.json` (`out` doesn't exist yet, or it failed before writing one) sends nothing, with a warning.
-- **Times.** The step records when the import started and finished (UTC) and passes them to `infraharvest export` (`--started-at`, `--finished-at`), so the run document has `started_at` and `finished_at`, and the time of the OCSF inventory's events is the finish: sending the same run again changes neither. A run with no recorded times, such as an import that never started, leaves them out. The drift check records its own, which go to the run document of a drift-only run; the drift summary has none.
+- **Failures.** The step runs last and after a failed import, drift check, discover or verify run too, when it left a report, so a failed run is reported as well. An export or upload failure fails the step, unless `control-plane-optional` is `true`, which turns it into a warning. A run that left no report, such as an import that couldn't start, sends nothing, and a drift check that left no `drift.json` (`out` doesn't exist yet, or it failed before writing one) sends nothing, with a warning. So does a failed discover run that saved no inventory, and a failed verify run that left no `verify.json`; after a discover or verify step that succeeded, a missing file fails the step.
+- **Times.** The step records when the import, discover or verify run started and finished (UTC) and passes them to `infraharvest export` (`--started-at`, `--finished-at`), so the run document has `started_at` and `finished_at`, and the time of the OCSF inventory's events is the finish: sending the same run again changes neither. A run with no recorded times, such as an import that never started, leaves them out. The drift check records its own, which go to the run document of a drift-only run; the drift summary has none.
 - **Imports and drift.** An import (`import: "true"`) sends the OCSF inventory, run, gate and graph documents; the `inventory/v1` document isn't uploaded, and stays a document `infraharvest export` writes. A drift check (`drift: report` or `accept`) sends the drift summary, which counts the changes by root, outcome and resource type and lists the addresses of the resources that changed. With `import: "false"` and a drift check, the run document describes the drift check (`export --command drift`, from `drift.json`, so an import's older report in the repository isn't sent): the run document, then the drift summary, and nothing else. With both, the five are sent, the run document being the import's. The drift summary's `run_id` is the drift check's own, so its `Idempotency-Key` uses it. Without `control-plane-hash-ids` or `control-plane-drop-addresses`, the addresses are sent as they are; they can hold the key of a `for_each` resource. The OCSF inventory names the repository and the commit the configuration is in, from the job's `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY` and `GITHUB_SHA`.
+- **Discover and verify.** A discover run (`discover: "true"`) sends the OCSF inventory, then the run document (`export --command discover`), both made from the inventories discover saved in `out`; they take the same redaction flags as an import's. The inventories say nothing of who manages a resource, so every resource in the OCSF inventory is `unmanaged`, with the basis `none`, and has no `iac`: the selection file, which isn't sent, is where discover records which the default rules leave out. A verify run (`verify: "true"`) sends the run document (`export --command verify`), then the gate, both made from `_reports/verify.json`, which verify writes; the gate doesn't pass if a root couldn't be checked. Neither run has a graph or a drift summary. Their `run_id` is made from what they were made from, so the same results are the same run, and `control-plane-run-id` is the run document's.
 - **Request ID.** `control-plane-request-id`, such as the ID a control plane gave to the request that started the run (see [Runs a control plane starts](#runs-a-control-plane-starts)), goes into the run document as `request_id` (`--request-id`), so the control plane can match the run to its request. It must be 1 to 128 letters, digits or `.` `_` `:` `-`; anything else fails before the run starts.
 - **Output.** `control-plane-run-id` is the `run_id` of the run document (an import's, when the run has one), set once every document of the run was accepted.
 
 ### Runs a control plane starts
 
-A control plane whose GitHub App can dispatch workflows on the repository can start an import or a drift check itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step with your cloud's. It is started by `workflow_dispatch`, with three inputs:
+A control plane whose GitHub App can dispatch workflows on the repository can start an import, a drift check, a discover or a verify run itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step of each job with your cloud's. It is started by `workflow_dispatch`, with three inputs:
 
-- `command`: `import` or `drift`.
-- `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports.
+- `command`: `import`, `drift`, `discover` or `verify`.
+- `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name, and the default branch): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports. A discover run needs it: the branch must exist, and the run commits the selection it lists to it as `selection.yaml`, which the control plane reads there.
 - `request-id`: the control plane's ID of the request, checked as `control-plane-request-id` is and passed to it, so the run document sent back says which request it answers.
 
 ```yaml
@@ -185,7 +217,15 @@ A control plane whose GitHub App can dispatch workflows on the repository can st
           control-plane-request-id: ${{ inputs.request-id }}
 ```
 
-The workflow runs only on the default branch: a dispatch of another ref fails in its first step. The files come from a branch, not from the dispatch's inputs, so what a run imports or accepts is in Git's history, where whoever committed it, and when, can be seen; only the two files are checked out, into a directory of their own, and nothing else of that branch is run. The inputs reach the shell as variables, never in a script's text, so they can't inject commands. The result still arrives as a pull request, which someone reviews and merges: the dispatch changes no code on the default branch itself. One run at a time per repository (`concurrency`); a second waits.
+The workflow has a job for each kind of run, so that each has only the permissions it needs, after a `check` job that checks the inputs and has none:
+
+| `command` | Job | Permissions | What it does |
+|---|---|---|---|
+| `import`, `drift` | `infraharvest` | `contents: write`, `pull-requests: write`, `id-token: write` | Runs the action as the example above, and opens a pull request |
+| `discover` | `discover` | `contents: write`, `id-token: write` | Runs `discover: "true"` with `selection` the file it checked out of `inputs-ref` (so the decisions in it stay), then commits the file back to `inputs-ref`, with no force, built with git's own commands so that nothing is written into a checkout. It refuses a `selection.yaml` that is a symbolic link. No commit if it didn't change. It changes no code and opens no pull request |
+| `verify` | `verify` | `contents: read`, `id-token: write` | Runs `verify: "true"` on the roots the default branch has, and writes nothing back |
+
+The workflow runs only on the default branch: a dispatch of another ref fails in its first job. A discover run pushes to `inputs-ref` and never to the default branch: the name is checked twice, and the token that can push goes on disk after infraharvest has run, in a checkout of its own. The selection file lists resource IDs, names and tags, so the branch has them as the repository's other branches do. The files come from a branch, not from the dispatch's inputs, so what a run imports or accepts is in Git's history, where whoever committed it, and when, can be seen; only the files are checked out, into a directory of their own, and nothing else of that branch is run. The inputs reach the shell as variables, never in a script's text, so they can't inject commands. An import's or a drift check's result still arrives as a pull request, which someone reviews and merges: the dispatch changes no code on the default branch itself. One run at a time per repository (`concurrency`); a second waits.
 
 ## Signed evidence
 
@@ -410,16 +450,18 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `version` | | The release to install, such as `v0.1.0`. Either `version` or `binary` is required |
 | `binary` | | An infraharvest binary to run instead of installing a release |
 | `token` | `github.token` | Token to download the release with |
-| `import` | `true` | Import resources; `false` only checks [drift](#drift) |
-| `provider` | | The provider command: `aws`, `azure` or `google`. Required when importing, and with no `binary`, to choose the build of the release to install |
+| `import` | `true` | Import resources; `false` only checks [drift](#drift), or runs `discover` or `verify` |
+| `discover` | `false` | List resources into the selection file, instead of importing, with `provider`, `services`, `regions`, `config` and `args` (see [Discover and verify](#discover-and-verify)). Needs `import: "false"` |
+| `verify` | `false` | Check the roots in `out` again, instead of importing, with `config` and `engine`. Needs `import: "false"` |
+| `provider` | | The provider command: `aws`, `azure` or `google`. Required when importing or discovering, and with no `binary`, to choose the build of the release to install |
 | `services` | | Services to import, comma-separated. Required when importing, unless the `config` file sets them or `--cfn-stack` in `args` leaves them to the stacks |
 | `regions` | | Regions, comma-separated |
-| `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`) |
-| `engine` | | `terraform` or `tofu`. Unset, the import and drift use what the configuration file sets, or `terraform` |
+| `selection` | | A selection file from `infraharvest discover`. Without one, the default selection is imported (`--all`). With `discover`, the file to write, `selection.yaml` without it |
+| `engine` | | `terraform` or `tofu`. Unset, the import, drift and verify use what the configuration file sets, or `terraform` |
 | `out` | `infrastructure` | Directory for the configuration and the report |
-| `config` | | An infraharvest configuration file, for example with the state backend; drift takes its settings `engine`, `terraform-path`, `engine-timeout`, `engine-parallelism` and `catalogue`, and its own `modules` (`--config`) |
+| `config` | | An infraharvest configuration file, for example with the state backend; drift takes its settings `engine`, `terraform-path`, `engine-timeout`, `engine-parallelism` and `catalogue`, and its own `modules`, and verify those and `policy` (`--config`) |
 | `incremental` | `true` | Add what is new to the roots `out` already has, after the blocks of the file of their type (`--incremental`), instead of failing on them. Must be `true` with `drift` and an import |
-| `args` | | More flags for the import, one a line, each starting with `--` (a bare `--` is refused): for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
+| `args` | | More flags for the import or discover, one a line, each starting with `--` (a bare `--` is refused): for Google Cloud, which names no project by default, `--projects=my-project` (or `--organization`, `--folders`); also `--resource-group`, `--layout` and the like |
 | `managed-state` | | State that says what Terraform already manages (`--managed-state`), such as `backend` |
 | `allow-partial` | `false` | Succeed with exit code 3 when some resources couldn't be imported |
 | `drift` | `off` | `off`, `report` or `accept`: check the roots in `out` for changes in the cloud before importing (see [Drift](#drift)) |
@@ -431,7 +473,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `pull-request-token` | `github.token` | Token to push the branch and open the pull request with, and to push with `commit`: see [Checks on the pull request](#checks-on-the-pull-request) |
 | `commit` | `false` | Commit the output and push it to `commit-branch`, without a pull request (see [Committing straight to a branch](#committing-straight-to-a-branch)). Not with `pull-request` |
 | `commit-branch` | the branch checked out | With `commit`, the branch to push to. A detached checkout, such as a pull request's, needs one |
-| `control-plane-url` | | Send the export documents of the import and the drift check to this control plane (see [Sending a run to a control plane](#sending-a-run-to-a-control-plane)). HTTPS only; needs `id-token: write`. Empty, nothing is sent |
+| `control-plane-url` | | Send the export documents of the import, the drift check, discover or verify to this control plane (see [Sending a run to a control plane](#sending-a-run-to-a-control-plane)). HTTPS only; needs `id-token: write`. Empty, nothing is sent |
 | `control-plane-audience` | `infraharvest-api` | With `control-plane-url`, the audience of the OIDC token the session is opened with |
 | `control-plane-drop-tags` | `false` | With `control-plane-url`, leave all tags out of the OCSF inventory |
 | `control-plane-drop-tag` | | With `control-plane-url`, tag keys to leave out of the OCSF inventory, a line each or comma-separated |
@@ -446,7 +488,8 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 
 | Output | Description |
 |---|---|
-| `exit-code` | infraharvest import's exit code: 0 complete, 1 incomplete, 2 couldn't run, 3 partial; empty with `import: "false"` |
+| `exit-code` | The exit code of infraharvest import, discover or verify, whichever ran: 0 complete, 1 incomplete (for verify, a check failed), 2 couldn't run (for verify, a root couldn't be checked), 3 partial; empty when none ran |
+| `selection-file` | Path of the selection file `discover` wrote; empty without `discover` |
 | `report` | Path of the import report |
 | `drift-found` | `true` when drift is left: a change the next apply would revert, or that can't be assessed. `false` when none is, or without `drift` |
 | `drift-report` | Path of the drift report, `drift.md`, if drift ran |
