@@ -4,19 +4,23 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
+	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/run"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
@@ -352,4 +356,44 @@ func TestSnapshotOfRootWithWithheldSecret(t *testing.T) {
 		t.Errorf("the root's own file changed:\n%s", got)
 	}
 	assertNotWritten(t, filepath.Dir(dir), secret.PlaceholderValue)
+}
+
+// TestDropBlocksMany drops enough blocks for them to be removed at once, and
+// leaves the file as removing them one by one does.
+func TestDropBlocksMany(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	var src strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&src, "resource \"aws_s3_bucket\" \"b%d\" {\n  bucket = \"b%d\"\n}\n\n", i, i)
+		fmt.Fprintf(&src, "import {\n  to = aws_s3_bucket.b%d\n  id = \"b%d\"\n}\n\n", i, i)
+		fmt.Fprintf(&src, "moved {\n  from = aws_s3_bucket.o%d\n  to   = aws_s3_bucket.b%d\n}\n\n", i, i)
+	}
+	// What removing the blocks one by one leaves.
+	one, err := hclfile.Parse("main.tf", []byte(src.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range one.Edit().Body().Blocks() {
+		if b.Type() == "import" || b.Type() == "moved" {
+			one.Edit().Body().RemoveBlock(b)
+		}
+	}
+	want := bytes.TrimLeft(hclwrite.Format(one.Bytes()), "\n")
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte(src.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := dropBlocks(dir, "import", "moved"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "main.tf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+	if strings.Contains(string(got), "import") || strings.Contains(string(got), "moved") || strings.Count(string(got), "resource ") != 20 {
+		t.Errorf("blocks left wrong:\n%s", got)
+	}
 }
