@@ -46,6 +46,8 @@ Resources the root's import blocks import, but that the state doesn't have yet, 
 
 The report goes into `<out>/_reports/drift.json` and `<out>/_reports/drift.md`, apart from the import's report (see [Output](output.md#report)). `drift.md` lists the changes accepted into the code (with the file and line), those kept, which the next apply reverts, those that need a hand edit, the secrets and those not assessable, then those absorbed. Values the provider marks sensitive, values that look like credentials, and values whose key names a secret, as import judges a key (see [Secrets](output.md#secrets)), are shown as `(sensitive value)`, in a map or a JSON document such as a container definition too. The report gives the file and line where the root's code sets the attribute, as best it can tell. For a resource in a module call (`module_call`), that is the call's argument the module gets it from, and `source.module_path` says how the module reads it, such as `../../../modules/s3_bucket_0a1b2c3d/main.tf:4 var.tags` (see [Resources in module calls](#resources-in-module-calls)).
 
+`drift.json` has a `schema` field, `infraharvest/drift/v1`, and a JSON Schema ([`drift-v1.schema.json`](https://github.com/IgnatG/infraharvest/blob/main/schemas/drift-v1.schema.json), no fields beyond the ones it lists) describes it. It holds values, so it stays with you: what a control plane may receive of it is the [drift summary](export.md#the-drift-summary) of `infraharvest export`, which has counts and, if you allow them, addresses, and never values.
+
 ## Accepting changes
 
 `--accept <rule>` takes the cloud's values of the changes the rule matches into the code. `--keep <rule>` keeps the code's values, which the next apply puts back. Both repeat, and the last rule that matches a change decides; a change no rule matches is kept. A rule is:
@@ -195,6 +197,8 @@ A change is decided, in order:
 4. By `--accept`, `--keep` and `--rules`: on the command line, the last rule that matches decides over the file.
 
 A rule the command line takes is a rule of the file with one field: `--accept 'attribute=tags.*'` is `- accept: { attribute: "tags.*" }`, and `--keep all` is `- keep: all`.
+
+The file is checked against a JSON Schema, [`drift-decisions-v1.schema.json`](https://github.com/IgnatG/infraharvest/blob/main/schemas/drift-decisions-v1.schema.json), when `--decisions` reads it, so an entry with a decision that isn't `accept`, `keep` or `undecided`, a value that isn't text, or a field the file doesn't have is refused with a message that names the file. The schema describes the YAML read as JSON, so an editor that takes JSON Schemas for YAML can check the file as you write it.
 
 ### When the cloud changes again
 

@@ -70,8 +70,8 @@ func roundTrip(t *testing.T, v any) any {
 // builds them.
 func TestInstanceIsTheEncoding(t *testing.T) {
 	t.Parallel()
-	docs := []any{&inventoryDoc{}, &runDoc{}, &gateDoc{}}
-	for _, empty := range []any{&inventoryDoc{}, &runDoc{}, &gateDoc{}} {
+	docs := []any{&inventoryDoc{}, &runDoc{}, &driftRunDoc{}, &gateDoc{}, &driftSummaryDoc{}}
+	for _, empty := range []any{&inventoryDoc{}, &runDoc{}, &driftRunDoc{}, &gateDoc{}, &driftSummaryDoc{}} {
 		full := reflect.New(reflect.TypeOf(empty).Elem())
 		fill(full)
 		docs = append(docs, full.Interface())
@@ -85,7 +85,15 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	docs = append(docs, inv, buildRun(r, "id", time.Time{}, time.Time{}), buildGate(r, "id"))
+	d, _, err := readDrift(writeDrift(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := buildDriftSummary(d, Options{HashKey: []byte("0123456789abcdef-key-a")}, "id", time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs = append(docs, inv, buildRun(r, "id", time.Time{}, time.Time{}), buildDriftRun(d, "id", time.Time{}, time.Time{}), buildGate(r, "id"), summary)
 	for _, doc := range docs {
 		got, err := instance(reflect.ValueOf(doc))
 		if err != nil {

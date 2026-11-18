@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/drift-v1.schema.json",
+  "title": "infraharvest drift report, version 1",
+  "description": "What infraharvest drift writes into _reports/drift.json: for each root checked, whether it could be, and each attribute or resource that changed in the cloud since the root's state recorded it, with the values (secrets as \"(sensitive value)\"), where the code sets the attribute, what was decided for the change and what became of it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "drift_found", "totals", "roots", "changes"],
+  "properties": {
+    "schema": {"const": "infraharvest/drift/v1"},
+    "schema_version": {"const": 1},
+    "drift_found": {"type": "boolean"},
+    "totals": {"$ref": "#/$defs/totals"},
+    "roots": {"type": "array", "items": {"$ref": "#/$defs/root"}},
+    "changes": {"type": "array", "items": {"$ref": "#/$defs/change"}}
+  },
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0},
+    "outcome": {"enum": ["written", "kept", "rejected_by_plan", "rejected_by_check", "manual", "secret", "not_assessable", "absorbed"]},
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots", "failed", "changes", "written", "kept", "rejected_by_plan", "rejected_by_check", "manual", "secret", "not_assessable", "absorbed"],
+      "properties": {
+        "roots": {"$ref": "#/$defs/count"},
+        "failed": {"$ref": "#/$defs/count"},
+        "changes": {"$ref": "#/$defs/count"},
+        "written": {"$ref": "#/$defs/count"},
+        "kept": {"$ref": "#/$defs/count"},
+        "rejected_by_plan": {"$ref": "#/$defs/count"},
+        "rejected_by_check": {"$ref": "#/$defs/count"},
+        "manual": {"$ref": "#/$defs/count"},
+        "secret": {"$ref": "#/$defs/count"},
+        "not_assessable": {"$ref": "#/$defs/count"},
+        "absorbed": {"$ref": "#/$defs/count"}
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "resources"],
+      "properties": {
+        "path": {"type": "string"},
+        "environment": {"type": "string"},
+        "backend": {"type": "string"},
+        "resources": {"$ref": "#/$defs/count"},
+        "not_applied": {"type": "array", "items": {"type": "string"}},
+        "placeholders": {"type": "array", "items": {"type": "string"}},
+        "error": {"type": "string"}
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "address", "type", "kind", "decision", "outcome"],
+      "properties": {
+        "root": {"type": "string"},
+        "environment": {"type": "string"},
+        "address": {"type": "string"},
+        "type": {"type": "string"},
+        "module_call": {"type": "string"},
+        "attribute": {"type": "string"},
+        "before": {},
+        "after": {},
+        "kind": {"enum": ["changed", "deleted"]},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {
+            "file": {"type": "string"},
+            "line": {"$ref": "#/$defs/count"},
+            "expression": {"type": "string"},
+            "module_path": {"type": "string"}
+          }
+        },
+        "covers": {"type": "array", "items": {"type": "string"}},
+        "decision": {"enum": ["accept", "keep"]},
+        "decision_source": {"enum": ["default", "decisions_defaults", "decisions_rule", "decisions_change", "flag"]},
+        "decision_stale": {"type": "boolean"},
+        "outcome": {"$ref": "#/$defs/outcome"},
+        "reason": {"type": "string"},
+        "forces_replacement": {"type": "boolean"},
+        "last_change": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["by", "call", "at", "log"],
+          "properties": {
+            "by": {"type": "string"},
+            "call": {"type": "string"},
+            "at": {"type": "string"},
+            "log": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -104,3 +104,75 @@ func TestExportTimes(t *testing.T) {
 		}
 	}
 }
+
+func TestExportRunCommandAndRequestID(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := writeExportReport(t)
+	d := &report.Drift{Roots: []report.DriftRoot{{Path: "aws/123456789012/eu-west-2", Resources: 1}}}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+
+	// With both reports, the import's is the run, as before.
+	stdout, err := runExport(t, out, "--schema", "run", "--request-id", "req-1")
+	if err != nil || !strings.Contains(stdout, `"command": "import"`) || !strings.Contains(stdout, `"request_id": "req-1"`) {
+		t.Fatalf("import run: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, out, "--schema", "run", "--command", "drift", "--request-id", "req-1")
+	if err != nil || !strings.Contains(stdout, `"command": "drift"`) || !strings.Contains(stdout, `"request_id": "req-1"`) || strings.Contains(stdout, "exit_code") {
+		t.Fatalf("drift run: %v\n%s", err, stdout)
+	}
+	for _, args := range [][]string{
+		{"--schema", "run", "--command", "verify"},
+		{"--schema", "run", "--request-id", "not valid"},
+		{"--request-id", "req-1"},
+		{"--command", "drift"},
+	} {
+		if _, err := runExport(t, append([]string{out}, args...)...); err == nil {
+			t.Errorf("%v worked", args)
+		}
+	}
+}
+
+func TestExportDriftSummary(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := t.TempDir()
+	d := &report.Drift{
+		Roots: []report.DriftRoot{{Path: "aws/123456789012/eu-west-2", Resources: 2}},
+		Changes: []report.DriftChange{{
+			Root: "aws/123456789012/eu-west-2", Address: "aws_s3_bucket.audit", Type: "aws_s3_bucket", Attribute: "tags.Env",
+			Before: "prod-value-1", After: "dev-value-2", Kind: "changed", Decision: report.DriftKeep, Outcome: report.DriftKept,
+		}},
+	}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, err := runExport(t, out, "--schema", "drift-summary")
+	if err != nil || !strings.Contains(stdout, `"schema": "infraharvest/drift-summary/v1"`) || !strings.Contains(stdout, `"aws_s3_bucket.audit"`) ||
+		strings.Contains(stdout, "prod-value-1") || strings.Contains(stdout, "dev-value-2") {
+		t.Fatalf("drift summary: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, out, "--schema", "drift-summary", "--drop-addresses")
+	if err != nil || strings.Contains(stdout, "aws_s3_bucket.audit") || !strings.Contains(stdout, `"addresses": "dropped"`) {
+		t.Fatalf("--drop-addresses: %v\n%s", err, stdout)
+	}
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "an-environment-key-0123")
+	stdout, err = runExport(t, out, "--schema", "drift-summary", "--hash-ids")
+	if err != nil || strings.Contains(stdout, "aws_s3_bucket.audit") || !strings.Contains(stdout, `"addresses": "hashed"`) {
+		t.Fatalf("--hash-ids: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, "--schema", "drift-summary", "--print-schema")
+	var schema struct {
+		ID string `json:"$id"`
+	}
+	if err != nil || json.Unmarshal([]byte(stdout), &schema) != nil || !strings.HasSuffix(schema.ID, "drift-summary-v1.schema.json") {
+		t.Fatalf("--print-schema: %v\n%s", err, stdout)
+	}
+	// A directory of an import has no drift to summarise.
+	if _, err := runExport(t, writeExportReport(t), "--schema", "drift-summary"); err == nil {
+		t.Error("a drift summary of an import worked")
+	}
+}

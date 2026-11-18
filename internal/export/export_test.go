@@ -107,10 +107,10 @@ func decodeInventory(t *testing.T, content []byte) inventoryDoc {
 
 func TestNoSecretReachesAnyDocument(t *testing.T) {
 	t.Parallel()
-	out := writeOut(t)
+	out := writeOutWithDrift(t)
 	for _, document := range Documents {
 		content := string(build(t, Options{Out: out, Document: document}))
-		for _, leak := range []string{secretAttribute, secretTagValue, credentialTag, "attributes", "master_password", "aws_s3_bucket.logs", "tfstate"} {
+		for _, leak := range []string{secretAttribute, secretTagValue, credentialTag, driftSecretBefore, driftSecretAfter, "attributes", "master_password", "aws_s3_bucket.logs", "tfstate"} {
 			if strings.Contains(content, leak) {
 				t.Errorf("%s holds %q:\n%s", document, leak, content)
 			}
@@ -322,7 +322,7 @@ func TestReadKey(t *testing.T) {
 
 func TestSchemaRejectsExtraFields(t *testing.T) {
 	t.Parallel()
-	out := writeOut(t)
+	out := writeOutWithDrift(t)
 	for _, document := range Documents {
 		good := build(t, Options{Out: out, Document: document})
 		if err := validate(document, good); err != nil {
@@ -434,7 +434,7 @@ func TestReasonCodes(t *testing.T) {
 
 func TestRunIDIsStable(t *testing.T) {
 	t.Parallel()
-	out := writeOut(t)
+	out := writeOutWithDrift(t)
 	var ids []string
 	for _, document := range Documents {
 		var doc struct {
