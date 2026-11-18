@@ -874,6 +874,7 @@ func (s *googleSandbox) checkGoogleDrift(ctx context.Context, t *testing.T, esta
 	drift := driftRun{ctx: ctx, engineName: s.engineName, execPath: s.execPath, out: work}
 	checkSharedDrift(t, drift, sharedDrift{
 		args:            []string{"--root", filepath.ToSlash(rel)},
+		dir:             rel,
 		sharedAttribute: "labels.infraharvest-sandbox", sharedBefore: s.engineName, sharedAfter: googleDriftShared,
 		sharedNew: `infraharvest-sandbox"?\s*=\s*"` + googleDriftShared + `"`, sharedOld: `infraharvest-sandbox"?\s*=\s*"` + regexp.QuoteMeta(s.engineName) + `"`,
 		ownType: "google_pubsub_topic", ownAttribute: "labels.project", ownBefore: "infraharvest-sandbox", ownAfter: "reported",
