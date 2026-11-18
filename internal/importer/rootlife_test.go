@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -86,7 +87,7 @@ func TestListCallAddsToAMergedRoot(t *testing.T) {
 	if set, err := premerged(out, dir); err != nil || !set {
 		t.Errorf("the root isn't set aside again: %v, %v", set, err)
 	}
-	if _, err := os.Stat(filepath.Join(premergeDir(out, dir), engine.AddedFileName(2))); err != nil {
+	if _, err := os.Stat(filepath.Join(premergeDir(out, dir), incremental.AddedFileName(2))); err != nil {
 		t.Errorf("what was added isn't set aside with the root: %v", err)
 	}
 	result, err := checkpointResult(out, dir)

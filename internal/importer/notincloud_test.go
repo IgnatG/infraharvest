@@ -247,7 +247,7 @@ func TestAddToRootReportsWhatIsNoLongerInTheCloud(t *testing.T) {
 
 // A resource whose ID ends with a part that changes, such as an azapi
 // one's API version, is found by the identity it is kept under (see
-// engine.Existing): it isn't gone while the listing finds it.
+// incremental.Existing): it isn't gone while the listing finds it.
 func TestListedInScopeFindsAResourceByItsIdentity(t *testing.T) {
 	t.Parallel()
 	cat := catalogue.MustBuiltin("aws")

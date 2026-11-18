@@ -108,7 +108,7 @@ func (d *dataBlocks) reference(l lookup) hclwrite.Tokens {
 
 // write adds the data sources to data.tf.
 func (d *dataBlocks) write() error {
-	return appendBlocks(d.ws, rootfile.DataFileName, rootfile.DataFileHeader, d.blocks)
+	return d.ws.AppendBlocks(rootfile.DataFileName, rootfile.DataFileHeader, d.blocks)
 }
 
 // addLookups replaces literals in generated.tf that a data source reads

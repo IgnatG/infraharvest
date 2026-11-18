@@ -189,27 +189,7 @@ func importTargets(dir string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return importTargetsIn(imports), nil
-}
-
-// importTargetsIn returns where each import block of f with a literal ID,
-// or identity, imports into, by resource type and import ID (see
-// hclfile.ImportIDOf).
-func importTargetsIn(f *hclfile.File) map[string]string {
-	targets := map[string]string{}
-	for _, b := range f.Syntax.Blocks {
-		to, ok := b.Body.Attributes["to"]
-		if b.Type != "import" || !ok {
-			continue
-		}
-		id, ok := hclfile.ImportIDOf(b.Body)
-		if !ok {
-			continue
-		}
-		address := strings.TrimSpace(string(to.Expr.Range().SliceBytes(f.Src)))
-		targets[AddressType(address)+"\x00"+id] = address
-	}
-	return targets
+	return hclfile.ImportTargets(imports), nil
 }
 
 // movedAddresses returns the new address of each resource whose import

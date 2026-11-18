@@ -48,7 +48,7 @@ func addDataSourcesSkipping(ws *run.Workspace, external []External, sources map[
 	// In one order whatever the caller's, as the names depend on it, and
 	// each resource once, with a name if any of its entries has one.
 	external = slices.Clone(external)
-	sortExternal(external)
+	run.SortExternal(external)
 	external = slices.CompactFunc(external, sameResource)
 	index := map[string][]referenceTarget{}
 	blocks := map[string]External{} // data address -> resource

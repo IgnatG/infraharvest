@@ -573,7 +573,7 @@ func TestSpliceTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range f.Resources() {
-		replaceReferences(r.Write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
+		hclfile.ReplaceReferences(r.Write.Body(), []string{"google_compute_subnetwork", "app", "self_link"}, replacement)
 	}
 	got := string(hclwrite.Format(f.Edit().Bytes()))
 	for _, want := range []string{

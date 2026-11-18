@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package engine
+package run
 
 import "github.com/IgnatG/infraharvest/internal/logging"
 
@@ -12,9 +12,9 @@ import "github.com/IgnatG/infraharvest/internal/logging"
 // plans a root several times.
 const LargeRootResources = 2000
 
-// warnLargeRoot warns, if the root in dir has more than LargeRootResources
+// WarnLargeRoot warns, if the root in dir has more than LargeRootResources
 // resources, that its plans will be slow, and what to do about it.
-func warnLargeRoot(dir string, resources int) {
+func WarnLargeRoot(dir string, resources int) {
 	if resources <= LargeRootResources {
 		return
 	}

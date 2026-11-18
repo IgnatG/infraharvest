@@ -105,7 +105,7 @@ func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken
 			add = append(add, block)
 		}
 	}
-	if err := appendBlocks(ws, rootfile.DataFileName, rootfile.DataFileHeader, add); err != nil {
+	if err := ws.AppendBlocks(rootfile.DataFileName, rootfile.DataFileHeader, add); err != nil {
 		return false, err
 	}
 	if locals == nil {

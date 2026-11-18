@@ -14,6 +14,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 )
 
@@ -108,7 +109,7 @@ func TestClearGenerated(t *testing.T) {
 	}
 	// generated_2.tf is what --incremental added to the root; network.tf
 	// what the checkpoint says the configuration was split into.
-	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName, engine.AddedFileName(2), "network.tf", "notes.md"} {
+	for _, name := range []string{rootfile.GeneratedFileName, rootfile.ImportsFileName, rootfile.VersionsFileName, incremental.AddedFileName(2), "network.tf", "notes.md"} {
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +120,7 @@ func TestClearGenerated(t *testing.T) {
 	if err := clearGenerated(out, dir); err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]bool{rootfile.GeneratedFileName: false, rootfile.ImportsFileName: false, engine.AddedFileName(2): false, "network.tf": false, rootfile.VersionsFileName: true, "notes.md": true} {
+	for name, want := range map[string]bool{rootfile.GeneratedFileName: false, rootfile.ImportsFileName: false, incremental.AddedFileName(2): false, "network.tf": false, rootfile.VersionsFileName: true, "notes.md": true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
 			t.Errorf("%s: exists=%v, want %v", name, err == nil, want)
 		}

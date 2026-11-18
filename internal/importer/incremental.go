@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/IgnatG/infraharvest/internal/engine"
+	"github.com/IgnatG/infraharvest/internal/engine/incremental"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/logging"
@@ -23,7 +24,7 @@ import (
 
 // addToRoot adds to dir, a root an earlier import generated in full (see
 // listedCall.decideRoot), the resources of imports it doesn't have yet
-// (see engine.Existing and engine.Add), generating them in a staging
+// (see incremental.Existing and engine.Add), generating them in a staging
 // directory under the output's checkpoints.
 // It records the others as excluded, and what the root has that is no
 // longer in the cloud (see listedHere.notInCloud), and returns the
@@ -39,7 +40,7 @@ func (c *callRecorder) addToRoot(ctx context.Context, dir string, imports []root
 	if err != nil {
 		return imports, nil, nil, err
 	}
-	existing, err := engine.Existing(dir, previous)
+	existing, err := incremental.Existing(dir, previous)
 	if err != nil {
 		return imports, nil, nil, err
 	}
