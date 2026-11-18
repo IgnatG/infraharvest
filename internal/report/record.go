@@ -182,7 +182,7 @@ func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 
 // addFindings records what the scanners of result's gate, of the root at
 // path, found, each about the resource the root imports at the address
-// it names, if any (see engine.ResourceAt), with its type and import ID;
+// it names, if any (see engine.ManagedIndex.At), with its type and import ID;
 // the root's resources were listed in scope.
 func (r *Report) addFindings(path, scope string, result *engine.Result) {
 	managed := result.Addresses
@@ -198,7 +198,7 @@ func (r *Report) addFindings(path, scope string, result *engine.Result) {
 // GateFindings returns what the scanners of checks, a root's gate, found
 // in the root at root, as env plans it for a root environments share,
 // each about the resource of managed, what the root imports, at the
-// address it names, if any (see engine.ResourceAt), with its type and
+// address it names, if any (see engine.ManagedIndex.At), with its type and
 // import ID.
 func GateFindings(root, env string, managed []engine.Managed, checks gate.Gate) []Finding {
 	var findings []Finding

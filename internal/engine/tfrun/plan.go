@@ -99,20 +99,6 @@ var (
 	changeSummaryType = []byte(`"change_summary"`)
 )
 
-// parseChangeSummary returns the change summary in Terraform's
-// machine-readable UI output, or nil.
-func parseChangeSummary(out []byte) (*ChangeSummary, error) {
-	_, summary, err := parsePlanOutput(out)
-	return summary, err
-}
-
-// parseUIDiagnostics returns the diagnostics in Terraform's machine-readable
-// UI output (one JSON message per line).
-func parseUIDiagnostics(out []byte) ([]tfjson.Diagnostic, error) {
-	diags, _, err := parsePlanOutput(out)
-	return diags, err
-}
-
 // eachUIMessage calls visit with each line of Terraform's machine-readable
 // UI output. It fails on a line too long to read, so that no message is
 // passed over quietly.

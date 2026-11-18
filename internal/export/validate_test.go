@@ -5,6 +5,7 @@ package export
 
 import (
 	"encoding/json"
+	"maps"
 	"reflect"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ import (
 )
 
 // fill sets every field v reaches to a value that isn't empty, so that a
-// field instanceOf doesn't follow shows.
+// field instance doesn't follow shows.
 func fill(v reflect.Value) {
 	switch v.Kind() {
 	case reflect.Pointer:
@@ -63,7 +64,7 @@ func roundTrip(t *testing.T, v any) any {
 	return back
 }
 
-// TestInstanceIsTheEncoding checks that instanceOf, which the check of a
+// TestInstanceIsTheEncoding checks that instance, which the check of a
 // document validates, is what validating the document's encoding would
 // read: for every document type, empty, with every field set, and as Build
 // builds them.
@@ -86,7 +87,7 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 	}
 	docs = append(docs, inv, buildRun(r, "id", time.Time{}, time.Time{}), buildGate(r, "id"))
 	for _, doc := range docs {
-		got, err := instanceOf(doc)
+		got, err := instance(reflect.ValueOf(doc))
 		if err != nil {
 			t.Fatalf("%T: %v", doc, err)
 		}
@@ -97,7 +98,7 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 }
 
 // TestInstanceRefusesWhatItDoesNotKnow checks that a kind encoding/json
-// writes differently from what instanceOf knows fails the check rather
+// writes differently from what instance knows fails the check rather
 // than passing unchecked.
 func TestInstanceRefusesWhatItDoesNotKnow(t *testing.T) {
 	t.Parallel()
@@ -109,7 +110,7 @@ func TestInstanceRefusesWhatItDoesNotKnow(t *testing.T) {
 		map[int]string{1: "a"},
 		struct{ component }{},
 	} {
-		if _, err := instanceOf(v); err == nil {
+		if _, err := instance(reflect.ValueOf(v)); err == nil {
 			t.Errorf("%T passed", v)
 		}
 	}
@@ -196,4 +197,31 @@ func TestValidateDocumentRejects(t *testing.T) {
 	if err := validateDocument(DocInventory, inv); err == nil {
 		t.Error("resources that encode as null passed")
 	}
+}
+
+// validate checks content, a JSON document, against the schema of
+// document. Schemas say additionalProperties false, so a field the schema
+// doesn't name fails it.
+func validate(document string, content []byte) error {
+	var doc any
+	if err := json.Unmarshal(content, &doc); err != nil {
+		return err
+	}
+	c, err := checkerOf(document)
+	if err != nil {
+		return err
+	}
+	top, ok := doc.(map[string]any)
+	if !ok {
+		return c.whole.Validate(doc)
+	}
+	rest := maps.Clone(top)
+	arrays := map[string]array{}
+	for name := range c.items {
+		if items, ok := top[name].([]any); ok {
+			rest[name] = []any{}
+			arrays[name] = array{n: len(items), item: func(i int) (any, error) { return items[i], nil }}
+		}
+	}
+	return c.check(rest, arrays)
 }

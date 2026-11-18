@@ -176,18 +176,9 @@ func AddressType(address string) string {
 	return names[0]
 }
 
-// ResourceAt returns the resource of managed, what a root imports, that a
-// finding about address is about: the one at address; or else the one
-// at address but for instance keys, or the one module call address
-// makes, where there is only one. A finding about a module call of
-// several resources, or about none the root imports, is about none.
-func ResourceAt(managed []Managed, address string) (Managed, bool) {
-	return NewManagedIndex(managed).At(address)
-}
-
-// ManagedIndex answers ResourceAt for many addresses of the same
-// resources, each in about the time of a map lookup, where ResourceAt
-// reads every resource for each.
+// ManagedIndex answers, for many addresses of the same resources, which
+// resource of them a finding about an address is about, each in about the
+// time of a map lookup.
 type ManagedIndex struct {
 	managed []Managed
 	// at is the first resource at each address; bare are the indexes of
@@ -212,7 +203,11 @@ func NewManagedIndex(managed []Managed) *ManagedIndex {
 	return x
 }
 
-// At returns what ResourceAt returns for address.
+// At returns the resource of the indexed ones, what a root imports, that a
+// finding about address is about: the one at address; or else the one at
+// address but for instance keys, or the one module call address makes,
+// where there is only one. A finding about a module call of several
+// resources, or about none the root imports, is about none.
 func (x *ManagedIndex) At(address string) (Managed, bool) {
 	if address == "" {
 		return Managed{}, false

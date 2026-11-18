@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// instanceOf returns v, a document, as encoding/json would decode its
+// instance returns v, a document, as encoding/json would decode its
 // encoding into an any: objects as map[string]any, arrays as []any, numbers
 // as float64, and nil for what encodes as null. The schema validator takes
 // that form, not Go structs; building it directly saves encoding and
@@ -17,10 +17,6 @@ import (
 // kinds the documents use, and returns an error for any other, so that a
 // document type it can't follow fails rather than goes unchecked. A test
 // checks it against encoding/json.
-func instanceOf(v any) (any, error) {
-	return instance(reflect.ValueOf(v))
-}
-
 func instance(v reflect.Value) (any, error) {
 	switch v.Kind() {
 	case reflect.Invalid:
@@ -73,7 +69,7 @@ func instance(v reflect.Value) (any, error) {
 	return nil, fmt.Errorf("a value of kind %s", v.Kind())
 }
 
-// splitInstance is instanceOf of v, a pointer to a document's struct, but
+// splitInstance is instance of the value of v, a pointer to a document's struct, but
 // each array that names lists, and that isn't null, is empty in it: those
 // are returned as they are, by name, for the caller to take an item at a
 // time.

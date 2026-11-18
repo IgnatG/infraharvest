@@ -524,3 +524,9 @@ func TestDiskIndexReadsCheckpointTrees(t *testing.T) {
 		t.Errorf("a missing output: %v, %v", roots, err)
 	}
 }
+
+// newDiskIndex returns an index of what the checkpoints and roots under
+// out hold.
+func newDiskIndex(out string) *outputIndex {
+	return newOutputIndex(out, diskOutput{out: out})
+}

@@ -35,9 +35,6 @@ func SetVerbose(verbose bool) {
 	level.Set(slog.LevelInfo)
 }
 
-// Verbose reports whether the process logs at Debug.
-func Verbose() bool { return level.Level() <= slog.LevelDebug }
-
 // current is the logger the functions of this package log with once Setup
 // made it, and nil before: they write through the standard logger then, as
 // a test that captures it (see log.SetOutput) expects.
@@ -81,17 +78,8 @@ func Warnf(format string, args ...any) { logf(slog.LevelWarn, format, args...) }
 // Errorf logs a message at Error, the level of what stopped a command.
 func Errorf(format string, args ...any) { logf(slog.LevelError, format, args...) }
 
-// Debug logs msg at Debug, with attributes as slog.Debug takes them.
-func Debug(msg string, args ...any) { emit(slog.LevelDebug, msg, args) }
-
 // Info logs msg at Info, with attributes as slog.Info takes them.
 func Info(msg string, args ...any) { emit(slog.LevelInfo, msg, args) }
-
-// Warn logs msg at Warn, with attributes as slog.Warn takes them.
-func Warn(msg string, args ...any) { emit(slog.LevelWarn, msg, args) }
-
-// Error logs msg at Error, with attributes as slog.Error takes them.
-func Error(msg string, args ...any) { emit(slog.LevelError, msg, args) }
 
 // logf logs the formatted message at l.
 func logf(l slog.Level, format string, args ...any) {

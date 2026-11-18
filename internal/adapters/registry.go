@@ -15,9 +15,9 @@ import (
 // Terraform provider, so that google --beta, whose provider is
 // google-beta, gets google's.
 //
-// A registry is a value of its own: a run is handed the one it uses (see
-// importer.Run.WithRegistry), so that two runs in a process, or a library
-// that adds or replaces modules, never see each other's. Builtin returns
+// A registry is a value of its own: a run has the one it uses, so that two
+// runs in a process, or a library that adds or replaces modules, never see
+// each other's. Builtin returns
 // one with the curated modules infraharvest ships. For and Providers
 // return copies, so that changing them leaves the registry as it is.
 // A registry is not safe for concurrent changes: a run reads it alone.
