@@ -17,6 +17,7 @@ import "github.com/IgnatG/infraharvest/internal/harvest"
 func traits() harvest.Traits {
 	return harvest.Traits{
 		IDPrefixes: []string{"/subscriptions/"},
+		IDSegments: []string{"/subscriptions/"},
 		IdentityAttributes: []string{
 			"key_id", "zone_id", "dns_name", "domain_name", "fqdn", "principal_id", "client_id", "unique_id", "role_definition_resource_id",
 		},

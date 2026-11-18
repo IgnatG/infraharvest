@@ -264,7 +264,7 @@ func (a *acceptance) verify(ctx context.Context) (*gate.Verdict[*Change, driftRe
 	if err != nil {
 		return nil, secret.RedactError(err, forms)
 	}
-	if rejected := judgeDrift(p, diags, a.code, a.pending, a.applied, a.opts.StateOnly, a.edited, forms); len(rejected) > 0 {
+	if rejected := judgeDrift(judgeInput{plan: p, diags: diags, code: a.code, pending: a.pending, sources: a.applied, stateOnly: a.opts.StateOnly, contents: a.edited, forms: forms}); len(rejected) > 0 {
 		return planRejection(rejected), nil
 	}
 	failedCheck, files, err := a.checks(ctx, p)
@@ -362,25 +362,41 @@ func writeDriftFiles(dir string, contents map[string][]byte, names []string, wri
 	return nil
 }
 
-// judgeDrift returns the changes of pending whose edits, applied as
-// sources say, the plan of the edited code, p, or its errors, diags,
-// blame, each with why: an error in the edited block; an accepted
+// judgeInput is what judgeDrift judges the edits with: the plan of the
+// edited code, plan, or its errors, diags; the plan of the code as it was,
+// code; the changes still pending and the sources their edits were applied
+// by; the attributes kept only in state, by address; the edited files'
+// contents; and the forms of the secrets to redact from reasons.
+type judgeInput struct {
+	plan      *tfjson.Plan
+	diags     []tfjson.Diagnostic
+	code      *tfjson.Plan
+	pending   []*Change
+	sources   map[*Change]codeSource
+	stateOnly map[string][]string
+	contents  map[string][]byte
+	forms     []string
+}
+
+// judgeDrift returns the changes of in.pending whose edits, applied as
+// in.sources say, the plan of the edited code, in.plan, or its errors,
+// in.diags, blame, each with why: an error in the edited block; an accepted
 // attribute the plan still changes; or another attribute of the resource
-// the plan of the code, code, didn't change, but for what is secret or
+// the plan of the code, in.code, didn't change, but for what is secret or
 // kept only in state, or a key of its own tags or labels that only the
 // state records (see recordedTagLeaves); or another resource planning
 // other than code has it (see rejections.blameLeak). A change of shared
 // tags is judged on every resource it covers. Reasons have the values of
 // forms redacted.
-func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pending []*Change, sources map[*Change]codeSource, stateOnly map[string][]string, contents map[string][]byte, forms []string) map[*Change]string {
-	r := rejections{reasons: map[*Change]string{}, forms: forms}
-	if len(diags) > 0 || p == nil {
-		r.planFails(diags, pending, sources, contents)
+func judgeDrift(in judgeInput) map[*Change]string {
+	r := rejections{reasons: map[*Change]string{}, forms: in.forms}
+	if len(in.diags) > 0 || in.plan == nil {
+		r.planFails(in.diags, in.pending, in.sources, in.contents)
 		return r.reasons
 	}
-	baseline := managedChanges(code)
+	baseline := managedChanges(in.code)
 	byAddress := map[string][]*Change{}
-	for _, c := range pending {
+	for _, c := range in.pending {
 		if c.shared != nil {
 			for _, a := range c.Covers {
 				byAddress[a] = append(byAddress[a], c)
@@ -390,7 +406,7 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 		byAddress[c.Address] = append(byAddress[c.Address], c)
 	}
 	var leaked []string
-	for _, rc := range p.ResourceChanges {
+	for _, rc := range in.plan.ResourceChanges {
 		if rc.Mode != tfjson.ManagedResourceMode || rc.Change == nil || rc.Change.Importing != nil {
 			continue
 		}
@@ -402,10 +418,10 @@ func judgeDrift(p *tfjson.Plan, diags []tfjson.Diagnostic, code *tfjson.Plan, pe
 			}
 			continue
 		}
-		r.judgeResource(rc, base, cs, stateOnly)
+		r.judgeResource(rc, base, cs, in.stateOnly)
 	}
 	if len(leaked) > 0 {
-		r.blameLeak(leaked, pending, sources, contents)
+		r.blameLeak(leaked, in.pending, in.sources, in.contents)
 	}
 	return r.reasons
 }

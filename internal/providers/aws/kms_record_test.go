@@ -38,8 +38,9 @@ var recordKmsKeys = map[string]string{
 // after its name: before, they were labelled after their IDs. A grant
 // records its grantee principal, by which the default selection leaves out
 // the grants AWS services make for themselves. An AWS
-// managed alias, alias/aws/<service>, is left out without describing its
-// key, and so is that key when the keys are listed.
+// managed alias, alias/aws/<service>, is recorded without describing its
+// key, for the catalogue to skip, and that key is left out when the keys are
+// listed.
 func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 	t.Parallel()
 	ctx := useFakeAPI(t, func(call apiCall) string {
@@ -97,6 +98,7 @@ func TestRecordKmsListsCustomerKeysGrantsAndAliases(t *testing.T) {
 		recordedResource{"aws_kms_key", "k-off", "off", map[string]string{"key_id": "k-off"}},
 		// A multi-Region replica is an aws_kms_replica_key.
 		recordedResource{"aws_kms_replica_key", "k-mrr", "k-mrr", map[string]string{"key_id": "k-mrr"}},
+		recordedResource{"aws_kms_alias", "alias/aws/s3", "alias/aws/s3", nil},
 		recordedResource{"aws_kms_alias", "alias/app", "alias/app", nil},
 		recordedResource{"aws_kms_alias", "alias/off", "alias/off", nil},
 	)

@@ -21,6 +21,7 @@ import "github.com/IgnatG/infraharvest/internal/harvest"
 func traits() harvest.Traits {
 	return harvest.Traits{
 		IDPrefixes:         []string{"projects/"},
+		IDSegments:         []string{"projects/"},
 		IDSuffixes:         []string{".gserviceaccount.com"},
 		SelfLinkAliases:    map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},
 		PrimaryIdentities:  []string{"self_link"},

@@ -101,7 +101,7 @@ func referencedAnnotations(ws *run.Workspace, opts Options, taken Names) []annot
 		{name: "principals noted", edit: func(f *hclfile.File) (bool, error) {
 			return notePrincipals(f), nil
 		}},
-		scopeAnnotation(ws, opts.Scope, taken, scopeKept(opts)),
+		scopeAnnotation(ws, opts.Scope, taken, scopeKept(opts), opts.Traits),
 	}
 }
 

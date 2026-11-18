@@ -61,7 +61,7 @@ resource "aws_subnet" "a" {
 func lifted(t *testing.T, files map[string]string, scope *ScopeLocals, taken Names) *run.Workspace {
 	t.Helper()
 	ws := memoryWorkspace(files)
-	replan, err := annotate(ws, referencedAnnotations(ws, Options{Scope: scope, DefaultTags: &DefaultTags{Attribute: "tags"}}, taken))
+	replan, err := annotate(ws, referencedAnnotations(ws, Options{Scope: scope, DefaultTags: &DefaultTags{Attribute: "tags"}, Traits: testTraits}, taken))
 	if err != nil {
 		t.Fatal(err)
 	}

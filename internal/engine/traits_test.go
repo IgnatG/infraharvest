@@ -14,6 +14,7 @@ import (
 var testTraits = Traits{
 	IDPrefixes:        []string{"arn:", "/subscriptions/", "projects/"},
 	IDSuffixes:        []string{".gserviceaccount.com"},
+	IDSegments:        []string{"projects/", "/subscriptions/"},
 	ARNPrefix:         "arn:",
 	WellKnownIDs:      regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`),
 	SelfLinkAliases:   map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},

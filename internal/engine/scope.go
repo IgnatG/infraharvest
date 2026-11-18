@@ -18,9 +18,9 @@ import (
 
 // scopeAnnotation is the annotation that makes generated.tf read the
 // root's own account and region from locals (see liftScope).
-func scopeAnnotation(ws *run.Workspace, s *ScopeLocals, taken Names, keep map[string]bool) annotation {
+func scopeAnnotation(ws *run.Workspace, s *ScopeLocals, taken Names, keep map[string]bool, t Traits) annotation {
 	return annotation{name: "scope read from data sources", edit: func(f *hclfile.File) (bool, error) {
-		return liftScope(ws, f, s, taken, keep)
+		return liftScope(ws, f, s, taken, keep, t)
 	}}
 }
 
@@ -39,7 +39,7 @@ func scopeAnnotation(ws *run.Workspace, s *ScopeLocals, taken Names, keep map[st
 // do the import blocks, variables and data sources. A part whose local or data source the root, or taken,
 // has for something else stays literal too. It reports whether it
 // changed generated.
-func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken Names, keep map[string]bool) (bool, error) {
+func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken Names, keep map[string]bool, t Traits) (bool, error) {
 	if s == nil {
 		return false, nil
 	}
@@ -71,9 +71,9 @@ func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken
 	for _, b := range blocks {
 		switch b.Type() {
 		case "resource":
-			changed = liftScopeIn(b.Body(), values, keep, used) || changed
+			changed = liftScopeIn(b.Body(), values, keep, used, t) || changed
 		case "module":
-			changed = liftScopeIn(b.Body(), values, call, used) || changed
+			changed = liftScopeIn(b.Body(), values, call, used, t) || changed
 		}
 	}
 	localsChanged := false
@@ -86,7 +86,7 @@ func liftScope(ws *run.Workspace, generated *hclfile.File, s *ScopeLocals, taken
 				if own[name] || keep[name] {
 					continue
 				}
-				if out, ok := liftScopeTokens(attr.Expr().BuildTokens(nil), values, used); ok {
+				if out, ok := liftScopeTokens(attr.Expr().BuildTokens(nil), values, used, t); ok {
 					b.Body().SetAttributeRaw(name, out)
 					localsChanged = true
 				}
@@ -173,19 +173,19 @@ func declaresData(data *hclfile.File, address string) bool {
 // liftScopeIn lifts the values of body's arguments, and of its nested
 // blocks', but for those named in keep (see liftScopeTokens), adding
 // the locals they then read to used. It reports whether it changed any.
-func liftScopeIn(body *hclwrite.Body, values []ScopeValue, keep map[string]bool, used map[string]bool) bool {
+func liftScopeIn(body *hclwrite.Body, values []ScopeValue, keep map[string]bool, used map[string]bool, t Traits) bool {
 	changed := false
 	for name, attr := range body.Attributes() {
 		if keep[name] {
 			continue
 		}
-		if out, ok := liftScopeTokens(attr.Expr().BuildTokens(nil), values, used); ok {
+		if out, ok := liftScopeTokens(attr.Expr().BuildTokens(nil), values, used, t); ok {
 			body.SetAttributeRaw(name, out)
 			changed = true
 		}
 	}
 	for _, b := range body.Blocks() {
-		changed = liftScopeIn(b.Body(), values, keep, used) || changed
+		changed = liftScopeIn(b.Body(), values, keep, used, t) || changed
 	}
 	return changed
 }
@@ -195,7 +195,7 @@ func liftScopeIn(body *hclwrite.Body, values []ScopeValue, keep map[string]bool,
 // "${local.<name>}", or local.<name> alone where it is the whole string;
 // an object key stays as it is. It adds the locals it reads to used, and
 // reports whether it changed anything.
-func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[string]bool) (hclwrite.Tokens, bool) {
+func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[string]bool, traits Traits) (hclwrite.Tokens, bool) {
 	out := make(hclwrite.Tokens, 0, len(tokens))
 	changed := false
 	for i := 0; i < len(tokens); i++ {
@@ -214,7 +214,7 @@ func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[strin
 		var read []string
 		for _, v := range values {
 			var found bool
-			if s, found = liftScopeWord(s, v.ID, "${local."+v.Local+"}"); found {
+			if s, found = liftScopeWord(s, v.ID, "${local."+v.Local+"}", traits); found {
 				read = append(read, v.Local)
 			}
 		}
@@ -245,10 +245,10 @@ func liftScopeTokens(tokens hclwrite.Tokens, values []ScopeValue, used map[strin
 
 // liftScopeWord returns s with each occurrence of id that is an ID (see
 // scopeWordIndexFrom) replaced by with, and whether it had one.
-func liftScopeWord(s, id, with string) (string, bool) {
+func liftScopeWord(s, id, with string, t Traits) (string, bool) {
 	var b strings.Builder
 	last := 0
-	for i := scopeWordIndexFrom(s, id, 0); i >= 0; i = scopeWordIndexFrom(s, id, i+len(id)) {
+	for i := scopeWordIndexFrom(s, id, 0, t); i >= 0; i = scopeWordIndexFrom(s, id, i+len(id), t) {
 		b.WriteString(s[last:i])
 		b.WriteString(with)
 		last = i + len(id)
@@ -262,8 +262,9 @@ func liftScopeWord(s, id, with string) (string, bool) {
 
 // scopeWordIndexFrom returns the index of the first occurrence of id in s,
 // at or after from, that is an ID, or -1 for none: all of s; a part of an
-// ARN, a URL, a Google Cloud projects/ path or an Azure /subscriptions/ ID,
-// after :, /, . or @
+// ARN, a URL, or a path or link the provider's traits say holds IDs (see
+// Traits.HoldsIDs), such as a Google Cloud projects/ path or an Azure
+// /subscriptions/ ID, after :, /, . or @
 // and before :, / or .; or a part of a host or an email, after . or @ and
 // before . (see scopeID). So arn:aws:iam::123456789012:role/ci,
 // projects/app-prod/topics/orders and s3.eu-west-2.amazonaws.com hold
@@ -271,7 +272,7 @@ func liftScopeWord(s, id, with string) (string, bool) {
 // group /app/eu-west-2, names that only have them in part, don't: a name
 // that happens to hold the ID would otherwise change with the account the
 // root plans in.
-func scopeWordIndexFrom(s, id string, from int) int {
+func scopeWordIndexFrom(s, id string, from int, t Traits) int {
 	if id == "" {
 		return -1
 	}
@@ -281,7 +282,7 @@ func scopeWordIndexFrom(s, id string, from int) int {
 		}
 		return -1
 	}
-	ids := strings.HasPrefix(s, "arn:") || strings.Contains(s, "://") || strings.Contains(s, "projects/") || strings.Contains(s, "/subscriptions/")
+	ids := t.HoldsIDs(s)
 	for from <= len(s) {
 		i := strings.Index(s[from:], id)
 		if i < 0 {
