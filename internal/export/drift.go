@@ -5,6 +5,7 @@ package export
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,7 +158,7 @@ type driftTypeCounts struct {
 }
 
 type driftRootSummary struct {
-	Root        string            `json:"root"`
+	Root        string            `json:"root,omitempty"`
 	Environment string            `json:"environment,omitempty"`
 	Checked     bool              `json:"checked"`
 	Changes     int               `json:"changes"`
@@ -214,12 +215,22 @@ func buildDriftSummary(d *driftRead, opts Options, runID string, now time.Time) 
 	}
 	roots := map[rootKey]*rootState{}
 	var order []rootKey
+	var bad error
 	root := func(k rootKey) *rootState {
 		if s, ok := roots[k]; ok {
 			return s
 		}
+		// A root's path is a path of the repository, which the addresses'
+		// redaction covers: hashed with them, and left out with them.
+		if secret.CredentialFormat(k.path) != "" || secret.CredentialFormat(k.environment) != "" {
+			bad = errors.New("the path or environment of a root has a format of a credential: nothing is written")
+		}
+		path := ""
+		if !opts.DropAddresses {
+			path = red.hash(k.path)
+		}
 		s := &rootState{
-			summary:   &driftRootSummary{Root: k.path, Environment: k.environment, Checked: true},
+			summary:   &driftRootSummary{Root: path, Environment: k.environment, Checked: true},
 			types:     map[string]*driftTypeCounts{},
 			addresses: map[string]bool{},
 		}
@@ -277,6 +288,9 @@ func buildDriftSummary(d *driftRead, opts Options, runID string, now time.Time) 
 		}
 	}
 
+	if bad != nil {
+		return nil, bad
+	}
 	doc.Totals.Roots = len(order)
 	sort.SliceStable(order, func(i, j int) bool {
 		if order[i].path != order[j].path {

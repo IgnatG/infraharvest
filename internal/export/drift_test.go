@@ -388,8 +388,15 @@ func TestDriftSummaryHashAndDropAddresses(t *testing.T) {
 			t.Errorf("the same key gave other hashes, or another key the same: %s", h)
 		}
 	}
-	// Roots, environments, types and counts stay readable.
-	if london(a1).Root != "aws/123456789012/eu-west-2" || len(london(a1).Types) != 4 || london(a1).Types[0].Type != "aws_db_instance" || a1.Totals != plain.Totals {
+	// Root paths are hashed with the addresses; environments, types and
+	// counts stay readable.
+	if london(plain).Root != "aws/123456789012/eu-west-2" {
+		t.Errorf("plain root: %q", london(plain).Root)
+	}
+	if r := london(a1).Root; len(r) != 64 || r != london(a2).Root || r == london(b).Root {
+		t.Errorf("root not hashed under the key: %q", r)
+	}
+	if len(london(a1).Types) != 4 || london(a1).Types[0].Type != "aws_db_instance" || a1.Totals != plain.Totals {
 		t.Errorf("hashed: %+v", london(a1))
 	}
 
@@ -401,11 +408,11 @@ func TestDriftSummaryHashAndDropAddresses(t *testing.T) {
 			t.Errorf("redaction: %+v", doc.Redaction)
 		}
 		for _, r := range doc.Roots {
-			if r.Addresses != nil {
-				t.Errorf("%s has addresses: %q", r.Root, r.Addresses)
+			if r.Addresses != nil || r.Root != "" {
+				t.Errorf("root %q has addresses: %q", r.Root, r.Addresses)
 			}
 		}
-		for _, leak := range []string{`"addresses": [`, "aws_sqs_queue.", "aws_s3_bucket.", "team-blue", "aws_vpc.main"} {
+		for _, leak := range []string{`"addresses": [`, `"root"`, "aws/123456789012", "aws_sqs_queue.", "aws_s3_bucket.", "team-blue", "aws_vpc.main"} {
 			if strings.Contains(string(content), leak) {
 				t.Errorf("the dropped summary holds %q:\n%s", leak, content)
 			}
@@ -510,6 +517,25 @@ func TestDriftSummaryRefusesCredentialAddress(t *testing.T) {
 	content := build(t, Options{Out: out, Document: DocDriftSummary, DropAddresses: true})
 	if strings.Contains(string(content), credentialTag) {
 		t.Errorf("the credential reached the summary:\n%s", content)
+	}
+}
+
+func TestDriftSummaryRefusesCredentialRootPath(t *testing.T) {
+	t.Parallel()
+	out := t.TempDir()
+	root := "aws/" + credentialTag
+	d := &report.Drift{
+		Roots:   []report.DriftRoot{{Path: root}},
+		Changes: []report.DriftChange{{Root: root, Address: "aws_s3_bucket.logs", Type: "aws_s3_bucket", Kind: "changed", Decision: report.DriftKeep, Outcome: report.DriftKept}},
+	}
+	d.Finish()
+	if err := d.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range [][]byte{nil, []byte("0123456789abcdef-key-a")} {
+		if _, err := Build(Options{Out: out, Document: DocDriftSummary, Now: fixedNow, HashKey: key}); err == nil || !strings.Contains(err.Error(), "of a root") {
+			t.Errorf("a root path with a credential's format was written, or refused for another reason: %v", err)
+		}
 	}
 }
 

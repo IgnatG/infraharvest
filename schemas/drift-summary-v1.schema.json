@@ -27,7 +27,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["root", "checked", "changes", "outcomes", "types"],
+        "required": ["checked", "changes", "outcomes", "types"],
         "properties": {
           "root": {"type": "string", "minLength": 1},
           "environment": {"type": "string", "minLength": 1},
