@@ -27,6 +27,10 @@ const (
 	reasonInOtherRoot = "already in another root of the output"
 )
 
+// reasonGone is why an import leaves out a resource the cloud deleted
+// after it was listed (see Gone).
+const reasonGone = "deleted since it was listed: the cloud has no object at the ID it was listed by"
+
 // skippedReason is why resources of a type are skipped (see AddSkipped).
 const skippedReason = "Terraform can't import this resource type"
 
@@ -56,6 +60,14 @@ func Decided(reason string) Why {
 
 // Owned is why an import leaves out a resource whose tags say owner, one
 // of the Owner constants, manages it, with reason saying which tag.
+// Gone returns why an import leaves out a resource that was listed, but
+// that the cloud has no object for any more by the time it is imported,
+// as Azure Resource Graph goes on listing a resource for a while after it
+// is deleted (see engine.Options.MayBeGone).
+func Gone() Why {
+	return Why{reason: reasonGone}
+}
+
 func Owned(reason, owner string) Why {
 	return Why{reason: reason, owner: owner}
 }

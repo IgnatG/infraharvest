@@ -644,7 +644,7 @@ func TestFingerprintCoversOptions(t *testing.T) {
 	fingerprinted := []string{
 		"Config", "Omit", "Defaults", "StateOnly", "KeepEmpty", "DefaultTags", "EffectiveTags",
 		"Inherited", "ModulesDir", "Adapters", "External", "DataSources", "Placeholders",
-		"Lifecycles", "IncludeOwned", "KeepOwned", "OtherRoots", "ARNs", "RefineKey", "Scope",
+		"Lifecycles", "IncludeOwned", "KeepOwned", "MayBeGone", "OtherRoots", "ARNs", "RefineKey", "Scope",
 	}
 	excluded := map[string]string{
 		"SchemaMetadata":  "embedded in the build, which the fingerprint's version covers",

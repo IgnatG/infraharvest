@@ -4,6 +4,8 @@
 package importer
 
 import (
+	"strings"
+
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
@@ -36,4 +38,20 @@ func keptOwned(selected map[string][]harvest.Resource, listed listing, importID 
 // manages it, as the selection says it (see selection.OwnedReason).
 func ownedByTags(o engine.Owner) report.Why {
 	return report.Owned(selection.OwnedReason(o), selection.OwnedBy(o))
+}
+
+// listedByImportID returns, as "<type> <import ID>", the selected resources
+// whose import ID is the ID they were listed by: the cloud reads them by
+// the ID its listing gave, so an import that finds no object there finds
+// a resource deleted since (see engine.Options.MayBeGone).
+func listedByImportID(selected map[string][]harvest.Resource, importID func(harvest.Resource) (string, bool)) map[string]bool {
+	listed := map[string]bool{}
+	for _, resources := range selected {
+		for _, res := range resources {
+			if id, ok := importID(res); ok && res.Observed.Identity == nil && strings.EqualFold(id, res.Observed.ID) {
+				listed[res.Address.Type+" "+id] = true
+			}
+		}
+	}
+	return listed
 }

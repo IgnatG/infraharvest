@@ -162,37 +162,54 @@ const missingObject = "Cannot import non-existent remote object"
 // returns their rejections with the diagnostics left: those about other
 // resources, and those that name none, which stay as they are. Terraform
 // generates nothing for them, so their other errors, such as the missing
-// configuration of their import blocks, go too.
-func dropGone(dir string, diags []tfjson.Diagnostic, out *bytes.Buffer) ([]Rejection, []tfjson.Diagnostic, error) {
+// configuration of their import blocks, go too. Those mayBeGone names, as
+// "<type> <import ID>", were deleted since they were listed: they leave
+// the root as well, but not into out, and come back as gone.
+func dropGone(dir string, diags []tfjson.Diagnostic, out *bytes.Buffer, mayBeGone map[string]bool) (rejected, gone []Rejection, rest []tfjson.Diagnostic, err error) {
 	if !slices.ContainsFunc(diags, isMissingObject) {
-		return nil, diags, nil
+		return nil, nil, diags, nil
 	}
 	generated, err := hclfile.Load(filepath.Join(dir, rootfile.GeneratedFileName))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	imports, err := hclfile.Load(filepath.Join(dir, rootfile.ImportsFileName))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
+	}
+	ids := map[string]string{}
+	for _, imp := range imports.Imports() {
+		ids[imp.To] = imp.ID
 	}
 	assigned, rest := byResource(diags, generated, imports)
-	errs := map[string][]tfjson.Diagnostic{}
+	errs, deleted := map[string][]tfjson.Diagnostic{}, map[string][]tfjson.Diagnostic{}
 	for _, addr := range slices.Sorted(maps.Keys(assigned)) {
 		ds := assigned[addr]
-		if slices.ContainsFunc(ds, isMissingObject) {
+		switch {
+		case !slices.ContainsFunc(ds, isMissingObject):
+			rest = append(rest, ds...)
+		case mayBeGone[AddressType(addr)+" "+ids[addr]]:
+			deleted[addr] = ds
+		default:
 			errs[addr] = ds
-			continue
 		}
-		rest = append(rest, ds...)
 	}
-	if len(errs) == 0 {
-		return nil, diags, nil
+	if len(errs)+len(deleted) == 0 {
+		return nil, nil, diags, nil
 	}
-	rejections, err := reject(dir, errs, out)
-	if err != nil {
-		return nil, nil, err
+	if len(errs) > 0 {
+		if rejected, err = reject(dir, errs, out); err != nil {
+			return nil, nil, nil, err
+		}
 	}
-	return rejections, rest, nil
+	if len(deleted) > 0 {
+		// Moved like rejected resources, but not kept: they are gone.
+		var discard bytes.Buffer
+		if gone, err = reject(dir, deleted, &discard); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	return rejected, gone, rest, nil
 }
 
 // isMissingObject reports whether d says an import found no object.

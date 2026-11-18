@@ -488,6 +488,7 @@ func (*Provider) Profile() harvest.Profile {
 		},
 		Modules:           commandName,
 		ModulesName:       "Azure Verified Modules",
+		ListingLags:       true,
 		OptInServices:     append(slices.Clone(resourceManagerServices), diagnosticSettingService, harvest.QueryService),
 		ListedTypes:       listedTypes,
 		MissingTypes:      missingTypes,

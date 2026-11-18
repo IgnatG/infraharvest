@@ -408,6 +408,9 @@ func engineOptions(provider harvest.Provider, c *callContext, l *callListing, t 
 	profile := provider.Profile()
 	opts.Traits = engineTraits(profile.Traits)
 	opts.KeepOwned = keptOwned(l.selected, l.listed, c.importID, opts.Traits.OwnerTags)
+	if profile.ListingLags {
+		opts.MayBeGone = listedByImportID(l.selected, c.importID)
+	}
 	opts.External = l.leftOut
 	if tags := profile.DefaultTags; tags != nil {
 		opts.DefaultTags = &engine.DefaultTags{Provider: provider.Name(), Attribute: tags.Attribute, Block: tags.Block, Argument: tags.Argument, ReservedPrefix: tags.ReservedPrefix}
