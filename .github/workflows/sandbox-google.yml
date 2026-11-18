@@ -203,7 +203,7 @@ jobs:
         else
           vars=(-var "suffix=$E2E_ENGINE" -var "project=$SANDBOX_GOOGLE_PROJECT" -var "region=$SANDBOX_GOOGLE_REGION")
         fi
-        "$E2E_ENGINE" init -input=false
+        "$GITHUB_WORKSPACE"/.github/scripts/retry.sh "$E2E_ENGINE" init -input=false
         # A destroy that fails, as on a dependency AWS, Azure or Google Cloud
         # still deletes, is tried twice more before what is left counts.
         for attempt in 1 2 3; do

@@ -174,10 +174,41 @@ jobs:
           args: release --clean --parallelism=1 --timeout=150m
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - name: Attest build provenance
+      - name: Attest the archives' build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-checksums: dist/infraharvest_${{ steps.version.outputs.number }}_SHA256SUMS
+      # GoReleaser records each image's digest, the same for all of its tags, in
+      # dist/artifacts.json.
+      - name: Find the images' digests
+        id: images
+        run: |
+          for cloud in aws azure google; do
+            digest=$(jq -r --arg id "$cloud" '[.[] | select(.extra.ID == $id and ((.name // "") | startswith("ghcr.io/ignatg/infraharvest:"))) | .extra.Digest] | first // empty' dist/artifacts.json)
+            if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::no digest for the $cloud image in dist/artifacts.json: '$digest'"
+              exit 1
+            fi
+            echo "$cloud=$digest" >> "$GITHUB_OUTPUT"
+          done
+      - name: Attest the aws image's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/ignatg/infraharvest
+          subject-digest: ${{ steps.images.outputs.aws }}
+          push-to-registry: true
+      - name: Attest the azure image's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/ignatg/infraharvest
+          subject-digest: ${{ steps.images.outputs.azure }}
+          push-to-registry: true
+      - name: Attest the google image's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/ignatg/infraharvest
+          subject-digest: ${{ steps.images.outputs.google }}
+          push-to-registry: true
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

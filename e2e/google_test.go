@@ -218,6 +218,7 @@ func checkGoogleImport(ctx context.Context, t *testing.T, engineName, execPath, 
 	if coverage.Totals.LeftOut != 0 || coverage.Totals.Failed != 0 || len(coverage.Failures) != 0 {
 		t.Errorf("%v: report.json: %+v, failures %v", flags, coverage.Totals, coverage.Failures)
 	}
+	checkPlanBudget(t, strings.Join(flags, " "), coverage)
 	for _, d := range coverage.Directories {
 		for _, l := range d.LeftOut {
 			t.Errorf("%s: %s (%s) left out: %v", d.Path, l.Address, l.ID, l.Errors)
