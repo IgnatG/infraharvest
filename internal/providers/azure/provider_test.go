@@ -126,6 +126,9 @@ func TestSignInClientOptions(t *testing.T) {
 	if !reflect.DeepEqual(options.Cloud, cloud.AzureChina) {
 		t.Errorf("cloud %+v", options.Cloud)
 	}
+	if !reflect.DeepEqual(options.Retry, retryOptions()) {
+		t.Errorf("retry %+v, want %+v", options.Retry, retryOptions())
+	}
 	if options.Telemetry.ApplicationID != "infraharvest" {
 		t.Errorf("telemetry application ID %q", options.Telemetry.ApplicationID)
 	}

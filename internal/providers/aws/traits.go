@@ -15,6 +15,11 @@ import (
 // local.
 var awsManagedPolicy = regexp.MustCompile(`^arn:aws[a-z-]*:iam::aws:policy/`)
 
+// regionIDs matches the names of AWS's regions and availability zones, such
+// as eu-west-2, us-gov-west-1 and eu-west-2a. It matches the shape AWS names
+// them by, not any name that ends with a number, such as web-server-1.
+var regionIDs = regexp.MustCompile(`^[a-z]{2}(?:-gov|-iso[a-z]?)?-(?:north|south|east|west|central)(?:east|west)?-[0-9]+[a-z]?$`)
+
 // ownerTags are the tags AWS, and the controllers that run in EKS
 // clusters, give what they create and then manage themselves, which an
 // import would give a second owner: CloudFormation's stack tag; the tag
@@ -59,12 +64,15 @@ var ownerTags = []harvest.OwnerTag{
 // are names; CloudFormation, Auto Scaling and the controllers of EKS
 // clusters tag what they create and manage (see ownerTags); and resources
 // take tags, which tags_all merges with the provider's default_tags, and
-// some, such as an EKS node group, labels.
+// some, such as an EKS node group, labels; the resources of a region or an
+// account share its name or ID (see regionIDs).
 func traits() harvest.Traits {
 	return harvest.Traits{
 		IDPrefixes:        []string{"arn:"},
 		ARNPrefix:         "arn:",
 		WellKnownIDs:      awsManagedPolicy,
+		ScopeAttributes:   []string{"region", "account_id", "owner_id"},
+		RegionIDs:         regionIDs,
 		PrimaryIdentities: []string{"arn"},
 		NameAttributes:    []string{"function_name", "bucket"},
 		IdentityAttributes: []string{

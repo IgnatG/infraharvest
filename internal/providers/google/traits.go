@@ -3,7 +3,16 @@
 
 package google
 
-import "github.com/IgnatG/infraharvest/internal/harvest"
+import (
+	"regexp"
+
+	"github.com/IgnatG/infraharvest/internal/harvest"
+)
+
+// regionIDs matches the names of Google Cloud's regions and zones, such as
+// europe-west1 and us-central1-a. It matches the shape Google names them by,
+// not any name that ends with a number, such as web-server-1.
+var regionIDs = regexp.MustCompile(`^(?:us|europe|asia|australia|southamerica|northamerica|me|africa)-(?:north|south|east|west|central)(?:east|west)?[0-9]+(?:-[a-z])?$`)
 
 // traits returns what Google Cloud's resources and the values that
 // identify them are like: paths that start with projects/ and service
@@ -17,12 +26,14 @@ import "github.com/IgnatG/infraharvest/internal/harvest"
 // a name; the provider labels what Terraform creates
 // goog-terraform-provisioned=true; and resources take labels, of which
 // terraform_labels and effective_labels have the provider's and every
-// label too.
+// label too; and the resources of a project, a region or a location share it.
 func traits() harvest.Traits {
 	return harvest.Traits{
 		IDPrefixes:         []string{"projects/"},
 		IDSegments:         []string{"projects/"},
 		IDSuffixes:         []string{".gserviceaccount.com"},
+		ScopeAttributes:    []string{"region", "location", "project"},
+		RegionIDs:          regionIDs,
 		SelfLinkAliases:    map[string]string{"https://www.googleapis.com/compute/": "https://compute.googleapis.com/compute/"},
 		PrimaryIdentities:  []string{"self_link"},
 		NameAttributes:     []string{"bucket"},

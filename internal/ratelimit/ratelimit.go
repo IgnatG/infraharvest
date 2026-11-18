@@ -21,6 +21,19 @@ import (
 // such as EC2's 20 a second refill for describe calls.
 const DefaultRate = 20
 
+// MaxAttempts is how many times a call to a cloud's API is tried at most,
+// the first time and the retries, on all three clouds: each applies it
+// through its SDK's own retry (AWS's adaptive mode, Azure's azcore policy,
+// Google's retry transport). A listing sends thousands of calls, and a
+// call that stays throttled past the SDKs' defaults (3 attempts on AWS, 4
+// on Azure, 1 on Google's REST clients) fails its whole service. 10 rides
+// out the throttling of a large account, which is what AWS's listings
+// needed, and still bounds the wait of a call that really fails: with the
+// clouds' backoff (capped at 20s on AWS, 30s on Google and 60s on Azure) a
+// call gives up after under four minutes. A cloud's own override, such as
+// AWS_MAX_ATTEMPTS, takes precedence.
+const MaxAttempts = 10
+
 // Limiter limits the requests to each host to a rate, with bursts of up
 // to that many requests. A nil Limiter, or one with no rate, limits
 // nothing. Its rate is fixed: a run with another rate has a Limiter of

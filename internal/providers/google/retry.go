@@ -15,12 +15,14 @@ import (
 
 	"google.golang.org/api/googleapi"
 
+	"github.com/IgnatG/infraharvest/internal/ratelimit"
 	"github.com/IgnatG/infraharvest/internal/runstate"
 )
 
 // retryAttempts is how many times a request is sent at most: the first
-// time and up to four retries.
-const retryAttempts = 5
+// time and the retries, the budget of every cloud (see
+// ratelimit.MaxAttempts).
+const retryAttempts = ratelimit.MaxAttempts
 
 // retryMaxDelay caps the wait before a retry, and the Retry-After an
 // answer asks for: one that asks for longer is returned as it is.

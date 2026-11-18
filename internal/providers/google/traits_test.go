@@ -44,3 +44,23 @@ func TestTraits(t *testing.T) {
 		}
 	}
 }
+
+// Google Cloud's regions and zones are shared by what is in them, so none
+// identifies a resource; a name that merely ends with a number does.
+func TestTraitsRegionIDs(t *testing.T) {
+	t.Parallel()
+	traits := (&Provider{}).Profile().Traits
+	for _, v := range []string{"europe-west1", "us-central1", "us-central1-a", "northamerica-northeast1", "asia-southeast1-b"} {
+		if !traits.RegionIDs.MatchString(v) {
+			t.Errorf("%s isn't taken for a region", v)
+		}
+	}
+	for _, v := range []string{"web-server-1", "prod-api-2", "my-service1", "dev-test-3", "eu-west-2", "us-east-1"} {
+		if traits.RegionIDs.MatchString(v) {
+			t.Errorf("%s is taken for a region", v)
+		}
+	}
+	if want := []string{"region", "location", "project"}; !slices.Equal(traits.ScopeAttributes, want) {
+		t.Errorf("ScopeAttributes %v, want %v", traits.ScopeAttributes, want)
+	}
+}

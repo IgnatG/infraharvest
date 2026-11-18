@@ -289,6 +289,8 @@ func TestEngineTraits(t *testing.T) {
 		IDSegments:          []string{"projects/"},
 		ARNPrefix:           "arn:",
 		WellKnownIDs:        regexp.MustCompile(`^arn:aws:iam::aws:policy/`),
+		ScopeAttributes:     []string{"region"},
+		RegionIDs:           regexp.MustCompile(`^eu-west-[0-9]$`),
 		SelfLinkAliases:     map[string]string{"https://a/": "https://b/"},
 		PrimaryIdentities:   []string{"arn"},
 		NameAttributes:      []string{"function_name"},
@@ -329,6 +331,14 @@ func TestUnionTraits(t *testing.T) {
 	if u.ARNPrefix != "arn:" || u.WellKnownIDs == nil || !u.WellKnownIDs.MatchString("arn:aws:iam::aws:policy/ReadOnlyAccess") {
 		t.Errorf("ARNPrefix %q, WellKnownIDs %v: want AWS's", u.ARNPrefix, u.WellKnownIDs)
 	}
+	for _, region := range []string{"eu-west-2a", "us-central1-a"} {
+		if u.RegionIDs == nil || !u.RegionIDs.MatchString(region) {
+			t.Errorf("RegionIDs %v: want %s, a region of one of the providers", u.RegionIDs, region)
+		}
+	}
+	if u.RegionIDs.MatchString("web-server-1") {
+		t.Error("RegionIDs take web-server-1 for a region")
+	}
 	for _, p := range providers {
 		own := p.Profile().Traits
 		for _, field := range []struct {
@@ -336,6 +346,7 @@ func TestUnionTraits(t *testing.T) {
 			own, have []string
 		}{
 			{"IDSuffixes", own.IDSuffixes, u.IDSuffixes},
+			{"ScopeAttributes", own.ScopeAttributes, u.ScopeAttributes},
 			{"PrimaryIdentities", own.PrimaryIdentities, u.PrimaryIdentities},
 			{"IdentityAttributes", own.IdentityAttributes, u.IdentityAttributes},
 			{"NameAttributes", own.NameAttributes, u.NameAttributes},
