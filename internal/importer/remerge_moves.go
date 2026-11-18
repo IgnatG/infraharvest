@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/envmerge"
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
@@ -51,18 +52,27 @@ func keptAsMerged(stack string, prev *mergeCheckpoint, members []mergeMember) bo
 func readdressed(before, now map[string]map[string]string) []string {
 	var moved []string
 	for env, ids := range before {
-		at := map[string]string{}
-		for address, id := range now[env] {
-			at[id] = address
-		}
+		at := addressesOf(now[env])
 		for address, id := range ids {
-			if to, ok := at[id]; ok && to != address {
+			if to, ok := at[engine.ResourceKey(engine.AddressType(address), id)]; ok && to != address {
 				moved = append(moved, fmt.Sprintf("%s: %s is now %s", env, address, to))
 			}
 		}
 	}
 	sort.Strings(moved)
 	return moved
+}
+
+// addressesOf returns the addresses of imports, the import IDs of
+// resources by address, by resource: by type and import ID, as resources
+// of different types can share an import ID, such as an S3 bucket and its
+// ownership controls, both imported by the bucket's name.
+func addressesOf(imports map[string]string) map[engine.External]string {
+	at := make(map[engine.External]string, len(imports))
+	for address, id := range imports {
+		at[engine.ResourceKey(engine.AddressType(address), id)] = address
+	}
+	return at
 }
 
 // mergedMoves returns the moved blocks of a merged root merged again
@@ -84,12 +94,9 @@ func mergedMoves(before, now map[string]map[string]string, kept []rootfile.Move)
 	}
 	moves := slices.Clone(kept)
 	for _, env := range slices.Sorted(maps.Keys(before)) {
-		at := map[string]string{}
-		for address, id := range now[env] {
-			at[id] = address
-		}
+		at := addressesOf(now[env])
 		for _, address := range slices.Sorted(maps.Keys(before[env])) {
-			after, ok := at[before[env][address]]
+			after, ok := at[engine.ResourceKey(engine.AddressType(address), before[env][address])]
 			if !ok {
 				continue
 			}

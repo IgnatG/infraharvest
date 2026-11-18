@@ -362,14 +362,12 @@ func movedApart(m mergeMember, before, now map[string]string, shared map[string]
 	if m.result == nil || len(before) == 0 {
 		return nil
 	}
-	at := map[string]string{}
-	for address, id := range now {
-		at[id] = address
-	}
+	at := addressesOf(now)
 	moved := map[engine.External]string{}
 	for address, id := range before {
-		if to, ok := at[id]; ok && to != address && !shared[address] {
-			moved[engine.External{Type: engine.AddressType(address), ID: id}] = address
+		key := engine.ResourceKey(engine.AddressType(address), id)
+		if to, ok := at[key]; ok && to != address && !shared[address] {
+			moved[key] = address
 		}
 	}
 	more := map[string]string{}

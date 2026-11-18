@@ -96,6 +96,21 @@ func TestMergedMoves(t *testing.T) {
 	if _, why := mergedMoves(before, twice, nil); !strings.Contains(why, "both") {
 		t.Errorf("an address moving to two: %q", why)
 	}
+	// A bucket and its settings share the bucket's name as import ID, and
+	// none of them moves.
+	bucket := map[string]map[string]string{"dev": {
+		"aws_s3_bucket.main":                                      "b1",
+		"aws_s3_bucket_ownership_controls.main":                   "b1",
+		"aws_s3_bucket_server_side_encryption_configuration.main": "b1",
+	}}
+	for range 20 {
+		if moves, why := mergedMoves(bucket, bucket, nil); why != "" || len(moves) != 0 {
+			t.Fatalf("resources sharing an import ID: %+v (%s), want no moves", moves, why)
+		}
+		if moved := readdressed(bucket, bucket); len(moved) != 0 {
+			t.Fatalf("resources sharing an import ID: %v", moved)
+		}
+	}
 	module := map[string]map[string]string{"dev": {"module.queues.aws_sqs_queue.this": "q1"}}
 	if _, why := mergedMoves(map[string]map[string]string{"dev": {"module.old.aws_sqs_queue.this": "q1"}}, module, nil); !strings.Contains(why, "module calls") {
 		t.Errorf("a resource of a module call: %q", why)
