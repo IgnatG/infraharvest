@@ -3,28 +3,35 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 # Sends the metadata of a run to a control plane (the Control plane step of
-# action.yml, with control-plane-url set). It runs infraharvest export for
-# the inventory, run and gate documents, and POSTs each to
-# <url>/api/v1/ingest/{inventory|run|gate} as application/json, with the
-# job's GitHub Actions OIDC token for the audience infraharvest-api as a
-# bearer token. Nothing else is sent. See docs/export.md.
+# action.yml, with control-plane-url set). It first trades the job's GitHub
+# Actions OIDC token, for the audience AUDIENCE (default infraharvest-api),
+# for a run token: POST <url>/api/v1/session with an empty body and the OIDC
+# token in the header X-GitHub-OIDC-Token, answered with JSON,
+# {"token": "...", "expires_at": "..."}. Then it runs infraharvest export for
+# the inventory, run, gate and graph documents, and POSTs each to
+# <url>/api/v1/ingest/{inventory|run|gate|graph} as application/json,
+# gzip-compressed (Content-Encoding: gzip), with the run token as a bearer
+# token and the header Idempotency-Key: <run_id>:<document>. The OIDC token
+# goes to the session endpoint only. Nothing else is sent. See
+# docs/export.md.
 #
 # Usage: control-plane.sh check|upload
 #
 # check validates the inputs, before anything long has run. upload exports
 # and sends; it writes control-plane-run-id (the run_id of the run document)
-# to $GITHUB_OUTPUT once all three documents were accepted (a 2xx).
+# to $GITHUB_OUTPUT once all four documents were accepted (a 2xx).
 #
-# The URL must be https, or http for localhost. The token is masked and
-# never printed, and goes to curl in a file, not in its arguments. A 5xx, a
+# The URL must be https, or http for localhost. The tokens are masked and
+# never printed, and go to curl in a file, not in its arguments. A 5xx, a
 # 429 and a connection failure are retried with a growing delay; any other
-# answer fails at once. A failure fails the step, unless OPTIONAL is true.
+# answer fails at once, with the reason the control plane gives in its JSON
+# body, {"error": "..."}. A failure fails the step, unless OPTIONAL is true.
 #
-# Inputs, as variables: URL, DROP_TAGS, DROP_TAG, HASH_IDS, HASH_KEY (else
-# INFRAHARVEST_EXPORT_KEY), OPTIONAL; and, for upload, BINARY, OUT, IMPORT,
-# IMPORT_OUTCOME, STARTED_AT and FINISHED_AT (when the import started and
-# finished, RFC 3339, from the Import step; either may be empty), and the
-# runner's ACTIONS_ID_TOKEN_REQUEST_URL and
+# Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, HASH_IDS,
+# HASH_KEY (else INFRAHARVEST_EXPORT_KEY), OPTIONAL; and, for upload, BINARY,
+# OUT, IMPORT, IMPORT_OUTCOME, STARTED_AT and FINISHED_AT (when the import
+# started and finished, RFC 3339, from the Import step; either may be
+# empty), and the runner's ACTIONS_ID_TOKEN_REQUEST_URL and
 # ACTIONS_ID_TOKEN_REQUEST_TOKEN. INFRAHARVEST_UPLOAD_RETRY_DELAY is the
 # first delay in seconds between attempts (default 2, doubling), for tests.
 set -euo pipefail
@@ -32,10 +39,10 @@ set -euo pipefail
 # shellcheck source=action/output.sh
 source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
 
-audience=infraharvest-api
 attempts=4
 
 url="${URL-}"
+audience="${AUDIENCE:-infraharvest-api}"
 optional="${OPTIONAL-false}"
 hash_ids="${HASH_IDS-false}"
 drop_tags="${DROP_TAGS-false}"
@@ -82,6 +89,10 @@ check() {
       *) fail "${input%%=*} must be true or false, got '${input#*=}'" ;;
     esac
   done
+  # The audience goes into the query of the token request as it is.
+  if [[ ! "$audience" =~ ^[A-Za-z0-9._~:/-]+$ ]]; then
+    fail "control-plane-audience may hold letters, digits and . _ ~ : / - only, got '$audience'"
+  fi
   if [[ "${IMPORT-}" != true ]]; then
     fail "control-plane-url sends the metadata of an import: it needs import to be true"
   fi
@@ -100,17 +111,17 @@ check() {
   fi
 }
 
-# http_request <url> <header-file> <out-file> [data-file]: GET, or POST the
-# data file as JSON, retrying a 5xx, a 429 and a connection failure. Sets
-# http_code, and leaves the answer's body in out-file. Returns 0 on a 2xx.
+# http_request <url> <header-file> <out-file> [curl-argument...]: a GET, or
+# whatever the extra curl arguments make of it (-X POST and a body), with
+# the headers of the file. A 5xx, a 429 and a connection failure are
+# retried. Sets http_code, and leaves the answer's body in out-file. Returns
+# 0 on a 2xx.
 http_request() {
-  local target=$1 headers=$2 body=$3 data=${4-}
+  local target=$1 headers=$2 body=$3
+  shift 3
   local args=(--silent --show-error --fail-with-body --connect-timeout 10 --max-time 60
-    --max-redirs 0 -H "@$headers" -o "$body" -w '%{http_code}')
+    --max-redirs 0 -H "@$headers" -o "$body" -w '%{http_code}' "$@")
   if [[ "$target" == https://* ]]; then args+=(--proto '=https'); else args+=(--proto '=http'); fi
-  if [[ -n "$data" ]]; then
-    args+=(-X POST -H 'Content-Type: application/json' --data-binary "@$data")
-  fi
   local attempt=1 delay=${INFRAHARVEST_UPLOAD_RETRY_DELAY-2} rc
   while :; do
     rc=0
@@ -118,6 +129,7 @@ http_request() {
     http_code=${http_code:-000}
     if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then return 0; fi
     # 000: curl got no answer, such as a refused connection or a timeout.
+    # Any other 4xx is a refusal, which another try wouldn't change.
     if [[ "$http_code" == 000 || "$http_code" == 429 || "$http_code" =~ ^5[0-9][0-9]$ ]]; then
       if ((attempt < attempts)); then
         annotation notice "control plane: attempt $attempt got $http_code (curl exit $rc); trying again in ${delay}s"
@@ -131,15 +143,22 @@ http_request() {
   done
 }
 
-# describe: what went wrong with the last request, on one line: the status,
-# curl's own error, and the start of the answer's body.
+# describe <body-file> <what>: what went wrong with the last request, on one
+# line: the status, curl's own error, who refused what, and the reason in the
+# answer's JSON body ({"error": "..."}), else the start of the body. what is
+# what the request was, such as "upload".
 describe() {
-  local msg="HTTP $http_code" text
+  local body=$1 what=$2 msg="HTTP $http_code" reason=
   if [[ -s "$tmp/curl-error" ]]; then msg+=": $(head -c 300 "$tmp/curl-error" | tr '\r\n' '  ')"; fi
-  if [[ -s "$1" ]]; then
-    text=$(head -c 300 "$1" | tr '\r\n' '  ')
-    msg+=" $text"
+  case "$http_code" in
+    402) msg+=": the organisation's plan refused the $what, such as for being over its cloud-account limit; this is not a problem with the token" ;;
+    401 | 403) msg+=": the control plane refused the token" ;;
+  esac
+  if [[ -s "$body" ]]; then
+    reason=$(jq -r 'if type == "object" and (.error | type) == "string" then .error else empty end' "$body" 2> /dev/null | head -c 300 | tr '\r\n' '  ') || reason=
+    if [[ -z "$reason" ]]; then reason=$(head -c 300 "$body" | tr '\r\n' '  '); fi
   fi
+  if [[ -n "$reason" ]]; then msg+=": $reason"; fi
   printf '%s' "$msg"
 }
 
@@ -149,13 +168,12 @@ request_token() {
   if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_URL-}" || -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ]]; then
     problem "no GitHub Actions OIDC token can be requested: set 'id-token: write' in the workflow's permissions"
   fi
-  command -v jq > /dev/null || problem "jq is needed to read the OIDC token and isn't installed"
   local sep='?'
   [[ "$ACTIONS_ID_TOKEN_REQUEST_URL" == *\?* ]] && sep='&'
   ( umask 077; printf 'Authorization: Bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" > "$tmp/oidc-request-headers" )
   local target="${ACTIONS_ID_TOKEN_REQUEST_URL}${sep}audience=${audience}"
   if ! http_request "$target" "$tmp/oidc-request-headers" "$tmp/oidc-response"; then
-    problem "couldn't request a GitHub Actions OIDC token for the audience $audience ($(describe "$tmp/oidc-response")); is 'id-token: write' set?"
+    problem "couldn't request a GitHub Actions OIDC token for the audience $audience ($(describe "$tmp/oidc-response" "request")); is 'id-token: write' set?"
   fi
   token=$(jq -r '.value // empty' "$tmp/oidc-response" 2> /dev/null) || token=
   rm -f "$tmp/oidc-response" "$tmp/oidc-request-headers"
@@ -163,6 +181,28 @@ request_token() {
     problem "GitHub returned no usable OIDC token for the audience $audience"
   fi
   printf '::add-mask::%s\n' "$token"
+}
+
+# open_session: trades the OIDC token for the control plane's run token: sets
+# run_token, masks it, and leaves the header file the uploads send it in.
+# The OIDC token goes to the session endpoint only.
+open_session() {
+  local expires
+  request_token
+  ( umask 077; printf 'X-GitHub-OIDC-Token: %s\n' "$token" > "$tmp/session-headers" )
+  if ! http_request "$base/api/v1/session" "$tmp/session-headers" "$tmp/session-response" \
+    -X POST --data-binary '' -H 'Content-Type:'; then
+    problem "opening a session at $base/api/v1/session failed: $(describe "$tmp/session-response" "session")"
+  fi
+  run_token=$(jq -r 'if type == "object" and (.token | type) == "string" then .token else empty end' "$tmp/session-response" 2> /dev/null) || run_token=
+  expires=$(jq -r 'if type == "object" and (.expires_at | type) == "string" then .expires_at else empty end' "$tmp/session-response" 2> /dev/null | head -c 64 | tr -cd '[:graph:]') || expires=
+  rm -f "$tmp/session-response" "$tmp/session-headers"
+  if [[ ! "$run_token" =~ ^[[:graph:]]+$ ]]; then
+    problem "the session answer at $base/api/v1/session has no usable token"
+  fi
+  printf '::add-mask::%s\n' "$run_token"
+  ( umask 077; printf 'Authorization: Bearer %s\n' "$run_token" > "$tmp/headers" )
+  annotation notice "control plane: opened a session${expires:+ (the token expires at $expires)}"
 }
 
 upload() {
@@ -186,8 +226,16 @@ upload() {
   tmp=$(umask 077; mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/infraharvest-control-plane.XXXXXX")
   trap 'rm -rf "$tmp"' EXIT
 
-  # The redaction flags apply to the inventory, the only document with tags,
-  # IDs and names.
+  command -v jq > /dev/null || problem "jq is needed to read the answers and the run's ID and isn't installed"
+  command -v gzip > /dev/null || problem "gzip is needed to compress the documents and isn't installed"
+
+  # The session comes first, so that a refusal (a token the control plane
+  # doesn't take, a plan that doesn't allow the upload) shows before the
+  # export has run.
+  open_session
+
+  # The redaction flags apply to the inventory, which has the tags, IDs and
+  # names, and --hash-ids to the graph too, which has the IDs.
   local redact=() flags=() key tag err
   [[ "$drop_tags" == true ]] && redact+=(--drop-tags)
   while IFS= read -r tag; do
@@ -209,25 +257,29 @@ upload() {
   [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT")
 
   local doc
-  for doc in inventory run gate; do
+  for doc in inventory run gate graph; do
     flags=()
     if [[ "$doc" == inventory ]]; then flags=(${redact[@]+"${redact[@]}"}); fi
-    if [[ "$doc" != gate ]]; then flags+=(${times[@]+"${times[@]}"}); fi
+    if [[ "$doc" == graph && "$hash_ids" == true ]]; then flags=(--hash-ids); fi
+    if [[ "$doc" == inventory || "$doc" == run ]]; then flags+=(${times[@]+"${times[@]}"}); fi
     if ! err=$(INFRAHARVEST_EXPORT_KEY="$key" "$bin" export "$out" "--schema=$doc" "--out-file=$tmp/$doc.json" ${flags[@]+"${flags[@]}"} 2>&1 > /dev/null); then
       problem "infraharvest export ($doc) failed: $err"
     fi
+    if ! gzip -n -c "$tmp/$doc.json" > "$tmp/$doc.json.gz"; then
+      problem "couldn't compress the $doc document"
+    fi
   done
 
-  command -v jq > /dev/null || problem "jq is needed to read the run's ID and isn't installed"
   run_id=$(jq -r '.run_id // empty' "$tmp/run.json")
   [[ -n "$run_id" ]] || problem "the run document has no run_id"
+  # The run_id goes into a header.
+  [[ "$run_id" =~ ^[A-Za-z0-9._:-]+$ ]] || problem "the run document's run_id has characters that can't go in a header"
 
-  request_token
-  ( umask 077; printf 'Authorization: Bearer %s\n' "$token" > "$tmp/headers" )
-
-  for doc in inventory run gate; do
-    if ! http_request "$base/api/v1/ingest/$doc" "$tmp/headers" "$tmp/response" "$tmp/$doc.json"; then
-      problem "sending the $doc document to $base/api/v1/ingest/$doc failed: $(describe "$tmp/response")"
+  for doc in inventory run gate graph; do
+    if ! http_request "$base/api/v1/ingest/$doc" "$tmp/headers" "$tmp/response" \
+      -X POST -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
+      -H "Idempotency-Key: $run_id:$doc" --data-binary "@$tmp/$doc.json.gz"; then
+      problem "sending the $doc document to $base/api/v1/ingest/$doc failed: $(describe "$tmp/response" "upload")"
     fi
     annotation notice "control plane: sent the $doc document (HTTP $http_code)"
   done
@@ -237,6 +289,7 @@ upload() {
 base=
 tmp=
 token=
+run_token=
 http_code=
 case "${1-}" in
   check) check ;;

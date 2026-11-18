@@ -88,8 +88,11 @@ inputs:
     description: With commit, the branch to push to. Default the branch checked out; a detached checkout, such as a pull request's, needs one. The push never forces, so it fails when the branch has commits the checkout doesn't have.
     required: false
   control-plane-url:
-    description: Send the metadata of the import (infraharvest export's inventory, run and gate documents, nothing else) to a hosted control plane at this URL, to <url>/api/v1/ingest/{inventory|run|gate}, with the job's GitHub Actions OIDC token (audience infraharvest-api) as a bearer token. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
+    description: Send the metadata of the import (infraharvest export's inventory, run, gate and graph documents, nothing else) to a hosted control plane at this URL. The job's GitHub Actions OIDC token is traded at <url>/api/v1/session for a run token, which goes as the bearer token with each document, gzip-compressed, to <url>/api/v1/ingest/{inventory|run|gate|graph}; the OIDC token itself goes to the session endpoint only. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
     default: ""
+  control-plane-audience:
+    description: With control-plane-url, the audience of the GitHub Actions OIDC token the session is opened with. The control plane checks it, so it must be the one it expects.
+    default: infraharvest-api
   control-plane-drop-tags:
     description: With control-plane-url, leave all tags out of the inventory (export --drop-tags).
     default: "false"
@@ -132,7 +135,7 @@ outputs:
     description: SHA of the commit pushed with commit; empty when the output didn't change, or commit is false.
     value: ${{ steps.commit.outputs.commit-sha }}
   control-plane-run-id:
-    description: The run_id of the run document the control plane accepted (all three documents sent); empty without control-plane-url, or when the upload failed or was skipped.
+    description: The run_id of the run document the control plane accepted (all four documents sent); empty without control-plane-url, or when the upload failed or was skipped.
     value: ${{ steps.control-plane.outputs.control-plane-run-id }}
   evidence-dir:
     description: The directory of the signed evidence (sign-evidence); empty when it wasn't signed.
@@ -158,6 +161,7 @@ runs:
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
         OUT: ${{ inputs.out }}
         URL: ${{ inputs.control-plane-url }}
+        AUDIENCE: ${{ inputs.control-plane-audience }}
         DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
@@ -550,6 +554,7 @@ runs:
       shell: bash
       env:
         URL: ${{ inputs.control-plane-url }}
+        AUDIENCE: ${{ inputs.control-plane-audience }}
         DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
         DROP_TAG: ${{ inputs.control-plane-drop-tag }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}

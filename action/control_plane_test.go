@@ -6,6 +6,8 @@ package action
 
 import (
 	"bytes"
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,8 +22,13 @@ import (
 
 const (
 	oidcRequestToken = "request-token-1234"
+	runToken         = "run-token-Zm9vYmFyYmF6"
 	runID            = "6f1c9d3e-0a52-5b8e-9c47-2d1f3a5b7c90"
+	sessionPath      = "/api/v1/session"
 )
+
+// documents are the ones the script sends, in the order it sends them.
+var documents = []string{"inventory", "run", "gate", "graph"}
 
 // oidcToken is the fake identity token the fake OIDC endpoint returns. It
 // is joined at run time so secret scanners don't read it as a real JWT.
@@ -38,21 +45,25 @@ done
 printf '{"schema":"%s/v1","run_id":"` + runID + `"}\n' "$doc" > "$file"
 `
 
-// controlPlane is a fake control plane: it answers the OIDC token request
-// and the ingest endpoints, with the statuses a test queues for a path.
+// controlPlane is a fake control plane: it answers the OIDC token request,
+// the session and the ingest endpoints, with the statuses a test queues for
+// a path. The session wants the OIDC token in X-GitHub-OIDC-Token and the
+// ingest endpoints the run token it gives; a request without it is a 401.
 type controlPlane struct {
 	*httptest.Server
 	mu       sync.Mutex
 	statuses map[string][]int // queued statuses per path; the last repeats
 	calls    map[string]int
 	headers  map[string]http.Header
-	bodies   map[string]string
+	bodies   map[string]string // after gunzip
+	reasons  map[string]string // the "error" of a refusal, per path
+	plain    bool              // refuse with plain text, not JSON
 	audience string
 }
 
 func newControlPlane(t *testing.T) *controlPlane {
 	t.Helper()
-	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}}
+	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}, reasons: map[string]string{}}
 	cp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -69,6 +80,13 @@ func newControlPlane(t *testing.T) *controlPlane {
 		cp.calls[r.URL.Path]++
 		cp.headers[r.URL.Path] = r.Header.Clone()
 		cp.bodies[r.URL.Path] = string(body)
+		if r.Header.Get("Content-Encoding") == "gzip" {
+			plain, err := gunzip(body)
+			if err != nil {
+				plain = "gzip error: " + err.Error()
+			}
+			cp.bodies[r.URL.Path] = plain
+		}
 		queue := cp.statuses[r.URL.Path]
 		status := http.StatusOK
 		if len(queue) > 0 {
@@ -77,13 +95,40 @@ func newControlPlane(t *testing.T) *controlPlane {
 				cp.statuses[r.URL.Path] = queue[1:]
 			}
 		}
+		if r.URL.Path == sessionPath {
+			if r.Header.Get("X-GitHub-OIDC-Token") != oidcToken {
+				status = http.StatusUnauthorized
+			}
+		} else if r.Header.Get("Authorization") != "Bearer "+runToken {
+			status = http.StatusUnauthorized
+		}
 		w.WriteHeader(status)
-		if status >= 400 {
-			fmt.Fprint(w, "nope: the server said no")
+		switch {
+		case status >= 400:
+			reason := cp.reasons[r.URL.Path]
+			if reason == "" {
+				reason = "nope: the server said no"
+			}
+			if cp.plain {
+				fmt.Fprint(w, reason)
+			} else {
+				fmt.Fprintf(w, `{"error":%q}`, reason)
+			}
+		case r.URL.Path == sessionPath:
+			fmt.Fprintf(w, `{"token":%q,"expires_at":"2026-11-18T10:15:00Z"}`, runToken)
 		}
 	}))
 	t.Cleanup(cp.Close)
 	return cp
+}
+
+func gunzip(b []byte) (string, error) {
+	zr, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return "", err
+	}
+	plain, err := io.ReadAll(zr)
+	return string(plain), err
 }
 
 func (cp *controlPlane) queue(path string, statuses ...int) {
@@ -183,21 +228,62 @@ func TestUploadSendsEachDocument(t *testing.T) {
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
-	for _, doc := range []string{"inventory", "run", "gate"} {
+	// The session is opened once, with the OIDC token and an empty body.
+	if cp.count(sessionPath) != 1 {
+		t.Errorf("session: %d requests, want 1", cp.count(sessionPath))
+	}
+	sh := cp.headers[sessionPath]
+	if got := sh.Get("X-GitHub-OIDC-Token"); got != oidcToken {
+		t.Errorf("session: X-GitHub-OIDC-Token is %q", got)
+	}
+	if got := sh.Get("Authorization"); got != "" {
+		t.Errorf("session: Authorization is %q, want none", got)
+	}
+	if cp.bodies[sessionPath] != "" {
+		t.Errorf("session: body is %q, want empty", cp.bodies[sessionPath])
+	}
+	for _, doc := range documents {
 		path := "/api/v1/ingest/" + doc
 		if cp.count(path) != 1 {
 			t.Errorf("%s: %d requests, want 1", path, cp.count(path))
 		}
 		h := cp.headers[path]
-		if got := h.Get("Authorization"); got != "Bearer "+oidcToken {
+		// The run token is the bearer token, never the OIDC token.
+		if got := h.Get("Authorization"); got != "Bearer "+runToken {
 			t.Errorf("%s: Authorization is %q", path, got)
+		}
+		if got := h.Get("X-GitHub-OIDC-Token"); got != "" {
+			t.Errorf("%s: the OIDC token is sent: %q", path, got)
+		}
+		if got := h.Get("Idempotency-Key"); got != runID+":"+doc {
+			t.Errorf("%s: Idempotency-Key is %q", path, got)
 		}
 		if got := h.Get("Content-Type"); got != "application/json" {
 			t.Errorf("%s: Content-Type is %q", path, got)
 		}
-		if !strings.Contains(cp.bodies[path], `"schema":"`+doc+`/v1"`) {
+		if got := h.Get("Content-Encoding"); got != "gzip" {
+			t.Errorf("%s: Content-Encoding is %q", path, got)
+		}
+		// The body, decompressed, is the document.
+		var parsed struct {
+			Schema string `json:"schema"`
+			RunID  string `json:"run_id"`
+		}
+		if err := json.Unmarshal([]byte(cp.bodies[path]), &parsed); err != nil {
+			t.Errorf("%s: body isn't JSON after gunzip: %v\n%q", path, err, cp.bodies[path])
+		} else if parsed.Schema != doc+"/v1" || parsed.RunID != runID {
 			t.Errorf("%s: body is %q", path, cp.bodies[path])
 		}
+	}
+	// The documents are exported in the order they are sent, graph last.
+	var exported []string
+	for _, line := range strings.Split(res.args, "\n") {
+		if strings.HasPrefix(line, "export ") {
+			exported = append(exported, line)
+		}
+	}
+	if len(exported) != len(documents) || !strings.Contains(exported[len(exported)-1], "--schema=graph") {
+		t.Errorf("exports: %q", exported)
 	}
 	if cp.audience != "infraharvest-api" {
 		t.Errorf("token audience is %q", cp.audience)
@@ -205,12 +291,177 @@ func TestUploadSendsEachDocument(t *testing.T) {
 	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
 		t.Errorf("outputs: %q", res.outputs)
 	}
-	// The token is masked, and printed nowhere else.
-	if !strings.Contains(res.output, "::add-mask::"+oidcToken+"\n") {
-		t.Errorf("the token isn't masked:\n%s", res.output)
+	// Both tokens are masked, and printed nowhere else.
+	for _, token := range []string{oidcToken, runToken} {
+		if !strings.Contains(res.output, "::add-mask::"+token+"\n") {
+			t.Errorf("the token isn't masked:\n%s", res.output)
+		}
+		rest := strings.ReplaceAll(res.output, "::add-mask::"+token, "")
+		if strings.Contains(rest, token) {
+			t.Errorf("a token is printed:\n%s", res.output)
+		}
 	}
-	if rest := strings.ReplaceAll(res.output, "::add-mask::"+oidcToken, ""); strings.Contains(rest, oidcToken) || strings.Contains(rest, oidcRequestToken) {
-		t.Errorf("a token is printed:\n%s", res.output)
+	if strings.Contains(res.output, oidcRequestToken) {
+		t.Errorf("the request token is printed:\n%s", res.output)
+	}
+}
+
+func TestUploadUsesTheAudience(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"AUDIENCE": "https://cp.example.com/api"})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if cp.audience != "https://cp.example.com/api" {
+		t.Errorf("token audience is %q", cp.audience)
+	}
+}
+
+func TestUploadOpensTheSessionBeforeExporting(t *testing.T) {
+	cp := newControlPlane(t)
+	cp.queue(sessionPath, 402)
+	res := upload(t, cp, nil)
+	if res.err == nil {
+		t.Fatalf("upload succeeded:\n%s", res.output)
+	}
+	if res.args != "" {
+		t.Errorf("exported before the session was open: %q", res.args)
+	}
+}
+
+func TestUploadSendsTheGraph(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123", "DROP_TAGS": "true"})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if cp.count("/api/v1/ingest/graph") != 1 || !strings.Contains(cp.bodies["/api/v1/ingest/graph"], `"schema":"graph/v1"`) {
+		t.Errorf("graph: %d requests, body %q", cp.count("/api/v1/ingest/graph"), cp.bodies["/api/v1/ingest/graph"])
+	}
+	// The graph has IDs to hash, but no tags to drop.
+	var graph string
+	for _, line := range strings.Split(res.args, "\n") {
+		if strings.Contains(line, "--schema=graph") {
+			graph = line
+		}
+	}
+	if !strings.Contains(graph, "--hash-ids") || strings.Contains(graph, "--drop") {
+		t.Errorf("graph export ran as %q", graph)
+	}
+}
+
+func TestUploadFailsWhenTheGraphFails(t *testing.T) {
+	cp := newControlPlane(t)
+	cp.queue("/api/v1/ingest/graph", 400)
+	res := upload(t, cp, nil)
+	if res.err == nil {
+		t.Fatalf("upload succeeded:\n%s", res.output)
+	}
+	if cp.count("/api/v1/ingest/gate") != 1 || cp.count("/api/v1/ingest/graph") != 1 {
+		t.Errorf("gate %d, graph %d requests", cp.count("/api/v1/ingest/gate"), cp.count("/api/v1/ingest/graph"))
+	}
+	if strings.Contains(res.outputs, "control-plane-run-id") {
+		t.Errorf("run id set without the graph: %q", res.outputs)
+	}
+}
+
+func TestUploadPlanRefusalIsNotRetried(t *testing.T) {
+	for _, path := range []string{sessionPath, "/api/v1/ingest/inventory", "/api/v1/ingest/graph"} {
+		t.Run(path, func(t *testing.T) {
+			cp := newControlPlane(t)
+			cp.queue(path, 402)
+			cp.reasons[path] = "cloud account limit reached (3 of 3)"
+			res := upload(t, cp, nil)
+			if res.err == nil {
+				t.Fatalf("upload succeeded:\n%s", res.output)
+			}
+			if got := cp.count(path); got != 1 {
+				t.Errorf("%d requests, want 1", got)
+			}
+			for _, want := range []string{"::error::", "HTTP 402", "plan refused", "cloud account limit reached (3 of 3)", "not a problem with the token"} {
+				if !strings.Contains(res.output, want) {
+					t.Errorf("output lacks %q:\n%s", want, res.output)
+				}
+			}
+			if strings.Contains(res.output, `{"error"`) {
+				t.Errorf("the JSON body is printed as it came:\n%s", res.output)
+			}
+			if strings.Contains(res.outputs, "control-plane-run-id") {
+				t.Errorf("outputs: %q", res.outputs)
+			}
+		})
+	}
+}
+
+func TestUploadRefusedSession(t *testing.T) {
+	for _, status := range []int{401, 403} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			cp := newControlPlane(t)
+			cp.queue(sessionPath, status)
+			cp.reasons[sessionPath] = "audience not accepted"
+			res := upload(t, cp, nil)
+			if res.err == nil {
+				t.Fatalf("upload succeeded:\n%s", res.output)
+			}
+			if got := cp.count(sessionPath); got != 1 {
+				t.Errorf("session: %d requests, want 1", got)
+			}
+			for _, want := range []string{fmt.Sprintf("HTTP %d", status), "refused the token", "audience not accepted"} {
+				if !strings.Contains(res.output, want) {
+					t.Errorf("output lacks %q:\n%s", want, res.output)
+				}
+			}
+			if cp.count("/api/v1/ingest/inventory") != 0 {
+				t.Error("uploaded without a session")
+			}
+		})
+	}
+}
+
+func TestUploadSessionRetriesServerErrors(t *testing.T) {
+	cp := newControlPlane(t)
+	cp.queue(sessionPath, 503, 200)
+	res := upload(t, cp, nil)
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := cp.count(sessionPath); got != 2 {
+		t.Errorf("session: %d requests, want 2", got)
+	}
+}
+
+func TestUploadSessionWithoutToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oidc":
+			fmt.Fprintf(w, `{"value":%q}`, oidcToken)
+		default:
+			fmt.Fprint(w, `{"expires_at":"2026-11-18T10:15:00Z"}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	res := run(t, "upload", map[string]string{
+		"URL": srv.URL, "ACTIONS_ID_TOKEN_REQUEST_URL": srv.URL + "/oidc", "ACTIONS_ID_TOKEN_REQUEST_TOKEN": oidcRequestToken,
+	}, false)
+	if res.err == nil || !strings.Contains(res.output, "no usable token") {
+		t.Errorf("want a failure about the session's token: %v\n%s", res.err, res.output)
+	}
+}
+
+func TestUploadRefusalWithoutJSONShowsTheBody(t *testing.T) {
+	cp := newControlPlane(t)
+	cp.plain = true
+	cp.queue("/api/v1/ingest/run", 422)
+	cp.reasons["/api/v1/ingest/run"] = "schema mismatch at /counts"
+	res := upload(t, cp, nil)
+	if res.err == nil {
+		t.Fatalf("upload succeeded:\n%s", res.output)
+	}
+	if !strings.Contains(res.output, "HTTP 422") || !strings.Contains(res.output, "schema mismatch at /counts") {
+		t.Errorf("output lacks the body:\n%s", res.output)
+	}
+	if got := cp.count("/api/v1/ingest/run"); got != 1 {
+		t.Errorf("run: %d requests, want 1", got)
 	}
 }
 
@@ -361,6 +612,8 @@ func TestCheckInputs(t *testing.T) {
 		{"user", map[string]string{"URL": "https://user:pw@cp.example.com"}, "https://"},
 		{"query", map[string]string{"URL": "https://cp.example.com/?a=b"}, "https://"},
 		{"not a url", map[string]string{"URL": "cp.example.com"}, "https://"},
+		{"audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "https://cp.example.com/api"}, ""},
+		{"bad audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "a&b=c"}, "control-plane-audience"},
 		{"no import", map[string]string{"URL": "https://cp.example.com", "IMPORT": "false"}, "needs import"},
 		{"bad boolean", map[string]string{"URL": "https://cp.example.com", "OPTIONAL": "yes"}, "must be true or false"},
 		{"hash without key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true"}, "needs a key"},
@@ -406,11 +659,12 @@ func TestUploadPassesTheImportTimes(t *testing.T) {
 			exports = append(exports, line)
 		}
 	}
-	if len(exports) != 3 {
+	if len(exports) != 4 {
 		t.Fatalf("exports: %q", exports)
 	}
-	// The inventory (generated_at) and the run have them; the gate has no time.
-	for i, want := range []bool{true, true, false} {
+	// The inventory (generated_at) and the run have them; the gate and the
+	// graph have no time.
+	for i, want := range []bool{true, true, false, false} {
 		if got := strings.Contains(exports[i], times); got != want {
 			t.Errorf("export %d ran as %q, times wanted: %v", i, exports[i], want)
 		}
