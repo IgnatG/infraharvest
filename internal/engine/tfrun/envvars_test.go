@@ -38,7 +38,7 @@ func fakePlanTerraform(t *testing.T) (execPath, records string) {
 		"    -var-file=*)\n" +
 		"      f=\"${a#-var-file=}\"\n" +
 		"      echo \"$f\" >> $r/paths\n" +
-		"      stat -c %a \"$f\" >> $r/modes\n" +
+		"      { stat -c %a \"$f\" 2>/dev/null || stat -f %Lp \"$f\"; } >> $r/modes\n" +
 		"      cat \"$f\" >> $r/vars\n" +
 		"      ;;\n" +
 		"  esac\n" +
