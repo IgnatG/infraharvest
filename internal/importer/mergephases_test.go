@@ -243,23 +243,28 @@ func TestHandOver(t *testing.T) {
 	t.Parallel()
 	before := map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit", "aws_sqs_queue.orders": "q-orders"}}
 	merged := &mergeCheckpoint{Merge: report.Merge{Merged: true}, Imports: before}
+	unselectedOrders := mergeMember{env: "dev", opts: engine.Options{External: []engine.External{{Type: "aws_sqs_queue", ID: "q-orders"}}}}
 	for name, tc := range map[string]struct {
 		prev    *mergeCheckpoint
 		adopted bool
 		reason  string
 		imports map[string]map[string]string
+		// members are the stack's, as the import generated them.
+		members []mergeMember
 		// why is what the merge's reason starts with, empty where it
 		// merges, and cleared whether what it wrote goes.
 		why     string
 		cleared bool
 	}{
-		"never merged":   {imports: map[string]map[string]string{"dev": {"aws_sqs_queue.this": "q-audit"}}},
-		"merged apart":   {prev: &mergeCheckpoint{Imports: before}, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.this": "q-audit"}}},
-		"doesn't merge":  {prev: merged, reason: "the plans differ", why: "the plans differ"},
-		"as it was":      {prev: merged, imports: before},
-		"left out":       {prev: merged, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}},
-		"left out, told": {prev: merged, adopted: true, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}, why: "merging it again from what this run lists would leave out what the merged root has that this run doesn't list, but can't tell is no longer in the cloud (not listed in full with these services, filters and layout, or in another root): dev: aws_sqs_queue.orders", cleared: true},
-		"readdressed":    {prev: merged, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit", "aws_sqs_queue.this": "q-orders"}}, why: "merging it again would give what the merged root has other addresses: dev: aws_sqs_queue.orders is now aws_sqs_queue.this", cleared: true},
+		"never merged":           {imports: map[string]map[string]string{"dev": {"aws_sqs_queue.this": "q-audit"}}},
+		"merged apart":           {prev: &mergeCheckpoint{Imports: before}, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.this": "q-audit"}}},
+		"doesn't merge":          {prev: merged, reason: "the plans differ", why: "the plans differ"},
+		"as it was":              {prev: merged, imports: before},
+		"left out":               {prev: merged, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}},
+		"left out, told":         {prev: merged, adopted: true, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}, why: "merging it again from what this run lists would leave out what the merged root has that this run doesn't list, but can't tell is no longer in the cloud (not listed in full with these services, filters and layout, or in another root): dev: aws_sqs_queue.orders", cleared: true},
+		"left out, not selected": {prev: merged, members: []mergeMember{unselectedOrders}, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}, why: "merging it again would leave out what the merged root has that this run lists but doesn't select, which are still in the cloud, and each environment's plan would destroy them: dev: aws_sqs_queue.orders", cleared: true},
+		"left out, in another environment's selection": {prev: merged, members: []mergeMember{{env: "prod", opts: engine.Options{External: []engine.External{{Type: "aws_sqs_queue", ID: "q-orders"}}}}}, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit"}}},
+		"readdressed": {prev: merged, imports: map[string]map[string]string{"dev": {"aws_sqs_queue.audit": "q-audit", "aws_sqs_queue.this": "q-orders"}}, why: "merging it again would give what the merged root has other addresses: dev: aws_sqs_queue.orders is now aws_sqs_queue.this", cleared: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -268,7 +273,7 @@ func TestHandOver(t *testing.T) {
 			writeRootFiles(t, stack, map[string]string{"main.tf": "# merged\n"})
 			p := newTestPhase(out, nil)
 			result := &envmerge.MergeResult{Reason: tc.reason, Files: []string{"main.tf"}}
-			s := &stackMerge{phase: p, out: out, stack: stack, prev: tc.prev, adopted: tc.adopted, result: result, imports: tc.imports}
+			s := &stackMerge{phase: p, out: out, stack: stack, prev: tc.prev, adopted: tc.adopted, members: tc.members, result: result, imports: tc.imports}
 			if err := s.handOver(); err != nil {
 				t.Fatal(err)
 			}
@@ -347,5 +352,38 @@ func TestRestorePrevious(t *testing.T) {
 	}
 	if s.backup != nil {
 		t.Error("the backup is still there after failing")
+	}
+}
+
+// A merged root merged again, with --regenerate, from roots whose
+// selection now excludes a resource the merged root has, which is still in
+// the cloud, stays as it was, as a root generated alone is refused: merged
+// without it and without a removed block, its next plan would destroy it.
+func TestMergeStackRefusesWhereTheSelectionNowExcludesWhatItHas(t *testing.T) {
+	out := t.TempDir()
+	f := &fakeEngine{}
+	p, stack, members := remergeStack(t, out, f, "audit", "orders")
+	p.regenerate = true
+	members[0].result.Addresses = []engine.Managed{{Type: "aws_sqs_queue", ID: "q-audit", Address: "aws_sqs_queue.dev_audit"}}
+	members[0].opts.External = []engine.External{{Type: "aws_sqs_queue", ID: "q-orders"}}
+	p.tools.merge = func(_ context.Context, dir string, roots []envmerge.MergeRoot, _ envmerge.MergeOptions) (*envmerge.MergeResult, error) {
+		f.merged = append(f.merged, roots)
+		if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte("# merged again, audit only\n"), 0o644); err != nil {
+			return nil, err
+		}
+		return &envmerge.MergeResult{
+			Files:        []string{"main.tf"},
+			Environments: []envmerge.MergedEnvironment{{Env: "dev", Imports: map[string]string{"aws_sqs_queue.audit[0]": "q-audit"}}, {Env: "prod"}},
+		}, nil
+	}
+	if err := p.mergeStack(t.Context(), stack, members); err != nil {
+		t.Fatal(err)
+	}
+	checkMergedRootKept(t, stack)
+	if _, err := os.Stat(filepath.Join(stack, rootfile.MovesFileName)); !os.IsNotExist(err) {
+		t.Errorf("%s is in the merged root: %v", rootfile.MovesFileName, err)
+	}
+	if len(p.report.Merges) != 1 || !p.report.Merges[0].Unchanged || !strings.Contains(p.report.Merges[0].Reason, "dev: aws_sqs_queue.orders[0]") {
+		t.Errorf("merges %+v, want the merged root unchanged, for dev's orders", p.report.Merges)
 	}
 }

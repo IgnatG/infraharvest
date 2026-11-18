@@ -22,6 +22,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/internal/tftypes"
 )
 
 // A root environments share keeps what its merge did under the output's
@@ -413,4 +414,47 @@ func sharedAddresses(imports map[string]map[string]string) map[string]bool {
 		}
 	}
 	return shared
+}
+
+// unselectedFromMerge returns, of before, the import IDs of each
+// environment's resources in a merged root by address, those now, merged
+// again, lacks, that the member of the environment listed but leaves out,
+// such as those the selection now excludes, unless a removed block of
+// removed hands them over, as "<env>: <address>", sorted. They are still
+// in the cloud, and the next plan on the merged root's state would destroy
+// them. A resource the run no longer lists at all, such as one deleted in
+// the cloud since, isn't counted.
+func unselectedFromMerge(before, now map[string]map[string]string, members []mergeMember, removed []rootfile.Removal) []string {
+	handed := map[engine.External]bool{}
+	for _, r := range removed {
+		for _, d := range r.Resources {
+			handed[engine.ResourceKey(d.Type, d.ID)] = true
+		}
+	}
+	var unselected []string
+	for _, gone := range leftOutOfMerge(before, now) {
+		env, address, _ := strings.Cut(gone, ": ")
+		id := before[env][address]
+		typ := engine.AddressType(address)
+		if handed[engine.ResourceKey(typ, id)] {
+			continue
+		}
+		if slices.ContainsFunc(members, func(m mergeMember) bool { return m.env == env && listedButLeftOut(m.opts.External, typ, id) }) {
+			unselected = append(unselected, gone)
+		}
+	}
+	return unselected
+}
+
+// listedButLeftOut reports whether external, what an import listed but
+// doesn't manage, has the resource of the type, or another name of it
+// (see tftypes.Aliases), and ID.
+func listedButLeftOut(external []engine.External, typ, id string) bool {
+	for _, t := range append([]string{typ}, tftypes.Aliases(typ)...) {
+		key := engine.ResourceKey(t, id)
+		if slices.ContainsFunc(external, func(e engine.External) bool { return engine.ResourceKey(e.Type, e.ID) == key }) {
+			return true
+		}
+	}
+	return false
 }
