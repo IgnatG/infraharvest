@@ -407,6 +407,7 @@ jobs:
         FuzzParseFromIsParseWhole ./internal/managed/
         FuzzLoad ./internal/selection/
         FuzzParseFilters ./internal/harvest/
+        FuzzIdentityID ./internal/tftypes/
         EOF
     - name: Upload the failing inputs
       if: failure()
@@ -1114,6 +1115,10 @@ jobs:
     - name: Engine and scanner versions
       if: ${{ !cancelled() }}
       run: .github/scripts/check-versions.sh
+    # Every fuzz target is in the fuzz job's list, or it only runs its seeds.
+    - name: Fuzz targets
+      if: ${{ !cancelled() }}
+      run: .github/scripts/check-fuzz-list.sh
     - name: reuse lint
       if: ${{ !cancelled() }}
       uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
