@@ -216,6 +216,7 @@ func signIn(ctx context.Context, cfg authConfig) (authConfig, azcore.TokenCreden
 	options := &arm.ClientOptions{
 		ClientOptions: policy.ClientOptions{
 			Cloud:     cfg.cloud,
+			Retry:     retryOptions(),
 			Telemetry: policy.TelemetryOptions{ApplicationID: telemetryApplicationID},
 			Transport: limitedClient(runstate.FromContext(ctx), cfg.subscriptionID, resourceManagerHTTPClient()),
 		},

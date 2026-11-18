@@ -47,9 +47,10 @@ type serviceSettings struct {
 const roleSessionName = "infraharvest"
 
 // defaultMaxAttempts is how often a call is tried, unless AWS_MAX_ATTEMPTS
-// says otherwise: enough for the adaptive retry mode to ride out the
-// throttling of a large account.
-const defaultMaxAttempts = 10
+// says otherwise: the budget of every cloud (see ratelimit.MaxAttempts),
+// enough for the adaptive retry mode to ride out the throttling of a
+// large account.
+const defaultMaxAttempts = ratelimit.MaxAttempts
 
 // credentialsExpiryWindow is how long before temporary credentials expire
 // they are refreshed: what TerraformEnv hands a plan has at least that long
