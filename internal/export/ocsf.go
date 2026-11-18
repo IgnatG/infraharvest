@@ -123,11 +123,23 @@ type ocsfEvent struct {
 	Resources    []ocsfResource `json:"resources"`
 }
 
+// ocsfRedaction says what the document leaves out or hashes, as the
+// inventory's redaction does, so that a receiver can tell a hashed ID from a
+// real one; it also says whether the addresses and paths are left out.
+type ocsfRedaction struct {
+	TagKeysDropped   []string `json:"tag_keys_dropped"`
+	AllTagsDropped   bool     `json:"all_tags_dropped,omitempty"`
+	IDsHashed        bool     `json:"ids_hashed"`
+	HashAlg          string   `json:"hash_alg"`
+	AddressesDropped bool     `json:"addresses_dropped"`
+}
+
 type ocsfDoc struct {
-	Schema      string      `json:"schema"`
-	RunID       string      `json:"run_id"`
-	OCSFVersion string      `json:"ocsf_version"`
-	Events      []ocsfEvent `json:"events"`
+	Schema      string        `json:"schema"`
+	RunID       string        `json:"run_id"`
+	OCSFVersion string        `json:"ocsf_version"`
+	Redaction   ocsfRedaction `json:"redaction"`
+	Events      []ocsfEvent   `json:"events"`
 }
 
 // ocsfProvider names a cloud as OCSF's cloud.provider does.
@@ -305,6 +317,12 @@ func buildOCSFInventory(r *report.Report, opts Options, runID string, now time.T
 			event.Cloud.Account = &ocsfAccount{UID: account}
 		}
 		doc.Events = append(doc.Events, event)
+	}
+	// Set once every event is built: the redactor lists the tag keys it
+	// dropped as it goes through them.
+	doc.Redaction = ocsfRedaction{
+		TagKeysDropped: red.droppedKeys(), AllTagsDropped: opts.DropAllTags,
+		IDsHashed: opts.HashKey != nil, HashAlg: hashAlg, AddressesDropped: opts.DropAddresses,
 	}
 	return doc, nil
 }
