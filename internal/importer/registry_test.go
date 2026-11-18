@@ -27,7 +27,8 @@ func TestRunUsesTheRegistryItIsGiven(t *testing.T) {
 		looked = append(looked, source)
 		return nil, errors.New("offline")
 	}}
-	given := NewRun().WithRegistry(reg)
+	given := NewRun()
+	given.registry = reg
 	given.tools = tools
 	list, _, _ := given.registryModules(t.Context(), &moduleQueryProvider{}, ModulesRegistry, selected)
 	if len(list) != 1 || list[0].Source != own.Source || len(looked) != 1 || looked[0] != own.Source {

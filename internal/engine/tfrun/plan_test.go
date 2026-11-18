@@ -13,14 +13,14 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
-func TestParseUIDiagnostics(t *testing.T) {
+func TestParsePlanOutputDiagnostics(t *testing.T) {
 	t.Parallel()
 	out := `{"@level":"info","@message":"Terraform 1.16.5","type":"version"}
 {"@level":"error","@message":"Error: Invalid combination","type":"diagnostic","diagnostic":{"severity":"error","summary":"Invalid combination","detail":"one of a,b","address":"aws_x.a","range":{"filename":"generated.tf","start":{"line":4,"column":3,"byte":40},"end":{"line":4,"column":8,"byte":45}}}}
 not json
 {"@level":"warn","type":"diagnostic","diagnostic":{"severity":"warning","summary":"Deprecated"}}
 `
-	got, err := parseUIDiagnostics([]byte(out))
+	got, _, err := parsePlanOutput([]byte(out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,8 @@ func planOutput(n int) []byte {
 	return b.Bytes()
 }
 
-// parsePlanOutput reads what parseUIDiagnostics and parseChangeSummary
-// read, also where a line's other values name the types it looks for.
+// parsePlanOutput reads the diagnostics and the change summary of the plan,
+// also where a line's other values name the types it looks for.
 func TestParsePlanOutput(t *testing.T) {
 	t.Parallel()
 	out := planOutput(3)

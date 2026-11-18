@@ -140,14 +140,14 @@ func resolveSchema(content []byte) (*jsonschema.Resolved, error) {
 }
 
 // array is an array of a document checked an item at a time: n items, of
-// which item returns the i-th as instanceOf would.
+// which item returns the i-th as instance would.
 type array struct {
 	n    int
 	item func(i int) (any, error)
 }
 
 // check validates rest, a document as encoding/json decodes it into an any
-// (see instanceOf), with each of arrays, by property, as the value of that
+// (see instance), with each of arrays, by property, as the value of that
 // property in place of the empty array rest has.
 func (c *checker) check(rest any, arrays map[string]array) error {
 	if err := c.whole.Validate(rest); err != nil {
@@ -184,33 +184,6 @@ func checkItems(item *jsonschema.Resolved, name string, a array) error {
 	}
 	wg.Wait()
 	return errors.Join(errs...)
-}
-
-// validate checks content, a JSON document, against the schema of
-// document. Schemas say additionalProperties false, so a field the schema
-// doesn't name fails it.
-func validate(document string, content []byte) error {
-	var instance any
-	if err := json.Unmarshal(content, &instance); err != nil {
-		return err
-	}
-	c, err := checkerOf(document)
-	if err != nil {
-		return err
-	}
-	top, ok := instance.(map[string]any)
-	if !ok {
-		return c.whole.Validate(instance)
-	}
-	rest := maps.Clone(top)
-	arrays := map[string]array{}
-	for name := range c.items {
-		if items, ok := top[name].([]any); ok {
-			rest[name] = []any{}
-			arrays[name] = array{n: len(items), item: func(i int) (any, error) { return items[i], nil }}
-		}
-	}
-	return c.check(rest, arrays)
 }
 
 // validateDocument checks doc, a document as Build builds it, against the

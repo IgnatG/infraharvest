@@ -71,3 +71,10 @@ func TestCachesOfNoRunAreNobodys(t *testing.T) {
 		t.Error("the calls of a run don't share its caches")
 	}
 }
+
+// forget drops every list kept.
+func (l *projectLists[T]) forget() {
+	l.mu.Lock()
+	l.byKey = nil
+	l.mu.Unlock()
+}

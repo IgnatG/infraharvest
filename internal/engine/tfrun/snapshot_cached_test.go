@@ -25,7 +25,7 @@ func TestWithImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summary, err := parseChangeSummary(edited)
+	_, summary, err := parsePlanOutput(edited)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestCachedPlans(t *testing.T) {
 	}
 	// The plan imported one resource and skipped one: two imports, as
 	// plain plans have.
-	if summary, err := parseChangeSummary(out.Bytes()); err != nil || summary == nil || summary.Import != 2 {
+	if _, summary, err := parsePlanOutput(out.Bytes()); err != nil || summary == nil || summary.Import != 2 {
 		t.Errorf("summary: %+v, %v", summary, err)
 	}
 	plan, err := c.ShowPlanFile(context.Background(), "p")

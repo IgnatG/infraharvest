@@ -117,10 +117,3 @@ func (l *projectLists[T]) once(project string, list func() (T, error)) (T, error
 	p.value, p.err, p.done = value, err, true
 	return value, err
 }
-
-// forget drops every list kept, for tests.
-func (l *projectLists[T]) forget() {
-	l.mu.Lock()
-	l.byKey = nil
-	l.mu.Unlock()
-}

@@ -207,15 +207,15 @@ func TestResourceAt(t *testing.T) {
 		"aws_s3_bucket.other":                 "",
 		"":                                    "",
 	} {
-		m, ok := ResourceAt(managed, address)
+		m, ok := NewManagedIndex(managed).At(address)
 		if ok != (want != "") || m.ID != want {
 			t.Errorf("%q: got %+v, %v, want %q", address, m, ok, want)
 		}
 	}
 }
 
-// resourceAtByScan is ResourceAt as it read every resource for each
-// address, before ManagedIndex.
+// resourceAtByScan is what ManagedIndex.At answered as it read every
+// resource for each address, before ManagedIndex.
 func resourceAtByScan(managed []Managed, address string) (Managed, bool) {
 	if address == "" {
 		return Managed{}, false
