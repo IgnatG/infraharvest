@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/ocsf-findings-v1.schema.json",
+  "title": "infraharvest OCSF findings, version 1",
+  "description": "The checks of the verification gate that failed or were skipped, as OCSF 1.9.0 Detection Finding events (class_uid 2004), one event for each check of each root, with the infraharvest iac extension's iac_source profile (schemas/ocsf/iac) for the root an import generated. It describes the subset of the OCSF class that infraharvest writes, not all of it. Only the check's name and its reason codes, never what a check says about an address or a value.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "ocsf_version", "redaction", "events"],
+  "properties": {
+    "schema": {"const": "infraharvest/ocsf-findings/v1"},
+    "run_id": {"$ref": "#/$defs/uuid"},
+    "ocsf_version": {"const": "1.9.0"},
+    "redaction": {"$ref": "#/$defs/redaction"},
+    "events": {"type": "array", "items": {"$ref": "#/$defs/event"}}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "text": {"type": "string", "minLength": 1},
+    "reason_code": {"enum": ["not_formatted", "invalid_configuration", "plan_failed", "standards_violation", "scanner_findings", "secrets_found", "not_deterministic", "moves_invalid", "tool_missing", "not_run", "other"]},
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ids_hashed", "hash_alg", "addresses_dropped"],
+      "properties": {
+        "ids_hashed": {"type": "boolean"},
+        "hash_alg": {"const": "hmac-sha256"},
+        "addresses_dropped": {"type": "boolean"}
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activity_id", "activity_name", "category_name", "category_uid", "class_name", "class_uid", "finding_info", "is_alert", "message", "metadata", "severity", "severity_id", "status", "status_id", "time", "type_uid"],
+      "properties": {
+        "activity_id": {"const": 1},
+        "activity_name": {"const": "Create"},
+        "category_name": {"const": "Findings"},
+        "category_uid": {"const": 2},
+        "class_name": {"const": "Detection Finding"},
+        "class_uid": {"const": 2004},
+        "type_uid": {"const": 200401},
+        "is_alert": {"type": "boolean"},
+        "message": {"$ref": "#/$defs/text"},
+        "severity_id": {"enum": [2, 3, 4]},
+        "severity": {"enum": ["Low", "Medium", "High"]},
+        "status_id": {"const": 1},
+        "status": {"const": "New"},
+        "time": {"type": "integer", "minimum": 0},
+        "finding_info": {"$ref": "#/$defs/finding_info"},
+        "metadata": {"$ref": "#/$defs/metadata"},
+        "cloud": {"$ref": "#/$defs/cloud"},
+        "resources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/resource_details"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"severity_id": {"const": 2}}, "required": ["severity_id"]}, "then": {"properties": {"severity": {"const": "Low"}, "is_alert": {"const": false}}}},
+        {"if": {"properties": {"severity_id": {"const": 3}}, "required": ["severity_id"]}, "then": {"properties": {"severity": {"const": "Medium"}, "is_alert": {"const": true}}}},
+        {"if": {"properties": {"severity_id": {"const": 4}}, "required": ["severity_id"]}, "then": {"properties": {"severity": {"const": "High"}, "is_alert": {"const": true}}}}
+      ]
+    },
+    "finding_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "title", "types"],
+      "properties": {
+        "uid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:G[1-8]:[1-9][0-9]*$"},
+        "title": {"enum": ["G1 format", "G2 validate", "G3 plan", "G4 standards", "G5 scanners", "G6 secrets", "G7 determinism", "G8 moves"]},
+        "types": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/reason_code"}}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["correlation_uid", "extensions", "product", "profiles", "version"],
+      "properties": {
+        "version": {"const": "1.9.0"},
+        "correlation_uid": {"$ref": "#/$defs/uuid"},
+        "product": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": {"const": "infraharvest"},
+            "version": {"$ref": "#/$defs/text"}
+          }
+        },
+        "profiles": {"const": ["cloud", "iac/iac_source"]},
+        "extensions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "uid", "version"],
+            "properties": {
+              "name": {"const": "iac"},
+              "uid": {"const": "999"},
+              "version": {"const": "1.0.0"}
+            }
+          }
+        }
+      }
+    },
+    "cloud": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "properties": {
+        "provider": {"enum": ["AWS", "Azure", "GCP"]},
+        "account": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uid"],
+          "properties": {"uid": {"$ref": "#/$defs/text"}}
+        },
+        "region": {"$ref": "#/$defs/text"}
+      }
+    },
+    "resource_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "iac_root"},
+        "uid": {"$ref": "#/$defs/text"},
+        "iac": {"$ref": "#/$defs/iac_source"}
+      }
+    },
+    "iac_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome_id", "outcome"],
+      "properties": {
+        "outcome_id": {"const": 1},
+        "outcome": {"const": "Written"},
+        "tool": {"enum": ["terraform", "opentofu"]},
+        "repo_url": {"type": "string", "pattern": "^https?://[^\\s@/?#]+(/[^\\s?#]*)?$"},
+        "commit_sha": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+        "path": {"$ref": "#/$defs/text"},
+        "state_key": {"$ref": "#/$defs/text"}
+      }
+    }
+  }
+}

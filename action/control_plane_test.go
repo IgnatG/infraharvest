@@ -71,6 +71,7 @@ type controlPlane struct {
 	calls    map[string]int
 	headers  map[string]http.Header
 	bodies   map[string]string // after gunzip
+	sizes    map[string]int    // as received, before gunzip
 	reasons  map[string]string // the "error" of a refusal, per path
 	plain    bool              // refuse with plain text, not JSON
 	audience string
@@ -78,7 +79,7 @@ type controlPlane struct {
 
 func newControlPlane(t *testing.T) *controlPlane {
 	t.Helper()
-	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}, reasons: map[string]string{}}
+	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}, sizes: map[string]int{}, reasons: map[string]string{}}
 	cp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -95,6 +96,7 @@ func newControlPlane(t *testing.T) *controlPlane {
 		cp.calls[r.URL.Path]++
 		cp.headers[r.URL.Path] = r.Header.Clone()
 		cp.bodies[r.URL.Path] = string(body)
+		cp.sizes[r.URL.Path] = len(body)
 		if r.Header.Get("Content-Encoding") == "gzip" {
 			plain, err := gunzip(body)
 			if err != nil {
@@ -1220,5 +1222,145 @@ func TestUploadOfAnImportIgnoresDiscoverAndVerifyFiles(t *testing.T) {
 	}
 	if got := exports(res); len(got) != 4 || strings.Contains(res.args, "--command") {
 		t.Errorf("exports: %q", got)
+	}
+}
+
+// An import that adds to the roots it finds sends the run document with the
+// command incremental, and the other documents as an import sends them.
+func TestUploadOfAnIncrementalImportSaysSo(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"COMMAND": "incremental", "STARTED_AT": "2026-11-18T10:00:00Z", "REQUEST_ID": "req-7"})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := cp.runDocument(t).Command; got != "incremental" {
+		t.Errorf("command is %q, want incremental", got)
+	}
+	// What an import sends: the same four documents, in the same order.
+	for _, doc := range documents {
+		if cp.count("/api/v1/ingest/"+doc) != 1 {
+			t.Errorf("%s: %d requests, want 1", doc, cp.count("/api/v1/ingest/"+doc))
+		}
+	}
+	lines := exports(res)
+	if len(lines) != len(documents) {
+		t.Fatalf("exports: %q", lines)
+	}
+	for _, line := range lines {
+		isRun := strings.Contains(line, "--schema=run")
+		if got := strings.Contains(line, "--command=incremental"); got != isRun {
+			t.Errorf("--command=incremental is %v for: %s", got, line)
+		}
+	}
+	// The run document keeps the import's times and request ID.
+	for _, want := range []string{"--started-at=2026-11-18T10:00:00Z", "--request-id=req-7"} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("run export lacks %s: %s", want, lines[1])
+		}
+	}
+	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+// Unless a control plane asked for an incremental import, an import is an
+// import, whatever the incremental input is.
+func TestUploadOfAPlainImportKeepsTheImportCommand(t *testing.T) {
+	for _, incremental := range []string{"", "import"} {
+		cp := newControlPlane(t)
+		env := map[string]string{}
+		if incremental != "" {
+			env["COMMAND"] = incremental
+		}
+		res := upload(t, cp, env)
+		if res.err != nil {
+			t.Fatalf("COMMAND=%q: upload failed: %v\n%s", incremental, res.err, res.output)
+		}
+		if got := cp.runDocument(t).Command; got != "import" {
+			t.Errorf("COMMAND=%q: command is %q, want import", incremental, got)
+		}
+		if strings.Contains(res.args, "incremental") {
+			t.Errorf("COMMAND=%q: the export has an incremental flag:\n%s", incremental, res.args)
+		}
+	}
+}
+
+// A run that isn't an import has no incremental command, whatever the
+// input says: a drift check alone is still the drift check's run.
+func TestIncrementalInputDoesNotChangeOtherRuns(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, driftEnv(map[string]string{"COMMAND": "incremental"}), layout{drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := cp.runDocument(t).Command; got != "drift" {
+		t.Errorf("command is %q, want drift", got)
+	}
+}
+
+// sizeLine is the log line of a document's size, as the script prints it.
+func sizeLine(doc string, json, gzipped int) string {
+	return fmt.Sprintf("control plane: the %s document is %d bytes, %d bytes gzipped\n", doc, json, gzipped)
+}
+
+// Each document has one log line with its size and its gzip size, which are
+// those of what the control plane received, and nothing of its content.
+func TestUploadLogsTheSizeOfEachDocument(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, nil)
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	for _, doc := range documents {
+		path := "/api/v1/ingest/" + doc
+		json, gzipped := len(cp.bodies[path]), cp.sizes[path]
+		if json == 0 || gzipped == 0 {
+			t.Fatalf("%s: sizes %d, %d", doc, json, gzipped)
+		}
+		line := sizeLine(doc, json, gzipped)
+		if got := strings.Count(res.output, line); got != 1 {
+			t.Errorf("%s: %d lines %q in:\n%s", doc, got, line, res.output)
+		}
+		if got := strings.Count(res.output, "the "+doc+" document is"); got != 1 {
+			t.Errorf("%s: %d size lines", doc, got)
+		}
+	}
+	// Nothing of a document's content is in the log: neither a value of it
+	// nor the document itself.
+	for _, leak := range []string{runID, `"schema"`, `"events"`, "ocsf_version"} {
+		if strings.Contains(res.output, leak) {
+			t.Errorf("the log holds %q:\n%s", leak, res.output)
+		}
+	}
+}
+
+// The sizes are logged for the documents of any run, and before the first
+// document is sent, so that a refusal still has them.
+func TestUploadLogsSizesOfOtherRunsAndOfARefusedUpload(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, driftEnv(nil), layout{drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	for _, doc := range []string{"run", "drift-summary"} {
+		path := "/api/v1/ingest/" + doc
+		if line := sizeLine(doc, len(cp.bodies[path]), cp.sizes[path]); !strings.Contains(res.output, line) {
+			t.Errorf("%s: no line %q in:\n%s", doc, line, res.output)
+		}
+	}
+	if strings.Contains(res.output, "the graph document is") {
+		t.Errorf("a size for a document that wasn't made:\n%s", res.output)
+	}
+
+	refused := newControlPlane(t)
+	refused.queue("/api/v1/ingest/ocsf-inventory", 400)
+	res = upload(t, refused, nil)
+	if res.err == nil {
+		t.Fatal("a refused upload passed")
+	}
+	for _, doc := range documents {
+		if !strings.Contains(res.output, "the "+doc+" document is") {
+			t.Errorf("the refused upload logs no size for %s:\n%s", doc, res.output)
+		}
 	}
 }

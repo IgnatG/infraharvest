@@ -97,7 +97,11 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	docs = append(docs, inv, buildRun(r, "id", time.Time{}, time.Time{}), buildDriftRun(d, "id", time.Time{}, time.Time{}), buildGate(r, "id"), summary, ocsf)
+	findings, err := buildFindingsOfReport(r, Options{Out: out, RepoURL: ocsfRepo, CommitSHA: ocsfCommit}, "id", time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	docs = append(docs, inv, buildRun(r, CommandImport, "id", time.Time{}, time.Time{}), buildDriftRun(d, "id", time.Time{}, time.Time{}), buildGate(r, "id"), summary, ocsf, findings)
 	for _, doc := range docs {
 		got, err := instance(reflect.ValueOf(doc))
 		if err != nil {

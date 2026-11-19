@@ -312,3 +312,67 @@ func TestExportRepoFromEnvironment(t *testing.T) {
 		t.Errorf("a server without a repository: %q", url)
 	}
 }
+
+// --command incremental describes the import's report as an incremental
+// import, with the import's fields, and only the run document takes it.
+func TestExportIncrementalRun(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	out := writeExportReport(t)
+	stdout, err := runExport(t, out, "--schema", "run", "--command", "incremental", "--request-id", "req-1")
+	if err != nil || !strings.Contains(stdout, `"command": "incremental"`) || !strings.Contains(stdout, `"exit_code"`) || !strings.Contains(stdout, `"coverage"`) {
+		t.Fatalf("incremental run: %v\n%s", err, stdout)
+	}
+	if _, err := runExport(t, out, "--schema", "gate", "--command", "incremental"); err == nil {
+		t.Error("incremental took the gate")
+	}
+	// Without the import's report there is nothing to describe.
+	if _, err := runExport(t, t.TempDir(), "--schema", "run", "--command", "incremental"); err == nil {
+		t.Error("incremental worked without a report")
+	}
+}
+
+// The OCSF findings are the checks of the gate that failed or were skipped;
+// the repository comes from the flags or the environment as the OCSF
+// inventory's does, and the paths are hashed or left out.
+func TestExportOCSFFindings(t *testing.T) {
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "")
+	t.Setenv("GITHUB_SERVER_URL", "https://github.com")
+	t.Setenv("GITHUB_REPOSITORY", "owner/infra")
+	t.Setenv("GITHUB_SHA", "0123456789abcdef0123456789abcdef01234567")
+	out := t.TempDir()
+	r := &report.Report{}
+	r.Tool = report.Component{Name: "infraharvest", Version: "v0.1.0"}
+	r.Engine = report.Component{Name: "terraform", Version: "1.17.0"}
+	r.Provider = report.Provider{Source: "hashicorp/aws"}
+	r.Directories = []report.Directory{{
+		Path: "aws/123456789012/eu-west-2", Scope: "aws/123456789012/eu-west-2",
+		Checks: []report.Check{{Name: "G6 secrets", Passed: false, Details: []string{"main.tf holds a value"}}, {Name: "G1 format", Passed: true}},
+	}}
+	r.Finish(nil, nil, false)
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, err := runExport(t, out, "--schema", "ocsf-findings")
+	for _, want := range []string{`"schema": "infraharvest/ocsf-findings/v1"`, `"class_uid": 2004`, `"title": "G6 secrets"`, `"repo_url": "https://github.com/owner/infra"`, `"path": "aws/123456789012/eu-west-2"`} {
+		if err != nil || !strings.Contains(stdout, want) {
+			t.Fatalf("missing %s: %v\n%s", want, err, stdout)
+		}
+	}
+	if strings.Contains(stdout, "main.tf") || strings.Contains(stdout, "G1 format") {
+		t.Errorf("the document holds a detail or a check that passed:\n%s", stdout)
+	}
+	stdout, err = runExport(t, out, "--schema", "ocsf-findings", "--drop-addresses")
+	if err != nil || strings.Contains(stdout, `"path"`) || strings.Contains(stdout, `"uid": "aws/`) {
+		t.Errorf("--drop-addresses: %v\n%s", err, stdout)
+	}
+	t.Setenv("INFRAHARVEST_EXPORT_KEY", "0123456789abcdef-key-a")
+	stdout, err = runExport(t, out, "--schema", "ocsf-findings", "--hash-ids")
+	if err != nil || strings.Contains(stdout, `"path": "aws/`) || !strings.Contains(stdout, `"ids_hashed": true`) {
+		t.Errorf("--hash-ids: %v\n%s", err, stdout)
+	}
+	stdout, err = runExport(t, "--schema", "ocsf-findings", "--print-schema")
+	if err != nil || !strings.Contains(stdout, "ocsf-findings-v1.schema.json") {
+		t.Errorf("--print-schema: %v\n%s", err, stdout)
+	}
+}

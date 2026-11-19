@@ -3,14 +3,16 @@
 #
 # infraharvest in GitHub Actions, started by a control plane: a workflow a
 # control plane's GitHub App dispatches (workflow_dispatch) to run an import,
-# a drift check, a discover or a verify on the default branch, which sends the
+# an incremental import, a drift check, a discover or a verify on the default
+# branch, which sends the
 # run's metadata back to it. See the action's README ("Runs a control plane
 # starts").
 #
 # Copy it to .github/workflows/ on the default branch, set the repository
 # variable INFRAHARVEST_CONTROL_PLANE_URL, and replace the AWS credentials
 # step of each job with your cloud's. Nothing outside the inputs below runs:
-# command is import, drift, discover or verify, and the files a control plane
+# command is import, incremental, drift, discover or verify, and the files a
+# control plane
 # chooses (the selection and the drift decisions) come from a branch it
 # committed them to, never from the dispatch's inputs, so they stay in the
 # repository's history. A discover run writes the selection back to that
@@ -22,9 +24,9 @@ on:
   workflow_dispatch:
     inputs:
       command:
-        description: What to run, import, drift, discover or verify.
+        description: What to run, import, incremental (an import that adds what is new to the roots the repository has), drift, discover or verify.
         type: choice
-        options: [import, drift, discover, verify]
+        options: [import, incremental, drift, discover, verify]
         default: import
       inputs-ref:
         description: Branch the control plane committed selection.yaml or drift.yaml to, under infraharvest/control-plane/; empty for neither. A discover run needs it, and commits the selection it lists to it.
@@ -62,7 +64,7 @@ jobs:
             echo "::error::runs only on the default branch, not $GITHUB_REF"
             exit 1
           fi
-          case "$COMMAND" in import|drift|discover|verify) ;; *) echo "::error::command must be import, drift, discover or verify"; exit 1 ;; esac
+          case "$COMMAND" in import|incremental|drift|discover|verify) ;; *) echo "::error::command must be import, incremental, drift, discover or verify"; exit 1 ;; esac
           if [[ -n "$INPUTS_REF" && ! "$INPUTS_REF" =~ ^infraharvest/control-plane/[A-Za-z0-9._/-]+$ ]]; then
             echo "::error::inputs-ref must be a branch under infraharvest/control-plane/"
             exit 1
@@ -80,10 +82,11 @@ jobs:
             exit 1
           fi
 
-  # An import, which opens a pull request, and a drift check.
+  # An import, which opens a pull request, an incremental import, which adds to
+  # the roots the repository has and opens one too, and a drift check.
   infraharvest:
     needs: check
-    if: inputs.command == 'import' || inputs.command == 'drift'
+    if: inputs.command == 'import' || inputs.command == 'incremental' || inputs.command == 'drift'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -132,7 +135,8 @@ jobs:
           provider: aws
           services: vpc,subnet,sg,s3
           regions: eu-west-2
-          import: ${{ inputs.command == 'import' }}
+          import: ${{ inputs.command == 'import' || inputs.command == 'incremental' }}
+          control-plane-command: ${{ inputs.command == 'incremental' && 'incremental' || '' }}
           selection: ${{ steps.files.outputs.selection }}
           drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
           drift-decisions: ${{ steps.files.outputs.decisions }}

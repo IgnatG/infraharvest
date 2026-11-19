@@ -15,7 +15,8 @@
 # with the same results are two runs to the control plane, and a re-run of one
 # is the same.
 # The OIDC token goes to the session endpoint only. Nothing else is sent. See
-# docs/export.md.
+# docs/export.md. The log has one line for each document with its size in
+# bytes, as exported and as gzipped, and nothing of its content.
 #
 # The documents are those of what ran: an import sends ocsf-inventory, run,
 # gate and graph; a drift check sends drift-summary, and, when no import ran,
@@ -41,8 +42,10 @@
 # Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
 # and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
-# outcome; skipped when it didn't run), DISCOVER and VERIFY (true when the
-# run is a discover or a verify run) with DISCOVER_OUTCOME and
+# outcome; skipped when it didn't run), COMMAND (incremental when a control
+# plane started an incremental import, which its run document then names;
+# anything else is ignored), DISCOVER and VERIFY (true when the run is a discover or a
+# verify run) with DISCOVER_OUTCOME and
 # VERIFY_OUTCOME (their steps' outcomes), DRIFT (off, report or accept),
 # DRIFT_OUTCOME (the Drift step's), DRIFT_STARTED_AT and DRIFT_FINISHED_AT
 # (its start and finish), STARTED_AT and FINISHED_AT (when the
@@ -225,6 +228,17 @@ open_session() {
   annotation notice "control plane: opened a session${expires:+ (the token expires at $expires)}"
 }
 
+# log_size <document>: one log line with the size in bytes of the exported
+# document and of the gzip-compressed body that is sent, so that runs show how
+# large the documents get. Only the name of the document and two numbers: none
+# of its content.
+log_size() {
+  local json gz
+  json=$(wc -c < "$tmp/$1.json")
+  gz=$(wc -c < "$tmp/$1.json.gz")
+  echo "control plane: the $1 document is ${json//[[:space:]]/} bytes, ${gz//[[:space:]]/} bytes gzipped"
+}
+
 # read_run_id <document>: sets doc_run_id to the run_id of the exported
 # document, checked as a header can hold it.
 read_run_id() {
@@ -368,7 +382,10 @@ upload() {
         ;;
       run)
         if [[ "$send_import" == true ]]; then
-          flags=(${times[@]+"${times[@]}"})
+          # An incremental import a control plane asked for says so: it has the
+          # import's report, so the run document keeps the import's fields.
+          if [[ "${COMMAND-}" == incremental ]]; then flags=(--command=incremental); fi
+          flags+=(${times[@]+"${times[@]}"})
         elif [[ "$send_discover" == true ]]; then
           flags=(--command=discover ${times[@]+"${times[@]}"})
         elif [[ "$send_verify" == true ]]; then
@@ -392,6 +409,7 @@ upload() {
     if ! gzip -n -c "$tmp/$doc.json" > "$tmp/$doc.json.gz"; then
       problem "couldn't compress the $doc document"
     fi
+    log_size "$doc"
   done
 
   read_run_id run

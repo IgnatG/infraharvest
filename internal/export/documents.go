@@ -21,10 +21,14 @@ const (
 
 	// DocOCSFInventory is the inventory as OCSF events (see ocsf.go).
 	DocOCSFInventory = "ocsf-inventory"
+
+	// DocOCSFFindings is the failed and skipped checks of the verification
+	// gate as OCSF Detection Findings (see findings.go).
+	DocOCSFFindings = "ocsf-findings"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory, DocOCSFFindings}
 
 // The value of each document's schema field.
 const (
@@ -34,6 +38,7 @@ const (
 	schemaGraph         = "infraharvest/graph/v1"
 	schemaDriftSummary  = "infraharvest/drift-summary/v1"
 	schemaOCSFInventory = "infraharvest/ocsf-inventory/v1"
+	schemaOCSFFindings  = "infraharvest/ocsf-findings/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.
@@ -104,26 +109,29 @@ type inventoryDoc struct {
 	Coverage    coverage   `json:"coverage"`
 }
 
-// The commands whose runs the run document describes. import, which is also
-// what an incremental import is, and drift leave a report in the output
-// directory; discover leaves the inventories it saved there, and verify
-// verify.json (see report.VerifyJSONFile).
+// The commands whose runs the run document describes. import and incremental
+// (an import with --incremental, which adds to the roots the output directory
+// has) leave the import's report in the output directory, and drift its own;
+// discover leaves the inventories it saved there, and verify verify.json (see
+// report.VerifyJSONFile).
 const (
-	CommandImport   = "import"
-	CommandDrift    = "drift"
-	CommandDiscover = "discover"
-	CommandVerify   = "verify"
+	CommandImport      = "import"
+	CommandIncremental = "incremental"
+	CommandDrift       = "drift"
+	CommandDiscover    = "discover"
+	CommandVerify      = "verify"
 )
 
 // Commands are the commands the run document can describe.
-var Commands = []string{CommandImport, CommandDrift, CommandDiscover, CommandVerify}
+var Commands = []string{CommandImport, CommandIncremental, CommandDrift, CommandDiscover, CommandVerify}
 
 // commandDocuments are the documents besides the run document that the run
 // of a command has, if it has any: what discover saved is the OCSF
-// inventory's resources, and verify's checks are the gate.
+// inventory's resources, and verify's checks are the gate, and the findings
+// of the gate's failed and skipped checks.
 var commandDocuments = map[string][]string{
 	CommandDiscover: {DocOCSFInventory},
-	CommandVerify:   {DocGate},
+	CommandVerify:   {DocGate, DocOCSFFindings},
 }
 
 // requestIDPattern is what a request ID looks like (see

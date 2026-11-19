@@ -233,13 +233,13 @@ var shaRE = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 // checkRepo refuses a repository URL or a commit that can't be right, and
 // either for a document that doesn't have them. The URL may not hold
 // credentials, a query or a fragment, which would give away more than
-// where the code is.
+// where the code is. The OCSF inventory and the OCSF findings take them.
 func checkRepo(opts Options) error {
 	if opts.RepoURL == "" && opts.CommitSHA == "" {
 		return nil
 	}
-	if opts.Document != DocOCSFInventory {
-		return fmt.Errorf("a repository URL and a commit go into the %s document only, not the %s document", DocOCSFInventory, opts.Document)
+	if opts.Document != DocOCSFInventory && opts.Document != DocOCSFFindings {
+		return fmt.Errorf("a repository URL and a commit go into the %s and %s documents only, not the %s document", DocOCSFInventory, DocOCSFFindings, opts.Document)
 	}
 	if opts.CommitSHA != "" && !shaRE.MatchString(opts.CommitSHA) {
 		return fmt.Errorf("the commit %q must be 40 (or 64) lowercase hexadecimal digits", opts.CommitSHA)
