@@ -191,7 +191,7 @@ func buildFromReport(opts Options) (any, error) {
 	case DocOCSFInventory:
 		return buildOCSFInventory(r, opts, runID, generatedAt(opts))
 	case DocRun:
-		doc := buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
+		doc := buildRun(r, cmp.Or(opts.Command, CommandImport), runID, opts.StartedAt, opts.FinishedAt)
 		doc.RequestID = opts.RequestID
 		return doc, nil
 	}
@@ -480,11 +480,13 @@ func outcomeOf(code int) string {
 	return outcomeFailed
 }
 
-func buildRun(r *report.Report, runID string, started, finished time.Time) *runDoc {
+// buildRun is the run document of an import, or of an incremental import,
+// which has the same report and so the same fields: command says which.
+func buildRun(r *report.Report, command, runID string, started, finished time.Time) *runDoc {
 	doc := &runDoc{
 		Schema:   schemaRun,
 		RunID:    runID,
-		Command:  CommandImport,
+		Command:  command,
 		ExitCode: r.ExitCode,
 		Outcome:  outcomeOf(r.ExitCode),
 		Tool:     toComponent(r.Tool),

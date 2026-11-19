@@ -41,8 +41,10 @@
 # Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
 # and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
-# outcome; skipped when it didn't run), DISCOVER and VERIFY (true when the
-# run is a discover or a verify run) with DISCOVER_OUTCOME and
+# outcome; skipped when it didn't run), INCREMENTAL (true when the import
+# adds to the roots it finds: its run document then has the command
+# incremental), DISCOVER and VERIFY (true when the run is a discover or a
+# verify run) with DISCOVER_OUTCOME and
 # VERIFY_OUTCOME (their steps' outcomes), DRIFT (off, report or accept),
 # DRIFT_OUTCOME (the Drift step's), DRIFT_STARTED_AT and DRIFT_FINISHED_AT
 # (its start and finish), STARTED_AT and FINISHED_AT (when the
@@ -368,7 +370,10 @@ upload() {
         ;;
       run)
         if [[ "$send_import" == true ]]; then
-          flags=(${times[@]+"${times[@]}"})
+          # An import that adds to the roots it finds says so: it has the
+          # import's report, so the run document keeps the import's fields.
+          if [[ "${INCREMENTAL-}" == true ]]; then flags=(--command=incremental); fi
+          flags+=(${times[@]+"${times[@]}"})
         elif [[ "$send_discover" == true ]]; then
           flags=(--command=discover ${times[@]+"${times[@]}"})
         elif [[ "$send_verify" == true ]]; then

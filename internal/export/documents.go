@@ -104,19 +104,21 @@ type inventoryDoc struct {
 	Coverage    coverage   `json:"coverage"`
 }
 
-// The commands whose runs the run document describes. import, which is also
-// what an incremental import is, and drift leave a report in the output
-// directory; discover leaves the inventories it saved there, and verify
-// verify.json (see report.VerifyJSONFile).
+// The commands whose runs the run document describes. import and incremental
+// (an import with --incremental, which adds to the roots the output directory
+// has) leave the import's report in the output directory, and drift its own;
+// discover leaves the inventories it saved there, and verify verify.json (see
+// report.VerifyJSONFile).
 const (
-	CommandImport   = "import"
-	CommandDrift    = "drift"
-	CommandDiscover = "discover"
-	CommandVerify   = "verify"
+	CommandImport      = "import"
+	CommandIncremental = "incremental"
+	CommandDrift       = "drift"
+	CommandDiscover    = "discover"
+	CommandVerify      = "verify"
 )
 
 // Commands are the commands the run document can describe.
-var Commands = []string{CommandImport, CommandDrift, CommandDiscover, CommandVerify}
+var Commands = []string{CommandImport, CommandIncremental, CommandDrift, CommandDiscover, CommandVerify}
 
 // commandDocuments are the documents besides the run document that the run
 // of a command has, if it has any: what discover saved is the OCSF

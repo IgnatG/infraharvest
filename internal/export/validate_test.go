@@ -97,7 +97,7 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	docs = append(docs, inv, buildRun(r, "id", time.Time{}, time.Time{}), buildDriftRun(d, "id", time.Time{}, time.Time{}), buildGate(r, "id"), summary, ocsf)
+	docs = append(docs, inv, buildRun(r, CommandImport, "id", time.Time{}, time.Time{}), buildDriftRun(d, "id", time.Time{}, time.Time{}), buildGate(r, "id"), summary, ocsf)
 	for _, doc := range docs {
 		got, err := instance(reflect.ValueOf(doc))
 		if err != nil {

@@ -1222,3 +1222,75 @@ func TestUploadOfAnImportIgnoresDiscoverAndVerifyFiles(t *testing.T) {
 		t.Errorf("exports: %q", got)
 	}
 }
+
+// An import that adds to the roots it finds sends the run document with the
+// command incremental, and the other documents as an import sends them.
+func TestUploadOfAnIncrementalImportSaysSo(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"INCREMENTAL": "true", "STARTED_AT": "2026-11-18T10:00:00Z", "REQUEST_ID": "req-7"})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := cp.runDocument(t).Command; got != "incremental" {
+		t.Errorf("command is %q, want incremental", got)
+	}
+	// What an import sends: the same four documents, in the same order.
+	for _, doc := range documents {
+		if cp.count("/api/v1/ingest/"+doc) != 1 {
+			t.Errorf("%s: %d requests, want 1", doc, cp.count("/api/v1/ingest/"+doc))
+		}
+	}
+	lines := exports(res)
+	if len(lines) != len(documents) {
+		t.Fatalf("exports: %q", lines)
+	}
+	for _, line := range lines {
+		isRun := strings.Contains(line, "--schema=run")
+		if got := strings.Contains(line, "--command=incremental"); got != isRun {
+			t.Errorf("--command=incremental is %v for: %s", got, line)
+		}
+	}
+	// The run document keeps the import's times and request ID.
+	for _, want := range []string{"--started-at=2026-11-18T10:00:00Z", "--request-id=req-7"} {
+		if !strings.Contains(lines[1], want) {
+			t.Errorf("run export lacks %s: %s", want, lines[1])
+		}
+	}
+	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
+		t.Errorf("outputs: %q", res.outputs)
+	}
+}
+
+// Without the incremental input an import is an import, as before.
+func TestUploadOfAPlainImportKeepsTheImportCommand(t *testing.T) {
+	for _, incremental := range []string{"", "false"} {
+		cp := newControlPlane(t)
+		env := map[string]string{}
+		if incremental != "" {
+			env["INCREMENTAL"] = incremental
+		}
+		res := upload(t, cp, env)
+		if res.err != nil {
+			t.Fatalf("INCREMENTAL=%q: upload failed: %v\n%s", incremental, res.err, res.output)
+		}
+		if got := cp.runDocument(t).Command; got != "import" {
+			t.Errorf("INCREMENTAL=%q: command is %q, want import", incremental, got)
+		}
+		if strings.Contains(res.args, "incremental") {
+			t.Errorf("INCREMENTAL=%q: the export has an incremental flag:\n%s", incremental, res.args)
+		}
+	}
+}
+
+// A run that isn't an import has no incremental command, whatever the
+// input says: a drift check alone is still the drift check's run.
+func TestIncrementalInputDoesNotChangeOtherRuns(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, driftEnv(map[string]string{"INCREMENTAL": "true"}), layout{drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	if got := cp.runDocument(t).Command; got != "drift" {
+		t.Errorf("command is %q, want drift", got)
+	}
+}

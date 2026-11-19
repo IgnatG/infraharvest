@@ -729,6 +729,7 @@ runs:
         OUT: ${{ inputs.out }}
         IMPORT: ${{ inputs.import }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
+        INCREMENTAL: ${{ inputs.incremental }}
         DISCOVER: ${{ inputs.discover }}
         DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
         VERIFY: ${{ inputs.verify }}

@@ -174,13 +174,15 @@ func TestRunCommandIsRead(t *testing.T) {
 	for name, tc := range map[string]struct {
 		out, command, want string
 	}{
-		"both, none given":    {both, "", CommandImport},
-		"both, import":        {both, CommandImport, CommandImport},
-		"both, drift":         {both, CommandDrift, CommandDrift},
-		"drift alone":         {only, "", CommandDrift},
-		"drift alone, drift":  {only, CommandDrift, CommandDrift},
-		"import alone, drift": {writeOut(t), CommandDrift, ""},
-		"drift alone, import": {only, CommandImport, ""},
+		"both, none given":         {both, "", CommandImport},
+		"both, import":             {both, CommandImport, CommandImport},
+		"both, drift":              {both, CommandDrift, CommandDrift},
+		"both, incremental":        {both, CommandIncremental, CommandIncremental},
+		"drift alone, incremental": {only, CommandIncremental, ""},
+		"drift alone":              {only, "", CommandDrift},
+		"drift alone, drift":       {only, CommandDrift, CommandDrift},
+		"import alone, drift":      {writeOut(t), CommandDrift, ""},
+		"drift alone, import":      {only, CommandImport, ""},
 	} {
 		content, err := Build(Options{Out: tc.out, Document: DocRun, Command: tc.command, Now: fixedNow})
 		if tc.want == "" {

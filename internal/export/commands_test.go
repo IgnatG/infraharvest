@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -383,6 +384,61 @@ func TestRunSchemaOfDiscoverAndVerify(t *testing.T) {
 		doc["exit_code"], doc["roots"] = 0, 1
 		if err := validate(DocRun, mustJSON(t, doc)); err == nil {
 			t.Errorf("%s: an extra field passed", command)
+		}
+	}
+}
+
+// An incremental import is the import's report, so its run document has what
+// an import's has, the same run_id and the command incremental.
+func TestIncrementalRunKeepsTheImportFields(t *testing.T) {
+	t.Parallel()
+	out := writeOut(t)
+	imported := decodeRun(t, build(t, Options{Out: out, Document: DocRun, Command: CommandImport, RequestID: "req-1"}))
+	incremental := decodeRun(t, build(t, Options{Out: out, Document: DocRun, Command: CommandIncremental, RequestID: "req-1"}))
+	if incremental["command"] != CommandIncremental {
+		t.Errorf("command %v, want %s", incremental["command"], CommandIncremental)
+	}
+	for _, field := range []string{"exit_code", "tool", "engine", "coverage"} {
+		if _, ok := incremental[field]; !ok {
+			t.Errorf("the incremental run has no %s", field)
+		}
+	}
+	imported["command"] = CommandIncremental
+	if !reflect.DeepEqual(imported, incremental) {
+		t.Errorf("an incremental run differs from the import's beyond its command:\n%v\n%v", imported, incremental)
+	}
+	// The same directory is the same run, whichever way it is described.
+	if imported["run_id"] != incremental["run_id"] {
+		t.Error("the run_id depends on the command")
+	}
+	if err := validate(DocRun, mustJSON(t, incremental)); err != nil {
+		t.Error(err)
+	}
+	// An incremental run has the import's required fields, as an import's.
+	delete(incremental, "coverage")
+	if err := validate(DocRun, mustJSON(t, incremental)); err == nil {
+		t.Error("an incremental run without coverage passed")
+	}
+}
+
+func TestIncrementalRunNeedsTheImportReport(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		out, doc string
+		ok       bool
+	}{
+		"report":         {writeOut(t), DocRun, true},
+		"drift report":   {writeDrift(t), DocRun, false},
+		"verify only":    {writeVerifyFile(t, []map[string]any{verifiedRoot("a", passedChecks()...)}), DocRun, false},
+		"gate document":  {writeOut(t), DocGate, false},
+		"ocsf document":  {writeOut(t), DocOCSFInventory, false},
+		"graph document": {writeOut(t), DocGraph, false},
+		"inventory":      {writeOut(t), DocInventory, false},
+		"drift summary":  {writeOut(t), DocDriftSummary, false},
+	} {
+		_, err := Build(Options{Out: tc.out, Document: tc.doc, Command: CommandIncremental, Now: fixedNow})
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: %v", name, err)
 		}
 	}
 }
