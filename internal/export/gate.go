@@ -84,53 +84,79 @@ func buildGate(r *report.Report, runID string) *gateDoc {
 	return gateOf(groups, runID)
 }
 
-// gateOf summarises the checks of each of groups, the checks of one root,
-// as buildGate does.
-func gateOf(groups [][]report.Check, runID string) *gateDoc {
-	type summary struct {
-		failed, run, skipped int
-		codes                map[string]bool
+// checkSummary is what the runs of one check say: how many ran, how many
+// failed and how many were skipped, and the reason codes of those that did.
+type checkSummary struct {
+	failed, run, skipped int
+	codes                map[string]bool
+}
+
+// passed says no run of the check failed.
+func (s *checkSummary) passed() bool { return s.failed == 0 }
+
+// wasSkipped says every run of the check was skipped.
+func (s *checkSummary) wasSkipped() bool { return s.skipped == s.run }
+
+// reasonCodes returns the codes, sorted; non-nil, as the schemas want a list.
+func (s *checkSummary) reasonCodes() []string {
+	codes := make([]string, 0, len(s.codes))
+	for code := range s.codes {
+		codes = append(codes, code)
 	}
-	sums := map[string]*summary{}
-	add := func(checks []report.Check) {
-		for _, c := range checks {
-			id := checkID(c.Name)
-			if id == "" {
-				continue
-			}
-			s := sums[id]
-			if s == nil {
-				s = &summary{codes: map[string]bool{}}
-				sums[id] = s
-			}
-			s.run++
-			if !c.Passed {
-				s.failed++
-			}
-			if c.Skipped {
-				s.skipped++
-			}
-			for _, code := range reasonCodes(id, c) {
-				s.codes[code] = true
-			}
+	sort.Strings(codes)
+	return codes
+}
+
+// checkSummaries summarise checks by their IDs, G1 to G8.
+type checkSummaries map[string]*checkSummary
+
+// add summarises the runs of checks, which are those of one root or more.
+// Checks that are not of the gate are not counted.
+func (sums checkSummaries) add(checks []report.Check) {
+	for _, c := range checks {
+		id := checkID(c.Name)
+		if id == "" {
+			continue
+		}
+		s := sums[id]
+		if s == nil {
+			s = &checkSummary{codes: map[string]bool{}}
+			sums[id] = s
+		}
+		s.run++
+		if !c.Passed {
+			s.failed++
+		}
+		if c.Skipped {
+			s.skipped++
+		}
+		for _, code := range reasonCodes(id, c) {
+			s.codes[code] = true
 		}
 	}
-	for _, checks := range groups {
-		add(checks)
-	}
-	doc := &gateDoc{Schema: schemaGate, RunID: runID, Passed: len(sums) > 0, Checks: []gateCheck{}}
+}
+
+// ids returns the IDs of the checks summarised, sorted.
+func (sums checkSummaries) ids() []string {
 	ids := make([]string, 0, len(sums))
 	for id := range sums {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	for _, id := range ids {
+	return ids
+}
+
+// gateOf summarises the checks of each of groups, the checks of one root,
+// as buildGate does.
+func gateOf(groups [][]report.Check, runID string) *gateDoc {
+	sums := checkSummaries{}
+	for _, checks := range groups {
+		sums.add(checks)
+	}
+	doc := &gateDoc{Schema: schemaGate, RunID: runID, Passed: len(sums) > 0, Checks: []gateCheck{}}
+	for _, id := range sums.ids() {
 		s := sums[id]
-		check := gateCheck{ID: id, Passed: s.failed == 0, Skipped: s.skipped == s.run, ReasonCodes: []string{}}
-		for code := range s.codes {
-			check.ReasonCodes = append(check.ReasonCodes, code)
-		}
-		sort.Strings(check.ReasonCodes)
+		check := gateCheck{ID: id, Passed: s.passed(), Skipped: s.wasSkipped(), ReasonCodes: s.reasonCodes()}
 		if !check.Passed {
 			doc.Passed = false
 		}

@@ -21,10 +21,14 @@ const (
 
 	// DocOCSFInventory is the inventory as OCSF events (see ocsf.go).
 	DocOCSFInventory = "ocsf-inventory"
+
+	// DocOCSFFindings is the failed and skipped checks of the verification
+	// gate as OCSF Detection Findings (see findings.go).
+	DocOCSFFindings = "ocsf-findings"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory, DocOCSFFindings}
 
 // The value of each document's schema field.
 const (
@@ -34,6 +38,7 @@ const (
 	schemaGraph         = "infraharvest/graph/v1"
 	schemaDriftSummary  = "infraharvest/drift-summary/v1"
 	schemaOCSFInventory = "infraharvest/ocsf-inventory/v1"
+	schemaOCSFFindings  = "infraharvest/ocsf-findings/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.
@@ -122,10 +127,11 @@ var Commands = []string{CommandImport, CommandIncremental, CommandDrift, Command
 
 // commandDocuments are the documents besides the run document that the run
 // of a command has, if it has any: what discover saved is the OCSF
-// inventory's resources, and verify's checks are the gate.
+// inventory's resources, and verify's checks are the gate, and the findings
+// of the gate's failed and skipped checks.
 var commandDocuments = map[string][]string{
 	CommandDiscover: {DocOCSFInventory},
-	CommandVerify:   {DocGate},
+	CommandVerify:   {DocGate, DocOCSFFindings},
 }
 
 // requestIDPattern is what a request ID looks like (see

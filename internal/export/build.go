@@ -3,8 +3,9 @@
 
 // Package export writes the metadata of an import that a hosted control
 // plane may receive: the inventory of the estate, the run and the
-// verification gate, the summary of a drift check, and the inventory as OCSF
-// events, each a JSON document with a schema (see schemas/).
+// verification gate, the summary of a drift check, the inventory as OCSF
+// events, and the gate's failed and skipped checks as OCSF findings, each a
+// JSON document with a schema (see schemas/).
 // It reads the report and the saved inventory of an output directory, or
 // its drift report,
 // copies into each document only the fields the document names, drops tags
@@ -58,18 +59,19 @@ type Options struct {
 	// plane gave to ask for the run.
 	RequestID string
 	// DropAddresses leaves the resource addresses, module addresses and
-	// paths out of the documents that have them (the drift summary and the
-	// OCSF inventory); HashKey hashes them otherwise.
+	// paths out of the documents that have them (the drift summary, the
+	// OCSF inventory and the OCSF findings); HashKey hashes them otherwise.
 	DropAddresses bool
 	// RepoURL and CommitSHA are the repository and the commit the
-	// configuration was generated into, for the OCSF inventory's iac
-	// source: an https URL without credentials, and the hexadecimal ID of
-	// a commit. Both are optional, and no other document has them.
+	// configuration was generated into, for the iac source of the OCSF
+	// inventory and the OCSF findings: an https URL without credentials, and
+	// the hexadecimal ID of a commit. Both are optional, and no other
+	// document has them.
 	RepoURL, CommitSHA string
 	// StateURL returns where the state of the root at a path of the output
 	// directory is, as config.Backend.StateURL does, for the OCSF
-	// inventory's iac source; nil if no backend is known. Redacted as the
-	// paths are.
+	// inventory's and the OCSF findings' iac source; nil if no backend is
+	// known. Redacted as the paths are.
 	StateURL func(rootPath string) string
 }
 
@@ -190,6 +192,8 @@ func buildFromReport(opts Options) (any, error) {
 		return buildGraph(r, opts, runID, generatedAt(opts))
 	case DocOCSFInventory:
 		return buildOCSFInventory(r, opts, runID, generatedAt(opts))
+	case DocOCSFFindings:
+		return buildFindingsOfReport(r, opts, runID, generatedAt(opts))
 	case DocRun:
 		doc := buildRun(r, cmp.Or(opts.Command, CommandImport), runID, opts.StartedAt, opts.FinishedAt)
 		doc.RequestID = opts.RequestID

@@ -115,8 +115,11 @@ func buildFromVerify(opts Options) (any, error) {
 		return nil, err
 	}
 	runID := runID(content)
-	if opts.Document == DocRun {
+	switch opts.Document {
+	case DocRun:
 		return buildVerifyRun(v, opts, runID), nil
+	case DocOCSFFindings:
+		return buildFindingsOfVerify(v, opts, runID, generatedAt(opts))
 	}
 	return buildVerifyGate(v, runID), nil
 }
