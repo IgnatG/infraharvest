@@ -28,7 +28,7 @@ import (
 // route tables without subnets stay in the root.
 var awsVPC = Adapter{
 	Source:  "terraform-aws-modules/vpc/aws",
-	Version: "6.7.3",
+	Version: "6.8.0",
 	Anchor:  "aws_vpc",
 	Members: []string{
 		"aws_eip", "aws_internet_gateway", "aws_nat_gateway", "aws_route_table",
