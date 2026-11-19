@@ -17,7 +17,7 @@ terraform {
 
 module "assets" {
   source  = "terraform-aws-modules/s3-bucket/aws"
-  version = "5.17.0"
+  version = "5.18.0"
 
   create_bucket = false
   bucket        = "infraharvest-e2e-registry-moves"

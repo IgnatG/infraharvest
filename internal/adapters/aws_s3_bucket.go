@@ -18,7 +18,7 @@ import (
 // s3_bucket_id output.
 var awsS3Bucket = Adapter{
 	Source:  "terraform-aws-modules/s3-bucket/aws",
-	Version: "5.17.0",
+	Version: "5.18.0",
 	Anchor:  "aws_s3_bucket",
 	Members: []string{
 		"aws_s3_bucket_lifecycle_configuration",

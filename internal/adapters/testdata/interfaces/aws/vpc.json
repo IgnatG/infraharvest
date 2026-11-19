@@ -1,6 +1,6 @@
 {
   "source": "terraform-aws-modules/vpc/aws",
-  "version": "6.7.3",
+  "version": "6.8.0",
   "variables": {
     "amazon_side_asn": {
       "required": false,
@@ -78,6 +78,11 @@
       "default": false
     },
     "create_private_nat_gateway_route": {
+      "required": false,
+      "type": "bool",
+      "default": true
+    },
+    "create_public_internet_gateway_route": {
       "required": false,
       "type": "bool",
       "default": true

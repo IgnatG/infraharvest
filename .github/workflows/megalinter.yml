@@ -100,12 +100,12 @@ jobs:
           path: ${{ runner.temp }}/megalinter-go
           key: megalinter-go-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum', '.golangci.json', '.mega-linter.yml') }}
           restore-keys: megalinter-go-${{ runner.os }}-
-      # The image oxsecurity/megalinter/flavors/go@v10.1.0 runs, by digest:
+      # The image oxsecurity/megalinter/flavors/go@v10.2.0 runs, by digest:
       # the action names it only by its tag, which can move. To bump it, take
       # the image tag from the new release's flavors/go/action.yml and its
       # digest from the registry (docker buildx imagetools inspect).
       - name: MegaLinter
-        uses: docker://ghcr.io/oxsecurity/megalinter-go@sha256:42e091a4bcbe9141fe420c2520ed7addf75ae60a0c9d42e3df1278eef1c90a88 # v10.1.0
+        uses: docker://ghcr.io/oxsecurity/megalinter-go@sha256:e676b8e9dac00d148bf1abb6ab809f1df76f07e804d8061f78631975d0c90925 # v10.2.0
         env:
           # For the pull request comment only; MegaLinter hides it from the
           # linters.

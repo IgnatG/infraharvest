@@ -22,7 +22,7 @@ import (
 // sets force_detach_policies, which the provider keeps only in state.
 var awsIAMRole = Adapter{
 	Source:   "terraform-aws-modules/iam/aws//modules/iam-role",
-	Version:  "6.8.2",
+	Version:  "6.11.1",
 	Anchor:   "aws_iam_role",
 	Members:  []string{"aws_iam_instance_profile", "aws_iam_role_policy", "aws_iam_role_policy_attachment"},
 	Repeated: []string{"aws_iam_role_policy_attachment"},
