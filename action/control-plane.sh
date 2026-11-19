@@ -15,7 +15,8 @@
 # with the same results are two runs to the control plane, and a re-run of one
 # is the same.
 # The OIDC token goes to the session endpoint only. Nothing else is sent. See
-# docs/export.md.
+# docs/export.md. The log has one line for each document with its size in
+# bytes, as exported and as gzipped, and nothing of its content.
 #
 # The documents are those of what ran: an import sends ocsf-inventory, run,
 # gate and graph; a drift check sends drift-summary, and, when no import ran,
@@ -227,6 +228,17 @@ open_session() {
   annotation notice "control plane: opened a session${expires:+ (the token expires at $expires)}"
 }
 
+# log_size <document>: one log line with the size in bytes of the exported
+# document and of the gzip-compressed body that is sent, so that runs show how
+# large the documents get. Only the name of the document and two numbers: none
+# of its content.
+log_size() {
+  local json gz
+  json=$(wc -c < "$tmp/$1.json")
+  gz=$(wc -c < "$tmp/$1.json.gz")
+  echo "control plane: the $1 document is ${json//[[:space:]]/} bytes, ${gz//[[:space:]]/} bytes gzipped"
+}
+
 # read_run_id <document>: sets doc_run_id to the run_id of the exported
 # document, checked as a header can hold it.
 read_run_id() {
@@ -397,6 +409,7 @@ upload() {
     if ! gzip -n -c "$tmp/$doc.json" > "$tmp/$doc.json.gz"; then
       problem "couldn't compress the $doc document"
     fi
+    log_size "$doc"
   done
 
   read_run_id run
