@@ -200,7 +200,7 @@ jobs:
 
 A control plane whose GitHub App can dispatch workflows on the repository can start an import, an incremental import, a drift check, a discover or a verify run itself, such as when someone asks for one from its pages. [`ci/github/infraharvest-dispatch.yml`](../ci/github/infraharvest-dispatch.yml) is the workflow for it: copy it to `.github/workflows/` on the default branch, set the repository variable `INFRAHARVEST_CONTROL_PLANE_URL`, and replace the credentials step of each job with your cloud's. It is started by `workflow_dispatch`, with three inputs:
 
-- `command`: `import`, `incremental`, `drift`, `discover` or `verify`. `incremental` is an import with the `incremental` input set, which adds what is new to the roots the repository already has; `import` runs with it unset, so it fails on a root that is there.
+- `command`: `import`, `incremental`, `drift`, `discover` or `verify`. Both `import` and `incremental` add what is new to the roots the repository already has, as the action does by default; `incremental` also sets `control-plane-command`, so that the run document says `incremental`.
 - `inputs-ref`: the branch the control plane committed its files to, under `infraharvest/control-plane/` (the workflow refuses any other name, and the default branch): `selection.yaml` for an import, `drift.yaml` (the decisions to apply) for a drift check. Empty, the run has neither file, and a drift check only reports. A discover run needs it: the branch must exist, and the run commits the selection it lists to it as `selection.yaml`, which the control plane reads there.
 - `request-id`: the control plane's ID of the request, checked as `control-plane-request-id` is and passed to it, so the run document sent back says which request it answers.
 
@@ -210,7 +210,7 @@ A control plane whose GitHub App can dispatch workflows on the repository can st
           version: v0.1.0
           provider: aws
           import: ${{ inputs.command == 'import' || inputs.command == 'incremental' }}
-          incremental: ${{ inputs.command == 'incremental' }}
+          control-plane-command: ${{ inputs.command == 'incremental' && 'incremental' || '' }}
           selection: ${{ steps.files.outputs.selection }}
           drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
           drift-decisions: ${{ steps.files.outputs.decisions }}
@@ -483,6 +483,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `control-plane-hash-key` | | The key `control-plane-hash-ids` hashes with, from a secret |
 | `control-plane-drop-addresses` | `false` | With `control-plane-url`, leave the resource addresses out of the OCSF inventory and the drift summary |
 | `control-plane-request-id` | | With `control-plane-url`, the ID of the control plane's request, which goes into the run document as `request_id` (1 to 128 letters, digits or `. _ : -`) |
+| `control-plane-command` | | With `control-plane-url`, `incremental` makes an import's run document say `incremental`, for an incremental import a control plane dispatched; empty, it names what ran |
 | `control-plane-optional` | `false` | Warn, rather than fail, when the export or the upload fails |
 | `sign-evidence` | `false` | Write the export documents and a signed `SHA256SUMS` of them and the report to `_reports/evidence/` in `out` (see [Signed evidence](#signed-evidence)). Needs `id-token: write` and `import: "true"` |
 

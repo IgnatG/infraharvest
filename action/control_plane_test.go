@@ -1229,7 +1229,7 @@ func TestUploadOfAnImportIgnoresDiscoverAndVerifyFiles(t *testing.T) {
 // command incremental, and the other documents as an import sends them.
 func TestUploadOfAnIncrementalImportSaysSo(t *testing.T) {
 	cp := newControlPlane(t)
-	res := upload(t, cp, map[string]string{"INCREMENTAL": "true", "STARTED_AT": "2026-11-18T10:00:00Z", "REQUEST_ID": "req-7"})
+	res := upload(t, cp, map[string]string{"COMMAND": "incremental", "STARTED_AT": "2026-11-18T10:00:00Z", "REQUEST_ID": "req-7"})
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
@@ -1263,23 +1263,24 @@ func TestUploadOfAnIncrementalImportSaysSo(t *testing.T) {
 	}
 }
 
-// Without the incremental input an import is an import, as before.
+// Unless a control plane asked for an incremental import, an import is an
+// import, whatever the incremental input is.
 func TestUploadOfAPlainImportKeepsTheImportCommand(t *testing.T) {
-	for _, incremental := range []string{"", "false"} {
+	for _, incremental := range []string{"", "import"} {
 		cp := newControlPlane(t)
 		env := map[string]string{}
 		if incremental != "" {
-			env["INCREMENTAL"] = incremental
+			env["COMMAND"] = incremental
 		}
 		res := upload(t, cp, env)
 		if res.err != nil {
-			t.Fatalf("INCREMENTAL=%q: upload failed: %v\n%s", incremental, res.err, res.output)
+			t.Fatalf("COMMAND=%q: upload failed: %v\n%s", incremental, res.err, res.output)
 		}
 		if got := cp.runDocument(t).Command; got != "import" {
-			t.Errorf("INCREMENTAL=%q: command is %q, want import", incremental, got)
+			t.Errorf("COMMAND=%q: command is %q, want import", incremental, got)
 		}
 		if strings.Contains(res.args, "incremental") {
-			t.Errorf("INCREMENTAL=%q: the export has an incremental flag:\n%s", incremental, res.args)
+			t.Errorf("COMMAND=%q: the export has an incremental flag:\n%s", incremental, res.args)
 		}
 	}
 }
@@ -1288,7 +1289,7 @@ func TestUploadOfAPlainImportKeepsTheImportCommand(t *testing.T) {
 // input says: a drift check alone is still the drift check's run.
 func TestIncrementalInputDoesNotChangeOtherRuns(t *testing.T) {
 	cp := newControlPlane(t)
-	res := uploadIn(t, cp, driftEnv(map[string]string{"INCREMENTAL": "true"}), layout{drift: true})
+	res := uploadIn(t, cp, driftEnv(map[string]string{"COMMAND": "incremental"}), layout{drift: true})
 	if res.err != nil {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}

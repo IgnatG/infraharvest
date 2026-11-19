@@ -120,6 +120,9 @@ inputs:
   control-plane-request-id:
     description: 'With control-plane-url, the ID the control plane gave to the request that started this run, such as the request-id input of a workflow it dispatched. It goes into the run document as request_id, so the control plane can match the run to its request. 1 to 128 letters, digits and . _ : - only.'
     required: false
+  control-plane-command:
+    description: With control-plane-url, the command a control plane asked for, when the run document should name it rather than what ran. incremental makes an import's run document say incremental, as an incremental import a control plane dispatched. Empty, the run document names what ran.
+    default: ""
   control-plane-optional:
     description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
     default: "false"
@@ -729,7 +732,7 @@ runs:
         OUT: ${{ inputs.out }}
         IMPORT: ${{ inputs.import }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
-        INCREMENTAL: ${{ inputs.incremental }}
+        COMMAND: ${{ inputs.control-plane-command }}
         DISCOVER: ${{ inputs.discover }}
         DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
         VERIFY: ${{ inputs.verify }}

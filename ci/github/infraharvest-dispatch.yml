@@ -136,7 +136,7 @@ jobs:
           services: vpc,subnet,sg,s3
           regions: eu-west-2
           import: ${{ inputs.command == 'import' || inputs.command == 'incremental' }}
-          incremental: ${{ inputs.command == 'incremental' }}
+          control-plane-command: ${{ inputs.command == 'incremental' && 'incremental' || '' }}
           selection: ${{ steps.files.outputs.selection }}
           drift: ${{ inputs.command == 'drift' && steps.files.outputs.drift || 'off' }}
           drift-decisions: ${{ steps.files.outputs.decisions }}
