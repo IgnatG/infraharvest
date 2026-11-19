@@ -105,8 +105,8 @@ PRE_COMMANDS:
           exit 0
           ;;
       esac
-      golangci_lint_version=2.14.0
-      golangci_lint_sha256=ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab
+      golangci_lint_version=2.15.0
+      golangci_lint_sha256=9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
       archive=/tmp/golangci-lint.tar.gz
       wget -q -O "$archive" "https://github.com/golangci/golangci-lint/releases/download/v${golangci_lint_version}/golangci-lint-${golangci_lint_version}-linux-amd64.tar.gz"
       echo "$golangci_lint_sha256  $archive" | sha256sum -c -

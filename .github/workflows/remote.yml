@@ -227,7 +227,7 @@ jobs:
       - name: Compare
         if: env.TASK == 'bench' && env.BASE != ''
         run: |
-          go run golang.org/x/perf/cmd/benchstat@v0.0.0-20260929162123-406019bb8b68 base=bench/base.txt head=bench/head.txt | tee bench/benchstat.txt
+          go run golang.org/x/perf/cmd/benchstat@v0.0.0-20261117185222-4febdb082b2c base=bench/base.txt head=bench/head.txt | tee bench/benchstat.txt
           {
             echo "### benchstat, $BASE against ${GITHUB_SHA::12}"
             echo '```'
