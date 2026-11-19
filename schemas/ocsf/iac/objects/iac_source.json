@@ -1,0 +1,36 @@
+{
+  "caption": "IaC Source",
+  "description": "The IaC Source object describes the infrastructure-as-code source that manages a cloud resource: the tool, the resource's address in the configuration, and where the configuration lives.",
+  "extends": "object",
+  "name": "iac_source",
+  "attributes": {
+    "tool": {
+      "requirement": "recommended"
+    },
+    "address": {
+      "requirement": "recommended"
+    },
+    "module_address": {
+      "requirement": "optional"
+    },
+    "repo_url": {
+      "requirement": "optional"
+    },
+    "commit_sha": {
+      "requirement": "optional"
+    },
+    "path": {
+      "description": "The directory of the root module that holds the resource's configuration, relative to the root of the generated output.",
+      "requirement": "recommended"
+    },
+    "state_key": {
+      "requirement": "optional"
+    },
+    "outcome_id": {
+      "requirement": "required"
+    },
+    "outcome": {
+      "requirement": "recommended"
+    }
+  }
+}

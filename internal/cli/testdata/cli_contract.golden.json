@@ -1110,6 +1110,31 @@
     "silence_errors": false,
     "flags": [
       {
+        "name": "command",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "commit-sha",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "config",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "drop-addresses",
+        "type": "bool",
+        "default": "false",
+        "no_opt_default": "true",
+        "persistent": false
+      },
+      {
         "name": "drop-tag",
         "type": "stringSlice",
         "default": "[]",
@@ -1159,6 +1184,18 @@
         "type": "bool",
         "default": "false",
         "no_opt_default": "true",
+        "persistent": false
+      },
+      {
+        "name": "repo-url",
+        "type": "string",
+        "default": "",
+        "persistent": false
+      },
+      {
+        "name": "request-id",
+        "type": "string",
+        "default": "",
         "persistent": false
       },
       {

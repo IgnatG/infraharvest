@@ -10,10 +10,13 @@ branding:
 
 # The action installs a release of infraharvest, verifies its signature and
 # checksum, and runs a drift check, an import, or both: drift first, on the
-# code the repository has, then the import. Credentials come from the
-# environment, for example from aws-actions/configure-aws-credentials with
-# OIDC: the action never needs cloud secrets. It reads the cloud (and, for
-# drift, the state) and writes files; it never applies anything.
+# code the repository has, then the import. Or it runs discover, which lists
+# the cloud into a selection file, or verify, which checks the roots the
+# repository has again; each of those two is the only thing a run does.
+# Credentials come from the environment, for example from
+# aws-actions/configure-aws-credentials with OIDC: the action never needs
+# cloud secrets. It reads the cloud (and, for drift, the state) and writes
+# files; it never applies anything.
 inputs:
   version:
     description: The infraharvest release to install, such as v0.1.0.
@@ -25,10 +28,16 @@ inputs:
     description: Token to download the release with.
     default: ${{ github.token }}
   import:
-    description: Import resources (true), or only check drift (false, with drift set).
+    description: Import resources (true), or only check drift, discover or verify (false, with drift, discover or verify set).
     default: "true"
+  discover:
+    description: Run infraharvest discover, which lists resources into the selection file (selection), with provider, services, regions, config and args, instead of importing. It writes nothing else but the inventory it saves in the out directory, for the control plane. Needs import false; not with verify, drift, pull-request, commit or sign-evidence.
+    default: "false"
+  verify:
+    description: Run infraharvest verify, which checks the roots in the out directory again, with config and engine, instead of importing. The roots must be in the repository already. Needs import false; not with discover, drift, pull-request, commit or sign-evidence.
+    default: "false"
   provider:
-    description: The provider command, aws, azure or google. Required when importing, and when installing a release (no binary), which has one build per cloud, to choose the build to install, also for a drift-only run.
+    description: The provider command, aws, azure or google. Required when importing or discovering, and when installing a release (no binary), which has one build per cloud, to choose the build to install, also for a drift-only or verify run.
     required: false
   services:
     description: Services to import, comma-separated, such as vpc,s3,iam. Required when importing, unless the config file sets them or --cfn-stack in args leaves them to the stacks.
@@ -37,22 +46,22 @@ inputs:
     description: Regions to import, comma-separated.
     required: false
   selection:
-    description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all).
+    description: Selection file saying which resources to import (from infraharvest discover). Without one, the default selection is imported (--all). With discover, the file to write, selection.yaml without it; one that is there keeps the decisions in it.
     required: false
   engine:
-    description: terraform or tofu. Unset, the import and drift use what the configuration file sets, or terraform.
+    description: terraform or tofu. Unset, the import, drift and verify use what the configuration file sets, or terraform.
     default: ""
   out:
     description: Directory to write the configuration and the report to.
     default: infrastructure
   config:
-    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout, engine-parallelism and catalogue.
+    description: infraharvest configuration file (--config), for example with the state backend. Drift takes its settings engine, terraform-path, engine-timeout, engine-parallelism and catalogue, and verify those and policy.
     required: false
   incremental:
     description: Add what is new to the roots already in the out directory (--incremental), after the blocks of the file of their type, instead of failing on them. A root's resources are found from its import blocks, and from managed-state.
     default: "true"
   args:
-    description: More flags for the import, one a line, each starting with --, such as --projects=my-project for Google Cloud, which names no project by default, or --organization, --folders, --resource-group or --layout.
+    description: More flags for the import or discover, one a line, each starting with --, such as --projects=my-project for Google Cloud, which names no project by default, or --organization, --folders, --resource-group or --layout.
     required: false
   managed-state:
     description: State that says what Terraform already manages (--managed-state), such as backend for the configuration file's S3 backend. Needed to add to roots whose import blocks were deleted after they were applied.
@@ -88,19 +97,28 @@ inputs:
     description: With commit, the branch to push to. Default the branch checked out; a detached checkout, such as a pull request's, needs one. The push never forces, so it fails when the branch has commits the checkout doesn't have.
     required: false
   control-plane-url:
-    description: Send the metadata of the import (infraharvest export's inventory, run and gate documents, nothing else) to a hosted control plane at this URL, to <url>/api/v1/ingest/{inventory|run|gate}, with the job's GitHub Actions OIDC token (audience infraharvest-api) as a bearer token. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
+    description: Send the metadata of the run (infraharvest export's documents, nothing else) to a hosted control plane at this URL, as the README says. The job's OIDC token is traded at <url>/api/v1/session for a run token, which every upload carries. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
     default: ""
+  control-plane-audience:
+    description: With control-plane-url, the audience of the GitHub Actions OIDC token the session is opened with. The control plane checks it, so it must be the one it expects.
+    default: infraharvest-api
   control-plane-drop-tags:
-    description: With control-plane-url, leave all tags out of the inventory (export --drop-tags).
+    description: With control-plane-url, leave all tags out of the OCSF inventory (export --drop-tags).
     default: "false"
   control-plane-drop-tag:
-    description: With control-plane-url, tag keys to leave out of the inventory (export --drop-tag), one a line or comma-separated.
+    description: With control-plane-url, tag keys to leave out of the OCSF inventory (export --drop-tag), one a line or comma-separated.
     required: false
   control-plane-hash-ids:
-    description: With control-plane-url, replace IDs and names in the inventory with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
+    description: With control-plane-url, replace IDs and names in the OCSF inventory and the graph, and the addresses in the OCSF inventory (with its paths) and the drift summary, with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
     default: "false"
   control-plane-hash-key:
     description: The key control-plane-hash-ids hashes with. Pass a secret, or set INFRAHARVEST_EXPORT_KEY in the job's environment instead.
+    required: false
+  control-plane-drop-addresses:
+    description: With control-plane-url, leave the resource addresses (and, in the OCSF inventory, the module addresses and paths) out of the OCSF inventory and the drift summary (export --drop-addresses). It wins over control-plane-hash-ids for the addresses.
+    default: "false"
+  control-plane-request-id:
+    description: 'With control-plane-url, the ID the control plane gave to the request that started this run, such as the request-id input of a workflow it dispatched. It goes into the run document as request_id, so the control plane can match the run to its request. 1 to 128 letters, digits and . _ : - only.'
     required: false
   control-plane-optional:
     description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
@@ -111,11 +129,14 @@ inputs:
 
 outputs:
   exit-code:
-    description: infraharvest import's exit code (0 complete, 1 incomplete, 2 couldn't run, 3 partial with allow-partial); empty when not importing.
-    value: ${{ steps.import.outputs.exit-code }}
+    description: The exit code of infraharvest import, discover or verify, whichever ran (0 complete, 1 incomplete or, for verify, a check failed, 2 couldn't run or, for verify, a root couldn't be checked, 3 partial with allow-partial); empty when none ran.
+    value: ${{ steps.import.outputs.exit-code || steps.discover.outputs.exit-code || steps.verify.outputs.exit-code }}
   report:
     description: Path of the import report (report.md).
     value: ${{ steps.import.outputs.report }}
+  selection-file:
+    description: Path of the selection file discover wrote; empty unless discover ran and wrote one.
+    value: ${{ steps.discover.outputs.selection-file }}
   drift-found:
     description: true when drift is left, a change in the cloud that the next apply would revert or that can't be assessed; false when none is, or drift is off.
     value: ${{ steps.drift.outputs.drift-found || 'false' }}
@@ -132,7 +153,7 @@ outputs:
     description: SHA of the commit pushed with commit; empty when the output didn't change, or commit is false.
     value: ${{ steps.commit.outputs.commit-sha }}
   control-plane-run-id:
-    description: The run_id of the run document the control plane accepted (all three documents sent); empty without control-plane-url, or when the upload failed or was skipped.
+    description: The run_id of the run document the control plane accepted, once every document of the run was sent (the four of an import, the OCSF inventory first, plus the drift summary after a drift check; or the run document and the drift summary of a drift check alone; the OCSF inventory and the run document of discover; the run document and the gate of verify); empty without control-plane-url, or when the upload failed or was skipped.
     value: ${{ steps.control-plane.outputs.control-plane-run-id }}
   evidence-dir:
     description: The directory of the signed evidence (sign-evidence); empty when it wasn't signed.
@@ -147,6 +168,8 @@ runs:
         VERSION: ${{ inputs.version }}
         BINARY: ${{ inputs.binary }}
         IMPORT: ${{ inputs.import }}
+        DISCOVER: ${{ inputs.discover }}
+        VERIFY: ${{ inputs.verify }}
         INCREMENTAL: ${{ inputs.incremental }}
         ALLOW_PARTIAL: ${{ inputs.allow-partial }}
         DRIFT: ${{ inputs.drift }}
@@ -158,9 +181,12 @@ runs:
         COMMIT_BRANCH: ${{ inputs.commit-branch }}
         OUT: ${{ inputs.out }}
         URL: ${{ inputs.control-plane-url }}
+        AUDIENCE: ${{ inputs.control-plane-audience }}
         DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        DROP_ADDRESSES: ${{ inputs.control-plane-drop-addresses }}
+        REQUEST_ID: ${{ inputs.control-plane-request-id }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
         SIGN_EVIDENCE: ${{ inputs.sign-evidence }}
       # Only what must be checked before infraharvest is installed, or what
@@ -181,7 +207,7 @@ runs:
         fi
         # Every boolean input, as name=value: one that is neither true nor
         # false would otherwise be taken as false.
-        for input in "import=$IMPORT" "incremental=$INCREMENTAL" "allow-partial=$ALLOW_PARTIAL" "pull-request=$PULL_REQUEST" "commit=$COMMIT" "sign-evidence=$SIGN_EVIDENCE"; do
+        for input in "import=$IMPORT" "discover=$DISCOVER" "verify=$VERIFY" "incremental=$INCREMENTAL" "allow-partial=$ALLOW_PARTIAL" "pull-request=$PULL_REQUEST" "commit=$COMMIT" "sign-evidence=$SIGN_EVIDENCE"; do
           case "${input#*=}" in
             true | false) ;;
             *) fail "${input%%=*} must be true or false, got '${input#*=}'" ;;
@@ -191,8 +217,27 @@ runs:
           off | report | accept) ;;
           *) fail "drift must be off, report or accept, got '$DRIFT'" ;;
         esac
-        if [[ "$IMPORT" == false && "$DRIFT" == off ]]; then
-          fail "nothing to do: set import to true, or drift to report or accept"
+        if [[ "$IMPORT" == false && "$DRIFT" == off && "$DISCOVER" == false && "$VERIFY" == false ]]; then
+          fail "nothing to do: set import to true, or drift to report or accept, or discover or verify to true"
+        fi
+        # discover and verify are the only thing a run does: no import, no
+        # drift check, and nothing for a pull request, a commit or signed
+        # evidence to carry.
+        if [[ "$DISCOVER" == true && "$VERIFY" == true ]]; then
+          fail "discover and verify don't go together: run one of them"
+        fi
+        mode=
+        if [[ "$DISCOVER" == true ]]; then mode=discover; elif [[ "$VERIFY" == true ]]; then mode=verify; fi
+        if [[ -n "$mode" ]]; then
+          if [[ "$IMPORT" == true ]]; then
+            fail "$mode doesn't go with import: set import to false"
+          fi
+          if [[ "$DRIFT" != off ]]; then
+            fail "$mode doesn't go with drift: set drift to off"
+          fi
+          if [[ "$PULL_REQUEST" == true || "$COMMIT" == true ]]; then
+            fail "$mode leaves nothing a pull request or a commit would carry: set pull-request and commit to false"
+          fi
         fi
         if [[ "$SIGN_EVIDENCE" == true && "$IMPORT" != true ]]; then
           fail "sign-evidence signs an import's report: set import to true"
@@ -364,6 +409,54 @@ runs:
           exit 1
         fi
         printf '%s\0' "${args[@]}" > "$RUNNER_TEMP/infraharvest-import-args"
+    # As the import's check, for discover: it runs after the install and
+    # before anything long, so that a run it would refuse, such as one
+    # without services, fails at once.
+    - name: Check the discover
+      if: inputs.discover == 'true'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        PROVIDER: ${{ inputs.provider }}
+        SERVICES: ${{ inputs.services }}
+        REGIONS: ${{ inputs.regions }}
+        SELECTION: ${{ inputs.selection }}
+        OUT: ${{ inputs.out }}
+        CONFIG: ${{ inputs.config }}
+        ALLOW_PARTIAL: ${{ inputs.allow-partial }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
+        bin="${BINARY:-infraharvest}"
+        if ! err=$("$bin" services -- "$PROVIDER" 2>&1 > /dev/null); then
+          annotation error "provider: $err"
+          exit 1
+        fi
+        # --pick=false: no picker on the file, which nobody is there to edit.
+        args=(discover "$PROVIDER" "--out=$OUT" --pick=false "--selection=${SELECTION:-selection.yaml}")
+        [[ -n "$SERVICES" ]] && args+=("--services=$SERVICES")
+        [[ -n "$REGIONS" ]] && args+=("--regions=$REGIONS")
+        [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
+        [[ "$ALLOW_PARTIAL" == true ]] && args+=(--allow-partial)
+        while IFS= read -r line; do
+          line="${line#"${line%%[![:space:]]*}"}"
+          line="${line%"${line##*[![:space:]]}"}"
+          [[ -z "$line" ]] && continue
+          if [[ "$line" == -- ]]; then
+            echo "::error::args: a bare -- would make the flags after it arguments; give one --flag a line"
+            exit 1
+          fi
+          if [[ "$line" != --* ]]; then
+            annotation error "args: '$line' isn't a flag; give one --flag a line"
+            exit 1
+          fi
+          args+=("$line")
+        done <<< "$ARGS"
+        if ! err=$("$bin" "${args[@]:0:2}" --check "${args[@]:2}" 2>&1 > /dev/null); then
+          annotation error "discover: $err"
+          exit 1
+        fi
+        printf '%s\0' "${args[@]}" > "$RUNNER_TEMP/infraharvest-discover-args"
     # Drift first, on the code the repository has, so that what the import
     # adds next isn't taken for drift: one pull request then carries both.
     - name: Drift
@@ -423,7 +516,9 @@ runs:
         # it (commands_off in output.sh). Its stderr goes to stdout, after
         # commands_off on the same stream.
         commands_off
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         "$bin" "${args[@]}" 2>&1 > "$json" || code=$?
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         commands_on
         report="$OUT/_reports/drift.md"
         found=false
@@ -434,6 +529,9 @@ runs:
         fi
         output exit-code "$code"
         output drift-found "$found"
+        # As the import's, for the Control plane step.
+        output started-at "$started"
+        output finished-at "$finished"
         # Not through a symbolic link the repository commits, which a run
         # that failed before writing the report would leave as it is (see
         # unlinked in output.sh).
@@ -488,6 +586,74 @@ runs:
           echo "::error::infraharvest exited with $code; see the job summary"
           exit "$code"
         fi
+    # discover and verify, which are all a run does (see Check inputs). Both
+    # log what they print with no workflow commands, as the import does.
+    - name: Discover
+      id: discover
+      if: inputs.discover == 'true'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        SELECTION: ${{ inputs.selection }}
+        ALLOW_PARTIAL: ${{ inputs.allow-partial }}
+      run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
+        bin="${BINARY:-infraharvest}"
+        # The arguments Check the discover checked.
+        args=()
+        while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-discover-args"
+        code=0
+        commands_off
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        "$bin" "${args[@]}" 2>&1 || code=$?
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        commands_on
+        output exit-code "$code"
+        output started-at "$started"
+        output finished-at "$finished"
+        # The selection file, written even when some listing failed; not
+        # through a symbolic link (see the drift step).
+        selection="${SELECTION:-selection.yaml}"
+        if unlinked "$selection"; then
+          output selection-file "$selection"
+        fi
+        if [[ "$code" != 0 && ! ( "$code" == 3 && "$ALLOW_PARTIAL" == true ) ]]; then
+          echo "::error::infraharvest discover exited with $code; see the log"
+          exit "$code"
+        fi
+    - name: Verify
+      id: verify
+      if: inputs.verify == 'true'
+      shell: bash
+      env:
+        BINARY: ${{ inputs.binary }}
+        ENGINE: ${{ inputs.engine }}
+        OUT: ${{ inputs.out }}
+        CONFIG: ${{ inputs.config }}
+      run: |
+        source "$GITHUB_ACTION_PATH/output.sh"
+        if [[ ! -d "$OUT" ]]; then
+          annotation error "verify: $OUT doesn't exist: there are no roots to check"
+          exit 1
+        fi
+        bin="${BINARY:-infraharvest}"
+        args=(verify "$OUT")
+        [[ -n "$ENGINE" ]] && args+=("--engine=$ENGINE")
+        [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
+        code=0
+        commands_off
+        started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        "$bin" "${args[@]}" 2>&1 || code=$?
+        finished=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        commands_on
+        output exit-code "$code"
+        output started-at "$started"
+        output finished-at "$finished"
+        # 1: a check failed; 2: a root couldn't be checked.
+        if [[ "$code" != 0 ]]; then
+          echo "::error::infraharvest verify exited with $code; see the log"
+          exit "$code"
+        fi
     # After a successful import, before the pull request or the commit,
     # which carry the evidence in the out directory.
     - name: Sign the evidence
@@ -540,24 +706,37 @@ runs:
         COMMIT_MESSAGE: ${{ steps.pull-request-details.outputs.commit-message }}
       run: bash "$GITHUB_ACTION_PATH/commit.sh"
     # Last, so that a control plane that is down doesn't keep the pull request
-    # or the commit from being made, and after a failed import too: its
-    # report says what failed. Only after an import ran; the script skips a
-    # run with no report. The inputs reach it as variables, never in the
-    # script.
+    # or the commit from being made, and after a failed import, drift check,
+    # discover or verify too: the report says what failed. Only after one of
+    # them ran; the script skips a run with nothing to send. The inputs reach it as
+    # variables, never in the script.
     - name: Control plane
       id: control-plane
-      if: ${{ !cancelled() && inputs.control-plane-url != '' && (steps.import.outcome == 'success' || steps.import.outcome == 'failure') }}
+      if: ${{ !cancelled() && inputs.control-plane-url != '' && (steps.import.outcome == 'success' || steps.import.outcome == 'failure' || steps.drift.outcome == 'success' || steps.drift.outcome == 'failure' || steps.discover.outcome == 'success' || steps.discover.outcome == 'failure' || steps.verify.outcome == 'success' || steps.verify.outcome == 'failure') }}
       shell: bash
       env:
         URL: ${{ inputs.control-plane-url }}
+        AUDIENCE: ${{ inputs.control-plane-audience }}
         DROP_TAGS: ${{ inputs.control-plane-drop-tags }}
         DROP_TAG: ${{ inputs.control-plane-drop-tag }}
         HASH_IDS: ${{ inputs.control-plane-hash-ids }}
         HASH_KEY: ${{ inputs.control-plane-hash-key }}
+        DROP_ADDRESSES: ${{ inputs.control-plane-drop-addresses }}
+        REQUEST_ID: ${{ inputs.control-plane-request-id }}
+        CONFIG: ${{ inputs.config }}
         OPTIONAL: ${{ inputs.control-plane-optional }}
         BINARY: ${{ inputs.binary }}
         OUT: ${{ inputs.out }}
+        IMPORT: ${{ inputs.import }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
-        STARTED_AT: ${{ steps.import.outputs.started-at }}
-        FINISHED_AT: ${{ steps.import.outputs.finished-at }}
+        DISCOVER: ${{ inputs.discover }}
+        DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
+        VERIFY: ${{ inputs.verify }}
+        VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+        DRIFT: ${{ inputs.drift }}
+        DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        DRIFT_STARTED_AT: ${{ steps.drift.outputs.started-at }}
+        DRIFT_FINISHED_AT: ${{ steps.drift.outputs.finished-at }}
+        STARTED_AT: ${{ steps.import.outputs.started-at || steps.discover.outputs.started-at || steps.verify.outputs.started-at }}
+        FINISHED_AT: ${{ steps.import.outputs.finished-at || steps.discover.outputs.finished-at || steps.verify.outputs.finished-at }}
       run: bash "$GITHUB_ACTION_PATH/control-plane.sh" upload

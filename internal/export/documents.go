@@ -15,17 +15,25 @@ const (
 	DocRun       = "run"
 	DocGate      = "gate"
 	DocGraph     = "graph"
+
+	// DocDriftSummary is built from drift.json, not from the import's report.
+	DocDriftSummary = "drift-summary"
+
+	// DocOCSFInventory is the inventory as OCSF events (see ocsf.go).
+	DocOCSFInventory = "ocsf-inventory"
 )
 
 // Documents are the documents export can write.
-var Documents = []string{DocInventory, DocRun, DocGate, DocGraph}
+var Documents = []string{DocInventory, DocRun, DocGate, DocGraph, DocDriftSummary, DocOCSFInventory}
 
 // The value of each document's schema field.
 const (
-	schemaInventory = "infraharvest/inventory/v1"
-	schemaRun       = "infraharvest/run/v1"
-	schemaGate      = "infraharvest/gate/v1"
-	schemaGraph     = "infraharvest/graph/v1"
+	schemaInventory     = "infraharvest/inventory/v1"
+	schemaRun           = "infraharvest/run/v1"
+	schemaGate          = "infraharvest/gate/v1"
+	schemaGraph         = "infraharvest/graph/v1"
+	schemaDriftSummary  = "infraharvest/drift-summary/v1"
+	schemaOCSFInventory = "infraharvest/ocsf-inventory/v1"
 )
 
 // hashAlg is the algorithm --hash-ids hashes with.
@@ -96,9 +104,36 @@ type inventoryDoc struct {
 	Coverage    coverage   `json:"coverage"`
 }
 
+// The commands whose runs the run document describes. import, which is also
+// what an incremental import is, and drift leave a report in the output
+// directory; discover leaves the inventories it saved there, and verify
+// verify.json (see report.VerifyJSONFile).
+const (
+	CommandImport   = "import"
+	CommandDrift    = "drift"
+	CommandDiscover = "discover"
+	CommandVerify   = "verify"
+)
+
+// Commands are the commands the run document can describe.
+var Commands = []string{CommandImport, CommandDrift, CommandDiscover, CommandVerify}
+
+// commandDocuments are the documents besides the run document that the run
+// of a command has, if it has any: what discover saved is the OCSF
+// inventory's resources, and verify's checks are the gate.
+var commandDocuments = map[string][]string{
+	CommandDiscover: {DocOCSFInventory},
+	CommandVerify:   {DocGate},
+}
+
+// requestIDPattern is what a request ID looks like (see
+// schemas/run-v1.schema.json).
+const requestIDPattern = `^[A-Za-z0-9._:-]{1,128}$`
+
 type runDoc struct {
 	Schema       string    `json:"schema"`
 	RunID        string    `json:"run_id"`
+	RequestID    string    `json:"request_id,omitempty"`
 	Command      string    `json:"command"`
 	ExitCode     int       `json:"exit_code"`
 	Outcome      string    `json:"outcome"`
@@ -108,6 +143,21 @@ type runDoc struct {
 	Engine       component `json:"engine"`
 	Coverage     counts    `json:"coverage"`
 	FailureCodes []string  `json:"failure_codes,omitempty"`
+}
+
+// driftRunDoc is the run document of a run that records neither an exit
+// code, which depends on flags, nor the versions of what ran, nor counts of
+// what an import covers: a drift run (drift.json), and the runs of discover
+// and verify.
+type driftRunDoc struct {
+	Schema       string   `json:"schema"`
+	RunID        string   `json:"run_id"`
+	RequestID    string   `json:"request_id,omitempty"`
+	Command      string   `json:"command"`
+	Outcome      string   `json:"outcome"`
+	StartedAt    string   `json:"started_at,omitempty"`
+	FinishedAt   string   `json:"finished_at,omitempty"`
+	FailureCodes []string `json:"failure_codes,omitempty"`
 }
 
 type gateCheck struct {

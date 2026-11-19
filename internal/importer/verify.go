@@ -30,6 +30,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/rootfile"
 	"github.com/IgnatG/infraharvest/internal/engine/tfrun"
 	"github.com/IgnatG/infraharvest/internal/engine/versions"
+	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -148,6 +149,9 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	}
 	results := verifyTargets(ctx, options.Parallel, verifyTargetsOf(out, roots, options.Environments), check)
 	if err := writeVerified(w, results, format); err != nil {
+		return err
+	}
+	if err := writeVerifiedFile(out, results); err != nil {
 		return err
 	}
 	return verifyExit(results)
@@ -278,6 +282,23 @@ func verifyExit(results []verifiedRoot) error {
 		return &ExitError{Code: report.ExitIncomplete, Err: errors.New(strings.Join(failed, "\n"))}
 	}
 	return nil
+}
+
+// writeVerifiedFile writes the results into verify.json in the report
+// directory of out, as --format json prints them, so that infraharvest
+// export can describe the run (see report.VerifyJSONFile). It is written
+// whatever the format and the results are, so that a run that failed its
+// checks leaves its file too.
+func writeVerifiedFile(out string, results []verifiedRoot) error {
+	content, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(out, report.Dir)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return fsutil.WriteFile(filepath.Join(dir, report.VerifyJSONFile), append(content, '\n'), 0o644)
 }
 
 func writeVerified(w io.Writer, results []verifiedRoot, format string) error {

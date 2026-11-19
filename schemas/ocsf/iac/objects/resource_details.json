@@ -1,0 +1,13 @@
+{
+  "caption": "Resource Details",
+  "description": "The Resource Details object describes details about resources that were affected by the activity/event.",
+  "extends": "resource_details",
+  "name": "resource_details",
+  "attributes": {
+    "iac": {
+      "profile": "iac/iac_source",
+      "requirement": "recommended"
+    }
+  },
+  "profiles": ["iac/iac_source"]
+}

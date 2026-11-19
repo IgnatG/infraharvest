@@ -3,8 +3,10 @@
 
 // Package export writes the metadata of an import that a hosted control
 // plane may receive: the inventory of the estate, the run and the
-// verification gate, each a JSON document with a schema (see schemas/).
-// It reads the report and the saved inventory of an output directory,
+// verification gate, the summary of a drift check, and the inventory as OCSF
+// events, each a JSON document with a schema (see schemas/).
+// It reads the report and the saved inventory of an output directory, or
+// its drift report,
 // copies into each document only the fields the document names, drops tags
 // that look like secrets, hashes IDs and names if asked, checks the
 // document against its schema, and returns it. It uploads nothing and makes
@@ -12,12 +14,14 @@
 package export
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -46,40 +50,53 @@ type Options struct {
 	StartedAt, FinishedAt time.Time
 	// Now is the time generated_at has without FinishedAt; time.Now if nil.
 	Now func() time.Time
+	// Command is the command whose run the run document describes: one of
+	// Commands. Without it, the command whose report the output directory
+	// has (see commandOf).
+	Command string
+	// RequestID, if set, is the run document's request_id, which a control
+	// plane gave to ask for the run.
+	RequestID string
+	// DropAddresses leaves the resource addresses, module addresses and
+	// paths out of the documents that have them (the drift summary and the
+	// OCSF inventory); HashKey hashes them otherwise.
+	DropAddresses bool
+	// RepoURL and CommitSHA are the repository and the commit the
+	// configuration was generated into, for the OCSF inventory's iac
+	// source: an https URL without credentials, and the hexadecimal ID of
+	// a commit. Both are optional, and no other document has them.
+	RepoURL, CommitSHA string
+	// StateURL returns where the state of the root at a path of the output
+	// directory is, as config.Backend.StateURL does, for the OCSF
+	// inventory's iac source; nil if no backend is known. Redacted as the
+	// paths are.
+	StateURL func(rootPath string) string
 }
 
 // Build returns the document opts asks for, as indented JSON, checked
 // against its schema. It fails, and returns nothing, if the report can't be
-// read, the output has something the schema doesn't allow, or the key is
-// missing.
+// read (drift.json, for the drift summary and the run of a drift check), the
+// output has something the schema doesn't allow, or the key is missing.
 func Build(opts Options) ([]byte, error) {
 	if !slices.Contains(Documents, opts.Document) {
 		return nil, fmt.Errorf("unknown document %q: want one of %s", opts.Document, strings.Join(Documents, ", "))
 	}
-	// The report is read once: its bytes name the run, and its content
-	// fills the document.
-	content, err := os.ReadFile(filepath.Join(opts.Out, report.Dir, "report.json"))
-	if err != nil {
+	if err := checkOptions(opts); err != nil {
 		return nil, err
 	}
-	r, err := report.Parse(content)
-	if err != nil {
-		return nil, err
-	}
-	runID := runID(content)
-	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
-		return nil, fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
-	}
-	var doc any
-	switch opts.Document {
-	case DocInventory:
-		doc, err = buildInventory(r, opts, runID, generatedAt(opts))
-	case DocGraph:
-		doc, err = buildGraph(r, opts, runID, generatedAt(opts))
-	case DocRun:
-		doc = buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
-	case DocGate:
-		doc = buildGate(r, runID)
+	var (
+		doc any
+		err error
+	)
+	switch commandOf(opts) {
+	case CommandDrift:
+		doc, err = buildFromDrift(opts)
+	case CommandDiscover:
+		doc, err = buildFromDiscover(opts)
+	case CommandVerify:
+		doc, err = buildFromVerify(opts)
+	default:
+		doc, err = buildFromReport(opts)
 	}
 	if err != nil {
 		return nil, err
@@ -92,6 +109,108 @@ func Build(opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("the %s document doesn't match its schema, so nothing is written: %w", opts.Document, err)
 	}
 	return append(encoded, '\n'), nil
+}
+
+// requestIDRE is requestIDPattern, compiled.
+var requestIDRE = regexp.MustCompile(requestIDPattern)
+
+// checkOptions refuses options that can't be right, before anything is
+// read.
+func checkOptions(opts Options) error {
+	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
+		return fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
+	}
+	if opts.RequestID != "" && !requestIDRE.MatchString(opts.RequestID) {
+		return fmt.Errorf("the request ID %q must be 1 to 128 letters, digits, dots, underscores, colons or hyphens", opts.RequestID)
+	}
+	if opts.RequestID != "" && opts.Document != DocRun {
+		return fmt.Errorf("a request ID goes into the run document only, not the %s document", opts.Document)
+	}
+	if opts.Command != "" && !slices.Contains(Commands, opts.Command) {
+		return fmt.Errorf("unknown command %q: want one of %s", opts.Command, strings.Join(Commands, ", "))
+	}
+	if opts.Command != "" && opts.Document != DocRun {
+		docs := commandDocuments[opts.Command]
+		switch {
+		case len(docs) == 0:
+			return fmt.Errorf("a command is for the run document only: the %s document has no choice of command", opts.Document)
+		case !slices.Contains(docs, opts.Document):
+			return fmt.Errorf("a %s run has the run document and the %s document only, not the %s document", opts.Command, strings.Join(docs, ", "), opts.Document)
+		}
+	}
+	return checkRepo(opts)
+}
+
+// commandOf is the command whose run opts exports. Only the run document
+// has a choice of any command: opts.Command, else the command whose report
+// the output directory has, which is import when it has the reports of
+// both, as an import and a later drift leave. Neither, and the import's
+// report is the one that fails to read. discover and verify are never
+// found, only named, and the OCSF inventory and the gate may name them too.
+// The drift summary is of a drift run.
+func commandOf(opts Options) string {
+	if opts.Document == DocDriftSummary {
+		return CommandDrift
+	}
+	if opts.Document != DocRun || opts.Command != "" {
+		return cmp.Or(opts.Command, CommandImport)
+	}
+	if exists(filepath.Join(opts.Out, report.Dir, reportFile)) || !exists(filepath.Join(opts.Out, report.Dir, report.DriftJSONFile)) {
+		return CommandImport
+	}
+	return CommandDrift
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// reportFile is the report an import leaves in the report directory.
+const reportFile = "report.json"
+
+// buildFromReport builds the document of opts from the report of an
+// import.
+func buildFromReport(opts Options) (any, error) {
+	// The report is read once: its bytes name the run, and its content
+	// fills the document.
+	content, err := os.ReadFile(filepath.Join(opts.Out, report.Dir, reportFile))
+	if err != nil {
+		return nil, err
+	}
+	r, err := report.Parse(content)
+	if err != nil {
+		return nil, err
+	}
+	runID := runID(content)
+	switch opts.Document {
+	case DocInventory:
+		return buildInventory(r, opts, runID, generatedAt(opts))
+	case DocGraph:
+		return buildGraph(r, opts, runID, generatedAt(opts))
+	case DocOCSFInventory:
+		return buildOCSFInventory(r, opts, runID, generatedAt(opts))
+	case DocRun:
+		doc := buildRun(r, runID, opts.StartedAt, opts.FinishedAt)
+		doc.RequestID = opts.RequestID
+		return doc, nil
+	}
+	return buildGate(r, runID), nil
+}
+
+// buildFromDrift builds the document of opts from the drift report.
+func buildFromDrift(opts Options) (any, error) {
+	d, content, err := readDrift(opts.Out)
+	if err != nil {
+		return nil, err
+	}
+	runID := runID(content)
+	if opts.Document == DocDriftSummary {
+		return buildDriftSummary(d, opts, runID, generatedAt(opts))
+	}
+	doc := buildDriftRun(d, runID, opts.StartedAt, opts.FinishedAt)
+	doc.RequestID = opts.RequestID
+	return doc, nil
 }
 
 // generatedAt is the time a document's generated_at says: when the import
@@ -186,6 +305,13 @@ type entry struct {
 	// owner is what manages it, one of the report package's Owner
 	// constants, or "".
 	owner string
+	// address and dir are where the import wrote the resource's
+	// configuration: its address and the directory of its root, relative
+	// to the output directory. Empty for a resource it didn't import.
+	address, dir string
+	// outcome is what the import did with it: one of the import outcomes
+	// of the OCSF inventory (see importWritten).
+	outcome string
 }
 
 type entryKey struct{ scope, typ, id string }
@@ -216,18 +342,31 @@ func entries(r *report.Report, listed []listedResource) []*entry {
 	}
 	for _, d := range r.Directories {
 		for _, res := range d.Imported {
-			add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			e := add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			if e.address == "" {
+				e.address, e.dir = res.Address, d.Path
+			}
+			e.outcome = importWritten
 		}
 		for _, res := range d.LeftOut {
-			add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			e := add(d.Scope, engine.AddressType(res.Address), res.ID, "")
+			if e.outcome == "" {
+				e.outcome = importLeftOut
+			}
 		}
 	}
 	for _, x := range r.Excluded {
-		add(x.Scope, x.Type, x.ID, x.ManagedBy())
+		e := add(x.Scope, x.Type, x.ID, x.ManagedBy())
+		if e.outcome == "" {
+			e.outcome = importExcluded
+		}
 	}
 	for _, l := range listed {
 		e := add(l.Scope, l.Type, l.ID, "")
 		e.name, e.tags = l.Name, l.Tags
+		if e.outcome == "" {
+			e.outcome = importNotImported
+		}
 	}
 	order = slices.DeleteFunc(order, func(e *entry) bool { return e.typ == "" || e.id == "" })
 	sort.SliceStable(order, func(i, j int) bool {
@@ -345,7 +484,7 @@ func buildRun(r *report.Report, runID string, started, finished time.Time) *runD
 	doc := &runDoc{
 		Schema:   schemaRun,
 		RunID:    runID,
-		Command:  "import",
+		Command:  CommandImport,
 		ExitCode: r.ExitCode,
 		Outcome:  outcomeOf(r.ExitCode),
 		Tool:     toComponent(r.Tool),

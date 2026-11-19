@@ -1,0 +1,7 @@
+{
+  "caption": "IaC Source",
+  "description": "This profile adds the infrastructure-as-code source that manages a resource to the Resource Details object.",
+  "meta": "profile",
+  "name": "iac_source",
+  "attributes": {}
+}

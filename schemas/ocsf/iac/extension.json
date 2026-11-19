@@ -1,0 +1,7 @@
+{
+  "uid": 999,
+  "caption": "Infrastructure as Code",
+  "description": "The Infrastructure as Code extension to OCSF adds a profile that says which infrastructure-as-code source, such as a Terraform or OpenTofu configuration, manages a cloud resource. It is not in the OCSF Extensions Registry yet, so it has the registry's development uid, 999.",
+  "name": "iac",
+  "version": "1.0.0"
+}

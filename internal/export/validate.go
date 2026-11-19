@@ -24,6 +24,11 @@ func schemaFile(document string) string {
 
 // Schema returns the JSON Schema (2020-12) of a document, as published.
 func Schema(document string) ([]byte, error) {
+	// The schemas package has others, such as drift.json's, which are no
+	// documents of export.
+	if !slices.Contains(Documents, document) {
+		return nil, fmt.Errorf("unknown document %q", document)
+	}
 	content, err := schemas.FS.ReadFile(schemaFile(document))
 	if err != nil {
 		return nil, fmt.Errorf("unknown document %q", document)

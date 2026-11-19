@@ -268,15 +268,21 @@ infraharvest export [output-directory] [flags]
 
 | Flag | Default | Description |
 |---|---|---|
+| `--command` |  | command whose run to describe: import, drift, discover, verify (default: the one whose report the output directory has, import if both; discover and verify, which have none of that kind, must be named) |
+| `--commit-sha` |  | commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory (default: GITHUB_SHA) |
+| `--config` |  | the import's configuration file, whose backend says where each root's state is, for the OCSF inventory |
+| `--drop-addresses` |  | leave resource addresses and root paths out of the documents that have them, such as the drift summary and the OCSF inventory |
 | `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |
 | `--drop-tags` |  | leave all tags out of the inventory |
-| `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the inventory's generated_at (default for generated_at: now) |
-| `--hash-ids` |  | replace IDs and names in the inventory with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
+| `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now) |
+| `--hash-ids` |  | replace IDs and names in the inventory, and addresses (and, in the OCSF inventory, paths) in the drift summary and the OCSF inventory, with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
 | `--hash-key-file` |  | file with the key --hash-ids hashes with (at least 16 bytes), instead of INFRAHARVEST_EXPORT_KEY |
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
 | `--print-schema` |  | print the JSON Schema of the document --schema names, not the document |
-| `--schema` | `inventory` | document to write: inventory, run, gate, graph |
+| `--repo-url` |  | repository the configuration is committed to, for the OCSF inventory, as its web address (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY) |
+| `--request-id` |  | ID a control plane gave to ask for this run, for the run document's request_id: 1 to 128 letters, digits, and . _ : - |
+| `--schema` | `inventory` | document to write: inventory, run, gate, graph, drift-summary, ocsf-inventory |
 | `--started-at` |  | when the import started, RFC 3339 (such as 2026-11-03T09:30:00Z): the run document's started_at |
 | `--verbose` |  | log more, such as the requests to the cloud's APIs |
 

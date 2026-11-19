@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ignatg.github.io/infraharvest/schemas/drift-summary-v1.schema.json",
+  "title": "infraharvest drift summary, version 1",
+  "description": "What infraharvest export writes of one drift run: for each root and environment, how many changes in the cloud there are by what became of them and by resource type, and which resources changed. No attributes and no values.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "run_id", "generated_at", "drift_found", "totals", "roots", "redaction"],
+  "properties": {
+    "schema": {"const": "infraharvest/drift-summary/v1"},
+    "run_id": {"$ref": "#/$defs/uuid"},
+    "generated_at": {"$ref": "#/$defs/timestamp"},
+    "drift_found": {"type": "boolean"},
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["roots", "roots_not_checked", "changes", "outcomes"],
+      "properties": {
+        "roots": {"$ref": "#/$defs/count"},
+        "roots_not_checked": {"$ref": "#/$defs/count"},
+        "changes": {"$ref": "#/$defs/count"},
+        "outcomes": {"$ref": "#/$defs/outcomes"}
+      }
+    },
+    "roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checked", "changes", "outcomes", "types"],
+        "properties": {
+          "root": {"type": "string", "minLength": 1},
+          "environment": {"type": "string", "minLength": 1},
+          "checked": {"type": "boolean"},
+          "changes": {"$ref": "#/$defs/count"},
+          "outcomes": {"$ref": "#/$defs/outcomes"},
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "changes", "outcomes"],
+              "properties": {
+                "type": {"type": "string", "minLength": 1},
+                "changes": {"$ref": "#/$defs/count"},
+                "outcomes": {"$ref": "#/$defs/outcomes"}
+              }
+            }
+          },
+          "addresses": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["addresses", "hash_alg"],
+      "properties": {
+        "addresses": {"enum": ["plain", "hashed", "dropped"]},
+        "hash_alg": {"const": "hmac-sha256"}
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "count": {"type": "integer", "minimum": 0},
+    "outcomes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["written", "kept", "rejected_by_plan", "rejected_by_check", "manual", "secret", "not_assessable", "absorbed"],
+      "properties": {
+        "written": {"$ref": "#/$defs/count"},
+        "kept": {"$ref": "#/$defs/count"},
+        "rejected_by_plan": {"$ref": "#/$defs/count"},
+        "rejected_by_check": {"$ref": "#/$defs/count"},
+        "manual": {"$ref": "#/$defs/count"},
+        "secret": {"$ref": "#/$defs/count"},
+        "not_assessable": {"$ref": "#/$defs/count"},
+        "absorbed": {"$ref": "#/$defs/count"}
+      }
+    }
+  }
+}

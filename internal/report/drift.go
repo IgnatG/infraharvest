@@ -76,10 +76,16 @@ const (
 	DriftDecidedByFlag = "flag"
 )
 
+// DriftSchema is the value of drift.json's schema field: the document
+// schemas/drift-v1.schema.json describes.
+const DriftSchema = "infraharvest/drift/v1"
+
 // Drift is what infraharvest drift found in the roots of an output
 // directory.
 type Drift struct {
-	SchemaVersion int `json:"schema_version"`
+	// Schema names the schema of the document (see DriftSchema).
+	Schema        string `json:"schema"`
+	SchemaVersion int    `json:"schema_version"`
 	// DriftFound says whether a change is left that the next apply
 	// reverts, or that is not assessable: changes written into the code
 	// and those the code absorbs aren't drift to act on.
@@ -225,6 +231,7 @@ func rootName(path, env string) string {
 
 // Finish sorts the roots and changes and counts them.
 func (d *Drift) Finish() {
+	d.Schema = DriftSchema
 	d.SchemaVersion = SchemaVersion
 	sort.SliceStable(d.Roots, func(i, j int) bool {
 		if d.Roots[i].Path != d.Roots[j].Path {
