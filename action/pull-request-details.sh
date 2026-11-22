@@ -4,10 +4,10 @@
 
 # Works out the pull request the action opens (the Pull request details
 # step of action.yml): its title, commit message and branch, its body, the
-# import report then the drift report, written to a file under
-# $RUNNER_TEMP, and the paths it adds, the out directory and, with drift,
-# the decisions file. It writes them to $GITHUB_OUTPUT as title,
-# commit-message, branch, body-path and add-paths, for
+# import report, then the drift report, then the diagram, if the action drew
+# one, written to a file under $RUNNER_TEMP, and the paths it adds, the out
+# directory and, with drift, the decisions file. It writes them to
+# $GITHUB_OUTPUT as title, commit-message, branch, body-path and add-paths, for
 # peter-evans/create-pull-request, and for commit.sh, which commits the
 # same paths with the same message. It runs no git and needs no token, so
 # action-test runs it on its own.
@@ -15,6 +15,7 @@
 # Usage: IMPORT=true|false DRIFT=off|report|accept OUT=<dir>
 #   [DRIFT_DECISIONS=<file>] [BRANCH=<branch>] [ENVIRONMENT=<env>]
 #   [IMPORT_REPORT=<report.md>] [DRIFT_REPORT=<drift.md>]
+#   [DIAGRAM_FILE=<diagram.md>]
 #   pull-request-details.sh
 set -euo pipefail
 
@@ -73,6 +74,18 @@ for file in "${IMPORT_REPORT-}" "${DRIFT_REPORT-}"; do
     annotation warning "$file isn't a regular file that no symbolic link leads to: leaving it out of the pull request"
   fi
 done
+# The diagram is last, and left out of a body that it would make longer than
+# GitHub allows (65536 characters); the job summary has it anyway.
+if [[ -n "${DIAGRAM_FILE-}" ]]; then
+  if ! unlinked "$DIAGRAM_FILE"; then
+    annotation warning "$DIAGRAM_FILE isn't a regular file that no symbolic link leads to: leaving the diagram out of the pull request"
+  elif (($(wc -c < "$body") + $(wc -c < "$DIAGRAM_FILE") + 1 > 65000)); then
+    annotation warning "diagram: the pull request's body would be longer than GitHub allows with it: leaving it out (it is in the job summary)"
+  else
+    if [[ -s "$body" ]]; then printf '\n' >> "$body"; fi
+    cat "$DIAGRAM_FILE" >> "$body"
+  fi
+fi
 output title "$title"
 output commit-message "$commit"
 output branch "$branch"

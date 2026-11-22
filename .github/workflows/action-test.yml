@@ -417,6 +417,47 @@ jobs:
           test "$OUTCOME" = failure
           test -z "$EXIT_CODE"
           test ! -e "$RUNNER_TEMP/boolean"
+      # The diagram draws an import's graph: the action refuses it with
+      # verify (and discover, and a drift check alone), and without true or
+      # false, before anything runs.
+      - name: Run the action with a diagram and verify
+        id: diagram-verify
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          import: "false"
+          verify: "true"
+          diagram: "true"
+          out: ${{ runner.temp }}/diagram-verify
+      - name: Check the action refused the diagram with verify
+        env:
+          OUTCOME: ${{ steps.diagram-verify.outcome }}
+          EXIT_CODE: ${{ steps.diagram-verify.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/diagram-verify"
+      - name: Run the action with diagram yes
+        id: diagram-boolean
+        continue-on-error: true
+        uses: ./action
+        with:
+          binary: ${{ runner.temp }}/infraharvest
+          provider: aws
+          services: sqs
+          regions: us-east-1
+          out: ${{ runner.temp }}/diagram-boolean
+          diagram: "yes"
+      - name: Check the action refused diagram yes
+        env:
+          OUTCOME: ${{ steps.diagram-boolean.outcome }}
+          EXIT_CODE: ${{ steps.diagram-boolean.outputs.exit-code }}
+        run: |
+          test "$OUTCOME" = failure
+          test -z "$EXIT_CODE"
+          test ! -e "$RUNNER_TEMP/diagram-boolean"
       - name: Floci logs
         if: failure()
         run: docker compose -f e2e/compose.yaml logs
