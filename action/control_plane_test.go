@@ -467,6 +467,50 @@ func TestUploadSendsTheGraph(t *testing.T) {
 	}
 }
 
+// The graph has addresses as the OCSF inventory does, so it takes the same
+// flags for them: --hash-ids hashes them, --drop-addresses leaves them out.
+func TestUploadOfTheGraphPassesTheRedactionFlags(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		want []string
+		not  []string
+	}{
+		{"plain", nil, nil, []string{"--hash-ids", "--drop-addresses"}},
+		{"hashed", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123"}, []string{"--hash-ids"}, []string{"--drop-addresses"}},
+		{"dropped", map[string]string{"DROP_ADDRESSES": "true"}, []string{"--drop-addresses"}, []string{"--hash-ids"}},
+		{"both", map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcdef0123", "DROP_ADDRESSES": "true"}, []string{"--hash-ids", "--drop-addresses"}, nil},
+		{"not dropped", map[string]string{"DROP_ADDRESSES": "false"}, nil, []string{"--drop-addresses"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			res := upload(t, cp, tt.env)
+			if res.err != nil {
+				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+			}
+			var graph string
+			for _, line := range exports(res) {
+				if strings.Contains(line, "--schema=graph") {
+					graph = line
+				}
+			}
+			if graph == "" {
+				t.Fatalf("no graph export: %q", exports(res))
+			}
+			for _, flag := range tt.want {
+				if !strings.Contains(graph, flag) {
+					t.Errorf("graph export ran as %q, want %s", graph, flag)
+				}
+			}
+			for _, flag := range tt.not {
+				if strings.Contains(graph, flag) {
+					t.Errorf("graph export ran as %q, not %s", graph, flag)
+				}
+			}
+		})
+	}
+}
+
 func TestUploadFailsWhenTheGraphFails(t *testing.T) {
 	cp := newControlPlane(t)
 	cp.queue("/api/v1/ingest/graph", 400)
