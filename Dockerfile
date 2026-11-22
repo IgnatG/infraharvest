@@ -25,7 +25,7 @@ RUN mkdir /work
 
 # Non-root, with CA certificates and git. The layers change least often
 # first: the engines, then infraharvest itself.
-FROM cgr.dev/chainguard/git:latest@sha256:443a587bba03570c192c7c17053756f94d28c5745f6501148efd5b24de94433f
+FROM cgr.dev/chainguard/git:latest@sha256:48aac7c117dbd387f8ac577937fce71a01af0150030f6beb7b2a53fbb5a34d97
 ARG TARGETPLATFORM
 # aws, azure or google.
 ARG CLOUD
