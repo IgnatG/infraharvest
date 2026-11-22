@@ -1,6 +1,6 @@
 # infraharvest GitHub Action
 
-Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch). Two more modes each do only one thing: `discover` lists the cloud into a selection file, and `verify` checks the roots the repository has again (see [Discover and verify](#discover-and-verify)).
+Runs [infraharvest](../README.md) in a workflow. It generates Terraform configuration for existing cloud resources, verifies that the configuration plans with no changes, and adds the import report to the job summary. It can also check the roots the repository has for what changed in the cloud since they were applied ([drift](#drift)), and open a pull request with the configuration, with the reports as its body, or [commit it straight to a branch](#committing-straight-to-a-branch), and can [draw the imported estate as a diagram](#diagram-of-the-imported-estate). Two more modes each do only one thing: `discover` lists the cloud into a selection file, and `verify` checks the roots the repository has again (see [Discover and verify](#discover-and-verify)).
 
 The action installs the release's build for the `provider`'s cloud and verifies it before running anything. First it checks that this repository's release workflow signed the checksum file, using cosign keyless signing; then it checks the archive's checksum. Then, when importing, it checks the import as `infraharvest import <provider> --check` does, with the flags its inputs make and those the configuration file sets, so that an unknown provider or service, or a flag the import would refuse, fails the step before drift or the import reads anything. Cloud credentials come from the environment, so use OIDC rather than stored secrets. The action reads the cloud (and, for drift, the state) and writes files; it never applies anything.
 
@@ -119,7 +119,7 @@ jobs:
 
 ## Discover and verify
 
-Two more modes each do only one thing. Both need `import: "false"`, and neither goes with the other, `drift`, `pull-request`, `commit` or `sign-evidence`: the action refuses the combination before it installs anything.
+Two more modes each do only one thing. Both need `import: "false"`, and neither goes with the other, `drift`, `pull-request`, `commit`, `sign-evidence` or `diagram`: the action refuses the combination before it installs anything.
 
 `discover: "true"` runs `infraharvest discover <provider> --pick=false` with the `services`, `regions`, `config`, `args` and `allow-partial` inputs, as an import takes them, and `out`. It writes the selection file to `selection` (`selection.yaml` in the working directory without it), keeping the decisions in a file that is there, and sets the output `selection-file` to its path. It also saves what it listed in `out`, under `.infraharvest/inventory/`, which the OCSF inventory sent to a [control plane](#sending-a-run-to-a-control-plane) is made from. It reads the cloud only. The exit code is the import's: 0 when every listing worked, 1 when some failed in part (the file is still written, and says so), 2 when it couldn't run, and 3 with `allow-partial: "true"`, which doesn't fail the step.
 
@@ -245,6 +245,28 @@ sha256sum --check SHA256SUMS
 ```
 
 Narrow the identity to the workflow file and branch that import, such as `--certificate-identity https://github.com/<owner>/<repository>/.github/workflows/infraharvest.yml@refs/heads/main`. The job needs `id-token: write`; without it the step says so and fails. Each run replaces the directory, so it always holds one run's evidence. The signature is recorded in Sigstore's public log, which shows the repository's name and the workflow: don't turn it on for a repository whose name is private.
+
+## Diagram of the imported estate
+
+Off by default. With `diagram: "true"`, after a successful import, the action draws what the import took over as a [Mermaid](https://mermaid.js.org/) diagram: scopes and module calls as boxes, and the references between resources as arrows. It adds the diagram to the job summary and to the body of the pull request, after the reports, where GitHub draws it. With `commit` there is no pull request body, so it is in the job summary only. It needs `import: "true"`, so the action refuses it with `discover`, `verify` and a drift check alone, before it installs anything.
+
+```yaml
+      - uses: IgnatG/infraharvest/action@<sha>
+        with:
+          version: v0.1.0
+          provider: aws
+          services: vpc,subnet,sg,s3,iam
+          regions: eu-west-2
+          pull-request: "true"
+          sign-evidence: "true"
+          diagram: "true"
+```
+
+- **What it draws.** The graph document `infraharvest export --schema graph` writes (see [The graph](../docs/export.md#the-graph)), drawn by the [Terragram CLI](https://github.com/hibiscus-ctrl/terragram), release 0.1.0, which the action downloads from that repository's releases, checks against the SHA-256 it pins and whose build provenance it verifies, and runs with Node.js 24 (`actions/setup-node`). The export is local: it makes no cloud call. Nothing is sent anywhere: the diagram is made in the job.
+- **What changed.** If the repository already has a graph from before the run, the diagram shows only what the import added, removed or changed, with one reference of context (`terragram graph --base <earlier> --delta`). The earlier graph is the one a run with `sign-evidence` committed, `_reports/evidence/graph.json` in `out`; the action copies it before drift and the import run, so that nothing they write can change it. Without one, such as on the first run or without `sign-evidence`, the diagram has the whole estate.
+- **Redaction.** The graph is exported as the [control plane's](#sending-a-run-to-a-control-plane) is, with `--hash-ids` for `control-plane-hash-ids` (and its key) and `--drop-addresses` for `control-plane-drop-addresses`, whether or not `control-plane-url` is set, so the diagram has no ID, name or address that the export would send hashed or leave out. The earlier graph isn't redacted, so with either one the whole estate is drawn, not what changed.
+- **Size.** GitHub doesn't draw a Mermaid diagram of more than about 45,000 characters, so a larger one is replaced by a line saying so. A body GitHub would refuse for its length is left without the diagram, which the job summary still has.
+- **Failures.** The diagram is an extra: if Node.js or the CLI can't be installed, the export or the drawing fails, or the diagram holds a code fence, the action warns (`::warning::diagram: ...`) and the run goes on, with no diagram. Only a refused input fails the job.
 
 ## Drift
 
@@ -486,6 +508,7 @@ It has `storage.objects.get`, to read `<prefix>/<root path>/default.tfstate`, an
 | `control-plane-command` | | With `control-plane-url`, `incremental` makes an import's run document say `incremental`, for an incremental import a control plane dispatched; empty, it names what ran |
 | `control-plane-optional` | `false` | Warn, rather than fail, when the export or the upload fails |
 | `sign-evidence` | `false` | Write the export documents and a signed `SHA256SUMS` of them and the report to `_reports/evidence/` in `out` (see [Signed evidence](#signed-evidence)). Needs `id-token: write` and `import: "true"` |
+| `diagram` | `false` | Draw the imported estate as a Mermaid diagram in the job summary and the pull request's body, only what changed when the repository has the graph a run with `sign-evidence` signed (see [Diagram of the imported estate](#diagram-of-the-imported-estate)). Needs `import: "true"`; not with `discover` or `verify` |
 
 ## Outputs
 
