@@ -326,7 +326,8 @@ upload() {
   # The redaction flags apply to the OCSF inventory, which has the tags, IDs
   # and names, and --hash-ids to the graph too, which has the IDs, and to the
   # drift summary, which has the addresses. --drop-addresses applies to the
-  # OCSF inventory and the drift summary.
+  # OCSF inventory, the graph (which has the addresses of its nodes) and the
+  # drift summary.
   local redact=() flags=() key tag err
   [[ "$drop_tags" == true ]] && redact+=(--drop-tags)
   while IFS= read -r tag; do
@@ -400,7 +401,7 @@ upload() {
         ;;
       graph | drift-summary)
         if [[ "$hash_ids" == true ]]; then flags=(--hash-ids); fi
-        if [[ "$doc" == drift-summary && "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
+        if [[ "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
         ;;
     esac
     if ! err=$(INFRAHARVEST_EXPORT_KEY="$key" "$bin" export "$out" "--schema=$doc" "--out-file=$tmp/$doc.json" ${flags[@]+"${flags[@]}"} 2>&1 > /dev/null); then

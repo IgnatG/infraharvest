@@ -56,8 +56,8 @@ func newExportCmd() *cobra.Command {
 			"Nothing is uploaded and no\n" +
 			"network call is made: the document goes to standard output, or to --out-file,\n" +
 			"for you to send or keep.\n" +
-			"No document holds an attribute or a value, and only the drift summary and the\n" +
-			"OCSF inventory hold addresses (the latter also the paths of the roots), and the\n" +
+			"No document holds an attribute or a value, and only the drift summary, the\n" +
+			"graph and the OCSF inventory hold addresses (the latter also the paths of the roots), and the\n" +
 			"OCSF findings only the paths of the roots. Tags\n" +
 			"whose key or value looks like a secret are dropped; --drop-tag\n" +
 			"and --drop-tags drop more, and --hash-ids\n" +
@@ -116,8 +116,8 @@ func newExportCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outFile, "out-file", "", "file to write the document to (default: standard output)")
 	cmd.Flags().StringSliceVar(&f.dropTags, "drop-tag", nil, "tag key to leave out of the inventory; repeat or comma-separate for several")
 	cmd.Flags().BoolVar(&f.dropAllTags, "drop-tags", false, "leave all tags out of the inventory")
-	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses and root paths out of the documents that have them, such as the drift summary, the OCSF inventory and the OCSF findings")
-	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses (and, in the OCSF inventory and findings, paths) in the drift summary, the OCSF inventory and the OCSF findings, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
+	cmd.Flags().BoolVar(&f.dropAddresses, "drop-addresses", false, "leave resource addresses and root paths out of the documents that have them, such as the drift summary, the graph, the OCSF inventory and the OCSF findings")
+	cmd.Flags().BoolVar(&f.hashIDs, "hash-ids", false, "replace IDs and names in the inventory, and addresses (and, in the OCSF inventory and findings, paths) in the drift summary, the graph, the OCSF inventory and the OCSF findings, with HMAC-SHA256 hashes under a key you hold: from "+export.KeyEnv+", or --hash-key-file")
 	cmd.Flags().StringVar(&f.repoURL, "repo-url", "", "repository the configuration is committed to, for the OCSF inventory and findings, as its web address (default: GITHUB_SERVER_URL/GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&f.commitSHA, "commit-sha", "", "commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory and findings (default: GITHUB_SHA)")
 	cmd.Flags().StringVar(&f.configFile, "config", "", "the import's configuration file, whose backend says where each root's state is, for the OCSF inventory and findings")

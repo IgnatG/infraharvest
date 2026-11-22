@@ -109,13 +109,13 @@ inputs:
     description: With control-plane-url, tag keys to leave out of the OCSF inventory (export --drop-tag), one a line or comma-separated.
     required: false
   control-plane-hash-ids:
-    description: With control-plane-url, replace IDs and names in the OCSF inventory and the graph, and the addresses in the OCSF inventory (with its paths) and the drift summary, with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
+    description: With control-plane-url, replace IDs and names in the OCSF inventory and the graph, and the addresses in the OCSF inventory (with its paths), the graph and the drift summary, with HMAC-SHA256 hashes (export --hash-ids). Needs a key of at least 16 bytes in control-plane-hash-key, or in INFRAHARVEST_EXPORT_KEY from a secret.
     default: "false"
   control-plane-hash-key:
     description: The key control-plane-hash-ids hashes with. Pass a secret, or set INFRAHARVEST_EXPORT_KEY in the job's environment instead.
     required: false
   control-plane-drop-addresses:
-    description: With control-plane-url, leave the resource addresses (and, in the OCSF inventory, the module addresses and paths) out of the OCSF inventory and the drift summary (export --drop-addresses). It wins over control-plane-hash-ids for the addresses.
+    description: With control-plane-url, leave the resource addresses (and, in the OCSF inventory, the module addresses and paths) out of the OCSF inventory, the graph and the drift summary (export --drop-addresses). It wins over control-plane-hash-ids for the addresses.
     default: "false"
   control-plane-request-id:
     description: 'With control-plane-url, the ID the control plane gave to the request that started this run, such as the request-id input of a workflow it dispatched. It goes into the run document as request_id, so the control plane can match the run to its request. 1 to 128 letters, digits and . _ : - only.'

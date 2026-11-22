@@ -112,16 +112,16 @@ func TestNoSecretReachesAnyDocument(t *testing.T) {
 	for _, document := range Documents {
 		content := string(build(t, Options{Out: out, Document: document}))
 		for _, leak := range []string{secretAttribute, secretTagValue, credentialTag, driftSecretBefore, driftSecretAfter, "attributes", "master_password", "aws_s3_bucket.logs", "tfstate"} {
-			// The OCSF inventory has the addresses of what the import took
-			// over, unless they are left out.
-			if leak == "aws_s3_bucket.logs" && document == DocOCSFInventory {
+			// The OCSF inventory and the graph have the addresses of what the
+			// import took over, unless they are left out.
+			if leak == "aws_s3_bucket.logs" && (document == DocOCSFInventory || document == DocGraph) {
 				continue
 			}
 			if strings.Contains(content, leak) {
 				t.Errorf("%s holds %q:\n%s", document, leak, content)
 			}
 		}
-		if document == DocOCSFInventory {
+		if document == DocOCSFInventory || document == DocGraph {
 			if content := string(build(t, Options{Out: out, Document: document, DropAddresses: true})); strings.Contains(content, "aws_s3_bucket.logs") {
 				t.Errorf("%s holds an address although they are left out:\n%s", document, content)
 			}
