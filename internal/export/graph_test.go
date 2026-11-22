@@ -280,8 +280,8 @@ func nodeOf(t *testing.T, doc graphDoc, name string) graphNode {
 }
 
 // A node has its environment, if its root has one, and its address as the
-// configuration names it, but for the nodes of an environment merged into a
-// root it shares, whose root doesn't have that address.
+// configuration names it; for an environment merged into a root it shares,
+// that is its own root's address, from before the merge.
 func TestGraphEnvironmentsAndAddresses(t *testing.T) {
 	t.Parallel()
 	doc := decodeGraph(t, build(t, Options{Out: writeGraphOut(t), Document: DocGraph}))
@@ -294,8 +294,8 @@ func TestGraphEnvironmentsAndAddresses(t *testing.T) {
 		"aws_s3_bucket logs-bucket":                  {"prod", "module.logs.aws_s3_bucket.this[0]", ""},
 		"module local":                               {"prod", "", "module.local"},
 		"module terraform-aws-modules/s3-bucket/aws": {"prod", "", "module.logs"},
-		// A merged root's resource: its environment, but no address.
-		"aws_vpc vpc-2": {"dev", "", ""},
+		// A merged root's resource: its environment, and its own root's address.
+		"aws_vpc vpc-2": {"dev", "aws_vpc.main", ""},
 	} {
 		n := nodeOf(t, doc, name)
 		if n.Environment != want.env || n.Address != want.address || n.ModuleAddress != want.module {
@@ -495,5 +495,78 @@ func TestGraphRefusesCredentialAddresses(t *testing.T) {
 	}
 	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow, DropAddresses: true}); err == nil {
 		t.Error("an environment that looks like a credential was written")
+	}
+}
+
+// The nodes of an environment merged into a root it shares have the address
+// of the environment's own root, from before the merge, with its module
+// call's, as the OCSF inventory's iac.address and iac.module_address have
+// them, plain, hashed or dropped, so a finding from either export lands on
+// the same node.
+func TestGraphMergedEnvironmentsHaveTheirOwnAddresses(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	r, err := report.Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := &r.Directories[slices.IndexFunc(r.Directories, func(d report.Directory) bool { return d.MergedInto != "" })]
+	merged.Imported = append(merged.Imported, report.Resource{Address: `module.net.aws_nat_gateway.this["a"]`, ID: "nat-2"})
+	merged.Modules = []report.Module{{Name: "net", Source: "terraform-aws-modules/vpc/aws", Version: "6.0.0", Resources: []string{"aws_nat_gateway.this"}}}
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	red := newRedactor(nil, false, graphKey)
+	for name, opts := range map[string]Options{
+		"plain":   {Out: out},
+		"hashed":  {Out: out, HashKey: graphKey},
+		"dropped": {Out: out, DropAddresses: true},
+	} {
+		graphOpts, ocsfOpts := opts, opts
+		graphOpts.Document, ocsfOpts.Document = DocGraph, DocOCSFInventory
+		doc := decodeGraph(t, build(t, graphOpts))
+		events := decodeOCSF(t, build(t, ocsfOpts))
+		want := map[string]struct{ address, module string }{
+			"aws_vpc":         {"aws_vpc.main", ""},
+			"aws_nat_gateway": {`module.net.aws_nat_gateway.this["a"]`, "module.net"},
+		}
+		checked := 0
+		for _, n := range doc.Nodes {
+			if n.Environment != "dev" || n.Kind != nodeResource {
+				continue
+			}
+			checked++
+			iac := eventOf(t, events, n.ID).Resources[0].IaC
+			if n.Address != iac.Address {
+				t.Errorf("%s: %s: address %q, the OCSF inventory has %q", name, label(n), n.Address, iac.Address)
+			}
+			var module string
+			if n.Parent != nil {
+				module = doc.Nodes[*n.Parent].ModuleAddress
+				if module != iac.ModuleAddress {
+					t.Errorf("%s: %s: module address %q, the OCSF inventory has %q", name, label(n), module, iac.ModuleAddress)
+				}
+			}
+			if opts.DropAddresses {
+				if n.Address != "" || module != "" {
+					t.Errorf("%s: %s: an address was written: %q %q", name, label(n), n.Address, module)
+				}
+				continue
+			}
+			resource := want[n.Type]
+			wantAddress, wantModule := resource.address, resource.module
+			if opts.HashKey != nil {
+				wantAddress = red.hash(wantAddress)
+				if wantModule != "" {
+					wantModule = red.hash(wantModule)
+				}
+			}
+			if resource.address == "" || n.Address != wantAddress || module != wantModule {
+				t.Errorf("%s: %s: address %q and module address %q, want %q and %q", name, label(n), n.Address, module, wantAddress, wantModule)
+			}
+		}
+		if checked != 2 {
+			t.Errorf("%s: %d nodes of the merged environment, want 2", name, checked)
+		}
 	}
 }

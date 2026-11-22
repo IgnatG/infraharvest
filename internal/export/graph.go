@@ -175,10 +175,10 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 			return nil, errors.New("the environment of a root has a format of a credential: nothing is written")
 		}
 		// The addresses of an environment merged into a root it shares are
-		// those of its own root, which the merged root doesn't have, so a
-		// finding of the merged root couldn't find them: they are left out,
-		// as an address the import doesn't know.
-		named := !opts.DropAddresses && !root.merged
+		// its own root's, from before the merge, as the OCSF inventory's
+		// iac.address has them (both read the report's directory), so that a
+		// finding from either export lands on the same node.
+		named := !opts.DropAddresses
 		address := func(a, what string) (string, error) {
 			if !named {
 				return "", nil

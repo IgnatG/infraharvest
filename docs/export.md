@@ -137,7 +137,7 @@ Only the check's name and its reason codes are used, never what the check says i
 
 ## The graph
 
-The graph is drawn from the configuration of each root, so it shows what the code says: a subnet's `vpc_id = aws_vpc.main.id` is an edge from the subnet to the VPC. It has the resources the import took over, not the ones it left out or excluded. References between roots go through variables (see [Output](output.md)), and references inside a module's own code are the module's, so neither is an edge; the roots of [environments](configuration.md) merged into a root they share have their nodes, but no edges yet: the merged root names their resources at other addresses. The same output gives the same graph, nodes and edges in the same order, so two graphs can be compared.
+The graph is drawn from the configuration of each root, so it shows what the code says: a subnet's `vpc_id = aws_vpc.main.id` is an edge from the subnet to the VPC. It has the resources the import took over, not the ones it left out or excluded. References between roots go through variables (see [Output](output.md)), and references inside a module's own code are the module's, so neither is an edge; the roots of [environments](configuration.md) merged into a root they share have their nodes, with the addresses of their own roots, but no edges yet: the merged root names their resources at other addresses. The same output gives the same graph, nodes and edges in the same order, so two graphs can be compared.
 
 `--hash-ids` hashes a node's ID with the same key as the inventory's, so the graph and the inventory join on type and ID. The graph has no tags, so `--drop-tag` and `--drop-tags` don't change it.
 
@@ -146,8 +146,8 @@ A node may also have these fields, all optional, which a consumer that doesn't k
 | Field | Of | What it is |
 |---|---|---|
 | `environment` | any node | The environment of the root the node is in, such as `prod`, from the [environments](configuration.md) the import merged or kept apart. Left out when the root has none. Never hashed, as in the drift summary. |
-| `address` | a resource | The resource's address in the configuration, such as `aws_vpc.main` or `module.net.aws_vpc.main`, as the OCSF inventory's `iac.address` has it. Left out for a resource of an environment merged into a root it shares: its address there isn't the merged root's. |
-| `module_address` | a module call | The module call's address in the root, such as `module.net`, as the OCSF inventory's `iac.module_address` has it for a resource in the module. Left out for the same roots. |
+| `address` | a resource | The resource's address in the configuration, such as `aws_vpc.main` or `module.net.aws_vpc.main`, as the OCSF inventory's `iac.address` has it. For a resource of an environment merged into a root it shares, the address in the environment's own root, from before the merge, as the OCSF inventory has it, so that a finding from either export lands on the same node. |
+| `module_address` | a module call | The module call's address in the root, such as `module.net`, as the OCSF inventory's `iac.module_address` has it for a resource in the module. The same for the module calls of a merged environment. |
 
 `--hash-ids` hashes `address` and `module_address` with the same key as the IDs, so a hashed address is the same hash as the OCSF inventory's and in every export; `--drop-addresses` leaves them out, and wins when both are given. `redaction.addresses` says which was done: `plain`, `hashed` or `dropped`, as in the drift summary. An address that looks like a credential, or an environment that does, stops the export, unless `--drop-addresses` leaves the addresses out. Nothing of what a resource holds goes with an address: no attribute and no value.
 
