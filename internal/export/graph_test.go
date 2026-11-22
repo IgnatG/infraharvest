@@ -91,6 +91,15 @@ func writeGraphOut(t *testing.T) string {
 			MergedInto: "stack",
 		},
 	}
+	// The merged root's environment is dev; the other root is kept apart, as
+	// the environment prod.
+	r.Merges = []report.Merge{{
+		Path:         "stack",
+		Environments: []string{"dev", "prod"},
+		Merged:       true,
+		Roots:        []report.MergedRoot{{Env: "dev", Path: "aws/123456789012/eu-west-1"}},
+		Apart:        []report.MergedRoot{{Env: "prod", Path: "aws/123456789012/eu-west-2"}},
+	}}
 	r.AddDiscovered(scope, 7)
 	r.Finish(map[string]int{"aws_vpc": 2}, nil, false)
 	if err := r.WriteFiles(out); err != nil {
@@ -185,7 +194,7 @@ func TestGraph(t *testing.T) {
 	if !slices.Equal(sorted(edges), sorted(wantEdges)) {
 		t.Errorf("edges:\n%s\nwant:\n%s", strings.Join(edges, "\n"), strings.Join(wantEdges, "\n"))
 	}
-	for _, leak := range []string{"aws_vpc.main", "module.logs", "modules/queue", "10.0.1.0/24", "eu-west-2/main.tf", `"x"`} {
+	for _, leak := range []string{"modules/queue", "10.0.1.0/24", "eu-west-2/main.tf"} {
 		if strings.Contains(string(content), leak) {
 			t.Errorf("the graph holds %q:\n%s", leak, content)
 		}
@@ -244,4 +253,247 @@ func sorted(s []string) []string {
 	s = slices.Clone(s)
 	slices.Sort(s)
 	return s
+}
+
+// graphKey hashes what a test expects hashed.
+var graphKey = []byte("0123456789abcdef0123456789abcdef")
+
+func decodeGraph(t *testing.T, content []byte) graphDoc {
+	t.Helper()
+	var doc graphDoc
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+// nodeOf returns the node with the label.
+func nodeOf(t *testing.T, doc graphDoc, name string) graphNode {
+	t.Helper()
+	for _, n := range doc.Nodes {
+		if label(n) == name {
+			return n
+		}
+	}
+	t.Fatalf("no node %q", name)
+	return graphNode{}
+}
+
+// A node has its environment, if its root has one, and its address as the
+// configuration names it, but for the nodes of an environment merged into a
+// root it shares, whose root doesn't have that address.
+func TestGraphEnvironmentsAndAddresses(t *testing.T) {
+	t.Parallel()
+	doc := decodeGraph(t, build(t, Options{Out: writeGraphOut(t), Document: DocGraph}))
+	if doc.Redaction.Addresses != addressesPlain {
+		t.Errorf("redaction: %+v", doc.Redaction)
+	}
+	for name, want := range map[string]struct{ env, address, module string }{
+		"aws_vpc vpc-1":                              {"prod", "aws_vpc.main", ""},
+		"aws_subnet subnet-x":                        {"prod", `aws_subnet.a["x"]`, ""},
+		"aws_s3_bucket logs-bucket":                  {"prod", "module.logs.aws_s3_bucket.this[0]", ""},
+		"module local":                               {"prod", "", "module.local"},
+		"module terraform-aws-modules/s3-bucket/aws": {"prod", "", "module.logs"},
+		// A merged root's resource: its environment, but no address.
+		"aws_vpc vpc-2": {"dev", "", ""},
+	} {
+		n := nodeOf(t, doc, name)
+		if n.Environment != want.env || n.Address != want.address || n.ModuleAddress != want.module {
+			t.Errorf("%s: environment %q, address %q, module address %q; want %+v", name, n.Environment, n.Address, n.ModuleAddress, want)
+		}
+	}
+}
+
+// Without environments in the report, no node has one.
+func TestGraphWithoutEnvironments(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	r, err := report.Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Merges = nil
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	content := build(t, Options{Out: out, Document: DocGraph})
+	if strings.Contains(string(content), `"environment"`) {
+		t.Errorf("a node has an environment:\n%s", content)
+	}
+	for _, n := range decodeGraph(t, content).Nodes {
+		if n.Environment != "" {
+			t.Errorf("%+v", n)
+		}
+	}
+}
+
+// --hash-ids hashes the addresses with the key that hashes the IDs, as the
+// OCSF inventory does, so a node's address is its event's address, and a
+// resource in a module has its module call's address as its event has it;
+// environments stay readable.
+func TestGraphHashesAddressesAsTheOCSFInventory(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	content := build(t, Options{Out: out, Document: DocGraph, HashKey: graphKey})
+	doc := decodeGraph(t, content)
+	if doc.Redaction.Addresses != addressesHashed || !doc.Redaction.IDsHashed {
+		t.Errorf("redaction: %+v", doc.Redaction)
+	}
+	for _, leak := range []string{"aws_vpc.main", "aws_subnet.a", "module.logs", "module.local", "aws_s3_bucket.this"} {
+		if strings.Contains(string(content), leak) {
+			t.Errorf("the graph holds %q:\n%s", leak, content)
+		}
+	}
+	events := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory, HashKey: graphKey}))
+	red := newRedactor(nil, false, graphKey)
+	var joined int
+	for _, n := range doc.Nodes {
+		if n.Environment == "" {
+			t.Errorf("no environment: %+v", n)
+		}
+		if n.Kind == nodeModule {
+			want := red.hash("module.logs")
+			if n.Source == sourceLocal {
+				want = red.hash("module.local")
+			}
+			if n.ModuleAddress != want {
+				t.Errorf("module address of %s: %q, want %q", label(n), n.ModuleAddress, want)
+			}
+			continue
+		}
+		if n.Address == "" {
+			continue
+		}
+		iac := eventOf(t, events, n.ID).Resources[0].IaC
+		if n.Address != iac.Address {
+			t.Errorf("%s: address %q, the OCSF inventory has %q", label(n), n.Address, iac.Address)
+		}
+		if n.Parent != nil && doc.Nodes[*n.Parent].ModuleAddress != iac.ModuleAddress {
+			t.Errorf("%s: module address %q, the OCSF inventory has %q", label(n), doc.Nodes[*n.Parent].ModuleAddress, iac.ModuleAddress)
+		}
+		joined++
+	}
+	if joined == 0 {
+		t.Error("no node has an address")
+	}
+	if got := nodeOf(t, doc, "aws_vpc "+red.hash("vpc-1")).Address; got != red.hash("aws_vpc.main") {
+		t.Errorf("address: %q", got)
+	}
+}
+
+// --drop-addresses leaves the addresses out, with or without a key, which
+// it wins over; the environments stay.
+func TestGraphDropsAddresses(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	plain := decodeGraph(t, build(t, Options{Out: out, Document: DocGraph}))
+	for name, opts := range map[string]Options{
+		"plain":  {Out: out, Document: DocGraph, DropAddresses: true},
+		"hashed": {Out: out, Document: DocGraph, DropAddresses: true, HashKey: graphKey},
+	} {
+		content := build(t, opts)
+		doc := decodeGraph(t, content)
+		if doc.Redaction.Addresses != addressesDropped {
+			t.Errorf("%s: redaction: %+v", name, doc.Redaction)
+		}
+		if strings.Contains(string(content), `"address"`) || strings.Contains(string(content), `"module_address"`) || strings.Contains(string(content), "aws_vpc.main") {
+			t.Errorf("%s: the graph holds an address:\n%s", name, content)
+		}
+		if len(doc.Nodes) != len(plain.Nodes) || len(doc.Edges) != len(plain.Edges) {
+			t.Errorf("%s: %d nodes and %d edges, want %d and %d", name, len(doc.Nodes), len(doc.Edges), len(plain.Nodes), len(plain.Edges))
+		}
+		for i, n := range doc.Nodes {
+			if n.Environment != plain.Nodes[i].Environment {
+				t.Errorf("%s: environment of %s: %q", name, label(n), n.Environment)
+			}
+		}
+	}
+}
+
+// A document made before the fields existed still passes the schema, and
+// the new fields don't pass where they don't belong.
+func TestGraphSchemaAddsOnlyOptionalFields(t *testing.T) {
+	t.Parallel()
+	good := build(t, Options{Out: writeGraphOut(t), Document: DocGraph, HashKey: graphKey})
+	mutate := func(f func(doc map[string]any, nodes []any)) error {
+		var doc map[string]any
+		if err := json.Unmarshal(good, &doc); err != nil {
+			t.Fatal(err)
+		}
+		f(doc, doc["nodes"].([]any))
+		content, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return validate(DocGraph, content)
+	}
+	strip := func(doc map[string]any, nodes []any) {
+		delete(doc["redaction"].(map[string]any), "addresses")
+		for _, n := range nodes {
+			for _, k := range []string{"environment", "address", "module_address"} {
+				delete(n.(map[string]any), k)
+			}
+		}
+	}
+	if err := mutate(func(map[string]any, []any) {}); err != nil {
+		t.Errorf("a document with the new fields: %v", err)
+	}
+	if err := mutate(strip); err != nil {
+		t.Errorf("a document without the new fields: %v", err)
+	}
+	// A module call is the second node, and a resource of a root with an
+	// address the last.
+	for name, f := range map[string]func(doc map[string]any, nodes []any){
+		"empty environment":   func(_ map[string]any, nodes []any) { nodes[1].(map[string]any)["environment"] = "" },
+		"empty address":       func(_ map[string]any, nodes []any) { nodes[len(nodes)-1].(map[string]any)["address"] = "" },
+		"address on a module": func(_ map[string]any, nodes []any) { nodes[1].(map[string]any)["address"] = "module.x" },
+		"module address on a resource": func(_ map[string]any, nodes []any) {
+			nodes[len(nodes)-1].(map[string]any)["module_address"] = "module.x"
+		},
+		"other addresses": func(doc map[string]any, _ []any) { doc["redaction"].(map[string]any)["addresses"] = "some" },
+	} {
+		if err := mutate(f); err == nil {
+			t.Errorf("%s: passed", name)
+		}
+	}
+}
+
+// The same output gives the same bytes, with each redaction.
+func TestGraphIsDeterministic(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	for _, opts := range []Options{{}, {HashKey: graphKey}, {DropAddresses: true}} {
+		opts.Out, opts.Document = out, DocGraph
+		if a, b := build(t, opts), build(t, opts); string(a) != string(b) {
+			t.Errorf("two builds differ:\n%s\n%s", a, b)
+		}
+	}
+}
+
+// An address, or an environment, that looks like a credential stops the
+// export, unless the addresses are left out.
+func TestGraphRefusesCredentialAddresses(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	r, err := report.Read(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Directories[1].Imported[0].Address = "aws_vpc." + credentialTag
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow}); err == nil {
+		t.Error("an address that looks like a credential was written")
+	}
+	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow, DropAddresses: true}); err != nil {
+		t.Errorf("dropped: %v", err)
+	}
+	r.Merges[0].Apart[0].Env = credentialTag
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow, DropAddresses: true}); err == nil {
+		t.Error("an environment that looks like a credential was written")
+	}
 }

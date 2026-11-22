@@ -4,6 +4,7 @@
 package export
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -38,16 +39,23 @@ const (
 // graphNode is a node of the graph: an imported resource, named as the
 // inventory names it (type, ID, account, region), or a module call, named
 // by its source alone. Parent is the index of the module call a resource
-// is in.
+// is in. Environment is the environment of the root the node is in, when
+// the import knows it (see environmentOf). Address is a resource's address
+// in its root, and ModuleAddress a module call's, such as module.logs: both
+// as the OCSF inventory has them, hashed with --hash-ids and left out with
+// --drop-addresses.
 type graphNode struct {
-	Kind    string `json:"kind"`
-	Type    string `json:"type,omitempty"`
-	ID      string `json:"id,omitempty"`
-	Account string `json:"account"`
-	Region  string `json:"region,omitempty"`
-	Source  string `json:"source,omitempty"`
-	Version string `json:"version,omitempty"`
-	Parent  *int   `json:"parent,omitempty"`
+	Kind          string `json:"kind"`
+	Type          string `json:"type,omitempty"`
+	ID            string `json:"id,omitempty"`
+	Account       string `json:"account"`
+	Region        string `json:"region,omitempty"`
+	Environment   string `json:"environment,omitempty"`
+	Address       string `json:"address,omitempty"`
+	ModuleAddress string `json:"module_address,omitempty"`
+	Source        string `json:"source,omitempty"`
+	Version       string `json:"version,omitempty"`
+	Parent        *int   `json:"parent,omitempty"`
 }
 
 // graphEdge says the node From refers to the node To: its configuration
@@ -57,9 +65,12 @@ type graphEdge struct {
 	To   int `json:"to"`
 }
 
+// graphRedaction says what was done to the IDs and to the addresses, as the
+// drift summary's redaction says of its addresses: plain, hashed or dropped.
 type graphRedaction struct {
 	IDsHashed bool   `json:"ids_hashed"`
 	HashAlg   string `json:"hash_alg"`
+	Addresses string `json:"addresses"`
 }
 
 type graphDoc struct {
@@ -103,12 +114,30 @@ type graphRoot struct {
 	merged    bool
 }
 
+// environmentOf returns the environment of each root of the output that an
+// environments share (see the report's Merges) has, by the root's path: of
+// those merged into one root, and of those kept apart.
+func environmentOf(r *report.Report) map[string]string {
+	envs := map[string]string{}
+	for _, m := range r.Merges {
+		for _, root := range slices.Concat(m.Roots, m.Apart) {
+			if root.Env != "" {
+				envs[root.Path] = root.Env
+			}
+		}
+	}
+	return envs
+}
+
 // buildGraph returns the graph of the imported resources of r: a node for
 // each, and for each module call, and an edge for each reference between
 // them that the generated configuration of their root writes. It holds no
-// addresses, names, paths, attributes or values: a resource is the
-// inventory's type, ID, account and region, which --hash-ids hashes as it
-// does there, so the two documents join on them.
+// names, paths, attributes or values: a resource is the inventory's type,
+// ID, account and region, which --hash-ids hashes as it does there, so the
+// two documents join on them. It has the address of each node as the OCSF
+// inventory has it, hashed with --hash-ids and left out with
+// --drop-addresses, and the environment of a root that has one, which is
+// not hashed.
 func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*graphDoc, error) {
 	red := newRedactor(nil, false, opts.HashKey)
 	doc := &graphDoc{
@@ -118,8 +147,15 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 		Tool:        toComponent(r.Tool),
 		Nodes:       []graphNode{},
 		Edges:       []graphEdge{},
-		Redaction:   graphRedaction{IDsHashed: opts.HashKey != nil, HashAlg: hashAlg},
+		Redaction:   graphRedaction{IDsHashed: opts.HashKey != nil, HashAlg: hashAlg, Addresses: addressesPlain},
 	}
+	switch {
+	case opts.DropAddresses:
+		doc.Redaction.Addresses = addressesDropped
+	case opts.HashKey != nil:
+		doc.Redaction.Addresses = addressesHashed
+	}
+	envs := environmentOf(r)
 	var scopes []string
 	var roots []*graphRoot
 	for _, d := range r.Directories {
@@ -134,6 +170,24 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 			account = "unknown"
 		}
 		root := &graphRoot{dir: d.Path, scope: d.Scope, resources: map[string]int{}, bases: map[string][]string{}, modules: map[string]int{}, merged: d.MergedInto != ""}
+		env := envs[d.Path]
+		if secret.CredentialFormat(env) != "" {
+			return nil, errors.New("the environment of a root has a format of a credential: nothing is written")
+		}
+		// The addresses of an environment merged into a root it shares are
+		// those of its own root, which the merged root doesn't have, so a
+		// finding of the merged root couldn't find them: they are left out,
+		// as an address the import doesn't know.
+		named := !opts.DropAddresses && !root.merged
+		address := func(a, what string) (string, error) {
+			if !named {
+				return "", nil
+			}
+			if secret.CredentialFormat(a) != "" {
+				return "", fmt.Errorf("the address of a %s has a format of a credential: nothing is written", what)
+			}
+			return red.hash(a), nil
+		}
 		modules := slices.Clone(d.Modules)
 		sort.Slice(modules, func(i, j int) bool { return modules[i].Name < modules[j].Name })
 		for _, m := range modules {
@@ -141,7 +195,11 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 				continue
 			}
 			root.modules[m.Name] = len(doc.Nodes)
-			node := graphNode{Kind: nodeModule, Account: account, Region: region, Source: shareableSource(m.Source)}
+			node := graphNode{Kind: nodeModule, Account: account, Region: region, Environment: env, Source: shareableSource(m.Source)}
+			var err error
+			if node.ModuleAddress, err = address("module."+m.Name, "module call"); err != nil {
+				return nil, err
+			}
 			if node.Source != sourceLocal && node.Source != sourceOther {
 				node.Version = m.Version
 			}
@@ -157,7 +215,11 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 			if secret.CredentialFormat(res.ID) != "" {
 				return nil, fmt.Errorf("a %s has an ID that looks like a credential: nothing is written", typ)
 			}
-			node := graphNode{Kind: nodeResource, Type: typ, ID: red.hash(res.ID), Account: account, Region: region}
+			node := graphNode{Kind: nodeResource, Type: typ, ID: red.hash(res.ID), Account: account, Region: region, Environment: env}
+			var err error
+			if node.Address, err = address(res.Address, typ); err != nil {
+				return nil, err
+			}
 			if call, ok := moduleCall(res.Address); ok {
 				if i, ok := root.modules[call]; ok {
 					node.Parent = &i

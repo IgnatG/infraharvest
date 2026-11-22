@@ -271,11 +271,11 @@ infraharvest export [output-directory] [flags]
 | `--command` |  | command whose run to describe: import, incremental, drift, discover, verify (default: the one whose report the output directory has, import if both; incremental, which has the import's report, and discover and verify, which have none of that kind, must be named) |
 | `--commit-sha` |  | commit of the repository the configuration is from, 40 hexadecimal digits, for the OCSF inventory and findings (default: GITHUB_SHA) |
 | `--config` |  | the import's configuration file, whose backend says where each root's state is, for the OCSF inventory and findings |
-| `--drop-addresses` |  | leave resource addresses and root paths out of the documents that have them, such as the drift summary, the OCSF inventory and the OCSF findings |
+| `--drop-addresses` |  | leave resource addresses and root paths out of the documents that have them, such as the drift summary, the graph, the OCSF inventory and the OCSF findings |
 | `--drop-tag` |  | tag key to leave out of the inventory; repeat or comma-separate for several |
 | `--drop-tags` |  | leave all tags out of the inventory |
 | `--finished-at` |  | when the import finished, RFC 3339: the run document's finished_at and the generated_at of the inventory and the drift summary (default for generated_at: now) |
-| `--hash-ids` |  | replace IDs and names in the inventory, and addresses (and, in the OCSF inventory and findings, paths) in the drift summary, the OCSF inventory and the OCSF findings, with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
+| `--hash-ids` |  | replace IDs and names in the inventory, and addresses (and, in the OCSF inventory and findings, paths) in the drift summary, the graph, the OCSF inventory and the OCSF findings, with HMAC-SHA256 hashes under a key you hold: from INFRAHARVEST_EXPORT_KEY, or --hash-key-file |
 | `--hash-key-file` |  | file with the key --hash-ids hashes with (at least 16 bytes), instead of INFRAHARVEST_EXPORT_KEY |
 | `-o`, `--out` | `infrastructure` | output directory of the import, as import's --out; the same as the argument |
 | `--out-file` |  | file to write the document to (default: standard output) |
