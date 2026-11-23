@@ -60,7 +60,9 @@ linked() {
 
 # short_hash_key <key>: whether key has fewer bytes than infraharvest export
 # takes as a hash key (minKeyLength in internal/export/redact.go), after the
-# white space around it is trimmed, as ReadKey trims it. Never prints the key.
+# ASCII white space around it is trimmed. ReadKey also trims Unicode spaces
+# such as U+00A0, so a key padded with those passes here and is refused by
+# export instead, after the import: later, never wrongly. Never prints the key.
 short_hash_key() {
   local key=$1 bytes
   key="${key#"${key%%[![:space:]]*}"}"

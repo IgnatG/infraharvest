@@ -82,8 +82,10 @@ type controlPlane struct {
 	// and retryAfterHeader, when set, in its Retry-After header.
 	retryAfterMs     int
 	retryAfterHeader string
-	plain            bool // refuse with plain text, not JSON
-	audience         string
+	rateLimitBody    string // when set, the whole body of a 429
+
+	plain    bool // refuse with plain text, not JSON
+	audience string
 }
 
 func newControlPlane(t *testing.T) *controlPlane {
@@ -133,6 +135,8 @@ func newControlPlane(t *testing.T) *controlPlane {
 		}
 		w.WriteHeader(status)
 		switch {
+		case status == http.StatusTooManyRequests && cp.rateLimitBody != "":
+			fmt.Fprint(w, cp.rateLimitBody)
 		case status == http.StatusTooManyRequests && cp.retryAfterMs > 0:
 			fmt.Fprintf(w, `{"error":"rate_limited","message":"Too many requests","retryAfterMs":%d}`, cp.retryAfterMs)
 		case status >= 400:
@@ -1542,6 +1546,16 @@ func TestUploadWaitsAsLongAsARateLimitAsks(t *testing.T) {
 		}
 		if !strings.Contains(res.output, "got 429 (curl exit 22); trying again in 1.000s") {
 			t.Errorf("didn't wait as asked:\n%s", res.output)
+		}
+	})
+	t.Run("a body of several JSON values falls back to the header", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.rateLimitBody = `{"retryAfterMs":5}{"retryAfterMs":6}`
+		cp.retryAfterHeader = "1"
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, nil)
+		if res.err != nil || !strings.Contains(res.output, "trying again in 1.000s") {
+			t.Errorf("%v\n%s", res.err, res.output)
 		}
 	})
 	t.Run("the body wins over the header", func(t *testing.T) {

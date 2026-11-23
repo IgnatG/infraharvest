@@ -172,6 +172,8 @@ retry_after() {
   retry_ms=
   if [[ -s "$1" ]]; then
     retry_ms=$(jq -r 'if type == "object" and (.retryAfterMs | type) == "number" and .retryAfterMs >= 0 then ([.retryAfterMs, 86400000] | min | floor) else empty end' "$1" 2> /dev/null) || retry_ms=
+    # A body of several JSON values prints several lines: only one number counts.
+    [[ "$retry_ms" =~ ^[0-9]{1,8}$ ]] || retry_ms=
   fi
   if [[ -z "$retry_ms" && -s "$2" ]]; then
     secs=$(grep -i '^retry-after:' "$2" | tail -n 1 | tr -d '\r[:space:]') || secs=
