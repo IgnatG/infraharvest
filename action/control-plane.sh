@@ -272,7 +272,9 @@ upload() {
 
   # The import can have failed before it wrote a report, and the drift check
   # before it wrote drift.json: nothing of that to send, and the step's own
-  # failure is the one to show.
+  # failure is the one to show. The steps remove the file they write before
+  # they run (discard in output.sh), so what is there is what this run wrote,
+  # never one an earlier run committed.
   if [[ "$import_ran" == true ]]; then
     if unlinked "$report"; then
       send_import=true

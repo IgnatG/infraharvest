@@ -548,6 +548,9 @@ runs:
           fi
         fi
         code=0
+        # Not an older drift.json the repository has: the Control plane step
+        # sends only what this check wrote.
+        discard "$OUT/_reports/drift.json"
         # drift.json goes to a file, not the log: its values are redacted,
         # but the job summary gets drift.md, which is written for people.
         json="$RUNNER_TEMP/infraharvest-drift.json"
@@ -603,6 +606,8 @@ runs:
         args=()
         while IFS= read -r -d '' arg; do args+=("$arg"); done < "$RUNNER_TEMP/infraharvest-import-args"
         code=0
+        # As the drift check's: not an older report.json the repository has.
+        discard "$OUT/_reports/report.json"
         # As drift's: no commands from what the import logs.
         commands_off
         started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -681,6 +686,8 @@ runs:
         [[ -n "$ENGINE" ]] && args+=("--engine=$ENGINE")
         [[ -n "$CONFIG" ]] && args+=("--config=$CONFIG")
         code=0
+        # Not an older verify.json the repository has (see the drift check).
+        discard "$OUT/_reports/verify.json"
         commands_off
         started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         "$bin" "${args[@]}" 2>&1 || code=$?
