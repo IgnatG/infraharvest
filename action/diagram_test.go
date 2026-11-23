@@ -236,6 +236,16 @@ func TestDrawUsesTheKeyFromTheEnvironment(t *testing.T) {
 	}
 }
 
+// A short key is named as such, before the export says so, and the key isn't
+// printed.
+func TestDrawNamesAShortKey(t *testing.T) {
+	res := draw(t, map[string]string{"HASH_IDS": "true", "HASH_KEY": "0123456789abcde"}, false)
+	warned(t, res, "the hash key must have at least 16 bytes")
+	if strings.Contains(res.output, "0123456789abcde") || strings.Contains(res.args, "export") {
+		t.Errorf("the key was printed or the export ran:\n%s\n%s", res.output, res.args)
+	}
+}
+
 func TestDrawOnlyWarns(t *testing.T) {
 	t.Run("no CLI", func(t *testing.T) {
 		res := runDiagram(t, "draw", map[string]string{"CLI": ""}, nil)
@@ -446,8 +456,10 @@ func TestCheckInputsStep(t *testing.T) {
 		{"diagram in a pull request", map[string]string{"DIAGRAM": "true", "PULL_REQUEST": "true"}, ""},
 		{"diagram in a commit", map[string]string{"DIAGRAM": "true", "COMMIT": "true"}, ""},
 		{"diagram with drift", map[string]string{"DIAGRAM": "true", "DRIFT": "report"}, ""},
-		{"diagram with redaction", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "HASH_KEY": "k", "DROP_ADDRESSES": "true"}, ""},
-		{"diagram with the key in the environment", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "k"}, ""},
+		{"diagram with redaction", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "HASH_KEY": "0123456789abcdef", "DROP_ADDRESSES": "true"}, ""},
+		{"diagram with the key in the environment", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "0123456789abcdef"}, ""},
+		{"diagram with a short key", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "HASH_KEY": "0123456789abcde"}, "must have at least 16 bytes"},
+		{"diagram with a short key in the environment", map[string]string{"DIAGRAM": "true", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "short"}, "must have at least 16 bytes"},
 		{"diagram not true or false", map[string]string{"DIAGRAM": "yes"}, "diagram must be true or false, got 'yes'"},
 		{"diagram with discover", map[string]string{"DIAGRAM": "true", "IMPORT": "false", "DISCOVER": "true"}, "discover leaves no imported estate to draw: set diagram to false"},
 		{"diagram with verify", map[string]string{"DIAGRAM": "true", "IMPORT": "false", "VERIFY": "true"}, "verify leaves no imported estate to draw: set diagram to false"},

@@ -100,6 +100,11 @@ draw() {
   [[ "$hash_ids" == true ]] && flags+=(--hash-ids)
   [[ "$drop_addresses" == true ]] && flags+=(--drop-addresses)
   key="${HASH_KEY:-${INFRAHARVEST_EXPORT_KEY-}}"
+  # Check inputs refuses a short key before the import; this says so if the
+  # step is run on its own.
+  if [[ "$hash_ids" == true ]] && short_hash_key "$key"; then
+    skip "the hash key must have at least 16 bytes (control-plane-hash-key, or INFRAHARVEST_EXPORT_KEY): no diagram"
+  fi
   if ! err=$(INFRAHARVEST_EXPORT_KEY="$key" "$bin" export "$out" --schema=graph "--out-file=$graph" ${flags[@]+"${flags[@]}"} 2>&1 > /dev/null); then
     # A release from before the graph document fails here, too.
     skip "infraharvest export (graph) failed: $err"
