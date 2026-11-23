@@ -154,7 +154,7 @@ func providerRoot(t *testing.T, providers string) string {
 // snapshot is set, or plain.
 func providerTidy(t *testing.T, snapshot bool) (*tidying, *cloudModel, *tfrun.Cached) {
 	t.Helper()
-	t.Setenv("TMPDIR", t.TempDir()) // snapshots go to the system's temporary directory
+	privateTempDir(t) // snapshots go to the system's temporary directory
 	dir := providerRoot(t, plainProviders)
 	cloud := newCloudModel()
 	root := &modelRunner{cloudModel: cloud, dir: dir}
