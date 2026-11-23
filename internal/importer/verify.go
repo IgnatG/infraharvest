@@ -32,6 +32,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/versions"
 	"github.com/IgnatG/infraharvest/internal/fsutil"
 	"github.com/IgnatG/infraharvest/internal/harvest"
+	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -151,8 +152,17 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 	if err := writeVerified(w, results, format); err != nil {
 		return err
 	}
+	return finishVerify(out, results)
+}
+
+// finishVerify writes verify.json and returns the error verify exits with.
+// A verify.json that can't be written, such as in an output directory that is
+// mounted read-only, is a warning: the checks have run, and their results
+// decide the exit code, not whether a file for infraharvest export could be
+// written.
+func finishVerify(out string, results []verifiedRoot) error {
 	if err := writeVerifiedFile(out, results); err != nil {
-		return err
+		logging.Warnf("%s isn't written (%v); infraharvest export can't describe this run", filepath.Join(report.Dir, report.VerifyJSONFile), err)
 	}
 	return verifyExit(results)
 }
