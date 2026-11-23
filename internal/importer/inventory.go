@@ -158,6 +158,30 @@ func inventoryPath(out, provider string, settings harvest.ProviderSettings) stri
 	return filepath.Join(out, CheckpointDir, "inventory", provider+"-"+hex.EncodeToString(sum[:])[:16]+".json")
 }
 
+// InventoryListFile is the file of the inventory directory that names the
+// inventories the last discover run saved, one file name a line. The
+// directory keeps the inventories of earlier calls too, with other regions,
+// profiles or roles, which import --reuse-inventory finds by their calls; an
+// export reads only those the list names, so that it describes the last
+// discover run, and a package that reads them without the importer, such as
+// export, tests that it reads the file this writes.
+const InventoryListFile = "discover.files"
+
+// writeInventoryList writes the list of the inventories this discover run
+// saved (see InventoryListFile), in the output directory, if it saved any: a
+// run that saved none leaves the earlier list, and so the earlier run, as it
+// was.
+func (r *Run) writeInventoryList() error {
+	if len(r.inventories) == 0 {
+		return nil
+	}
+	names := slices.Clone(r.inventories)
+	slices.Sort(names)
+	names = slices.Compact(names)
+	path := filepath.Join(r.options.Out, CheckpointDir, "inventory", InventoryListFile)
+	return harvest.WriteSecretFile(path, []byte(strings.Join(names, "\n")+"\n"))
+}
+
 func saveInventory(path string, inv inventory) error {
 	// The inventory holds every resource's attributes, so it is as
 	// sensitive as state: its directory is private, and so is the file.

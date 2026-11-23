@@ -445,3 +445,78 @@ func TestIncrementalRunNeedsTheImportReport(t *testing.T) {
 		}
 	}
 }
+
+// writeInventoryList writes the list of the inventories the last discover run
+// saved into the directory out.
+func writeInventoryList(t *testing.T, out, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(out, inventoryDir, inventoryListFile), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The directory keeps the inventories of earlier calls: an export describes
+// the last discover run, which the list names, not every file there.
+func TestDiscoverReadsOnlyTheInventoriesTheLastRunSaved(t *testing.T) {
+	t.Parallel()
+	out := writeDiscovered(t)
+	allRun := decodeRun(t, build(t, Options{Out: out, Document: DocRun, Command: CommandDiscover}))
+
+	writeInventoryList(t, out, "aws-0123456789abcdef.json\n")
+	var doc ocsfDoc
+	if err := json.Unmarshal(build(t, Options{Out: out, Document: DocOCSFInventory, Command: CommandDiscover}), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Events) != 2 {
+		t.Fatalf("%d events, want those of the one inventory the list names", len(doc.Events))
+	}
+	for _, event := range doc.Events {
+		if event.Cloud.Region != "eu-west-2" {
+			t.Errorf("a resource of region %s, of an inventory the list doesn't name", event.Cloud.Region)
+		}
+	}
+	if doc.RunID == "" || doc.RunID == allRun["run_id"] {
+		t.Errorf("the run_id %s is that of the inventories the run didn't save (%v)", doc.RunID, allRun["run_id"])
+	}
+	// The run document and the OCSF inventory of one run have the same run_id.
+	run := decodeRun(t, build(t, Options{Out: out, Document: DocRun, Command: CommandDiscover}))
+	if run["run_id"] != doc.RunID {
+		t.Errorf("the run's run_id %v, the OCSF inventory's %s", run["run_id"], doc.RunID)
+	}
+
+	// An inventory only a list lists is not read from outside the directory.
+	writeInventoryList(t, out, "../aws-0123456789abcdef.json\n")
+	if _, err := Build(Options{Out: out, Document: DocOCSFInventory, Command: CommandDiscover}); err == nil || !strings.Contains(err.Error(), "not the name of an inventory") {
+		t.Errorf("a path in the list: %v", err)
+	}
+	// A listed inventory that is gone is said so, not left out.
+	writeInventoryList(t, out, "aws-0123456789abcdef.json\naws-1111111111111111.json\n")
+	if _, err := Build(Options{Out: out, Document: DocRun, Command: CommandDiscover}); err == nil || !strings.Contains(err.Error(), "aws-1111111111111111.json, which is not there") {
+		t.Errorf("a missing inventory: %v", err)
+	}
+}
+
+// The OCSF inventory of an import takes the names and tags of what the last
+// discover run saved, not of an earlier run's inventories in the directory.
+func TestImportReadsOnlyTheInventoriesTheLastDiscoverSaved(t *testing.T) {
+	t.Parallel()
+	out := writeOut(t)
+	before := build(t, Options{Out: out, Document: DocOCSFInventory})
+	if !strings.Contains(string(before), `"name": "logs"`) {
+		t.Fatalf("the saved inventory's names are not in the OCSF inventory:\n%s", before)
+	}
+	files, err := filepath.Glob(filepath.Join(out, inventoryDir, "*.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("%v %v", files, err)
+	}
+	// A list naming no inventory that has the resource leaves its name out.
+	other := filepath.Join(filepath.Dir(files[0]), "aws-1111111111111111.json")
+	if err := os.WriteFile(other, []byte(`{"version":2,"provider":"aws","records":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeInventoryList(t, out, "aws-1111111111111111.json\n")
+	after := build(t, Options{Out: out, Document: DocOCSFInventory})
+	if strings.Contains(string(after), `"name": "logs"`) {
+		t.Errorf("the name of a resource of an inventory the list doesn't name:\n%s", after)
+	}
+}

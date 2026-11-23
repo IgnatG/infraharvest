@@ -223,7 +223,11 @@ func TestOCSFInventoryOmitsWhatItDoesNotKnow(t *testing.T) {
 		}
 	}
 	r.Engine = report.Component{Name: "tofu", Version: "1.10.0"}
-	doc2, err := buildOCSFInventory(r, Options{Out: out}, "id", fixedNow())
+	listed, err := readInventories(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc2, err := buildOCSFInventory(r, Options{Out: out}, listed, "id", fixedNow())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +235,7 @@ func TestOCSFInventoryOmitsWhatItDoesNotKnow(t *testing.T) {
 		t.Errorf("tofu: %+v", got)
 	}
 	r.Engine = report.Component{Name: "something"}
-	doc2, err = buildOCSFInventory(r, Options{Out: out}, "id", fixedNow())
+	doc2, err = buildOCSFInventory(r, Options{Out: out}, listed, "id", fixedNow())
 	if err != nil {
 		t.Fatal(err)
 	}

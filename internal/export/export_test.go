@@ -521,6 +521,13 @@ func TestInventoryVersionIsTheImporters(t *testing.T) {
 	}
 }
 
+func TestInventoryListFileIsTheImporters(t *testing.T) {
+	t.Parallel()
+	if inventoryListFile != importer.InventoryListFile {
+		t.Errorf("inventoryListFile %s, want the importer's %s", inventoryListFile, importer.InventoryListFile)
+	}
+}
+
 func TestInventoryDirIsTheImporters(t *testing.T) {
 	t.Parallel()
 	if want := filepath.Join(importer.CheckpointDir, "inventory"); inventoryDir != want {

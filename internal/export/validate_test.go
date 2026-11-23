@@ -93,7 +93,11 @@ func TestInstanceIsTheEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ocsf, err := buildOCSFInventory(r, Options{Out: out, RepoURL: ocsfRepo, CommitSHA: ocsfCommit}, "id", time.Unix(0, 0))
+	listed, err := readInventories(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ocsf, err := buildOCSFInventory(r, Options{Out: out, RepoURL: ocsfRepo, CommitSHA: ocsfCommit}, listed, "id", time.Unix(0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

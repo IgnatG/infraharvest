@@ -272,12 +272,9 @@ func repoURL(s string) string {
 // inventory document lists, in the same order, with the redaction of the
 // inventory: tags that look like secrets are dropped, with --drop-tag and
 // --drop-tags the ones named, --hash-ids hashes IDs, names, and addresses
-// and paths too, and --drop-addresses leaves addresses and paths out.
-func buildOCSFInventory(r *report.Report, opts Options, runID string, now time.Time) (*ocsfDoc, error) {
-	listed, err := readInventories(opts.Out)
-	if err != nil {
-		return nil, err
-	}
+// and paths too, and --drop-addresses leaves addresses and paths out. listed
+// are the resources of the saved inventories, which the caller has read.
+func buildOCSFInventory(r *report.Report, opts Options, listed []listedResource, runID string, now time.Time) (*ocsfDoc, error) {
 	red := newRedactor(opts.DropTags, opts.DropAllTags, opts.HashKey)
 	list := entries(r, listed)
 	scopes := make([]string, 0, len(list))
