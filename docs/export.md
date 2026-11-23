@@ -135,13 +135,19 @@ Only the check's name and its reason codes are used, never what the check says i
 
 `redaction` has `ids_hashed`, `hash_alg` and `addresses_dropped`; the events have no tags. `--hash-ids` hashes the root's path, in `uid` and in `iac.path`, and its state, with the same key and so to the same hash as the OCSF inventory's `path`; `--drop-addresses` leaves them out, and with them the `uid`, and the `resources` of a verify run, which have nothing else. A path that looks like a credential stops the export unless `--drop-addresses` leaves it out.
 
+## Closed schemas
+
+Every export schema is closed: each object has `additionalProperties: false`, and the lists of codes are closed lists. That is how the schemas enforce that no names or values are sent, since a field nobody listed can't carry one, so they stay closed, and a consumer can't be told to ignore what it doesn't know: its copy of a closed schema refuses a document with a new field.
+
+So a new field ships in every consumer before infraharvest emits it: each consumer, a control plane and Terragram, vendors the new schema first, and only then does a release of infraharvest write the field. Each consumer checks its vendored copies against infraharvest's `schemas/` directory in its CI, so that a copy that falls behind fails there and not in a customer's run. Until a consumer has the new schema, its copy refuses the field even though the schema marks it optional.
+
 ## The graph
 
 The graph is drawn from the configuration of each root, so it shows what the code says: a subnet's `vpc_id = aws_vpc.main.id` is an edge from the subnet to the VPC. It has the resources the import took over, not the ones it left out or excluded. References between roots go through variables (see [Output](output.md)), and references inside a module's own code are the module's, so neither is an edge; the roots of [environments](configuration.md) merged into a root they share have their nodes, with the addresses of their own roots, but no edges yet: the merged root names their resources at other addresses. The same output gives the same graph, nodes and edges in the same order, so two graphs can be compared.
 
 `--hash-ids` hashes a node's ID with the same key as the inventory's, so the graph and the inventory join on type and ID. The graph has no tags, so `--drop-tag` and `--drop-tags` don't change it.
 
-A node may also have these fields, all optional, which a consumer that doesn't know them can ignore (see the schema's `description`; the document is still `infraharvest/graph/v1`, whose schema is closed and now lists them):
+A node may also have these fields, all optional (see the schema's `description`; the document is still `infraharvest/graph/v1`, whose schema is closed and lists them). A consumer whose copy of the schema is closed, as the schemas of every export document are, doesn't accept them until it has the schema that lists them (see [Closed schemas](#closed-schemas)):
 
 | Field | Of | What it is |
 |---|---|---|
