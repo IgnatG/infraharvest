@@ -88,6 +88,10 @@ type discoverState struct {
 	// listed in full (see covers).
 	covered  map[string]bool
 	filtered bool
+	// inventories are the files of the inventories the run saved (see
+	// inventoryPath), which the export of the run reads, and only those (see
+	// writeInventoryList).
+	inventories []string
 	// toPick is the selection file discover wrote for the command to open
 	// in the picker, if it wants to (see SelectionToPick).
 	toPick string
@@ -98,6 +102,7 @@ func (d *discoverState) add(child *discoverState) {
 	d.listed = append(d.listed, child.listed...)
 	maps.Copy(d.covered, child.covered)
 	d.filtered = d.filtered || child.filtered
+	d.inventories = append(d.inventories, child.inventories...)
 }
 
 // mergeState is what the run hands its merge phase (see
@@ -303,6 +308,9 @@ func (r *Run) finish(err error) error {
 		return couldNotRun(err, lockErr)
 	}
 	if r.options.discovers() {
+		if writeErr := r.writeInventoryList(); writeErr != nil {
+			return couldNotRun(err, writeErr)
+		}
 		// After a failure, what didn't list may be only what failed.
 		if writeErr := r.writeSelection(err != nil || len(r.failures) > 0); writeErr != nil {
 			return couldNotRun(err, writeErr)

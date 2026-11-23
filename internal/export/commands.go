@@ -61,7 +61,7 @@ func buildFromDiscover(opts Options) (any, error) {
 	case "google":
 		r.Provider.Source = "hashicorp/google"
 	}
-	return buildOCSFInventory(r, opts, runID, generatedAt(opts))
+	return buildOCSFInventory(r, opts, d.resources, runID, generatedAt(opts))
 }
 
 // buildDiscoverRun is the run document of a discover run: ok if every

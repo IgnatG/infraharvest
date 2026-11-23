@@ -90,7 +90,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return nil, err
 	}
 	if options.discovers() {
-		run.recordDiscovery(c, listed)
+		run.recordDiscovery(c, listed, inventoryPath(options.Out, provider.Name(), settings))
 		return nil, nil
 	}
 	layout, err := run.layOut(ctx, provider, c)
@@ -258,9 +258,11 @@ func (r *Run) listAndSelect(ctx context.Context, provider harvest.Provider, c *c
 }
 
 // recordDiscovery records into r what discover listed in the call c, l,
-// for the selection file it writes (see Run.finish).
-func (r *Run) recordDiscovery(c *callContext, l *callListing) {
+// for the selection file it writes (see Run.finish), and the inventory it
+// saved at inventory.
+func (r *Run) recordDiscovery(c *callContext, l *callListing, inventory string) {
 	r.used = true
+	r.inventories = append(r.inventories, filepath.Base(inventory))
 	r.failures = append(r.failures, l.failures...)
 	r.addDiscovered(l.listed, l.defaults, c.scope, c.importID)
 	r.cover(c)

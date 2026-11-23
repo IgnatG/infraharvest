@@ -7,8 +7,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -237,5 +240,63 @@ func TestTagsThatFailToRead(t *testing.T) {
 	_, failures, err = listResources(t.Context(), &listingProvider{t: t}, callOf(Options{ReuseInventory: true, Out: out, Services: []string{"good"}}, "fake/1/eu-west-2"), args)
 	if err != nil || len(failures) != 1 || !strings.HasPrefix(failures[0].Error(), tagsFailure) {
 		t.Errorf("reused: failures %v, %v", failures, err)
+	}
+}
+
+// A discover run lists the inventories it saved, and only those, for the
+// export to read: the directory has the inventories of earlier calls too.
+func TestDiscoverListsTheInventoriesItSaved(t *testing.T) {
+	out := t.TempDir()
+	dir := filepath.Join(out, CheckpointDir, "inventory")
+	// An earlier run's call, of another region.
+	earlier := testSettings{"eu-west-1", "default"}
+	if _, _, err := listResources(t.Context(), &fakeProvider{}, callOf(Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}, "fake/1/eu-west-1"), earlier); err != nil {
+		t.Fatal(err)
+	}
+
+	run := NewRun()
+	run.options = Options{Mode: ModeDiscover, Out: out, Services: []string{"good"}}
+	// Two calls of this run, the second from a child run that is merged.
+	child := NewRun()
+	for i, region := range []string{"eu-west-2", "us-east-1"} {
+		settings := testSettings{region, "default"}
+		c := callOf(run.options, "fake/1/"+region)
+		if _, _, err := listResources(t.Context(), &fakeProvider{}, c, settings); err != nil {
+			t.Fatal(err)
+		}
+		target := run
+		if i == 1 {
+			target = child
+		}
+		target.recordDiscovery(c, &callListing{}, inventoryPath(out, "fake", settings))
+	}
+	run.discoverState.add(&child.discoverState)
+	if err := run.writeInventoryList(); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, InventoryListFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, region := range []string{"eu-west-2", "us-east-1"} {
+		want = append(want, filepath.Base(inventoryPath(out, "fake", testSettings{region, "default"})))
+	}
+	sort.Strings(want)
+	if got := strings.Fields(string(content)); !slices.Equal(got, want) {
+		t.Errorf("the list has %v, want the two this run saved: %v", got, want)
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil || len(files) != 3 {
+		t.Errorf("the directory has %v, %v: want the earlier call's file kept", files, err)
+	}
+
+	// A run that saved none leaves the list as it was.
+	if err := NewRun().writeInventoryList(); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := os.ReadFile(filepath.Join(dir, InventoryListFile)); err != nil || string(again) != string(content) {
+		t.Errorf("a run that saved nothing changed the list: %q %v", again, err)
 	}
 }

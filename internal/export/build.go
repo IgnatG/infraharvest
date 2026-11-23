@@ -191,7 +191,11 @@ func buildFromReport(opts Options) (any, error) {
 	case DocGraph:
 		return buildGraph(r, opts, runID, generatedAt(opts))
 	case DocOCSFInventory:
-		return buildOCSFInventory(r, opts, runID, generatedAt(opts))
+		listed, err := readInventories(opts.Out)
+		if err != nil {
+			return nil, err
+		}
+		return buildOCSFInventory(r, opts, listed, runID, generatedAt(opts))
 	case DocOCSFFindings:
 		return buildFindingsOfReport(r, opts, runID, generatedAt(opts))
 	case DocRun:
