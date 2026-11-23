@@ -101,7 +101,9 @@ func TestRunOfDrift(t *testing.T) {
 			t.Errorf("a drift run has %s: %v", key, doc[key])
 		}
 	}
-	if codes, _ := doc["failure_codes"].([]any); len(codes) != 1 || codes[0] != failRootsNotChecked {
+	// The report has a root that couldn't be checked and two accepted
+	// changes that were rejected.
+	if codes, _ := doc["failure_codes"].([]any); len(codes) != 2 || codes[0] != failRootsNotChecked || codes[1] != failCheck {
 		t.Errorf("failure codes: %v", doc["failure_codes"])
 	}
 	// Its ID is made of drift.json, as an import's is of report.json.
@@ -121,27 +123,48 @@ func TestRunOfDrift(t *testing.T) {
 
 func TestOutcomeOfDrift(t *testing.T) {
 	t.Parallel()
+	change := func(outcome string) report.DriftChange {
+		return report.DriftChange{Root: "a", Address: "aws_vpc.main", Type: "aws_vpc", Kind: "changed", Decision: report.DriftAccept, Outcome: outcome}
+	}
+	checked := []report.DriftRoot{{Path: "a"}, {Path: "b"}}
 	for name, tc := range map[string]struct {
 		roots   []report.DriftRoot
+		changes []report.DriftChange
 		outcome string
-		codes   int
+		codes   []string
 	}{
-		"none":         {nil, outcomeOK, 0},
-		"all checked":  {[]report.DriftRoot{{Path: "a"}, {Path: "b"}}, outcomeOK, 0},
-		"one failed":   {[]report.DriftRoot{{Path: "a"}, {Path: "b", Error: "x"}}, outcomePartial, 1},
-		"all failed":   {[]report.DriftRoot{{Path: "a", Error: "x"}, {Path: "b", Error: "y"}}, outcomeFailed, 1},
-		"the only one": {[]report.DriftRoot{{Path: "a", Error: "x"}}, outcomeFailed, 1},
+		"none":         {nil, nil, outcomeOK, nil},
+		"all checked":  {checked, nil, outcomeOK, nil},
+		"one failed":   {[]report.DriftRoot{{Path: "a"}, {Path: "b", Error: "x"}}, nil, outcomePartial, []string{failRootsNotChecked}},
+		"all failed":   {[]report.DriftRoot{{Path: "a", Error: "x"}, {Path: "b", Error: "y"}}, nil, outcomeFailed, []string{failRootsNotChecked}},
+		"the only one": {[]report.DriftRoot{{Path: "a", Error: "x"}}, nil, outcomeFailed, []string{failRootsNotChecked}},
+		// Drift found, or accepted and written, is not a failure.
+		"written and kept": {checked, []report.DriftChange{change(report.DriftWritten), change(report.DriftKept), change(report.DriftManual)}, outcomeOK, nil},
+		// The step exits 1 for an accepted change that was rejected, so the
+		// run isn't ok.
+		"rejected by a check": {checked, []report.DriftChange{change(report.DriftWritten), change(report.DriftRejectedByCheck)}, outcomePartial, []string{failCheck}},
+		"rejected by a plan":  {checked, []report.DriftChange{change(report.DriftRejectedByPlan)}, outcomePartial, []string{failCheck}},
+		"rejected and a root not checked": {
+			[]report.DriftRoot{{Path: "a"}, {Path: "b", Error: "x"}}, []report.DriftChange{change(report.DriftRejectedByCheck)}, outcomePartial, []string{failRootsNotChecked, failCheck},
+		},
+		"rejected and no root checked": {
+			[]report.DriftRoot{{Path: "a", Error: "x"}}, []report.DriftChange{change(report.DriftRejectedByPlan)}, outcomeFailed, []string{failRootsNotChecked, failCheck},
+		},
 	} {
 		out := t.TempDir()
-		d := &report.Drift{Roots: tc.roots}
+		d := &report.Drift{Roots: tc.roots, Changes: tc.changes}
 		d.Finish()
 		if err := d.WriteFiles(out); err != nil {
 			t.Fatal(err)
 		}
 		doc := decodeRun(t, build(t, Options{Out: out, Document: DocRun}))
-		codes, _ := doc["failure_codes"].([]any)
-		if doc["outcome"] != tc.outcome || len(codes) != tc.codes {
-			t.Errorf("%s: outcome %v, codes %v; want %s and %d", name, doc["outcome"], codes, tc.outcome, tc.codes)
+		var codes []string
+		raw, _ := doc["failure_codes"].([]any)
+		for _, c := range raw {
+			codes = append(codes, c.(string))
+		}
+		if doc["outcome"] != tc.outcome || !slices.Equal(codes, tc.codes) {
+			t.Errorf("%s: outcome %v, codes %v; want %s and %v", name, doc["outcome"], codes, tc.outcome, tc.codes)
 		}
 	}
 }
