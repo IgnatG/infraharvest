@@ -354,6 +354,7 @@ func runScanners(ctx context.Context, dir string, scanners []Scanner, slots *Sca
 	check := Check{Name: CheckScanners, Passed: true}
 	if len(scanners) == 0 {
 		check.Skipped = true
+		check.Reason = ReasonToolMissing
 		check.Details = []string{"no scanner installed (tflint, trivy, checkov)"}
 		return check
 	}

@@ -407,6 +407,9 @@ type Check struct {
 	// as passed.
 	Skipped bool     `json:"skipped,omitempty"`
 	Details []string `json:"details,omitempty"`
+	// Reason is why a check did not run, for the gate's export, which
+	// never reads Details.
+	Reason gate.Reason `json:"reason,omitempty"`
 }
 
 // Excluded is a listed resource the selection left out.

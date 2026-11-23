@@ -111,7 +111,7 @@ func TestFindingsHoldNoDetails(t *testing.T) {
 		Path: "google/p",
 		Checks: []report.Check{
 			{Name: "G3 plan", Passed: false, Details: []string{"google_storage_bucket.private-" + secretAttribute + " would be replaced"}},
-			{Name: "G4 standards", Passed: false, Details: []string{"didn't run: " + secretAttribute}},
+			{Name: "G4 standards", Passed: false, Reason: gate.ReasonNotRun, Details: []string{"didn't run: " + secretAttribute}},
 			{Name: "G2 validate", Passed: false, Details: []string{secretAttribute}},
 			{Name: "not a gate check", Passed: false, Details: []string{secretAttribute}},
 		},

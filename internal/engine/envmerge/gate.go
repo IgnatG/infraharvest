@@ -458,7 +458,7 @@ func (g *mergeGate) check(ctx context.Context, m *stackMerge, w *rootWriter, fil
 			// Not imported this time, so without its credentials: it
 			// keeps its part as it was, unplanned (see MergeRoot.Terraform).
 			envs[e].Unplanned = true
-			envs[e].Gate = gate.Gate{{Name: gate.CheckPlan, Passed: true, Skipped: true, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
+			envs[e].Gate = gate.Gate{{Name: gate.CheckPlan, Passed: true, Skipped: true, Reason: gate.ReasonNotRun, Details: []string{"environment " + m.envs[e], "not planned: the import didn't have it; plan it with its credentials, with infraharvest verify --environment " + m.envs[e]}}}
 		}
 	}
 	policy := g.opts.Gate

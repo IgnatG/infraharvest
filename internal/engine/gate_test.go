@@ -221,7 +221,7 @@ func TestGateWithholdsScanners(t *testing.T) {
 			if ran != tc.ran {
 				t.Errorf("scanners ran: %t, want %t", ran, tc.ran)
 			}
-			if c := checks.Named(gate.CheckScanners); !tc.ran && (!c.Skipped || !reflect.DeepEqual(c.Details, tc.details)) {
+			if c := checks.Named(gate.CheckScanners); !tc.ran && (!c.Skipped || c.Reason != gate.ReasonNotRun || !reflect.DeepEqual(c.Details, tc.details)) {
 				t.Errorf("scanners: %+v, want skipped with %v", c, tc.details)
 			}
 			if c := checks.Named(gate.CheckSecrets); c.Passed != tc.secrets {

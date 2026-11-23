@@ -33,6 +33,21 @@ const (
 	CheckMoves = "G8 moves"
 )
 
+// Reason says why a check did not run, or ran short, where the check says so
+// in a field and not only in its details: the gate's export reads it, so
+// rewording a detail changes nothing it says. The empty reason is the one of
+// a check that ran.
+type Reason string
+
+const (
+	// ReasonNotRun is a check that did not run: it was held back on a
+	// secret value, was not planned, or is not among the gate's results.
+	ReasonNotRun Reason = "not_run"
+	// ReasonToolMissing is a check that needs a tool the machine lacks,
+	// such as the scanners check with no scanner installed.
+	ReasonToolMissing Reason = "tool_missing"
+)
+
 // Check is the outcome of one check of the verification gate.
 type Check struct {
 	Name   string
@@ -49,6 +64,9 @@ type Check struct {
 	Findings []Finding `json:",omitempty"`
 	// Changes are the changes a plan check found, for CheckPlan.
 	Changes []PlannedChange
+	// Reason is why the check did not run, set with Skipped, or with a
+	// failure for a check that is missing from the results.
+	Reason Reason `json:",omitempty"`
 	// Files are the edited files a failure is blamed on, where the gate
 	// blames edited files (see Policy.Diff).
 	Files []string `json:"-"`
@@ -82,7 +100,7 @@ func (g Gate) Named(name string) Check {
 			return c
 		}
 	}
-	return Check{Name: name, Details: []string{"didn't run"}}
+	return Check{Name: name, Reason: ReasonNotRun, Details: []string{"didn't run"}}
 }
 
 // Policy is how a run of the verification gate checks a directory: which
@@ -247,7 +265,7 @@ func (p Policy) runChecks(ctx context.Context, tf tfrun.Terraform, dir string) (
 			return nil, nil, err
 		}
 		if p.runs(CheckScanners) {
-			scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
+			scanners := Check{Name: CheckScanners, Passed: true, Skipped: true, Reason: ReasonNotRun, Details: []string{"not run, as " + CheckSecrets + " found secret values"}}
 			if secrets.Passed {
 				scanners.Details = append(scanners.Details, held...)
 				if p.Withheld != nil {

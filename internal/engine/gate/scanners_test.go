@@ -47,6 +47,9 @@ func TestRunScanners(t *testing.T) {
 			if check.Skipped != (len(tc.scanners) == 0) {
 				t.Errorf("skipped=%v with %d scanners", check.Skipped, len(tc.scanners))
 			}
+			if wantReason := map[bool]Reason{true: ReasonToolMissing}[len(tc.scanners) == 0]; check.Reason != wantReason {
+				t.Errorf("reason %q, want %q", check.Reason, wantReason)
+			}
 		})
 	}
 }

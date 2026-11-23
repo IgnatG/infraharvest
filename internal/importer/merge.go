@@ -345,7 +345,7 @@ func fillMerge(merge *report.Merge, result *envmerge.MergeResult) {
 			merge.Unplanned = append(merge.Unplanned, env.Env)
 		}
 		for _, c := range env.Gate {
-			merge.Checks = append(merge.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: append([]string{env.Env}, c.Details...)})
+			merge.Checks = append(merge.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Reason: c.Reason, Details: append([]string{env.Env}, c.Details...)})
 		}
 		if merge.Merged {
 			merge.Findings = append(merge.Findings, report.GateFindings(merge.Path, env.Env, engine.MergedManaged(env.Imports), env.Gate)...)

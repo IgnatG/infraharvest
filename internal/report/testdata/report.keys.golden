@@ -44,6 +44,7 @@ directories[].checks array of object omitempty
 directories[].checks[].details array of string omitempty
 directories[].checks[].name string
 directories[].checks[].passed boolean
+directories[].checks[].reason string omitempty
 directories[].checks[].skipped boolean omitempty
 directories[].error string omitempty
 directories[].imported array of object
@@ -117,6 +118,7 @@ merges[].checks array of object omitempty
 merges[].checks[].details array of string omitempty
 merges[].checks[].name string
 merges[].checks[].passed boolean
+merges[].checks[].reason string omitempty
 merges[].checks[].skipped boolean omitempty
 merges[].environments array of string
 merges[].findings array of object omitempty
