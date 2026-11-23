@@ -425,8 +425,8 @@ func TestUploadSendsEachDocument(t *testing.T) {
 	if len(exported) != len(documents) || !strings.Contains(exported[len(exported)-1], "--schema=graph") {
 		t.Errorf("exports: %q", exported)
 	}
-	if cp.audience != "infraharvest-api" {
-		t.Errorf("token audience is %q", cp.audience)
+	if want := "infraharvest-api:" + cp.URL; cp.audience != want {
+		t.Errorf("token audience is %q, want %q", cp.audience, want)
 	}
 	if !strings.Contains(res.outputs, "control-plane-run-id="+runID+"\n") {
 		t.Errorf("outputs: %q", res.outputs)
@@ -453,6 +453,43 @@ func TestUploadUsesTheAudience(t *testing.T) {
 		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
 	}
 	if cp.audience != "https://cp.example.com/api" {
+		t.Errorf("token audience is %q", cp.audience)
+	}
+}
+
+// The default audience is the origin of the control plane's URL, so a token for
+// one control plane is no good at another: scheme and host in lower case, the
+// port unless it is the scheme's own, no path. The session request that follows
+// goes nowhere (nothing listens at these ports): only the token request is looked at.
+func TestUploadDefaultAudienceNamesTheOriginOfTheURL(t *testing.T) {
+	for _, tt := range []struct{ url, want string }{
+		{"https://localhost:1", "infraharvest-api:https://localhost:1"},
+		{"https://LocalHost:1/base/path/", "infraharvest-api:https://localhost:1"},
+		{"https://localhost:8443//", "infraharvest-api:https://localhost:8443"},
+		{"https://localhost:443/api", "infraharvest-api:https://localhost"},
+		{"https://localhost:0443", "infraharvest-api:https://localhost"},
+		{"https://localhost:", "infraharvest-api:https://localhost"},
+		{"http://localhost:80/x", "infraharvest-api:http://localhost"},
+		{"http://localhost:443", "infraharvest-api:http://localhost:443"},
+		{"https://localhost:80", "infraharvest-api:https://localhost:80"},
+		{"http://127.0.0.1:1", "infraharvest-api:http://127.0.0.1:1"},
+	} {
+		t.Run(tt.url, func(t *testing.T) {
+			cp := newControlPlane(t)
+			upload(t, cp, map[string]string{"URL": tt.url})
+			if cp.audience != tt.want {
+				t.Errorf("token audience is %q, want %q", cp.audience, tt.want)
+			}
+		})
+	}
+}
+
+// Two control planes get tokens for different audiences, and one set in the
+// input wins over what the URL gives.
+func TestUploadAudienceInputWinsOverTheDefault(t *testing.T) {
+	cp := newControlPlane(t)
+	upload(t, cp, map[string]string{"URL": "https://localhost:1", "AUDIENCE": "infraharvest-api"})
+	if cp.audience != "infraharvest-api" {
 		t.Errorf("token audience is %q", cp.audience)
 	}
 }
@@ -798,6 +835,9 @@ func TestCheckInputs(t *testing.T) {
 		{"not a url", map[string]string{"URL": "cp.example.com"}, "https://"},
 		{"audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "https://cp.example.com/api"}, ""},
 		{"bad audience", map[string]string{"URL": "https://cp.example.com", "AUDIENCE": "a&b=c"}, "control-plane-audience"},
+		{"default audience of a host that has none", map[string]string{"URL": "http://[::1]:8080"}, "set control-plane-audience"},
+		{"audience for a host that has no default", map[string]string{"URL": "http://[::1]:8080", "AUDIENCE": "infraharvest-api"}, ""},
+		{"default audience", map[string]string{"URL": "https://cp.example.com:8443/base"}, ""},
 		{"drift only", map[string]string{"URL": "https://cp.example.com", "IMPORT": "false", "DRIFT": "report"}, ""},
 		{"request id", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": "01HZX-7:a.b_c"}, ""},
 		{"longest request id", map[string]string{"URL": "https://cp.example.com", "REQUEST_ID": strings.Repeat("a", 128)}, ""},
