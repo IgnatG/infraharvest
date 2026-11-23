@@ -224,7 +224,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/rds v1.133.0
 	github.com/aws/aws-sdk-go-v2/service/redshift v1.72.0
 	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.12
-	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.42.0
+	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.41.6
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.71.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.10
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.51.0

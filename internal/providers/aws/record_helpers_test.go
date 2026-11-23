@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/smithy-go/encoding/cbor"
+
 	"github.com/IgnatG/infraharvest/internal/harvest"
 )
 
@@ -179,4 +181,65 @@ func recordJSONBool(call apiCall, key string) (value, set bool) {
 func listError(ctx context.Context, l harvest.Lister) error {
 	_, err := l.List(ctx, harvest.Settings{})
 	return err
+}
+
+// useFakeCBOR is useFakeAPI for a service that speaks Smithy RPC v2 CBOR:
+// handle answers in JSON, as the other fakes do, and the answer, an object
+// or an error from recordJSONError, is sent as CBOR.
+func useFakeCBOR(t *testing.T, handle func(apiCall) string) context.Context {
+	t.Helper()
+	return useFakeAPI(t, func(call apiCall) string {
+		return recordCBOR(t, handle(call))
+	})
+}
+
+// recordCBOR is the CBOR encoding of the JSON object body.
+func recordCBOR(t *testing.T, body string) string {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		t.Fatalf("answer %q isn't JSON: %v", body, err)
+	}
+	return string(cbor.Encode(cborOf(t, v)))
+}
+
+// cborOf is the CBOR value of v, a value decoded from JSON by a decoder
+// that keeps numbers as json.Number.
+func cborOf(t *testing.T, v any) cbor.Value {
+	t.Helper()
+	switch v := v.(type) {
+	case map[string]any:
+		m := cbor.Map{}
+		for k, e := range v {
+			m[k] = cborOf(t, e)
+		}
+		return m
+	case []any:
+		l := cbor.List{}
+		for _, e := range v {
+			l = append(l, cborOf(t, e))
+		}
+		return l
+	case string:
+		return cbor.String(v)
+	case bool:
+		return cbor.Bool(v)
+	case json.Number:
+		if n, err := v.Int64(); err == nil && n >= 0 {
+			return cbor.Uint(n)
+		} else if err == nil {
+			return cbor.NegInt(-1 - n)
+		}
+		f, err := v.Float64()
+		if err != nil {
+			t.Fatalf("number %q: %v", v, err)
+		}
+		return cbor.Float64(f)
+	case nil:
+		return &cbor.Nil{}
+	}
+	t.Fatalf("no CBOR value for %T", v)
+	return nil
 }

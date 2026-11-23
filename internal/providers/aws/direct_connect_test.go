@@ -51,7 +51,7 @@ func recordDirectConnectAPI(t *testing.T, failing ...string) func(apiCall) strin
 func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
 	t.Parallel()
 	api := recordDirectConnectAPI(t)
-	ctx := useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeCBOR(t, func(call apiCall) string {
 		if call.Op == "DescribeDirectConnectGateways" {
 			return recordUnexpected(t, call)
 		}
@@ -76,7 +76,7 @@ func TestRecordDirectConnectListsInterfacesAndConnections(t *testing.T) {
 // deleted one.
 func TestRecordDirectConnectGatewayListsGateways(t *testing.T) {
 	t.Parallel()
-	ctx := useFakeAPI(t, recordDirectConnectAPI(t))
+	ctx := useFakeCBOR(t, recordDirectConnectAPI(t))
 	g := &DirectConnectGatewayLister{}
 
 	resources, err := listChecked(ctx, t, g, harvest.Settings{})
@@ -103,13 +103,13 @@ func TestRecordDirectConnectReturnsErrors(t *testing.T) {
 	t.Parallel()
 	for _, failing := range []string{"DescribeVirtualInterfaces", "DescribeConnections"} {
 		t.Run(failing, func(t *testing.T) {
-			ctx := useFakeAPI(t, recordDirectConnectAPI(t, failing))
+			ctx := useFakeCBOR(t, recordDirectConnectAPI(t, failing))
 			g := &DirectConnectLister{}
 
 			assertRecordedError(t, listError(ctx, g), "DirectConnectClientException")
 		})
 	}
-	ctx := useFakeAPI(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
+	ctx := useFakeCBOR(t, recordDirectConnectAPI(t, "DescribeDirectConnectGateways"))
 	g := &DirectConnectGatewayLister{}
 
 	assertRecordedError(t, listError(ctx, g), "DirectConnectClientException")

@@ -13,7 +13,7 @@ import (
 // The lister lists each CodeBuild project by name, across pages.
 func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
 	t.Parallel()
-	ctx := useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeCBOR(t, func(call apiCall) string {
 		if call.Op != "ListProjects" {
 			return recordUnexpected(t, call)
 		}
@@ -38,7 +38,7 @@ func TestRecordCodeBuildListsProjectsByName(t *testing.T) {
 
 func TestRecordCodeBuildReturnsErrors(t *testing.T) {
 	t.Parallel()
-	ctx := useFakeAPI(t, func(apiCall) string {
+	ctx := useFakeCBOR(t, func(apiCall) string {
 		return recordJSONError("AccessDeniedException")
 	})
 	g := &CodeBuildLister{}

@@ -44,8 +44,17 @@ released() {
   date -u -d "$time" +%s
 }
 
+# held are modules kept at their current release. The Resource Groups
+# Tagging API client of v1.42.0 on speaks Smithy RPC v2 CBOR, which the
+# Floci emulator of the e2e (2.5.0, the newest) answers with a 404, so the
+# e2e can't read tags. Drop it once Floci serves CBOR.
+held=" github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi "
+
 updated=()
 while read -r module current; do
+  if [[ "$held" == *" $module "* ]]; then
+    continue
+  fi
   if ! [[ "$current" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     continue
   fi
