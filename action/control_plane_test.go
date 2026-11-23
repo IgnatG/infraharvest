@@ -84,8 +84,9 @@ type controlPlane struct {
 	retryAfterHeader string
 	rateLimitBody    string // when set, the whole body of a 429
 
-	plain    bool // refuse with plain text, not JSON
-	audience string
+	sessionLimits string // when set, the "limits" of the session answer, as JSON
+	plain         bool   // refuse with plain text, not JSON
+	audience      string
 }
 
 func newControlPlane(t *testing.T) *controlPlane {
@@ -150,7 +151,11 @@ func newControlPlane(t *testing.T) *controlPlane {
 				fmt.Fprintf(w, `{"error":%q}`, reason)
 			}
 		case r.URL.Path == sessionPath:
-			fmt.Fprintf(w, `{"token":%q,"expires_at":"2026-11-18T10:15:00Z"}`, runToken)
+			limits := ""
+			if cp.sessionLimits != "" {
+				limits = `,"limits":` + cp.sessionLimits
+			}
+			fmt.Fprintf(w, `{"token":%q,"expires_at":"2026-11-18T10:15:00Z"%s}`, runToken, limits)
 		}
 	}))
 	t.Cleanup(cp.Close)
@@ -1687,5 +1692,93 @@ func TestUploadWarnsOfADocumentNearTheLimits(t *testing.T) {
 	res := upload(t, cp, nil)
 	if res.err != nil || strings.Contains(res.output, "within 10%") {
 		t.Errorf("a small estate warned: %v\n%s", res.err, res.output)
+	}
+}
+
+// The control plane says what it takes in the session answer, and the Action
+// holds each document to that instead of its defaults.
+func TestUploadTakesTheLimitsOfTheSessionAnswer(t *testing.T) {
+	t.Run("lower than the defaults", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.sessionLimits = `{"max_body_bytes":500000,"max_decompressed_bytes":3000000}`
+		res := upload(t, cp, map[string]string{"FAKE_PAD_ZERO": "4000000"})
+		if res.err == nil {
+			t.Fatalf("upload succeeded:\n%s", res.output)
+		}
+		if !strings.Contains(res.output, "::notice::control plane: it takes a document of 500000 bytes gzipped and 3000000 bytes plain") ||
+			!strings.Contains(res.output, "against at most 3000000 and 500000; nothing was sent") {
+			t.Errorf("limits not used:\n%s", res.output)
+		}
+		if got := cp.count("/api/v1/ingest/ocsf-inventory"); got != 0 {
+			t.Errorf("%d requests before the size check refused", got)
+		}
+	})
+	t.Run("higher than the defaults", func(t *testing.T) {
+		// A document the defaults refuse for its gzipped size.
+		cp := newControlPlane(t)
+		cp.sessionLimits = `{"max_body_bytes":4000000,"max_decompressed_bytes":20000000}`
+		res := upload(t, cp, map[string]string{"FAKE_PAD_RANDOM": "1900000"})
+		if res.err != nil {
+			t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+		}
+		if got := cp.count("/api/v1/ingest/ocsf-inventory"); got != 1 {
+			t.Errorf("inventory: %d requests, want 1", got)
+		}
+	})
+	t.Run("the warning near them moves with them", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.sessionLimits = `{"max_body_bytes":2000000,"max_decompressed_bytes":4000000}`
+		res := upload(t, cp, map[string]string{"FAKE_PAD_ZERO": "3700000"})
+		if res.err != nil || !strings.Contains(res.output, "within 10%25 of what the control plane takes (4000000 and 2000000)") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+	t.Run("the defaults when it says nothing", func(t *testing.T) {
+		cp := newControlPlane(t)
+		res := upload(t, cp, map[string]string{"FAKE_PAD_ZERO": "17000000"})
+		if res.err == nil || !strings.Contains(res.output, "against at most 16000000 and 2000000") || strings.Contains(res.output, "session answer") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+}
+
+// Limits that are not two whole numbers in bounds are not believed: the
+// defaults stay, with a warning, and the run goes on.
+func TestUploadIgnoresMalformedLimitsOfTheSessionAnswer(t *testing.T) {
+	for _, tt := range []struct{ name, limits string }{
+		{"null", `null`},
+		{"a string", `"2000000"`},
+		{"an array", `[2000000,16000000]`},
+		{"empty", `{}`},
+		{"one missing", `{"max_body_bytes":9000000}`},
+		{"the other missing", `{"max_decompressed_bytes":90000000}`},
+		{"strings", `{"max_body_bytes":"9000000","max_decompressed_bytes":"90000000"}`},
+		{"zero", `{"max_body_bytes":0,"max_decompressed_bytes":90000000}`},
+		{"negative", `{"max_body_bytes":9000000,"max_decompressed_bytes":-1}`},
+		{"fractional", `{"max_body_bytes":9000000.5,"max_decompressed_bytes":90000000}`},
+		{"above any sane limit", `{"max_body_bytes":1000000000000,"max_decompressed_bytes":1000000000000}`},
+		{"below any sane limit", `{"max_body_bytes":10,"max_decompressed_bytes":10}`},
+		{"null members", `{"max_body_bytes":null,"max_decompressed_bytes":null}`},
+		{"booleans", `{"max_body_bytes":true,"max_decompressed_bytes":true}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// A document over the defaults is still refused: the limits were not taken.
+			cp := newControlPlane(t)
+			cp.sessionLimits = tt.limits
+			res := upload(t, cp, map[string]string{"FAKE_PAD_ZERO": "17000000"})
+			if res.err == nil || !strings.Contains(res.output, "against at most 16000000 and 2000000") {
+				t.Errorf("limits were taken: %v\n%s", res.err, res.output)
+			}
+			if !strings.Contains(res.output, "::warning::control plane: the session answer's limits aren't two whole numbers of bytes from 1000 to 100000000") {
+				t.Errorf("no warning:\n%s", res.output)
+			}
+			// And an ordinary document goes through, whatever they said.
+			cp = newControlPlane(t)
+			cp.sessionLimits = tt.limits
+			res = upload(t, cp, nil)
+			if res.err != nil || cp.count("/api/v1/ingest/ocsf-inventory") != 1 {
+				t.Errorf("an ordinary run failed: %v\n%s", res.err, res.output)
+			}
+		})
 	}
 }
