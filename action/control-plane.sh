@@ -7,9 +7,10 @@
 # Actions OIDC token, for the audience AUDIENCE (default infraharvest-api),
 # for a run token: POST <url>/api/v1/session with an empty body and the OIDC
 # token in the header X-GitHub-OIDC-Token, answered with JSON,
-# {"token": "...", "expires_at": "..."}. Then it runs infraharvest export for
-# the documents of the run, and POSTs each to <url>/api/v1/ingest/<document>
-# as application/json, gzip-compressed (Content-Encoding: gzip), with the run
+# {"token": "...", "expires_at": "...", "limits": {...}}. Then it runs
+# infraharvest export for the documents of the run, and POSTs each to
+# <url>/api/v1/ingest/<document> as application/json, gzip-compressed
+# (Content-Encoding: gzip), with the run
 # token as a bearer token and the header Idempotency-Key: <run_id>:<document>,
 # with :<GITHUB_RUN_ID> after it in GitHub Actions, so that two workflow runs
 # with the same results are two runs to the control plane, and a re-run of one
@@ -41,9 +42,11 @@
 # Retry-After) replaces; any other answer fails at once, with the reason the
 # control plane gives in its JSON body, {"error": "..."}. A request may take
 # 60 seconds, and an upload 30 more for each whole megabyte of its body, 300 at
-# most. A document over what the control plane takes (2 MB gzipped, 16 MB
-# plain) fails the step before any is sent. A failure fails the step, unless
-# OPTIONAL is true.
+# most. A document over what the control plane takes fails the step before any
+# is sent: 2 MB gzipped and 16 MB plain, unless the session answer's limits,
+# {"max_body_bytes": n, "max_decompressed_bytes": n} (positive integers, 1000 to
+# 100000000), say otherwise; limits that aren't valid are ignored. A failure
+# fails the step, unless OPTIONAL is true.
 #
 # Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
@@ -72,6 +75,8 @@ attempts=4
 # the body (see upload_max_time).
 base_max_time=60
 max_time=$base_max_time
+# What the control plane takes, as sent (gzipped) and once decompressed, when its
+# session answer says nothing (see read_limits).
 max_gzip_bytes=2000000
 max_plain_bytes=16000000
 
@@ -275,6 +280,33 @@ request_token() {
   printf '::add-mask::%s\n' "$token"
 }
 
+# read_limits <session-response>: sets max_gzip_bytes and max_plain_bytes to the
+# limits the session answer reports, {"limits": {"max_body_bytes": n,
+# "max_decompressed_bytes": n}}, when both are there, each a whole number from
+# 1000 to 100000000. An answer without limits, such as from a control plane that
+# doesn't report them, keeps the defaults; one whose limits aren't valid keeps
+# them too, and says so.
+read_limits() {
+  local found limits gzip plain
+  found=$(jq -r 'if type == "object" and has("limits") then "yes" else empty end' "$1" 2> /dev/null) || found=
+  [[ -n "$found" ]] || return 0
+  limits=$(jq -r '
+    def whole: type == "number" and . == floor and . >= 1000 and . <= 100000000;
+    if (.limits | type) == "object" and (.limits.max_body_bytes | whole) and (.limits.max_decompressed_bytes | whole)
+    then "\(.limits.max_body_bytes) \(.limits.max_decompressed_bytes)" else empty end' "$1" 2> /dev/null) || limits=
+  if [[ ! "$limits" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
+    annotation warning "control plane: the session answer's limits aren't two whole numbers of bytes from 1000 to 100000000: using the defaults, $max_gzip_bytes gzipped and $max_plain_bytes plain"
+    return 0
+  fi
+  gzip=${BASH_REMATCH[1]}
+  plain=${BASH_REMATCH[2]}
+  if ((gzip != max_gzip_bytes || plain != max_plain_bytes)); then
+    annotation notice "control plane: it takes a document of $gzip bytes gzipped and $plain bytes plain, as its session answer says"
+  fi
+  max_gzip_bytes=$gzip
+  max_plain_bytes=$plain
+}
+
 # open_session: trades the OIDC token for the control plane's run token: sets
 # run_token, masks it, and leaves the header file the uploads send it in.
 # The OIDC token goes to the session endpoint only.
@@ -288,6 +320,7 @@ open_session() {
   fi
   run_token=$(jq -r 'if type == "object" and (.token | type) == "string" then .token else empty end' "$tmp/session-response" 2> /dev/null) || run_token=
   expires=$(jq -r 'if type == "object" and (.expires_at | type) == "string" then .expires_at else empty end' "$tmp/session-response" 2> /dev/null | head -c 64 | tr -cd '[:graph:]') || expires=
+  read_limits "$tmp/session-response"
   rm -f "$tmp/session-response" "$tmp/session-headers"
   if [[ ! "$run_token" =~ ^[[:graph:]]+$ ]]; then
     problem "the session answer at $base/api/v1/session has no usable token"
@@ -321,11 +354,12 @@ upload_max_time() {
   if ((max_time > 300)); then max_time=300; fi
 }
 
-# check_size <document>: the control plane takes a body of 2 MB at most as sent
-# (gzipped) and 16 MB once decompressed, as the ingest routes of the control
-# plane the Action is made for read it (MAX_BODY_BYTES in
-# src/features/api/body.ts and MAX_DECOMPRESSED_BYTES in
-# src/features/api/ingest-body.ts). A document over either
+# check_size <document>: the control plane takes a body of max_gzip_bytes at most
+# as sent (gzipped) and max_plain_bytes once decompressed: 2 MB and 16 MB, as
+# the ingest routes of the control plane the Action is made for read it
+# (MAX_BODY_BYTES in src/features/api/body.ts and MAX_DECOMPRESSED_BYTES in
+# src/features/api/ingest-body.ts), unless its session answer says otherwise
+# (read_limits). A document over either
 # fails here, before any is sent, so that a run is never left with some of its
 # documents stored and the rest refused for their size; one within 10% of
 # either says so.
