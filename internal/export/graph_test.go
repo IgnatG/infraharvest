@@ -441,10 +441,27 @@ func TestGraphSchemaAddsOnlyOptionalFields(t *testing.T) {
 	if err := mutate(strip); err != nil {
 		t.Errorf("a document without the new fields: %v", err)
 	}
+	// The schema takes the root of a node, of either kind, before anything
+	// writes one.
+	withRoot := func(_ map[string]any, nodes []any) {
+		for _, n := range nodes {
+			n.(map[string]any)["root"] = "aws/123456789012/eu-west-2"
+		}
+	}
+	if err := mutate(withRoot); err != nil {
+		t.Errorf("a document with a root on each node: %v", err)
+	}
+	if err := mutate(func(doc map[string]any, nodes []any) {
+		strip(doc, nodes)
+		withRoot(doc, nodes)
+	}); err != nil {
+		t.Errorf("a document with a root and no addresses: %v", err)
+	}
 	// A module call is the second node, and a resource of a root with an
 	// address the last.
 	for name, f := range map[string]func(doc map[string]any, nodes []any){
 		"empty environment":   func(_ map[string]any, nodes []any) { nodes[1].(map[string]any)["environment"] = "" },
+		"empty root":          func(_ map[string]any, nodes []any) { nodes[1].(map[string]any)["root"] = "" },
 		"empty address":       func(_ map[string]any, nodes []any) { nodes[len(nodes)-1].(map[string]any)["address"] = "" },
 		"address on a module": func(_ map[string]any, nodes []any) { nodes[1].(map[string]any)["address"] = "module.x" },
 		"module address on a resource": func(_ map[string]any, nodes []any) {
