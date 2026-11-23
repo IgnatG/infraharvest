@@ -5,7 +5,7 @@ description: Bring existing AWS, Azure or Google Cloud resources under Terraform
 
 # infraharvest
 
-infraharvest lists cloud resources, imports the ones a selection file includes, and writes Terraform roots that plan with no changes. It only reads the cloud and writes files: it never applies anything and writes no state. Your job is to run it with the user, never past them.
+infraharvest lists cloud resources, imports the ones a selection file includes, and writes Terraform roots that plan with no changes. It only reads the cloud and writes files: it never changes your cloud or your state. To check its work it applies an import-only plan to a private state file, which it removes. Your job is to run it with the user, never past them.
 
 ## Rules
 

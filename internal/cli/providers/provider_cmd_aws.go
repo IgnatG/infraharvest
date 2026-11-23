@@ -50,7 +50,7 @@ func init() {
 			"profile's region; with it, each region, and global services, such as\n" +
 			"iam and route53, once on their own.\n\n" +
 			"--accounts or --organization imports several accounts in one run, each through\n" +
-			"the role --assume-role names. Nothing is applied and no state is written.",
+			"the role --assume-role names. It never changes your cloud or your state.",
 		sampleServices:   "vpc,s3",
 		sampleIDs:        "vpc=vpc-0a1b2c3d",
 		parallelScopes:   "accounts of --accounts or --organization and regions of --regions",

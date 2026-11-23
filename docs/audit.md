@@ -1,6 +1,6 @@
 # Audit
 
-What in an account isn't managed by Terraform yet? infraharvest can answer that without importing anything: it lists the resources, leaves out what a Terraform state, another tool or the cloud itself manages, and gives you the rest. Nothing is applied, no state is written, and nothing needs to be committed: the results are files in a directory you delete afterwards.
+What in an account isn't managed by Terraform yet? infraharvest can answer that without importing anything: it lists the resources, leaves out what a Terraform state, another tool or the cloud itself manages, and gives you the rest. It never changes your cloud or your state, and nothing needs to be committed: the results are files in a directory you delete afterwards.
 
 There are two ways, and you can run both:
 
@@ -105,7 +105,7 @@ yq '.resources[] | select(.include and .tags.owner == null) | .type + " " + .id'
 
 ## Full report: import into a scratch directory
 
-An import with `--all` brings in everything the default selection includes, which, with `--managed-state`, is what nothing manages. Into a scratch `--out`, it is an audit: it writes configuration you don't keep, never applies it, writes no state, and never reaches a backend. It runs `terraform plan` on every root it generates, so it takes longer than `discover`, and Terraform's provider reads each resource.
+An import with `--all` brings in everything the default selection includes, which, with `--managed-state`, is what nothing manages. Into a scratch `--out`, it is an audit: it writes configuration you don't keep, never applies it to your cloud or your state, and never reaches a backend. To check the configuration it applies an import-only plan to a private state file in a temporary directory, which it removes. It runs `terraform plan` on every root it generates, so it takes longer than `discover`, and Terraform's provider reads each resource.
 
 ```sh
 infraharvest import aws --services='*' --regions=eu-west-2,us-east-1 --all \

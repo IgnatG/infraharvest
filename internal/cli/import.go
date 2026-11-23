@@ -20,8 +20,8 @@ func newImportCmd() *cobra.Command {
 			"configuration for them, with import blocks, so that Terraform or OpenTofu can\n" +
 			"take them over. Each provider is a subcommand, and infraharvest services\n" +
 			"<provider> prints the services its --services takes. Choose what to import\n" +
-			"with --all, or with a selection file infraharvest discover wrote. Nothing is\n" +
-			"applied and no state is written.",
+			"with --all, or with a selection file infraharvest discover wrote. It never\n" +
+			"changes your cloud or your state.",
 		SilenceUsage: true,
 	}
 	cmd.PersistentFlags().String("config", "", "configuration file, which sets flags not given on the command line and the state backend of the generated roots")

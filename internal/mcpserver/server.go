@@ -95,7 +95,7 @@ func (p Providers) profile(name string) (harvest.Profile, error) {
 }
 
 // instructions tell agents how to use the tools.
-const instructions = `infraharvest turns existing cloud resources into Terraform configuration that plans with no changes. It only reads the cloud and never applies anything.
+const instructions = `infraharvest turns existing cloud resources into Terraform configuration that plans with no changes. It only reads the cloud and writes files; it never changes your cloud or your state.
 
 1. Call discover to list a provider's resources into a selection file. Each resource is marked included or not, with the reason for exclusions.
 2. Edit the selection file if the user wants a different selection, and show it to them.
@@ -126,7 +126,7 @@ func New(version, root string, run Runner, check Checker, compiled Providers) *m
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "import",
 		Title:       "Generate Terraform configuration from a selection file",
-		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never applies. Returns the import's totals and exit code. " + help,
+		Description: "Imports the resources a selection file includes into Terraform configuration under the output directory, after the user confirms. Reads the cloud and writes files; never changes your cloud or your state. Returns the import's totals and exit code. " + help,
 		InputSchema: scopeSchema[ImportInput](compiled),
 		// Not idempotent: the same import again is refused, with
 		// incremental adds what is new since, or with regenerate writes

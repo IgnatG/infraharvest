@@ -37,8 +37,8 @@ func init() {
 			"region by region, and generate their Terraform configuration with import\n" +
 			"blocks. Name the projects with --projects, or every active project of an\n" +
 			"organization or folders with --organization and --folders. The global region,\n" +
-			"the default, holds resources that belong to no region. Nothing is applied and\n" +
-			"no state is written.",
+			"the default, holds resources that belong to no region. It never changes your\n" +
+			"cloud or your state.",
 		sampleServices:   "cloud_asset,iam",
 		sampleIDs:        "storage_bucket=my-logs",
 		parallelScopes:   "projects of --projects, --organization or --folders and regions of --regions",

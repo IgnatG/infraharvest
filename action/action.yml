@@ -16,7 +16,7 @@ branding:
 # Credentials come from the environment, for example from
 # aws-actions/configure-aws-credentials with OIDC: the action never needs
 # cloud secrets. It reads the cloud (and, for drift, the state) and writes
-# files; it never applies anything. With diagram, it also downloads the
+# files; it never changes your cloud or your state. With diagram, it also downloads the
 # Terragram CLI, to draw the import's graph in the job summary and the pull
 # request.
 inputs:
