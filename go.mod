@@ -21,7 +21,7 @@ toolchain go1.27.4
 
 require (
 	cloud.google.com/go/auth v0.24.1-0.20261001053825-dbc26066f70a // indirect
-	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
+	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/alertsmanagement/armalertsmanagement v0.10.0 // indirect
@@ -79,19 +79,19 @@ require (
 	github.com/apache/arrow-go/v18 v18.7.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/apparentlymart/go-textseg/v17 v17.0.1 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.24 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.7 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.7 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.22 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.8 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.7 // indirect
-	github.com/aws/aws-sdk-go-v2/service/signin v1.10.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.38.5 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.5 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.27 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.9 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.25 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.11.13 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.20.12 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.13.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.39.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20261008173134-6b8d4baf91b4 // indirect
@@ -113,8 +113,8 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/googleapis/enterprise-certificate-proxy v0.3.23 // indirect
-	github.com/googleapis/gax-go/v2 v2.26.2 // indirect
+	github.com/googleapis/enterprise-certificate-proxy v0.3.25 // indirect
+	github.com/googleapis/gax-go/v2 v2.27.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
@@ -146,21 +146,21 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297 // indirect
-	golang.org/x/mod v0.42.0 // indirect
+	golang.org/x/mod v0.43.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
-	golang.org/x/tools v0.51.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20261019180522-ce908d29299b // indirect
-	google.golang.org/grpc v1.84.0 // indirect
+	golang.org/x/tools v0.52.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20261104224025-d1e00e9f33ab // indirect
+	google.golang.org/grpc v1.85.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
 require (
-	charm.land/bubbletea/v2 v2.1.0
-	charm.land/lipgloss/v2 v2.0.6
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
+	charm.land/bubbletea/v2 v2.1.1
+	charm.land/lipgloss/v2 v2.1.1
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.24.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.15.0
-	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor v0.13.0
+	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/monitor/armmonitor v0.14.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/msi/armmsi v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v11 v11.0.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/operationalinsights/armoperationalinsights/v3 v3.0.0
@@ -168,100 +168,100 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armlocks v1.2.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resources/armresources/v4 v4.0.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/security/armsecurity v0.15.0
-	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.2
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.3
 	github.com/IgnatG/cfn2tf v0.0.0-20261117133346-eb46405eccd2
-	github.com/aws/aws-sdk-go-v2 v1.47.4
-	github.com/aws/aws-sdk-go-v2/config v1.33.10
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.10
-	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.57.6
-	github.com/aws/aws-sdk-go-v2/service/acm v1.50.6
-	github.com/aws/aws-sdk-go-v2/service/apigateway v1.52.3
-	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.46.3
-	github.com/aws/aws-sdk-go-v2/service/appsync v1.62.6
-	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.79.1
-	github.com/aws/aws-sdk-go-v2/service/batch v1.78.5
-	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.3
-	github.com/aws/aws-sdk-go-v2/service/cloud9 v1.42.6
-	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.6
-	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.82.2
-	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.75.1
-	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.43.6
-	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.6
-	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.1
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.2
-	github.com/aws/aws-sdk-go-v2/service/codebuild v1.78.6
-	github.com/aws/aws-sdk-go-v2/service/codecommit v1.44.1
-	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.56.1
-	github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.42.6
-	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.75.5
-	github.com/aws/aws-sdk-go-v2/service/datapipeline v1.42.3
-	github.com/aws/aws-sdk-go-v2/service/devicefarm v1.52.3
-	github.com/aws/aws-sdk-go-v2/service/directconnect v1.55.3
-	github.com/aws/aws-sdk-go-v2/service/docdb v1.57.5
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.1
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.341.0
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.66.6
-	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.6
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.102.1
-	github.com/aws/aws-sdk-go-v2/service/efs v1.51.0
-	github.com/aws/aws-sdk-go-v2/service/eks v1.104.3
-	github.com/aws/aws-sdk-go-v2/service/elasticache v1.64.1
-	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.43.5
-	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.5
-	github.com/aws/aws-sdk-go-v2/service/emr v1.70.6
-	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.55.5
-	github.com/aws/aws-sdk-go-v2/service/firehose v1.52.6
-	github.com/aws/aws-sdk-go-v2/service/glue v1.172.0
-	github.com/aws/aws-sdk-go-v2/service/iam v1.64.5
-	github.com/aws/aws-sdk-go-v2/service/identitystore v1.49.3
-	github.com/aws/aws-sdk-go-v2/service/kinesis v1.56.7
-	github.com/aws/aws-sdk-go-v2/service/kms v1.61.6
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.3
-	github.com/aws/aws-sdk-go-v2/service/medialive v1.112.3
-	github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.6
-	github.com/aws/aws-sdk-go-v2/service/opensearch v1.86.1
-	github.com/aws/aws-sdk-go-v2/service/organizations v1.62.2
-	github.com/aws/aws-sdk-go-v2/service/rds v1.131.1
-	github.com/aws/aws-sdk-go-v2/service/redshift v1.71.5
-	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.6
-	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.41.6
-	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.5
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.5
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.6
-	github.com/aws/aws-sdk-go-v2/service/securityhub v1.85.2
-	github.com/aws/aws-sdk-go-v2/service/ses v1.42.5
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.52.1
-	github.com/aws/aws-sdk-go-v2/service/sns v1.47.6
-	github.com/aws/aws-sdk-go-v2/service/sqs v1.52.6
-	github.com/aws/aws-sdk-go-v2/service/ssm v1.81.0
-	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.51.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.51.5
-	github.com/aws/aws-sdk-go-v2/service/swf v1.43.6
-	github.com/aws/aws-sdk-go-v2/service/waf v1.40.0
-	github.com/aws/aws-sdk-go-v2/service/wafregional v1.40.0
-	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.83.6
-	github.com/aws/aws-sdk-go-v2/service/workspaces v1.82.1
-	github.com/aws/aws-sdk-go-v2/service/xray v1.46.1
-	github.com/aws/smithy-go v1.28.6
+	github.com/aws/aws-sdk-go-v2 v1.48.0
+	github.com/aws/aws-sdk-go-v2/config v1.33.18
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
+	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.57.12
+	github.com/aws/aws-sdk-go-v2/service/acm v1.51.5
+	github.com/aws/aws-sdk-go-v2/service/apigateway v1.52.9
+	github.com/aws/aws-sdk-go-v2/service/apigatewayv2 v1.46.9
+	github.com/aws/aws-sdk-go-v2/service/appsync v1.62.12
+	github.com/aws/aws-sdk-go-v2/service/autoscaling v1.82.0
+	github.com/aws/aws-sdk-go-v2/service/batch v1.79.1
+	github.com/aws/aws-sdk-go-v2/service/budgets v1.53.9
+	github.com/aws/aws-sdk-go-v2/service/cloud9 v1.42.12
+	github.com/aws/aws-sdk-go-v2/service/cloudcontrol v1.38.12
+	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.84.0
+	github.com/aws/aws-sdk-go-v2/service/cloudfront v1.75.6
+	github.com/aws/aws-sdk-go-v2/service/cloudhsmv2 v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/cloudtrail v1.65.12
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.76.0
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.92.2
+	github.com/aws/aws-sdk-go-v2/service/codebuild v1.79.0
+	github.com/aws/aws-sdk-go-v2/service/codecommit v1.44.7
+	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.57.0
+	github.com/aws/aws-sdk-go-v2/service/cognitoidentity v1.42.12
+	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.77.0
+	github.com/aws/aws-sdk-go-v2/service/datapipeline v1.42.9
+	github.com/aws/aws-sdk-go-v2/service/devicefarm v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/directconnect v1.56.0
+	github.com/aws/aws-sdk-go-v2/service/docdb v1.59.1
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.74.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.347.0
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.67.6
+	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.47.12
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.105.1
+	github.com/aws/aws-sdk-go-v2/service/efs v1.51.6
+	github.com/aws/aws-sdk-go-v2/service/eks v1.105.6
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.65.0
+	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.45.0
+	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.64.0
+	github.com/aws/aws-sdk-go-v2/service/emr v1.71.3
+	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.55.11
+	github.com/aws/aws-sdk-go-v2/service/firehose v1.52.12
+	github.com/aws/aws-sdk-go-v2/service/glue v1.176.0
+	github.com/aws/aws-sdk-go-v2/service/iam v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/identitystore v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/kinesis v1.56.13
+	github.com/aws/aws-sdk-go-v2/service/kms v1.62.6
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.115.0
+	github.com/aws/aws-sdk-go-v2/service/medialive v1.115.0
+	github.com/aws/aws-sdk-go-v2/service/mediastore v1.38.12
+	github.com/aws/aws-sdk-go-v2/service/opensearch v1.88.1
+	github.com/aws/aws-sdk-go-v2/service/organizations v1.63.0
+	github.com/aws/aws-sdk-go-v2/service/rds v1.133.0
+	github.com/aws/aws-sdk-go-v2/service/redshift v1.72.0
+	github.com/aws/aws-sdk-go-v2/service/resourceexplorer2 v1.33.12
+	github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi v1.42.0
+	github.com/aws/aws-sdk-go-v2/service/route53 v1.71.0
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.10
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.51.0
+	github.com/aws/aws-sdk-go-v2/service/securityhub v1.87.0
+	github.com/aws/aws-sdk-go-v2/service/ses v1.43.0
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/sns v1.48.0
+	github.com/aws/aws-sdk-go-v2/service/sqs v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.83.0
+	github.com/aws/aws-sdk-go-v2/service/ssoadmin v1.53.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0
+	github.com/aws/aws-sdk-go-v2/service/swf v1.44.0
+	github.com/aws/aws-sdk-go-v2/service/waf v1.40.6
+	github.com/aws/aws-sdk-go-v2/service/wafregional v1.40.6
+	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.85.2
+	github.com/aws/aws-sdk-go-v2/service/workspaces v1.84.0
+	github.com/aws/aws-sdk-go-v2/service/xray v1.46.7
+	github.com/aws/smithy-go v1.28.9
 	github.com/google/jsonschema-go v0.4.3
 	github.com/hashicorp/go-version v1.9.0
 	github.com/hashicorp/hc-install v0.10.0
 	github.com/hashicorp/hcl/v2 v2.25.0
-	github.com/hashicorp/terraform-exec v0.25.3
+	github.com/hashicorp/terraform-exec v0.26.0
 	github.com/hashicorp/terraform-json v0.29.0
 	github.com/hashicorp/terraform-svchost v0.2.1
 	github.com/magodo/armid v0.0.0-20240524082432-7ce06ae46c33
 	github.com/magodo/azlist v0.0.0-20250827005956-f76aa26d5fe5
-	github.com/magodo/aztft v0.3.1-0.20261003023401-cf187e4aed82
+	github.com/magodo/aztft v0.3.1-0.20261113213228-8039731a7a17
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.10
-	github.com/zclconf/go-cty v1.19.0
+	github.com/spf13/pflag v1.1.0
+	github.com/zclconf/go-cty v1.20.0
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/oauth2 v0.37.0
-	golang.org/x/sync v0.24.0
-	golang.org/x/sys v0.49.0
-	golang.org/x/term v0.47.0
+	golang.org/x/oauth2 v0.38.0
+	golang.org/x/sync v0.25.0
+	golang.org/x/sys v0.50.0
+	golang.org/x/term v0.48.0
 	golang.org/x/time v0.16.0
-	google.golang.org/api v0.308.0
+	google.golang.org/api v0.315.0
 )
