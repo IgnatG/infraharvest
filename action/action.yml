@@ -270,6 +270,9 @@ runs:
           if [[ "$HASH_IDS" == true && -z "$HASH_KEY" && -z "${INFRAHARVEST_EXPORT_KEY-}" ]]; then
             fail "control-plane-hash-ids needs a key: set control-plane-hash-key, or INFRAHARVEST_EXPORT_KEY from a secret"
           fi
+          if [[ "$HASH_IDS" == true ]] && short_hash_key "${HASH_KEY:-${INFRAHARVEST_EXPORT_KEY-}}"; then
+            fail "the hash key for control-plane-hash-ids must have at least 16 bytes: use a random one, such as the output of openssl rand -hex 32"
+          fi
         fi
         # Drift runs on the roots the repository has; the import then has
         # to add to them rather than fail on them.

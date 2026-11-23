@@ -35,9 +35,15 @@
 #
 # The URL must be https, or http for localhost. The tokens are masked and
 # never printed, and go to curl in a file, not in its arguments. A 5xx, a
-# 429 and a connection failure are retried with a growing delay; any other
-# answer fails at once, with the reason the control plane gives in its JSON
-# body, {"error": "..."}. A failure fails the step, unless OPTIONAL is true.
+# 429 and a connection failure that another try can pass (a refused or reset
+# connection, a name that didn't resolve, a timeout; not a TLS or protocol
+# error) are retried with a growing delay, which a 429's retryAfterMs (or
+# Retry-After) replaces; any other answer fails at once, with the reason the
+# control plane gives in its JSON body, {"error": "..."}. A request may take
+# 60 seconds, and an upload 30 more for each whole megabyte of its body, 300 at
+# most. A document over what the control plane takes (2 MB gzipped, 16 MB
+# plain) fails the step before any is sent. A failure fails the step, unless
+# OPTIONAL is true.
 #
 # Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
@@ -53,13 +59,21 @@
 # either may be empty), and the runner's
 # ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
 # INFRAHARVEST_UPLOAD_RETRY_DELAY is the first delay in seconds between
-# attempts (default 2, doubling), for tests.
+# attempts (default 2, doubling), and INFRAHARVEST_UPLOAD_MAX_WAIT the most
+# seconds to wait when a 429 says when to try again (default 60), for tests.
 set -euo pipefail
 
 # shellcheck source=action/output.sh
 source "$(dirname "${BASH_SOURCE[0]}")/output.sh"
 
 attempts=4
+# The seconds a request may take (curl's --max-time): this much for anything
+# small, and for an upload this much plus an allowance for each megabyte of
+# the body (see upload_max_time).
+base_max_time=60
+max_time=$base_max_time
+max_gzip_bytes=2000000
+max_plain_bytes=16000000
 
 url="${URL-}"
 audience="${AUDIENCE:-infraharvest-api}"
@@ -122,6 +136,10 @@ check() {
   if [[ "$hash_ids" == true && -z "${HASH_KEY-}" && -z "${INFRAHARVEST_EXPORT_KEY-}" ]]; then
     fail "control-plane-hash-ids needs a key: set control-plane-hash-key, or INFRAHARVEST_EXPORT_KEY from a secret"
   fi
+  # export would refuse a short key after the import has run.
+  if [[ "$hash_ids" == true ]] && short_hash_key "${HASH_KEY:-${INFRAHARVEST_EXPORT_KEY-}}"; then
+    fail "the hash key for control-plane-hash-ids must have at least 16 bytes: use a random one, such as the output of openssl rand -hex 32"
+  fi
   if [[ "$hash_ids" != true && -n "${HASH_KEY-}" ]]; then
     fail "control-plane-hash-key takes effect with control-plane-hash-ids set to true"
   fi
@@ -134,33 +152,84 @@ check() {
   fi
 }
 
+# transient_curl_exit <exit code>: whether a curl that got no answer failed in
+# a way another try can get past: a name that didn't resolve (6), a refused
+# connection (7), a timeout (28), an empty reply (52) or a send or receive
+# that broke, such as a reset (55, 56). A TLS, protocol or usage error (35, 60,
+# 1, 2, 3, 5 and the rest) comes out the same every time.
+transient_curl_exit() {
+  case "$1" in
+    6 | 7 | 28 | 52 | 55 | 56) return 0 ;;
+  esac
+  return 1
+}
+
+# retry_after <body-file> <headers-file>: sets retry_ms to how long the
+# control plane asked to wait, in milliseconds: the retryAfterMs of its JSON
+# body, else a Retry-After header in seconds. Empty if it said nothing.
+retry_after() {
+  local secs
+  retry_ms=
+  if [[ -s "$1" ]]; then
+    retry_ms=$(jq -r 'if type == "object" and (.retryAfterMs | type) == "number" and .retryAfterMs >= 0 then ([.retryAfterMs, 86400000] | min | floor) else empty end' "$1" 2> /dev/null) || retry_ms=
+    # A body of several JSON values prints several lines: only one number counts.
+    [[ "$retry_ms" =~ ^[0-9]{1,8}$ ]] || retry_ms=
+  fi
+  if [[ -z "$retry_ms" && -s "$2" ]]; then
+    secs=$(grep -i '^retry-after:' "$2" | tail -n 1 | tr -d '\r[:space:]') || secs=
+    secs=${secs#*:}
+    if [[ "$secs" =~ ^[0-9]{1,6}$ ]]; then retry_ms=$((10#$secs * 1000)); fi
+  fi
+}
+
+# seconds <milliseconds>: the time as seconds, for sleep and the log.
+seconds() {
+  printf '%d.%03d' $(($1 / 1000)) $(($1 % 1000))
+}
+
 # http_request <url> <header-file> <out-file> [curl-argument...]: a GET, or
 # whatever the extra curl arguments make of it (-X POST and a body), with
-# the headers of the file. A 5xx, a 429 and a connection failure are
-# retried. Sets http_code, and leaves the answer's body in out-file. Returns
-# 0 on a 2xx.
+# the headers of the file. A 5xx, a 429 and a connection failure that another
+# try can get past (see transient_curl_exit) are retried; a 429 waits as long
+# as the control plane asks, up to max_wait seconds, else the growing delay.
+# The request takes at most max_time seconds. Sets http_code, and leaves the
+# answer's body in out-file. Returns 0 on a 2xx.
 http_request() {
   local target=$1 headers=$2 body=$3
   shift 3
-  local args=(--silent --show-error --fail-with-body --connect-timeout 10 --max-time 60
-    --max-redirs 0 -H "@$headers" -o "$body" -w '%{http_code}' "$@")
+  local args=(--silent --show-error --fail-with-body --connect-timeout 10 --max-time "$max_time"
+    --max-redirs 0 -H "@$headers" -o "$body" -D "$tmp/response-headers" -w '%{http_code}' "$@")
   if [[ "$target" == https://* ]]; then args+=(--proto '=https'); else args+=(--proto '=http'); fi
-  local attempt=1 delay=${INFRAHARVEST_UPLOAD_RETRY_DELAY-2} rc
+  local attempt=1 delay=${INFRAHARVEST_UPLOAD_RETRY_DELAY-2} rc retry=false wait_ms
+  local max_wait_ms=$((${INFRAHARVEST_UPLOAD_MAX_WAIT-60} * 1000))
   while :; do
     rc=0
+    rm -f "$tmp/response-headers"
     http_code=$(curl "${args[@]}" "$target" 2> "$tmp/curl-error") || rc=$?
     http_code=${http_code:-000}
     if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then return 0; fi
-    # 000: curl got no answer, such as a refused connection or a timeout.
-    # Any other 4xx is a refusal, which another try wouldn't change.
-    if [[ "$http_code" == 000 || "$http_code" == 429 || "$http_code" =~ ^5[0-9][0-9]$ ]]; then
-      if ((attempt < attempts)); then
-        annotation notice "control plane: attempt $attempt got $http_code (curl exit $rc); trying again in ${delay}s"
-        sleep "$delay"
-        delay=$((delay * 2))
-        attempt=$((attempt + 1))
-        continue
+    # 000: curl got no answer. Only what can pass is tried again, such as a
+    # refused connection or a timeout, not a TLS or protocol refusal. Any
+    # other 4xx is a refusal, which another try wouldn't change.
+    retry=false
+    if [[ "$http_code" == 000 ]]; then
+      if transient_curl_exit "$rc"; then retry=true; fi
+    elif [[ "$http_code" == 429 || "$http_code" =~ ^5[0-9][0-9]$ ]]; then
+      retry=true
+    fi
+    if [[ "$retry" == true ]] && ((attempt < attempts)); then
+      wait_ms=$((delay * 1000))
+      if [[ "$http_code" == 429 ]]; then
+        retry_after "$body" "$tmp/response-headers"
+        if [[ -n "$retry_ms" ]]; then
+          wait_ms=$((retry_ms < max_wait_ms ? retry_ms : max_wait_ms))
+        fi
       fi
+      annotation notice "control plane: attempt $attempt got $http_code (curl exit $rc); trying again in $(seconds "$wait_ms")s"
+      sleep "$(seconds "$wait_ms")"
+      delay=$((delay * 2))
+      attempt=$((attempt + 1))
+      continue
     fi
     return 1
   done
@@ -237,6 +306,41 @@ log_size() {
   json=$(wc -c < "$tmp/$1.json")
   gz=$(wc -c < "$tmp/$1.json.gz")
   echo "control plane: the $1 document is ${json//[[:space:]]/} bytes, ${gz//[[:space:]]/} bytes gzipped"
+}
+
+# upload_max_time <file>: sets max_time for sending file: base_max_time, plus
+# 30 seconds for each whole megabyte of it, at most 300. A large
+# estate's inventory sent over a slow runner's link takes longer than a fixed
+# minute, and a timeout is retried three more times, then fails the run.
+upload_max_time() {
+  local bytes mb
+  bytes=$(wc -c < "$1")
+  bytes=${bytes//[[:space:]]/}
+  mb=$((bytes / 1048576))
+  max_time=$((base_max_time + 30 * mb))
+  if ((max_time > 300)); then max_time=300; fi
+}
+
+# check_size <document>: the control plane takes a body of 2 MB at most as sent
+# (gzipped) and 16 MB once decompressed, as the ingest routes of the control
+# plane the Action is made for read it (MAX_BODY_BYTES in
+# src/features/api/body.ts and MAX_DECOMPRESSED_BYTES in
+# src/features/api/ingest-body.ts). A document over either
+# fails here, before any is sent, so that a run is never left with some of its
+# documents stored and the rest refused for their size; one within 10% of
+# either says so.
+check_size() {
+  local json gz
+  json=$(wc -c < "$tmp/$1.json")
+  gz=$(wc -c < "$tmp/$1.json.gz")
+  json=${json//[[:space:]]/}
+  gz=${gz//[[:space:]]/}
+  if ((gz > max_gzip_bytes || json > max_plain_bytes)); then
+    problem "the $1 document is too large for the control plane: ${json} bytes, ${gz} bytes gzipped, against at most ${max_plain_bytes} and ${max_gzip_bytes}; nothing was sent. Send less of the estate, such as with control-plane-drop-tags, or import fewer roots in this run"
+  fi
+  if ((gz * 10 >= max_gzip_bytes * 9 || json * 10 >= max_plain_bytes * 9)); then
+    annotation warning "control plane: the $1 document is ${json} bytes, ${gz} bytes gzipped, within 10% of what the control plane takes (${max_plain_bytes} and ${max_gzip_bytes}); a larger estate won't upload"
+  fi
 }
 
 # read_run_id <document>: sets doc_run_id to the run_id of the exported
@@ -422,6 +526,7 @@ upload() {
       problem "couldn't compress the $doc document"
     fi
     log_size "$doc"
+    check_size "$doc"
   done
 
   read_run_id run
@@ -430,11 +535,13 @@ upload() {
   for doc in "${docs[@]}"; do
     # The drift summary's run is the drift check's, which an import's isn't.
     read_run_id "$doc"
+    upload_max_time "$tmp/$doc.json.gz"
     if ! http_request "$base/api/v1/ingest/$doc" "$tmp/headers" "$tmp/response" \
       -X POST -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
       -H "Idempotency-Key: $doc_run_id:$doc${GITHUB_RUN_ID:+:$GITHUB_RUN_ID}" --data-binary "@$tmp/$doc.json.gz"; then
       problem "sending the $doc document to $base/api/v1/ingest/$doc failed: $(describe "$tmp/response" "upload")"
     fi
+    max_time=$base_max_time
     annotation notice "control plane: sent the $doc document (HTTP $http_code)"
   done
   output control-plane-run-id "$run_id"
