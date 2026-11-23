@@ -39,7 +39,8 @@ var rootPlanBudget = planBudget{
 		// what still has errors, for each of the three rounds of planning
 		// until it is valid.
 		"repair": 4,
-		// The one import into a state snapshot, with --import-once.
+		// The one import into a state snapshot (import-once, on by default;
+		// INFRAHARVEST_IMPORT_ONCE=0 switches it off).
 		"snapshot": 1,
 		// The plans that make secret attributes read from variables.
 		"secrets": 2,
