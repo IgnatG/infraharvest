@@ -240,7 +240,7 @@ func TestImportAfterTheUserConfirms(t *testing.T) {
 		t.Errorf("result: %s", text)
 	}
 	// The user sees what the import reads before confirming.
-	for _, want := range []string{"Import the 2 resources", "never applies", "with profile prod", "eu-west-2", "vpc"} {
+	for _, want := range []string{"Import the 2 resources", "never changes your cloud or your state", "with profile prod", "eu-west-2", "vpc"} {
 		if !strings.Contains(asked, want) {
 			t.Errorf("confirmation %q misses %q", asked, want)
 		}

@@ -181,13 +181,13 @@ func (t *tools) importPaths(in *ImportInput) error {
 func importMessage(in ImportInput, summary *SelectionSummary, reads string) string {
 	switch {
 	case in.Regenerate:
-		return fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never applies anything.",
+		return fmt.Sprintf("Generate the roots in %q again, from scratch, from the %d resources that %q includes (%d excluded)? Their files are written again, with moved blocks for resources at other addresses, and removed blocks for those that go to another root it generates; a root whose resources would go where neither can follow them, or be left out, is left as it was. infraharvest reads %s and writes files; it never changes your cloud or your state.",
 			in.Out, summary.Included, in.Selection, summary.Excluded, reads)
 	case in.Incremental:
-		return fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, after the blocks of the file of their type? What the roots have stays as it is. infraharvest reads %s and writes files; it never applies anything.",
+		return fmt.Sprintf("Add the resources that %q includes (%d excluded) and that the roots in %q don't have yet to those roots, after the blocks of the file of their type? What the roots have stays as it is. infraharvest reads %s and writes files; it never changes your cloud or your state.",
 			in.Selection, summary.Excluded, in.Out, reads)
 	}
-	return fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never applies anything.",
+	return fmt.Sprintf("Import the %d resources that %q includes (%d excluded) into Terraform configuration in %q? infraharvest reads %s and writes files; it never changes your cloud or your state.",
 		summary.Included, in.Selection, summary.Excluded, in.Out, reads)
 }
 

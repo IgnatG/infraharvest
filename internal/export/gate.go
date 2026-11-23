@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
 
@@ -14,18 +15,17 @@ import (
 // a closed list: a check's own details are free text, with addresses and
 // values in them, and never go into the export.
 const (
-	reasonNotFormatted  = "not_formatted"
-	reasonInvalid       = "invalid_configuration"
-	reasonPlanFailed    = "plan_failed"
-	reasonStandards     = "standards_violation"
-	reasonScanners      = "scanner_findings"
-	reasonSecrets       = "secrets_found"
-	reasonNotDeterm     = "not_deterministic"
-	reasonMovesInvalid  = "moves_invalid"
-	reasonToolMissing   = "tool_missing"
-	reasonNotRun        = "not_run"
-	reasonOther         = "other"
-	scannersMissingNote = "no scanner installed"
+	reasonNotFormatted = "not_formatted"
+	reasonInvalid      = "invalid_configuration"
+	reasonPlanFailed   = "plan_failed"
+	reasonStandards    = "standards_violation"
+	reasonScanners     = "scanner_findings"
+	reasonSecrets      = "secrets_found"
+	reasonNotDeterm    = "not_deterministic"
+	reasonMovesInvalid = "moves_invalid"
+	reasonToolMissing  = "tool_missing"
+	reasonNotRun       = "not_run"
+	reasonOther        = "other"
 )
 
 // failedReason is the reason code of a check that failed, by its ID.
@@ -50,18 +50,17 @@ func checkID(name string) string {
 }
 
 // reasonCodes returns the reason codes of one run of a check that failed
-// or was skipped. Only the shape of its details is read, never kept; what
-// is not known becomes other.
+// or was skipped, from the reason its producer gave (see gate.Reason), never
+// from its details, which are free text. What is not known becomes other.
 func reasonCodes(id string, c report.Check) []string {
-	details := strings.Join(c.Details, "\n")
 	switch {
-	case !c.Passed && strings.Contains(details, "didn't run"):
+	case !c.Passed && c.Reason == gate.ReasonNotRun:
 		return []string{reasonNotRun}
 	case !c.Passed:
 		return []string{failedReason[id]}
-	case c.Skipped && strings.Contains(details, scannersMissingNote):
+	case c.Skipped && c.Reason == gate.ReasonToolMissing:
 		return []string{reasonToolMissing}
-	case c.Skipped && (strings.Contains(details, "not run") || strings.Contains(details, "not planned")):
+	case c.Skipped && c.Reason == gate.ReasonNotRun:
 		return []string{reasonNotRun}
 	case c.Skipped:
 		return []string{reasonOther}

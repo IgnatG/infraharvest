@@ -4,7 +4,8 @@
 // Package engine generates Terraform configuration for existing resources by
 // running Terraform itself. It writes `import` blocks and lets
 // `terraform plan -generate-config-out` produce the resource configuration.
-// It never writes state and never applies.
+// It never changes your cloud or your state: an import-only plan is applied
+// only to a private state file, which it removes.
 package engine
 
 import (

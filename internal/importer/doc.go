@@ -18,6 +18,7 @@
 // add to or vacate it through the call's tools (see call_tools.go), which
 // tests replace.
 //
-// It reads the cloud and writes files; it never applies, and writes no
-// state.
+// It reads the cloud and writes files; it never changes your cloud or your
+// state. To check its work it applies an import-only plan to a private state
+// file, which it removes.
 package importer

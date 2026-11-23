@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/report"
 	"github.com/IgnatG/infraharvest/internal/version"
 )
@@ -224,7 +225,7 @@ func passedChecks() []report.Check {
 	return []report.Check{
 		{Name: "G1 format", Passed: true},
 		{Name: "G2 validate", Passed: true},
-		{Name: "G5 scanners", Passed: true, Skipped: true, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
+		{Name: "G5 scanners", Passed: true, Skipped: true, Reason: gate.ReasonToolMissing, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
 	}
 }
 

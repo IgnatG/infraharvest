@@ -8,7 +8,7 @@
 // over to other roots, and gives back each environment's blocks as its
 // own root would have them. The checks of the merged root's gate are the
 // engine's, which the caller gives it (MergeOptions.Gate). It never
-// writes state and never applies.
+// changes your cloud or your state.
 package envmerge
 
 import (

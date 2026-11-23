@@ -833,7 +833,7 @@ func TestMergeRootsUnplanned(t *testing.T) {
 	if !result.Environments[0].Unplanned || result.Environments[1].Unplanned {
 		t.Errorf("unplanned: dev %v, prod %v", result.Environments[0].Unplanned, result.Environments[1].Unplanned)
 	}
-	if g := result.Environments[0].Gate; len(g) != 1 || !g[0].Skipped || !strings.Contains(strings.Join(g[0].Details, " "), "verify --environment dev") {
+	if g := result.Environments[0].Gate; len(g) != 1 || !g[0].Skipped || g[0].Reason != gate.ReasonNotRun || !strings.Contains(strings.Join(g[0].Details, " "), "verify --environment dev") {
 		t.Errorf("dev's gate: %+v", g)
 	}
 	if len(overrides) != 1 || !strings.Contains(overrides[0], "arn:aws:iam::222222222222:role/deploy") {
