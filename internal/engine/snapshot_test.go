@@ -324,7 +324,7 @@ func (f *stateFake) StateRm(context.Context, string, ...tfexec.StateRmCmdOption)
 // is, the root's own files never do, and the placeholder is gone with the
 // copy.
 func TestSnapshotOfRootWithWithheldSecret(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir()) // snapshots go to the system's temporary directory
+	privateTempDir(t) // snapshots go to the system's temporary directory
 	dir := filepath.Join(t.TempDir(), "root")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
