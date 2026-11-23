@@ -280,3 +280,16 @@ func writeConfig(t *testing.T, dir, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+// A check that is not among the gate's results didn't run, and says so in
+// its reason, not only in its details.
+func TestNamedMissingCheckDidNotRun(t *testing.T) {
+	t.Parallel()
+	g := Gate{{Name: CheckFormat, Passed: true}}
+	if c := g.Named(CheckFormat); c.Reason != "" || !c.Passed {
+		t.Errorf("a check that ran: %+v", c)
+	}
+	if c := g.Named(CheckPlan); c.Passed || c.Reason != ReasonNotRun {
+		t.Errorf("a check that is missing: %+v", c)
+	}
+}

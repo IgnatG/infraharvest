@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,6 +58,10 @@ if [[ "$doc" == drift-summary || "$command" == drift ]]; then id=` + driftRunID 
 extra=
 if [[ "$doc" == run ]]; then extra=",\"command\":\"$command\",\"request_id\":\"$request\""; fi
 if [[ "$doc" == ocsf-inventory ]]; then extra=",\"ocsf_version\":\"1.9.0\",\"events\":[]"; fi
+# FAKE_PAD_RANDOM bytes of text that gzip can't shrink, and FAKE_PAD_ZERO of
+# text it shrinks to nothing, make the inventory as large as a test needs.
+if [[ "$doc" == ocsf-inventory && -n "${FAKE_PAD_RANDOM-}" ]]; then extra+=",\"pad\":\"$(head -c "$FAKE_PAD_RANDOM" /dev/urandom | od -An -tx1 | tr -d ' \n')\""; fi
+if [[ "$doc" == ocsf-inventory && -n "${FAKE_PAD_ZERO-}" ]]; then extra+=",\"pad\":\"$(head -c "$FAKE_PAD_ZERO" /dev/zero | tr '\0' 'a')\""; fi
 printf '{"schema":"%s/v1","run_id":"%s"%s}\n' "$doc" "$id" "$extra" > "$file"
 `
 
@@ -73,7 +78,13 @@ type controlPlane struct {
 	bodies   map[string]string // after gunzip
 	sizes    map[string]int    // as received, before gunzip
 	reasons  map[string]string // the "error" of a refusal, per path
-	plain    bool              // refuse with plain text, not JSON
+	// retryAfterMs, when positive, goes in the body of a 429 as retryAfterMs,
+	// and retryAfterHeader, when set, in its Retry-After header.
+	retryAfterMs     int
+	retryAfterHeader string
+	rateLimitBody    string // when set, the whole body of a 429
+
+	plain    bool // refuse with plain text, not JSON
 	audience string
 }
 
@@ -119,8 +130,15 @@ func newControlPlane(t *testing.T) *controlPlane {
 		} else if r.Header.Get("Authorization") != "Bearer "+runToken {
 			status = http.StatusUnauthorized
 		}
+		if status == http.StatusTooManyRequests && cp.retryAfterHeader != "" {
+			w.Header().Set("Retry-After", cp.retryAfterHeader)
+		}
 		w.WriteHeader(status)
 		switch {
+		case status == http.StatusTooManyRequests && cp.rateLimitBody != "":
+			fmt.Fprint(w, cp.rateLimitBody)
+		case status == http.StatusTooManyRequests && cp.retryAfterMs > 0:
+			fmt.Fprintf(w, `{"error":"rate_limited","message":"Too many requests","retryAfterMs":%d}`, cp.retryAfterMs)
 		case status >= 400:
 			reason := cp.reasons[r.URL.Path]
 			if reason == "" {
@@ -785,7 +803,13 @@ func TestCheckInputs(t *testing.T) {
 		{"bad drop addresses", map[string]string{"URL": "https://cp.example.com", "DROP_ADDRESSES": "yes"}, "control-plane-drop-addresses must be true or false"},
 		{"bad boolean", map[string]string{"URL": "https://cp.example.com", "OPTIONAL": "yes"}, "must be true or false"},
 		{"hash without key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true"}, "needs a key"},
-		{"hash with env key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "k"}, ""},
+		{"hash with env key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "0123456789abcdef"}, ""},
+		{"hash with a short key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "HASH_KEY": "0123456789abcde"}, "at least 16 bytes"},
+		{"hash with a short env key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "INFRAHARVEST_EXPORT_KEY": "k"}, "at least 16 bytes"},
+		{"hash with a short key between spaces", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "HASH_KEY": "  0123456789abcde \n"}, "at least 16 bytes"},
+		{"hash with a 16 byte key", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "HASH_KEY": "0123456789abcdef"}, ""},
+		{"hash with a key of 8 characters and 16 bytes", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "HASH_KEY": "éééééééé"}, ""},
+		{"hash with a key of 8 characters and 15 bytes", map[string]string{"URL": "https://cp.example.com", "HASH_IDS": "true", "HASH_KEY": "ééééééée"}, "at least 16 bytes"},
 		{"key without hash", map[string]string{"URL": "https://cp.example.com", "HASH_KEY": "k"}, "takes effect"},
 		{"no oidc", map[string]string{"URL": "https://cp.example.com", "ACTIONS_ID_TOKEN_REQUEST_URL": ""}, "id-token: write"},
 	}
@@ -1432,5 +1456,236 @@ func TestUploadLogsSizesOfOtherRunsAndOfARefusedUpload(t *testing.T) {
 		if !strings.Contains(res.output, "the "+doc+" document is") {
 			t.Errorf("the refused upload logs no size for %s:\n%s", doc, res.output)
 		}
+	}
+}
+
+// curlShim puts a curl in front of the real one that logs its arguments, one
+// line a call, and returns the PATH to run with and the log's path.
+func curlShim(t *testing.T) (path, log string) {
+	t.Helper()
+	curl, err := exec.LookPath("curl")
+	if err != nil {
+		t.Skip("curl isn't installed")
+	}
+	dir := t.TempDir()
+	log = filepath.Join(dir, "curl.log")
+	shim := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >> " + log + "\nexec " + curl + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "curl"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir + string(os.PathListSeparator) + os.Getenv("PATH"), log
+}
+
+// closedPortURL is a URL where nothing listens, so that a connection is
+// refused.
+func closedPortURL(t *testing.T) string {
+	t.Helper()
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	l.Close()
+	return "http://" + addr
+}
+
+// A failure no other try can change, such as a TLS handshake with a server
+// that speaks plain HTTP, fails at once.
+func TestUploadDoesNotRetryAPermanentCurlFailure(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"URL": strings.Replace(cp.URL, "http://", "https://", 1)})
+	if res.err == nil {
+		t.Fatalf("upload succeeded:\n%s", res.output)
+	}
+	if strings.Contains(res.output, "trying again") {
+		t.Errorf("a failure that can't pass was tried again:\n%s", res.output)
+	}
+	if !strings.Contains(res.output, "::error::control plane: opening a session") {
+		t.Errorf("no error naming the session:\n%s", res.output)
+	}
+}
+
+// A refused connection can pass, so it is tried again, three times.
+func TestUploadRetriesARefusedConnection(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"URL": closedPortURL(t)})
+	if res.err == nil {
+		t.Fatalf("upload succeeded:\n%s", res.output)
+	}
+	if got := strings.Count(res.output, "trying again"); got != 3 {
+		t.Errorf("%d retries, want 3:\n%s", got, res.output)
+	}
+	if !strings.Contains(res.output, "(curl exit 7)") {
+		t.Errorf("no curl exit 7:\n%s", res.output)
+	}
+}
+
+func TestUploadWaitsAsLongAsARateLimitAsks(t *testing.T) {
+	t.Run("retryAfterMs in the body", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.retryAfterMs = 1200
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, nil)
+		if res.err != nil {
+			t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+		}
+		if !strings.Contains(res.output, "got 429 (curl exit 22); trying again in 1.200s") {
+			t.Errorf("didn't wait as asked:\n%s", res.output)
+		}
+		if got := cp.count("/api/v1/ingest/run"); got != 2 {
+			t.Errorf("run: %d requests, want 2", got)
+		}
+	})
+	t.Run("Retry-After header", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.retryAfterHeader = "1"
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, nil)
+		if res.err != nil {
+			t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+		}
+		if !strings.Contains(res.output, "got 429 (curl exit 22); trying again in 1.000s") {
+			t.Errorf("didn't wait as asked:\n%s", res.output)
+		}
+	})
+	t.Run("a body of several JSON values falls back to the header", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.rateLimitBody = `{"retryAfterMs":5}{"retryAfterMs":6}`
+		cp.retryAfterHeader = "1"
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, nil)
+		if res.err != nil || !strings.Contains(res.output, "trying again in 1.000s") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+	t.Run("the body wins over the header", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.retryAfterMs = 1000
+		cp.retryAfterHeader = "50"
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, nil)
+		if res.err != nil || !strings.Contains(res.output, "trying again in 1.000s") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+	t.Run("capped", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.retryAfterMs = 3_600_000
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, map[string]string{"INFRAHARVEST_UPLOAD_MAX_WAIT": "1"})
+		if res.err != nil {
+			t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+		}
+		if !strings.Contains(res.output, "trying again in 1.000s") {
+			t.Errorf("waited past the cap:\n%s", res.output)
+		}
+	})
+	t.Run("nothing asked", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.queue("/api/v1/ingest/run", 429, 200)
+		res := upload(t, cp, map[string]string{"INFRAHARVEST_UPLOAD_RETRY_DELAY": "0"})
+		if res.err != nil || !strings.Contains(res.output, "got 429 (curl exit 22); trying again in 0.000s") {
+			t.Errorf("didn't fall back to the delay: %v\n%s", res.err, res.output)
+		}
+	})
+}
+
+// --max-time grows with the body: a minute, and 30 seconds for each whole
+// megabyte of the gzipped document.
+func TestUploadAllowsLargerBodiesMoreTime(t *testing.T) {
+	path, log := curlShim(t)
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"PATH": path, "FAKE_PAD_RANDOM": "1400000"})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"/api/v1/session": "--max-time 60 ", "/api/v1/ingest/ocsf-inventory": "--max-time 90 ", "/api/v1/ingest/run": "--max-time 60 "}
+	for target, flag := range want {
+		found := false
+		for _, line := range strings.Split(string(calls), "\n") {
+			if strings.HasSuffix(line, target) {
+				found = true
+				if !strings.Contains(line, flag) {
+					t.Errorf("%s: want %q in %q", target, flag, line)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no request to %s:\n%s", target, calls)
+		}
+	}
+}
+
+// A document over what the control plane takes fails before anything is sent,
+// so that no run is left half uploaded.
+func TestUploadRefusesADocumentOverTheLimitsBeforeSendingAny(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+	}{
+		{"decompressed", map[string]string{"FAKE_PAD_ZERO": "17000000"}},
+		{"compressed", map[string]string{"FAKE_PAD_RANDOM": "1900000"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			res := upload(t, cp, tt.env)
+			if res.err == nil {
+				t.Fatalf("upload succeeded:\n%s", res.output)
+			}
+			if !strings.Contains(res.output, "::error::control plane: the ocsf-inventory document is too large") || !strings.Contains(res.output, "nothing was sent") {
+				t.Errorf("no clear error:\n%s", res.output)
+			}
+			for _, doc := range documents {
+				if got := cp.count("/api/v1/ingest/" + doc); got != 0 {
+					t.Errorf("%s: %d requests before the size check refused", doc, got)
+				}
+			}
+			if strings.Contains(res.outputs, "control-plane-run-id") {
+				t.Errorf("outputs: %q", res.outputs)
+			}
+		})
+	}
+}
+
+// Over the limit still only warns when the control plane is optional.
+func TestUploadOfADocumentOverTheLimitsIsOptionalToo(t *testing.T) {
+	cp := newControlPlane(t)
+	res := upload(t, cp, map[string]string{"FAKE_PAD_ZERO": "17000000", "OPTIONAL": "true"})
+	if res.err != nil || strings.Contains(res.output, "::error::") || cp.count("/api/v1/ingest/run") != 0 {
+		t.Errorf("%v\n%s", res.err, res.output)
+	}
+}
+
+// Within 10% of a limit the document is sent, with a warning.
+func TestUploadWarnsOfADocumentNearTheLimits(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+	}{
+		{"decompressed", map[string]string{"FAKE_PAD_ZERO": "15000000"}},
+		{"compressed", map[string]string{"FAKE_PAD_RANDOM": "1650000"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			res := upload(t, cp, tt.env)
+			if res.err != nil {
+				t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+			}
+			if !strings.Contains(res.output, "::warning::control plane: the ocsf-inventory document is") || !strings.Contains(res.output, "within 10%") {
+				t.Errorf("no warning:\n%s", res.output)
+			}
+			if got := cp.count("/api/v1/ingest/ocsf-inventory"); got != 1 {
+				t.Errorf("inventory: %d requests, want 1", got)
+			}
+		})
+	}
+	cp := newControlPlane(t)
+	res := upload(t, cp, nil)
+	if res.err != nil || strings.Contains(res.output, "within 10%") {
+		t.Errorf("a small estate warned: %v\n%s", res.err, res.output)
 	}
 }

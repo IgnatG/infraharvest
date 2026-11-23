@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
 )
@@ -49,7 +50,7 @@ func writeOut(t *testing.T) string {
 		Checks: []report.Check{
 			{Name: "G1 format", Passed: true},
 			{Name: "G6 secrets", Passed: false, Details: []string{"main.tf would hold " + secretAttribute}},
-			{Name: "G5 scanners", Passed: true, Skipped: true, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
+			{Name: "G5 scanners", Passed: true, Skipped: true, Reason: gate.ReasonToolMissing, Details: []string{"no scanner installed (tflint, trivy, checkov)"}},
 		},
 	}}
 	r.Exclude(scope, "aws_vpc", "vpc-state", report.Decided(report.TerraformPrefix+" (prod.tfstate)"))
@@ -439,10 +440,25 @@ func TestReasonCodes(t *testing.T) {
 		want  string
 	}{
 		{"failed", "G2", report.Check{Passed: false, Details: []string{"main.tf:3 anything"}}, reasonInvalid},
-		{"never ran", "G3", report.Check{Passed: false, Details: []string{"didn't run"}}, reasonNotRun},
-		{"no scanner", "G5", report.Check{Passed: true, Skipped: true, Details: []string{"no scanner installed (tflint)"}}, reasonToolMissing},
-		{"held back", "G5", report.Check{Passed: true, Skipped: true, Details: []string{"not run, as G6 secrets found secret values"}}, reasonNotRun},
+		{"never ran", "G3", report.Check{Passed: false, Reason: gate.ReasonNotRun, Details: []string{"didn't run"}}, reasonNotRun},
+		{"no scanner", "G5", report.Check{Passed: true, Skipped: true, Reason: gate.ReasonToolMissing, Details: []string{"no scanner installed (tflint)"}}, reasonToolMissing},
+		{"held back", "G5", report.Check{Passed: true, Skipped: true, Reason: gate.ReasonNotRun, Details: []string{"not run, as G6 secrets found secret values"}}, reasonNotRun},
+		{"not planned", "G3", report.Check{Passed: true, Skipped: true, Reason: gate.ReasonNotRun, Details: []string{"environment dev", "not planned: the import didn't have it"}}, reasonNotRun},
 		{"unknown skip", "G3", report.Check{Passed: true, Skipped: true, Details: []string{"some new reason with i-0abc"}}, reasonOther},
+		// The details are free text: only the reason decides the code.
+		{"never ran, reworded", "G3", report.Check{Passed: false, Reason: gate.ReasonNotRun, Details: []string{"this step was left out"}}, reasonNotRun},
+		{"no scanner, reworded", "G5", report.Check{Passed: true, Skipped: true, Reason: gate.ReasonToolMissing, Details: []string{"nothing to scan with"}}, reasonToolMissing},
+		{"held back, reworded", "G5", report.Check{Passed: true, Skipped: true, Reason: gate.ReasonNotRun, Details: []string{"waiting"}}, reasonNotRun},
+		{"failed, text of a skip", "G3", report.Check{Passed: false, Details: []string{"didn't run"}}, reasonPlanFailed},
+		{"skipped, text of a missing tool", "G5", report.Check{Passed: true, Skipped: true, Details: []string{"no scanner installed"}}, reasonOther},
+		{"skipped, text of not run", "G3", report.Check{Passed: true, Skipped: true, Details: []string{"not run", "not planned"}}, reasonOther},
+		{"formatting", "G1", report.Check{Passed: false}, reasonNotFormatted},
+		{"validate", "G2", report.Check{Passed: false}, reasonInvalid},
+		{"standards", "G4", report.Check{Passed: false}, reasonStandards},
+		{"scanners", "G5", report.Check{Passed: false}, reasonScanners},
+		{"secrets", "G6", report.Check{Passed: false}, reasonSecrets},
+		{"determinism", "G7", report.Check{Passed: false}, reasonNotDeterm},
+		{"moves", "G8", report.Check{Passed: false}, reasonMovesInvalid},
 	} {
 		got := reasonCodes(tc.id, tc.check)
 		if len(got) != 1 || got[0] != tc.want {

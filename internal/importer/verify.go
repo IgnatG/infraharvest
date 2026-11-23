@@ -144,7 +144,7 @@ func Verify(ctx context.Context, options VerifyOptions, w io.Writer) error {
 		}
 		root.Findings = report.GateFindings(root.Path, root.Environment, managed, checks)
 		for _, c := range checks {
-			root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
+			root.Checks = append(root.Checks, report.Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Reason: c.Reason, Details: c.Details})
 		}
 		return root
 	}

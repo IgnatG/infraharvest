@@ -170,7 +170,7 @@ func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 		d.Secrets = append(d.Secrets, Secret{Variable: s.Variable, Address: s.Address, Attribute: s.Attribute})
 	}
 	for _, c := range result.Gate {
-		d.Checks = append(d.Checks, Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Details: c.Details})
+		d.Checks = append(d.Checks, Check{Name: c.Name, Passed: c.Passed, Skipped: c.Skipped, Reason: c.Reason, Details: c.Details})
 	}
 	for _, p := range result.Plans {
 		d.Plans = append(d.Plans, Plans(p))

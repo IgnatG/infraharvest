@@ -34,8 +34,8 @@ func init() {
 			"or in one of its resource groups with --resource-group, and generate their\n" +
 			"Terraform configuration with import blocks. The subscription is\n" +
 			"ARM_SUBSCRIPTION_ID's, unless --subscriptions or --management-group names\n" +
-			"several, each imported into roots of its own. Nothing is applied and no state\n" +
-			"is written.",
+			"several, each imported into roots of its own. It never changes your cloud\n" +
+			"or your state.",
 		sampleServices:   "resource_graph,management_lock",
 		sampleIDs:        "management_lock=LOCK_ID",
 		parallelScopes:   "subscriptions of --subscriptions or --management-group",
