@@ -731,10 +731,10 @@ runs:
       id: diagram-cli
       if: inputs.diagram == 'true'
       continue-on-error: true
-      uses: hibiscus-ctrl/terragram/action/install-cli@9c781496e4d28869ef9905069ff5910b615548c7 # cli-v0.1.0
+      uses: hibiscus-ctrl/terragram/action/install-cli@d4bc68212a54a988d59f2a4a4a3622b8e343f132 # cli-v0.2.0
       with:
-        version: 0.1.0
-        sha256: d373340cea6c826e4d110100b53d30165a683a4fdf7fee47d9e11638d5fba956
+        version: 0.2.0
+        sha256: 00dea8cc8db6d254f82db6f6748b73cb8e02bcd95793dc27d2bad9d0f5803a00
     - name: Draw the diagram
       id: diagram
       if: inputs.diagram == 'true'
