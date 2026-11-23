@@ -4,7 +4,8 @@
 
 # Sends the metadata of a run to a control plane (the Control plane step of
 # action.yml, with control-plane-url set). It first trades the job's GitHub
-# Actions OIDC token, for the audience AUDIENCE (default infraharvest-api),
+# Actions OIDC token, for the audience AUDIENCE (default infraharvest-api: and
+# the origin of the URL, such as infraharvest-api:https://cp.example.com),
 # for a run token: POST <url>/api/v1/session with an empty body and the OIDC
 # token in the header X-GitHub-OIDC-Token, answered with JSON,
 # {"token": "...", "expires_at": "...", "limits": {...}}. Then it runs
@@ -81,7 +82,7 @@ max_gzip_bytes=2000000
 max_plain_bytes=16000000
 
 url="${URL-}"
-audience="${AUDIENCE:-infraharvest-api}"
+audience="${AUDIENCE-}"
 optional="${OPTIONAL-false}"
 hash_ids="${HASH_IDS-false}"
 drop_tags="${DROP_TAGS-false}"
@@ -120,9 +121,33 @@ set_base() {
   base=$u
 }
 
+# set_audience: when AUDIENCE is empty, sets audience to the default: infraharvest-api:
+# and the origin of the URL, which is its scheme and host in lower case, and its
+# port unless it is the scheme's own (443 for https, 80 for http), without the
+# path, as a browser or a control plane reads the origin. A token for that
+# audience is good at that origin only, so a server that receives it from a
+# mistyped or hijacked URL can't use it at the real one. Sets audience_derived
+# to true when it did.
+audience_derived=false
+set_audience() {
+  [[ -z "$audience" ]] || return 0
+  local scheme host port
+  if [[ ! "$base" =~ ^(https?)://(\[[^]]*\]|[^/:]+)(:([0-9]*))?(/.*)?$ ]]; then
+    fail "control-plane-url '$url' has no origin to build the default control-plane-audience from: set control-plane-audience"
+  fi
+  scheme=${BASH_REMATCH[1]}
+  host=$(printf '%s' "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')
+  port=${BASH_REMATCH[4]}
+  if [[ -n "$port" && ${#port} -le 5 ]]; then port=$((10#$port)); fi
+  if [[ "$scheme:$port" == https:443 || "$scheme:$port" == http:80 ]]; then port=; fi
+  audience="infraharvest-api:$scheme://$host${port:+:$port}"
+  audience_derived=true
+}
+
 check() {
   [[ -n "$url" ]] || return 0
   set_base
+  set_audience
   local input
   for input in "control-plane-optional=$optional" "control-plane-hash-ids=$hash_ids" "control-plane-drop-tags=$drop_tags" "control-plane-drop-addresses=$drop_addresses"; do
     case "${input#*=}" in
@@ -132,6 +157,9 @@ check() {
   done
   # The audience goes into the query of the token request as it is.
   if [[ ! "$audience" =~ ^[A-Za-z0-9._~:/-]+$ ]]; then
+    if [[ "$audience_derived" == true ]]; then
+      fail "the default control-plane-audience for control-plane-url '$url' is '$audience', which may hold letters, digits and . _ ~ : / - only: set control-plane-audience"
+    fi
     fail "control-plane-audience may hold letters, digits and . _ ~ : / - only, got '$audience'"
   fi
   # The ID goes into the run document, and the control plane matches it.
@@ -390,6 +418,7 @@ upload() {
   [[ -n "$url" ]] || return 0
   local bin out report drift_report inventories verify_report import_ran=false drift_ran=false send_import=false send_drift=false send_discover=false send_verify=false
   set_base
+  set_audience
   bin="${BINARY:-infraharvest}"
   out="${OUT:-infrastructure}"
   report="$out/_reports/report.json"

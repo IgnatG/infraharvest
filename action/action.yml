@@ -102,8 +102,8 @@ inputs:
     description: Send the metadata of the run (infraharvest export's documents, nothing else) to a hosted control plane at this URL, as the README says. The job's OIDC token is traded at <url>/api/v1/session for a run token, which every upload carries. https only (http for localhost). Needs id-token write permission. Empty, nothing is sent.
     default: ""
   control-plane-audience:
-    description: With control-plane-url, the audience of the GitHub Actions OIDC token the session is opened with. The control plane checks it, so it must be the one it expects.
-    default: infraharvest-api
+    description: With control-plane-url, the audience of the GitHub Actions OIDC token the session is opened with. Empty, it is infraharvest-api:<the origin of control-plane-url>, such as infraharvest-api:https://cp.example.com, so the token is good at that control plane only. The control plane checks it, so a value set here must be one it accepts.
+    default: ""
   control-plane-drop-tags:
     description: With control-plane-url, leave all tags out of the OCSF inventory (export --drop-tags).
     default: "false"
