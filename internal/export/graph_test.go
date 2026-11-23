@@ -396,7 +396,7 @@ func TestGraphDropsAddresses(t *testing.T) {
 		if doc.Redaction.Addresses != addressesDropped {
 			t.Errorf("%s: redaction: %+v", name, doc.Redaction)
 		}
-		if strings.Contains(string(content), `"address"`) || strings.Contains(string(content), `"module_address"`) || strings.Contains(string(content), "aws_vpc.main") {
+		if strings.Contains(string(content), `"root"`) || strings.Contains(string(content), `"address"`) || strings.Contains(string(content), `"module_address"`) || strings.Contains(string(content), "aws_vpc.main") {
 			t.Errorf("%s: the graph holds an address:\n%s", name, content)
 		}
 		if len(doc.Nodes) != len(plain.Nodes) || len(doc.Edges) != len(plain.Edges) {
@@ -430,7 +430,7 @@ func TestGraphSchemaAddsOnlyOptionalFields(t *testing.T) {
 	strip := func(doc map[string]any, nodes []any) {
 		delete(doc["redaction"].(map[string]any), "addresses")
 		for _, n := range nodes {
-			for _, k := range []string{"environment", "address", "module_address"} {
+			for _, k := range []string{"environment", "address", "module_address", "root"} {
 				delete(n.(map[string]any), k)
 			}
 		}
@@ -475,6 +475,68 @@ func TestGraphSchemaAddsOnlyOptionalFields(t *testing.T) {
 	}
 }
 
+// A node has the root it was generated in, as its path in the output
+// directory: plain, the same address in two roots of an environment is two
+// nodes with two roots; hashed, the hash of the OCSF inventory's iac.path of
+// the same resource, with nothing of the path left; dropped, none, with or
+// without a key. A merged environment's nodes have their own root, as their
+// addresses are their own.
+func TestGraphRoots(t *testing.T) {
+	t.Parallel()
+	out := writeGraphOut(t)
+	const prod, dev = "aws/123456789012/eu-west-2", "aws/123456789012/eu-west-1"
+
+	plain := decodeGraph(t, build(t, Options{Out: out, Document: DocGraph}))
+	for name, want := range map[string]string{
+		"aws_vpc vpc-1":                              prod,
+		"aws_subnet subnet-x":                        prod,
+		"aws_s3_bucket logs-bucket":                  prod,
+		"module local":                               prod,
+		"module terraform-aws-modules/s3-bucket/aws": prod,
+		"aws_vpc vpc-2":                              dev,
+	} {
+		if got := nodeOf(t, plain, name).Root; got != want {
+			t.Errorf("plain: root of %s: %q, want %q", name, got, want)
+		}
+	}
+	a, b := nodeOf(t, plain, "aws_vpc vpc-1"), nodeOf(t, plain, "aws_vpc vpc-2")
+	if a.Address != b.Address || a.Environment == b.Environment || a.Root == b.Root {
+		t.Errorf("the same address in two roots: %+v and %+v", a, b)
+	}
+
+	hashedOut := build(t, Options{Out: out, Document: DocGraph, HashKey: graphKey})
+	hashed := decodeGraph(t, hashedOut)
+	events := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory, HashKey: graphKey}))
+	red := newRedactor(nil, false, graphKey)
+	for _, path := range []string{prod, dev} {
+		if strings.Contains(string(hashedOut), path) {
+			t.Errorf("the hashed graph holds %q:\n%s", path, hashedOut)
+		}
+	}
+	var joined int
+	for _, n := range hashed.Nodes {
+		if n.Root == "" || n.Root != red.hash(plain.Nodes[joined].Root) {
+			t.Errorf("hashed: root of %s: %q", label(n), n.Root)
+		}
+		if n.Kind == nodeResource {
+			if iac := eventOf(t, events, n.ID).Resources[0].IaC; n.Root != iac.Path {
+				t.Errorf("hashed: root of %s: %q, the OCSF inventory has %q", label(n), n.Root, iac.Path)
+			}
+		}
+		joined++
+	}
+
+	for name, opts := range map[string]Options{
+		"dropped":            {Out: out, Document: DocGraph, DropAddresses: true},
+		"dropped and hashed": {Out: out, Document: DocGraph, DropAddresses: true, HashKey: graphKey},
+	} {
+		content := build(t, opts)
+		if strings.Contains(string(content), `"root"`) || strings.Contains(string(content), prod) || strings.Contains(string(content), dev) {
+			t.Errorf("%s: the graph holds a root:\n%s", name, content)
+		}
+	}
+}
+
 // The same output gives the same bytes, with each redaction.
 func TestGraphIsDeterministic(t *testing.T) {
 	t.Parallel()
@@ -487,8 +549,8 @@ func TestGraphIsDeterministic(t *testing.T) {
 	}
 }
 
-// An address, or an environment, that looks like a credential stops the
-// export, unless the addresses are left out.
+// An address, a root's path, or an environment, that looks like a
+// credential stops the export, unless the addresses are left out.
 func TestGraphRefusesCredentialAddresses(t *testing.T) {
 	t.Parallel()
 	out := writeGraphOut(t)
@@ -512,6 +574,19 @@ func TestGraphRefusesCredentialAddresses(t *testing.T) {
 	}
 	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow, DropAddresses: true}); err == nil {
 		t.Error("an environment that looks like a credential was written")
+	}
+	r.Merges[0].Apart[0].Env = "prod"
+	r.Directories[1].Imported[0].Address = "aws_vpc.main"
+	r.Directories[1].Path = "aws/" + credentialTag
+	r.Merges[0].Apart[0].Path = r.Directories[1].Path
+	if err := r.WriteFiles(out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow}); err == nil {
+		t.Error("a root whose path looks like a credential was written")
+	}
+	if _, err := Build(Options{Out: out, Document: DocGraph, Now: fixedNow, DropAddresses: true}); err != nil {
+		t.Errorf("dropped: %v", err)
 	}
 }
 

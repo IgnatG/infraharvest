@@ -43,7 +43,9 @@ const (
 // the import knows it (see environmentOf). Address is a resource's address
 // in its root, and ModuleAddress a module call's, such as module.logs: both
 // as the OCSF inventory has them, hashed with --hash-ids and left out with
-// --drop-addresses.
+// --drop-addresses. Root is the path of the root the node was generated in,
+// as the OCSF inventory's iac.path has it, redacted as the addresses are: it
+// tells apart the same address in two roots of one environment.
 type graphNode struct {
 	Kind          string `json:"kind"`
 	Type          string `json:"type,omitempty"`
@@ -52,6 +54,7 @@ type graphNode struct {
 	Region        string `json:"region,omitempty"`
 	Environment   string `json:"environment,omitempty"`
 	Address       string `json:"address,omitempty"`
+	Root          string `json:"root,omitempty"`
 	ModuleAddress string `json:"module_address,omitempty"`
 	Source        string `json:"source,omitempty"`
 	Version       string `json:"version,omitempty"`
@@ -136,8 +139,8 @@ func environmentOf(r *report.Report) map[string]string {
 // ID, account and region, which --hash-ids hashes as it does there, so the
 // two documents join on them. It has the address of each node as the OCSF
 // inventory has it, hashed with --hash-ids and left out with
-// --drop-addresses, and the environment of a root that has one, which is
-// not hashed.
+// --drop-addresses, the root each is in, redacted as they are, and the
+// environment of a root that has one, which is not hashed.
 func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*graphDoc, error) {
 	red := newRedactor(nil, false, opts.HashKey)
 	doc := &graphDoc{
@@ -188,6 +191,10 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 			}
 			return red.hash(a), nil
 		}
+		rootName, err := rootOf(d.Path, named, red)
+		if err != nil {
+			return nil, err
+		}
 		modules := slices.Clone(d.Modules)
 		sort.Slice(modules, func(i, j int) bool { return modules[i].Name < modules[j].Name })
 		for _, m := range modules {
@@ -195,8 +202,7 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 				continue
 			}
 			root.modules[m.Name] = len(doc.Nodes)
-			node := graphNode{Kind: nodeModule, Account: account, Region: region, Environment: env, Source: shareableSource(m.Source)}
-			var err error
+			node := graphNode{Kind: nodeModule, Account: account, Region: region, Environment: env, Root: rootName, Source: shareableSource(m.Source)}
 			if node.ModuleAddress, err = address("module."+m.Name, "module call"); err != nil {
 				return nil, err
 			}
@@ -215,8 +221,7 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 			if secret.CredentialFormat(res.ID) != "" {
 				return nil, fmt.Errorf("a %s has an ID that looks like a credential: nothing is written", typ)
 			}
-			node := graphNode{Kind: nodeResource, Type: typ, ID: red.hash(res.ID), Account: account, Region: region, Environment: env}
-			var err error
+			node := graphNode{Kind: nodeResource, Type: typ, ID: red.hash(res.ID), Account: account, Region: region, Environment: env, Root: rootName}
 			if node.Address, err = address(res.Address, typ); err != nil {
 				return nil, err
 			}
@@ -261,6 +266,21 @@ func buildGraph(r *report.Report, opts Options, runID string, now time.Time) (*g
 	}
 	doc.Cloud = cloud
 	return doc, nil
+}
+
+// rootOf returns what the graph says of the root a node was generated in, the
+// path of its directory: the one the OCSF inventory's iac.path has, hashed
+// with --hash-ids and left out with --drop-addresses (named false). An
+// environment merged into a root it shares has its own, as its addresses
+// are its own.
+func rootOf(path string, named bool, red *redactor) (string, error) {
+	if !named {
+		return "", nil
+	}
+	if secret.CredentialFormat(path) != "" {
+		return "", errors.New("the path of a root has a format of a credential: nothing is written")
+	}
+	return red.hash(path), nil
 }
 
 // moduleCall returns the name of the module call, in the root, that the
