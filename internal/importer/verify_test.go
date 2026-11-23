@@ -288,3 +288,50 @@ func TestWriteVerifiedFile(t *testing.T) {
 		t.Errorf("verify.json after a second run: %v\n%s", err, again)
 	}
 }
+
+// A verify.json that can't be written is a warning: the checks' results
+// still decide the exit code, as they do when it can be.
+func TestFinishVerifyKeepsTheExitCodeWhenTheFileCantBeWritten(t *testing.T) {
+	passed := verifiedRoot{Path: "a", Checks: []report.Check{{Name: gate.CheckFormat, Passed: true}}}
+	failed := verifiedRoot{Path: "b", Checks: []report.Check{{Name: gate.CheckPlan, Details: []string{"x: update"}}}}
+	uncheckable := verifiedRoot{Path: "c", Error: "terraform init: registry unreachable"}
+	for name, tc := range map[string]struct {
+		results []verifiedRoot
+		want    int // exit code; 0: none
+	}{
+		"all passed":          {[]verifiedRoot{passed}, 0},
+		"a check failed":      {[]verifiedRoot{passed, failed}, report.ExitIncomplete},
+		"a root not checked":  {[]verifiedRoot{passed, uncheckable}, report.ExitCouldNotRun},
+		"both of them failed": {[]verifiedRoot{failed, uncheckable}, report.ExitCouldNotRun},
+	} {
+		t.Run(name, func(t *testing.T) {
+			logged := captureLog(t)
+			// The report directory can't be made: a file is in its place, as
+			// an output directory that is mounted read-only can't make it either.
+			out := t.TempDir()
+			if err := os.WriteFile(filepath.Join(out, report.Dir), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := finishVerify(out, tc.results)
+			var exit *ExitError
+			switch {
+			case tc.want == 0 && err != nil:
+				t.Errorf("exit %v, want none", err)
+			case tc.want != 0 && (!errors.As(err, &exit) || exit.Code != tc.want):
+				t.Errorf("exit %v, want code %d", err, tc.want)
+			}
+			if !strings.Contains(logged.String(), "verify.json isn't written") {
+				t.Errorf("no warning that verify.json isn't written:\n%s", logged)
+			}
+			// Where it can be written, it is, and the exit code is the same.
+			out = t.TempDir()
+			err = finishVerify(out, tc.results)
+			if (err == nil) != (tc.want == 0) {
+				t.Errorf("with a writable directory, exit %v, want code %d", err, tc.want)
+			}
+			if _, err := os.Stat(filepath.Join(out, report.Dir, report.VerifyJSONFile)); err != nil {
+				t.Errorf("verify.json: %v", err)
+			}
+		})
+	}
+}
