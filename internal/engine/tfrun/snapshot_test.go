@@ -138,7 +138,7 @@ func TestSnapshotOverride(t *testing.T) {
 }
 
 func TestBuildSnapshot(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir()) // snapshots go to the system's temporary directory
+	privateTempDir(t) // snapshots go to the system's temporary directory
 	build := func(plan *tfjson.Plan, imports int) (*fakeState, *Snapshot, string, error) {
 		dir := t.TempDir()
 		tf := &fakeState{imports: imports, plan: plan}
@@ -199,7 +199,7 @@ func TestBuildSnapshot(t *testing.T) {
 // Prepare edits the copy once it is initialised, and before it is planned;
 // if it fails, nothing is planned or applied.
 func TestBuildSnapshotPreparesTheCopy(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	privateTempDir(t)
 	var order []string
 	tf := &orderedState{fakeState: fakeState{imports: 1, plan: importPlan("aws_s3_bucket.a")}, order: &order}
 	build := SnapshotBuild{
@@ -313,7 +313,7 @@ func (v *validatingState) PlanJSON(ctx context.Context, w io.Writer, opts ...tfe
 }
 
 func TestBuildSnapshotIgnoresOnlyWhatTheConfigurationSetsWhereAllFails(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	privateTempDir(t)
 	dir := t.TempDir()
 	tf := &validatingState{fakeState: fakeState{imports: 2, plan: importPlan("aws_s3_bucket.a", "azurerm_postgresql_flexible_server.db")}, dir: dir, rejected: "azurerm_postgresql_flexible_server.db"}
 	build := SnapshotBuild{
@@ -426,7 +426,7 @@ func (d *defaultingState) ShowPlanFile(context.Context, string, ...tfexec.ShowOp
 }
 
 func TestBuildSnapshotIgnoresWhatTheProviderDefaults(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	privateTempDir(t)
 	dir := t.TempDir()
 	tf := &defaultingState{
 		fakeState: fakeState{imports: 1},
