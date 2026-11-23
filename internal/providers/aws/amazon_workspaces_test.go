@@ -49,7 +49,7 @@ func recordWorkspacesAPI(t *testing.T, failing string) func(apiCall) string {
 // left out.
 func TestRecordWorkspacesListsDirectoriesWorkspacesAndIPGroups(t *testing.T) {
 	t.Parallel()
-	ctx := useFakeAPI(t, recordWorkspacesAPI(t, ""))
+	ctx := useFakeCBOR(t, recordWorkspacesAPI(t, ""))
 	g := &WorkspacesLister{}
 
 	resources, err := listChecked(ctx, t, g, harvest.Settings{})
@@ -73,7 +73,7 @@ func TestRecordWorkspacesReturnsErrors(t *testing.T) {
 	t.Parallel()
 	for _, failing := range []string{"DescribeWorkspaceDirectories", "DescribeWorkspaces", "DescribeIpGroups"} {
 		t.Run(failing, func(t *testing.T) {
-			ctx := useFakeAPI(t, recordWorkspacesAPI(t, failing))
+			ctx := useFakeCBOR(t, recordWorkspacesAPI(t, failing))
 			g := &WorkspacesLister{}
 
 			assertRecordedError(t, listError(ctx, g), "AccessDeniedException")

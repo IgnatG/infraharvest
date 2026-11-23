@@ -16,7 +16,7 @@ const recordCodePipelineWebhook = "arn:aws:codepipeline:us-east-1:123456789012:w
 // pages.
 func TestRecordCodePipelineListsPipelinesAndWebhooks(t *testing.T) {
 	t.Parallel()
-	ctx := useFakeAPI(t, func(call apiCall) string {
+	ctx := useFakeCBOR(t, func(call apiCall) string {
 		switch call.Op {
 		case "ListPipelines":
 			if recordSecondPage(call) {
@@ -52,7 +52,7 @@ func TestRecordCodePipelineReturnsErrors(t *testing.T) {
 	t.Parallel()
 	for _, failing := range []string{"ListPipelines", "ListWebhooks"} {
 		t.Run(failing, func(t *testing.T) {
-			ctx := useFakeAPI(t, func(call apiCall) string {
+			ctx := useFakeCBOR(t, func(call apiCall) string {
 				switch call.Op {
 				case failing:
 					return recordJSONError("AccessDeniedException")
