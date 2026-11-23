@@ -66,14 +66,21 @@ func readDrift(out string) (*driftRead, []byte, error) {
 }
 
 // buildDriftRun is the run document of the drift run d reports: ok if it
-// checked every root, partial if it couldn't check some, failed if it
-// couldn't check any. Drift found in the cloud isn't a failure of the run.
+// checked every root, partial if it couldn't check some, or if an accepted
+// change was rejected, so that nothing was written for it (check_failed, as
+// the step exits 1 for it), failed if it couldn't check any. Drift found in
+// the cloud isn't a failure of the run.
 func buildDriftRun(d *driftRead, runID string, started, finished time.Time) *driftRunDoc {
 	doc := &driftRunDoc{Schema: schemaRun, RunID: runID, Command: CommandDrift, Outcome: outcomeOK}
-	var failed int
+	var failed, rejected int
 	for _, r := range d.Roots {
 		if r.Error != "" {
 			failed++
+		}
+	}
+	for _, c := range d.Changes {
+		if c.Outcome == report.DriftRejectedByPlan || c.Outcome == report.DriftRejectedByCheck {
+			rejected++
 		}
 	}
 	if failed > 0 {
@@ -82,6 +89,12 @@ func buildDriftRun(d *driftRead, runID string, started, finished time.Time) *dri
 		if failed == len(d.Roots) {
 			doc.Outcome = outcomeFailed
 		}
+	}
+	if rejected > 0 {
+		if doc.Outcome == outcomeOK {
+			doc.Outcome = outcomePartial
+		}
+		doc.FailureCodes = append(doc.FailureCodes, failCheck)
 	}
 	if !started.IsZero() {
 		doc.StartedAt = formatTime(started)

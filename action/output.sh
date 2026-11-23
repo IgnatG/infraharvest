@@ -95,3 +95,14 @@ commands_on() {
 unlinked() {
   [[ -f "$1" && ! -L "$1" ]] && ! linked "$1"
 }
+
+# discard <file>: removes file before a step that writes it runs, such as the
+# report a repository committed in an earlier run, so that what is there
+# afterwards is what the step wrote, and a step that failed before it wrote
+# one leaves none for the Control plane step to send as its own. Not through
+# a link the repository commits (see linked): it leaves such a file alone,
+# and unlinked refuses it later.
+discard() {
+  if linked "$1"; then return 0; fi
+  rm -f -- "$1" || annotation warning "couldn't remove $1 before the step ran"
+}

@@ -37,7 +37,11 @@ on:
         type: string
         required: false
 
-# One run of a repository at a time; a second one waits.
+# One run of a repository at a time. GitHub keeps one running and one pending
+# run per group, and a newer pending run replaces the older pending one, so a
+# control plane that dispatches while one is pending loses that request: its
+# request-id never comes back. Dispatch the next request after the last run
+# finished.
 concurrency:
   group: infraharvest
   cancel-in-progress: false
@@ -114,11 +118,23 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Find the control plane's files
         id: files
+        env:
+          COMMAND: ${{ inputs.command }}
         run: |
           dir=.infraharvest-inputs
+          # The files are read and written by infraharvest: not through a link
+          # the branch committed.
+          for file in selection.yaml drift.yaml; do
+            if [[ -L "$dir/$file" ]]; then
+              echo "::error::$file on the branch is a symbolic link"
+              exit 1
+            fi
+          done
           selection="" decisions=""
           if [[ -f "$dir/selection.yaml" ]]; then selection="$dir/selection.yaml"; fi
-          if [[ -f "$dir/drift.yaml" ]]; then decisions="$dir/drift.yaml"; fi
+          # Only a drift run takes decisions: an import with drift off and
+          # drift-decisions set fails the action's input check.
+          if [[ "$COMMAND" == drift && -f "$dir/drift.yaml" ]]; then decisions="$dir/drift.yaml"; fi
           echo "selection=$selection" >> "$GITHUB_OUTPUT"
           echo "decisions=$decisions" >> "$GITHUB_OUTPUT"
           # A drift run decides by the control plane's decisions when it sent

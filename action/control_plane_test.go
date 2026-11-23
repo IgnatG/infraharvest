@@ -830,9 +830,9 @@ func TestUploadPassesTheImportTimes(t *testing.T) {
 	if len(exports) != 4 {
 		t.Fatalf("exports: %q", exports)
 	}
-	// The run has both. The OCSF inventory has the finish, which is the time
-	// of its events, and not the start; the gate and the graph have no time.
-	for i, want := range [][2]bool{{false, true}, {true, true}, {false, false}, {false, false}} {
+	// The run has both. The OCSF inventory and the graph have the finish,
+	// which is their generated_at, and not the start; the gate has no time.
+	for i, want := range [][2]bool{{false, true}, {true, true}, {false, false}, {false, true}} {
 		if got := strings.Contains(exports[i], started); got != want[0] {
 			t.Errorf("export %d ran as %q, start wanted: %v", i, exports[i], want[0])
 		}
@@ -870,10 +870,10 @@ func TestUploadOfADriftCheckSendsTheRunAndTheSummary(t *testing.T) {
 		!strings.Contains(got[1], "--schema=drift-summary") {
 		t.Fatalf("exports: %q", got)
 	}
-	// The drift check's own times go to its run document, not to the
+	// The drift check's own times go to its run document, its finish to the
 	// summary, and the tag flags are the inventory's.
 	if !strings.Contains(got[0], "--started-at=2026-11-03T10:00:00Z --finished-at=2026-11-03T10:02:00Z") ||
-		strings.Contains(got[1], "--started-at") || strings.Contains(got[1], "--finished-at") || strings.Contains(res.args, "--drop-tags") {
+		strings.Contains(got[1], "--started-at") || !strings.Contains(got[1], "--finished-at=2026-11-03T10:02:00Z") || strings.Contains(res.args, "--drop-tags") {
 		t.Errorf("exports ran as %q", res.args)
 	}
 	for _, doc := range []string{"run", "drift-summary"} {
@@ -945,6 +945,32 @@ func TestUploadOfAnImportDoesNotSendADriftSummary(t *testing.T) {
 	}
 	if n := len(exports(res)); n != 4 || cp.count("/api/v1/ingest/drift-summary") != 0 {
 		t.Errorf("%d exports, %d drift summaries", n, cp.count("/api/v1/ingest/drift-summary"))
+	}
+}
+
+// The graph's and the drift summary's generated_at are the finish of the run
+// they are of, as the inventory's is, so that sending the same run again
+// changes none of them.
+func TestUploadGivesTheGraphAndTheDriftSummaryTheirFinish(t *testing.T) {
+	cp := newControlPlane(t)
+	res := uploadIn(t, cp, map[string]string{
+		"DRIFT": "accept", "DRIFT_OUTCOME": "success",
+		"STARTED_AT": "2026-11-03T09:30:00Z", "FINISHED_AT": "2026-11-03T09:37:00Z",
+		"DRIFT_STARTED_AT": "2026-11-03T09:00:00Z", "DRIFT_FINISHED_AT": "2026-11-03T09:05:00Z",
+	}, layout{report: true, drift: true})
+	if res.err != nil {
+		t.Fatalf("upload failed: %v\n%s", res.err, res.output)
+	}
+	got := exports(res)
+	if len(got) != 5 {
+		t.Fatalf("exports: %q", got)
+	}
+	graph, summary := got[3], got[4]
+	if !strings.Contains(graph, "--schema=graph ") || !strings.Contains(graph, "--finished-at=2026-11-03T09:37:00Z") || strings.Contains(graph, "--started-at") {
+		t.Errorf("graph export ran as %q, want the import's finish only", graph)
+	}
+	if !strings.Contains(summary, "--schema=drift-summary ") || !strings.Contains(summary, "--finished-at=2026-11-03T09:05:00Z") || strings.Contains(summary, "--started-at") {
+		t.Errorf("drift summary export ran as %q, want the drift check's finish only", summary)
 	}
 }
 

@@ -272,7 +272,9 @@ upload() {
 
   # The import can have failed before it wrote a report, and the drift check
   # before it wrote drift.json: nothing of that to send, and the step's own
-  # failure is the one to show.
+  # failure is the one to show. The steps remove the file they write before
+  # they run (discard in output.sh), so what is there is what this run wrote,
+  # never one an earlier run committed.
   if [[ "$import_ran" == true ]]; then
     if unlinked "$report"; then
       send_import=true
@@ -343,16 +345,17 @@ upload() {
 
   # The report holds no times: the import's own start and finish go to the
   # run (started_at, finished_at), and the finish to the OCSF inventory (the
-  # time of its events), so that sending the same run again changes neither.
+  # time of its events) and the graph, so that sending the same run again
+  # changes none of them.
   # The start and finish of a discover or verify run go to its run document
   # the same way. A drift check's own start and finish go to its run
-  # document.
+  # document, and its finish to the drift summary.
   local times=() finish=()
   [[ -n "${STARTED_AT-}" ]] && times+=("--started-at=$STARTED_AT")
   [[ -n "${FINISHED_AT-}" ]] && times+=("--finished-at=$FINISHED_AT") && finish=("--finished-at=$FINISHED_AT")
-  local drift_times=()
+  local drift_times=() drift_finish=()
   [[ -n "${DRIFT_STARTED_AT-}" ]] && drift_times+=("--started-at=$DRIFT_STARTED_AT")
-  [[ -n "${DRIFT_FINISHED_AT-}" ]] && drift_times+=("--finished-at=$DRIFT_FINISHED_AT")
+  [[ -n "${DRIFT_FINISHED_AT-}" ]] && drift_times+=("--finished-at=$DRIFT_FINISHED_AT") && drift_finish=("--finished-at=$DRIFT_FINISHED_AT")
 
   # With an import, the run document is the import's (export's default when
   # both reports are there); without one, it is the drift check's, which
@@ -400,7 +403,15 @@ upload() {
         if [[ "$send_verify" == true ]]; then flags=(--command=verify); fi
         ;;
       graph | drift-summary)
-        if [[ "$hash_ids" == true ]]; then flags=(--hash-ids); fi
+        # The graph's generated_at is the import's finish and the drift
+        # summary's the drift check's, as the inventory's is, so that
+        # exporting the same run again gives the same document.
+        if [[ "$doc" == graph ]]; then
+          flags=(${finish[@]+"${finish[@]}"})
+        else
+          flags=(${drift_finish[@]+"${drift_finish[@]}"})
+        fi
+        if [[ "$hash_ids" == true ]]; then flags+=(--hash-ids); fi
         if [[ "$drop_addresses" == true ]]; then flags+=(--drop-addresses); fi
         ;;
     esac
