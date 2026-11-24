@@ -21,6 +21,9 @@ func TestRequiredVersionAndProviderConstraint(t *testing.T) {
 	if got, want := ProviderConstraint(version.Must(version.NewVersion("6.67.2"))), "~> 6.67"; got != want {
 		t.Errorf("ProviderConstraint: got %q, want %q", got, want)
 	}
+	if got, want := PatchConstraint(version.Must(version.NewVersion("6.73.0"))), "~> 6.73.0"; got != want {
+		t.Errorf("PatchConstraint: got %q, want %q", got, want)
+	}
 }
 
 func TestLowerBound(t *testing.T) {

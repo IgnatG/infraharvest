@@ -63,22 +63,36 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 		logging.Warnf("%s %s: not called: it accepts %s %s, and the newest release is %s; its resources stay in the root", c.module, c.version, p.Source, c.constraint, latest)
 	}
 	chosen, held := latest, ""
-	if len(constraints) > 0 {
-		all := make([]goversion.Constraints, len(constraints))
-		for i, c := range constraints {
-			all[i] = c.constraint
-		}
+	all := make([]goversion.Constraints, 0, len(constraints)+1)
+	for _, c := range constraints {
+		all = append(all, c.constraint)
+	}
+	limit, capped := capOf(source)
+	capped = capped && limit.excludes(latest)
+	if capped {
+		all = append(all, limit.constraint())
+	}
+	if len(all) > 0 {
 		v, err := versions.ProviderVersion(ctx, client, registryURL, source, all)
 		switch {
 		case err != nil:
 			// The modules' calls then fail their plans and are declined.
 			logging.Warnf("%s: %v; pinning the newest release, %s", p.Source, err, latest)
+			capped = false
 		case v.LessThan(latest):
 			chosen, held = v, heldBack(latest, constraints)
+			if capped {
+				held = strings.TrimPrefix(held+"; ", "; ") + p.Source + " " + limit.reason
+			}
 			logging.Infof("%s: pinning %s: %s", p.Source, v, held)
 		}
 	}
 	p.Version = rootfile.ProviderConstraint(chosen)
+	if capped {
+		// ~> 6.73 would let terraform init install the release the cap
+		// keeps out: pin the patch releases of the chosen minor only.
+		p.Version = rootfile.PatchConstraint(chosen)
+	}
 	providers, err := rootfile.ProvidersFile(p)
 	if err != nil {
 		return nil, err
