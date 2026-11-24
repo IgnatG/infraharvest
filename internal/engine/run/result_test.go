@@ -23,3 +23,21 @@ func TestResultWith(t *testing.T) {
 		t.Error("without an earlier result: want what was added")
 	}
 }
+
+// The cloud IDs of a root grown by added are both results', added's
+// winning, and the earlier result's map is left as it was.
+func TestResultWithCloudIDs(t *testing.T) {
+	t.Parallel()
+	previous := &Result{CloudIDs: map[string]string{"aws_vpc.main": "arn:aws:ec2:eu-west-2:1:vpc/vpc-1", "aws_s3_bucket.logs": "arn:aws:s3:::old"}}
+	added := &Result{CloudIDs: map[string]string{"aws_s3_bucket.logs": "arn:aws:s3:::logs"}}
+	got := previous.With(added).CloudIDs
+	if len(got) != 2 || got["aws_s3_bucket.logs"] != "arn:aws:s3:::logs" || got["aws_vpc.main"] == "" {
+		t.Errorf("got %v", got)
+	}
+	if previous.CloudIDs["aws_s3_bucket.logs"] != "arn:aws:s3:::old" {
+		t.Error("the earlier result's cloud IDs changed")
+	}
+	if ids := (&Result{}).With(&Result{}).CloudIDs; ids != nil {
+		t.Errorf("no cloud IDs: got %v", ids)
+	}
+}

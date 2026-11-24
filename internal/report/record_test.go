@@ -507,3 +507,27 @@ func TestSetExitCode(t *testing.T) {
 		t.Errorf("report.json exit code %d, want 2", read.ExitCode)
 	}
 }
+
+// A resource the gate's plan knows the cloud ID of keeps it, unless it is
+// the import ID itself.
+func TestAddDirectoryCloudIDs(t *testing.T) {
+	t.Parallel()
+	r := &Report{}
+	imported := []rootfile.Import{
+		{Type: "aws_s3_bucket", Name: "logs", ID: "logs"},
+		{Type: "azurerm_resource_group", Name: "rg", ID: "/subscriptions/0/resourceGroups/rg"},
+		{Type: "aws_vpc", Name: "main", ID: "vpc-1"},
+	}
+	r.AddDirectory("aws", "", &engine.Result{Imported: imported, CloudIDs: map[string]string{
+		"aws_s3_bucket.logs":        "arn:aws:s3:::logs",
+		"azurerm_resource_group.rg": "/subscriptions/0/resourceGroups/rg",
+	}})
+	want := []Resource{
+		{Address: "aws_s3_bucket.logs", ID: "logs", CloudID: "arn:aws:s3:::logs"},
+		{Address: "azurerm_resource_group.rg", ID: "/subscriptions/0/resourceGroups/rg"},
+		{Address: "aws_vpc.main", ID: "vpc-1"},
+	}
+	if got := r.Directories[0].Imported; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+}

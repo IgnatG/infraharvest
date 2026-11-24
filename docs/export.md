@@ -86,7 +86,7 @@ Each event is of the class Cloud Resources Inventory Info (`class_uid` 5023, cat
 
 | Field | Value |
 |---|---|
-| `type`, `uid`, `name` | The resource's type, ID and name, as the inventory has them; `--hash-ids` hashes `uid` and `name` with the same key as the inventory's, so the two documents join on type and ID. |
+| `type`, `uid`, `uid_alt`, `name` | The resource's type, ID and name, as the inventory has them. For a resource the import wrote, where the gate's plan knows what the cloud itself calls it and that differs from the import ID, `uid` is that canonical ID and `uid_alt` the import ID: the ARN on AWS (an S3 bucket imports by its name, but the cloud and scanners such as Prowler name it by ARN), the Azure Resource Manager ID on Azure. Otherwise `uid` is the import ID and there is no `uid_alt`. `--hash-ids` hashes `uid`, `uid_alt` and `name` with the same key as the inventory's, so the two documents join on type and the import ID (`uid_alt` where there is one, else `uid`). |
 | `region` | The region of the scope, if it has one. |
 | `tags` | The inventory's tags, as OCSF's name and value objects, sorted by name, after the same redaction: tags that look like secrets, `--drop-tag` and `--drop-tags`. |
 | `labels` | `status:` and `status_basis:` with the inventory's `status` and `status_basis`, and `owner:` with its `owner`, if it has one. OCSF's `owner` is a user, so who manages a resource is a label. As in the inventory, the status is what [`discover`](reference/cli.md#infraharvest-discover) found: a resource the import has since taken over is still `unmanaged` there, and its `iac` says where it is now. |

@@ -308,8 +308,11 @@ func scopeParts(scope string) (account, region string) {
 // inventories tell of it.
 type entry struct {
 	scope, typ, id string
-	name           string
-	tags           map[string]string
+	// cloudID is what the cloud itself calls it, where the import's gate
+	// knew (see report.Resource.CloudID), or "".
+	cloudID string
+	name    string
+	tags    map[string]string
 	// owner is what manages it, one of the report package's Owner
 	// constants, or "".
 	owner string
@@ -353,6 +356,9 @@ func entries(r *report.Report, listed []listedResource) []*entry {
 			e := add(d.Scope, engine.AddressType(res.Address), res.ID, "")
 			if e.address == "" {
 				e.address, e.dir = res.Address, d.Path
+			}
+			if e.cloudID == "" {
+				e.cloudID = res.CloudID
 			}
 			e.outcome = importWritten
 		}
