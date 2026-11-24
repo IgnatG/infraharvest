@@ -359,6 +359,10 @@ type Directory struct {
 type Resource struct {
 	Address string `json:"address"`
 	ID      string `json:"id"`
+	// CloudID is what the cloud itself calls the resource, where the
+	// import gate's plan knows it: an AWS ARN or an Azure Resource Manager
+	// ID. Empty otherwise, and for an ID equal to the import ID.
+	CloudID string `json:"cloud_id,omitempty"`
 }
 
 // LeftOut is a resource Terraform couldn't import or generate valid

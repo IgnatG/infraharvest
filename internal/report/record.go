@@ -158,7 +158,11 @@ func (r *Report) AddDirectory(path, scope string, result *engine.Result) {
 		if !ok {
 			address = imp.Type + "." + imp.Name
 		}
-		d.Imported = append(d.Imported, Resource{Address: address, ID: imp.ID})
+		res := Resource{Address: address, ID: imp.ID}
+		if id := result.CloudIDs[address]; id != imp.ID {
+			res.CloudID = id
+		}
+		d.Imported = append(d.Imported, res)
 	}
 	for _, rej := range result.Rejected {
 		d.LeftOut = append(d.LeftOut, LeftOut{Address: rej.Address, ID: rej.ID, Errors: rej.Errors})

@@ -49,6 +49,7 @@ directories[].checks[].skipped boolean omitempty
 directories[].error string omitempty
 directories[].imported array of object
 directories[].imported[].address string
+directories[].imported[].cloud_id string omitempty
 directories[].imported[].id string
 directories[].left_out array of object omitempty
 directories[].left_out[].address string

@@ -36,7 +36,8 @@ func Verify(ctx context.Context, newTF gate.NewRunner, dir string, opts Options)
 	if err := tfrun.Init(ctx, tf, tfexec.Backend(false)); err != nil {
 		return nil, fmt.Errorf("terraform init: %w", err)
 	}
-	return runGate(ctx, tf, copied, nil, opts, nil)
+	checks, _, err := runGate(ctx, tf, copied, nil, opts, nil)
+	return checks, err
 }
 
 // runGate runs the import gate on the directory as Generate leaves it:
@@ -47,21 +48,25 @@ func Verify(ctx context.Context, newTF gate.NewRunner, dir string, opts Options)
 // arguments opts.StateOnly names per type, which providers keep only in
 // state and import can't set. known, if set, has the values of the
 // secrets Generate found (see secret.Values).
-func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []secret.Variable, opts Options, known *secret.Values) (gate.Gate, error) {
+// It also returns the canonical cloud ID of each resource the plan imports,
+// by address (see gate.CloudIDs), read from the same plan.
+func runGate(ctx context.Context, tf tfrun.Terraform, dir string, secrets []secret.Variable, opts Options, known *secret.Values) (gate.Gate, map[string]string, error) {
 	expected, err := countImportBlocks(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	var cloudIDs map[string]string
 	policy := FullGate(opts)
 	policy.Plan = func() (gate.Check, []string, error) {
 		p, _, diags, err := tfrun.ShowPlan(ctx, tf, append(secret.Placeholders(secrets), known.Options()...))
 		if err != nil {
 			return gate.Check{}, nil, err
 		}
+		cloudIDs = gate.CloudIDs(p)
 		return gate.PlanCheck(p, diags, secrets, opts.StateOnly, expected), append(secret.InPlan(p), secret.KnownValues(secrets)...), nil
 	}
 	checks, _, err := policy.Run(ctx, tf, dir)
-	return checks, err
+	return checks, cloudIDs, err
 }
 
 // countImportBlocks counts the import blocks in dir's configuration: how

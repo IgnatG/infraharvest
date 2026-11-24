@@ -660,3 +660,28 @@ func TestOCSFInventoryRedaction(t *testing.T) {
 		t.Errorf("both: %+v", both.Redaction)
 	}
 }
+
+// A resource with a cloud ID is named by it, with its import ID as the
+// alternative; the others keep their import ID and have no alternative.
+func TestOCSFInventoryCloudID(t *testing.T) {
+	t.Parallel()
+	const arn = "arn:aws:s3:::arn-bucket"
+	out := writeOCSFOut(t, ocsfDir, report.Resource{Address: "aws_s3_bucket.arn", ID: "arn-bucket", CloudID: arn})
+	doc := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory}))
+	if res := eventOf(t, doc, arn).Resources[0]; res.UIDAlt != "arn-bucket" {
+		t.Errorf("uid_alt = %q, want the import ID", res.UIDAlt)
+	}
+	if res := eventOf(t, doc, "logs-bucket").Resources[0]; res.UIDAlt != "" {
+		t.Errorf("a resource without a cloud ID has uid_alt %q", res.UIDAlt)
+	}
+
+	key := []byte("0123456789abcdef-key-a")
+	red := newRedactor(nil, false, key)
+	hashed := decodeOCSF(t, build(t, Options{Out: out, Document: DocOCSFInventory, HashKey: key}))
+	if res := eventOf(t, hashed, red.hash(arn)).Resources[0]; res.UIDAlt != red.hash("arn-bucket") {
+		t.Errorf("uid_alt not hashed: %q", res.UIDAlt)
+	}
+	if content := string(build(t, Options{Out: out, Document: DocOCSFInventory, HashKey: key})); strings.Contains(content, "arn-bucket") {
+		t.Errorf("the hashed document holds the ARN or the import ID:\n%s", content)
+	}
+}

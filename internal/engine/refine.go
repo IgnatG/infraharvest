@@ -71,10 +71,13 @@ func refine(ctx context.Context, tf tfrun.Terraform, dir string, result *Result,
 // known, if set, has the values of the secrets Generate found (see
 // secret.Values).
 func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Result, opts Options, known *secret.Values, before map[string][]byte, refineWarnings int) error {
-	checks, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
+	checks, cloudIDs, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err
 	}
+	// The IDs are keyed by address, which the refinements may change: they
+	// come from the gate run of the root that is kept.
+	result.CloudIDs = cloudIDs
 	if before == nil || checks.Passed() {
 		result.Gate = checks
 		return nil
@@ -86,7 +89,7 @@ func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Re
 	if err := restoreRoot(dir, before); err != nil {
 		return err
 	}
-	without, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
+	without, withoutIDs, err := runGate(ctx, tf, dir, result.Secrets, opts, known)
 	if err != nil {
 		return err
 	}
@@ -94,6 +97,7 @@ func gateRefined(ctx context.Context, tf tfrun.Terraform, dir string, result *Re
 		result.Gate = checks
 		return restoreRoot(dir, refined)
 	}
+	result.CloudIDs = withoutIDs
 	result.Warnings = append(result.Warnings[:refineWarnings], refineFailed+"made its gate fail ("+failedChecks(checks)+"), so they were rolled back")
 	result.Gate = without
 	return nil

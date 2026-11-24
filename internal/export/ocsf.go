@@ -119,8 +119,12 @@ const (
 var importOutcomes = map[string]int{importWritten: 1, importLeftOut: 2, importExcluded: 3, importNotImported: 4}
 
 type ocsfResource struct {
-	Type   string     `json:"type"`
+	Type string `json:"type"`
+	// UID is what the cloud itself calls the resource where the import
+	// knew it, such as an ARN, and its import ID otherwise; UIDAlt is then
+	// the import ID.
 	UID    string     `json:"uid"`
+	UIDAlt string     `json:"uid_alt,omitempty"`
 	Name   string     `json:"name,omitempty"`
 	Region string     `json:"region,omitempty"`
 	Labels []string   `json:"labels,omitempty"`
@@ -300,7 +304,7 @@ func buildOCSFInventory(r *report.Report, opts Options, listed []listedResource,
 	doc := &ocsfDoc{Schema: schemaOCSFInventory, RunID: runID, OCSFVersion: ocsfVersion, Events: []ocsfEvent{}}
 	tool := toolOf(r.Engine)
 	for _, e := range list {
-		if secret.CredentialFormat(e.id) != "" {
+		if secret.CredentialFormat(e.id) != "" || secret.CredentialFormat(e.cloudID) != "" {
 			return nil, fmt.Errorf("a %s has an ID that looks like a credential: nothing is written", e.typ)
 		}
 		account, region := scopeParts(e.scope)
@@ -311,6 +315,9 @@ func buildOCSFInventory(r *report.Report, opts Options, listed []listedResource,
 			Region: region,
 			Labels: []string{"status:" + status, "status_basis:" + basis},
 			Tags:   ocsfTags(red.tags(e.tags, e.id, e.name)),
+		}
+		if e.cloudID != "" {
+			res.UID, res.UIDAlt = red.hash(e.cloudID), red.hash(e.id)
 		}
 		if e.name != "" && secret.CredentialFormat(e.name) == "" {
 			res.Name = red.hash(e.name)

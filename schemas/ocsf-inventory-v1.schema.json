@@ -103,6 +103,7 @@
       "properties": {
         "type": {"$ref": "#/$defs/text"},
         "uid": {"$ref": "#/$defs/text"},
+        "uid_alt": {"$ref": "#/$defs/text"},
         "name": {"$ref": "#/$defs/text"},
         "region": {"$ref": "#/$defs/text"},
         "labels": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},

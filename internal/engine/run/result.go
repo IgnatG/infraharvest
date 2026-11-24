@@ -4,6 +4,7 @@
 package run
 
 import (
+	"maps"
 	"slices"
 	"sort"
 
@@ -66,6 +67,11 @@ type Result struct {
 	// as Generate finally wrote them, module calls included, so that a
 	// later run can tell which resources it would give other addresses.
 	Addresses []Managed `json:",omitempty"`
+	// CloudIDs are the canonical cloud IDs of the resources the gate's plan
+	// imports, by address (see gate.CloudIDs): an AWS ARN or an Azure
+	// Resource Manager ID, where the plan knows one. A consumer falls back
+	// to the import ID for a resource without one.
+	CloudIDs map[string]string `json:",omitempty"`
 	// Moves are the moved blocks of moves.tf, for a root generated again
 	// whose resources have other addresses than before (see
 	// Options.Previous).
@@ -129,12 +135,27 @@ func (r *Result) With(added *Result) *Result {
 		Modules:   append(slices.Clone(r.Modules), added.Modules...),
 		Warnings:  append(slices.Clone(r.Warnings), added.Warnings...),
 		Gate:      added.Gate,
+		CloudIDs:  withCloudIDs(r.CloudIDs, added.CloudIDs),
 		Files:     files,
 		Addresses: addresses,
 		Moves:     r.Moves,
 		Removed:   r.Removed,
 		Arrived:   r.Arrived,
 	}
+}
+
+// withCloudIDs returns the cloud IDs of a root r's resources and those
+// added to it: added's, from the gate run on the whole root, win.
+func withCloudIDs(r, added map[string]string) map[string]string {
+	if len(r) == 0 && len(added) == 0 {
+		return nil
+	}
+	ids := maps.Clone(r)
+	if ids == nil {
+		ids = map[string]string{}
+	}
+	maps.Copy(ids, added)
+	return ids
 }
 
 // OwnedResource is a resource Generate left out because its tags say
