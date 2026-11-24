@@ -271,6 +271,13 @@ func ProviderConstraint(v *version.Version) string {
 	return fmt.Sprintf("~> %d.%d", s[0], s[1])
 }
 
+// PatchConstraint pins a provider to v's patch releases: "~> 6.73.0"
+// accepts 6.73.0 and later 6.73.x releases, never 6.74.
+func PatchConstraint(v *version.Version) string {
+	s := v.Segments()
+	return fmt.Sprintf("~> %d.%d.%d", s[0], s[1], s[2])
+}
+
 // LowerBound renders a version constraint as its lower bound only, as
 // ">= 6.14": the highest version its =, >=, ~> and > parts require. It
 // fails when the constraint doesn't parse or has no such part.
