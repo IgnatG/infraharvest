@@ -85,3 +85,4 @@ nav:
       - Services: reference/services.md
   - Contributing:
       - Development: development.md
+      - Go packages: packages.md
