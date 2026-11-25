@@ -395,6 +395,14 @@ gcloud config set project <first-project-id>
 
 Run the printed commands where `gh` is signed in as an administrator of the repository, as for the first project. A later change to the bootstrap is applied in each workspace, with its own variables and its project set.
 
+## Infra Ontology trial
+
+The `ontology-dogfood` workflow ([`ontology-dogfood.yml`](../.github/workflows/ontology-dogfood.yml)) builds a snapshot of the Infraweaver proxy's Terraform state with [infra-ontology](https://github.com/hibiscus-ctrl/infra-ontology), checks it with `snapshot verify`, writes the counts of nodes and edges by kind and the sources' status to the run's summary, and keeps the snapshot as an artifact for 7 days. It reads AWS only for now. It is started by hand (`gh workflow run ontology-dogfood.yml`), from a branch of this repository, once the repository admin approves its job: it uses the `sandbox` environment.
+
+It only reads: the build lists and reads the one state object it is given and takes no lock, and nothing is planned, applied, written or deleted. The sandbox estates keep no state between runs and the sandbox roles cannot read a state store (the AWS read-only role denies `s3:GetObject`), so it signs in to the read-only state role of the proxy's bootstrap stack, which trusts the `sandbox` environment's subject and can read that one object and nothing else. Set these variables of the `sandbox` environment: `ONTOLOGY_AWS_ROLE_ARN` (the stack's `ontology_read_role_arn` output), `ONTOLOGY_AWS_STATE` (`s3://<bucket>/<key>?workspace_key_prefix=<first segment of the key>`; the query leaves out the S3 backend's other workspaces, whose listing the role does not allow) and `ONTOLOGY_AWS_REGION` (the proxy's region).
+
+The artifacts of a public repository are public, so the snapshot is built with `--hash-ids`, under a key made for the run and never uploaded or logged: names, IDs, ARNs, addresses and state locations are hashed, while kinds, types, clouds, accounts, regions, counts and times stay readable.
+
 ## Cleaning up
 
 The sandboxes cost money only while their estates exist, so what a run creates is deleted in layers, each catching what the one before missed. Every layer deletes only what carries a sandbox tag or label (`infraharvest-sandbox`, or in AWS `infraharvest-sandbox-run`) or an `ih-sbx-` (`ih_sbx_`) name, or, in Azure, what is in the estate's own resource group (tagged `purpose=infraharvest-sandbox-estate`, which holds nothing between runs); anything else in the accounts is left alone.
