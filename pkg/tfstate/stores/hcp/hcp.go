@@ -25,7 +25,7 @@ import (
 
 	svchost "github.com/hashicorp/terraform-svchost"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
 
 // Store reads the current state of HCP Terraform or Terraform Enterprise
@@ -69,7 +69,7 @@ const (
 // optional port, as Terraform takes it; it is normalised as Terraform
 // does (lower case, Punycode, no :443), so that it gets the token
 // Terraform would send to it and no other.
-func New(_ context.Context, host string) (managed.ObjectStore, error) {
+func New(_ context.Context, host string) (tfstate.ObjectStore, error) {
 	hostname, err := svchost.ForComparison(host)
 	if err != nil {
 		return nil, fmt.Errorf("HCP Terraform host %q: %w", host, err)
@@ -225,7 +225,7 @@ func (h *Store) Get(ctx context.Context, organization, workspace string) ([]byte
 }
 
 // Open returns the current state of the organization's workspace to read
-// as it goes (see managed.StreamStore), nil if it has none yet.
+// as it goes (see tfstate.StreamStore), nil if it has none yet.
 func (h *Store) Open(ctx context.Context, organization, workspace string) (io.ReadCloser, error) {
 	u, what, err := h.stateURL(ctx, organization, workspace)
 	if err != nil || u == "" {
@@ -239,7 +239,7 @@ func (h *Store) Open(ctx context.Context, organization, workspace string) (io.Re
 }
 
 // Stores read state as it is decoded.
-var _ managed.StreamStore = (*Store)(nil)
+var _ tfstate.StreamStore = (*Store)(nil)
 
 // stateURL returns the signed URL the workspace's current state downloads
 // from, and what errors call that download, or "" if it has no state.
@@ -306,16 +306,16 @@ func (h *Store) fetch(ctx context.Context, u, what, accept string) ([]byte, erro
 		return nil, err
 	}
 	defer body.Close()
-	content, err := managed.ReadState(body)
+	content, err := tfstate.ReadState(body)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, fmt.Errorf("%s: %w", what, tfstate.WithoutURL(err))
 	}
 	return content, nil
 }
 
 // open asks for u as fetch does, with its retries, and returns the body to
 // read as it goes, which the caller closes. The request's time limit runs
-// until then. Reading it is the caller's to bound (see managed.ParseFrom).
+// until then. Reading it is the caller's to bound (see tfstate.ParseFrom).
 func (h *Store) open(ctx context.Context, u, what, accept string) (io.ReadCloser, error) {
 	wait := h.retryBase
 	if wait == 0 {
@@ -352,7 +352,7 @@ func (h *Store) openOnce(ctx context.Context, u, what, accept string) (body io.R
 	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, -1, fmt.Errorf("%s: %w", what, tfstate.WithoutURL(err))
 	}
 	if sendsToken(h.base, req.URL) {
 		req.Header.Set("Authorization", "Bearer "+h.token)
@@ -360,7 +360,7 @@ func (h *Store) openOnce(ctx context.Context, u, what, accept string) (body io.R
 	req.Header.Set("Accept", accept)
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return nil, -1, fmt.Errorf("%s: %w", what, managed.WithoutURL(err))
+		return nil, -1, fmt.Errorf("%s: %w", what, tfstate.WithoutURL(err))
 	}
 	defer func() {
 		if err != nil {

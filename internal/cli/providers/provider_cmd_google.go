@@ -18,9 +18,9 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/managed/stores/gcs"
 	"github.com/IgnatG/infraharvest/internal/providers/google"
 	"github.com/IgnatG/infraharvest/internal/sentence"
+	"github.com/IgnatG/infraharvest/pkg/tfstate/stores/gcs"
 )
 
 func init() {

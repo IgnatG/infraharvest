@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/managed/stores/hcp"
+	"github.com/IgnatG/infraharvest/pkg/tfstate/stores/hcp"
 )
 
 // compiledStores are the stores of the providers compiled in: each

@@ -16,8 +16,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
-	"github.com/IgnatG/infraharvest/internal/managed/stores/azblob"
 	"github.com/IgnatG/infraharvest/internal/providers/azure"
+	"github.com/IgnatG/infraharvest/pkg/tfstate/stores/azblob"
 )
 
 func init() {
