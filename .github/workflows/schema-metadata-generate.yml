@@ -5,8 +5,10 @@ name: Schema metadata (generate)
 
 # Reads the defaults and the constraints between arguments out of the aws,
 # azurerm and google providers' code, at the releases versions names
-# (name=release, space-separated) or else at each one's newest, which
-# generated roots pin: it checks out each provider, runs
+# (name=release, space-separated) or else at each one's newest release
+# that its import cap allows (internal/importer/provider_caps.json, which
+# the importer reads too), the one generated roots pin: it checks out each
+# provider, runs
 # internal/catalogue/schemameta/gen in it, gzips what it writes, and
 # uploads the files as the artifact schema-metadata, at their paths under
 # internal/catalogue/schemameta, with the NOTICE that names their
@@ -19,7 +21,7 @@ on:
   workflow_call:
     inputs:
       versions:
-        description: Provider releases as name=release, such as aws=6.70.0 (default each provider's newest)
+        description: Provider releases as name=release, such as aws=6.70.0 (default each provider's newest that its import cap allows)
         type: string
         required: false
         default: ""
@@ -53,8 +55,11 @@ jobs:
       - name: Free disk space
         run: .github/scripts/free-disk-space.sh start
       - name: Choose the release
-        # The release versions names, or else the provider's newest, as the
-        # registry reports it: the one generated roots pin.
+        # The release versions names, or else the newest stable release in
+        # the registry's list that the provider's cap in
+        # internal/importer/provider_caps.json allows (below its "below"):
+        # the one generated roots pin. Not the registry's latest, which a
+        # cap can hold the roots back from.
         env:
           PROVIDER: ${{ matrix.provider }}
           VERSIONS: ${{ inputs.versions }}
@@ -66,7 +71,15 @@ jobs:
             fi
           done
           if [ -z "$release" ]; then
-            release=$(curl -sSf --retry 3 "https://registry.terraform.io/v1/providers/hashicorp/$PROVIDER" | jq -r .version)
+            below=$(jq -r --arg source "hashicorp/$PROVIDER" '.[$source].below // empty' internal/importer/provider_caps.json)
+            release=$(curl -sSf --retry 3 "https://registry.terraform.io/v1/providers/hashicorp/$PROVIDER/versions" |
+              jq -r '.versions[].version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' |
+              { cat; [ -z "$below" ] || echo "$below"; } |
+              sort -V -u |
+              { if [ -n "$below" ]; then awk -v below="$below" '$0 == below { print prev } { prev = $0 }'; else tail -n 1; fi; })
+            if [ -n "$below" ]; then
+              echo "$PROVIDER is held below $below"
+            fi
           fi
           if ! [[ "$release" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::release '$release' of $PROVIDER isn't a version such as 6.70.0"

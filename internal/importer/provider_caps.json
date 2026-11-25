@@ -1,0 +1,6 @@
+{
+  "hashicorp/aws": {
+    "below": "6.74.0",
+    "reason": "6.74.0 and later generate configuration with every attribute of the state, which Terraform rejects"
+  }
+}
