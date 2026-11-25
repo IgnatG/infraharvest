@@ -16,7 +16,7 @@ set -euo pipefail
 
 # markdownlint-cli2 reads the rules MegaLinter's markdownlint-cli does
 # (.markdownlint.yaml).
-MARKDOWNLINT_CLI2_VERSION=0.24.1
+MARKDOWNLINT_CLI2_VERSION=0.24.2
 # goimports puts this module's imports in a group of their own, after the
 # third-party ones.
 LOCAL_PREFIX=github.com/IgnatG/infraharvest
