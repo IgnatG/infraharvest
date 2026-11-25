@@ -395,6 +395,14 @@ gcloud config set project <first-project-id>
 
 Run the printed commands where `gh` is signed in as an administrator of the repository, as for the first project. A later change to the bootstrap is applied in each workspace, with its own variables and its project set.
 
+## Infra Ontology trial
+
+The `ontology-dogfood` workflow ([`ontology-dogfood.yml`](../.github/workflows/ontology-dogfood.yml)) builds a snapshot of Terraform state with [infra-ontology](https://github.com/hibiscus-ctrl/infra-ontology), checks it with `snapshot verify`, writes the counts of nodes and edges by kind and the sources' status to the run's summary, and keeps the snapshot as an artifact for 7 days. It is started by hand (`gh workflow run ontology-dogfood.yml -f aws=true`, and `-f azure=true` or `-f google=true` for the others), from a branch of this repository, once the repository admin approves its job: it uses the `sandbox` environment.
+
+It only reads: the build lists and reads the state objects it is given and takes no lock, and nothing is planned, applied, written or deleted. The sandbox estates keep no state between runs (each keeps its state in the runner's temp directory and destroys the estate at the end), and the sandbox roles cannot read a state store (the AWS read-only role denies `s3:GetObject`; the Azure and Google ones hold no data role), so it signs in to roles of its own, made from `permissions/aws-drift`, `permissions/azure-drift` and `permissions/google-drift`, trusting the `sandbox` environment's subject. Set these variables of the environment for the clouds a run asks for: `ONTOLOGY_AWS_ROLE_ARN` and `ONTOLOGY_AWS_STATE` (`s3://bucket/prefix`), `ONTOLOGY_AZURE_CLIENT_ID` and `ONTOLOGY_AZURE_STATE` (`azblob://account/container/prefix`), `ONTOLOGY_GOOGLE_SERVICE_ACCOUNT` and `ONTOLOGY_GOOGLE_STATE` (`gs://bucket/prefix`), with the sandbox runs' `AWS_REGION`, `AZURE_TENANT_ID` and `GOOGLE_WORKLOAD_IDENTITY_PROVIDER`.
+
+The artifacts of a public repository are public, so the snapshot is built with `--hash-ids`, under a key made for the run and never uploaded or logged: names, IDs, ARNs, addresses and state locations are hashed, while kinds, types, clouds, accounts, regions, counts and times stay readable.
+
 ## Cleaning up
 
 The sandboxes cost money only while their estates exist, so what a run creates is deleted in layers, each catching what the one before missed. Every layer deletes only what carries a sandbox tag or label (`infraharvest-sandbox`, or in AWS `infraharvest-sandbox-run`) or an `ih-sbx-` (`ih_sbx_`) name, or, in Azure, what is in the estate's own resource group (tagged `purpose=infraharvest-sandbox-estate`, which holds nothing between runs); anything else in the accounts is left alone.

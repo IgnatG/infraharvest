@@ -1,0 +1,289 @@
+# Copyright 2026 Gabriel Ignat
+# SPDX-License-Identifier: AGPL-3.0-only
+
+# The Infra Ontology trial: builds a snapshot of the sandbox's Terraform
+# state with infra-ontology (https://github.com/hibiscus-ctrl/infra-ontology),
+# checks it, summarises it and keeps it as an artifact. Runs only when
+# started by hand, from a branch of this repository, once the repository
+# admin approves its job: it uses the sandbox environment, as the sandbox
+# runs do.
+#
+# It only reads. The one command that touches a cloud is `snapshot build`,
+# which lists and reads the state objects it is given, takes no lock, and
+# creates, changes and deletes nothing (docs/permissions.md of
+# infra-ontology). No plan, apply or init runs, and infraharvest's own
+# inventory export is not run. The calls it makes:
+#
+#   AWS     s3:ListBucket and s3:GetObject on the state's bucket and prefix
+#           (and kms:Decrypt if the bucket's key encrypts it)
+#   Azure   list and read blobs of the state's container
+#   Google  storage.objects.list and storage.objects.get
+#
+# The sandbox estates keep no state between runs (each keeps its state in
+# the runner's temp directory and destroys the estate at the end), so there
+# is no store here for the sandbox roles to read, and those roles cannot read
+# one: the AWS read-only role denies s3:GetObject, and the Azure and Google
+# ones hold no data role. The run signs in to roles of its own, which the
+# owner makes (permissions/aws-drift, permissions/azure-drift and
+# permissions/google-drift grant exactly the state read), trusting this
+# environment's OpenID Connect subject, and which hold their state locations
+# in these variables of the sandbox environment, for the clouds a run asks
+# for:
+#
+#   AWS     ONTOLOGY_AWS_ROLE_ARN, ONTOLOGY_AWS_STATE (s3://bucket/prefix),
+#           and AWS_REGION, which the sandbox runs have
+#   Azure   ONTOLOGY_AZURE_CLIENT_ID, ONTOLOGY_AZURE_STATE
+#           (azblob://account/container/prefix), and AZURE_TENANT_ID
+#   Google  ONTOLOGY_GOOGLE_SERVICE_ACCOUNT, ONTOLOGY_GOOGLE_STATE
+#           (gs://bucket/prefix), and GOOGLE_WORKLOAD_IDENTITY_PROVIDER
+#
+# The repository is public, so the artifact is too: anyone signed in to
+# GitHub can download it. The snapshot holds no attribute values, but it does
+# hold the names, IDs and ARNs of the estate, so it is built with --hash-ids,
+# under a key made for the run and never written to the artifact, the log or
+# the summary. What stays readable is what the manifest says is not hidden:
+# kinds, types, clouds, accounts, regions, counts and times. The state
+# locations are masked in the log.
+#
+# The build is infra-ontology at one commit (ONTOLOGY_COMMIT), built with the
+# four state-store tags and with the query engine (DuckDB, which needs cgo
+# and the runner's C++ compiler), for the summary's queries. Move the commit
+# by hand to try a newer one.
+name: Ontology dogfood
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws:
+        description: Read the AWS state (ONTOLOGY_AWS_STATE)
+        type: boolean
+        default: false
+      azure:
+        description: Read the Azure state (ONTOLOGY_AZURE_STATE)
+        type: boolean
+        default: false
+      google:
+        description: Read the Google Cloud state (ONTOLOGY_GOOGLE_STATE)
+        type: boolean
+        default: false
+
+permissions: {}
+
+# One run at a time.
+concurrency:
+  group: ontology-dogfood
+  cancel-in-progress: false
+
+env:
+  # The main commit of hibiscus-ctrl/infra-ontology on 2026-11-25.
+  ONTOLOGY_COMMIT: a4c4a159a884ad3233a6a4d7ca92e62ab1f87526
+
+jobs:
+  snapshot:
+    name: snapshot (${{ inputs.aws && 'aws ' || '' }}${{ inputs.azure && 'azure ' || '' }}${{ inputs.google && 'google' || '' }})
+    runs-on: ubuntu-latest
+    environment: sandbox
+    permissions:
+      contents: read
+      id-token: write # OpenID Connect, for the roles
+    timeout-minutes: 45
+    env:
+      USE_AWS: ${{ inputs.aws }}
+      USE_AZURE: ${{ inputs.azure }}
+      USE_GOOGLE: ${{ inputs.google }}
+      STATE_AWS: ${{ vars.ONTOLOGY_AWS_STATE }}
+      STATE_AZURE: ${{ vars.ONTOLOGY_AZURE_STATE }}
+      STATE_GOOGLE: ${{ vars.ONTOLOGY_GOOGLE_STATE }}
+    steps:
+    # Fails at once, rather than at the build, on a cloud asked for whose
+    # role or state location is unset, and keeps the locations out of the
+    # log, which is public.
+    - name: Check the clouds and variables
+      env:
+        AWS_ROLE: ${{ vars.ONTOLOGY_AWS_ROLE_ARN }}
+        AWS_REGION: ${{ vars.AWS_REGION }}
+        AZURE_CLIENT: ${{ vars.ONTOLOGY_AZURE_CLIENT_ID }}
+        AZURE_TENANT: ${{ vars.AZURE_TENANT_ID }}
+        GOOGLE_ACCOUNT: ${{ vars.ONTOLOGY_GOOGLE_SERVICE_ACCOUNT }}
+        GOOGLE_PROVIDER: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+      run: |
+        if [ "$USE_AWS" != true ] && [ "$USE_AZURE" != true ] && [ "$USE_GOOGLE" != true ]; then
+          echo "::error::Choose at least one cloud."
+          exit 1
+        fi
+        missing=()
+        check() { # cloud, state location, scheme, then the variables' names and values
+          local cloud=$1 state=$2 scheme=$3
+          shift 3
+          if [ -n "$state" ]; then
+            echo "::add-mask::$state"
+            case "$state" in
+              "$scheme"://*) ;;
+              *) echo "::error::The $cloud state location is not a $scheme:// one."; exit 1 ;;
+            esac
+          fi
+          while [ "$#" -gt 0 ]; do
+            if [ -z "$2" ]; then
+              missing+=("$1")
+            fi
+            shift 2
+          done
+        }
+        if [ "$USE_AWS" = true ]; then
+          check aws "$STATE_AWS" s3 ONTOLOGY_AWS_STATE "$STATE_AWS" ONTOLOGY_AWS_ROLE_ARN "$AWS_ROLE" AWS_REGION "$AWS_REGION"
+        fi
+        if [ "$USE_AZURE" = true ]; then
+          check azure "$STATE_AZURE" azblob ONTOLOGY_AZURE_STATE "$STATE_AZURE" ONTOLOGY_AZURE_CLIENT_ID "$AZURE_CLIENT" AZURE_TENANT_ID "$AZURE_TENANT"
+        fi
+        if [ "$USE_GOOGLE" = true ]; then
+          check google "$STATE_GOOGLE" gs ONTOLOGY_GOOGLE_STATE "$STATE_GOOGLE" ONTOLOGY_GOOGLE_SERVICE_ACCOUNT "$GOOGLE_ACCOUNT" GOOGLE_WORKLOAD_IDENTITY_PROVIDER "$GOOGLE_PROVIDER"
+        fi
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "::error::The sandbox environment lacks the variables ${missing[*]}. See the header of .github/workflows/ontology-dogfood.yml."
+          exit 1
+        fi
+    - name: Directories
+      run: |
+        {
+          echo "SNAPSHOT_DIR=$RUNNER_TEMP/snapshot"
+          echo "HASH_KEY_FILE=$RUNNER_TEMP/hash-key"
+        } >> "$GITHUB_ENV"
+    - name: Check out the code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+    - name: Install Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version-file: go.mod
+        cache: false
+    # go install name@commit builds that module at that commit, whatever
+    # this checkout's go.mod says.
+    - name: Build infra-ontology
+      timeout-minutes: 20
+      env:
+        CGO_ENABLED: "1"
+        GOBIN: ${{ runner.temp }}/bin
+      run: |
+        go install -tags s3,gcs,azblob,hcp "github.com/hibiscus-ctrl/infra-ontology/cmd/infra-ontology@${ONTOLOGY_COMMIT}"
+        echo "$GOBIN" >> "$GITHUB_PATH"
+    # Outside the snapshot's folder, which is what the artifact holds.
+    - name: Make the run's hash key
+      run: |
+        key=$(openssl rand -hex 32)
+        echo "::add-mask::$key"
+        (umask 077 && printf '%s' "$key" > "$HASH_KEY_FILE")
+    - name: Credentials to read the AWS state
+      if: inputs.aws
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: ${{ vars.ONTOLOGY_AWS_ROLE_ARN }}
+        role-session-name: infraharvest-ontology-${{ github.run_id }}
+        role-duration-seconds: 3600
+        aws-region: ${{ vars.AWS_REGION }}
+    # The identity needs no subscription, only the blob role on the
+    # container; infra-ontology signs in through the CLI's login.
+    - name: Credentials to read the Azure state
+      if: inputs.azure
+      uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+      with:
+        client-id: ${{ vars.ONTOLOGY_AZURE_CLIENT_ID }}
+        tenant-id: ${{ vars.AZURE_TENANT_ID }}
+        allow-no-subscriptions: true
+    # Exports GOOGLE_APPLICATION_CREDENTIALS, a workload identity
+    # federation file that trades the job's ID token for the account's.
+    - name: Credentials to read the Google Cloud state
+      if: inputs.google
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: ${{ vars.GOOGLE_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ vars.ONTOLOGY_GOOGLE_SERVICE_ACCOUNT }}
+        create_credentials_file: true
+        export_environment_variables: true
+    # Exit 3 is a partial snapshot, which a state that could not be read
+    # gives: kept, summarised, and failed at the end.
+    - name: Build the snapshot
+      id: build
+      timeout-minutes: 15
+      run: |
+        args=()
+        if [ "$USE_AWS" = true ]; then args+=(--state "$STATE_AWS"); fi
+        if [ "$USE_AZURE" = true ]; then args+=(--state "$STATE_AZURE"); fi
+        if [ "$USE_GOOGLE" = true ]; then args+=(--state "$STATE_GOOGLE"); fi
+        rc=0
+        infra-ontology snapshot build "${args[@]}" \
+          --hash-ids --hash-key-file "$HASH_KEY_FILE" \
+          --label "ontology-dogfood-$GITHUB_RUN_ID" --out "$SNAPSHOT_DIR" || rc=$?
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then
+          echo "::error::snapshot build exited $rc"
+          exit "$rc"
+        fi
+        {
+          echo "partial=$([ "$rc" -eq 3 ] && echo true || echo false)"
+          echo "dir=$(ls -d "$SNAPSHOT_DIR"/*/)"
+        } >> "$GITHUB_OUTPUT"
+    - name: Verify the snapshot
+      id: verify
+      if: steps.build.outputs.dir != ''
+      env:
+        SNAPSHOT: ${{ steps.build.outputs.dir }}
+      run: |
+        rc=0
+        infra-ontology snapshot verify "$SNAPSHOT" > "$RUNNER_TEMP/verify.txt" 2>&1 || rc=$?
+        cat "$RUNNER_TEMP/verify.txt"
+        echo "exit=$rc" >> "$GITHUB_OUTPUT"
+    # Counts only: no name, ID or location, hashed or not.
+    - name: Summarise the snapshot
+      if: always() && steps.build.outputs.dir != ''
+      env:
+        SNAPSHOT: ${{ steps.build.outputs.dir }}
+        VERIFY_EXIT: ${{ steps.verify.outputs.exit }}
+      run: |
+        table() { # heading, SQL: a Markdown table of a query's rows
+          echo "### $1"
+          echo
+          infra-ontology query "$SNAPSHOT" --sql "$2" --json | jq -r '
+            "| " + (.columns | join(" | ")) + " |",
+            "|" + (.columns | map("---") | join("|")) + "|",
+            (.rows[] | "| " + (map(tostring) | join(" | ")) + " |")'
+          echo
+        }
+        {
+          echo "## Infra Ontology snapshot"
+          echo
+          echo "Built by infra-ontology at \`$ONTOLOGY_COMMIT\`, with hashed IDs (the key is not kept)."
+          echo
+          echo "- manifest status: \`$(jq -r .status "$SNAPSHOT/manifest.json")\`"
+          echo "- sources that failed: $(jq -r '.coverage.failed_sources | length' "$SNAPSHOT/manifest.json")"
+          echo "- clouds: $(jq -r '.coverage.clouds | join(", ")' "$SNAPSHOT/manifest.json"); accounts: $(jq -r '.coverage.accounts | length' "$SNAPSHOT/manifest.json"); types: $(jq -r '.coverage.types | length' "$SNAPSHOT/manifest.json")"
+          echo "- \`snapshot verify\`: $([ "$VERIFY_EXIT" = 0 ] && echo ok || echo "failed (exit ${VERIFY_EXIT:-not run})")"
+          echo
+          table "Nodes by kind" "SELECT kind, count(*) AS n FROM nodes GROUP BY kind ORDER BY kind"
+          table "Resources by managed status" "SELECT managed_status, count(*) AS n FROM nodes WHERE kind = 'resource' GROUP BY managed_status ORDER BY managed_status"
+          table "Edges by kind" "SELECT kind, count(*) AS n FROM edges GROUP BY kind ORDER BY kind"
+          table "Sources" "SELECT backend, status, count(*) AS n FROM sources GROUP BY backend, status ORDER BY backend, status"
+        } >> "$GITHUB_STEP_SUMMARY"
+    # The snapshot's folder only: the manifest and three Parquet tables. The
+    # hash key is elsewhere in the runner's temp directory.
+    - name: Upload the snapshot
+      if: always() && steps.build.outputs.dir != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: ontology-snapshot-${{ github.run_id }}
+        path: ${{ steps.build.outputs.dir }}
+        if-no-files-found: error
+        retention-days: 7
+    - name: Result
+      if: always() && steps.build.outputs.dir != ''
+      env:
+        VERIFY_EXIT: ${{ steps.verify.outputs.exit }}
+        PARTIAL: ${{ steps.build.outputs.partial }}
+      run: |
+        if [ "$PARTIAL" = true ]; then
+          echo "::error::A state could not be read: the snapshot is partial (see the sources in the summary)."
+          exit 1
+        fi
+        if [ "$VERIFY_EXIT" != 0 ]; then
+          echo "::error::snapshot verify failed (exit ${VERIFY_EXIT:-not run})."
+          exit 1
+        fi
