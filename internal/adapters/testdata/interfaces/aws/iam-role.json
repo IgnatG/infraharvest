@@ -1,6 +1,6 @@
 {
   "source": "terraform-aws-modules/iam/aws//modules/iam-role",
-  "version": "6.11.1",
+  "version": "6.11.2",
   "variables": {
     "create": {
       "required": false,
