@@ -84,7 +84,7 @@ func TestAWSDriftUntrustedRoots(t *testing.T) {
 	ran := filepath.Join(t.TempDir(), "ran")
 	var restore []func()
 	for _, dir := range dirs {
-		restore = append(restore, plantProviders(t, dir, ran)...)
+		restore = append(restore, plantProviders(t, dir, ran, binary.Registry)...)
 	}
 	restored := false
 	restoreAll := func() {
@@ -140,8 +140,10 @@ func TestAWSDriftUntrustedRoots(t *testing.T) {
 // scripts that append their path to ran and fail: each aws provider
 // Terraform installed in dir's .terraform directory is replaced, and a
 // filesystem mirror, dir/terraform.d/plugins, has one of the version the
-// root's lock file pins. It returns what undoes it, last first.
-func plantProviders(t *testing.T, dir, ran string) []func() {
+// root's lock file pins. registry is the host the engine installs from
+// (binary.Registry: registry.terraform.io, or registry.opentofu.org for
+// OpenTofu). It returns what undoes it, last first.
+func plantProviders(t *testing.T, dir, ran, registry string) []func() {
 	t.Helper()
 	script := []byte("#!/bin/sh\necho \"$0\" >> '" + ran + "'\nexit 1\n")
 	var undo []func()
@@ -149,7 +151,7 @@ func plantProviders(t *testing.T, dir, ran string) []func() {
 	// Terraform links the platform directory of each provider into the
 	// plugin cache, so it is the link that is replaced, never what it
 	// points to.
-	installed, err := filepath.Glob(filepath.Join(dir, ".terraform", "providers", "registry.terraform.io", "hashicorp", "aws", "*", "*"))
+	installed, err := filepath.Glob(filepath.Join(dir, ".terraform", "providers", registry, "hashicorp", "aws", "*", "*"))
 	if err != nil || len(installed) == 0 {
 		t.Fatalf("%s: no aws provider installed in .terraform: %v", dir, err)
 	}
@@ -176,11 +178,11 @@ func plantProviders(t *testing.T, dir, ran string) []func() {
 	}
 
 	lock := readFile(t, filepath.Join(dir, ".terraform.lock.hcl"))
-	m := regexp.MustCompile(`provider "registry\.terraform\.io/hashicorp/aws" \{\s*version\s*=\s*"([^"]+)"`).FindStringSubmatch(lock)
+	m := regexp.MustCompile(`provider "` + regexp.QuoteMeta(registry) + `/hashicorp/aws" \{\s*version\s*=\s*"([^"]+)"`).FindStringSubmatch(lock)
 	if m == nil {
 		t.Fatalf("%s: no aws version in the lock file:\n%s", dir, lock)
 	}
-	mirror := filepath.Join(dir, "terraform.d", "plugins", "registry.terraform.io", "hashicorp", "aws", m[1], runtime.GOOS+"_"+runtime.GOARCH)
+	mirror := filepath.Join(dir, "terraform.d", "plugins", registry, "hashicorp", "aws", m[1], runtime.GOOS+"_"+runtime.GOARCH)
 	if err := os.MkdirAll(mirror, 0o755); err != nil {
 		t.Fatal(err)
 	}
